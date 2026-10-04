@@ -384,6 +384,16 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-beachwatch-sites",
       "zenodo": "10.5281/zenodo.23113632"
     },
+    "nsw-boat-licences-registrations-by-postcode": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-boat-licences-registrations-by-postcode",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-boat-licences-registrations-by-postcode",
+      "zenodo": "10.5281/zenodo.23140361"
+    },
+    "nsw-dwelling-completions": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-dwelling-completions",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-dwelling-completions",
+      "zenodo": "10.5281/zenodo.23140356"
+    },
     "nsw-liquor-licence-premises": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-liquor-licence-premises",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-liquor-licence-premises",
@@ -392,7 +402,7 @@
     "nsw-popular-baby-names": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-popular-baby-names",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-popular-baby-names",
-      "zenodo": "10.5281/zenodo.23123029"
+      "zenodo": "10.5281/zenodo.23140350"
     },
     "nsw-primary-class-sizes": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-primary-class-sizes",
@@ -497,7 +507,7 @@
     "nsw-top-baby-names-by-lga-male": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-top-baby-names-by-lga-male",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-top-baby-names-by-lga-male",
-      "zenodo": "10.5281/zenodo.23123036"
+      "zenodo": "10.5281/zenodo.23140354"
     },
     "nsw-traffic-count-stations": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-traffic-count-stations",
@@ -509,10 +519,25 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-traffic-volume-yearly",
       "zenodo": "10.5281/zenodo.23123109"
     },
+    "nt-bushfire-brigade-locations": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nt-bushfire-brigade-locations",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nt-bushfire-brigade-locations",
+      "zenodo": "10.5281/zenodo.23140629"
+    },
     "nt-crime-statistics": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nt-crime-statistics",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nt-crime-statistics",
       "zenodo": "10.5281/zenodo.23077193"
+    },
+    "nt-crocodile-capture-zones": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nt-crocodile-capture-zones",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nt-crocodile-capture-zones",
+      "zenodo": "10.5281/zenodo.23140620"
+    },
+    "nt-crocodile-captures": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nt-crocodile-captures",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nt-crocodile-captures",
+      "zenodo": "10.5281/zenodo.23140614"
     },
     "nt-fuel-prices-history": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nt-fuel-prices-history",
@@ -887,17 +912,17 @@
     "qld-public-libraries-directory": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-public-libraries-directory",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-public-libraries-directory",
-      "zenodo": "10.5281/zenodo.23123010"
+      "zenodo": "10.5281/zenodo.23140338"
     },
     "qld-public-library-branch-statistics": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-public-library-branch-statistics",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-public-library-branch-statistics",
-      "zenodo": "10.5281/zenodo.23123017"
+      "zenodo": "10.5281/zenodo.23140342"
     },
     "qld-public-library-council-statistics": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-public-library-council-statistics",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-public-library-council-statistics",
-      "zenodo": "10.5281/zenodo.23123024"
+      "zenodo": "10.5281/zenodo.23140344"
     },
     "qld-qbcc-licensed-contractors": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-qbcc-licensed-contractors",
