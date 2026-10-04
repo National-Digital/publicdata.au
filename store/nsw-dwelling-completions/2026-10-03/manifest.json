@@ -1,0 +1,34 @@
+{
+  "dataset": "nsw-dwelling-completions",
+  "version": "2026-10-03",
+  "as_at": "",
+  "fetched_at": "2026-10-04T11:00:28+00:00",
+  "sha256": "90b08b30106b653ca086af7354c93296999d30a53684ae5761a1db2dca243b87",
+  "bytes": 27976,
+  "filename": "dwelling-completions.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://datasets.seed.nsw.gov.au/dataset/d936c7a9-825a-4cc1-a90a-15b3ea3546b7/resource/9ab4789a-d458-400b-903f-293d35f80557/download/dwelling-completions.xlsx",
+    "portal": "https://data.nsw.gov.au/data",
+    "package": "dwelling-completions",
+    "package_id": "88ebcf11-8137-4ea9-8ffc-0f2392d30180",
+    "resource": "6a9cbfa1-f57c-475d-a5e3-f02cf555077d",
+    "resource_name": "Dwelling completions",
+    "resource_last_modified": null,
+    "package_modified": "2026-10-02T21:15:43.913694",
+    "package_version": null,
+    "etag": "c066064e63970aa80689de027bec8970-1",
+    "http_last_modified": "Thu, 27 Aug 2026 04:08:50 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://data.nsw.gov.au/data/api/3/action/package_show?id=dwelling-completions",
+    "read_at": "2026-10-04T11:00:27+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "cbbf141cc14a8de487e07d3cc595d37b2d89f34c891ad611e4cd368024f4ab97"
+}
