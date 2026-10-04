@@ -775,3 +775,51 @@ def test_a_withheld_source_is_left_out_listed_and_not_expected(register_dir, tmp
     package = json.loads((out / "d" / slug / "datapackage.json").read_text("utf-8"))
     assert "source" not in {r["name"] for r in package["resources"]}
     assert check(out, reg) == []
+
+
+def test_pages_invite_contributions_and_link_the_repository(fixture_site):
+    from publicdata import REPO
+    from publicdata import api_text as at
+
+    out = fixture_site
+    for rel in ("index.html", "about/index.html", "backlog/index.html", "terms/index.html"):
+        h = (out / rel).read_text(encoding="utf-8")
+        assert f'href="{REPO}"' in h and 'href="/contribute/"' in h, rel
+    page = (out / "d" / "qld-road-crash-locations" / "index.html").read_text(encoding="utf-8")
+    entry = re.search(rf'href="{REPO}/blob/main/([^"]+)"', page).group(1)
+    assert entry == "register/qld-road-crash-locations.yaml" and (ROOT / entry).is_file()
+    assert "template=data-problem.yml&amp;dataset=https%3A%2F%2Fpublicdata.au%2Fd%2F" in page
+    assert entry in (out / "d" / "qld-road-crash-locations" / "index.md").read_text("utf-8")
+    contribute = (out / "contribute" / "index.html").read_text(encoding="utf-8")
+    assert 'id="add-a-dataset"' in contribute and "{repo}" not in contribute
+    assert f"{REPO}/blob/main/CONTRIBUTING.md#add-a-serialisation" in contribute
+
+    ld = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.S)
+    home = [json.loads(b) for b in ld.findall((out / "index.html").read_text(encoding="utf-8"))]
+    source = next(n for n in home if n["@type"] == "SoftwareSourceCode")
+    catalog = next(n for n in home if n["@type"] == "DataCatalog")
+    assert source["codeRepository"] == REPO and "sameAs" not in catalog
+    assert "https://github.com/National-Digital" in catalog["provider"]["sameAs"]
+
+    assert (
+        at.server_card()["repository"]
+        == at.registry_server()["repository"]
+        == {
+            "url": REPO,
+            "source": "github",
+        }
+    )
+    assert f"{REPO}:" in (out / "llms.txt").read_text(encoding="utf-8")
+    assert "https://publicdata.au/contribute/" in (out / "sitemaps" / "site.xml").read_text("utf-8")
+
+
+def test_the_entry_link_keeps_the_folder_an_entry_sits_in():
+    from dataclasses import replace
+
+    from publicdata.site import register_path
+
+    from .conftest import make_dataset
+
+    ds = make_dataset([], slug="x")
+    assert register_path(ds) == "register/x.yaml"
+    assert register_path(replace(ds, path="/w/register/qld/x.yaml")) == "register/qld/x.yaml"

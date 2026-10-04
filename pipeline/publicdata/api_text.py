@@ -10,7 +10,7 @@ import re
 from functools import cache
 from pathlib import Path
 
-from . import OPERATOR, SITE
+from . import OPERATOR, REPO, SITE
 from .provenance import OPERATOR_URL
 
 _PH = re.compile(r"\{([a-z_]+)\}")
@@ -21,6 +21,7 @@ ICONS = [
     {"src": SITE + "/favicon.svg", "mimeType": "image/svg+xml", "sizes": ["any"]},
     {"src": SITE + "/icon-512.png", "mimeType": "image/png", "sizes": ["512x512"]},
 ]
+REPOSITORY = {"url": REPO, "source": "github"}
 
 
 def _num(v) -> str:
@@ -216,6 +217,7 @@ def server_card() -> dict:
             "version": release(),
             "description": m["registry_description"],
             "websiteUrl": SITE + "/agents/#mcp",
+            "repository": REPOSITORY,
             "icons": ICONS,
             "remotes": [{**_remote(), "supportedProtocolVersions": m["protocol_versions"]}],
         }
@@ -231,6 +233,7 @@ def _registry_listing() -> dict:
             "title": m["title"],
             "description": m["registry_description"],
             "websiteUrl": SITE + "/agents/#mcp",
+            "repository": REPOSITORY,
             "icons": ICONS,
             "remotes": [_remote()],
         }

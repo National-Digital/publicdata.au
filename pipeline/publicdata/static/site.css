@@ -38,6 +38,11 @@ nav.main{display:flex;gap:18px;flex-wrap:wrap;font-size:15px}
 nav.main a{color:var(--ink);text-decoration:none;padding:4px 0;border-bottom:2px solid transparent;font-weight:300}
 nav.main a[aria-current="page"]{border-bottom-color:var(--primary);font-weight:500}
 .search{margin-left:auto;display:flex;gap:6px;align-items:center}
+.gh-top{display:inline-flex;color:var(--ink);margin-left:-8px}
+.gh-top:hover{color:var(--link)}
+@media (max-width:720px){.gh-top{display:none}}
+.gh{display:inline-flex;align-items:center;gap:8px;font-weight:500}
+.gh svg{flex:none}
 .search input{font:inherit;font-size:15px;padding:8px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--panel);color:var(--ink);width:min(300px,62vw)}
 .disclaimer{font-size:13px;color:var(--muted);padding:8px 0;border-bottom:1px solid var(--rule-soft)}
 .btn{display:inline-flex;align-items:center;gap:8px;font-weight:500;font-size:15px;padding:10px 16px;border-radius:6px;border:1px solid var(--primary);background:var(--primary);color:var(--primary-ink);text-decoration:none;cursor:pointer;white-space:nowrap}

@@ -218,6 +218,11 @@
     <p class="small" style="color:var(--ink)">{{ ds.publisher.name }} publishes this table on <a href="{{ ds.source.url }}">{{ portal_host }}</a>. Questions about the content go to the publisher. Questions about the files here go to <a href="/about/#corrections">corrections</a>.</p>
     <p class="small">Fetched {{ latest.fetched_long }}. Source SHA-256 <span class="mono">{{ latest.sha256[:16] }}…</span></p>
   </div>
+  <div class="card">
+    <div class="k">Improve this dataset</div>
+    <p class="small" style="color:var(--ink)">This page is built from <a class="mono" href="{{ repo }}/blob/main/{{ entry_path }}">{{ entry_path }}</a> on GitHub. Anyone can propose a fix to it, such as a clearer description or a field the publisher renamed, as a pull request.</p>
+    <p class="small"><a href="{{ problem_url }}">Report a file that differs from the publisher's</a> · <a href="/contribute/">How to contribute</a></p>
+  </div>
 </aside>
 </div>
 </div>

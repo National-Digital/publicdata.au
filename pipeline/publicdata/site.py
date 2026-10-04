@@ -15,7 +15,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import OPERATOR, SITE, brand, explorer, figures
+from . import OPERATOR, REPO, SITE, brand, explorer, figures
 from . import api_text as at
 from .build import DatasetOut, VersionOut, dataset_url, version_url
 from .cache import BuildCache
@@ -42,6 +42,23 @@ HOST = SITE.replace("https://", "")
 # One entity for the site, which the home page describes and every dataset is included in.
 CATALOG_ID = f"{SITE}/#catalog"
 CATALOG = {"@type": "DataCatalog", "@id": CATALOG_ID, "name": HOST, "url": f"{SITE}/catalog.json"}
+# The GitHub mark (Octicons, MIT), drawn in the text colour so it follows the theme.
+GH_MARK = '<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>'
+# The code is its own entity; the repository identifies it, not the catalogue.
+SOURCE_JSONLD = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareSourceCode",
+    "@id": f"{SITE}/#source",
+    "name": f"{HOST} source code",
+    "description": "The pipeline that fetches, versions and serialises the datasets, and the site, query API and MCP server built from them.",
+    "codeRepository": REPO,
+    "url": REPO,
+    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+    "programmingLanguage": ["Python", "JavaScript"],
+    "author": OPERATOR_ORG,
+    "maintainer": OPERATOR_ORG,
+}
+GITHUB_ORG = REPO.rsplit("/", 1)[0]
 # Cloudflare Web Analytics: first-party, no cookies, no other tracking.
 BEACON = "b3b3d9ce88104e7e965284919b4d556e"
 # The query API over D1 is documented only once it answers; flip with the D1 binding.
@@ -1536,6 +1553,10 @@ def _md_twin_dataset(
         + m.ext
         + "`.",
         "",
+        "## Improve this dataset",
+        "",
+        f"This page is built from [{register_path(ds)}]({REPO}/blob/main/{register_path(ds)}) on GitHub, and a fix to it is welcome as a pull request. {SITE}/contribute/ explains how.",
+        "",
     ]
     return "\n".join(lines)
 
@@ -1560,6 +1581,14 @@ def html_to_md(body: str) -> str:
     s = re.sub(r"<[^>]+>", "", s)
     s = html.unescape(s)
     return re.sub(r"\n{3,}", "\n\n", s).strip() + "\n"
+
+
+def register_path(ds: Dataset) -> str:
+    """The entry's path in the repository, for the link that offers a fix to it."""
+    parts = Path(ds.path).parts
+    if "register" not in parts:
+        return f"register/{ds.slug}.yaml"
+    return "/".join(parts[len(parts) - 1 - parts[::-1].index("register") :])
 
 
 PROSE = {
@@ -1669,16 +1698,40 @@ PROSE = {
 <p>Cells are typed. Headers are renamed to snake_case, with the original header kept in the schema. The encoding is made UTF-8. Blank cells become null. A cell the publisher suppressed, such as "&lt;5", becomes null with a flag that says so. Rows are never added, removed, ranked, joined or summarised.</p>
 <h2>Licences</h2>
 <p>Each dataset is republished under the licence its publisher chose, and every file carries the attribution the licence asks for. A dataset whose licence does not allow derivative works is listed as blocked and never built. A dataset with no licence stated waits until the publisher confirms one.</p>
-<p>The data licences are separate from the site's code, and stay that way.</p>
+<p>The data licences are separate from the site's code, and stay that way. The code is open source under the GNU Affero General Public License, on <a href="{repo}">GitHub</a>, and the <a href="/contribute/">contributing page</a> explains how to add a dataset or improve the site.</p>
 <h2 id="corrections">Corrections</h2>
 <p>If a value is wrong, it is almost always wrong in the publisher's file as well, because this site publishes what the publisher publishes. Send those to the publisher, whose contact is on each dataset page.</p>
-<p>If the serialisation is wrong, for example a column typed badly or a row missing, <a href="https://nationaldigital.com.au/contact/">tell National Digital</a>. We fix it, publish a new build, and record the correction in the version's notes. A dated version keeps the same content once it is published. Its files change only to correct a fault in our conversion, to comply with the law, or when a publisher asks us to remove its dataset, and the change is recorded in that version's notes.</p>
+<p>If the serialisation is wrong, for example a column typed badly or a row missing, <a href="{repo}/issues/new?template=data-problem.yml">open an issue on GitHub</a> or <a href="https://nationaldigital.com.au/contact/">tell National Digital</a>. We fix it, publish a new build, and record the correction in the version's notes. A dated version keeps the same content once it is published. Its files change only to correct a fault in our conversion, to comply with the law, or when a publisher asks us to remove its dataset, and the change is recorded in that version's notes.</p>
 <h2 id="cite">Citing the files</h2>
 <p>The licence on each dataset requires the publisher's attribution, and it is inside every file. We ask for one thing more: say that the file came from publicdata.au and link to the version you used. The link lets a reader fetch the same bytes, and it is how other people find this site. Every dataset page has the sentence ready to copy as text, HTML, Markdown and BibTeX.</p>
 <h2>Privacy</h2>
 <p>The site sets no cookies. Page views are counted by Cloudflare Web Analytics, which is served from this site's own provider, stores nothing in the browser and does not follow anyone across sites. There is no other tracking. Votes in the backlog are counted once per browser per day using a salted hash that changes every day. Nobody is asked who they are. The <a href="/privacy/">privacy page</a> sets out everything the site records.</p>
 <h2>Security</h2>
 <p>The disclosure policy is at <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+""",
+    ),
+    "contribute": (
+        "Contribute",
+        "How to add a dataset, a file format or a fix to publicdata.au, and how a change is reviewed and released.",
+        """
+<p>The code that builds publicdata.au is open source. It is on GitHub under the GNU Affero General Public License, and anyone can propose a change to it. A maintainer at National Digital reviews every pull request, and a merged change goes live with the next release.</p>
+<p><a class="gh" href="{repo}">{gh}National-Digital/publicdata.au</a></p>
+<h2 id="add-a-dataset">Add a dataset</h2>
+<p>Any dataset in the <a href="/backlog/">backlog</a> with an open licence can be added by anyone. A dataset is one YAML file in the <code>register/</code> folder, which names the source, the licence with the publisher's own statement as evidence, the attribution and the fields to publish. <code>python -m publicdata register draft</code> writes a first draft from the dataset's portal page. You finish it by hand and build it locally to check it, and the <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-dataset">contributing guide</a> has the steps.</p>
+<p>The licence is the only thing that stops a dataset. A non-commercial or no-derivatives licence, or none at all, means it cannot be published here, however useful it is.</p>
+<h2 id="add-a-format">Add a file format</h2>
+<p>Each format is a writer that takes one normalised table and its provenance and returns the bytes of the file. A writer reads no network, clock or random value, so two builds of one version give identical files. A new format is added to every dataset at the next deploy. The guide's section on <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-serialisation">serialisation</a> lists what a writer needs.</p>
+<h2 id="add-an-adapter">Read a new kind of portal</h2>
+<p>A source adapter fetches from one kind of portal or file host. It reads the licence on every run and dates each version by the publisher's own change date. Datasets on a portal the fetch cannot read yet wait in the backlog, so one adapter can open up many of them. The guide explains <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-source-adapter">how to add one</a>.</p>
+<h2 id="fix">Fix something</h2>
+<p>Every dataset page links to the register entry it is built from, so a clearer description or a field the publisher renamed is a small pull request. Faults in the site, the query API, the MCP server or the Python and R clients go in <a href="{repo}/issues">the issues</a>, along with any file that differs from the publisher's own. Improvements to the documentation are as welcome as code.</p>
+<h2>Without writing code</h2>
+<p>Votes in the <a href="/backlog/">backlog</a> decide which datasets are built next. A report of a file that differs from the publisher's, or of a page that reads badly, helps as much as a pull request. A publisher that confirms a licence in writing can move a blocked dataset onto the list.</p>
+<h2>How a change is accepted</h2>
+<p>Sign off each commit with <code>git commit -s</code>, which certifies under the <a href="https://developercertificate.org/">Developer Certificate of Origin</a> that you may submit it. Title the pull request as a Conventional Commit, such as <code>data(register): add &lt;what it is&gt;</code>. The checks build and test the site and need no credentials, so they run on a pull request from a fork. A maintainer then reviews it and squash-merges it, and the release notes on GitHub name the people whose changes each release carries.</p>
+<p>The rules every change is held to are in <a href="{repo}/blob/main/CONTRIBUTING.md#ground-rules">the guide</a>. The site publishes what the publisher published and derives nothing from it, and a version never changes once it is out. By taking part you agree to the <a href="{repo}/blob/main/CODE_OF_CONDUCT.md">code of conduct</a>. Report a security issue privately, as the <a href="{repo}/blob/main/SECURITY.md">security policy</a> describes.</p>
+<h2>Licences</h2>
+<p>Each dataset stays under its publisher's licence. The code is under the AGPL and the register's own text is under CC BY 4.0. The name publicdata.au and its mark are outside both licences, and <a href="{repo}/blob/main/BRAND.md">BRAND.md</a> says what a copy of the site may use.</p>
 """,
     ),
     "privacy": (
@@ -2927,6 +2980,8 @@ def render_site(
     common = {
         "site": SITE,
         "site_host": HOST,
+        "repo": REPO,
+        "gh_mark": GH_MARK,
         "beacon": BEACON,
         "origin_trial": ORIGIN_TRIAL,
         "css": css,
@@ -3216,6 +3271,9 @@ def render_site(
         serialise_dictionary(ds, latest, out / "d" / ds.slug / "schema.xlsx")
         places = _places(ds, latest)
         card = _dataset_card(out, ds, latest, f"og/d/{ds.slug}.png", cache)
+        problem = urllib.parse.urlencode(
+            {"template": "data-problem.yml", "dataset": version_url(ds.slug, m.version)}
+        )
         page(
             f"d/{ds.slug}/index.html",
             "dataset.html",
@@ -3238,6 +3296,8 @@ def render_site(
             spine_attribution=SPINE_ATTRIBUTION,
             copies=copies,
             collection_href=collection_url(ds.collection) if ds.collection else "",
+            entry_path=register_path(ds),
+            problem_url=f"{REPO}/issues/new?{problem}",
             **links,
             extra_jsonld=[
                 json.dumps(_breadcrumbs(crumbs), ensure_ascii=False),
@@ -3672,7 +3732,7 @@ def render_site(
         },
         ensure_ascii=False,
     )
-    accounts = [u for _, u in sorted(((hubs or {}).get("accounts") or {}).items())]
+    accounts = sorted({*((hubs or {}).get("accounts") or {}).values(), GITHUB_ORG})
     home_jsonld = {
         "@context": "https://schema.org",
         "@type": "DataCatalog",
@@ -3680,8 +3740,8 @@ def render_site(
         "name": HOST,
         "url": SITE + "/",
         "description": "Versioned republication of Australian open government data as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage, with a query API, a browser explorer and an MCP server.",
-        # The operator's accounts on the data hubs that carry copies of these datasets.
-        "provider": {**OPERATOR_ORG, "sameAs": accounts} if accounts else OPERATOR_ORG,
+        # The operator's accounts on GitHub and on the data hubs that carry copies of these datasets.
+        "provider": {**OPERATOR_ORG, "sameAs": accounts},
     }
     home_md = "\n".join(
         [
@@ -3857,7 +3917,7 @@ def render_site(
         more_rows=[{**r, "more": True} for r in rows if r["slug"] not in used],
         becomes=becomes,
         jsonld=json.dumps(home_jsonld, ensure_ascii=False),
-        extra_jsonld=[mcp_jsonld],
+        extra_jsonld=[mcp_jsonld, json.dumps(SOURCE_JSONLD, ensure_ascii=False)],
     )
 
     # Topic pages: what is served under each topic, and what is coming.
@@ -3985,6 +4045,8 @@ def render_site(
             .replace("{mcp_privacy}", at.as_html(at.spec()["mcp"]["privacy"]))
             .replace("{terms_limits}", at.as_html(at.spec()["api"]["terms_limits"]))
             .replace("{terms_changed}", TERMS_CHANGED[0])
+            .replace("{repo}", REPO)
+            .replace("{gh}", GH_MARK)
         )
         md = "\n".join(
             [
@@ -4007,7 +4069,13 @@ def render_site(
             nav=slug,
             heading=heading,
             body=body,
-            extra_jsonld=[mcp_jsonld] if slug == "agents" else [],
+            extra_jsonld=(
+                [mcp_jsonld]
+                if slug == "agents"
+                else [json.dumps(SOURCE_JSONLD, ensure_ascii=False)]
+                if slug == "contribute"
+                else []
+            ),
         )
     _write(
         out,
@@ -4245,6 +4313,11 @@ def render_site(
             f"- {SITE}/government/index.md",
             f"- {SITE}/agents/index.md",
             f"- {SITE}/about/index.md",
+            f"- {SITE}/contribute/index.md",
+            "",
+            "## Source",
+            "",
+            f"- {REPO}: the code, under the AGPL. Contributions are welcome as pull requests.",
             "",
         ]
         _write(out, name, "\n".join(doc))
@@ -4394,6 +4467,7 @@ def render_site(
         f"{SITE}/government/",
         f"{SITE}/agents/",
         f"{SITE}/about/",
+        f"{SITE}/contribute/",
         f"{SITE}/privacy/",
         f"{SITE}/terms/",
     ]

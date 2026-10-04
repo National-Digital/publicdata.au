@@ -49,6 +49,13 @@ time from `package-lock.json`, not committed.
 | `@perspective-dev/client`, `server`, `viewer`, `viewer-charts`, `viewer-datagrid` | Apache-2.0 |
 | `apache-arrow` | Apache-2.0 |
 
+## The GitHub mark
+
+The pages link to the repository with the GitHub mark (`GH_MARK` in
+`pipeline/publicdata/site.py`), drawn from [Octicons](https://github.com/primer/octicons) under
+the MIT licence. The mark is GitHub's, used as its
+[logo guidelines](https://github.com/logos) allow for linking to a repository.
+
 ## This project's own marks
 
 The **publicdata.au** and **National Digital** names, marks and brand assets are not licensed
