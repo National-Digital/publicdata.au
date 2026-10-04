@@ -1,0 +1,34 @@
+{
+  "dataset": "nt-bushfire-brigade-locations",
+  "version": "2024-05-29",
+  "as_at": "",
+  "fetched_at": "2026-10-04T11:05:26+00:00",
+  "sha256": "97ee18e4b7c303cf6a623b68afee7b0f04fd981968ebef2bf4a8cf97eb5e71c2",
+  "bytes": 22730,
+  "filename": "VBB_Office_Locations.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://ftp-dlrm.nt.gov.au/main.html?download&weblink=03c66f5bf9d7df2161eac77a2dfc370a&realfilename=VBB_Office_Locations.zip",
+    "portal": "https://data.nt.gov.au",
+    "package": "bushfires-nt-brigade-and-office-headquarters-locations",
+    "package_id": "027f3300-806f-4d74-b315-fcd2ae2c1b3b",
+    "resource": "5501218b-3aa6-413c-b390-f752d28974ad",
+    "resource_name": "Bushfires NT - Brigade and Office Headquarters Locations",
+    "resource_last_modified": null,
+    "package_modified": "2025-10-15T00:54:18.150480",
+    "package_version": "",
+    "etag": "",
+    "http_last_modified": "Mon, 02 Nov 2020 13:25:40 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://data.nt.gov.au/api/3/action/package_show?id=bushfires-nt-brigade-and-office-headquarters-locations",
+    "read_at": "2026-10-04T11:05:26+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "acf564d6cb01d635f7ff2211243a858ffee7b0cd9bd1fb4b52be813b5bd25c9d"
+}
