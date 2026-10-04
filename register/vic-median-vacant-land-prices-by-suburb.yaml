@@ -77,6 +77,7 @@ source:
   resource_match: Land by suburb
   url: https://discover.data.vic.gov.au/dataset/victorian-property-sales-report-median-vacant-land-by-suburb-time-series
   cadence: yearly
+  manual: true
 wide:
   header_row: 2
   header_rows: 1
