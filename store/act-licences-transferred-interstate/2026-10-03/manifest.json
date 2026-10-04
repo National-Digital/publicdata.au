@@ -1,0 +1,32 @@
+{
+  "dataset": "act-licences-transferred-interstate",
+  "version": "2026-10-03",
+  "as_at": "",
+  "fetched_at": "2026-10-04T11:03:29+00:00",
+  "sha256": "3d38b618dfecd7e33ff47f573e73c3da788da19ebb22819f5fd9fee937ed010f",
+  "bytes": 1283,
+  "filename": "97z4-7axj.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/97z4-7axj/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "97z4-7axj",
+    "resource_name": "ACT Driver Licences Transferred Interstate",
+    "rows_updated_at": 1791004402,
+    "etag": "anVsaWV0dC43MzMxNl8xXzIxMWNpb0NPZEdNa2RHU3cwWjBzUk05ZTEyTWgtcw---gzijggTqox9hdyl1aQNhFwW7Jnooxe--gzip--gzip",
+    "http_last_modified": "Sat, 03 Oct 2026 05:13:22 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/97z4-7axj.json",
+    "read_at": "2026-10-04T11:03:29+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "552a55b74aff77933c46c9b9f1d983827654881638c6ef2845b1d61bc038092a"
+}

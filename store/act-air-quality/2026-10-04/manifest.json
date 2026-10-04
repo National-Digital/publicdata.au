@@ -1,0 +1,32 @@
+{
+  "dataset": "act-air-quality",
+  "version": "2026-10-04",
+  "as_at": "",
+  "fetched_at": "2026-10-04T11:04:34+00:00",
+  "sha256": "92d8015bf179e5223abc56195abf4a8cf7fed596b56e5fc78cc4922d070f2cc5",
+  "bytes": 52184638,
+  "filename": "94a5-zqnn.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/94a5-zqnn/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "94a5-zqnn",
+    "resource_name": "Air Quality Monitoring Data",
+    "rows_updated_at": 1791111754,
+    "etag": "Zm94dHJvdC4zMjUwM18yMV8xNTg5NjdPRXl6ekttQ2VBSGpNOWt6RDQwYnRjM1g3WlE---gziqTZo-w9_aCJcPzElbYkm7Vx_nQQA--gzip--gzip",
+    "http_last_modified": "Sun, 04 Oct 2026 11:02:35 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/94a5-zqnn.json",
+    "read_at": "2026-10-04T11:03:39+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "658550aa3e22c31f78b3ef9c3a2412a1270fd1d2f4a4194aed72ba6e71c38ae4"
+}
