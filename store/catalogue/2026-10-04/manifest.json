@@ -1,0 +1,218 @@
+{
+  "dataset": "catalogue",
+  "version": "2026-10-04",
+  "as_at": "2026-10-04",
+  "fetched_at": "2026-10-04T14:14:25Z",
+  "sha256": "3ef2cb6392c0f5227e2377390a582fe277a8eb168c70b51333b8c66b36c0a9dc",
+  "bytes": 39023914,
+  "filename": "catalogue.ndjson.gz",
+  "encoding": "utf-8",
+  "source": {
+    "portals": {
+      "gov": "data.gov.au",
+      "nsw": "data.nsw.gov.au",
+      "vic": "discover.data.vic.gov.au",
+      "qld": "www.data.qld.gov.au",
+      "sa": "data.sa.gov.au",
+      "wa": "catalogue.data.wa.gov.au",
+      "nt": "data.nt.gov.au",
+      "infra": "catalogue.data.infrastructure.gov.au",
+      "act": "www.data.act.gov.au",
+      "abs": "data.api.abs.gov.au",
+      "bne": "data.brisbane.qld.gov.au",
+      "melb": "data.melbourne.vic.gov.au",
+      "casey": "data.casey.vic.gov.au",
+      "ballarat": "data.ballarat.vic.gov.au",
+      "geelong": "www.geelongdataexchange.com.au",
+      "corangamite": "data.corangamite.vic.gov.au",
+      "hawkesbury": "data.hawkesbury.nsw.gov.au",
+      "maitland": "data.maitland.nsw.gov.au",
+      "lakemac": "data.lakemac.com.au",
+      "camden": "data.camden.nsw.gov.au",
+      "liverpool": "data.liverpool.nsw.gov.au",
+      "bmcc": "data.bmcc.nsw.gov.au",
+      "cumberland": "data.cumberland.nsw.gov.au",
+      "wpc": "data.wpcouncils.nsw.gov.au",
+      "campbelltown": "data.campbelltown.nsw.gov.au",
+      "fairfield": "data.fairfieldcity.nsw.gov.au",
+      "bayside": "nsw-bayside.opendatasoft.com",
+      "wollondilly": "data.wollondilly.nsw.gov.au",
+      "darwin": "darwin.opendatasoft.com",
+      "sydney": "data.cityofsydney.nsw.gov.au",
+      "goldcoast": "data-goldcoast.opendata.arcgis.com",
+      "sunshine": "data.sunshinecoast.qld.gov.au",
+      "townsville": "data-tsvcitycouncil.opendata.arcgis.com",
+      "tweed": "data-tweed.opendata.arcgis.com",
+      "wodonga": "cow-open-data-hub-cityofwodonga.hub.arcgis.com",
+      "albany": "city-maps-and-data-albanywa.hub.arcgis.com",
+      "parramatta": "open-data-parracity.hub.arcgis.com",
+      "perth": "geohub-perth.opendata.arcgis.com",
+      "latrobe": "geo-latrobecc.hub.arcgis.com"
+    },
+    "stats": {
+      "gov": {
+        "records": 107175,
+        "dropped_duplicates": 34499
+      },
+      "nsw": {
+        "records": 17168,
+        "dropped_duplicates": 4
+      },
+      "vic": {
+        "records": 5600,
+        "dropped_duplicates": 471
+      },
+      "qld": {
+        "records": 188879,
+        "dropped_duplicates": 446
+      },
+      "sa": {
+        "records": 1929,
+        "dropped_duplicates": 0
+      },
+      "wa": {
+        "records": 2917,
+        "dropped_duplicates": 0
+      },
+      "nt": {
+        "records": 1075,
+        "dropped_duplicates": 0
+      },
+      "infra": {
+        "records": 449,
+        "dropped_duplicates": 0
+      },
+      "act": {
+        "records": 786,
+        "dropped_duplicates": 0
+      },
+      "abs": {
+        "records": 1227,
+        "dropped_duplicates": 0
+      },
+      "bne": {
+        "records": 446,
+        "dropped_duplicates": 0
+      },
+      "melb": {
+        "records": 238,
+        "dropped_duplicates": 0
+      },
+      "casey": {
+        "records": 137,
+        "dropped_duplicates": 0
+      },
+      "ballarat": {
+        "records": 118,
+        "dropped_duplicates": 0
+      },
+      "geelong": {
+        "records": 58,
+        "dropped_duplicates": 0
+      },
+      "corangamite": {
+        "records": 11,
+        "dropped_duplicates": 0
+      },
+      "hawkesbury": {
+        "records": 51,
+        "dropped_duplicates": 0
+      },
+      "maitland": {
+        "records": 34,
+        "dropped_duplicates": 0
+      },
+      "lakemac": {
+        "records": 15,
+        "dropped_duplicates": 0
+      },
+      "camden": {
+        "records": 20,
+        "dropped_duplicates": 0
+      },
+      "liverpool": {
+        "records": 20,
+        "dropped_duplicates": 0
+      },
+      "bmcc": {
+        "records": 16,
+        "dropped_duplicates": 0
+      },
+      "cumberland": {
+        "records": 25,
+        "dropped_duplicates": 0
+      },
+      "wpc": {
+        "records": 23,
+        "dropped_duplicates": 0
+      },
+      "campbelltown": {
+        "records": 7,
+        "dropped_duplicates": 0
+      },
+      "fairfield": {
+        "records": 4,
+        "dropped_duplicates": 0
+      },
+      "bayside": {
+        "records": 9,
+        "dropped_duplicates": 0
+      },
+      "wollondilly": {
+        "records": 16,
+        "dropped_duplicates": 0
+      },
+      "darwin": {
+        "records": 24,
+        "dropped_duplicates": 0
+      },
+      "sydney": {
+        "records": 109,
+        "dropped_duplicates": 0
+      },
+      "goldcoast": {
+        "records": 195,
+        "dropped_duplicates": 0
+      },
+      "sunshine": {
+        "records": 107,
+        "dropped_duplicates": 0
+      },
+      "townsville": {
+        "records": 86,
+        "dropped_duplicates": 0
+      },
+      "tweed": {
+        "records": 34,
+        "dropped_duplicates": 0
+      },
+      "wodonga": {
+        "records": 79,
+        "dropped_duplicates": 0
+      },
+      "albany": {
+        "records": 15,
+        "dropped_duplicates": 0
+      },
+      "parramatta": {
+        "records": 17,
+        "dropped_duplicates": 0
+      },
+      "perth": {
+        "records": 49,
+        "dropped_duplicates": 0
+      },
+      "latrobe": {
+        "records": 5,
+        "dropped_duplicates": 0
+      }
+    }
+  },
+  "licence": {
+    "id": "various",
+    "note": "Each record carries the licence its portal states."
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": []
+}
