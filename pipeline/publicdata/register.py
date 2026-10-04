@@ -217,8 +217,9 @@ class Source:
     # the header row.
     header_match: str = ""
     # For a stack whose files each hold several small tables: a pattern for the title above each
-    # table, whose `section` group names the table. Every cell is read as its own row.
-    section_match: str = ""
+    # table, whose `section` group names the table. Every cell is read as its own row. It shapes
+    # the fetched bytes, not the build, so it stays out of the repr the build cache keys on.
+    section_match: str = field(default="", repr=False)
     as_at_regex: str = ""
     sheet: str = ""
     header_row: int = 1
