@@ -1756,10 +1756,13 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
     check_licence(ds, licence)
     if data is None:
         return None
-    m.rows_sha256 = rows_digest(ds, m, data)
+    m.rows_sha256, n = _rows(ds, m, data)
     existing = store.manifests(store_dir, ds.slug)
     if m.rows_sha256 and existing and existing[-1].rows_sha256 == m.rows_sha256:
         return None
+    # Portals sometimes serve an export with its header and nothing else for a while.
+    if n == 0 and existing:
+        raise FetchError(f"{ds.slug}: the portal served no rows; the newest version has some")
     if ds.source.feed:
         m = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
         if m is None:
@@ -1771,14 +1774,19 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
 def rows_digest(ds: Dataset, m: store.Manifest, data: bytes) -> str:
     """SHA-256 of the normalised rows taken in sorted order, or "" when the file does not
     normalise here; the build then reports why. Some portals re-sort an export on every reload."""
+    return _rows(ds, m, data)[0]
+
+
+def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None]:
+    """The rows digest and the row count, which is None when the file does not normalise here."""
     from .normalise import normalise
 
     if ds.kind != "table":
-        return ""
+        return "", None
     try:
         tbl = normalise(ds, m, data)
     except Exception:  # noqa: BLE001 - any failure falls back to the byte comparison
-        return ""
+        return "", None
     cols = [tbl.table.column(n).to_pylist() for n in tbl.table.column_names]
     if tbl.geometry is not None:
         cols.append(tbl.geometry.to_pylist())
@@ -1786,7 +1794,7 @@ def rows_digest(ds: Dataset, m: store.Manifest, data: bytes) -> str:
     h = hashlib.sha256(repr(tbl.table.schema).encode())
     for r in rows:
         h.update(r)
-    return h.hexdigest()
+    return h.hexdigest(), len(rows)
 
 
 FEED_NOTE = (

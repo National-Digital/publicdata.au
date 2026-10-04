@@ -469,6 +469,28 @@ def test_a_reordered_export_with_the_same_rows_is_no_new_version(tmp_path, monke
     assert [m.version for m in store.manifests(tmp_path, "t")] == ["2026-10-01", "2026-10-02"]
 
 
+def test_an_export_with_no_rows_never_replaces_one_that_had_some(tmp_path, monkeypatch):
+    from publicdata import store
+
+    ds = make_dataset(
+        [Field("a", "a"), Field("b", "b")], source=Source(adapter="file", url="https://e/f.csv")
+    )
+    lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
+
+    def adapter(data, version):
+        m = make_manifest(data, dataset="t", version=version, encoding="utf-8")
+        return lambda d, s: (data, m, lic)
+
+    monkeypatch.setitem(f.ADAPTERS, "file", adapter(b"a,b\n", "2026-10-01"))
+    assert f.fetch(ds, tmp_path).version == "2026-10-01"  # a first version may be empty
+    monkeypatch.setitem(f.ADAPTERS, "file", adapter(b"a,b\n1,x\n", "2026-10-02"))
+    assert f.fetch(ds, tmp_path).version == "2026-10-02"
+    monkeypatch.setitem(f.ADAPTERS, "file", adapter(b"a,b\n", "2026-10-03"))
+    with pytest.raises(f.FetchError, match="no rows"):
+        f.fetch(ds, tmp_path)
+    assert [m.version for m in store.manifests(tmp_path, "t")] == ["2026-10-01", "2026-10-02"]
+
+
 def test_a_manifest_without_a_rows_digest_keeps_its_bytes():
     m = make_manifest(b"a\n1\n")
     assert "rows_sha256" not in m.to_json()
