@@ -385,11 +385,36 @@ def cmd_store(args) -> int:
             f"store pull: {n} file(s), {fonts} font(s), {len(cached)} version(s) already built in the cache"
         )
     else:
+        # A run that failed before its PR can leave bytes under a version main never took.
+        committed = _committed_versions(store_dir)
         n = 0
         for src in sorted(store_dir.glob("*/*/source.*")):
-            n += push(src.parent, "publicdata-raw", f"{src.parts[-3]}/{src.parts[-2]}/")
+            v = (src.parts[-3], src.parts[-2])
+            n += push(
+                src.parent,
+                "publicdata-raw",
+                f"{v[0]}/{v[1]}/",
+                immutable=lambda key, v=v: v in committed,
+            )
         print(f"store push: {n} file(s)")
     return 0
+
+
+def _committed_versions(store_dir: Path) -> set[tuple[str, str]]:
+    """The versions whose manifest git tracks; outside a checkout, every version on disk."""
+    import subprocess
+
+    found = [p.relative_to(store_dir) for p in store_dir.glob("*/*/manifest.json")]
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z", "--", "*/*/manifest.json"],
+            cwd=store_dir,
+            capture_output=True,
+            check=True,
+        ).stdout
+    except OSError, subprocess.CalledProcessError:
+        return {(p.parts[0], p.parts[1]) for p in found}
+    return {tuple(Path(f).parts[:2]) for f in out.decode().split("\0") if f}
 
 
 def _with_layers(only: list[str]) -> tuple[str, ...]:

@@ -135,7 +135,8 @@ jobs:
 
   deploy:
     needs: [plan, shard]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.shard.result != 'failure' }}
+    # A required check that is skipped counts as passed, so this runs and fails when the build did.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     env:
@@ -144,6 +145,11 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       deployed: ${{ steps.pages.outcome == 'success' }}
     steps:
+      - name: Stop when the build failed
+        if: ${{ needs.plan.result != 'success' || needs.shard.result == 'failure' }}
+        run: |
+          echo "::error::plan ${{ needs.plan.result }}, shards ${{ needs.shard.result }}"
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the tags, for scripts/next-version.mjs

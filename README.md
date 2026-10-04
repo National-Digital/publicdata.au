@@ -3,7 +3,6 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/National-Digital/publicdata.au/ci.yml?branch=main&label=CI)](https://github.com/National-Digital/publicdata.au/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/National-Digital/publicdata.au/codeql.yml?branch=main&label=CodeQL)](https://github.com/National-Digital/publicdata.au/actions/workflows/codeql.yml)
 [![Deploy](https://img.shields.io/github/actions/workflow/status/National-Digital/publicdata.au/deploy.yml?branch=main&label=deploy)](https://github.com/National-Digital/publicdata.au/actions/workflows/deploy.yml)
-[![Fetch](https://img.shields.io/github/actions/workflow/status/National-Digital/publicdata.au/fetch.yml?branch=main&label=fetch)](https://github.com/National-Digital/publicdata.au/actions/workflows/fetch.yml)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](LICENSE)
 [![Data text: CC BY 4.0](https://img.shields.io/badge/register-CC%20BY%204.0-blue.svg)](LICENSE-DATA.md)
 [![DCO](https://img.shields.io/badge/DCO-sign--off%20required-blue.svg)](https://developercertificate.org/)

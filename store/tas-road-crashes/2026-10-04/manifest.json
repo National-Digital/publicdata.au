@@ -1,0 +1,41 @@
+{
+  "dataset": "tas-road-crashes",
+  "version": "2026-10-04",
+  "as_at": "",
+  "fetched_at": "2026-10-04T07:47:55+00:00",
+  "sha256": "6124d5a4dbba3f614e4aa6905f3bbc2ad6219f9a5a5c01f6ada44797252ba693",
+  "bytes": 78421362,
+  "filename": "tas-road-crashes.geojson",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://data.stategrowth.tas.gov.au/ags/rest/services/PUBLIC/CDM_CRASH/FeatureServer/0",
+    "portal": "https://data.gov.au/data",
+    "package": "tasmanian",
+    "package_id": "8f7d9792-dde8-4d88-966a-1874c775640f",
+    "package_modified": "2023-08-11T14:39:25.606079",
+    "layer_name": "Crashes since 1/Jan/2009",
+    "object_id_field": "ID",
+    "last_edit_date": null,
+    "newest_record": 1791079680000,
+    "features": 176224,
+    "date_fields": [
+      "CRASH_DATE_TIME"
+    ]
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "cc-by-4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=tasmanian",
+    "read_at": "2026-10-04T10:13:21+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The layer states no edit date, so this version is dated by the newest record it holds.",
+    "The publisher offers no file. These bytes are every feature of the layer as the service returned them in WGS84, ordered by its object id, so the same layer gives the same bytes."
+  ],
+  "rows_sha256": "dce7c3f6036f32e2eadb9ae673b2f1d63257a0ddb5f184ec1bf1ed1d569edda2"
+}

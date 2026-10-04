@@ -173,3 +173,30 @@ def test_a_dated_only_push_leaves_the_pages(tmp_path, monkeypatch):
     monkeypatch.setattr(r2, "client", lambda: fake)
     assert r2.push(tmp_path, "b", include=r2.dated_file) == 1
     assert [k for k, _ in fake.puts] == ["d/x/v/2026-04-24/data.csv"]
+
+
+def test_store_push_replaces_raw_bytes_only_for_versions_main_never_took(tmp_path, monkeypatch):
+    import subprocess
+
+    from publicdata.__main__ import main
+
+    for v in ("2026-10-03", "2026-10-04"):
+        (tmp_path / "x" / v).mkdir(parents=True)
+        (tmp_path / "x" / v / "manifest.json").write_text("{}")
+        (tmp_path / "x" / v / "source.csv").write_text(f"a\n{v}\n")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "x/2026-10-03/manifest.json"], check=True)
+    # Both keys hold other bytes: one from the committed version, one from a run that failed.
+    fake = FakeS3(
+        {
+            f"x/{v}/{f}"
+            for v in ("2026-10-03", "2026-10-04")
+            for f in ("manifest.json", "source.csv")
+        }
+    )
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert main(["store", "push", "--store", str(tmp_path)]) == 0
+    assert sorted(k for k, _ in fake.puts) == [
+        "x/2026-10-04/manifest.json",
+        "x/2026-10-04/source.csv",
+    ]

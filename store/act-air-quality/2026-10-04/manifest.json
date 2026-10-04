@@ -2,9 +2,9 @@
   "dataset": "act-air-quality",
   "version": "2026-10-04",
   "as_at": "",
-  "fetched_at": "2026-10-04T11:04:34+00:00",
-  "sha256": "92d8015bf179e5223abc56195abf4a8cf7fed596b56e5fc78cc4922d070f2cc5",
-  "bytes": 52184638,
+  "fetched_at": "2026-10-04T07:47:48+00:00",
+  "sha256": "31c17a5c4a326b866718d89618f8de751897c0623736894ed2ce694b5061d172",
+  "bytes": 52182861,
   "filename": "94a5-zqnn.csv",
   "encoding": "utf-8-sig",
   "source": {
@@ -28,5 +28,5 @@
   "backfilled": false,
   "tombstone": null,
   "notes": [],
-  "rows_sha256": "658550aa3e22c31f78b3ef9c3a2412a1270fd1d2f4a4194aed72ba6e71c38ae4"
+  "rows_sha256": "ed01c23cd126ec9c910be24be87a3fbdbfb6d04775a545bba4b3d4d2e3098aa0"
 }
