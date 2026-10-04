@@ -301,7 +301,13 @@ def _download(ds: Dataset, s: requests.Session, url: str):
     if ds.source.manual:
         if ds.slug not in MANUAL:
             raise ManualDue(f"{ds.slug}: download {url} and run the fetch with --file")
-        return Fetched(MANUAL[ds.slug].read_bytes(), {})
+        got = MANUAL[ds.slug]
+        if got.is_dir():
+            # A stack's files are given as one folder, each under the name its address ends in.
+            got = got / urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1])
+            if not got.is_file():
+                raise FetchError(f"{ds.slug}: {got.name} is not in {MANUAL[ds.slug]}")
+        return Fetched(got.read_bytes(), {})
     r = s.get(url, timeout=600, allow_redirects=True)
     r.raise_for_status()
     return r
@@ -1563,11 +1569,22 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         }
         for p, r in resources
     ]
-    data, read, n, repeated = _stack(ds, s, files)
     changed = max(
         _normal_iso(r.get("last_modified") or r.get("created") or p["metadata_modified"])
         for p, r in resources
     )
+    if ds.source.manual and ds.slug not in MANUAL:
+        existing = store.manifests(store_dir, ds.slug)
+        was = existing[-1].source if existing else {}
+        if was.get("newest_resource") == changed and sorted(
+            w["resource"] for w in was.get("workbooks", [])
+        ) == sorted(f["resource"] for f in files):
+            return None, existing[-1], licence
+        raise ManualDue(
+            f"{ds.slug}: download {ds.source.url} (each of its {len(files)} files, into one folder) "
+            "and run the fetch with --file"
+        )
+    data, read, n, repeated = _stack(ds, s, files)
     source = {
         "url": ds.source.url,
         "portal": ds.source.portal,

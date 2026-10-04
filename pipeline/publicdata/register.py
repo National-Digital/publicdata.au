@@ -390,9 +390,9 @@ def parse(raw: dict, ctx: str) -> Dataset:
         format=str(src.get("format", "")).lstrip(".").lower(),
         page_size=int(src.get("page_size", 0)),
     )
-    if source.manual and source.adapter != "ckan-resource":
+    if source.manual and source.adapter not in ("ckan-resource", "ckan-stack"):
         raise RegisterError(
-            f"{ctx}: source.manual needs a ckan-resource, whose portal record dates it"
+            f"{ctx}: source.manual needs a ckan-resource or ckan-stack, whose portal records date it"
         )
     if "browser" in src:
         raise RegisterError(f"{ctx}: source.browser is now source.manual")

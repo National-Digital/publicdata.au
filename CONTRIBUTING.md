@@ -150,7 +150,9 @@ Their entries set `manual: true`, and a person downloads the file instead.
   python -m publicdata fetch <slug> --file <slug>=<path to the download>
   ```
 
-  The fetch reads the portal's record and licence as usual and takes the bytes from the file.
+  The fetch reads the portal's record and licence as usual and takes the bytes from the file. For
+  a `ckan-stack`, download every file the portal lists into one folder, keeping the names the
+  links give them, and pass the folder.
   Then push the raw bytes (`python -m publicdata store push`, maintainers only) and open a
   `data(<jurisdiction>): ...` pull request with the new manifest.
 - We ask each of these publishers to allow the fetch's address. When one agrees, its entries drop
