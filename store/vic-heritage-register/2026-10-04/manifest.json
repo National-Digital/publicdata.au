@@ -1,0 +1,29 @@
+{
+  "dataset": "vic-heritage-register",
+  "version": "2026-10-04",
+  "as_at": "",
+  "fetched_at": "2026-10-04T11:00:55+00:00",
+  "sha256": "6d24225e0c0beb4965cb7f2f0cbc308ad8dfdc37cd7e9fc2cd2228ad9f3d07fb",
+  "bytes": 4455720,
+  "filename": "vic-heritage-register.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://opendata.maps.vic.gov.au/geoserver/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=open-data-platform:heritage_register&outputFormat=application/json&sortBy=id",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "Creative Commons Attribution 4.0 International",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://discover.data.vic.gov.au/dataset/victorian-heritage-register",
+    "read_from": "https://discover.data.vic.gov.au/dataset/victorian-heritage-register",
+    "read_at": "2026-10-04T11:00:55+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ]
+}
