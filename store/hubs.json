@@ -447,7 +447,7 @@
     "nsw-rental-bond-lodgements-2025": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-lodgements-2025",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-lodgements-2025",
-      "zenodo": "10.5281/zenodo.23123235"
+      "zenodo": "10.5281/zenodo.23145693"
     },
     "nsw-rental-bond-refunds-2021": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2021",
