@@ -723,8 +723,20 @@ def zenodo_metadata(e: Entry, community: str | None = None) -> dict:
 
 
 def _http() -> requests.Session:
+    from urllib3.util.retry import Retry
+
     s = requests.Session()
     s.headers["User-Agent"] = UA
+    # A run reads a few thousand files from the site, and one dropped connection should not cost
+    # a dataset its copies.
+    retry = Retry(
+        total=4,
+        backoff_factor=2,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET", "HEAD"}),
+        raise_on_status=False,
+    )
+    s.mount("https://", requests.adapters.HTTPAdapter(max_retries=retry))
     return s
 
 

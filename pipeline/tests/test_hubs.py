@@ -1355,3 +1355,8 @@ def test_read_site_passes_an_exclusion_through_as_an_exclusion():
         )
     )
     assert isinstance(got["qld-road-crash-factors"], hubs.Excluded)
+
+
+def test_reading_the_site_retries_a_dropped_connection_but_never_an_upload():
+    retry = hubs._http().get_adapter("https://publicdata.au/").max_retries
+    assert retry.total >= 3 and retry.is_retry("GET", 503) and not retry.is_retry("POST", 503)
