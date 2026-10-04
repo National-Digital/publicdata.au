@@ -1,0 +1,30 @@
+{
+  "dataset": "qld-emergency-department-facilities",
+  "version": "2026-10-05",
+  "as_at": "",
+  "fetched_at": "2026-10-04T20:33:10+00:00",
+  "sha256": "c2aa5a21d3d2c8f5d06e1558c30565e5a4f51ab1d353ceb9b71d9689e98789fd",
+  "bytes": 15935,
+  "filename": "qld-emergency-department-facilities.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/datastore/dump/ee37a52f-0874-4023-91f5-6a640f4f3712",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "Creative Commons Attribution 4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.data.qld.gov.au/dataset/hospital-performance",
+    "read_from": "https://www.data.qld.gov.au/dataset/hospital-performance",
+    "read_at": "2026-10-04T20:33:10+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher serves this as a live feed of what is current, with no change date, so this version is what the feed held when it was fetched, dated by the fetch."
+  ],
+  "rows_sha256": "f18074a4561845eb558a87f96b53f25054e308578e075fcb442468d14c3d3a0b"
+}
