@@ -13,6 +13,7 @@ import email.utils
 import hashlib
 import html
 import io
+import itertools
 import json
 import re
 import time
@@ -1353,12 +1354,21 @@ STACK_NOTE = (
 
 
 def _stack_rows(
-    data: bytes, filename: str, header_match: str, section_match: str = ""
+    data: bytes,
+    filename: str,
+    header_match: str,
+    section_match: str = "",
+    header_depth: int = 1,
+    group_match: str = "",
+    footnote_marks: bool = False,
 ) -> tuple[list[str], list[list[str]]]:
     """A workbook's or a CSV's header and rows as text, the header being the first row whose first
     cell is header_match, since the publisher's title rows above it vary. With section_match the
     file holds several small tables, each under a title that pattern matches, read as one row per
-    cell."""
+    cell. A header over header_depth rows names each column by its lowest filled cell. With
+    group_match, a row with only its first cell filled names the group of the rows below it when
+    the pattern matches, and is a footnote otherwise. With footnote_marks, a footnote number at the
+    end of the first cell moves to a Note column."""
     from .normalise import _cell, _distinct
 
     if filename.lower().endswith(".xls"):
@@ -1389,22 +1399,37 @@ def _stack_rows(
     header: list[str] = []
     for r in rows:
         if r and _cell(r[0]).strip().lstrip("\ufeff") == header_match:
-            header = _distinct([_cell(v).strip().lstrip("\ufeff") for v in r])
+            header = [_cell(v).strip().lstrip("\ufeff") for v in r]
+            for _ in range(header_depth - 1):
+                below = [_cell(v).strip() for v in next(rows, ())]
+                below += [""] * (len(header) - len(below))
+                header = [b or h for h, b in itertools.zip_longest(header, below, fillvalue="")]
+            header = _distinct(header)
             while header and not header[-1]:
                 header.pop()
             break
     if not header:
         raise FetchError(f"{filename}: no row starts with '{header_match}'")
     out = []
+    group = ""
     for r in rows:
         vals = [_cell(v).strip() for v in r[: len(header)]]
         if not any(vals):
             continue
+        if group_match and not any(vals[1:]):
+            if re.search(group_match, vals[0]):
+                group = vals[0]
+            continue
         vals += [""] * (len(header) - len(vals))
-        out.append(vals)
+        if footnote_marks:
+            mark = re.match(r"^(.*\S)\s+(\d{1,2})$", vals[0])
+            vals = [mark[1], *vals[1:], mark[2]] if mark else [*vals, ""]
+        out.append([group, *vals] if group_match else vals)
     if close:
         close()
-    return header, out
+    if footnote_marks:
+        header = [*header, "Note"]
+    return (["Group", *header] if group_match else header), out
 
 
 def _section_rows(rows, filename: str, header_match: str, section_match: str) -> list[list[str]]:
@@ -1453,11 +1478,23 @@ def _stack(
         got = _download(ds, s, f["url"])
         expect_page(ds, f["url"], got, got.content)
         h, body = _stack_rows(
-            got.content, f["filename"], ds.source.header_match, ds.source.section_match
+            got.content,
+            f["filename"],
+            ds.source.header_match,
+            ds.source.section_match,
+            ds.source.header_depth,
+            ds.source.group_match,
+            ds.source.footnote_marks,
         )
         if named:
+            label = f.get("name") or f["filename"]
+            if ds.source.file_match:
+                hit = re.search(ds.source.file_match, label)
+                if not hit:
+                    raise FetchError(f"{ds.slug}: '{label}' does not match the file_match pattern")
+                label = hit[1] if hit.groups() else hit[0]
             h = [*h, FILE_SOURCE]
-            body = [[*row, f.get("name") or f["filename"]] for row in body]
+            body = [[*row, label] for row in body]
         if header and sorted(h) != sorted(header):
             raise FetchError(f"{ds.slug}: {f['filename']} has columns {h}, the first file {header}")
         header = header or h
