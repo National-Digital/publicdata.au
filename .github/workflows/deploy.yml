@@ -325,7 +325,9 @@ jobs:
   # meets the build. Every step tolerates a re-run or a concurrent deploy that got there first.
   release:
     needs: deploy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.outputs.deployed == 'true'
+    # A deploy with no changed versions skips its shards; without !cancelled() that skip would
+    # pass down and skip the release too.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success' && needs.deploy.outputs.deployed == 'true' }}
     runs-on: ubuntu-latest
     environment: production
     permissions:
