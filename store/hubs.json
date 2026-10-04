@@ -437,12 +437,12 @@
     "nsw-rental-bond-lodgements-2023": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-lodgements-2023",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-lodgements-2023",
-      "zenodo": "10.5281/zenodo.23123191"
+      "zenodo": "10.5281/zenodo.23145675"
     },
     "nsw-rental-bond-lodgements-2024": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-lodgements-2024",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-lodgements-2024",
-      "zenodo": "10.5281/zenodo.23123217"
+      "zenodo": "10.5281/zenodo.23145681"
     },
     "nsw-rental-bond-lodgements-2025": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-lodgements-2025",
