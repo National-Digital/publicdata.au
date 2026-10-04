@@ -136,6 +136,7 @@ jobs:
   deploy:
     needs: [plan, shard]
     # A required check that is skipped counts as passed, so this runs and fails when the build did.
+    # The plan skips itself for a fork's pull request, which builds from fixtures here instead.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
@@ -146,7 +147,7 @@ jobs:
       deployed: ${{ steps.pages.outcome == 'success' }}
     steps:
       - name: Stop when the build failed
-        if: ${{ needs.plan.result != 'success' || needs.shard.result == 'failure' }}
+        if: ${{ needs.plan.result == 'failure' || needs.shard.result == 'failure' }}
         run: |
           echo "::error::plan ${{ needs.plan.result }}, shards ${{ needs.shard.result }}"
           exit 1
@@ -189,7 +190,7 @@ jobs:
           key: build-${{ github.sha }}
           restore-keys: build-
       - name: Take the shards' builds
-        if: needs.plan.outputs.shards != '[]'
+        if: needs.shard.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: shard-*
@@ -197,7 +198,7 @@ jobs:
       # A shard's entry replaces the restored one of the same key, which it grew. One artifact
       # downloads into the path itself, several into a folder each, so the archives are found.
       - name: Unpack the shards' builds
-        if: needs.plan.outputs.shards != '[]'
+        if: needs.shard.result == 'success'
         run: |
           mkdir -p "$BUILD_CACHE"
           n=0
@@ -217,11 +218,11 @@ jobs:
       # Saved before this job builds anything, so a deploy that fails later keeps the shards' work.
       # The restored entries no version uses are dropped first, as the build would drop them.
       - name: Drop the entries no version uses
-        if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && needs.plan.outputs.shards != '[]'
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && needs.shard.result == 'success'
         run: python -m publicdata cache-prune --store "$STORE" --cache "$BUILD_CACHE"
       - name: Name the shards' versions
         id: shards
-        if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && needs.plan.outputs.shards != '[]'
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && needs.shard.result == 'success'
         run: echo "key=build-$(ls "$BUILD_CACHE" | sha256sum | cut -c1-32)" >> "$GITHUB_OUTPUT"
       - name: Save the shards' versions
         if: steps.shards.outputs.key != '' && steps.shards.outputs.key != steps.cache.outputs.cache-matched-key
