@@ -244,7 +244,9 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   parameter, `package` the series name, `resource` `stations` or `values`), `aihw` (an AIHW report's data
   page, whose listed file `resource_match` names by title), `zenodo` (a concept record, `package`, followed
   to its newest version, the file named by `resource_match`), `ckan-stack` (every workbook of every package
-  `package_match` names, read as one table, each header row found by `header_match`), `file-stack` (every
+  `package_match` names, read as one table, each header row found by `header_match`; with `section_match`,
+  a file of several small titled tables is read one row per cell, the title's `section` group naming the
+  table), `file-stack` (every
   workbook or CSV a publisher's own page at `url` links to whose address matches `resource_match`, read as
   one table the same way, with the licence quoted as for `file`), `ckan-resource` (a CKAN resource), `socrata` (package is the four-by-four),
   `opendatasoft` (package is the dataset id) and `arcgis-hub` (package is the item id, resource

@@ -1,0 +1,107 @@
+slug: nt-urban-public-housing-wait-list
+title: Urban public housing wait times, wait list and allocations, Northern Territory, 2018 to 2020
+status: live
+topics:
+- housing
+order: 286
+publisher:
+  name: Department of Housing, Local Government and Community Development
+  short: Housing, Local Government and Community Development
+  jurisdiction: NT
+  url: https://nt.gov.au/property/public-housing
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-05'
+  portal_id: cc-by
+  evidence: https://data.nt.gov.au/dataset/urban-public-housing-wait-times-wait-list-and-allocations-december-2020
+  attribution: Department of Housing, Local Government and Community Development, Northern Territory
+    Government, Urban Public Housing Wait Times, Wait List and Allocations, sourced {sourced},
+    https://data.nt.gov.au/, licensed under CC BY 4.0.
+temporal_start: '2018-01-01'
+search_title: NT public housing waiting list and wait times by region, Darwin, Palmerston and Alice Springs
+also_known_as:
+- Northern Territory public housing waiting list
+- Darwin public housing wait times
+- Alice Springs public housing wait list
+- NT urban public housing allocations
+keywords:
+- public housing
+- waiting list
+- wait times
+- social housing
+- Darwin
+- Alice Springs
+- Northern Territory
+faq:
+- q: What is in each row?
+  a: One cell of the publisher's summary tables. Each release has three tables, the estimated wait time,
+    the applicants on the wait list and the homes allocated, each by urban region and number of bedrooms.
+    The value is a band of years for a wait time and a count for the wait list and allocations.
+- q: Which licence applies?
+  a: The portal states Creative Commons Attribution without a version. The Northern Territory Department
+    of Corporate and Digital Development confirmed in writing on 5 October 2026 that, under the Northern
+    Territory Government's Creative Commons Policy, this series is released under CC BY 4.0.
+- q: What period does an allocations count cover?
+  a: The twelve months to the release date. A December release counts the calendar year and a June release
+    the financial year, so the two overlap by six months.
+- q: What do the asterisks and the Total rows mean?
+  a: An asterisk on a wait time marks one the publisher calculated by hand because a region has few homes
+    and little turnover. The Total region and Total column are the publisher's own totals and are kept as
+    published, so a sum over every row counts each applicant or allocation twice.
+- q: Why does the series stop in 2020?
+  a: The publisher released the summary twice a year from December 2018 to December 2020 and has released
+    none on the portal since.
+summary: The estimated wait for urban public housing in six Northern Territory regions, with the number
+  of applicants waiting and homes allocated, by bedrooms, in five releases from December 2018 to December
+  2020. Closed series.
+description: Summary figures for urban public housing in Darwin and Casuarina, Palmerston, Alice Springs,
+  Katherine, Nhulunbuy and Tennant Creek, released twice a year from 31 December 2018 to 31 December 2020.
+  Each release gives the estimated wait time by bedrooms, the applicants on the wait list and the homes
+  allocated in the preceding twelve months. The publisher's three tables in each file are read as one
+  table, one row per cell.
+source:
+  adapter: ckan-stack
+  portal: https://data.nt.gov.au
+  package: urban public housing wait times
+  package_match: ^urban-public-housing-wait-times-wait-list-and-allocations
+  resource_match: ^\d{1,2} [A-Z][a-z]+ \d{4}$
+  header_match: Region
+  section_match: ^(?:Estimated )?Urban Public Housing (?P<section>Wait Times|Wait List|Allocations)\b
+  url: https://data.nt.gov.au/organization/housing-local-government-and-community-development
+  cadence: closed
+key:
+- as_at
+- table
+- region
+- bedrooms
+partition_by:
+- table
+row_label: Table cells
+fields:
+- name: as_at
+  label: As at
+  source: (file)
+  type: date
+  date_format: '%d %B %Y'
+  description: The date of the release.
+- name: table
+  label: Table
+  source: Section
+  type: string
+  description: Wait Times, Wait List or Allocations.
+- name: region
+  label: Region
+  source: Region
+  type: string
+- name: bedrooms
+  label: Bedrooms
+  source: Column
+  type: string
+  description: As the publisher heads the column. Wait times give 3 bedroom, and the wait list and
+    allocations 3+ bedroom and a Total.
+- name: value
+  label: Value
+  source: Value
+  type: string
+  description: A band of years for a wait time, such as 4 to 6 years, and a count for the wait list and
+    allocations.

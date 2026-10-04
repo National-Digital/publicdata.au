@@ -1346,9 +1346,13 @@ STACK_NOTE = (
 )
 
 
-def _stack_rows(data: bytes, filename: str, header_match: str) -> tuple[list[str], list[list[str]]]:
+def _stack_rows(
+    data: bytes, filename: str, header_match: str, section_match: str = ""
+) -> tuple[list[str], list[list[str]]]:
     """A workbook's or a CSV's header and rows as text, the header being the first row whose first
-    cell is header_match, since the publisher's title rows above it vary."""
+    cell is header_match, since the publisher's title rows above it vary. With section_match the
+    file holds several small tables, each under a title that pattern matches, read as one row per
+    cell."""
     from .normalise import _cell, _distinct
 
     if filename.lower().endswith(".xls"):
@@ -1371,6 +1375,11 @@ def _stack_rows(data: bytes, filename: str, header_match: str) -> tuple[list[str
         raise FetchError(
             f"{filename}: a stack reads workbooks and CSV files, not {filename.rsplit('.', 1)[-1]}"
         )
+    if section_match:
+        out = _section_rows(rows, filename, header_match, section_match)
+        if close:
+            close()
+        return ["Section", header_match, "Column", "Value"], out
     header: list[str] = []
     for r in rows:
         if r and _cell(r[0]).strip().lstrip("\ufeff") == header_match:
@@ -1392,6 +1401,36 @@ def _stack_rows(data: bytes, filename: str, header_match: str) -> tuple[list[str
     return header, out
 
 
+def _section_rows(rows, filename: str, header_match: str, section_match: str) -> list[list[str]]:
+    from .normalise import _cell
+
+    rx = re.compile(section_match)
+    out: list[list[str]] = []
+    section, header = "", []
+    for r in rows:
+        vals = [_cell(v).strip().lstrip("\ufeff") for v in r]
+        if not any(vals):
+            continue
+        hit = rx.search(vals[0])
+        if hit and not any(vals[1:]):
+            section = hit.groupdict().get("section") or hit.group(0)
+            header = []
+        elif vals[0] == header_match:
+            if not section:
+                raise FetchError(f"{filename}: a '{header_match}' header has no title above it")
+            header = vals
+        elif header and any(vals[1:]):
+            # A row with its first cell alone is a footnote.
+            out.extend(
+                [section, vals[0], header[i], v]
+                for i, v in enumerate(vals[1 : len(header)], 1)
+                if v and header[i]
+            )
+    if not out:
+        raise FetchError(f"{filename}: no table under a title matching '{section_match}'")
+    return out
+
+
 def _stack(
     ds: Dataset, s: requests.Session, files: list[dict]
 ) -> tuple[bytes, list[dict], int, int]:
@@ -1407,7 +1446,9 @@ def _stack(
     for f in files:
         got = _download(ds, s, f["url"])
         expect_page(ds, f["url"], got, got.content)
-        h, body = _stack_rows(got.content, f["filename"], ds.source.header_match)
+        h, body = _stack_rows(
+            got.content, f["filename"], ds.source.header_match, ds.source.section_match
+        )
         if named:
             h = [*h, FILE_SOURCE]
             body = [[*row, f.get("name") or f["filename"]] for row in body]

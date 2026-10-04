@@ -529,3 +529,25 @@ def test_a_polygon_layers_row_digest_follows_each_rows_own_shape():
     # The same attributes with the shapes swapped between rows is a change.
     swapped = (("1", "A", b[2]), ("2", "B", a[2]))
     assert f.rows_digest(ds, m, layer(*swapped)) != first
+
+
+def test_a_stack_reads_each_titled_table_in_a_file_as_one_row_per_cell():
+    data = (
+        b"Wait Times as at 30 June 2020,,,\n"
+        b"Region,1 bedroom,2 bedroom,\n"
+        b"Darwin,6 to 8 years,2 to 4 years*,\n"
+        b'"*Calculated by hand.",,,\n'
+        b",,,\n"
+        b"Wait List Summary as at 30 June 2020,,,\n"
+        b"Region,1 bedroom,3+ bedroom,Total\n"
+        b"Darwin,1391,277,1668\n"
+    )
+    h, rows = f._stack_rows(data, "a.csv", "Region", r"^(?P<section>Wait Times|Wait List)\b")
+    assert h == ["Section", "Region", "Column", "Value"]
+    assert rows == [
+        ["Wait Times", "Darwin", "1 bedroom", "6 to 8 years"],
+        ["Wait Times", "Darwin", "2 bedroom", "2 to 4 years*"],
+        ["Wait List", "Darwin", "1 bedroom", "1391"],
+        ["Wait List", "Darwin", "3+ bedroom", "277"],
+        ["Wait List", "Darwin", "Total", "1668"],
+    ]
