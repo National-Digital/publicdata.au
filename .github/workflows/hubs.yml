@@ -103,6 +103,9 @@ jobs:
           git checkout -q -b "$BRANCH"
           git add store/hubs.json
           git commit -q -s -m "data(hubs): where the copies are, $DATE"
+          # Main moves during a long run, and a branch behind a workflow change is refused.
+          git fetch -q origin main
+          git rebase -q origin/main
           git push -q -u origin HEAD
           gh pr create --title "data(hubs): where the copies are, $DATE" --body "The Hubs run recorded where each dataset's copies are. Merging lists them on the dataset pages and in their structured data."
           gh pr merge --auto --squash || echo "::warning::auto-merge was not armed; merge the hubs PR by hand."

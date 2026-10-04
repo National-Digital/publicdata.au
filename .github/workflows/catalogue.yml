@@ -91,6 +91,11 @@ jobs:
           DATE=$(date -u +%Y-%m-%d)
           git config user.name "publicdata fetch"
           git config user.email "fetch@publicdata.au"
+          # A run can wait hours for the runner while main moves. A branch cut from the commit checked
+          # out at the start is refused when main has since changed a workflow file, so it is cut from
+          # main as it stands now; the new manifests are untracked and carry over.
+          git fetch -q origin main
+          git checkout -q --detach origin/main
           git checkout -b "data/catalogue-$DATE-${{ github.run_id }}"
           git add store/catalogue/*/manifest.json
           git commit -s -m "data(catalogue): portal dataset lists harvested $DATE" -m "$(grep -E '^catalogue: new version' harvest.log)"
