@@ -1304,6 +1304,27 @@ def test_kaggles_notebook_limit_defers_the_rest_of_the_run_without_failing(tmp_p
     assert len([c for c in calls if c.startswith("kernels push")]) == 1
 
 
+def test_kaggles_running_notebook_limit_is_waited_out_then_deferred(tmp_path, monkeypatch):
+    monkeypatch.setattr(hubs.time, "sleep", lambda s: None)
+    busy = 'echo "Kernel push error: Maximum batch CPU session count of 5 reached."; exit 0\n'
+
+    def kaggle(clears_after):
+        n = tmp_path / f"n{clears_after}"
+        cli = fake_cli(
+            tmp_path,
+            'if [ "$1" = "kernels" ] && [ "$2" = "push" ]; then\n'
+            f'  echo x >> {n}; [ "$(wc -l < {n})" -le {clears_after} ] && {{ {busy.strip()}; }}\n'
+            "  exit 0; fi\n",
+        )
+        return hubs.Kaggle("o", "tok", cli)
+
+    k = kaggle(1)
+    assert k.push_notebook(make(), tmp_path / "a") is True
+    k = kaggle(9)
+    assert k.push_notebook(make(), tmp_path / "b") is False
+    assert k._notebooks_limited
+
+
 def test_a_dataset_the_register_keeps_off_the_hubs_is_reported_but_is_no_failure(tmp_path):
     lines = []
     failures = hubs.run(

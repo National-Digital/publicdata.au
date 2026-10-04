@@ -1204,9 +1204,17 @@ class Kaggle:
         _write_json(nb_dir / "notebook.ipynb", nb)
         for attempt in range(4):
             r = self._run("kernels", "push", "-p", str(nb_dir), tries=1)
-            if re.search(r"\b429\b|Too Many Requests", r.stdout + r.stderr):
+            out = r.stdout + r.stderr
+            if re.search(r"\b429\b|Too Many Requests", out):
                 self._notebooks_limited = True
                 return False
+            # Each pushed notebook runs, and Kaggle runs only a few at once per account.
+            if re.search(r"Maximum batch CPU session count", out):
+                if attempt == 3:
+                    self._notebooks_limited = True
+                    return False
+                time.sleep(self.pause * 3 * (attempt + 1))
+                continue
             if not self._throttled(r):
                 break
             time.sleep(self.pause * (attempt + 1))
