@@ -42,3 +42,18 @@ def test_every_fixture_dataset_is_in_the_third_party_notices():
         d.name for d in sorted(store.iterdir()) if d.is_dir() and f"`{d.name}`" not in notices
     ]
     assert missing == []
+
+
+def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential():
+    """Checkout keeps its token in an included config, so git would send two Authorization headers."""
+    wrong = []
+    for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        for name, job in yaml.safe_load(f.read_text(encoding="utf-8"))["jobs"].items():
+            steps = job.get("steps", [])
+            if not any("create-github-app-token" in str(s.get("uses", "")) for s in steps):
+                continue
+            for s in steps:
+                if "actions/checkout" in str(s.get("uses", "")):
+                    if (s.get("with") or {}).get("persist-credentials") is not False:
+                        wrong.append(f"{f.name}: {name}")
+    assert wrong == []

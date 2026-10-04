@@ -27,6 +27,9 @@ jobs:
     environment: fetch
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Pushes go as the fetch app; the checkout's own credential would be sent alongside it.
+          persist-credentials: false
       - name: Install gh
         env:
           GH_VERSION: 2.101.0
