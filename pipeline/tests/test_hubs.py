@@ -420,6 +420,30 @@ def test_kaggle_bad_credentials_fail_at_the_list_and_never_read_as_absent(tmp_pa
         hubs.Kaggle("o", "wrong", cli).held(make())
 
 
+def test_kaggle_retries_a_throttled_call_that_exits_zero(tmp_path):
+    # The CLI prints Kaggle's 429 and still exits 0; the third call gets through.
+    n = tmp_path / "n"
+    cli = fake_cli(
+        tmp_path,
+        f'echo x >> {n}; [ "$(wc -l < {n})" -lt 3 ] && {{ echo "429 Client Error: Too Many Requests for url"; exit 0; }}\n'
+        + KAGGLE_LIST,
+    )
+    k = hubs.Kaggle("o", "tok", cli)
+    k.pause = 0
+    assert "qld-road-crash-factors" in k.mine()
+
+
+def test_kaggle_never_reads_a_throttled_answer_as_absent(tmp_path):
+    cli = fake_cli(tmp_path, 'echo "429 Client Error: Too Many Requests for url"; exit 0\n')
+    k = hubs.Kaggle("o", "tok", cli)
+    k.pause = 0
+    with pytest.raises(RuntimeError, match="kept refusing the dataset list"):
+        k.held(make())
+    k._mine = set()
+    with pytest.raises(RuntimeError, match="kept refusing the status"):
+        k.location(make())
+
+
 def test_kaggle_lists_every_page_of_the_accounts_datasets(tmp_path):
     rows = "".join(f"o/d{i},T,1\\n" for i in range(200))
     cli = fake_cli(

@@ -988,12 +988,18 @@ class Kaggle:
         self._bad_tags: set[str] = set()
         self._notebooks_limited = False
 
-    def _run(self, *args: str) -> subprocess.CompletedProcess:
+    def _run(self, *args: str, tries: int = 6) -> subprocess.CompletedProcess:
         # The CLI reads its token from KAGGLE_API_TOKEN; the legacy KAGGLE_KEY is not read.
+        # A caller with its own retries, or one a refusal still counts against, passes tries=1.
         env = {**os.environ, "KAGGLE_API_TOKEN": self.token}
-        return subprocess.run(
-            [self.cli, *args], capture_output=True, text=True, timeout=3600, env=env
-        )
+        for attempt in range(tries):
+            r = subprocess.run(
+                [self.cli, *args], capture_output=True, text=True, timeout=3600, env=env
+            )
+            if not self._throttled(r) or attempt == tries - 1:
+                return r
+            time.sleep(self.pause * (attempt + 1))
+        return r
 
     def mine(self) -> set[str]:
         """The account's own dataset slugs. Listing them proves the token, and Kaggle answers 403
@@ -1005,6 +1011,8 @@ class Kaggle:
                     "datasets", "list", "--mine", "--csv", "--page-size", "200", "-p", str(page)
                 )
                 out = (r.stdout + r.stderr).strip()
+                if self._throttled(r):
+                    raise RuntimeError(f"Kaggle kept refusing the dataset list: {out[:300]}")
                 if r.returncode != 0 or re.search(
                     r"\b(401|403)\b|forbidden|unauthori[sz]ed", out, re.I
                 ):
@@ -1035,6 +1043,9 @@ class Kaggle:
         """Kaggle's list of an account's datasets lags behind a new one, so a slug the list does
         not name is asked about directly before it is taken to be absent."""
         r = self._run("datasets", "status", ref)
+        # A throttled answer says nothing, and taking it as absent re-creates a dataset we hold.
+        if self._throttled(r):
+            raise RuntimeError(f"Kaggle kept refusing the status of {ref}")
         return r.returncode == 0 and (r.stdout + r.stderr).strip().lower().endswith("ready")
 
     def held(self, e: Entry) -> set[str]:
@@ -1113,7 +1124,9 @@ class Kaggle:
 
     def upload(self, e: Entry, work: Path, message: str) -> None:
         for attempt in range(4):
-            r = self._run("datasets", "version", "-p", str(work), "-m", message, "-t", "-q")
+            r = self._run(
+                "datasets", "version", "-p", str(work), "-m", message, "-t", "-q", tries=1
+            )
             if not self._throttled(r):
                 break
             time.sleep(self.pause * (attempt + 1))
@@ -1137,7 +1150,7 @@ class Kaggle:
             meta["keywords"] = [t for t in meta["keywords"] if t not in self._bad_tags][:keep]
             meta["licenses"] = [{"name": kaggle_settings_licence(e)}]
             _write_json(meta_dir / "dataset-metadata.json", meta)
-            r = self._run("datasets", "metadata", ref, "--update", "-p", str(meta_dir))
+            r = self._run("datasets", "metadata", ref, "--update", "-p", str(meta_dir), tries=1)
             out = r.stdout + r.stderr
             bad = re.search(r"keywords are invalid: (.+)", out)
             if bad:
@@ -1156,7 +1169,7 @@ class Kaggle:
         spends Kaggle's limit on saving notebooks."""
         ref = kaggle_notebook(e, self.owner)[0]["id"]
         for attempt in range(4):
-            r = self._run("kernels", "status", ref)
+            r = self._run("kernels", "status", ref, tries=1)
             out = r.stdout + r.stderr
             if r.returncode == 0:
                 return True
@@ -1190,7 +1203,7 @@ class Kaggle:
         _write_json(nb_dir / "kernel-metadata.json", kmeta)
         _write_json(nb_dir / "notebook.ipynb", nb)
         for attempt in range(4):
-            r = self._run("kernels", "push", "-p", str(nb_dir))
+            r = self._run("kernels", "push", "-p", str(nb_dir), tries=1)
             if re.search(r"\b429\b|Too Many Requests", r.stdout + r.stderr):
                 self._notebooks_limited = True
                 return False
@@ -1225,10 +1238,14 @@ class Kaggle:
 
     @staticmethod
     def _throttled(r: subprocess.CompletedProcess) -> bool:
-        # Kaggle answers a burst of calls with a page the CLI cannot parse as JSON, or a 429.
+        # Kaggle answers a burst of calls with a page the CLI cannot parse as JSON, or a 429,
+        # and the CLI prints the 429 and still exits 0.
         out = r.stdout + r.stderr
-        return r.returncode != 0 and bool(
-            re.search(r"Expecting value: line 1|\b429\b|Too Many Requests|\b50[234]\b", out)
+        return bool(
+            re.search(
+                r"Expecting value: line 1|\b(429|50[234]) (Client|Server) Error|Too Many Requests",
+                out,
+            )
         )
 
     def usability(self, ref: str) -> float | None:
