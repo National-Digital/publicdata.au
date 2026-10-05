@@ -33,7 +33,7 @@ licence:
   statement: All material presented on this website is provided under a Creative Commons Attribution 4.0
     International licence
   attribution: Australian Bureau of Statistics, Registered births, summary by state or territory of usual residence, 1975
-    onwards (BIRTHS_SUMMARY), ABS Data Explorer, sourced {sourced}, https://explore.data.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=BIRTHS_SUMMARY&df[ag]=ABS&df[vs]=1.0.0,
+    onwards (BIRTHS_SUMMARY), ABS Data Explorer, sourced {sourced}, https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=BIRTHS_SUMMARY&df[ag]=ABS&df[vs]=1.0.0,
     licensed under CC BY 4.0.
 temporal_start: '1975-01-01'
 search_title: Number of births and birth rate by state each year since 1975, Australia (ABS)
