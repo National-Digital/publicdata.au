@@ -1,0 +1,33 @@
+{
+  "dataset": "nt-crocodile-capture-zones",
+  "version": "2026-10-06",
+  "as_at": "",
+  "fetched_at": "2026-10-05T21:17:16+00:00",
+  "sha256": "26f9885d9eb99d9642178aef52a8721c60791ec8fa58ce3bf2b68ef326a1bed4",
+  "bytes": 1387793,
+  "filename": "Wildlife_CrocCaptureZones.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://ftp-dlrm.nt.gov.au/main.html?download&weblink=aac4c4e35e0b03678f586ccd8af0d034&realfilename=Wildlife_CrocCaptureZones.zip",
+    "portal": "https://data.nt.gov.au",
+    "package": "nt-crocodile-capture-zones-and-daily-count",
+    "package_id": "bfd6f824-14b1-435f-8e5b-1ced34fb97c4",
+    "resource": "53bf0127-f208-44b2-8340-ec79ce6e0a15",
+    "resource_name": "NT Crocodile Capture Zones and Daily Count",
+    "resource_last_modified": null,
+    "package_modified": "2025-10-15T00:55:31.219157",
+    "package_version": "",
+    "etag": "",
+    "http_last_modified": "Tue, 06 Oct 2026 05:30:16 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://data.nt.gov.au/api/3/action/package_show?id=nt-crocodile-capture-zones-and-daily-count",
+    "read_at": "2026-10-05T21:17:15+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": []
+}
