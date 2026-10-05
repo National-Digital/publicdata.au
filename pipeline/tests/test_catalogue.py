@@ -198,6 +198,19 @@ def test_socrata_and_sdmx_records_fit_the_same_shape_and_vote_keys():
     assert all(re.match(r"^[a-z0-9][a-z0-9-]{1,63}$", r["id"]) for r in act + abs_)
 
 
+def test_sdmx_dataflow_url_points_at_the_live_abs_data_explorer():
+    s = FakeSession([])
+    abs_, _ = catalogue.sdmx(catalogue.BY_CODE["abs"], s, log=lambda *_: None)
+    # ABS serves the Data Explorer from dataexplorer.abs.gov.au; the old
+    # explore.data.abs.gov.au host no longer resolves (see issue #26).
+    assert (
+        abs_[0]["url"]
+        == "https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS"
+        "&df[id]=ABS_CENSUS_G01&df[ag]=ABS&df[vs]=1.0"
+    )
+    assert "explore.data.abs.gov.au" not in abs_[0]["url"]
+
+
 def test_snapshot_is_deterministic_and_unchanged_bytes_make_no_version(tmp_path, monkeypatch):
     s = FakeSession([pkg(1), pkg(2)])
     monkeypatch.setattr(catalogue.requests, "Session", lambda: s)
