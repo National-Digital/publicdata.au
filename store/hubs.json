@@ -462,12 +462,12 @@
     "nsw-rental-bond-refunds-2023": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2023",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-refunds-2023",
-      "zenodo": "10.5281/zenodo.23123321"
+      "zenodo": "10.5281/zenodo.23150921"
     },
     "nsw-rental-bond-refunds-2024": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2024",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-refunds-2024",
-      "zenodo": "10.5281/zenodo.23123347"
+      "zenodo": "10.5281/zenodo.23150931"
     },
     "nsw-rental-bond-refunds-2025": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2025",
@@ -543,6 +543,11 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/nt-fuel-prices-history",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nt-fuel-prices-history",
       "zenodo": "10.5281/zenodo.23077631"
+    },
+    "nt-mineral-production": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nt-mineral-production",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nt-mineral-production",
+      "zenodo": "10.5281/zenodo.23150917"
     },
     "qld-all-abilities-playgrounds": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-all-abilities-playgrounds",
