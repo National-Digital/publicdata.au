@@ -22,6 +22,7 @@ Description: Search, filter, total and download the Australian government open
 License: MIT + file LICENSE
 Language: en-GB
 URL: https://publicdata.au/
+BugReports: https://github.com/National-Digital/publicdata.au/issues
 Encoding: UTF-8
 Depends: R (>= 4.1)
 Imports:

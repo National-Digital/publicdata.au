@@ -11,6 +11,14 @@ Every function takes a dataset's slug, so a dataset added to the site works with
 install.packages("publicdataau")
 ```
 
+The development version installs from GitHub:
+
+```r
+remotes::install_github("National-Digital/publicdata.au/clients/r")
+```
+
+Bugs and requests go to the [issue tracker](https://github.com/National-Digital/publicdata.au/issues).
+
 ## Find a dataset
 
 ```r

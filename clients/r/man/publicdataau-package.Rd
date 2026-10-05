@@ -41,6 +41,7 @@ answer from the site keeps the classes 'httr2' gives it, such as
 Useful links:
 \itemize{
   \item \url{https://publicdata.au/}
+  \item Report bugs at \url{https://github.com/National-Digital/publicdata.au/issues}
 }
 
 }
