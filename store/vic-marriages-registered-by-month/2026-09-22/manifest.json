@@ -1,0 +1,34 @@
+{
+  "dataset": "vic-marriages-registered-by-month",
+  "version": "2026-09-22",
+  "as_at": "",
+  "fetched_at": "2026-10-05T21:07:14+00:00",
+  "sha256": "84712f9268502ab65ac37ab0f3d1125576e497d8927ea9e54519ab7d857501ab",
+  "bytes": 20193,
+  "filename": "Marriage-Registrations-by-Month.XLSX",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.bdm.vic.gov.au/sites/default/files/2026-09/Marriage-Registrations-by-Month.XLSX",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "marriages-registered-per-month",
+    "package_id": "f4a06d50-d9e2-48ec-8d7a-18eb1b29a675",
+    "resource": "94c65704-40b5-4872-809f-27a40488ce6a",
+    "resource_name": "Marriages registered per month",
+    "resource_last_modified": "2025-11-24T04:16:13.538815",
+    "package_modified": "2026-10-04T23:53:44.774272",
+    "package_version": null,
+    "etag": "6ab1f8be-4ee1",
+    "http_last_modified": "Tue, 22 Sep 2026 03:40:46 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=marriages-registered-per-month",
+    "read_at": "2026-10-05T21:07:14+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "4cd4f6048b1019ac1c4fc7e9b4de98db32ee79e0184774b5d07b927972ed170b"
+}
