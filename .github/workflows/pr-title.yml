@@ -1,10 +1,11 @@
 name: PR title
 
 # On a squash merge the PR title becomes the commit subject on main, so it must be a
-# Conventional Commit. `edited` re-runs the check when the title is fixed.
+# Conventional Commit. `edited` re-runs the check when the title is fixed, and `synchronize`
+# reports it on each new head, which a required check needs.
 on:
   pull_request:
-    types: [opened, edited, reopened]
+    types: [opened, edited, reopened, synchronize]
 
 permissions:
   contents: read

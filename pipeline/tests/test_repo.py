@@ -57,3 +57,14 @@ def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential():
                     if (s.get("with") or {}).get("persist-credentials") is not False:
                         wrong.append(f"{f.name}: {name}")
     assert wrong == []
+
+
+def test_every_pull_request_check_reports_on_each_new_head():
+    # A required check that skips a push leaves the PR waiting on a result that never comes.
+    skipped = []
+    for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        on = yaml.safe_load(f.read_text(encoding="utf-8"))[True]
+        pr = on.get("pull_request") if isinstance(on, dict) else None
+        if isinstance(pr, dict) and "types" in pr and "synchronize" not in pr["types"]:
+            skipped.append(f.name)
+    assert skipped == []
