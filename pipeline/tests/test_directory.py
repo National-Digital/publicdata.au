@@ -187,6 +187,32 @@ def test_a_pasted_url_is_read_the_way_functions_catalogue_reads_it():
         assert (list(hit) if hit else None) == c["expect"], c["url"]
 
 
+def test_a_live_entry_marks_the_record_its_source_url_names_as_served():
+    from publicdata.directory import plan, search_rows
+    from publicdata.register import load
+
+    reg = {d.slug: d for d in load(__import__("publicdata.__main__").__main__.REGISTER)}
+    rec = {
+        "kind": "dataflow",
+        "licence": "CC-BY-4.0",
+        "open": True,
+        "downloadable": True,
+        "formats": ["API", "CSV", "SDMX"],
+        "modified": "",
+        "summary": "",
+        "org": "abs",
+        "org_title": "Australian Bureau of Statistics",
+        "portal": "abs",
+        "id": "abs-births-summary",
+        "name": "BIRTHS_SUMMARY",
+        "title": "Births, summary, by state",
+        "url": "https://dataexplorer.abs.gov.au/vis?df[id]=BIRTHS_SUMMARY",
+    }
+    d = plan([reg["au-births-by-state"]], [rec], [], "2026-10-05")
+    assert d.served == {"abs-births-summary": "/c/au-abs-births/"}
+    assert search_rows(d)[0]["state"] == "served"
+
+
 def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
     from publicdata.directory import plan, render, search_rows
     from publicdata.register import load

@@ -176,6 +176,9 @@ def plan(
         d.ds_pub[ds.slug] = for_dataset(ds, pubs, by_org, by_name, portal_by_host)
         host = (ds.source.portal or "").split("://")[-1].removeprefix("www.").split("/")[0]
         rec = by_name.get((portal_by_host.get(host), ds.source.package))
+        if ds.status in ("live", "building"):
+            # A record named by its id in the source URL; a bare URL is too loose to mark served.
+            rec = rec or find(ds.source.url, by_name, by_id, {}, portal_by_host)
         if rec and ds.status in ("live", "building"):
             d.served.setdefault(
                 rec["id"], f"/c/{ds.collection}/" if ds.collection else f"/d/{ds.slug}/"
@@ -194,6 +197,13 @@ def _bare(url: str) -> str:
     return (u.hostname or "").removeprefix("www.") + u.path.rstrip("/")
 
 
+# Hosts people browse a portal on, mapped to the host its records are listed under.
+PORTAL_HOSTS = {
+    "dataexplorer.abs.gov.au": "data.api.abs.gov.au",
+    "explore.data.abs.gov.au": "data.api.abs.gov.au",
+}
+
+
 def locate(url: str) -> tuple[str, str, str] | None:
     """What a pasted portal URL names: (host, "name", package name), (host, "id", record id) or
     (host, "url", bare url). functions/_catalogue.js does the same and the tests hold them
@@ -205,6 +215,7 @@ def locate(url: str) -> tuple[str, str, str] | None:
     host = (u.hostname or "").lower().removeprefix("www.")
     if not host:
         return None
+    host = PORTAL_HOSTS.get(host, host)
     m = re.search(r"/datasets?/([^/?#]+)", u.path)
     if m:
         return host, "name", m.group(1).lower()
@@ -214,6 +225,9 @@ def locate(url: str) -> tuple[str, str, str] | None:
     df = parse_qs(u.query).get("df[id]")
     if df:
         return host, "source", df[0]
+    m = re.search(r"/data/[^/,]+,([^/,]+),", u.path)
+    if m:
+        return host, "source", m.group(1)
     return host, "url", _bare(url)
 
 

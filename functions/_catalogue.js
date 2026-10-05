@@ -14,19 +14,28 @@ export const recordId = (portal, source) =>
 
 export const bare = (u) => (u.hostname || '').replace(/^www\./, '') + u.pathname.replace(/\/+$/, '');
 
+// PORTAL_HOSTS in pipeline/publicdata/directory.py.
+const PORTAL_HOSTS = {
+  'dataexplorer.abs.gov.au': 'data.api.abs.gov.au',
+  'explore.data.abs.gov.au': 'data.api.abs.gov.au',
+};
+
 // The same rules as locate() in pipeline/publicdata/directory.py; functions/_catalogue.test.mjs
 // holds the two together.
 export function locate(raw) {
   let u;
   try { u = new URL(String(raw || '').trim()); } catch { return null; }
-  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  let host = u.hostname.toLowerCase().replace(/^www\./, '');
   if (!host) return null;
+  host = PORTAL_HOSTS[host] || host;
   let m = u.pathname.match(/\/datasets?\/([^/?#]+)/);
   if (m) return { host, kind: 'name', value: decodeURIComponent(m[1]).toLowerCase(), bare: bare(u) };
   m = u.pathname.match(/(?:^|\/)([a-z0-9]{4}-[a-z0-9]{4})(?:\/|$)/);
   if (m) return { host, kind: 'source', value: m[1], bare: bare(u) };
   const df = u.searchParams.get('df[id]');
   if (df) return { host, kind: 'source', value: df, bare: bare(u) };
+  m = u.pathname.match(/\/data\/[^/,]+,([^/,]+),/);
+  if (m) return { host, kind: 'source', value: m[1], bare: bare(u) };
   return { host, kind: 'url', value: bare(u), bare: bare(u) };
 }
 
