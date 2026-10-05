@@ -204,8 +204,7 @@ def test_sdmx_dataflow_url_points_at_the_live_abs_data_explorer():
     # ABS serves the Data Explorer from dataexplorer.abs.gov.au; the old
     # explore.data.abs.gov.au host no longer resolves (see issue #26).
     assert (
-        abs_[0]["url"]
-        == "https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS"
+        abs_[0]["url"] == "https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS"
         "&df[id]=ABS_CENSUS_G01&df[ag]=ABS&df[vs]=1.0"
     )
     assert "explore.data.abs.gov.au" not in abs_[0]["url"]
