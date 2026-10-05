@@ -1,0 +1,81 @@
+{
+  "dataset": "nt-urban-public-housing-wait-list",
+  "version": "2021-03-31",
+  "as_at": "",
+  "fetched_at": "2026-10-05T21:05:31+00:00",
+  "sha256": "e17d6b00c7311ecbd06392e77b8956882627cfa2133ec26a77d9a1b7711c96c2",
+  "bytes": 19875,
+  "filename": "nt-urban-public-housing-wait-list.csv",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://data.nt.gov.au/organization/housing-local-government-and-community-development",
+    "portal": "https://data.nt.gov.au",
+    "search": "urban public housing wait times",
+    "packages": 5,
+    "workbooks": [
+      {
+        "url": "https://data.nt.gov.au/dataset/ad6fa6b4-061b-4a90-bf59-ce4b6b1749f2/resource/3752c9f9-284b-4604-adf8-b5808efd28be/download/open-data-urban-public-housing-wait-times-wait-list-and-allocations-30-june-2019.csv",
+        "package": "urban-public-housing-wait-times-wait-list-and-allocations",
+        "resource": "3752c9f9-284b-4604-adf8-b5808efd28be",
+        "name": "30 June 2019",
+        "sha256": "935856ebe7769868f6f658ea7a4b4e01f246559ebb98138fca464e58e4f8ce59",
+        "rows": 74,
+        "http_last_modified": "Tue, 12 Nov 2019 05:13:17 GMT"
+      },
+      {
+        "url": "https://data.nt.gov.au/dataset/2235cfa5-d458-4d67-9553-372e58f478fe/resource/a2e3a785-a76d-4bc1-8156-ef6d6b88c5c3/download/open-data-urban-public-housing-wait-times-wait-list-and-allocations-31-december-2018.csv",
+        "package": "urban-public-housing-wait-times-wait-list-and-allocations-2018",
+        "resource": "a2e3a785-a76d-4bc1-8156-ef6d6b88c5c3",
+        "name": "31 December 2018",
+        "sha256": "afb93c60eb474a0c84304b24a14f2849ce5029e229692352e0d443f57716da01",
+        "rows": 74,
+        "http_last_modified": "Tue, 12 Nov 2019 05:25:41 GMT"
+      },
+      {
+        "url": "https://data.nt.gov.au/dataset/80b002c7-6271-4682-a4d5-0f47de30f569/resource/adb52ea3-269a-4cf5-b1f2-c5f8f1109fc0/download/open-data-urban-public-housing-wait-times-wait-list-and-allocations-31-december-2019.csv",
+        "package": "urban-public-housing-wait-times-wait-list-and-allocations-december-2019",
+        "resource": "adb52ea3-269a-4cf5-b1f2-c5f8f1109fc0",
+        "name": "31 December 2019",
+        "sha256": "362f3ec0d81b29a381119049992fe175af4195ded2ac479908851efdba9bd99c",
+        "rows": 74,
+        "http_last_modified": "Thu, 06 Feb 2020 04:53:50 GMT"
+      },
+      {
+        "url": "https://data.nt.gov.au/dataset/83408706-b644-452a-bced-ba1153d02853/resource/a71c698a-ff28-402b-b80d-d7138c57ea81/download/open-data-urban-public-housing-wait-times-wait-list-and-allocations-30-june-2020.csv",
+        "package": "urban-public-housing-wait-times-wait-list-and-allocations-june-2020",
+        "resource": "a71c698a-ff28-402b-b80d-d7138c57ea81",
+        "name": "30 June 2020",
+        "sha256": "decedbe1acd77d60b0be05639071ff8e44c3a2e56f7ef37743606d94d0f23d75",
+        "rows": 74,
+        "http_last_modified": "Wed, 31 Mar 2021 02:59:22 GMT"
+      },
+      {
+        "url": "https://data.nt.gov.au/dataset/2dcfe0b7-6b4d-4633-9761-cc6128d1bbfb/resource/3e6fef35-1eb4-4387-ab06-80e422652ab5/download/open-data-urban-public-housing-wait-times-wait-list-and-allocations-31-december-2020.csv",
+        "package": "urban-public-housing-wait-times-wait-list-and-allocations-december-2020",
+        "resource": "3e6fef35-1eb4-4387-ab06-80e422652ab5",
+        "name": "31 December 2020",
+        "sha256": "05051b1f929af8f0a480c8f3b7a8b925e0ffccbc8a3d03e20a9c9b594a206c5b",
+        "rows": 74,
+        "http_last_modified": "Wed, 31 Mar 2021 03:04:50 GMT"
+      }
+    ],
+    "rows_read": 370,
+    "rows_repeated": 0,
+    "newest_resource": "2021-03-31T03:04:50.787400+00:00"
+  },
+  "licence": {
+    "id": "cc-by",
+    "stated": "cc-by",
+    "normalised": "",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://data.nt.gov.au/api/3/action/package_search?q=urban%20public%20housing%20wait%20times",
+    "read_at": "2026-10-05T21:05:31+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher offers the series as one file per period. These bytes are every row of every file as one table, ordered by every column, with a row that appears in two files kept once; the manifest counts the files and the repeated rows."
+  ],
+  "rows_sha256": "0351850f47d480feef1753e0596be8b04e91b2eddb1f0d7928e979b7d45eac5c"
+}
