@@ -1,0 +1,32 @@
+{
+  "dataset": "act-parking-offences",
+  "version": "2026-10-06",
+  "as_at": "",
+  "fetched_at": "2026-10-05T21:08:58+00:00",
+  "sha256": "2900a3f39ce2f2854f6ca40e4ac33b5a75e450b11651e476208b54b22b6cddf3",
+  "bytes": 5527661,
+  "filename": "dnuu-bn2s.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/dnuu-bn2s/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "dnuu-bn2s",
+    "resource_name": "Parking Offences and Fines",
+    "rows_updated_at": 1791209507,
+    "etag": "aW5kaWEuOTA2MzNfMl8xMTI5M3U1T0lWeWJfQ3BHUDExa2JUX1Q1ak9LdWtN---gzipf5ju56DaBZjgAulbqe1QyP_hBYg--gzip--gzip",
+    "http_last_modified": "Mon, 05 Oct 2026 14:11:16 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/dnuu-bn2s.json",
+    "read_at": "2026-10-05T21:08:51+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "1e8b0628c1aa4d2ca2b3b6006063e7c4bc4e3486ef3b2fd640b67dbed374d415"
+}
