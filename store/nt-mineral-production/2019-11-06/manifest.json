@@ -1,0 +1,117 @@
+{
+  "dataset": "nt-mineral-production",
+  "version": "2019-11-06",
+  "as_at": "",
+  "fetched_at": "2026-10-05T00:06:59+00:00",
+  "sha256": "2d3c651679304bb0c486965991073b940f953b1f67ad59648619c81e6579aa4f",
+  "bytes": 14527,
+  "filename": "nt-mineral-production.csv",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://data.nt.gov.au/dataset?q=mineral+production+statistics",
+    "portal": "https://data.nt.gov.au",
+    "search": "mineral production statistics",
+    "packages": 9,
+    "workbooks": [
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0008/627740/2017-18-mining-production.xlsx",
+        "package": "mineral-production-statistics-2017-18",
+        "resource": "a0457146-4096-471b-99ea-8e441ac2b823",
+        "name": "Mineral Production 2017-18",
+        "sha256": "067d9c07c8aa2611dccd0dd0520f03feea304c16b35e6e0ef78e2010a0df61f2",
+        "rows": 26,
+        "http_last_modified": ""
+      },
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0008/445328/2016-17-production-statistics.xlsx",
+        "package": "mineral-production-statistics-2016-17",
+        "resource": "29169017-0d77-47e2-8b03-27b5685515e7",
+        "name": "Mineral Production 2016-17",
+        "sha256": "ebf356e04fc6a07f8c3f668f119ac6c41bfc3595ae2074a2886db0bb4ebc102e",
+        "rows": 23,
+        "http_last_modified": ""
+      },
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0011/382925/2015-2016-mining-production-summary.xlsx",
+        "package": "mineral-production-statistics-2015-16",
+        "resource": "7695f5ae-70d5-4d1b-9188-b9e8c2d782e3",
+        "name": "Mineral Production 2015-16",
+        "sha256": "2e0e6f23adc7d80fa268cec4eaed120c5aaa259bdbb40ffc4dc1e5d7ad1828c5",
+        "rows": 24,
+        "http_last_modified": ""
+      },
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0020/261047/2014-2015_Mining20Production20SummaryR1.xlsx",
+        "package": "mineral-production-statistics",
+        "resource": "d1e1ddd4-8fc4-46a1-8c52-bf7821edab47",
+        "name": "Mineral Production 2014-15",
+        "sha256": "105f856d4747a11f8b1b7f5c55a661e5d19c1b917a216a4235fe0bede6ac5c90",
+        "rows": 24,
+        "http_last_modified": ""
+      },
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0017/261053/Production2013_2014.xlsx",
+        "package": "mineral-production-statistics-2013-14",
+        "resource": "98db46b8-de39-4888-8bab-ee763199a877",
+        "name": "Mineral Production 2013-14",
+        "sha256": "a259550f1a97d3799a026ad72d4be7560334d046e40ffa66889fde9bd4080ec6",
+        "rows": 23,
+        "http_last_modified": ""
+      },
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0016/261052/Production2012_2013.xlsx",
+        "package": "mineral-production-statistics-2012-13",
+        "resource": "422e7b10-8d4f-4809-9898-ef7de52bbace",
+        "name": "Mineral Production 2012-13",
+        "sha256": "d46e01b2d8f4ddaa292b6c58e73408189c937e38ba8ffffab08bc419ec5c3b85",
+        "rows": 23,
+        "http_last_modified": ""
+      },
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0015/261051/Production2011_2012.xlsx",
+        "package": "mineral-production-statistics-2011-12",
+        "resource": "79f0ee1d-4c59-4539-bd36-0ab24046bd1f",
+        "name": "Mineral Production 2011-12",
+        "sha256": "09da68589ef9c2c0216ea39a719c3b5200479952a2c2c8fb85568081e102f00c",
+        "rows": 22,
+        "http_last_modified": ""
+      },
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0014/261050/Production2010_2011.xlsx",
+        "package": "mineral-production-statistics-2010-11",
+        "resource": "221e0bc3-6b58-4402-8e97-03a8b67aa79e",
+        "name": "Mineral Production 2010-11",
+        "sha256": "50877861b9b8dcf8fc8e12f5e5e912195227479b84fab5082a411e00033364f8",
+        "rows": 22,
+        "http_last_modified": ""
+      },
+      {
+        "url": "https://dpir.nt.gov.au/__data/assets/excel_doc/0015/730032/2018-2019-mining-production.xlsx",
+        "package": "mineral-production-statistics-2018-19",
+        "resource": "c18c1cfe-eb8c-46eb-9bbd-49f8fb331465",
+        "name": "Mineral Production 2018-19",
+        "sha256": "3513e18b34ae337ed6acc05f29d0a1da416c86dd616e7f7c541d469765fba09b",
+        "rows": 26,
+        "http_last_modified": ""
+      }
+    ],
+    "rows_read": 213,
+    "rows_repeated": 0,
+    "newest_resource": "2019-11-06T05:38:55.499333+00:00"
+  },
+  "licence": {
+    "id": "cc-by",
+    "stated": "cc-by",
+    "normalised": "",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://data.nt.gov.au/api/3/action/package_search?q=mineral%20production%20statistics",
+    "read_at": "2026-10-05T00:06:58+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher offers the series as one file per period. These bytes are every row of every file as one table, ordered by every column, with a row that appears in two files kept once; the manifest counts the files and the repeated rows."
+  ],
+  "rows_sha256": "0be6aa563ae6cffb7edafa8723c91d5e9c9f8966a2c877f7048433a93c0cbd3a"
+}
