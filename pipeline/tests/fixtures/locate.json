@@ -6,7 +6,7 @@
   {"url": "https://data-goldcoast.opendata.arcgis.com/datasets/1a2b3c4d5e6f/about", "expect": ["data-goldcoast.opendata.arcgis.com", "name", "1a2b3c4d5e6f"]},
   {"url": "https://www.data.act.gov.au/Transport/Bus-Stops/3u5a-ve4j", "expect": ["data.act.gov.au", "source", "3u5a-ve4j"]},
   {"url": "https://www.data.act.gov.au/d/3u5a-ve4j/", "expect": ["data.act.gov.au", "source", "3u5a-ve4j"]},
-  {"url": "https://explore.data.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=CPI&df[ag]=ABS", "expect": ["explore.data.abs.gov.au", "source", "CPI"]},
+  {"url": "https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=CPI&df[ag]=ABS", "expect": ["dataexplorer.abs.gov.au", "source", "CPI"]},
   {"url": "https://www.example.gov.au/reports/", "expect": ["example.gov.au", "url", "example.gov.au/reports"]},
   {"url": "not a url", "expect": null}
 ]

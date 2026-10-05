@@ -433,7 +433,7 @@ def sdmx(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], in
                 formats=["API", "CSV", "SDMX"],
                 created="",
                 modified="",
-                url=f"https://explore.data.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]={quote(fid)}&df[ag]=ABS&df[vs]={quote(ver)}",
+                url=f"https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]={quote(fid)}&df[ag]=ABS&df[vs]={quote(ver)}",
                 summary=summary(f.get("description") or ""),
                 harvested_from="",
             )
