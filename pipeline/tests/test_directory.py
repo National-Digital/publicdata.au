@@ -357,6 +357,7 @@ def test_a_dataset_without_copies_keeps_its_plain_identifier(site):
 def test_the_operator_names_its_hub_accounts_on_the_home_page(site):
     provider = _ld(site / "index.html", "DataCatalog")["provider"]
     assert provider["sameAs"] == [
+        "https://github.com/National-Digital",
         "https://huggingface.co/National-Digital",
         "https://www.kaggle.com/NationalDigitalAU",
     ]

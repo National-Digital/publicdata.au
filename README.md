@@ -16,6 +16,14 @@ This is an independent site run by National Digital. No government agency runs i
 has endorsed it. Each dataset is republished under the publisher's licence with the attribution
 that licence asks for.
 
+## Contributing
+
+Contributions are welcome from anyone. A dataset from the [backlog](https://publicdata.au/backlog/)
+is one YAML file in `register/`, and a new file format is one writer in
+`pipeline/publicdata/serialise/writers/`. [CONTRIBUTING.md](CONTRIBUTING.md) has the steps for
+those and for adapters, fixes and the clients, and [publicdata.au/contribute](https://publicdata.au/contribute/)
+gives the overview. Every dataset page links to the register entry it is built from.
+
 ## Layout
 
 - `register/` one YAML per dataset: source, licence with evidence, attribution, field allow-list,
