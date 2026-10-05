@@ -216,6 +216,18 @@ class Source:
     # For a stack of workbooks whose header sits on a different row in each: the first cell of
     # the header row.
     header_match: str = ""
+    # For a stack whose files each hold several small tables: a pattern for the title above each
+    # table, whose `section` group names the table. Every cell is read as its own row. This and the
+    # options below shape the fetched bytes, not the build, so they stay out of the repr the build
+    # cache keys on.
+    section_match: str = field(default="", repr=False)
+    # For a stack: header rows below the matched one, a pattern for the rows that name a group
+    # of the rows below them, footnote numbers at the end of the first cell, and a pattern whose
+    # first group is what the (file) column takes from each file's name.
+    header_depth: int = field(default=1, repr=False)
+    group_match: str = field(default="", repr=False)
+    footnote_marks: bool = field(default=False, repr=False)
+    file_match: str = field(default="", repr=False)
     as_at_regex: str = ""
     sheet: str = ""
     header_row: int = 1
@@ -372,6 +384,11 @@ def parse(raw: dict, ctx: str) -> Dataset:
         delimiter=str(src.get("delimiter", "")),
         manual=_bool(src.get("manual", False), f"{ctx}.source.manual"),
         header_match=str(src.get("header_match", "")),
+        section_match=str(src.get("section_match", "")),
+        header_depth=int(src.get("header_depth", 1)),
+        group_match=str(src.get("group_match", "")),
+        footnote_marks=_bool(src.get("footnote_marks", False), f"{ctx}.source.footnote_marks"),
+        file_match=str(src.get("file_match", "")),
         as_at_regex=str(src.get("as_at_regex", "")),
         sheet=str(src.get("sheet", "")),
         header_row=int(src.get("header_row", 1)),
@@ -385,15 +402,15 @@ def parse(raw: dict, ctx: str) -> Dataset:
         format=str(src.get("format", "")).lstrip(".").lower(),
         page_size=int(src.get("page_size", 0)),
     )
-    if source.manual and source.adapter != "ckan-resource":
+    if source.manual and source.adapter not in ("ckan-resource", "ckan-stack"):
         raise RegisterError(
-            f"{ctx}: source.manual needs a ckan-resource, whose portal record dates it"
+            f"{ctx}: source.manual needs a ckan-resource or ckan-stack, whose portal records date it"
         )
     if "browser" in src:
         raise RegisterError(f"{ctx}: source.browser is now source.manual")
     if source.delimiter and source.delimiter != "tab" and len(source.delimiter) != 1:
         raise RegisterError(f"{ctx}: source.delimiter is 'tab' or one character")
-    for k in ("package_match", "resource_match"):
+    for k in ("package_match", "resource_match", "section_match", "group_match", "file_match"):
         try:
             re.compile(getattr(source, k))
         except re.error as e:

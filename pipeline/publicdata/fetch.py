@@ -13,6 +13,7 @@ import email.utils
 import hashlib
 import html
 import io
+import itertools
 import json
 import re
 import time
@@ -301,7 +302,13 @@ def _download(ds: Dataset, s: requests.Session, url: str):
     if ds.source.manual:
         if ds.slug not in MANUAL:
             raise ManualDue(f"{ds.slug}: download {url} and run the fetch with --file")
-        return Fetched(MANUAL[ds.slug].read_bytes(), {})
+        got = MANUAL[ds.slug]
+        if got.is_dir():
+            # A stack's files are given as one folder, each under the name its address ends in.
+            got = got / urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1])
+            if not got.is_file():
+                raise FetchError(f"{ds.slug}: {got.name} is not in {MANUAL[ds.slug]}")
+        return Fetched(got.read_bytes(), {})
     r = s.get(url, timeout=600, allow_redirects=True)
     r.raise_for_status()
     return r
@@ -1346,9 +1353,22 @@ STACK_NOTE = (
 )
 
 
-def _stack_rows(data: bytes, filename: str, header_match: str) -> tuple[list[str], list[list[str]]]:
+def _stack_rows(
+    data: bytes,
+    filename: str,
+    header_match: str,
+    section_match: str = "",
+    header_depth: int = 1,
+    group_match: str = "",
+    footnote_marks: bool = False,
+) -> tuple[list[str], list[list[str]]]:
     """A workbook's or a CSV's header and rows as text, the header being the first row whose first
-    cell is header_match, since the publisher's title rows above it vary."""
+    cell is header_match, since the publisher's title rows above it vary. With section_match the
+    file holds several small tables, each under a title that pattern matches, read as one row per
+    cell. A header over header_depth rows names each column by its lowest filled cell. With
+    group_match, a row with only its first cell filled names the group of the rows below it when
+    the pattern matches, and is a footnote otherwise. With footnote_marks, a footnote number at the
+    end of the first cell moves to a Note column."""
     from .normalise import _cell, _distinct
 
     if filename.lower().endswith(".xls"):
@@ -1371,25 +1391,75 @@ def _stack_rows(data: bytes, filename: str, header_match: str) -> tuple[list[str
         raise FetchError(
             f"{filename}: a stack reads workbooks and CSV files, not {filename.rsplit('.', 1)[-1]}"
         )
+    if section_match:
+        out = _section_rows(rows, filename, header_match, section_match)
+        if close:
+            close()
+        return ["Section", header_match, "Column", "Value"], out
     header: list[str] = []
     for r in rows:
         if r and _cell(r[0]).strip().lstrip("\ufeff") == header_match:
-            header = _distinct([_cell(v).strip().lstrip("\ufeff") for v in r])
+            header = [_cell(v).strip().lstrip("\ufeff") for v in r]
+            for _ in range(header_depth - 1):
+                below = [_cell(v).strip() for v in next(rows, ())]
+                below += [""] * (len(header) - len(below))
+                header = [b or h for h, b in itertools.zip_longest(header, below, fillvalue="")]
+            header = _distinct(header)
             while header and not header[-1]:
                 header.pop()
             break
     if not header:
         raise FetchError(f"{filename}: no row starts with '{header_match}'")
     out = []
+    group = ""
     for r in rows:
         vals = [_cell(v).strip() for v in r[: len(header)]]
         if not any(vals):
             continue
+        if group_match and not any(vals[1:]):
+            if re.search(group_match, vals[0]):
+                group = vals[0]
+            continue
         vals += [""] * (len(header) - len(vals))
-        out.append(vals)
+        if footnote_marks:
+            mark = re.match(r"^(.*\S)\s+(\d{1,2})$", vals[0])
+            vals = [mark[1], *vals[1:], mark[2]] if mark else [*vals, ""]
+        out.append([group, *vals] if group_match else vals)
     if close:
         close()
-    return header, out
+    if footnote_marks:
+        header = [*header, "Note"]
+    return (["Group", *header] if group_match else header), out
+
+
+def _section_rows(rows, filename: str, header_match: str, section_match: str) -> list[list[str]]:
+    from .normalise import _cell
+
+    rx = re.compile(section_match)
+    out: list[list[str]] = []
+    section, header = "", []
+    for r in rows:
+        vals = [_cell(v).strip().lstrip("\ufeff") for v in r]
+        if not any(vals):
+            continue
+        hit = rx.search(vals[0])
+        if hit and not any(vals[1:]):
+            section = hit.groupdict().get("section") or hit.group(0)
+            header = []
+        elif vals[0] == header_match:
+            if not section:
+                raise FetchError(f"{filename}: a '{header_match}' header has no title above it")
+            header = vals
+        elif header and any(vals[1:]):
+            # A row with its first cell alone is a footnote.
+            out.extend(
+                [section, vals[0], header[i], v]
+                for i, v in enumerate(vals[1 : len(header)], 1)
+                if v and header[i]
+            )
+    if not out:
+        raise FetchError(f"{filename}: no table under a title matching '{section_match}'")
+    return out
 
 
 def _stack(
@@ -1407,10 +1477,24 @@ def _stack(
     for f in files:
         got = _download(ds, s, f["url"])
         expect_page(ds, f["url"], got, got.content)
-        h, body = _stack_rows(got.content, f["filename"], ds.source.header_match)
+        h, body = _stack_rows(
+            got.content,
+            f["filename"],
+            ds.source.header_match,
+            ds.source.section_match,
+            ds.source.header_depth,
+            ds.source.group_match,
+            ds.source.footnote_marks,
+        )
         if named:
+            label = f.get("name") or f["filename"]
+            if ds.source.file_match:
+                hit = re.search(ds.source.file_match, label)
+                if not hit:
+                    raise FetchError(f"{ds.slug}: '{label}' does not match the file_match pattern")
+                label = hit[1] if hit.groups() else hit[0]
             h = [*h, FILE_SOURCE]
-            body = [[*row, f.get("name") or f["filename"]] for row in body]
+            body = [[*row, label] for row in body]
         if header and sorted(h) != sorted(header):
             raise FetchError(f"{ds.slug}: {f['filename']} has columns {h}, the first file {header}")
         header = header or h
@@ -1522,11 +1606,22 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         }
         for p, r in resources
     ]
-    data, read, n, repeated = _stack(ds, s, files)
     changed = max(
         _normal_iso(r.get("last_modified") or r.get("created") or p["metadata_modified"])
         for p, r in resources
     )
+    if ds.source.manual and ds.slug not in MANUAL:
+        existing = store.manifests(store_dir, ds.slug)
+        was = existing[-1].source if existing else {}
+        if was.get("newest_resource") == changed and sorted(
+            w["resource"] for w in was.get("workbooks", [])
+        ) == sorted(f["resource"] for f in files):
+            return None, existing[-1], licence
+        raise ManualDue(
+            f"{ds.slug}: download {ds.source.url} (each of its {len(files)} files, into one folder) "
+            "and run the fetch with --file"
+        )
+    data, read, n, repeated = _stack(ds, s, files)
     source = {
         "url": ds.source.url,
         "portal": ds.source.portal,

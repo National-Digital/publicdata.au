@@ -109,8 +109,8 @@ def cmd_fetch(args) -> int:
     store_dir = Path(args.store)
     for pair in args.file:
         slug, _, path = pair.partition("=")
-        if not path or not Path(path).is_file():
-            sys.exit(f"--file {pair}: give SLUG=PATH for a file that exists")
+        if not path or not Path(path).exists():
+            sys.exit(f"--file {pair}: give SLUG=PATH for a file, or a stack's folder, that exists")
         MANUAL[slug] = Path(path)
     datasets = load(REGISTER)
     manual = {d.slug for d in datasets if d.source.manual}
@@ -623,7 +623,7 @@ def main(argv=None) -> int:
         action="append",
         default=[],
         metavar="SLUG=PATH",
-        help="a manual source's file, downloaded by a person from the URL the fetch reported",
+        help="a manual source's file, or a stack's folder of files, downloaded by a person from the URL the fetch reported",
     )
     f.set_defaults(fn=cmd_fetch)
     b = sub.add_parser("build")

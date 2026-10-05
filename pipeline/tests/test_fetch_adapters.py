@@ -737,3 +737,72 @@ def test_kiwis_splits_a_batch_the_service_refuses_as_too_large(monkeypatch):
 def test_a_downloaded_file_keeps_its_headers_whatever_their_case():
     r = f.Fetched(b"x", {"etag": '"abc"', "last-modified": "Tue, 29 Sep 2026 23:00:37 GMT"})
     assert r.headers.get("ETag") == '"abc"' and r.headers["Last-Modified"].startswith("Tue")
+
+
+def test_a_manual_stack_reads_a_folder_of_downloads_then_waits_for_the_records_to_change(
+    tmp_path, monkeypatch
+):
+    from publicdata import store
+
+    def portal(modified):
+        res = [
+            {"id": f"r{i}", "name": n, "format": "XLSX", "created": modified, "url": u}
+            for i, (n, u) in enumerate(
+                [
+                    ("2019", "https://p.example/a/2019%20prod.xlsx"),
+                    ("2020", "https://p.example/b/2020.xlsx"),
+                ]
+            )
+        ]
+        p = {
+            "name": "prod-2019",
+            "license_id": "cc-by",
+            "license_title": "CC BY",
+            "license_url": "",
+        }
+        return {
+            "success": True,
+            "result": {"results": [p | {"metadata_modified": modified, "resources": res}]},
+        }
+
+    ds = make_dataset(
+        [Field("date", "FullDate", "date")],
+        licence=Licence("CC-BY-4.0", "https://p.example/d", "NT, sourced {sourced}.", "cc-by"),
+        source=Source(
+            adapter="ckan-stack",
+            url="https://p.example/d",
+            portal="https://p.example",
+            package="prod",
+            package_match="^prod-",
+            header_match="FullDate",
+            manual=True,
+        ),
+    )
+    search = "https://p.example/api/3/action/package_search"
+    monkeypatch.setattr(f, "MANUAL", {})
+    with pytest.raises(f.ManualDue, match="download https://p.example/d "):
+        run("ckan-stack", ds, {search: Resp(portal("2023-02-03T00:00:00"))}, tmp_path, monkeypatch)
+
+    got = tmp_path / "downloads"
+    got.mkdir()
+    (got / "2019 prod.xlsx").write_bytes(_stack_book(0, [["2019-06-30", "BP", 1]]))
+    (got / "2020.xlsx").write_bytes(_stack_book(2, [["2020-06-30", "BP", 2]]))
+    monkeypatch.setattr(f, "MANUAL", {ds.slug: got})
+    data, m, s = run(
+        "ckan-stack", ds, {search: Resp(portal("2023-02-03T00:00:00"))}, tmp_path, monkeypatch
+    )
+    assert data.decode().splitlines() == [
+        "FullDate,Brand,Diesel",
+        "2019-06-30,BP,1",
+        "2020-06-30,BP,2",
+    ]
+    assert s.asked == [search]
+    store.write(tmp_path, m, data)
+
+    monkeypatch.setattr(f, "MANUAL", {})
+    data, _, _ = run(
+        "ckan-stack", ds, {search: Resp(portal("2023-02-03T00:00:00"))}, tmp_path, monkeypatch
+    )
+    assert data is None
+    with pytest.raises(f.ManualDue):
+        run("ckan-stack", ds, {search: Resp(portal("2024-01-01T00:00:00"))}, tmp_path, monkeypatch)

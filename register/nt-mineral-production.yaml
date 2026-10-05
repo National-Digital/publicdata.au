@@ -1,0 +1,128 @@
+slug: nt-mineral-production
+title: Mineral production by commodity, Northern Territory, 2010-11 to 2018-19
+status: live
+topics:
+- economy
+order: 72
+publisher:
+  name: Department of Mining and Energy
+  short: Mining and Energy
+  jurisdiction: NT
+  url: https://dme.nt.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-05'
+  portal_id: cc-by
+  evidence: https://data.nt.gov.au/dataset/mineral-production-statistics-2018-19
+  attribution: Department of Mining and Energy, Northern Territory Government, Mineral Production
+    Statistics, sourced {sourced}, https://data.nt.gov.au/, licensed under CC BY 4.0.
+temporal_start: '2010-07-01'
+search_title: NT mineral production statistics by commodity and year (bauxite, manganese, gold, uranium)
+also_known_as:
+- Northern Territory mining production statistics
+- NT mineral production statistics
+- Northern Territory mineral production by commodity
+keywords:
+- mining production
+- mineral production
+- manganese
+- bauxite
+- gold
+- uranium
+- Northern Territory
+faq:
+- q: What is in each row?
+  a: One commodity in one financial year, with its unit and the quantity produced, the quantity sold
+    and the amount paid for the quantity sold in Australian dollars, from the production returns that
+    operators lodge under the Territory's mining legislation. The group is the publisher's heading,
+    such as Metallic Minerals.
+- q: Which licence applies?
+  a: The portal states Creative Commons Attribution without a version. The Northern Territory Department
+    of Corporate and Digital Development confirmed in writing on 5 October 2026 that, under the Northern
+    Territory Government's Creative Commons Policy, this series is released under CC BY 4.0.
+- q: What are the rows that end in Value?
+  a: The publisher's totals. Metallic Minerals Value, Gemstones Value and Non-Metallic Minerals Value
+    total their groups, and Total Minerals Value totals every group; the workbooks place it last, so it
+    sits under Energy Minerals. They carry only an amount, so a sum over every row counts each dollar
+    twice.
+- q: What does the note number mean?
+  a: The number of the explanatory note the publisher attached to the commodity that year. The notes
+    are in each year's workbook. They say, among other things, that alumina and alumina hydrate are
+    derived from bauxite, that gold excludes the gold in gold dore, and that some non-metallic values are
+    estimated from average prices. The same commodity can carry a different number in another year.
+- q: Can the years be compared with earlier figures?
+  a: Not directly. On 1 July 2009 the Territory began to value production as the amount actually paid
+    for the quantity sold, where it had estimated the value of the quantity produced. This series starts
+    after that change, in 2010-11.
+- q: Why does the series stop in 2018-19?
+  a: The workbooks for 2010-11 to 2018-19 are the ones the portal holds under this licence. The files
+    are kept on a departmental host that turns automated clients away, so they were downloaded by a
+    person, and the weekly fetch checks the portal's records for any change.
+summary: The quantity produced, quantity sold and value of every mineral commodity mined in the Northern
+  Territory, from bauxite and manganese to gold, uranium oxide and gravel, for each financial year from
+  2010-11 to 2018-19. Closed series.
+description: Annual mineral production statistics for the Northern Territory, from the production returns
+  operators lodge under the Territory's mining legislation. Each row is one commodity in one financial
+  year, under the publisher's group (Metallic Minerals, Gemstones, Non-Metallic Minerals or Energy
+  Minerals), with its unit of quantity, quantity produced, quantity sold and the amount paid for the
+  quantity sold. The nine annual workbooks from 2010-11 to 2018-19 are read as one table.
+source:
+  adapter: ckan-stack
+  portal: https://data.nt.gov.au
+  package: mineral production statistics
+  package_match: ^mineral-production-statistics(-201\d-\d\d)?$
+  header_match: Commodity
+  header_depth: 2
+  group_match: ^(Metallic Minerals|Non-Metallic Minerals|Energy Minerals|Gemstones)$
+  footnote_marks: true
+  file_match: (\d{4}-\d{2})$
+  manual: true
+  url: https://data.nt.gov.au/dataset?q=mineral+production+statistics
+  cadence: closed
+key:
+- financial_year
+- group
+- commodity
+partition_by:
+- group
+row_label: Commodity years
+fields:
+- name: financial_year
+  label: Financial year
+  source: (file)
+  type: string
+  description: July to June, such as 2018-19.
+- name: group
+  label: Group
+  source: Group
+  type: string
+- name: commodity
+  label: Commodity
+  source: Commodity
+  type: string
+  description: As the publisher names it, without the note number. A few names change over the years,
+    such as Zinc/Lead Concentrate becoming Zinc Lead Concentrate.
+- name: unit
+  label: Unit
+  source: Unit of Quantity
+  type: string
+  null_values: [n/a, NA]
+  description: Tonnes, grams, carats or kilograms. Blank on the totals.
+- name: quantity_produced
+  label: Quantity produced
+  source: Quantity Produced
+  type: number
+- name: quantity_sold
+  label: Quantity sold
+  source: Quantity Sold
+  type: number
+- name: amount_sold_aud
+  label: Amount for quantity sold ($)
+  source: $ Amount for Quantity Sold
+  type: number
+  description: The gross amount paid to the operator for the quantity sold, in Australian dollars.
+- name: note
+  label: Note
+  source: Note
+  type: string
+  description: The number of the publisher's explanatory note on this commodity in that year's workbook.

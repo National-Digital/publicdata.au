@@ -150,7 +150,9 @@ Their entries set `manual: true`, and a person downloads the file instead.
   python -m publicdata fetch <slug> --file <slug>=<path to the download>
   ```
 
-  The fetch reads the portal's record and licence as usual and takes the bytes from the file.
+  The fetch reads the portal's record and licence as usual and takes the bytes from the file. For
+  a `ckan-stack`, download every file the portal lists into one folder, keeping the names the
+  links give them, and pass the folder.
   Then push the raw bytes (`python -m publicdata store push`, maintainers only) and open a
   `data(<jurisdiction>): ...` pull request with the new manifest.
 - We ask each of these publishers to allow the fetch's address. When one agrees, its entries drop
@@ -244,7 +246,11 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   parameter, `package` the series name, `resource` `stations` or `values`), `aihw` (an AIHW report's data
   page, whose listed file `resource_match` names by title), `zenodo` (a concept record, `package`, followed
   to its newest version, the file named by `resource_match`), `ckan-stack` (every workbook of every package
-  `package_match` names, read as one table, each header row found by `header_match`), `file-stack` (every
+  `package_match` names, read as one table, each header row found by `header_match`; with `section_match`,
+  a file of several small titled tables is read one row per cell, the title's `section` group naming the
+  table; `header_depth` reads a header over several rows, `group_match` the heading rows that group
+  the rows below them, `footnote_marks` moves a note number off the first cell, and `file_match` takes
+  the part of each file's name that the `(file)` column holds), `file-stack` (every
   workbook or CSV a publisher's own page at `url` links to whose address matches `resource_match`, read as
   one table the same way, with the licence quoted as for `file`), `ckan-resource` (a CKAN resource), `socrata` (package is the four-by-four),
   `opendatasoft` (package is the dataset id) and `arcgis-hub` (package is the item id, resource
