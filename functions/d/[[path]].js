@@ -69,7 +69,9 @@ async function rawSource(env, url, key, read) {
     if (r.body) await r.body.cancel();
     published = r.ok;
   }
-  return published ? read(env.RAW, `${m[1]}/${m[2]}/${m[3]}`) : null;
+  // Pages binds R2 read-write only, so the archive is handed on with its two read methods alone.
+  const raw = { get: (k, o) => env.RAW.get(k, o), head: (k) => env.RAW.head(k) };
+  return published ? read(raw, `${m[1]}/${m[2]}/${m[3]}`) : null;
 }
 
 const WITHHELD = 'This file is withheld while its licence is reviewed. See https://publicdata.au/backlog/\n';
