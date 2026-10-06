@@ -30,7 +30,8 @@ jobs:
         with:
           python-version-file: .python-version
       - run: pip install -e ./pipeline
-      # An approval covers the commit it was given on. A push never counts as approved, and the
+      # An approval covers the commit it was given on. A push or a reopen never counts as
+      # approved, since a closed PR's branch can move without a synchronize event, and the
       # revoke job takes the label off. A fork's token cannot, so there only the run the label
       # itself triggered counts. The label is read again here so a revoke that finished after
       # this event still applies.
@@ -52,9 +53,9 @@ jobs:
           python -m publicdata cost --base HEAD^1 --probe $([ "$APPROVED" = true ] && echo --approved)
 
   revoke:
-    name: Revoke cost approval on push
+    name: Revoke cost approval on push or reopen
     # Side effects run only in the public repo, never in a fork or a private copy.
-    if: github.repository == 'National-Digital/publicdata.au' && github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'cost-approved') && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.repository == 'National-Digital/publicdata.au' && contains(fromJSON('["synchronize", "reopened"]'), github.event.action) && contains(github.event.pull_request.labels.*.name, 'cost-approved') && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write

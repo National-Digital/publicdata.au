@@ -115,6 +115,16 @@ def test_a_new_entry_counts_at_least_one_version_a_year():
     assert cost.versions_per_year(entry("t", "weekly until 2030"), [], TODAY) == (52, "cadence")
 
 
+def test_an_ended_cadence_cannot_zero_a_stored_entry(tmp_path):
+    # The fetch still stores a version when the file changes, and a moved source always does.
+    for cad in ("closed", "no longer updated", "monthly until June 2024"):
+        assert cost.versions_per_year(entry("t", cad), ["2024-01-01"], TODAY) == (1, "observed")
+    stored(tmp_path, "old", "2024-01-01", size=1000)
+    out = cost.project([entry("old", "closed")], tmp_path, {}, TODAY, frozenset({"old"}),
+                       frozenset({"old"}), prober=lambda d: 10 * GB, probing=True)[0]  # fmt: skip
+    assert out.per_year == 1 and out.gb_per_year == 130 and out.over_budget
+
+
 def test_kaggle_frequency_reads_the_same_rate():
     assert [cadence.kaggle_frequency(c) for c in ("daily", "weekly", "monthly", "quarterly")] == [
         "daily",
@@ -126,6 +136,71 @@ def test_kaggle_frequency_reads_the_same_rate():
     assert cadence.kaggle_frequency("closed") == "never"
     assert cadence.kaggle_frequency("as required") == "annually"
     assert cadence.kaggle_frequency("as the police database changes") == "monthly"
+
+
+# Every cadence in the register, by the Kaggle choice it maps to, so a change to the reader
+# cannot change what a hub page promises unnoticed.
+KAGGLE = {
+    "daily": ["continual", "daily", "every 30 minutes", "live"],
+    "weekly": ["hourly, checked weekly", "weekly"],
+    "monthly": [
+        "as the police database changes",
+        "monthly",
+        "through the year",
+        "weekly in the sampling season",
+    ],
+    "quarterly": ["quarterly"],
+    "annually": [
+        "",
+        "about twice a year",
+        "after each Census",
+        "annually",
+        "annually, in March",
+        "annually, last updated for 2022/23",
+        "as buoys are deployed and retired",
+        "as counts are added",
+        "as localities change",
+        "as places are listed",
+        "as required",
+        "as stations open and close",
+        "as the register changes",
+        "each school year",
+        "half-yearly",
+        "irregular",
+        "irregular, about every one or two years",
+        "irregular, about twice a year",
+        "irregular, several times a year",
+        "one file a year",
+        "several times a year",
+        "twice a year",
+        "when a site changes",
+        "when the ABS releases a new edition",
+        "when the council updates the list",
+        "when the publisher maps new fires",
+        "when the publisher updates the layer",
+        "when the publisher updates the list",
+        "when the zones change",
+        "yearly",
+        "yearly, for the next school year",
+    ],
+    "never": [
+        "closed",
+        "closed year",
+        "historical, not updated",
+        "historical, not updated since 2019",
+        "monthly until June 2024",
+        "no longer updated",
+        "no new readings since April 2025",
+        "not updated since 2015",
+        "not updated since 2017",
+        "not updated since 2022",
+    ],
+}
+
+
+@pytest.mark.parametrize(("choice", "text"), [(k, t) for k, ts in KAGGLE.items() for t in ts])
+def test_each_register_cadence_keeps_its_kaggle_choice(choice, text):
+    assert cadence.kaggle_frequency(text) == choice
 
 
 def test_measured_bytes_count_the_source_twice_and_the_partitions():
@@ -232,7 +307,7 @@ def test_a_ckan_landing_page_edit_is_not_a_moved_source(tmp_path):
     write("res", "https://x/res", resource="r2")
     write("file", "https://x/file/", adapter="file")
     entries = {s: f"register/{s}.yaml" for s in ("page", "res", "file")}
-    assert cost.source_moved(tmp_path, "HEAD", entries) == {"res", "file"}
+    assert cost.entry_changes(tmp_path, "HEAD", entries)[0] == {"res", "file"}
 
 
 def test_a_host_that_refuses_head_is_sized_from_a_one_byte_get(monkeypatch):
@@ -256,6 +331,78 @@ def test_a_host_that_refuses_head_is_sized_from_a_one_byte_get(monkeypatch):
     assert cost._size("https://example.gov.au/f.csv", 5) == 987654
 
 
+def _repo(tmp_path, files):
+    def git(*a):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    for path, text in files.items():
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(text, "utf-8")
+    git("add", ".")
+    git("-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qm", "base")
+    return git
+
+
+BASE = """source:
+  adapter: socrata
+  url: https://x/a
+  encoding: utf-8
+fields:
+  - name: a
+    source: A
+    type: string
+    description: one
+"""
+
+
+@pytest.mark.parametrize(
+    ("edit", "moved", "reshaped"),
+    [
+        (BASE.replace("utf-8", "cp1252"), False, False),
+        (BASE.replace("description: one", "description: two"), False, False),
+        (BASE + "unpivot: a\n", True, True),
+        (BASE + "wide:\n  key: a\n", True, True),
+        (BASE + "kind: database\n", True, True),
+        (BASE.replace("type: string", "type: integer"), True, True),
+        (BASE + "partition_by: [a]\n", False, True),
+        (BASE.replace("https://x/a", "https://x/b"), True, False),
+    ],
+)
+def test_an_edit_to_what_a_version_publishes_counts_as_moved(tmp_path, edit, moved, reshaped):
+    _repo(tmp_path, {"register/a.yaml": BASE})
+    (tmp_path / "register" / "a.yaml").write_text(edit, "utf-8")
+    fresh, shaped = cost.entry_changes(tmp_path, "HEAD", {"a": "register/a.yaml"})
+    assert ("a" in fresh, "a" in shaped) == (moved, reshaped)
+
+
+def test_an_entry_moved_into_a_folder_is_compared_with_its_base_copy(tmp_path):
+    git = _repo(tmp_path, {"register/a.yaml": BASE, "register/b.yaml": BASE})
+    (tmp_path / "register" / "qld").mkdir()
+    git("mv", "register/a.yaml", "register/qld/a.yaml")
+    git("mv", "register/b.yaml", "register/qld/b.yaml")
+    (tmp_path / "register/qld/a.yaml").write_text(BASE.replace("x/a", "x/big"), "utf-8")
+    entries = {"a": "register/qld/a.yaml", "b": "register/qld/b.yaml"}
+    assert cost.entry_changes(tmp_path, "HEAD", entries)[0] == {"a"}
+    # An entry with no base copy at all is sized as a new one.
+    assert cost.entry_changes(tmp_path, "HEAD", {"c": "register/qld/a.yaml"})[0] == {"c"}
+
+
+def test_a_new_partition_counts_the_rebuild_of_every_stored_version(tmp_path):
+    stored(tmp_path, "crime", *(f"2026-0{m}-01" for m in range(1, 10)), size=0)
+    sizes = cost.catalogue_sizes(catalog(crime={"parquet": 10**8, "ndjson": 3 * 10**8}))
+    ds = [replace(entry("crime", "yearly"), partition_by=("a",))]
+    out = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}),
+                       reshaped={"crime": {}})[0]  # fmt: skip
+    # Each of the nine stored versions gains a 0.3 GB partition copy when it is rebuilt.
+    assert out.bytes_per_version == 7 * 10**8 and out.per_year == 9
+    assert out.rebuild_bytes == 9 * 3 * 10**8 and out.over_budget
+    assert out.gb_per_year == pytest.approx(9 * 0.7 + 2.7)
+    same = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}),
+                        reshaped={"crime": {"partition_by": ["a"]}})[0]  # fmt: skip
+    assert same.rebuild_bytes == 0
+
+
 def test_a_moved_source_is_found_against_the_base(tmp_path):
     def git(*a):
         subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
@@ -271,7 +418,7 @@ def test_a_moved_source_is_found_against_the_base(tmp_path):
     (tmp_path / "register" / "a.yaml").write_text("source:\n  url: https://x/new\n", "utf-8")
     (tmp_path / "register" / "b.yaml").write_text("source:\n  url: https://x/b\n  cadence: monthly\n", "utf-8")  # fmt: skip
     entries = {"a": "register/a.yaml", "b": "register/b.yaml"}
-    assert cost.source_moved(tmp_path, "HEAD", entries) == {"a"}
+    assert cost.entry_changes(tmp_path, "HEAD", entries) == ({"a"}, {})
 
 
 def test_the_gate_fails_a_changed_entry_over_budget(tmp_path):
@@ -284,7 +431,7 @@ def test_the_gate_fails_a_changed_entry_over_budget(tmp_path):
     run = dict(datasets=ds, store_dir=tmp_path, catalog_src=str(cat), today=TODAY)
     assert cost.run(changed={"big"}, summary=str(summary), **run) == 1
     text = summary.read_text("utf-8")
-    assert "| `big` | 13.000 (estimate) | 52 (cadence) | 676.000 | yes |" in text
+    assert "| `big` | 13.000 (estimate) | 52 (cadence) | 0.000 | 676.000 | yes |" in text
     assert "cost-approved" in text and "Projected growth" in text
     assert cost.run(changed={"big"}, approved=True, **run) == 0
     assert cost.run(changed={"small"}, **run) == 0

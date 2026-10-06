@@ -9,7 +9,7 @@ import json
 import os
 import subprocess
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
@@ -42,6 +42,8 @@ class Projection:
     per_year_basis: str
     stored_versions: int
     budget_gb: float = BUDGET_GB_YEAR
+    # A change to the entry's output rebuilds every stored version once with the new shape.
+    rebuild_bytes: int = 0
 
     @property
     def gb_per_version(self) -> float | None:
@@ -50,7 +52,7 @@ class Projection:
     @property
     def gb_per_year(self) -> float | None:
         g = self.gb_per_version
-        return None if g is None else g * self.per_year
+        return None if g is None else g * self.per_year + self.rebuild_bytes / GB
 
     @property
     def over_budget(self) -> bool:
@@ -72,7 +74,8 @@ def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple
         return float(min(max(n, 1), cap)), basis
     since = today - dt.timedelta(days=365)
     recent = sum(1 for v in versions if since < dt.date.fromisoformat(v) <= today)
-    if declared is not None and declared >= recent:
+    # An ended cadence cannot bring the rate to zero while the fetch still runs.
+    if declared and declared >= recent:
         return float(min(declared, cap)), "cadence"
     # A served entry that has not changed for a year is still expected to change again.
     return float(min(max(recent, 1), cap)), "observed"
@@ -172,10 +175,13 @@ def project(
     fresh: frozenset[str] = frozenset(),
     prober=probe,
     probing: bool = False,
+    reshaped: dict[str, dict] | None = None,
 ) -> list[Projection]:
     """`sizes` is None when the catalogue could not be read; a changed entry is then unknown.
-    `fresh` are changed entries whose source moved: sized from the new file, and never below
-    what the newest version measures."""
+    `fresh` are changed entries whose source or output shape moved: sized from the new file,
+    and never below what the newest version measures. `reshaped` holds the base copy of each
+    entry whose output shape changed, so the rebuild of its stored versions is counted."""
+    reshaped = reshaped or {}
     out = []
     for ds in datasets:
         ms = store.manifests(store_dir, ds.slug)
@@ -196,7 +202,21 @@ def project(
             b, basis = measured, "measured"
         elif newest is not None:
             b, basis = newest.bytes * SOURCE_MULTIPLIER, "estimate"
-        out.append(Projection(ds.slug, b, basis, n, n_basis, len(ms)))
+        rebuild = 0
+        if ds.slug in reshaped and ms and b is not None:
+            old = reshaped[ds.slug]
+            before = replace(
+                ds,
+                partition_by=tuple(old.get("partition_by") or ()),
+                geometry=old.get("geometry") or None,
+            )
+            was = (
+                measured_bytes(before, sizes[ds.slug], newest.bytes)
+                if measured is not None
+                else newest.bytes * SOURCE_MULTIPLIER
+            )
+            rebuild = max(0, b - was) * len(ms)
+        out.append(Projection(ds.slug, b, basis, n, n_basis, len(ms), rebuild_bytes=rebuild))
     return out
 
 
@@ -238,7 +258,7 @@ def fleet(projections: list[Projection]) -> Fleet:
     """Stored bytes count every stored version at its newest version's size, an estimate."""
     return Fleet(
         sum((p.bytes_per_version or 0) * p.stored_versions for p in projections),
-        round(sum((p.bytes_per_version or 0) * p.per_year for p in projections)),
+        round(sum((p.bytes_per_version or 0) * p.per_year + p.rebuild_bytes for p in projections)),
     )
 
 
@@ -291,27 +311,63 @@ def changed_entries(register_dir: Path, paths: list[str], root: Path) -> dict[st
     return out
 
 
-def _source(text: str) -> dict:
-    src = dict((yaml.safe_load(text) or {}).get("source") or {})
-    src.pop("cadence", None)
+# Source keys that change how a file is read, never which file or how much of it.
+QUIET_SOURCE_KEYS = ("cadence", "encoding", "as_at_regex")
+# Top-level keys that change what a version publishes. partition_by is measured from the
+# catalogue's files, so it only changes the rebuild of stored versions.
+SHAPE_KEYS = ("unpivot", "wide", "enrich", "geometry", "kind", "database", "tables")
+
+
+def _source(raw: dict) -> dict:
+    src = dict(raw.get("source") or {})
+    for k in QUIET_SOURCE_KEYS:
+        src.pop(k, None)
     # A CKAN entry's url is the landing page; the fetch reads the portal, package and resource.
     if src.get("adapter") == "ckan-resource":
         src.pop("url", None)
     return src
 
 
-def source_moved(root: Path, base: str, entries: dict[str, str]) -> set[str]:
-    """Changed entries whose source differs from the base's, so the stored file no longer says
-    how big a version will be. A new entry has no base to differ from."""
-    out = set()
-    for slug, path in entries.items():
-        try:
-            old = _git(root, "show", f"{base}:{path}")
-        except subprocess.CalledProcessError:
-            continue
-        if _source(old) != _source((root / path).read_text(encoding="utf-8")):
-            out.add(slug)
+def _shape(raw: dict) -> dict:
+    out = {k: raw.get(k) for k in SHAPE_KEYS}
+    # A field's description or label leaves the bytes alone; its name, source and type do not.
+    out["fields"] = [
+        (f.get("name"), f.get("source"), f.get("type")) if isinstance(f, dict) else f
+        for f in raw.get("fields") or ()
+    ]
     return out
+
+
+def _base_paths(root: Path, base: str) -> dict[str, str]:
+    """Entry paths in the base by slug, so a file moved into a folder still finds its copy."""
+    out = {}
+    for p in _git(root, "ls-tree", "-r", "--name-only", base, "--", "register").splitlines():
+        parts = Path(p).parts
+        if p.endswith(".yaml") and len(parts) > 1 and parts[1] not in ("publishers", "licences"):
+            out[Path(p).stem] = p
+    return out
+
+
+def entry_changes(
+    root: Path, base: str, entries: dict[str, str]
+) -> tuple[set[str], dict[str, dict]]:
+    """Changed entries whose source or output shape differs from the base's, so the stored
+    file no longer says how big a version will be, and the base copy of each entry whose
+    output shape changed. An entry with no base copy counts as moved."""
+    fresh, reshaped = set(), {}
+    base_paths = _base_paths(root, base)
+    for slug, path in entries.items():
+        new = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
+        if slug not in base_paths:
+            fresh.add(slug)
+            continue
+        old = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
+        shaped = _shape(old) != _shape(new)
+        if shaped or _source(old) != _source(new):
+            fresh.add(slug)
+        if shaped or old.get("partition_by") != new.get("partition_by"):
+            reshaped[slug] = old
+    return fresh, reshaped
 
 
 def load_catalog(where: str) -> dict:
@@ -332,13 +388,13 @@ BASIS = {"measured": "", "estimate": " (estimate)", "unknown": " (size unknown)"
 def _row(p: Projection) -> str:
     return (
         f"| `{p.slug}` | {_gb(p.gb_per_version)}{BASIS[p.basis]} | {p.per_year:g} ({p.per_year_basis}) "
-        f"| {_gb(p.gb_per_year)} | {'yes' if p.over_budget else 'no'} |"
+        f"| {_gb(p.rebuild_bytes / GB)} | {_gb(p.gb_per_year)} | {'yes' if p.over_budget else 'no'} |"
     )
 
 
 HEAD = (
-    "| slug | GB/version | versions/yr | GB/yr | over budget |",
-    "|---|---|---|---|---|",
+    "| slug | GB/version | versions/yr | rebuild GB | GB/yr | over budget |",
+    "|---|---|---|---|---|---|",
 )
 
 
@@ -382,6 +438,8 @@ def report(
         f"${f.usd_per_month_now:,.2f} a month now and ${f.usd_per_month_in_a_year:,.2f} a month "
         "in a year, since storage accumulates.",
         "",
+        "A change to an entry's output rebuilds each of its stored versions once, counted at the "
+        "newest version's size in the rebuild column and in the year's figure. "
         "Sizes marked estimate are the source bytes times "
         f"{SOURCE_MULTIPLIER}, the fleet's measured ratio; the rest are read from the newest "
         f"version's files in the catalogue, with the publisher's file counted {SOURCE_COPIES} "
@@ -408,6 +466,7 @@ def run(
     probing: bool = False,
     fresh: set[str] = frozenset(),
     summary: str | None = None,
+    reshaped: dict[str, dict] | None = None,
 ) -> int:
     known = {d.slug for d in datasets}
     if missing := sorted(changed - known):
@@ -423,7 +482,14 @@ def run(
             "the rest are estimates."
         )
     projections = project(
-        datasets, store_dir, sizes, today, frozenset(changed), frozenset(fresh), probing=probing
+        datasets,
+        store_dir,
+        sizes,
+        today,
+        frozenset(changed),
+        frozenset(fresh),
+        probing=probing,
+        reshaped=reshaped,
     )
     text, over = report(projections, changed, approved, note)
     f = fleet(projections)
@@ -436,8 +502,8 @@ def run(
         if p.slug in changed:
             print(
                 f"cost: {p.slug} {_gb(p.gb_per_version)} GB/version ({p.basis}) x "
-                f"{p.per_year:g}/yr ({p.per_year_basis}) = {_gb(p.gb_per_year)} GB/yr"
-                + (" OVER BUDGET" if p.over_budget else "")
+                f"{p.per_year:g}/yr ({p.per_year_basis}) + {_gb(p.rebuild_bytes / GB)} GB rebuild "
+                f"= {_gb(p.gb_per_year)} GB/yr" + (" OVER BUDGET" if p.over_budget else "")
             )
     path = summary or os.environ.get("GITHUB_STEP_SUMMARY")
     if path:

@@ -598,12 +598,12 @@ def cmd_cost(args) -> int:
     from . import cost
     from .register import load
 
-    changed, fresh = set(args.slug), set()
+    changed, fresh, reshaped = set(args.slug), set(), {}
     if args.base:
         base, paths = cost.changed_paths(args.base, ROOT)
         entries = cost.changed_entries(REGISTER, paths, ROOT)
         changed |= set(entries)
-        fresh = cost.source_moved(ROOT, base, entries)
+        fresh, reshaped = cost.entry_changes(ROOT, base, entries)
     today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
     return cost.run(
         load(REGISTER),
@@ -615,6 +615,7 @@ def cmd_cost(args) -> int:
         probing=args.probe,
         fresh=fresh,
         summary=args.summary,
+        reshaped=reshaped,
     )
 
 

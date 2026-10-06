@@ -51,8 +51,14 @@ def per_year(text: str, feed: bool = False, today: dt.date | None = None) -> flo
     return float(FEED_MAX) if feed else None
 
 
-# Cadences that name no rate but whose rate is known from the store's history.
-KAGGLE_KNOWN = {"as the police database changes": "monthly"}
+# Cadences that name no rate but whose rate is known from the store's history, or whose rate
+# above is an upper bound the hubs must not promise.
+KAGGLE_KNOWN = {
+    "as the police database changes": "monthly",
+    "weekly in the sampling season": "monthly",
+}
+# Some number of times a year above one: the cost counts it as quarterly, Kaggle as annually.
+KAGGLE_SLOWER = re.compile(r"several times a year")
 
 
 def kaggle_frequency(text: str) -> str:
@@ -61,7 +67,7 @@ def kaggle_frequency(text: str) -> str:
     if known := KAGGLE_KNOWN.get(text.strip().lower()):
         return known
     n = per_year(text)
-    if n is None:
+    if n is None or (n and KAGGLE_SLOWER.search(text.lower())):
         return "annually"
     for floor, name in ((365, "daily"), (52, "weekly"), (12, "monthly"), (4, "quarterly")):
         if n >= floor:
