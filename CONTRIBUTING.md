@@ -316,11 +316,15 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   keep the publisher's order and the file has no page index, so set `sort` to the field the
   source is already ordered by when that order serves the main filter. Only data.parquet and the
   files made from it are sorted. A sort that suits one filter slows another, so give the
-  benchmark or the queries that justify it in the PR. Changing `sort` rebuilds every version of
-  the entry and never cuts a new one.
+  benchmark or the queries that justify it in the PR. Changing `sort` never cuts a new version.
 - `lookup` lists fields that get a bloom filter in data.parquet, for an equality lookup, such as
   an identifier, on an entry sorted for another filter. A boolean field cannot be a lookup.
-  Neither field applies to a `kind: database` entry.
+- `int32` lists integer fields written as INT32 in data.parquet, for a field whose values always
+  fit 32 bits, such as a year, a count or a short identifier. A version holding a larger value
+  stops the build, so leave out anything that can grow past 2,147,483,647.
+- A version keeps the `sort`, `lookup` and `int32` its fetch found, so an edit to them changes
+  the files of later versions and the query copies not yet written. None of the three applies to
+  a `kind: database` entry.
 - Each field carries a `label`, the name a reader sees in the explorer. `publicdata register
   labels <slug> --write` fills in any that are missing, reusing the label another entry gives a
   field of the same name and drafting the rest from the name. Review the drafts in the PR.

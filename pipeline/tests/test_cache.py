@@ -57,6 +57,7 @@ def _matches_except_absent(full, slim, vouts, slug="t"):
     """slim holds exactly full's files less each version's absent ones, byte for byte. A file
     read back after the cache left it out is in slim, as the build's absent list counts it."""
     absent = {f"d/{slug}/v/{v.manifest.version}/{rel}" for v in vouts for rel in v.absent}
+    absent |= {v.query for v in vouts if v.query}  # a query copy is published once
     absent = {a for a in absent if not (slim / a).exists()}
     assert _tree(slim) == sorted(set(_tree(full)) - absent)
     _, mismatch, errors = filecmp.cmpfiles(full, slim, _tree(slim), shallow=False)
@@ -107,7 +108,7 @@ def test_a_new_version_diffs_against_the_cached_one_without_its_source(tmp_path,
     # The diff and the history read the cached version's Parquet back, so that is in the tree.
     absent = _matches_except_absent(tmp_path / "plain", tmp_path / "warm", out.versions)
     assert (tmp_path / "warm" / "d/t/v/2026-01-01/data.parquet").exists()
-    assert all("/2026-01-01/" in a for a in absent)
+    assert all("/2026-01-01/" in a or a == "_q/t/2026-01-01.parquet" for a in absent)
 
 
 def test_a_register_change_rebuilds_and_prune_drops_the_old_entry(two_versions, tmp_path):

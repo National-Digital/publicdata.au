@@ -21,6 +21,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from .serialise import SQLITE_TYPES, dumps
+from .serialise.profile import signature
 
 KEEP = 2
 MAX_STATEMENT = 90_000  # D1 allows 100 KB per statement
@@ -48,6 +49,15 @@ REGISTRY = """CREATE TABLE IF NOT EXISTS _versions (
   rows INTEGER NOT NULL,
   attribution TEXT NOT NULL,
   header TEXT NOT NULL,
+  PRIMARY KEY (slug, version)
+);"""
+# The row order each loaded version was taken in (serialise.profile.signature), kept apart from
+# _versions so the registry the API reads keeps its columns. A version loaded in another order
+# than its Parquet's is loaded again, so rowid agrees with the Parquet and the console.
+ORDERS = """CREATE TABLE IF NOT EXISTS _orders (
+  slug TEXT NOT NULL,
+  version TEXT NOT NULL,
+  ord TEXT NOT NULL,
   PRIMARY KEY (slug, version)
 );"""
 
@@ -233,6 +243,7 @@ def prune_sql(slug: str, loaded: list[str], new: str, keep: int = KEEP):
     for v in versions[keep:]:
         yield f'DROP TABLE IF EXISTS "{table_name(slug, v)}";'
         yield f"DELETE FROM _versions WHERE slug = {literal(slug)} AND version = {literal(v)};"
+        yield f"DELETE FROM _orders WHERE slug = {literal(slug)} AND version = {literal(v)};"
 
 
 def queryable(ds, sqlite_bytes: int | None) -> bool:
@@ -277,13 +288,15 @@ def write_loads(
     out: Path,
     stamp: str = "",
     loaded_fields: dict[tuple[str, str], str] | None = None,
+    loaded_orders: dict[tuple[str, str], str] | None = None,
 ) -> list[Path]:
     """SQL files for each live dataset whose latest version is not loaded yet, in parts that run
     in name order. The first part recreates the table and the last registers the version, so a
     part that fails leaves a table the API never reads and the next deploy starts that version
     again. `roots` are the built trees to look for data.parquet in, such as dist and the tree
     split off for R2. A loaded version whose fields differ from the built one, as when a column
-    is joined in, is loaded again."""
+    is joined in, or whose rows were taken in another order than its Parquet's, is loaded
+    again."""
     out.mkdir(parents=True, exist_ok=True)
     written = []
     latest_json = next((r / "latest.json" for r in roots if (r / "latest.json").exists()), None)
@@ -296,7 +309,12 @@ def write_loads(
         src = next((r / rel for r in roots if (r / rel).exists()), None)
         if version in loaded.get(ds.slug, []):
             had = (loaded_fields or {}).get((ds.slug, version))
-            if had is None or src is None or json.loads(had) == built_fields(ds, src):
+            ord_ = (loaded_orders or {}).get((ds.slug, version), "")
+            if (
+                had is None
+                or src is None
+                or (json.loads(had) == built_fields(ds, src) and ord_ == signature(src))
+            ):
                 continue
         if src is None or not queryable(ds, _sqlite_bytes(roots, ds.slug, version)):
             continue
@@ -308,7 +326,18 @@ def write_loads(
         register = body.pop()
         # Registering is the last statement of all, so a version counts as loaded only once every
         # part, the pruning of older versions included, has run.
-        stmts = [REGISTRY, *body, *prune_sql(ds.slug, loaded.get(ds.slug, []), version), register]
+        order = (
+            "INSERT OR REPLACE INTO _orders VALUES "
+            f"({literal(ds.slug)}, {literal(version)}, {literal(signature(src))});"
+        )
+        stmts = [
+            REGISTRY,
+            ORDERS,
+            *body,
+            *prune_sql(ds.slug, loaded.get(ds.slug, []), version),
+            order,
+            register,
+        ]
         written += _parts(out, f"{ds.slug}@{version}", stmts, stamp)
     return written
 

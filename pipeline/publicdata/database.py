@@ -15,7 +15,6 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .normalise import NormaliseError
@@ -26,6 +25,7 @@ from .serialise import (
     duckdb_comment,
     duckdb_connect,
     duckdb_meta,
+    dumps,
     pretty,
     profile,
 )
@@ -111,28 +111,20 @@ def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[
     return con.execute(f"SELECT count(*) FROM {_ident(t.name)}").fetchone()[0]
 
 
-def _write_parquet(con, t: TableSpec, header: dict, path: Path) -> None:
-    """One table under the Parquet profile, a row group at a time, in the publisher's order."""
-    name = _ident(t.name)
-    cols = con.execute(f"SELECT * FROM {name} LIMIT 0").to_arrow_table().schema
-    wide = [f.name for f in cols if pa.types.is_int64(f.type)]
-    fits = set()
-    if wide:
-        lo, hi = profile.INT32
-        tests = ", ".join(
-            f"coalesce(min({_ident(c)}) >= {lo} AND max({_ident(c)}) <= {hi}, true)" for c in wide
-        )
-        row = con.execute(f"SELECT {tests} FROM {name}").fetchone()
-        fits = {c for c, ok in zip(wide, row, strict=True) if ok}
-    exprs = ", ".join(
-        f"CAST({_ident(c)} AS INTEGER) AS {_ident(c)}" if c in fits else _ident(c)
-        for c in cols.names
-    )
-    reader = con.execute(f"SELECT {exprs} FROM {name}").to_arrow_reader(profile.ROW_GROUP_ROWS)
-    schema = reader.schema.with_metadata(profile.metadata(header))
-    with pq.ParquetWriter(path, schema, **profile.options(schema)) as w:
+def _write_parquet(con, t: TableSpec, header: dict, path: Path, profiled: bool) -> None:
+    """One table in the publisher's order: under the Parquet profile, a row group at a time, for
+    a version fetched since, and else as the version was first published."""
+    size = profile.ROW_GROUP_ROWS if profiled else 65_536
+    reader = con.execute(f"SELECT * FROM {_ident(t.name)}").to_arrow_reader(size)
+    if not profiled:
+        schema = reader.schema.with_metadata({"publicdata": dumps(header)})
+        opts = dict(compression="zstd", write_statistics=True)
+    else:
+        schema = reader.schema.with_metadata(profile.metadata(header))
+        opts = profile.options(schema)
+    with pq.ParquetWriter(path, schema, **opts) as w:
         for b in reader:
-            w.write_batch(b, row_group_size=profile.ROW_GROUP_ROWS)
+            w.write_batch(b, row_group_size=size if profiled else None)
 
 
 def _frictionless_field(f: Field) -> dict:
@@ -266,6 +258,7 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
                     t,
                     hdr(n, f"tables/{t.name}.parquet"),
                     vdir / "tables" / f"{t.name}.parquet",
+                    bool(m.parquet),
                 )
             for v in ds.views:
                 con.execute(f"CREATE VIEW {_ident(v.name)} AS {v.sql.rstrip(';')}")

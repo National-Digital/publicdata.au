@@ -266,9 +266,10 @@ class Dataset:
     collection_title: str = ""
     key: tuple[str, ...] = ()
     partition_by: tuple[str, ...] = ()
-    # The Parquet's row order and its bloom-filtered fields (docs/adr/0008).
+    # The Parquet's row order, its bloom-filtered fields and its INT32 fields (docs/adr/0008).
     sort: tuple[str, ...] = ()
     lookup: tuple[str, ...] = ()
+    int32: tuple[str, ...] = ()
     unpivot: str = ""
     wide: dict | None = None
     geometry: dict | None = None
@@ -528,6 +529,7 @@ def parse(raw: dict, ctx: str) -> Dataset:
             "partition_by",
             "sort",
             "lookup",
+            "int32",
             "geometry",
             "wide",
             "unpivot",
@@ -638,11 +640,11 @@ def parse(raw: dict, ctx: str) -> Dataset:
 
 
 def _profile(raw: dict, fields: list[Field], ctx: str) -> dict:
-    """`sort` and `lookup`: declared fields, each named once. A boolean has two values, which a
-    bloom filter cannot tell apart."""
+    """`sort`, `lookup` and `int32`: declared fields, each named once. A boolean has two values,
+    which a bloom filter cannot tell apart, and only an integer field can be INT32."""
     by = {f.name: f for f in fields}
     out = {}
-    for name in ("sort", "lookup"):
+    for name in ("sort", "lookup", "int32"):
         val = raw.get(name) or []
         if not isinstance(val, list):
             raise RegisterError(f"{ctx}: {name} is a list of fields")
@@ -654,6 +656,8 @@ def _profile(raw: dict, fields: list[Field], ctx: str) -> dict:
                 raise RegisterError(f"{ctx}: {name} field '{n}' is not a declared field")
             if name == "lookup" and by[n].type == "boolean":
                 raise RegisterError(f"{ctx}: lookup field '{n}' is a boolean")
+            if name == "int32" and by[n].type != "integer":
+                raise RegisterError(f"{ctx}: int32 field '{n}' is not an integer")
         out[name] = names
     return out
 

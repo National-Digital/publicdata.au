@@ -14,6 +14,7 @@ from pathlib import Path
 from . import SITE, explorer, serialise, structured
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
+from .serialise.profile import query_key
 
 FORBIDDEN_TEXT = re.compile(r"\b(seamless|streamline|empower|unlock|leverage|robust)", re.I)
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
@@ -270,6 +271,10 @@ def checked(
         for f in need:
             if not have(f):
                 errors.append(f"{slug}/{version}: missing {f}")
+        if ds.kind != "database":
+            q = query_key(slug, version)
+            if not (out / q).exists() and q not in absent:
+                errors.append(f"{slug}/{version}: missing its query copy {q}")
         if m.get("unknown_upstream_columns"):
             errors.append(
                 f"{slug}/{version}: unknown upstream columns held: {m['unknown_upstream_columns']}"

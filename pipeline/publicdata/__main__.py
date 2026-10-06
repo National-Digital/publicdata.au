@@ -275,6 +275,11 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             for rel in v.absent
             if not (out / (r := f"d/{o.dataset.slug}/v/{v.manifest.version}/{rel}")).exists()
         )
+        # A cached version's query copy was pushed by the build that made it.
+        absent += sorted(
+            v.query for o in outs for v in o.versions if v.query and not (out / v.query).exists()
+        )
+        absent.sort()
         Path(args.absent).write_text(json.dumps(absent, indent=0) + "\n", encoding="utf-8")
         print(f"cache: {len(absent)} published file(s) left out, listed in {args.absent}")
     print(f"built {sum(1 for p in out.rglob('*') if p.is_file())} files into {out}")
@@ -300,6 +305,7 @@ def cmd_split(args) -> int:
     """Move files that R2 serves into a sibling tree: anything over the Pages per-file limit
     and, with --versioned, every file of a dated version, its page included. A file moved to R2
     is only reachable where _routes.json runs the function that reads it."""
+    from .serialise.profile import QUERY_DIR
     from .site import ROUTES
 
     routed = [
@@ -312,6 +318,13 @@ def cmd_split(args) -> int:
         if not p.is_file():
             continue
         rel = p.relative_to(out).as_posix()
+        if rel.startswith(f"{QUERY_DIR}/"):
+            # A query copy lives in R2 alone, where only the query engine reads it.
+            dest = large / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(p), dest)
+            moved += 1
+            continue
         versioned = args.versioned and VERSIONED_FILE.match(rel)
         if versioned or p.stat().st_size > limit:
             if not any(r.match("/" + rel) for r in routed):
@@ -376,6 +389,7 @@ def cmd_d1(args) -> int:
 
     loaded: dict[str, list[str]] = {}
     loaded_fields: dict[tuple[str, str], str] = {}
+    loaded_orders: dict[tuple[str, str], str] = {}
     if args.loaded and Path(args.loaded).exists():
         raw = json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")
         rows = (
@@ -387,9 +401,17 @@ def cmd_d1(args) -> int:
             loaded.setdefault(r["slug"], []).append(r["version"])
             if "fields" in r:
                 loaded_fields[(r["slug"], r["version"])] = r["fields"]
+            if r.get("ord") is not None:
+                loaded_orders[(r["slug"], r["version"])] = r["ord"]
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
     parts = write_loads(
-        [Path(r) for r in args.root], live, loaded, Path(args.out), args.stamp, loaded_fields
+        [Path(r) for r in args.root],
+        live,
+        loaded,
+        Path(args.out),
+        args.stamp,
+        loaded_fields,
+        loaded_orders,
     )
     if args.catalogue and Path(args.catalogue).exists():
         parts += catalogue_loads(

@@ -2,7 +2,7 @@
 records table of its data.sqlite. Dates are ISO text, booleans 1 and 0, the suppressed flags
 joined with ";", a float's NaN a null, a layer's shapes left out, and rowid is the row's place in
 the file. The pages' figures, the query console and the D1 load read the Parquet alone, and
-answer as SQLite did."""
+answer as SQLite did, in the Parquet's row order."""
 
 from __future__ import annotations
 
@@ -16,7 +16,9 @@ import pyarrow.parquet as pq
 
 ROWID = "rowid"
 # SQLite sums floats with Kahan-Babuska-Neumaier compensation, in row order, and averages the
-# compensated sum, so a total or a mean here agrees with it to the last bit.
+# compensated sum. This sums the same way in the Parquet's row order, so a total or a mean agrees
+# with data.sqlite to the last bit when the Parquet keeps the publisher's order; a sorted Parquet
+# sums in its own order, and the last bit can differ.
 # The lambdas' names cannot be a column's, which would shadow them.
 _PAIRS = "list_transform(list({c} ORDER BY rowid) FILTER (WHERE {c} IS NOT NULL), kbn_x -> {{'s': kbn_x, 'c': 0.0::DOUBLE}})"
 _KBN = (

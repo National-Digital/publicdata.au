@@ -17,9 +17,12 @@ def write_duckdb(tbl: Table, header: dict, path: Path) -> None:
         if "suppressed" in tbl.table.column_names:
             cols.append('"suppressed" VARCHAR[]')
         con.execute(f"CREATE TABLE records ({', '.join(cols)})")
-        con.register("src", profile.ordered(tbl.table, ds.sort, ds.key))
-        con.execute("INSERT INTO records SELECT * FROM src")
-        con.unregister("src")
+        lay = tbl.manifest.parquet
+        perm = profile.order_of(tbl, lay["sort"], lay["key"]) if lay else None
+        for part in profile.chunks(tbl.table, perm):
+            con.register("src", part)
+            con.execute("INSERT INTO records SELECT * FROM src")
+            con.unregister("src")
         duckdb_comment(con, "records", None, ds.title)
         for f in ds.fields:
             duckdb_comment(con, "records", f.name, f.description or f.source)

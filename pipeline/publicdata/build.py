@@ -35,7 +35,15 @@ from .serialise import (
     write_partitions,
 )
 from .serialise.geo import geo_kind
-from .serialise.profile import permutation, widen
+from .serialise.profile import (
+    layout,
+    order_of,
+    permutation,
+    query_key,
+    sha256,
+    signature,
+    widen,
+)
 
 REGISTER_DIR = Path(__file__).resolve().parents[2] / "register"
 
@@ -51,6 +59,7 @@ class VersionOut:
     first: str = ""  # the first row of data.ndjson, which the dataset page shows
     absent: tuple[str, ...] = ()  # files a cached build left out; already published
     tables: dict[str, int] = field(default_factory=dict)  # a database's tables and their rows
+    query: str = ""  # the tree path of a table version's query copy (serialise.profile)
 
 
 # What a cached version keeps: the small files a later build reads back, for the gate and the
@@ -169,6 +178,7 @@ def build_version(
         if store_dir is None:
             raise ValueError(f"{ds.slug}: joining the place spine needs the store")
         tbl = enrich(tbl, store_dir, REGISTER_DIR)
+    tbl = _sorted_once(tbl, m.parquet)
     vdir = out / "d" / ds.slug / "v" / m.version
     if vdir.exists():
         shutil.rmtree(vdir)
@@ -182,6 +192,7 @@ def build_version(
     if "ndjson" not in fmts:
         raise ValueError("every build writes data.ndjson, which the dataset page reads back")
     write_formats(tbl, fmts, hdr, vdir)
+    query = _query_copy(tbl, hdr(tbl.rows, "data.parquet"), vdir, out)
     partitions = write_partitions(tbl, hdr, vdir)
     (vdir / "schema.json").write_text(pretty(table_schema(tbl)), encoding="utf-8")
     (vdir / "schema.sql").write_text(schema_sql(tbl, hdr(tbl.rows, "schema.sql")), encoding="utf-8")
@@ -211,7 +222,37 @@ def build_version(
         tbl.suppressed_cells,
         partitions,
         _first_row(vdir),
+        query=query,
     )
+
+
+def _sorted_once(tbl: Table, lay: dict) -> Table:
+    """tbl carrying its permutation under layout `lay`, so every writer that sorts takes it."""
+    if not lay or not lay.get("sort"):
+        return tbl
+    perm = permutation(tbl.table, lay["sort"], lay["key"])
+    return replace(tbl, order=(tbl.table, (tuple(lay["sort"]), tuple(lay["key"])), perm))
+
+
+def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
+    """The version's query copy under the current profile and register entry, at its internal
+    key: the version's own data.parquet when that already follows them, else written again.
+    Returns its path in the tree."""
+    from .serialise.writers.geo_parquet import write_shape_parquet
+    from .serialise.writers.parquet import write_parquet
+
+    ds, m = tbl.dataset, tbl.manifest
+    rel = query_key(ds.slug, m.version)
+    p = out / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.unlink(missing_ok=True)
+    lay = layout(ds)
+    if m.parquet == lay and (vdir / "data.parquet").is_file():
+        _link_or_copy(str(vdir / "data.parquet"), str(p))
+        return rel
+    q = _sorted_once(tbl, lay)
+    (write_shape_parquet if q.geometry is not None else write_parquet)(q, header, p, lay=lay)
+    return rel
 
 
 def _first_row(vdir: Path) -> str:
@@ -402,6 +443,7 @@ def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> Versio
             sorted(k for k in hit["files"] if k != source_name(ds, m) and not (vdir / k).exists())
         ),
         hit.get("tables", {}),
+        query_key(ds.slug, m.version) if ds.kind != "database" else "",
     )
 
 
@@ -462,6 +504,11 @@ def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
                 _link_or_copy(str(root / rel / f), str(out / rel / f))
             v.absent = tuple(f for f in v.absent if f not in took)
             n += len(took)
+            q = v.query
+            if q and not (out / q).exists() and (root / q).is_file():
+                (out / q).parent.mkdir(parents=True, exist_ok=True)
+                _link_or_copy(str(root / q), str(out / q))
+                n += 1
     return n
 
 
@@ -496,8 +543,8 @@ def grow_cached(
         return prov_header(ds, m, rows, base + rel)
 
     tbl = _built_table(ds, m, out)
-    if ds.sort:
-        tbl = _source_order(tbl, cache, key)
+    if m.parquet.get("sort"):
+        tbl = _source_order(tbl, cache, key, vdir / "data.parquet")
         if tbl is None:
             return None
     if "csv.gz" in stale and "csv" not in stale and not (vdir / "data.csv").exists():
@@ -528,8 +575,8 @@ def grow_cached(
     if "ndjson" in stale:
         meta["first"] = _first_row(vdir)  # the dataset page shows it
     cache.put(key, meta, vdir, kept)
-    if ds.sort:
-        _keep_order(cache, key, tbl)
+    if m.parquet.get("sort"):
+        _keep_order(cache, key, tbl, vdir / "data.parquet")
     cache.grown += len(stale)
     return meta
 
@@ -563,33 +610,52 @@ def _cached_version(
             else {f: now[f] for f in formats_for(vout.rows, geo_kind(ds))}
         )
         cache.put(key, _meta(vout, writers), vdir, kept)
-        if tbl is not None and ds.sort:
-            _keep_order(cache, key, tbl)
+        if tbl is not None and m.parquet.get("sort") and (vdir / "data.parquet").is_file():
+            _keep_order(cache, key, tbl, vdir / "data.parquet")
     return tbl, vout
 
 
 # A sorted version's source order, beside its cache entry, so a format that keeps the publisher's
-# order can be written from the sorted Parquet without building the version again.
+# order can be written from the sorted Parquet without building the version again. It records
+# the Parquet it belongs to, and is used only on that file.
 ORDER = "order.parquet"
 
 
-def _keep_order(cache: BuildCache, key: str, tbl: Table) -> None:
-    perm = permutation(tbl.table, tbl.dataset.sort, tbl.dataset.key)
-    pq.write_table(pa.table({"source_row": perm}), cache.root / key / ORDER, compression="zstd")
+def _keep_order(cache: BuildCache, key: str, tbl: Table, parquet: Path) -> None:
+    lay = tbl.manifest.parquet
+    perm = order_of(tbl, lay["sort"], lay["key"])
+    meta = {"parquet_sha256": sha256(parquet), "parquet_bytes": str(parquet.stat().st_size)}
+    t = pa.table({"source_row": perm}).replace_schema_metadata(meta)
+    pq.write_table(t, cache.root / key / ORDER, compression="zstd")
 
 
-def _source_order(tbl: Table, cache: BuildCache, key: str) -> Table | None:
+def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Table | None:
     """A table read back from its sorted Parquet, in the publisher's order again, or None when
-    the cache entry does not record that order."""
+    the cache entry records no order for that very file, as when the published file is another
+    build's, and the version must be built from its source."""
     p = cache.root / key / ORDER
-    if not p.is_file():
+    if not p.is_file() or not parquet.is_file():
         return None
-    perm = pq.read_table(p).column("source_row")
-    if len(perm) != tbl.rows:
+    t = pq.read_table(p)
+    meta = t.schema.metadata or {}
+    if (
+        meta.get(b"parquet_bytes") != str(parquet.stat().st_size).encode()
+        or meta.get(b"parquet_sha256") != sha256(parquet).encode()
+        or not signature(parquet)
+        or t.num_rows != tbl.rows
+    ):
         return None
+    perm = t.column("source_row").combine_chunks()
     back = pc.sort_indices(perm)
     geometry = tbl.geometry.take(back) if tbl.geometry is not None else None
-    return replace(tbl, table=tbl.table.take(back), geometry=geometry)
+    lay = tbl.manifest.parquet
+    table = tbl.table.take(back)
+    return replace(
+        tbl,
+        table=table,
+        geometry=geometry,
+        order=(table, (tuple(lay["sort"]), tuple(lay["key"])), perm),
+    )
 
 
 def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:

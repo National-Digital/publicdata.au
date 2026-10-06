@@ -161,6 +161,7 @@ def test_only_the_newest_versions_are_kept():
     assert stmts == [
         'DROP TABLE IF EXISTS "v_x_20260101";',
         "DELETE FROM _versions WHERE slug = 'x' AND version = '2026-01-01';",
+        "DELETE FROM _orders WHERE slug = 'x' AND version = '2026-01-01';",
     ]
 
 

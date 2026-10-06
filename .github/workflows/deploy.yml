@@ -311,8 +311,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           # Only a database that has never been loaded may be read as empty; any other error stops.
+          # _orders records the row order each version was loaded in, so one loaded in another
+          # order than its Parquet's loads again.
           if ! npx --yes wrangler@4 d1 execute publicdata --remote --json \
-              --command "SELECT slug, version, fields FROM _versions" > loaded.json 2> list.err; then
+              --command "CREATE TABLE IF NOT EXISTS _orders (slug TEXT NOT NULL, version TEXT NOT NULL, ord TEXT NOT NULL, PRIMARY KEY (slug, version)); SELECT v.slug, v.version, v.fields, (SELECT o.ord FROM _orders o WHERE o.slug = v.slug AND o.version = v.version) AS ord FROM _versions v" > loaded.json 2> list.err; then
             if grep -q "no such table" list.err loaded.json; then echo '[]' > loaded.json; else cat list.err loaded.json; exit 1; fi
           fi
           python -m publicdata d1 sql --root "$DIST" --root "$DIST_LARGE" --loaded loaded.json --out d1-load --stamp "$GITHUB_RUN_ID" --catalogue catalogue-search.sqlite
