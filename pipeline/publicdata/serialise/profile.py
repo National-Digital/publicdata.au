@@ -103,15 +103,25 @@ def ordered(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Table:
     return apply(t, permutation(t, sort, key))
 
 
-def int32_schema(t: pa.Table, cols: Sequence[str]) -> pa.Schema:
-    """t's schema with the named integer columns as INT32. A value outside 32 bits stops the
-    build, since the register promised every version of the field fits."""
+def misfits(t: pa.Table, cols: Sequence[str]) -> list[str]:
+    """Each named integer column holding a value outside 32 bits, said with its range. The fetch
+    asks before it stores a version, and register validate asks of the versions held."""
+    out = []
     for c in cols:
+        if c not in t.column_names:
+            continue
         mm = pc.min_max(t.column(c)).as_py()
         if mm["min"] is not None and not (INT32[0] <= mm["min"] and mm["max"] <= INT32[1]):
-            raise ValueError(
-                f"{c} holds {mm['min']} to {mm['max']}, outside 32 bits; take it out of int32"
-            )
+            out.append(f"{c} holds {mm['min']} to {mm['max']}, outside 32 bits")
+    return out
+
+
+def int32_schema(t: pa.Table, cols: Sequence[str]) -> pa.Schema:
+    """t's schema with the named integer columns as INT32. A value outside 32 bits stops the
+    build; the fetch holds such a version back, so this means a field declared since."""
+    bad = misfits(t, cols)
+    if bad:
+        raise ValueError("; ".join(bad) + "; take it out of int32")
     return pa.schema(
         [f.with_type(pa.int32()) if f.name in cols else f for f in t.schema],
         metadata=t.schema.metadata,
@@ -178,18 +188,17 @@ def write(
     path: Path,
     lay: dict,
     perm: pa.Array | None = None,
-    int32: Sequence[str] | None = None,
     extra: dict[str, str] | None = None,
 ) -> None:
     """t as one profile file at path under layout `lay`. `perm` is t's order when the caller has
-    it; `int32` overrides the layout's INT32 fields."""
+    it."""
     if lay.get("profile") != VERSION:
         # A version keeps the profile it was published under, so a later one keeps this writer.
         raise ValueError(f"no writer for Parquet profile {lay.get('profile')!r}")
     sort, key = lay.get("sort", ()), lay.get("key", ())
     if perm is None:
         perm = permutation(t, sort, key)
-    schema = int32_schema(t, lay.get("int32", ()) if int32 is None else int32)
+    schema = int32_schema(t, lay.get("int32", ()))
     schema = schema.with_metadata(metadata(header, extra))
     counts = {c: pc.count_distinct(t.column(c)).as_py() for c in lay.get("lookup", ())}
     sorted_by = sort_columns(sort, key) if sort else []

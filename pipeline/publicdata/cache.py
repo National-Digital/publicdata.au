@@ -163,8 +163,16 @@ class BuildCache:
         self.hits += 1
         return json.loads(meta.read_text(encoding="utf-8"))
 
-    def put(self, key: str, meta: dict, src: Path | None = None, keep=lambda rel: True) -> None:
-        """Stores meta and the files under src that keep(relative path) accepts."""
+    def put(
+        self,
+        key: str,
+        meta: dict,
+        src: Path | None = None,
+        keep=lambda rel: True,
+        extra: dict[str, bytes] | None = None,
+    ) -> None:
+        """Stores meta, the files under src that keep(relative path) accepts, and `extra`, files
+        beside meta.json by name. meta.json is written last, so an entry is whole when it has one."""
         entry = self.root / key
         tmp = self.root / f".{key}.tmp"
         if tmp.exists():
@@ -180,6 +188,8 @@ class BuildCache:
                 dst = tmp / "files" / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 _link_or_copy(str(p), str(dst))
+        for name, data in (extra or {}).items():
+            (tmp / name).write_bytes(data)
         (tmp / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
         if entry.exists():
             shutil.rmtree(entry)

@@ -165,8 +165,10 @@ The profile itself:
   values with a 1% false-positive rate, so an equality lookup can skip row groups when the sort
   serves another filter.
 - Types. Each `int32:` field is written as INT32 in every version, whatever its values, so a field
-  has one type across versions and parts. A version holding a value outside 32 bits stops the
-  build. No other column is narrowed. The build reads INT32 back as 64 bits (`profile.widen`), so
+  has one type across versions and parts. The fetch holds a new version whose values do not fit,
+  with an error naming the field, and `register validate` checks a newly declared field against
+  the stored versions whose source or built Parquet is at hand. A version that still does not fit
+  stops the build. No other column is narrowed. The build reads INT32 back as 64 bits (`profile.widen`), so
   a diff or a format written from the Parquet sees the types normalise made.
 - Encoding. zstd, dictionary encoding and statistics on every column. The page index (column and
   offset indexes) is written on sorted files only, since on an unsorted file it saves no work
@@ -294,7 +296,7 @@ the format writers (`cache.environment_key`) names the entry, and each writer un
 A writer added or changed does not invalidate an entry: the build reads the version's rows back
 from the cached Parquet, the way the diff does, writes only the files whose writer the entry has
 not seen, and records them. A sorted version's Parquet no longer holds the source order, so its
-cache entry keeps that order beside the record (`order.parquet`), with the SHA-256 and size of the
+cache entry keeps that order beside the record (`order.parquet`, written before it), with the SHA-256 and size of the
 Parquet it belongs to. The build puts the rows back in it before it writes a format that keeps the
 publisher's order, and only when the Parquet it read back is that very file and carries the
 profile key and its sorting columns; otherwise the version is built again from its source. The
