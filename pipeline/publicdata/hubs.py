@@ -23,6 +23,7 @@ from pathlib import Path
 
 import requests
 
+from .cadence import kaggle_frequency
 from .provenance import NOT_ENDORSED
 from .register import GRANTS, LICENCE_CONDITIONS, OPEN_LICENCES
 
@@ -457,7 +458,7 @@ def kaggle_metadata(e: Entry, owner: str) -> dict:
         "isPrivate": False,
         "licenses": [{"name": e.licence.kaggle}],
         "keywords": kaggle_tags(e),
-        "expectedUpdateFrequency": KAGGLE_FREQUENCY.get(e.cadence, "annually"),
+        "expectedUpdateFrequency": kaggle_frequency(e.cadence),
         "userSpecifiedSources": kaggle_sources(e),
         "resources": [
             *(
@@ -477,20 +478,6 @@ def kaggle_metadata(e: Entry, owner: str) -> dict:
         ],
     }
 
-
-# Kaggle's fixed choices, from the cadence the catalogue states. A cadence between two choices
-# takes the slower one, so the page never promises updates more often than the publisher makes them.
-KAGGLE_FREQUENCY = {
-    "daily": "daily",
-    "weekly": "weekly",
-    "monthly": "monthly",
-    "through the year": "monthly",
-    "as the police database changes": "monthly",
-    "quarterly": "quarterly",
-    "about twice a year": "annually",
-    "yearly": "annually",
-    "closed": "never",
-}
 
 # Kaggle keeps only tags that already exist and drops the rest, so each topic offers several.
 TOPIC_TAGS = {

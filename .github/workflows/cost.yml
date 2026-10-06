@@ -27,7 +27,27 @@ jobs:
         with:
           python-version-file: .python-version
       - run: pip install -e ./pipeline
+      # An approval covers the commit it was given on. A push never counts as approved, and the
+      # revoke job takes the label off. A fork's token cannot, so there only the run the label
+      # itself triggered counts.
       - working-directory: pipeline
         env:
-          APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'cost-approved') }}
+          APPROVED: >-
+            ${{ (github.event.action == 'labeled' && github.event.label.name == 'cost-approved')
+            || (contains(fromJSON('["opened", "labeled", "unlabeled"]'), github.event.action)
+            && contains(github.event.pull_request.labels.*.name, 'cost-approved')
+            && github.event.pull_request.head.repo.full_name == github.repository) }}
         run: python -m publicdata cost --base HEAD^1 --probe $([ "$APPROVED" = true ] && echo --approved)
+
+  revoke:
+    name: Revoke cost approval on push
+    # Side effects run only in the public repo, never in a fork or a private copy.
+    if: github.repository == 'National-Digital/publicdata.au' && contains(fromJSON('["synchronize", "reopened"]'), github.event.action) && contains(github.event.pull_request.labels.*.name, 'cost-approved') && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # A label removed with this token starts no new run, so the push's own run decides.
+      - run: gh api -X DELETE "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/cost-approved"

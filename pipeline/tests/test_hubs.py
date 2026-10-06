@@ -6,7 +6,11 @@ import pytest
 import yaml
 
 from publicdata import hubs
+from publicdata.cadence import kaggle_frequency
 from publicdata.gate import FORBIDDEN_TEXT
+from publicdata.register import load
+
+from .conftest import ROOT
 
 RECORD = {
     "identifier": "qld-road-crash-factors",
@@ -715,7 +719,8 @@ def test_cover_image_is_cut_to_two_by_one(tmp_path):
 
 def test_every_catalogue_cadence_maps_to_a_kaggle_choice():
     allowed = {"never", "annually", "quarterly", "monthly", "weekly", "daily", "hourly"}
-    assert set(hubs.KAGGLE_FREQUENCY.values()) <= allowed
+    cadences = {d.source.cadence for d in load(ROOT / "register")}
+    assert {kaggle_frequency(c) for c in cadences} <= allowed
     assert hubs.kaggle_metadata(make(), "o")["expectedUpdateFrequency"] in allowed
 
 

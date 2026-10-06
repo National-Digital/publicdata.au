@@ -598,9 +598,12 @@ def cmd_cost(args) -> int:
     from . import cost
     from .register import load
 
-    changed = set(args.slug)
+    changed, fresh = set(args.slug), set()
     if args.base:
-        changed |= cost.changed_slugs(REGISTER, cost.git_changed(args.base, ROOT), ROOT)
+        base, paths = cost.changed_paths(args.base, ROOT)
+        entries = cost.changed_entries(REGISTER, paths, ROOT)
+        changed |= set(entries)
+        fresh = cost.source_moved(ROOT, base, entries)
     today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
     return cost.run(
         load(REGISTER),
@@ -609,7 +612,8 @@ def cmd_cost(args) -> int:
         changed,
         today,
         approved=args.approved,
-        probe_new=args.probe,
+        probing=args.probe,
+        fresh=fresh,
         summary=args.summary,
     )
 
@@ -772,7 +776,9 @@ def main(argv=None) -> int:
     co.add_argument("--catalog", help="a catalog.json path or URL (default the live site's)")
     co.add_argument("--today", help="the date versions are counted back from (YYYY-MM-DD)")
     co.add_argument("--approved", action="store_true", help="the change carries cost-approved")
-    co.add_argument("--probe", action="store_true", help="read a new entry's source size")
+    co.add_argument(
+        "--probe", action="store_true", help="size a new or moved source from its portal or host"
+    )
     co.add_argument(
         "--summary", help="append the Markdown table here (default GITHUB_STEP_SUMMARY)"
     )

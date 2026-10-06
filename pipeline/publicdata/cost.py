@@ -7,47 +7,30 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-import re
 import subprocess
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from . import SITE, store
+from .cadence import FEED_MAX, WEEKLY_MAX, per_year
 from .register import Dataset
 
 GB = 10**9
 BUDGET_GB_YEAR = 5.0
 # Measured across the fleet: published bytes are about 13 times the source bytes.
 SOURCE_MULTIPLIER = 13
+# The raw bucket and the version's dist tree each hold the publisher's file. Drop to 1 once
+# the dist copy is served from raw (#48).
+SOURCE_COPIES = 2
 DEFAULT_PER_YEAR = 52
 R2_USD_PER_GB_MONTH = 0.015
 R2_FREE_GB = 10
 APPROVAL_LABEL = "cost-approved"
 CATALOG = f"{SITE}/catalog.json"
 UA = "publicdata.au cost (+https://publicdata.au/about/)"
-
-# First match wins, so the narrower phrases come first.
-CADENCE = (
-    (r"checked weekly", 52),
-    (r"\buntil\b|closed|no longer|not updated|historical|no new", 0),
-    (r"every \d+ minutes|hourly|continual|\blive\b|daily", 365),
-    (r"weekly", 52),
-    (r"fortnightly", 26),
-    (r"monthly", 12),
-    (r"quarterly|several times a year", 4),
-    (r"twice a year|half-yearly", 2),
-    (r"yearly|annually|a year|school year|one or two years", 1),
-    (r"census", 0.2),
-)
-
-
-def per_year_from_cadence(cadence: str, feed: bool = False) -> float | None:
-    text = cadence.strip().lower()
-    for pattern, n in CADENCE:
-        if re.search(pattern, text):
-            return float(n)
-    return 365.0 if feed else None
 
 
 @dataclass(frozen=True)
@@ -56,7 +39,7 @@ class Projection:
     bytes_per_version: int | None
     basis: str  # measured, estimate or unknown
     per_year: float
-    per_year_basis: str  # cadence, observed, default or not publishable
+    per_year_basis: str
     stored_versions: int
     budget_gb: float = BUDGET_GB_YEAR
 
@@ -77,75 +60,117 @@ class Projection:
 
 
 def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple[float, str]:
+    """The larger of the declared rate and the versions of the last year, capped at what the
+    fetch can make. The fetch never reads the cadence, so the text alone cannot lower the rate."""
     if not ds.publishable:
         return 0.0, "not publishable"
-    declared = per_year_from_cadence(ds.source.cadence, ds.source.feed)
-    if declared is not None:
-        return declared, "cadence"
+    cap = FEED_MAX if ds.source.feed else WEEKLY_MAX
+    declared = per_year(ds.source.cadence, ds.source.feed)
     if not versions:
-        return float(DEFAULT_PER_YEAR), "default"
+        n, basis = (declared, "cadence") if declared is not None else (DEFAULT_PER_YEAR, "default")
+        return float(min(n, cap)), basis
     since = today - dt.timedelta(days=365)
     recent = sum(1 for v in versions if since < dt.date.fromisoformat(v) <= today)
+    if declared is not None and declared >= recent:
+        return float(min(declared, cap)), "cadence"
     # A served entry that has not changed for a year is still expected to change again.
-    return float(max(recent, 1)), "observed"
+    return float(min(max(recent, 1), cap)), "observed"
+
+
+def _upper(path: str, n: int) -> int:
+    """A DuckDB file's size is published to one significant figure; count its upper bound."""
+    if path.endswith(".duckdb") and n >= 10:
+        return n + 10 ** (len(str(n)) - 1) // 2
+    return n
 
 
 def catalogue_sizes(catalog: dict) -> dict[str, dict[str, int]]:
-    """Bytes of the newest version's data files per slug, from the DCAT catalogue's byteSize."""
+    """Bytes of each file of the newest version, by its path inside the version, per slug."""
     out = {}
     for rec in catalog.get("dataset", []):
-        v = rec.get("versionInfo", "")
-        dists = [d for d in rec.get("distribution", []) if f"/v/{v}/" in d.get("downloadURL", "")]
-        out[rec["identifier"]] = {d.get("format", ""): int(d.get("byteSize") or 0) for d in dists}
+        mark = f"/v/{rec.get('versionInfo', '')}/"
+        files = {}
+        for d in rec.get("distribution", []):
+            url = d.get("downloadURL", "")
+            if mark in url:
+                path = url.split(mark, 1)[1]
+                files[path] = _upper(path, int(d.get("byteSize") or 0))
+        out[rec["identifier"]] = files
     return out
 
 
-def measured_bytes(ds: Dataset, formats: dict[str, int], source_bytes: int) -> int:
-    """A version's bytes in R2: its data files, the publisher's file and the partition files,
-    which hold the table again as JSON (and GeoJSON for points) once per partition field."""
-    total = sum(formats.values())
+def measured_bytes(ds: Dataset, files: dict[str, int], source_bytes: int) -> int:
+    """A version's bytes in R2: its data files, the publisher's file in each bucket that holds
+    it, and the partition files, which hold the table again once per partition field. NDJSON
+    stands in for the partitions' JSON because data.json is not written for a large table."""
+    total = sum(files.values())
     if not ds.source_withheld:
-        total += source_bytes
-    per_part = formats.get("json", 0)
-    if (ds.geometry or {}).get("kind", "point") == "point" and ds.geometry:
-        per_part += formats.get("geojson", 0)
+        total += source_bytes * SOURCE_COPIES
+    rows_json = files.get("data.ndjson") or files.get("data.json", 0)
+    per_part = rows_json
+    if ds.geometry and (ds.geometry or {}).get("kind", "point") == "point":
+        per_part += files.get("data.geojson") or rows_json
     return total + per_part * len(ds.partition_by)
 
 
-def probe(url: str, timeout: float = 20) -> int | None:
-    """The Content-Length of a source URL, when it answers with a file rather than a page."""
+def _head(url: str, timeout: float) -> int | None:
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        if "html" in r.headers.get("Content-Type", ""):
+            return None
+        n = r.headers.get("Content-Length")
+        return int(n) if n else None
+
+
+def probe(ds: Dataset, timeout: float = 30) -> int | None:
+    """The size of the file the fetch would read: the CKAN resource the entry resolves to, the
+    way the fetch picks it, or a fixed file URL. Other adapters are not sized."""
     try:
-        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            if "html" in r.headers.get("Content-Type", ""):
-                return None
-            n = r.headers.get("Content-Length")
-            return int(n) if n else None
-    except OSError, ValueError:
+        if ds.source.adapter == "ckan-resource":
+            import requests
+
+            from .fetch import _package, pick_resource
+
+            s = requests.Session()
+            s.headers["User-Agent"] = UA
+            res = pick_resource(ds, _package(ds, s, f"{ds.source.portal.rstrip('/')}/api/3/action")["resources"])  # fmt: skip
+            if res.get("size"):
+                return int(res["size"])
+            return _head(res["url"], timeout)
+        if ds.source.adapter == "file" and not ds.source.page_size:
+            return _head(ds.source.url, timeout)
+    except Exception:  # noqa: BLE001
         return None
+    return None
 
 
 def project(
     datasets: list[Dataset],
     store_dir: Path,
-    sizes: dict[str, dict[str, int]],
+    sizes: dict[str, dict[str, int]] | None,
     today: dt.date,
-    probe_slugs: frozenset[str] = frozenset(),
+    changed: frozenset[str] = frozenset(),
+    fresh: frozenset[str] = frozenset(),
     prober=probe,
+    probing: bool = False,
 ) -> list[Projection]:
+    """`sizes` is None when the catalogue could not be read; a changed entry is then unknown.
+    `fresh` are changed entries whose source moved, sized from the new file alone."""
     out = []
     for ds in datasets:
         ms = store.manifests(store_dir, ds.slug)
         n, n_basis = versions_per_year(ds, [m.version for m in ms], today)
         newest = ms[-1] if ms else None
-        if ds.slug in sizes and sizes[ds.slug]:
+        b, basis = None, "unknown"
+        if ds.slug in fresh or (ds.slug in changed and not ms):
+            if probing and (src := prober(ds)):
+                b, basis = src * SOURCE_MULTIPLIER, "estimate"
+        elif sizes is None and ds.slug in changed:
+            pass
+        elif sizes and sizes.get(ds.slug):
             b, basis = measured_bytes(ds, sizes[ds.slug], newest.bytes if newest else 0), "measured"
         elif newest is not None:
             b, basis = newest.bytes * SOURCE_MULTIPLIER, "estimate"
-        elif ds.slug in probe_slugs and (src := prober(ds.source.url)):
-            b, basis = src * SOURCE_MULTIPLIER, "estimate"
-        else:
-            b, basis = None, "unknown"
         out.append(Projection(ds.slug, b, basis, n, n_basis, len(ms)))
     return out
 
@@ -156,8 +181,16 @@ def r2_usd_per_month(gb: float) -> float:
 
 @dataclass(frozen=True)
 class Fleet:
-    stored_gb: float
-    gb_per_year: float
+    stored_bytes: int
+    bytes_per_year: int
+
+    @property
+    def stored_gb(self) -> float:
+        return self.stored_bytes / GB
+
+    @property
+    def gb_per_year(self) -> float:
+        return self.bytes_per_year / GB
 
     @property
     def usd_per_month_now(self) -> float:
@@ -169,8 +202,8 @@ class Fleet:
 
     def as_json(self) -> dict:
         return {
-            "stored_gb": round(self.stored_gb, 2),
-            "growth_gb_per_year": round(self.gb_per_year, 2),
+            "stored_bytes": self.stored_bytes,
+            "growth_bytes_per_year": self.bytes_per_year,
             "r2_usd_per_month": round(self.usd_per_month_now, 2),
             "r2_usd_per_month_in_a_year": round(self.usd_per_month_in_a_year, 2),
         }
@@ -179,26 +212,45 @@ class Fleet:
 def fleet(projections: list[Projection]) -> Fleet:
     """Stored bytes count every stored version at its newest version's size, an estimate."""
     return Fleet(
-        sum((p.gb_per_version or 0) * p.stored_versions for p in projections),
-        sum(p.gb_per_year or 0 for p in projections),
+        sum((p.bytes_per_version or 0) * p.stored_versions for p in projections),
+        round(sum((p.bytes_per_version or 0) * p.per_year for p in projections)),
     )
+
+
+def build_version_bytes(ds: Dataset, v) -> int:
+    """A built version's bytes in R2: every file in its tree, and the raw bucket's copies of
+    the publisher's file beyond the one in the tree."""
+    extra = 0 if ds.source_withheld else v.manifest.bytes * (SOURCE_COPIES - 1)
+    return sum(v.files.values()) + extra
 
 
 def fleet_from_build(outs, today: dt.date) -> Fleet:
     """The same totals from a build, where every version's file sizes are known."""
-    stored = growth = 0.0
+    stored = growth = 0
     for o in outs:
         if not o.versions:
             continue
-        stored += sum(sum(v.files.values()) for v in o.versions) / GB
+        stored += sum(build_version_bytes(o.dataset, v) for v in o.versions)
         n, _ = versions_per_year(o.dataset, [v.manifest.version for v in o.versions], today)
-        growth += sum(o.latest.files.values()) / GB * n
-    return Fleet(stored, growth)
+        growth += build_version_bytes(o.dataset, o.latest) * n
+    return Fleet(stored, round(growth))
 
 
-def changed_slugs(register_dir: Path, paths: list[str], root: Path) -> set[str]:
-    """Register entries among changed paths; publishers, licences and deletions are not entries."""
-    out = set()
+def _git(root: Path, *a: str) -> str:
+    return subprocess.run(
+        ["git", *a], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def changed_paths(base: str, root: Path) -> tuple[str, list[str]]:
+    mb = _git(root, "merge-base", base, "HEAD")
+    return mb, _git(root, "diff", "--name-only", mb, "HEAD", "--", "register").splitlines()
+
+
+def changed_entries(register_dir: Path, paths: list[str], root: Path) -> dict[str, str]:
+    """Slug to path for register entries among changed paths; publishers, licences and deleted
+    files are not entries."""
+    out = {}
     for p in paths:
         full = (root / p).resolve()
         try:
@@ -210,18 +262,28 @@ def changed_slugs(register_dir: Path, paths: list[str], root: Path) -> set[str]:
             and full.exists()
             and rel.parts[0] not in ("publishers", "licences")
         ):
-            out.add(full.stem)
+            out[full.stem] = p
     return out
 
 
-def git_changed(base: str, root: Path) -> list[str]:
-    def git(*a):
-        return subprocess.run(
-            ["git", *a], cwd=root, check=True, capture_output=True, text=True
-        ).stdout.strip()
+def _source(text: str) -> dict:
+    src = dict((yaml.safe_load(text) or {}).get("source") or {})
+    src.pop("cadence", None)
+    return src
 
-    mb = git("merge-base", base, "HEAD")
-    return git("diff", "--name-only", mb, "HEAD", "--", "register").splitlines()
+
+def source_moved(root: Path, base: str, entries: dict[str, str]) -> set[str]:
+    """Changed entries whose source differs from the base's, so the stored file no longer says
+    how big a version will be. A new entry has no base to differ from."""
+    out = set()
+    for slug, path in entries.items():
+        try:
+            old = _git(root, "show", f"{base}:{path}")
+        except subprocess.CalledProcessError:
+            continue
+        if _source(old) != _source((root / path).read_text(encoding="utf-8")):
+            out.add(slug)
+    return out
 
 
 def load_catalog(where: str) -> dict:
@@ -236,10 +298,12 @@ def _gb(x: float | None) -> str:
     return "?" if x is None else f"{x:.3f}"
 
 
+BASIS = {"measured": "", "estimate": " (estimate)", "unknown": " (size unknown)"}
+
+
 def _row(p: Projection) -> str:
-    basis = {"measured": "", "estimate": " (estimate)", "unknown": " (size unknown)"}[p.basis]
     return (
-        f"| `{p.slug}` | {_gb(p.gb_per_version)}{basis} | {p.per_year:g} ({p.per_year_basis}) "
+        f"| `{p.slug}` | {_gb(p.gb_per_version)}{BASIS[p.basis]} | {p.per_year:g} ({p.per_year_basis}) "
         f"| {_gb(p.gb_per_year)} | {'yes' if p.over_budget else 'no'} |"
     )
 
@@ -251,10 +315,7 @@ HEAD = (
 
 
 def report(
-    projections: list[Projection],
-    gated: set[str],
-    approved: bool,
-    note: str = "",
+    projections: list[Projection], gated: set[str], approved: bool, note: str = ""
 ) -> tuple[str, list[Projection]]:
     """The Markdown summary and the gated entries over budget."""
     f = fleet(projections)
@@ -269,11 +330,14 @@ def report(
         ]
         lines += [*HEAD, *(_row(p) for p in projections if p.slug in gated), ""]
         if over and approved:
-            lines.append(f"Over budget and approved with the `{APPROVAL_LABEL}` label.")
+            lines.append(
+                f"Over budget and approved with the `{APPROVAL_LABEL}` label for this commit."
+            )
         elif over:
             lines.append(
                 f"Over budget: {', '.join(p.slug for p in over)}. A maintainer who accepts the "
-                f"cost adds the `{APPROVAL_LABEL}` label, which reruns this check."
+                f"cost adds the `{APPROVAL_LABEL}` label, which reruns this check. A later push "
+                "removes the label, so each new commit is approved again."
             )
         else:
             lines.append("Every changed entry is within budget.")
@@ -292,7 +356,8 @@ def report(
         "",
         "Sizes marked estimate are the source bytes times "
         f"{SOURCE_MULTIPLIER}, the fleet's measured ratio; the rest are read from the newest "
-        "version's files in the catalogue.",
+        f"version's files in the catalogue, with the publisher's file counted {SOURCE_COPIES} "
+        "times for the buckets that hold it.",
         "",
         "<details><summary>Every entry</summary>",
         "",
@@ -312,17 +377,25 @@ def run(
     changed: set[str],
     today: dt.date,
     approved: bool = False,
-    probe_new: bool = False,
+    probing: bool = False,
+    fresh: set[str] = frozenset(),
     summary: str | None = None,
 ) -> int:
+    known = {d.slug for d in datasets}
+    if missing := sorted(changed - known):
+        print(f"cost: no register entry named {', '.join(missing)}")
+        return 2
     note = ""
     try:
         sizes = catalogue_sizes(load_catalog(catalog_src))
     except (OSError, ValueError) as e:
-        sizes, note = {}, f"The catalogue could not be read ({e}), so every size is an estimate."
-    changed = changed & {d.slug for d in datasets}
+        sizes = None
+        note = (
+            f"The catalogue could not be read ({e}). Changed entries count as size unknown and "
+            "the rest are estimates."
+        )
     projections = project(
-        datasets, store_dir, sizes, today, frozenset(changed) if probe_new else frozenset()
+        datasets, store_dir, sizes, today, frozenset(changed), frozenset(fresh), probing=probing
     )
     text, over = report(projections, changed, approved, note)
     f = fleet(projections)
