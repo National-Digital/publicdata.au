@@ -24,6 +24,9 @@ is one YAML file in `register/`, and a new file format is one writer in
 those and for adapters, fixes and the clients, and [publicdata.au/contribute](https://publicdata.au/contribute/)
 gives the overview. Every dataset page links to the register entry it is built from.
 
+Report a vulnerability privately as [SECURITY.md](SECURITY.md) describes.
+[GOVERNANCE.md](GOVERNANCE.md) says who decides, and [AGENTS.md](AGENTS.md) is for coding agents.
+
 ## Layout
 
 - `register/` one YAML per dataset: source, licence with evidence, attribution, field allow-list,

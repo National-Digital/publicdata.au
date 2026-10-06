@@ -1,17 +1,17 @@
-# Working in this repository
+# Agents
 
-This file tells an agent where the project's rules are kept. Each rule is stated once, in the
-file named for it here, and linked from everywhere else.
+Start from [`README.md`](README.md), which points to every other document. The project's rules
+are written for everyone in those files. The points below are about how an agent works here.
 
-- [`README.md`](README.md): what the project is and what it serves.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, tests, commits and pull requests, the routine
-  changes step by step, the [site copy](CONTRIBUTING.md#site-copy) rule, and the code conventions
-  in [Reference](CONTRIBUTING.md#reference), comments included.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the
-  [rules the build enforces](docs/ARCHITECTURE.md#rules-that-decide-the-code), the
-  [archive](docs/ARCHITECTURE.md#archive) and the [analytics](docs/ARCHITECTURE.md#analytics)
-  the site may run.
-- [`SECURITY.md`](SECURITY.md): what is never committed, credentials and private hostnames
-  among it, and how to report a vulnerability.
-- [`GOVERNANCE.md`](GOVERNANCE.md): who decides.
-- [`BRAND.md`](BRAND.md): the name, the mark and the typography the gate checks.
+- An agent cannot certify the [Developer Certificate of Origin](CONTRIBUTING.md#commits-and-pull-requests).
+  The person running it reviews the change and signs off each commit. Never add an agent as an
+  author or co-author.
+- Do not fetch from publishers while exploring or testing. Work from `--fixtures` and the
+  recorded responses in `pipeline/tests/`. A person runs real fetches, and nothing gets around a
+  publisher's bot check.
+- Do not push `data/` branches or edit manifests in `store/`; the fetch app and maintainers
+  change those.
+- Do not edit generated files by hand. Tool and API text is changed in
+  `pipeline/publicdata/api.json` and regenerated with `python -m publicdata.api_text`.
+- Before calling a change done, run the checks in [Set up](CONTRIBUTING.md#set-up) and say which
+  ran and which were skipped.
