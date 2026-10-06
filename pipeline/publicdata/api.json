@@ -15,7 +15,7 @@
     "rows": "`/api/v1/datasets/<slug>/rows` filters, selects, orders and pages any dataset.",
     "aggregate": "`/api/v1/datasets/<slug>/aggregate` counts, sums, averages, minimums and maximums by group.",
     "versions": "Without a version the API answers from the newest loaded version, and that answer changes when the publisher releases again. Put `versions/<date>/` before `rows` or `aggregate` for an answer that never changes. `/api/v1/datasets/<slug>/versions` lists the loaded versions.",
-    "filters": "Each filter is `field=operator.value` in the query string, and every filter must match. A number or date field compares as a number or date, and a text field compares as text. Values are case-sensitive except with `ilike`. Prefix `not.` to negate a filter, as `not.eq.value`.",
+    "filters": "Each filter is `field=operator.value` in the query string, and every filter must match. A number or date field compares as a number or date, and a text field compares as text. Values are case-sensitive, except that `like` and `ilike` ignore case in the ASCII letters A to Z. Prefix `not.` to negate a filter, as `not.eq.value`.",
     "provenance": "Every JSON answer carries the version, licence and attribution. CSV and NDJSON answers carry them in response headers.",
     "terms_limits": "The query API allows {requests} requests in {window_seconds} seconds from one address. The MCP server counts each row tool call as two requests, against its own limit of {requests} requests in {window_seconds} seconds from one address. Files have no rate limit.",
     "rate_limit": "The API allows {requests} requests in {window_seconds} seconds from one address. Above that it answers 429 for {block_seconds} seconds with a `Retry-After` header, a `RateLimit-Policy` header and a JSON body that gives the limit. Every API answer carries the same `RateLimit-Policy`. A client should wait the `Retry-After` seconds, or read the files, which have no limit."
@@ -27,8 +27,8 @@
     "gte": { "label": "at least", "syntax": "gte.value", "description": "Greater than or equal to the value." },
     "lt": { "label": "less than", "syntax": "lt.value", "description": "Less than the value." },
     "lte": { "label": "at most", "syntax": "lte.value", "description": "Less than or equal to the value." },
-    "like": { "label": "matches", "syntax": "like.*text*", "description": "Matches a pattern where `*` stands for any run of characters. Case-sensitive." },
-    "ilike": { "label": "contains", "syntax": "ilike.*text*", "description": "The same as `like`, ignoring case." },
+    "like": { "label": "matches", "syntax": "like.*text*", "description": "Matches a pattern where `*` stands for any run of characters, ignoring case in the ASCII letters A to Z." },
+    "ilike": { "label": "contains", "syntax": "ilike.*text*", "description": "The same as `like`. Both ignore case in ASCII letters only, so É and é differ." },
     "in": { "label": "is one of", "syntax": "in.(a,b,c)", "description": "Equal to any value in the list. A value cannot contain a comma." },
     "is.null": { "label": "is blank", "not_label": "is not blank", "syntax": "is.null", "description": "Blank in the source, or suppressed by the publisher." }
   },
@@ -74,7 +74,7 @@
       },
       "get_dataset": {
         "title": "Read a dataset",
-        "description": "Read a served dataset's data package and full version history. Use it to download the whole table, check the licence, or find version dates for diff_versions and the version parameter.\nFor field names use list_fields. To answer a question from the rows use query_rows or count_rows, which need no download.\nslug is lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, such as au-road-deaths.\nThe whole history comes back in one answer, with no paging. It needs no key or sign-in, and costs nothing against the rate limit. A slug that is not served returns a 404 error.",
+        "description": "Read a served dataset's data package and full version history: licence, attribution, whole-table files and the version dates diff_versions and the version parameter take. It returns no rows. To answer from the rows use query_rows or count_rows, and for field names use list_fields.\nslug is lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, such as au-road-deaths.\nThe whole history comes back in one answer, with no paging. It needs no key or sign-in, and costs nothing against the rate limit. A slug that is not served returns a 404 error.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" }
@@ -94,7 +94,7 @@
       },
       "list_partitions": {
         "title": "List partition files",
-        "description": "List the download files that split a served dataset's newest version by one field, such as one file per year. Use it to hand someone a slice of the data as a file. To answer a question use query_rows or count_rows instead, and for the whole table use get_dataset. field must be one of the partition_by fields that list_fields names, and any other field returns a 404 error. Every value comes back in one answer, with no paging. The call costs nothing against the rate limit.",
+        "description": "List the download files that split a served dataset's newest version by one field, such as one file per year. Use it to hand someone a slice of the data as a file. It returns file links and no rows, so to answer a question use query_rows or count_rows instead, and for the whole table as one file use get_dataset. field must be one of the partition_by fields that list_fields names, and any other field returns a 404 error. Every value comes back in one answer, with no paging. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" },
@@ -105,7 +105,7 @@
       },
       "query_rows": {
         "title": "Query rows",
-        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nPage with offset until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
+        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows, and for files use get_dataset or list_partitions.\nField names and values for where, select and order come from list_fields. where holds at most 90 values, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nPage with offset until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "api": "rows",
         "input": {
@@ -171,7 +171,7 @@
       },
       "upvote_dataset": {
         "title": "Vote for a dataset",
-        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, and a second vote from the same caller on the same day adds nothing. The call costs nothing against the rate limit.",
+        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, so a vote cannot be withdrawn, and a second vote from the same caller on the same day adds nothing. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "The vote key of a search_catalogue row, or a slug from /backlog.json" }
@@ -180,7 +180,7 @@
         "output": {"type": "object", "properties": {"slug": {"type": "string"}, "votes": {"type": "integer", "description": "The dataset's vote total after this call"}}, "required": ["slug", "votes"]}
       }
     },
-    "where": "Filters by field name, applied to the whole table. A value may be a scalar for an exact, case-sensitive match, a list of scalars to match any of them, null to match blank or suppressed cells, {\"min\": n, \"max\": n} for an inclusive range, or {\"like\": \"*text*\"} for a case-insensitive match where * is the wildcard. A blank cell never matches a scalar, a list or a range.",
+    "where": "Filters by field name, applied to the whole table. A value may be a scalar for an exact, case-sensitive match, a list of scalars to match any of them, null to match blank or suppressed cells, {\"min\": n, \"max\": n} for an inclusive range, or {\"like\": \"*text*\"} for a pattern where * is the wildcard and case is ignored in ASCII letters. A blank cell never matches a scalar, a list or a range.",
     "version": "A version date, YYYY-MM-DD, from get_dataset. The newest version loaded for queries when absent."
   },
   "mcp": {

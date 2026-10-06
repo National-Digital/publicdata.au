@@ -398,7 +398,7 @@ const needsOf = (groups, names, filterNames) => groups.flatMap((p) => p.segs.map
 
 const ascii = (v) => v.replace(/[A-Z]+/g, (c) => c.toLowerCase());
 
-function prepare(specs) {
+export function prepare(specs) {
   return specs.map((s) => {
     const p = { ...s };
     if (s.op === 'in') p.set = new Set(s.args);
@@ -408,7 +408,7 @@ function prepare(specs) {
   });
 }
 
-function matches(s, v) {
+export function matches(s, v) {
   if (s.op === 'is') return s.not ? v !== null : v === null;
   if (v === null) return false;
   let r;

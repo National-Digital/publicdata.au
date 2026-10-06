@@ -256,7 +256,8 @@ stays available as files. A version whose data.sqlite is over 500 MB, or a datas
 `d1.queryable` is the one rule both the build and the loader read. Up to four versions load at
 once, each one's parts in order. Filters follow PostgREST (`field=gte.2020`, `in.(a,b)`, `is.null`,
 `like.*x*`, `not.` to negate), every name is checked against the field list and every value is
-bound. Paging asks for one row more than the limit and returns a `next` URL on the version's own
+bound. `like` and `ilike` treat `*` as the wildcard and ignore case in ASCII letters only, as
+SQLite's LIKE does. Paging asks for one row more than the limit and returns a `next` URL on the version's own
 path. JSON responses carry the version, licence and attribution; CSV and NDJSON carry them in
 headers. Dated answers are cached at the edge for good, the newest for five minutes. Above 60
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,

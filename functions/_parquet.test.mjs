@@ -6,7 +6,7 @@ import { parquetReadObjects } from 'hyparquet';
 import { decompress } from 'fzstd';
 import { answer } from './_api.js';
 import { aggregateQuery, rowsQuery } from './_query.js';
-import { BUDGET, BudgetError, openVersion, parquetAggregate, parquetRows } from './_parquet.js';
+import { BUDGET, BudgetError, matches, openVersion, parquetAggregate, parquetRows, prepare } from './_parquet.js';
 import { onRequestPost } from './mcp.js';
 
 // The fixtures are written by the pipeline's Parquet writer with eight rows to a group
@@ -251,4 +251,16 @@ test('a profile file without a page index is read a column chunk at a time', asy
   const r = await call('query_rows', { slug: SLUG2, version: OLDER, where: { year: { min: 2021 } }, select: ['year'], limit: 2 });
   assert.deepEqual(r.rows, [{ year: 2021 }, { year: 2021 }]);
   assert.equal(r.matched, 16);
+});
+
+test('like and ilike ignore case in ASCII letters only, as the query API does', () => {
+  const like = (op, pattern, v) => matches(prepare([{ name: 'lga', op, not: false, args: [pattern] }])[0], v);
+  for (const op of ['like', 'ilike']) {
+    assert.equal(like(op, 'gold*', 'Gold Coast'), true, op);
+    assert.equal(like(op, 'GOLD COAST', 'Gold Coast'), true, op);
+    assert.equal(like(op, 'ÉDEN*', 'Éden Park'), true, op);
+    assert.equal(like(op, 'éden*', 'Éden Park'), false, op);
+    assert.equal(like(op, '100%_*', '100%_rural'), true, op);
+    assert.equal(like(op, '100%_*', '100xyrural'), false, op);
+  }
 });

@@ -75,18 +75,38 @@
         }
       ]
     },
-    "8aaf47a00148eddb": {
+    "24007bde6763efd0": {
       "name": "get_dataset",
-      "tdqs": 4.9,
+      "tdqs": 5.0,
       "median": {
         "purpose_clarity": 5,
         "usage_guidelines": 5,
         "behavioral_transparency": 5,
-        "parameter_semantics": 4,
+        "parameter_semantics": 5,
         "conciseness_structure": 5,
         "contextual_completeness": 5
       },
       "runs": [
+        {
+          "scores": {
+            "purpose_clarity": 5,
+            "usage_guidelines": 5,
+            "behavioral_transparency": 5,
+            "parameter_semantics": 5,
+            "conciseness_structure": 5,
+            "contextual_completeness": 5
+          },
+          "why": {
+            "purpose_clarity": "States a specific verb and resource: reads a dataset's data package and full version history, listing licence, attribution, whole-table files and version dates. It explicitly says it returns no rows, which distinguishes it from query_rows, count_rows and list_fields.",
+            "usage_guidelines": "Names alternatives for specific needs: query_rows or count_rows to answer from rows, list_fields for field names. It also says the version dates feed diff_versions and the version parameter, so the agent knows when this tool is a prerequisite.",
+            "behavioral_transparency": "Annotations show a safe read-only call. The description adds the whole history returning in one answer with no paging, no key or sign-in needed, no cost against the rate limit, and a 404 error for an unserved slug. These go well beyond the annotations.",
+            "parameter_semantics": "Schema coverage is 100%, but the schema only says 'from search_datasets'. The description adds the format (lowercase letters, digits and hyphens), where to find it (the part after /d/ in a dataset page URL), and a concrete example, au-road-deaths.",
+            "conciseness_structure": "Four compact sentences, front-loaded with the purpose, followed by alternatives, parameter format and behaviour. Every sentence adds information with no redundancy.",
+            "contextual_completeness": "The output schema is documented, and the description complements it by noting that no rows are returned and that the whole history arrives in a single response. Error behaviour, auth and rate limits are covered, which is complete for a one-parameter read tool."
+          },
+          "summary": "An excellent definition: it clearly says what the tool returns and does not return, points to sibling tools for related needs, and discloses auth, cost, paging and error behaviour. The slug parameter is explained with format, source and an example.",
+          "contradiction": false
+        },
         {
           "scores": {
             "purpose_clarity": 5,
@@ -97,14 +117,14 @@
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States a specific verb and resource: read a dataset's data package and full version history. It clearly differentiates from siblings (list_fields for field names, query_rows/count_rows for answering questions from rows, diff_versions for comparing versions).",
-            "usage_guidelines": "Gives explicit when-to-use cases (download whole table, check licence, find version dates) and names alternatives for other needs (list_fields, query_rows, count_rows). It also links to how outputs feed diff_versions and the version parameter.",
-            "behavioral_transparency": "Annotations only give safety hints; the description adds no auth needed, no cost against the rate limit, no paging (the whole history returned in one answer), and the 404 error for an unserved slug. These are useful behavioral details beyond the annotations.",
-            "parameter_semantics": "Schema coverage is 100%, but the description adds the slug format (lowercase letters, digits, hyphens), where to find it (the part after /d/ in a dataset page URL), and a concrete example (au-road-deaths).",
-            "conciseness_structure": "Four short paragraphs/sentences groups, front-loaded with purpose, then usage, then parameter, then behavior. Every sentence earns its place with no filler.",
-            "contextual_completeness": "With one parameter, an output schema that documents the returned fields, and annotations, the description covers everything needed including errors, cost, and how the results relate to other tools."
+            "purpose_clarity": "States a specific verb and resource: reads a dataset's data package and full version history, listing licence, attribution, whole-table files and version dates. Explicitly says it returns no rows, and distinguishes itself from query_rows, count_rows and list_fields.",
+            "usage_guidelines": "Names alternatives for specific needs: query_rows or count_rows for row answers, list_fields for field names. It also says the version dates are the ones diff_versions and the version parameter accept, which tells the agent when this tool is a prerequisite.",
+            "behavioral_transparency": "Annotations only show read-only and idempotent. The description adds that the whole history returns in one answer with no paging, that no key or sign-in is needed, that it costs nothing against the rate limit, and that an unserved slug returns a 404.",
+            "parameter_semantics": "Schema coverage is 100%, with the schema saying only 'Dataset slug from search_datasets'. The description adds the format (lowercase letters, digits, hyphens), where to find it (the part after /d/ in a dataset page URL) and an example, au-road-deaths.",
+            "conciseness_structure": "Front-loaded with purpose, then redirection, then parameter format, then behaviour. Each sentence adds distinct information, with no repetition of the annotations or title.",
+            "contextual_completeness": "With one parameter and a documented output schema, the description covers what is returned, what is not (rows), error behaviour, cost and auth. It also links to sibling tools for next steps, which is complete for this tool."
           },
-          "summary": "An excellent definition that clearly states purpose, when to use it versus siblings, behavior (no auth, no rate-limit cost, no paging, 404 case), and slug format. Little to improve.",
+          "summary": "A very well-written definition that states precisely what the tool returns and does not return, and directs the agent to the right siblings for rows, counts and fields. It adds useful behavioural details (no paging, no auth, free, 404) and parameter format guidance beyond the annotations and schema.",
           "contradiction": false
         },
         {
@@ -117,34 +137,14 @@
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States a specific verb and resource: read a dataset's data package and full version history. It clearly separates itself from siblings (list_fields for field names, query_rows/count_rows for answering from rows, diff_versions for comparing).",
-            "usage_guidelines": "Gives explicit when-to-use cases (download the whole table, check licence, find version dates) and names alternatives for other needs (list_fields, query_rows, count_rows). It also says how the output feeds diff_versions and the version parameter.",
-            "behavioral_transparency": "Annotations only give safety hints. The description adds that the whole history returns in one answer with no paging, that no key or sign-in is needed, that it costs nothing against the rate limit, and that an unserved slug returns a 404.",
-            "parameter_semantics": "Schema coverage is 100%, but the description adds format detail: lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, with an example (au-road-deaths). This goes well beyond the schema's 'Dataset slug from search_datasets'.",
-            "conciseness_structure": "Four compact sentences or groups, front-loaded with the purpose, followed by alternatives, parameter format, and behavior. No wasted text.",
-            "contextual_completeness": "The output schema describes the datapackage and versions fields, and the description complements it with error behavior, paging, auth and rate-limit notes. That is complete for a one-parameter read tool."
+            "purpose_clarity": "States a specific verb and resource: reads a dataset's data package and full version history, listing licence, attribution, whole-table files and version dates. It explicitly says it returns no rows and distinguishes itself from query_rows, count_rows and list_fields.",
+            "usage_guidelines": "Names alternatives for specific needs: query_rows or count_rows for row answers, list_fields for field names. It also says the version dates are what diff_versions and the version parameter take, which tells the agent when to call this tool first.",
+            "behavioral_transparency": "Annotations only give the safe read-only profile. The description adds that the whole history returns in one answer with no paging, that no key or sign-in is needed, that it costs nothing against the rate limit, and that an unserved slug gives a 404.",
+            "parameter_semantics": "Schema coverage is 100%, so baseline is 3. The description adds slug format (lowercase letters, digits, hyphens), where to find it (the part after /d/ in a dataset page URL) and a concrete example, au-road-deaths.",
+            "conciseness_structure": "Four compact sentences or groups, front-loaded with purpose, then alternatives, then parameter format, then behaviour. Every sentence adds information with no filler.",
+            "contextual_completeness": "The output schema documents the datapackage and versions fields, so the description does not need to restate return values. It covers the error case, auth, rate limits and pagination, which is complete for a one-parameter read tool."
           },
-          "summary": "An excellent definition: it states a clear purpose, names sibling alternatives, documents slug format, and adds behavioral details (no paging, no auth, no rate-limit cost, 404 on unknown slug) beyond the annotations. Little to improve.",
-          "contradiction": false
-        },
-        {
-          "scores": {
-            "purpose_clarity": 5,
-            "usage_guidelines": 5,
-            "behavioral_transparency": 5,
-            "parameter_semantics": 4,
-            "conciseness_structure": 5,
-            "contextual_completeness": 5
-          },
-          "why": {
-            "purpose_clarity": "States the specific action and resource: read a dataset's data package and full version history. It clearly distinguishes itself from siblings such as list_fields (field names), query_rows/count_rows (answering from rows), and diff_versions.",
-            "usage_guidelines": "Gives explicit use cases (download whole table, check licence, find version dates for diff_versions and the version parameter). It names alternatives for other needs: list_fields for field names, query_rows or count_rows to answer from rows without downloading.",
-            "behavioral_transparency": "Annotations already show a safe read-only, idempotent call. The description adds that the full history returns in one answer with no paging, that no key or sign-in is needed, that it costs nothing against the rate limit, and that an unserved slug returns a 404.",
-            "parameter_semantics": "Schema coverage is 100%, but the description adds slug format (lowercase letters, digits, hyphens), where to find it (the part after /d/ in a dataset page URL), and a concrete example (au-road-deaths).",
-            "conciseness_structure": "Five short sentences, front-loaded with the purpose, followed by alternatives, parameter format, and behavior. Every sentence adds distinct value with no repetition.",
-            "contextual_completeness": "With one parameter and a documented output schema, the description covers what is returned, the error case, auth and rate-limit behavior, and links to related tools. It is complete for this tool's complexity."
-          },
-          "summary": "An excellent definition that clearly states purpose, when to use it versus siblings, and behavioral details beyond the annotations (no paging, no auth, free of rate limit, 404 case). Parameter guidance adds slug format and an example. Little to improve.",
+          "summary": "An excellent definition. It states exactly what the tool returns and does not return, points to the right sibling tools for rows and fields, and documents the slug format, auth, cost and error behaviour. Little to improve.",
           "contradiction": false
         }
       ]
@@ -223,7 +223,7 @@
         }
       ]
     },
-    "3bdd4055ede4e8af": {
+    "753e12cdeccfe9b7": {
       "name": "list_partitions",
       "tdqs": 4.9,
       "median": {
@@ -245,34 +245,14 @@
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States a specific verb and resource: lists the download files that split a dataset's newest version by one field, with an example (one file per year). It clearly separates itself from query_rows, count_rows and get_dataset.",
-            "usage_guidelines": "Gives an explicit when-to-use (hand someone a slice of the data as a file) and names alternatives for other needs: query_rows or count_rows to answer questions, get_dataset for the whole table. It also states the prerequisite that field must come from list_fields.",
-            "behavioral_transparency": "Annotations already show a safe read-only call. The description adds the 404 error for an invalid field, that all values return in one answer with no paging, and that the call costs nothing against the rate limit. It also says it targets the newest version.",
-            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds that field must be one of the partition_by fields reported by list_fields, and the failure mode otherwise, which is a real constraint beyond the schema text.",
-            "conciseness_structure": "Six short sentences, front-loaded with purpose, then usage, alternatives, constraint and behavior. There is no wasted text.",
-            "contextual_completeness": "The output schema is documented, so the description need not explain returns. It covers prerequisites, errors, paging and rate limits for a simple two-parameter tool."
+            "purpose_clarity": "States a specific verb and resource: lists download files that split a dataset's newest version by one field, with an example (one file per year). It clearly separates itself from query_rows, count_rows and get_dataset.",
+            "usage_guidelines": "Gives explicit when-to-use (hand someone a slice of the data as a file) and when-not-to-use with named alternatives: query_rows or count_rows for answering questions, get_dataset for the whole table. It also states the prerequisite that field must come from list_fields.",
+            "behavioral_transparency": "Annotations already cover read-only safety. The description adds that a non-partition field returns a 404, that all values come back in one answer with no paging, that it returns links and no rows, and that it costs nothing against the rate limit.",
+            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds a key constraint: field must be one of the partition_by fields named by list_fields, and any other field gives a 404. It adds nothing on slug beyond the schema.",
+            "conciseness_structure": "Six sentences, each carrying distinct information: purpose, use case, alternatives, constraint and error, paging, and cost. It is front-loaded with the purpose and has no filler.",
+            "contextual_completeness": "The output schema documents the partitions fields, so the description needn't explain return values. It still clarifies that the result is links without rows, covers the error case, paging and rate-limit cost, and relates the tool to its siblings."
           },
-          "summary": "An excellent definition: it is specific about purpose, names sibling alternatives, and discloses errors, paging and rate-limit behavior beyond the annotations. Parameter guidance is slightly above baseline, and the tool is concise and complete.",
-          "contradiction": false
-        },
-        {
-          "scores": {
-            "purpose_clarity": 5,
-            "usage_guidelines": 5,
-            "behavioral_transparency": 5,
-            "parameter_semantics": 4,
-            "conciseness_structure": 5,
-            "contextual_completeness": 5
-          },
-          "why": {
-            "purpose_clarity": "States a specific verb and resource: it lists the download files that split a dataset's newest version by one field, with the example 'one file per year'. It also separates itself from query_rows, count_rows and get_dataset.",
-            "usage_guidelines": "Gives a when-to-use ('hand someone a slice of the data as a file'), names alternatives for other needs (query_rows or count_rows to answer a question, get_dataset for the whole table), and states a precondition that field must come from list_fields.",
-            "behavioral_transparency": "Adds a lot beyond the read-only annotations: an invalid field returns a 404, all values come back in one answer with no paging, it applies to the newest version, and the call costs nothing against the rate limit. None of this contradicts the annotations.",
-            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds the key constraint that field must be one of the partition_by fields listed by list_fields, and the failure mode for anything else. It says nothing more about slug.",
-            "conciseness_structure": "Six short sentences, front-loaded with the purpose, followed by usage, constraint, and behavior. Each sentence adds distinct information and none is wasted.",
-            "contextual_completeness": "The output schema documents the return fields, so the description does not need to repeat them. The description covers prerequisites, error behavior, paging, cost and sibling relationships, which is complete for a simple two-parameter read tool."
-          },
-          "summary": "An excellent definition. It clearly states its purpose, names alternatives and prerequisites, and discloses behaviors beyond the annotations (404 on invalid field, no paging, no rate-limit cost). Only minor room to improve, such as more detail on the slug parameter.",
+          "summary": "A very strong definition that clearly states purpose, names alternatives for different needs, and discloses error, paging and rate-limit behavior beyond the annotations. The only small gap is that slug gets no extra explanation, but its schema description is adequate.",
           "contradiction": false
         },
         {
@@ -286,26 +266,46 @@
           },
           "why": {
             "purpose_clarity": "States a specific verb and resource: lists the download files that split a dataset's newest version by one field, with an example (one file per year). It clearly separates itself from query_rows, count_rows and get_dataset.",
-            "usage_guidelines": "Gives explicit when-to-use ('hand someone a slice of the data as a file'), when-not-to-use ('to answer a question use query_rows or count_rows'), and an alternative for the whole table (get_dataset). It also names the prerequisite tool list_fields for valid field values.",
-            "behavioral_transparency": "Adds a lot beyond the annotations: an invalid field returns a 404, all values come back in one answer with no paging, and the call costs nothing against the rate limit. It also says it targets the newest version. None of this contradicts the read-only annotations.",
-            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds the key constraint that field must be one of the partition_by fields reported by list_fields, and the error behavior for anything else. That goes beyond the schema's 'partition field named in the data package'.",
-            "conciseness_structure": "Six short sentences, front-loaded with purpose, then usage, constraints, and behavior. Each sentence carries distinct information and none is wasted.",
-            "contextual_completeness": "The output schema documents field, version_base and partitions with per-field descriptions, so the description does not need to explain return values. Together with the annotations, prerequisites, error case, and paging and rate-limit behavior, it is complete for a 2-parameter read tool."
+            "usage_guidelines": "Gives explicit when-to-use ('hand someone a slice of the data as a file') and when-not-to-use, naming alternatives: query_rows or count_rows to answer questions, get_dataset for the whole table as one file. It also names list_fields as the source of valid field values.",
+            "behavioral_transparency": "Annotations cover the read-only and idempotent profile. The description adds the 404 error for a non-partition field, that all values return in one answer with no paging, that it returns links and no rows, that it covers the newest version, and that it costs nothing against the rate limit.",
+            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds a key constraint: field must be one of the partition_by fields that list_fields names, and anything else gives a 404. That goes beyond the schema's 'named in the data package'.",
+            "conciseness_structure": "Six short sentences, front-loaded with the purpose, followed by usage, constraints and behavior. Each sentence adds information and nothing is repeated.",
+            "contextual_completeness": "The output schema documents its fields, so the description needn't explain return values, though it notes that links come back and no rows. Prerequisites, error behavior, paging and rate-limit cost are all covered for a simple two-parameter tool."
           },
-          "summary": "An excellent definition: it has a clear purpose, explicit guidance on when to use it and which siblings to use instead, and useful behavioral details (404 on a bad field, no paging, free of rate limit). It is concise and complete given the output schema and annotations.",
+          "summary": "An excellent definition: it states a precise purpose, names the sibling tools to use instead, and discloses error, paging and rate-limit behavior beyond the annotations. The one limitation is that parameter semantics start from a high-coverage schema baseline, with only the field constraint added.",
+          "contradiction": false
+        },
+        {
+          "scores": {
+            "purpose_clarity": 5,
+            "usage_guidelines": 5,
+            "behavioral_transparency": 5,
+            "parameter_semantics": 4,
+            "conciseness_structure": 5,
+            "contextual_completeness": 5
+          },
+          "why": {
+            "purpose_clarity": "States a specific verb and resource: lists the download files that split a dataset's newest version by one field, with an example (one file per year). It clearly distinguishes itself from siblings by saying it returns file links and no rows.",
+            "usage_guidelines": "Gives explicit when-to-use (hand someone a slice of the data as a file) and names alternatives: query_rows or count_rows to answer questions, get_dataset for the whole table as one file. It also names list_fields as the source of valid field values.",
+            "behavioral_transparency": "Adds a lot beyond the read-only annotations: an invalid field returns a 404, all values come back in one answer with no paging, it operates on the newest version, and it costs nothing against the rate limit. None of this contradicts the annotations.",
+            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds the key constraint that field must be one of the partition_by fields reported by list_fields, and the failure mode otherwise. This goes beyond the schema's example-based description.",
+            "conciseness_structure": "Six short sentences, front-loaded with purpose, then usage, constraints, and behavior. Every sentence carries distinct information with no filler.",
+            "contextual_completeness": "The output schema is documented, so the description needn't detail return values, and it still clarifies that links are returned and not rows. It covers prerequisites, errors, paging, and cost, which is complete for a simple two-parameter read tool."
+          },
+          "summary": "An excellent definition that clearly states purpose, names sibling alternatives for different needs, and discloses error, paging, and rate-limit behavior beyond the annotations. Parameter guidance adds the list_fields dependency. Very little to improve.",
           "contradiction": false
         }
       ]
     },
-    "4152bd1638244426": {
+    "8a2df0aad0117c59": {
       "name": "query_rows",
-      "tdqs": 4.9,
+      "tdqs": 4.8,
       "median": {
         "purpose_clarity": 5,
         "usage_guidelines": 5,
         "behavioral_transparency": 5,
         "parameter_semantics": 4,
-        "conciseness_structure": 5,
+        "conciseness_structure": 4,
         "contextual_completeness": 5
       },
       "runs": [
@@ -315,18 +315,18 @@
             "usage_guidelines": 5,
             "behavioral_transparency": 5,
             "parameter_semantics": 4,
-            "conciseness_structure": 5,
+            "conciseness_structure": 4,
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States it reads individual rows of a served dataset, filtered across the whole table, and explicitly distinguishes from count_rows for totals and breakdowns. Verb and resource are specific.",
-            "usage_guidelines": "Names count_rows as the alternative for aggregates, and points to list_fields for field names/values and get_dataset for versions. Also explains paging until next_offset is null.",
-            "behavioral_transparency": "Annotations cover read-only safety; the description adds rate-limit cost (two of 60 queries per address per 10 seconds), the 90-value filter cap, the no-comma list constraint, and error behavior for unknown fields or versions. Pagination behavior is also disclosed.",
-            "parameter_semantics": "Schema coverage is 100% and already detailed, including where-clause syntax. The description adds provenance of values (list_fields, get_dataset) and limits (90 values, no commas in lists) not in the schema.",
-            "conciseness_structure": "Six short sentences, each carrying distinct information, with purpose and sibling differentiation front-loaded. No filler.",
-            "contextual_completeness": "The output schema is fully described, so the description needn't explain returns. It covers limits, errors, paging, rate cost, and cross-tool workflow, which is complete for a 7-parameter query tool with nested filters."
+            "purpose_clarity": "States it reads individual rows of a served dataset, filtered across the whole table. Explicitly differentiates from count_rows (totals/breakdowns) and get_dataset/list_partitions (files).",
+            "usage_guidelines": "Names alternatives for specific needs (count_rows, get_dataset, list_partitions). Points to list_fields as the source for field names and values, and to get_dataset for version dates.",
+            "behavioral_transparency": "Annotations cover read-only safety; the description adds rate-limit cost (two of 60 queries per address per 10 seconds), where's 90-value cap, comma restriction in list values, pagination behavior, and error behavior for unknown field/version.",
+            "parameter_semantics": "Schema coverage is 100%, giving a baseline of 3. The description adds limits on where (90 values, no commas), the source of field names (list_fields), and version sourcing, which the schema does not fully state.",
+            "conciseness_structure": "Five short, dense statements, each carrying useful information. It is front-loaded with purpose and alternatives; the ordering of the later constraints is slightly list-like but efficient.",
+            "contextual_completeness": "Covers workflow dependencies, pagination, errors, and rate costs for a 7-parameter tool with nested filters. The output schema is well documented, so return values need no explanation."
           },
-          "summary": "An excellent definition that clearly states purpose, differentiates from count_rows, and links to the sibling tools that supply valid inputs. It discloses rate-limit costs, filter limits, error behavior, and pagination beyond what annotations provide.",
+          "summary": "An excellent definition that clearly distinguishes itself from sibling tools, says where to get inputs, and discloses rate limits, constraints, pagination and error behavior beyond what annotations and schema provide. Only minor room for improvement.",
           "contradiction": false
         },
         {
@@ -335,18 +335,18 @@
             "usage_guidelines": 5,
             "behavioral_transparency": 5,
             "parameter_semantics": 4,
-            "conciseness_structure": 5,
+            "conciseness_structure": 4,
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States it reads individual rows of a served dataset filtered across the whole table, and explicitly distinguishes from count_rows for totals and breakdowns.",
-            "usage_guidelines": "Names the alternative (count_rows) for aggregates and points to list_fields for field names/values and get_dataset for versions. Gives clear paging guidance.",
-            "behavioral_transparency": "Annotations cover read-only safety; the description adds rate-limit cost (two of 60 queries per 10 seconds per address), the 90-value filter cap, no commas in list values, pagination via next_offset, and error behavior for unknown field/version.",
-            "parameter_semantics": "Schema coverage is 100% and already detailed. The description adds constraints not in the schema (90 value cap, comma restriction, source of field names/values from list_fields, version history source).",
-            "conciseness_structure": "Six short sentences, each carrying distinct information, front-loaded with purpose and sibling redirect.",
-            "contextual_completeness": "Output schema is documented with described fields, so return values need no explanation. The description covers paging, errors, rate limits and prerequisites, which is complete for a 7-parameter query tool."
+            "purpose_clarity": "States it reads individual rows of a served dataset, filtered across the whole table. It explicitly distinguishes itself from count_rows (totals/breakdowns) and get_dataset/list_partitions (files).",
+            "usage_guidelines": "Names alternatives for specific needs (count_rows for totals, get_dataset or list_partitions for files). It also says where field names come from (list_fields) and where versions come from (get_dataset), and explains paging until next_offset is null.",
+            "behavioral_transparency": "Annotations show a safe read-only call. The description adds the rate-limit cost (two of 60 queries per address per 10 seconds), the where limits (at most 90 values, no commas in list values), the error behavior for unknown fields or versions, and the pagination mechanics.",
+            "parameter_semantics": "Schema coverage is 100%, and the schema already documents the where operators in detail. The description adds constraints the schema lacks (90-value cap, no commas in list values), the source of field names via list_fields, and the version history source.",
+            "conciseness_structure": "Five compact sentences, front-loaded with purpose and sibling redirects. Each sentence carries distinct information, though the middle lines mix constraints and sources somewhat densely.",
+            "contextual_completeness": "The output schema is well documented, so the description does not need to explain returns. It covers paging, errors, rate-limit cost, and prerequisites for a 7-parameter tool with nested filters."
           },
-          "summary": "An excellent definition that clearly states purpose, differentiates from count_rows, and links to the sibling tools that supply inputs. It discloses practical limits such as rate cost, filter caps and paging, adding substantial value beyond the annotations and schema.",
+          "summary": "A very strong definition. It clearly differentiates itself from sibling tools, discloses rate-limit cost, filter limits, error behavior, and pagination, and complements the annotations and rich schemas without redundancy.",
           "contradiction": false
         },
         {
@@ -354,24 +354,24 @@
             "purpose_clarity": 5,
             "usage_guidelines": 5,
             "behavioral_transparency": 5,
-            "parameter_semantics": 4,
-            "conciseness_structure": 5,
+            "parameter_semantics": 5,
+            "conciseness_structure": 4,
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States it reads individual rows of a served dataset with filtering across the whole table. It explicitly distinguishes itself from count_rows for totals and breakdowns.",
-            "usage_guidelines": "Names count_rows as the alternative for aggregates. Points to list_fields for field names/values, and get_dataset for version dates. Gives paging instructions, so the workflow is clear.",
-            "behavioral_transparency": "Annotations only cover the read-only/idempotent profile. The description adds the rate-limit cost (2 of 60 queries per address per 10 seconds), filter limits (90 values, no commas in list values), pagination termination, and error behavior for unknown fields or versions.",
-            "parameter_semantics": "Schema coverage is 100% and already detailed. The description adds where the valid field names and values come from (list_fields), the 90-value and comma constraints, and how version and offset relate to other tools' outputs.",
-            "conciseness_structure": "Six short sentences, front-loaded with purpose and sibling differentiation. Each sentence carries distinct information with no repetition.",
-            "contextual_completeness": "The output schema is well documented, so the description does not need to explain return values. It covers pagination, errors, rate limits, and cross-tool prerequisites, which is complete for a 7-parameter query tool with nested filters."
+            "purpose_clarity": "States it reads individual rows of a served dataset filtered across the whole table. It explicitly distinguishes itself from count_rows (totals/breakdowns) and get_dataset/list_partitions (files).",
+            "usage_guidelines": "Names alternatives for specific needs (count_rows for totals, get_dataset or list_partitions for files). Points to list_fields for valid field names and to get_dataset for version dates, and explains paging until next_offset is null.",
+            "behavioral_transparency": "Annotations only give the read-only/idempotent profile. The description adds the rate-limit cost (two of 60 queries per address per 10 seconds), the 90-value limit on where, the no-comma rule for list values, and error behavior for unknown fields or versions. It also covers the paging contract.",
+            "parameter_semantics": "Schema coverage is 100% and the description still adds cross-tool provenance: field names and values come from list_fields, and versions come from get_dataset. It also adds constraints not in the schema (max 90 values in where, no commas in list values).",
+            "conciseness_structure": "Five short lines, each carrying distinct information, with purpose and sibling routing up front. The constraints and rate-limit details are a little dense but all earn their place.",
+            "contextual_completeness": "The output schema is well documented, so the description doesn't need to explain return values. It covers paging, errors, limits, cost and prerequisites for a 7-parameter tool with nested filter semantics."
           },
-          "summary": "An excellent definition that clearly states purpose, differentiates from count_rows, and points to list_fields and get_dataset for inputs. It adds rate-limit cost, filter limits, paging, and error behavior beyond the annotations and schemas.",
+          "summary": "An excellent definition that clearly states purpose, routes to sibling tools for other needs, and discloses constraints, rate-limit cost and error behavior beyond the annotations. Parameter provenance from sibling tools is especially useful. Only minor density keeps conciseness from a perfect score.",
           "contradiction": false
         }
       ]
     },
-    "daa62018f50a01b5": {
+    "762981c9f0cdbb67": {
       "name": "count_rows",
       "tdqs": 4.8,
       "median": {
@@ -393,14 +393,34 @@
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States specific operations (count, sum, average, min, max) over a served dataset, grouped by up to three fields. Explicitly distinguishes from sibling query_rows: 'For the rows themselves use query_rows.'",
-            "usage_guidelines": "Names the alternative tool (query_rows) for row retrieval and points to list_fields for field names and get_dataset for versions. Gives type constraints on metrics (sum/avg need numeric or boolean fields; min/max accept any) and guidance on handling truncation.",
-            "behavioral_transparency": "Annotations cover read-only and idempotent safety. The description adds rate-limit cost (two of 60 queries per 10 seconds per address), result ordering (largest first), truncation semantics, error behavior for unknown fields or versions, and the fallback to Parquet for versions not loaded.",
-            "parameter_semantics": "Schema coverage is 100% and already detailed, including where-filter syntax. The description adds provenance of values (group_by and where fields from list_fields), field-type constraints for each metric, and the version source. Good value beyond the schema.",
-            "conciseness_structure": "Compact, with each sentence carrying distinct information: purpose, sibling pointer, field sources, metric constraints, versions, output behavior, cost. Slightly dense, but nothing is wasted and the purpose is front-loaded.",
-            "contextual_completeness": "With an output schema that documents the returned fields, the description appropriately covers the remaining gaps: truncation handling, error cases, rate limits, and workflow dependencies on sibling tools. Complete for a 6-parameter aggregation tool with nested filters."
+            "purpose_clarity": "States specific operations (count, sum, average, min, max) on a served dataset's whole table, grouped by up to three fields. Explicitly distinguishes from sibling query_rows: 'For the rows themselves use query_rows.'",
+            "usage_guidelines": "Names the alternative tool (query_rows) for row retrieval, and points to list_fields for field names/values and get_dataset for versions. Gives guidance on which metrics work with which field types and what to do when truncated (raise limit or narrow where).",
+            "behavioral_transparency": "Annotations show a safe read-only call; the description adds rate-limit cost (two of 60 queries per address per 10 seconds), ordering (largest first), truncation semantics, and error behavior for unknown field or version. This is rich disclosure beyond annotations.",
+            "parameter_semantics": "Schema coverage is 100% and already detailed. The description adds cross-tool provenance for params (group_by/where values from list_fields), metric type constraints (sum/avg need numeric or boolean), and version sourcing, which go beyond the schema.",
+            "conciseness_structure": "Six short sentences, each carrying distinct information, front-loaded with purpose. The rate-limit and error sentences are slightly tacked on but earn their place.",
+            "contextual_completeness": "Output schema is documented with described fields, so return values need no explanation. The description covers prerequisites, errors, truncation, rate limits, and versioning, which is complete for a six-parameter tool with a nested filter object."
           },
-          "summary": "An excellent tool definition that clearly states purpose, differentiates from query_rows, and points to sibling tools for prerequisite information. It adds meaningful behavioral details (rate-limit cost, ordering, truncation, errors) beyond the annotations and schema.",
+          "summary": "A strong definition that clearly differentiates itself from query_rows, links to the upstream tools that supply valid inputs, and discloses rate-limit cost, ordering, truncation, and error behavior. Only minor gains are possible in parameter detail and structure.",
+          "contradiction": false
+        },
+        {
+          "scores": {
+            "purpose_clarity": 5,
+            "usage_guidelines": 4,
+            "behavioral_transparency": 5,
+            "parameter_semantics": 4,
+            "conciseness_structure": 5,
+            "contextual_completeness": 5
+          },
+          "why": {
+            "purpose_clarity": "States the specific operation (count, sum, average, min, max of rows in a served dataset, grouped by up to three fields) and scope (whole table). It explicitly distinguishes itself from sibling query_rows, which returns the rows themselves.",
+            "usage_guidelines": "Names query_rows as the alternative for raw rows and points to list_fields for field names and values, and get_dataset for versions. It also explains what to do when truncated. It lacks an explicit list of when-not-to-use cases beyond the query_rows pointer.",
+            "behavioral_transparency": "Annotations only cover read-only and idempotent safety. The description adds rate-limit cost (two of 60 queries per address per 10 seconds), ordering (largest first), truncation semantics, error behavior for unknown field or version, and type constraints for sum and avg.",
+            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds value by linking group_by and where values to list_fields, stating that sum and avg need numeric or boolean fields while min and max accept any field, and clarifying which versions are valid.",
+            "conciseness_structure": "Seven short sentences, front-loaded with purpose, followed by sibling pointers, constraints, and cost. Each sentence carries distinct information with no filler.",
+            "contextual_completeness": "With six parameters, a nested where filter, and a documented output schema, the description covers prerequisites, error cases, truncation handling, and rate costs. Return values need no further explanation given the described output schema."
+          },
+          "summary": "An excellent definition that clearly states the purpose, differentiates from query_rows, and points to the sibling tools that supply valid inputs. It adds substantial behavioral context beyond the annotations, including rate-limit cost, ordering, truncation, and error behavior.",
           "contradiction": false
         },
         {
@@ -413,34 +433,14 @@
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States specific operations (count, sum, average, min, max) over a served dataset's whole table, grouped by up to three fields. It explicitly distinguishes itself from the sibling query_rows, which returns the rows themselves.",
-            "usage_guidelines": "Names the alternative (query_rows) for raw rows. It points to list_fields for field names and values, and to get_dataset for versions. It also gives guidance on handling truncation (raise limit or narrow where) and metric/field type constraints.",
-            "behavioral_transparency": "Annotations only cover safety. The description adds the rate-limit cost (2 of 60 queries per address per 10 seconds), result ordering (largest first), the truncation semantics, and error behavior for unknown fields or versions. It also notes type constraints for sum/avg.",
-            "parameter_semantics": "The schema is already fully documented, including where operators and the metric syntax. The description adds cross-tool provenance for the values, the numeric/boolean restriction for sum and avg, and that min/max accept any field. This is useful, though the schema covers most of it.",
-            "conciseness_structure": "Six short sentences, each carrying distinct information such as alternatives, sources, constraints, ordering, errors, and cost. It is front-loaded with purpose. A little dense, but there is no filler.",
-            "contextual_completeness": "With 6 parameters, nested filter objects, and a documented output schema, the description covers prerequisites, errors, truncation, and rate limits. The output schema covers the return shape, so the description doesn't need to explain it."
+            "purpose_clarity": "States specific aggregations (count, sum, average, min, max) over a served dataset's whole table, grouped by up to three fields. Explicitly distinguishes from query_rows for retrieving the rows themselves.",
+            "usage_guidelines": "Names query_rows as the alternative for rows and points to list_fields for field names/values and get_dataset for versions. Gives type constraints (sum/avg need numeric or boolean fields) and guidance on handling truncation.",
+            "behavioral_transparency": "Adds much beyond the read-only annotations: groups are returned largest first, truncated means raise limit or narrow where, unknown field or version returns an error naming it, and each call costs two of 60 queries per address per 10 seconds.",
+            "parameter_semantics": "Schema coverage is 100% and already detailed. The description adds where group_by/where values come from (list_fields), the sum/avg field type constraints, and the source of valid version dates.",
+            "conciseness_structure": "Six compact sentences, each carrying useful information: purpose, alternative, field sourcing, type rules, version, result behavior and rate cost. Front-loaded with purpose, with only minor density in the middle.",
+            "contextual_completeness": "With an output schema that documents the fields, the description still covers truncation semantics, errors and rate limits. Complete for a 6-parameter aggregate tool with nested filter objects."
           },
-          "summary": "An excellent definition that clearly states purpose, differentiates from query_rows, and ties into sibling tools for discovering fields and versions. It adds rate-limit cost, ordering, truncation, and error behavior beyond the annotations. Only minor redundancy with the schema holds back a perfect score.",
-          "contradiction": false
-        },
-        {
-          "scores": {
-            "purpose_clarity": 5,
-            "usage_guidelines": 5,
-            "behavioral_transparency": 5,
-            "parameter_semantics": 5,
-            "conciseness_structure": 4,
-            "contextual_completeness": 5
-          },
-          "why": {
-            "purpose_clarity": "States specific verbs (count, sum, average, min, max) on a served dataset, across the whole table, grouped by up to three fields. Explicitly distinguishes from sibling query_rows: 'For the rows themselves use query_rows.'",
-            "usage_guidelines": "Names the alternative tool (query_rows) for row retrieval. Points to list_fields for field names and values and get_dataset for versions. Gives type constraints on when sum/avg versus min/max apply, and says what to do when truncated.",
-            "behavioral_transparency": "Annotations show a safe read-only call. The description adds the rate-limit cost (two of 60 queries per address per 10 seconds), result ordering (largest first), truncation semantics, and error behavior for an unknown field or version. This goes well beyond the annotations.",
-            "parameter_semantics": "Schema coverage is 100% and already detailed. The description adds where field names and values come from (list_fields), the type constraints for sum/avg versus min/max, and how version relates to get_dataset history. The where filter syntax is thoroughly documented in the schema.",
-            "conciseness_structure": "Six short sentences, each carrying distinct information, front-loaded with purpose and then the sibling pointer. A few lines, such as the version note, partially overlap with the schema, but nothing is wasted.",
-            "contextual_completeness": "The output schema is well documented, and the description complements it with ordering, truncation handling, errors, and rate-limit cost. It covers the prerequisites chain (search_datasets, list_fields, get_dataset) well for a 6-parameter tool with nested filters."
-          },
-          "summary": "An excellent definition that clearly states what the tool does, differentiates it from query_rows, and links to the sibling tools that supply its inputs. It adds useful behavioral details beyond the annotations: rate-limit cost, ordering, truncation, and error behavior. Only minor schema overlap keeps conciseness from a perfect score.",
+          "summary": "A very well-written definition that clearly distinguishes itself from query_rows, cross-references sibling tools for inputs, and discloses ordering, truncation, error and rate-limit behavior. Only minor density keeps it from being flawless.",
           "contradiction": false
         }
       ]
@@ -667,7 +667,7 @@
         }
       ]
     },
-    "6a13c81289a19713": {
+    "3170624b2141ff6c": {
       "name": "upvote_dataset",
       "tdqs": 4.9,
       "median": {
@@ -689,14 +689,14 @@
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States a specific action (add one anonymous vote) on a specific resource (a government dataset not yet served by publicdata.au) and its purpose (so it is built sooner). It clearly separates itself from search_datasets and list_backlog.",
-            "usage_guidelines": "Names alternatives explicitly: search_datasets for reading served datasets, list_backlog for seeing votes. It also states when the tool does not apply (served, being built or closed datasets return an error) and where to get the slug.",
-            "behavioral_transparency": "Adds a lot beyond the annotations: the vote is anonymous with no identity recorded, a repeat vote from the same caller on the same day adds nothing (explaining the idempotency), the error case for non-open datasets, and that the call costs nothing against the rate limit. There is no contradiction with the annotations.",
-            "parameter_semantics": "The schema is fully covered, and the description adds an example slug (act-3u5a-ve4j) and its two sources (search_catalogue vote key or list_backlog slug). This is useful context beyond the schema, though there is only one parameter.",
-            "conciseness_structure": "Four short sentences, front-loaded with the purpose, followed by alternatives, parameter source, error behavior and side effects. Nothing is wasted.",
-            "contextual_completeness": "For a one-parameter mutation tool, the description covers the error case, the dedupe behavior, the rate-limit cost and the prerequisites. The output schema documents the returned slug and vote total, so return values need no further explanation."
+            "purpose_clarity": "States a specific action (add one anonymous vote) on a specific resource (a government dataset not yet served by publicdata.au) with the purpose of getting it built sooner. It clearly distinguishes itself from search_datasets and list_backlog.",
+            "usage_guidelines": "Explicitly names alternatives: search_datasets to read served datasets and list_backlog to see votes. It also states which datasets are not eligible (served, being built, or closed) and where slug values come from (search_catalogue or list_backlog).",
+            "behavioral_transparency": "Adds substantial behavior beyond the annotations: votes are anonymous with no identity recorded, so they cannot be withdrawn. Duplicate votes on the same day add nothing, which explains the idempotent hint. It also describes the error for ineligible datasets and says the call costs nothing against the rate limit.",
+            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds a concrete example slug (act-3u5a-ve4j) and the two sources of valid slugs, which gives more than the schema alone.",
+            "conciseness_structure": "Four tight sentences, front-loaded with the purpose, followed by alternatives, parameter source, error behavior, and side-effect notes. Nothing is redundant.",
+            "contextual_completeness": "For a simple one-parameter mutation, it covers eligibility, errors, irreversibility, dedup behavior, and rate-limit cost. The output schema documents the returned fields (slug, votes), so no return explanation is needed."
           },
-          "summary": "An excellent definition with a precise purpose, explicit sibling alternatives, and rich behavioral detail (anonymity, daily dedupe, error conditions, free of rate limit). Parameter guidance is helpful and the description is tight and complete.",
+          "summary": "An excellent definition that clearly states purpose, names sibling alternatives, and discloses behaviors such as anonymity, irreversibility, same-day dedup, error conditions, and rate-limit cost. It adds meaningful context beyond the annotations and schema with no wasted text.",
           "contradiction": false
         },
         {
@@ -709,14 +709,14 @@
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States a specific action (add one anonymous vote) on a specific resource (a government dataset not yet served by publicdata.au) and its purpose (so it is built sooner). Clearly distinguishes from search_datasets and list_backlog.",
-            "usage_guidelines": "Names alternatives explicitly: search_datasets to read a served dataset, list_backlog to see votes. States when the tool fails (dataset served, being built or closed) and where to get the slug (search_catalogue or list_backlog).",
-            "behavioral_transparency": "Adds substantial behavior beyond annotations: votes are anonymous with no identity recorded, a repeat vote from the same caller on the same day adds nothing (explaining idempotency), the error case for non-open datasets, and that it costs nothing against the rate limit.",
-            "parameter_semantics": "Schema coverage is 100%, but the description adds a concrete example slug (act-3u5a-ve4j) and clarifies the two sources of valid slugs. This goes modestly beyond the schema.",
-            "conciseness_structure": "Four short sentences, front-loaded with the core action, followed by alternatives, parameter source, error behavior, and privacy/rate limit notes. No wasted words.",
-            "contextual_completeness": "For a single-parameter mutation tool with an output schema documenting slug and votes, the description covers preconditions, error case, idempotency, privacy, and rate limits. Nothing significant is missing."
+            "purpose_clarity": "States a specific action (add one anonymous vote) on a specific resource (a government dataset not yet served by publicdata.au) and its goal (built sooner). It distinguishes itself from siblings search_datasets and list_backlog.",
+            "usage_guidelines": "Names alternatives explicitly: search_datasets to read a served dataset, list_backlog to see votes. It also states when the tool does not apply (served, being built or closed datasets) and where to get the slug (search_catalogue or list_backlog).",
+            "behavioral_transparency": "Adds a lot beyond the annotations: votes are anonymous with no identity recorded, cannot be withdrawn, and a repeat vote from the same caller on the same day adds nothing. It also discloses the error for non-open datasets and that the call costs nothing against the rate limit. This is consistent with idempotentHint=true and non-destructive.",
+            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds an example slug (act-3u5a-ve4j) and clarifies the slug's provenance (search_catalogue vote key or list_backlog slug), which goes beyond the schema.",
+            "conciseness_structure": "Four short sentences, front-loaded with the purpose, followed by alternatives, parameter, errors and side effects. Every sentence carries information and nothing is redundant.",
+            "contextual_completeness": "For a one-parameter write tool, it covers purpose, prerequisites, error conditions, idempotency semantics and cost. The output schema documents slug and votes, so no return explanation is needed."
           },
-          "summary": "An excellent definition that clearly states purpose, names sibling alternatives, and discloses behaviors like anonymity, daily dedupe, error conditions, and rate-limit cost. It is concise and consistent with the annotations.",
+          "summary": "An excellent definition: clear purpose, explicit sibling alternatives, error and idempotency behavior, and parameter provenance with an example. It is concise and complete, with no contradiction with the annotations.",
           "contradiction": false
         },
         {
@@ -729,72 +729,72 @@
             "contextual_completeness": 5
           },
           "why": {
-            "purpose_clarity": "States a specific action (add one anonymous vote) on a specific resource (a government dataset not yet served by publicdata.au) and its purpose (built sooner). It clearly distinguishes itself from search_datasets and list_backlog.",
-            "usage_guidelines": "Names alternatives explicitly: search_datasets to read a served dataset, list_backlog to see votes. It also states when the tool doesn't apply (served, being built, or closed datasets return an error) and where to get the slug.",
-            "behavioral_transparency": "Goes well beyond the annotations: discloses anonymity (no identity recorded), the daily dedupe (a second vote from the same caller on the same day adds nothing), the error case for non-open datasets, and that the call costs nothing against the rate limit. This is consistent with idempotentHint=true and non-destructive.",
-            "parameter_semantics": "Schema coverage is 100%, so the baseline is 3. The description adds value with a concrete example slug (act-3u5a-ve4j) and clarifies the two sources of slugs (search_catalogue vote key or list_backlog slug).",
-            "conciseness_structure": "Four short sentences, front-loaded with the main action, followed by sibling pointers, parameter source, error behavior, and side effects. No wasted words.",
-            "contextual_completeness": "For a single-parameter tool with an output schema (slug, votes total), the description covers preconditions, error cases, idempotency semantics, and rate-limit behavior. Nothing significant is missing."
+            "purpose_clarity": "States a specific action (add one anonymous vote) on a specific resource (a government dataset not yet served by publicdata.au) with the purpose (so it is built sooner). Distinguishes from siblings search_datasets and list_backlog.",
+            "usage_guidelines": "Names alternatives explicitly: search_datasets to read a served dataset, list_backlog to see votes. States when the tool applies (only datasets not yet served) and which states return errors (served, being built, closed).",
+            "behavioral_transparency": "Adds a lot beyond annotations: votes are anonymous with no identity recorded, so they cannot be withdrawn. Duplicate votes on the same day add nothing, which explains the idempotent hint. The call costs nothing against the rate limit, and the error condition is described.",
+            "parameter_semantics": "The schema is 100% covered, and the description adds a concrete example slug (act-3u5a-ve4j) and clarifies the two sources, search_catalogue vote key and list_backlog slug. This goes slightly beyond the schema.",
+            "conciseness_structure": "Four tight sentences, front-loaded with the purpose, followed by alternatives, parameter source, errors and side effects. No wasted words.",
+            "contextual_completeness": "Simple one-parameter mutation tool with an output schema that documents the vote total. The description covers the error cases, irreversibility, dedup behavior and rate-limit cost, so nothing important is missing."
           },
-          "summary": "An excellent definition: clear purpose, explicit sibling alternatives, and rich behavioral detail (anonymity, daily dedupe, error condition, rate limit). Parameter guidance is helpful, and the description is tight and complete.",
+          "summary": "An excellent definition: clear purpose, explicit sibling alternatives, and rich behavioral disclosure (anonymity, irreversibility, same-day dedup, errors, rate-limit cost). Parameter guidance adds a useful example and sourcing beyond the schema.",
           "contradiction": false
         }
       ]
     }
   },
   "server": {
-    "hash": "34cf645456ddd06f",
+    "hash": "a1f5c62001d4ec31",
     "median": {
-      "disambiguation": 4,
+      "disambiguation": 5,
       "naming_consistency": 4,
       "tool_count_appropriateness": 5,
-      "completeness": 4
+      "completeness": 5
     },
     "runs": [
       {
         "scores": {
-          "disambiguation": 4,
+          "disambiguation": 5,
           "naming_consistency": 4,
           "tool_count_appropriateness": 5,
-          "completeness": 4
+          "completeness": 5
         },
         "why": {
-          "disambiguation": "Most tools have distinct purposes, and descriptions explicitly cross-reference siblings (e.g. query_rows for rows vs count_rows for aggregates, search_datasets vs search_catalogue). Minor confusion remains between get_dataset, list_partitions and query_rows as ways to obtain data, and between the two search tools.",
-          "naming_consistency": "All names use snake_case verb_noun (search_datasets, list_fields, query_rows, count_rows, upvote_dataset). Small deviations: get_dataset vs list_* for reads, and diff_versions/count_rows use verbs less standard, but the pattern is predictable.",
-          "tool_count_appropriateness": "Ten tools cover discovery, schema, querying, versioning, partitions, and a demand backlog. Each earns its place with no redundant tools.",
-          "completeness": "The read workflow is complete: find, inspect, schema, query, aggregate, diff, and download. The voting loop is closed with the catalogue, upvote and backlog tools. Minor gaps: no way to retract a vote or submit a new dataset request, which is acceptable for a read-oriented public data server."
+          "disambiguation": "Each tool has a distinct purpose and descriptions explicitly cross-reference siblings (e.g. query_rows for rows vs count_rows for aggregates, get_dataset vs list_partitions for files). search_datasets vs search_catalogue is clearly bounded by served vs. unserved datasets.",
+          "naming_consistency": "All names are snake_case verb_noun (search_datasets, list_fields, diff_versions, upvote_dataset). Minor deviations: count_rows and query_rows are fine, but get_dataset returns a package/history and diff_versions uses a less standard verb, though still consistent.",
+          "tool_count_appropriateness": "Ten tools cover discovery, schema, row access, aggregation, versioning, file download and demand voting. Each earns its place with no redundancy.",
+          "completeness": "The surface covers the full read workflow: find, inspect metadata, list fields, query, aggregate, diff versions, download files, plus a request/vote loop for unserved data. As a read-only public data server, there are no meaningful gaps; vote withdrawal is deliberately unsupported."
         },
-        "summary": "A well-scoped, consistently named server with clear workflow guidance and explicit cross-references in descriptions. Only minor overlap in data-retrieval paths and a few small gaps keep it from top scores."
+        "summary": "A well-scoped, coherent server with clear boundaries between tools, consistent snake_case naming, and descriptions that route agents to the right sibling. It covers the read-only data discovery, query and demand-signalling lifecycle without evident gaps."
       },
       {
         "scores": {
-          "disambiguation": 4,
+          "disambiguation": 5,
+          "naming_consistency": 4,
+          "tool_count_appropriateness": 5,
+          "completeness": 5
+        },
+        "why": {
+          "disambiguation": "Each tool has a distinct purpose and descriptions explicitly cross-reference siblings (rows vs aggregates vs files vs metadata). The two search tools are separated clearly: served datasets versus the wider catalogue, with a stated fallback order.",
+          "naming_consistency": "Nearly all names follow snake_case verb_noun (search_datasets, list_fields, query_rows, count_rows, diff_versions, upvote_dataset). Minor deviations: get_dataset returns a package rather than a plain record, and query_rows/count_rows use less standard verbs, but the pattern is predictable.",
+          "tool_count_appropriateness": "Ten tools cover discovery, schema, data access, versioning, and demand-voting. Each earns its place with no redundant tools.",
+          "completeness": "The server supports a full read-only workflow: find a dataset, inspect metadata and fields, read rows, aggregate, download files, compare versions, and fall back to the catalogue and voting. Write operations are rightly absent for a public data service, and the one write (vote) is paired with a backlog view."
+        },
+        "summary": "A well-scoped, coherent read-only data server with clear boundaries between tools and descriptions that point to the right sibling. No shadow candidates were supplied, and naming is nearly uniform."
+      },
+      {
+        "scores": {
+          "disambiguation": 5,
           "naming_consistency": 5,
           "tool_count_appropriateness": 5,
           "completeness": 4
         },
         "why": {
-          "disambiguation": "Most tools have clearly distinct purposes, and descriptions explicitly cross-reference siblings (query_rows vs count_rows, search_datasets vs search_catalogue, get_dataset vs list_partitions). Residual confusion is possible between get_dataset, list_partitions and query_rows for obtaining data, and between the two search tools.",
-          "naming_consistency": "All names follow a consistent snake_case verb_noun pattern (search_datasets, list_fields, query_rows, count_rows, diff_versions, upvote_dataset). Verbs are predictable and map to the action performed.",
-          "tool_count_appropriateness": "Ten tools is well-scoped for a read-focused public data server with a small voting workflow. Each tool earns its place with no redundant ones.",
-          "completeness": "Covers discovery, schema, row queries, aggregates, partitions, version diffs, catalogue search and demand voting. Minor gaps: no way to retract a vote or submit a new backlog request, and no way to get a single row by key, though these are workable."
+          "disambiguation": "Each tool has a distinct purpose, and descriptions explicitly cross-reference siblings (query_rows vs count_rows vs get_dataset vs list_partitions; search_datasets vs search_catalogue). Boundaries between rows, aggregates, files, and metadata are clearly drawn.",
+          "naming_consistency": "All names follow a consistent verb_noun snake_case pattern (search_datasets, get_dataset, list_fields, query_rows, count_rows, diff_versions, upvote_dataset). Verbs are predictable and used consistently, e.g. list_ for collections, get_ for a single item.",
+          "tool_count_appropriateness": "Ten tools is well-scoped for a read-focused open data server with a discovery, schema, query, versioning, and demand-voting workflow. Each tool earns its place with no redundancy.",
+          "completeness": "Covers the full discovery-to-query workflow, versioning, file downloads, and the backlog/vote loop. Minor gaps include no way to fetch a single row by key or export query results, but these are reasonable for a read-only public data server."
         },
-        "summary": "A coherent, well-scoped toolset with consistent naming and descriptions that explicitly route agents between sibling tools. Only minor gaps exist around the voting and backlog workflow."
-      },
-      {
-        "scores": {
-          "disambiguation": 4,
-          "naming_consistency": 4,
-          "tool_count_appropriateness": 5,
-          "completeness": 4
-        },
-        "why": {
-          "disambiguation": "Most tools have distinct purposes, and descriptions explicitly cross-reference siblings (e.g. query_rows for rows vs count_rows for aggregates, search_datasets vs search_catalogue). Minor confusion remains between get_dataset, list_partitions and query_rows as ways to obtain data, and between the two search tools.",
-          "naming_consistency": "All names use snake_case verb_noun (search_datasets, list_fields, query_rows, count_rows, upvote_dataset). Minor deviations: diff_versions and search_catalogue use slightly different noun scopes, and get_dataset returns a package rather than rows, but the pattern is predictable.",
-          "tool_count_appropriateness": "Ten tools cover discovery, schema, querying, versioning, and a demand-voting workflow. Each earns its place with no redundant duplicates.",
-          "completeness": "The read lifecycle is covered end to end: find, inspect, query, aggregate, partition, diff, and request unserved datasets. Minor gaps include no way to retract a vote and no direct fetch of a single partition file's content, but these are easy to work around."
-        },
-        "summary": "A well-scoped, read-focused tool set with consistent snake_case naming and descriptions that explicitly route between siblings. Only minor overlaps in data-retrieval paths and small gaps in the voting flow keep it from top marks."
+        "summary": "A coherent, well-scoped server with clear boundaries, consistent naming, and descriptions that route agents between sibling tools. Gaps are minor and no shadowing candidates were supplied."
       }
     ]
   }
