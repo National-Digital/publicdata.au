@@ -1,383 +1,273 @@
-"""Tool Definition Quality Score for the MCP tools, with the rubric directories publish.
+"""Static check of the MCP tool definitions that api.json writes.
 
-The rubric is https://github.com/glama-ai/tool-definition-quality-score, read at a pinned commit
-and checked against a hash, since it carries no licence to copy. `score` asks a model to judge
-each tool three times, only when the tool's definition hash has no stored score, and writes
-tdqs.json. `check` reads tdqs.json and calls nothing, so CI answers the same way every time.
+Each tool must state its purpose, say when to use it against its siblings, describe every
+parameter, state its limits and what comes back, carry consistent annotations and stay concise.
+The tool set must follow one naming convention and hold no two tools a caller could confuse.
+The check reads api.json alone and asks no service, so a contributor's machine and CI give the
+same answer.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
+import itertools
 import os
 import re
-import statistics
-import subprocess
 import sys
-import urllib.request
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
-from .api_text import TOOLS_FILE
+from .api_text import mcp_spec
 
-RUBRIC_URL = "https://raw.githubusercontent.com/glama-ai/tool-definition-quality-score/b9881b0cfec88969e42672c92544487ca191a992/README.md"
-RUBRIC_SHA = "7861384507c131e3321024936e691ca6909a9ced2860e312e9bad32e9cd1ab5f"
-# Sonnet tracked the directory scores within 0.1 on eight of nine tools; Haiku ran 0.2 low.
-MODEL = os.environ.get("TDQS_MODEL", "claude-sonnet-5-5")
-RUNS = 3
-STORE = Path(os.environ.get("TDQS_STORE") or Path(__file__).with_name("tdqs.json"))
-# The bar a tool and the server must clear. A median dimension of 4 anywhere costs a tool 0.1
-# to 0.25, so these allow one or two soft spots and nothing more.
-MIN_TOOL = 4.8
-MIN_SERVER = 4.8
-
-WEIGHTS = {
-    "purpose_clarity": 25,
-    "usage_guidelines": 20,
-    "behavioral_transparency": 20,
-    "parameter_semantics": 15,
-    "conciseness_structure": 10,
-    "contextual_completeness": 10,
-}
-COHERENCE = ("disambiguation", "naming_consistency", "tool_count_appropriateness", "completeness")
-FIELDS = ("name", "title", "description", "inputSchema", "outputSchema", "annotations")
-
-
-def round1(p: int, q: int) -> float:
-    """p / q rounded half-up to one decimal in integers, as the rubric specifies."""
-    return ((20 * p + q) // (2 * q)) / 10
-
-
-def tool_score(dims: dict) -> float:
-    return round1(sum(dims[k] * w for k, w in WEIGHTS.items()), 100)
-
-
-def server_scores(tools: list[float], coherence: dict) -> dict:
-    tenths = [round(t * 10) for t in tools]
-    n = len(tenths)
-    quality = round1(6 * sum(tenths) + 4 * n * min(tenths), 100 * n)
-    coh = round1(sum(coherence[k] for k in COHERENCE), 4)
-    return {
-        "description_quality": quality,
-        "coherence": coh,
-        "overall": round1(7 * round(quality * 10) + 3 * round(coh * 10), 100),
-    }
-
-
-def definition_hash(tool: dict) -> str:
-    body = json.dumps(
-        {k: tool.get(k) for k in FIELDS}, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+NAME = re.compile(r"^[a-z]+(?:_[a-z]+)+$")
+HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+MIN_DESCRIPTION, MAX_DESCRIPTION = 200, 1000
+MAX_SENTENCE_WORDS = 35
+MIN_PARAM_WORDS, MAX_PARAM_CHARS = 3, 500
+MAX_TITLE_CHARS = 40
+MAX_TOOLS = 20
+# Purpose sentences this alike must point at each other; this alike they are the same tool.
+OVERLAP_NAMED, OVERLAP_DUPLICATE = 0.3, 0.7
+NOT_A_PURPOSE = {"a", "an", "the", "this", "it", "use", "used", "tool"}
+WRITE_VERBS = {"add", "create", "delete", "remove", "set", "update", "write"}
+LIMITS = re.compile(r"rate limit|queries each address may make", re.I)
+RETURNS = re.compile(
+    r"\bcomes? back\b|\bthe answer\b|\bone (?:answer|page)\b|\ba page holds\b|\bnext_offset\b"
+    r"|\breturns? (?!(?:a |an )?(?:\d+ )?error)",
+    re.I,
+)
+STOPWORDS = set(
+    "a an and any as at be by for from has in into is it its of on one or so than that the this "
+    "to up use when which with".split()
+)
 
 
 def tools() -> list[dict]:
-    return [
-        {k: t.get(k) for k in FIELDS} for t in json.loads(TOOLS_FILE.read_text("utf-8"))["tools"]
-    ]
+    return mcp_spec()["tools"]
 
 
-def signals(tool: dict) -> dict:
-    s = tool.get("inputSchema") or {}
-    props = s.get("properties") or {}
-    described = sum(1 for p in props.values() if str(p.get("description", "")).strip())
-    return {
-        "params": len(props),
-        "required": len(s.get("required") or []),
-        "coverage": round(described / len(props) * 100) if props else 100,
-        "enums": sum(1 for p in props.values() if "enum" in p),
-        "nested": any(p.get("type") == "object" for p in props.values()),
-    }
+def sentences(text: str) -> list[str]:
+    return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
 
 
-def _union(s: dict) -> list[dict] | None:
-    for k in ("oneOf", "anyOf"):
-        branches = s.get(k)
-        if branches and not (len(branches) == 2 and {"type": "null"} in branches):
-            return branches
-    return None
+def words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9_]+", text.lower()) if w not in STOPWORDS}
 
 
-def _walk(s: dict, depth: int) -> tuple[int, int, int]:
-    """Required fields, depth and union choices over the required subtree of one schema."""
-    if depth > 10 or not isinstance(s, dict):
-        return 0, 0, 0
-    branches = _union(s)
-    if branches:
-        walked = [_walk(b, depth) for b in branches]
-        return (
-            max(w[0] for w in walked),
-            max(w[1] for w in walked),
-            len(branches) - 1 + sum(w[2] for w in walked),
-        )
-    if (
-        s.get("type") == "array"
-        and isinstance(s.get("items"), dict)
-        and s["items"].get("properties")
-    ):
-        return _walk(s["items"], depth)
-    props = s.get("properties") or {}
-    if not props:
-        return 0, 0, 0
-    fields, deepest, unions = 0, 1, 0
-    for name in s.get("required") or []:
-        f, d, u = _walk(props.get(name) or {}, depth + 1)
-        fields += 1 + f
-        deepest = max(deepest, 1 + d)
-        unions += u
-    return fields, deepest, unions
+def overlap(a: str, b: str) -> float:
+    x, y = words(a), words(b)
+    return len(x & y) / len(x | y) if x | y else 0.0
 
 
-def invocation_cost(tool: dict) -> tuple[int, int, int, int]:
-    fields, depth, unions = _walk(tool.get("inputSchema") or {}, 0)
-    return fields + 2 * max(0, depth - 1) + 2 * unions, fields, depth, unions
+def names(text: str, name: str) -> bool:
+    return re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text) is not None
 
 
-def shadow_candidates(ts: list[dict]) -> list[str]:
-    cost = {t["name"]: invocation_cost(t)[0] for t in ts}
+def _purpose(t: dict) -> list[str]:
     out = []
-    for t in ts:
-        dear = cost[t["name"]]
-        cheaper = [n for n, c in cost.items() if n != t["name"] and dear >= 2 * c and dear - c >= 4]
-        if cheaper:
-            # The dearest qualifying sibling is the likeliest real overlap.
-            c = max(cheaper, key=lambda n: (cost[n], n))
-            out.append(f"{t['name']} (cost {dear}) may be shadowed by {c} (cost {cost[c]})")
+    title = (t.get("title") or "").strip()
+    if not title:
+        out.append("has no title; give it a short name in sentence case")
+    elif len(title) > MAX_TITLE_CHARS or title.endswith(".") or not title[0].isupper():
+        out.append(
+            f"title {title!r} should be sentence case, under {MAX_TITLE_CHARS} characters, "
+            "with no full stop"
+        )
+    first = sentences(t.get("description") or "")
+    if not first:
+        out.append("has no description; open with a sentence saying what the tool does")
+        return out
+    lead = first[0].split()
+    if len(lead) < 6 or lead[0].lower() in NOT_A_PURPOSE or not lead[0][0].isupper():
+        out.append(
+            "the description should open with a sentence of six words or more that starts "
+            "with the verb for what the tool does"
+        )
     return out
 
 
-def set_hash(ts: list[dict]) -> str:
-    return hashlib.sha256(server_message("publicdata-au", ts).encode("utf-8")).hexdigest()[:16]
+def _usage(t: dict, siblings: list[str]) -> list[str]:
+    d = t.get("description") or ""
+    if siblings and not any(names(d, s) for s in siblings):
+        return ["the description names no other tool; say when to use this one instead of another"]
+    return []
 
 
-def rubric() -> dict:
-    with urllib.request.urlopen(RUBRIC_URL, timeout=30) as r:
-        text = r.read().decode("utf-8")
-    blocks = []
-    for part in ("## Appendix A: Tool scoring prompt", "## Appendix B: Server coherence prompt"):
-        blocks += re.findall(r"```text\n(.*?)\n```", text.split(part, 1)[1], re.S)[:2]
-    if hashlib.sha256("\0".join(blocks).encode("utf-8")).hexdigest() != RUBRIC_SHA:
-        raise SystemExit(
-            "the rubric at the pinned commit has changed; review it and update RUBRIC_SHA"
-        )
-    return dict(
-        zip(("tool_system", "tool_user", "server_system", "server_user"), blocks, strict=True)
-    )
-
-
-def tool_message(tool: dict, siblings: list[str]) -> str:
-    s = signals(tool)
-
-    def dump(v, none: str) -> str:
-        return json.dumps(v, indent=2, ensure_ascii=False) if v else none
-
-    return (
-        f"TOOL NAME: {tool['name']}\nTITLE: {tool.get('title') or 'null'}\n\n"
-        f'DESCRIPTION:\n"{tool.get("description") or ""}"\n\n'
-        f"<input-schema>\n{dump(tool.get('inputSchema'), '{}')}\n</input-schema>\n\n"
-        f"<output-schema>\n{dump(tool.get('outputSchema'), 'None provided')}\n</output-schema>\n\n"
-        f"<annotations>\n{dump(tool.get('annotations'), 'None provided')}\n</annotations>\n\n"
-        "CONTEXT SIGNALS:\n"
-        f"- Parameter count: {s['params']}\n- Required parameters: {s['required']}\n"
-        f"- Schema description coverage: {s['coverage']}%\n- Parameters with enums: {s['enums']}\n"
-        f"- Has nested objects: {'true' if s['nested'] else 'false'}\n\n"
-        f"<sibling-tools>\n{chr(10).join(siblings) or 'None'}\n</sibling-tools>\n\nRespond with JSON only."
-    )
-
-
-def server_message(name: str, ts: list[dict]) -> str:
-    lines = []
-    for t in ts:
-        c, f, d, u = invocation_cost(t)
-        lines.append(
-            f"- {t['name']} [cost {c}: {f} required, depth {d}, {u} union choices]: {t.get('description') or '(no description)'}"
-        )
-    cands = shadow_candidates(ts)
-    return (
-        f"SERVER NAME: {name}\nTOOL COUNT: {len(ts)}\n\n<tools>\n"
-        + "\n".join(lines)
-        + "\n</tools>\n\n"
-        "<shadow-candidates>\n"
-        + ("\n".join(cands) or "None")
-        + "\n</shadow-candidates>\n\nRespond with JSON only."
-    )
-
-
-def ask(system: str, message: str, keys: tuple[str, ...]) -> dict:
-    """One judgement, through the Claude Code CLI so the org's Claude Code token can pay for it.
-    A reply that is not the promised JSON is asked again, as the rubric does."""
-    for _ in range(3):
-        r = subprocess.run(
-            [
-                "claude",
-                "-p",
-                "--model",
-                MODEL,
-                "--system-prompt",
-                system,
-                "--tools",
-                "",
-                "--safe-mode",
-                "--no-session-persistence",
-                "--output-format",
-                "json",
-            ],
-            input=message,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        try:
-            # A list of events with verbose output on, or the result event alone.
-            events = json.loads(r.stdout)
-            events = events if isinstance(events, list) else [events]
-            text = next(e for e in reversed(events) if e.get("type") == "result")["result"]
-            got = json.loads(re.search(r"\{.*\}", text, re.S)[0])
-            scores = {k: int(got["scores"][k]["score"]) for k in keys}
-            if all(1 <= v <= 5 for v in scores.values()):
-                return {
-                    "scores": scores,
-                    "why": {k: got["scores"][k]["justification"] for k in keys},
-                    "summary": got.get("summary", ""),
-                    **(
-                        {"contradiction": bool(got.get("annotation_contradiction"))}
-                        if "annotation_contradiction" in got
-                        else {}
-                    ),
-                }
-        # Python 3.14 takes several exception types without brackets (PEP 758), as ruff writes it.
-        except ValueError, KeyError, TypeError, AttributeError, StopIteration:
-            pass
-    raise RuntimeError(f"no usable judgement after 3 tries: {r.stderr[-300:] or r.stdout[-300:]}")
-
-
-def median(runs: list[dict], keys) -> dict:
-    return {k: int(statistics.median_low(r["scores"][k] for r in runs)) for k in keys}
-
-
-def load() -> dict:
-    return json.loads(STORE.read_text("utf-8")) if STORE.exists() else {"tools": {}, "server": {}}
-
-
-def rubric_id() -> str:
-    return f"{RUBRIC_SHA[:12]}/{MODEL}/{RUNS}"
-
-
-def score(workers: int = 6) -> int:
-    ts = tools()
-    names = [t["name"] for t in ts]
-    old = load() if load().get("rubric") == rubric_id() else {"tools": {}, "server": {}}
-    current = {definition_hash(t) for t in ts}
-    kept = {h: v for h, v in old["tools"].items() if h in current}
-    todo = [t for t in ts if definition_hash(t) not in kept]
-    current = set_hash(ts)
-    server_todo = old["server"].get("hash") != current
-    if not todo and not server_todo:
-        print("every tool and the tool set already have scores; nothing asked")
-        return 0
-    p = rubric()
-    jobs = [(t, i) for t in todo for i in range(RUNS)]
-    with ThreadPoolExecutor(workers) as ex:
-        futs = [
-            ex.submit(
-                ask,
-                p["tool_system"],
-                tool_message(t, [n for n in names if n != t["name"]]),
-                tuple(WEIGHTS),
+def _parameters(t: dict) -> list[str]:
+    s = t.get("inputSchema") or {}
+    out = []
+    if s.get("type") != "object":
+        return ["inputSchema must be an object schema"]
+    props = s.get("properties") or {}
+    for r in s.get("required") or []:
+        if r not in props:
+            out.append(f"required parameter {r} is not among the properties")
+    if s.get("additionalProperties") is not False:
+        out.append("inputSchema should set additionalProperties to false so a typo is refused")
+    for p, v in props.items():
+        desc = str(v.get("description") or "").strip()
+        if len(desc.split()) < MIN_PARAM_WORDS:
+            out.append(
+                f"parameter {p} needs a description of {MIN_PARAM_WORDS} words or more "
+                "saying what it takes and where the value comes from"
             )
-            for t, _ in jobs
-        ]
-        sfuts = (
-            [
-                ex.submit(ask, p["server_system"], server_message("publicdata-au", ts), COHERENCE)
-                for _ in range(RUNS)
-            ]
-            if server_todo
-            else []
-        )
-        results = [f.result() for f in futs]
-        sresults = [f.result() for f in sfuts]
-    for n, t in enumerate(todo):
-        runs = results[n * RUNS : (n + 1) * RUNS]
-        dims = median(runs, WEIGHTS)
-        kept[definition_hash(t)] = {
-            "name": t["name"],
-            "tdqs": tool_score(dims),
-            "median": dims,
-            "runs": runs,
-        }
-        print(f"scored {t['name']}: {tool_score(dims)}")
-    server = old["server"]
-    if server_todo:
-        server = {"hash": current, "median": median(sresults, COHERENCE), "runs": sresults}
-    STORE.write_text(
-        json.dumps(
-            {
-                "rubric": rubric_id(),
-                "tools": dict(sorted(kept.items(), key=lambda kv: names.index(kv[1]["name"]))),
-                "server": server,
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return 0
+        elif len(desc) > MAX_PARAM_CHARS:
+            out.append(f"parameter {p}'s description runs past {MAX_PARAM_CHARS} characters")
+        if v.get("type") in ("integer", "number") and "minimum" not in v:
+            out.append(f"parameter {p} is a number with no minimum")
+        if v.get("type") == "array" and not isinstance(v.get("items"), dict):
+            out.append(f"parameter {p} is an array with no items schema")
+        if "default" in v and "enum" in v and v["default"] not in v["enum"]:
+            out.append(f"parameter {p}'s default is not one of its values")
+        lo, hi, dv = v.get("minimum"), v.get("maximum"), v.get("default")
+        if isinstance(dv, int | float) and (
+            (lo is not None and dv < lo) or (hi is not None and dv > hi)
+        ):
+            out.append(f"parameter {p}'s default {dv} is outside its range")
+    return out
 
 
-def problems(ts: list[dict], store: dict) -> tuple[list[str], list[str]]:
-    """What stops a merge, and the report, from tdqs.json alone."""
-    errors, report = [], []
-    if store.get("rubric") != rubric_id():
+def _limits(t: dict) -> list[str]:
+    if not LIMITS.search(t.get("description") or ""):
+        return ["the description does not say what a call costs against the rate limit"]
+    return []
+
+
+def _returns(t: dict) -> list[str]:
+    s = t.get("outputSchema") or {}
+    props = s.get("properties") or {}
+    if s.get("type") != "object" or not props:
+        return ["outputSchema must be an object schema with properties"]
+    out = [
+        f"outputSchema requires {r}, which is not among its properties"
+        for r in s.get("required") or []
+        if r not in props
+    ]
+    d = t.get("description") or ""
+    inputs = set((t.get("inputSchema") or {}).get("properties") or {})
+    if not RETURNS.search(d) and not any(names(d, p) for p in props if p not in inputs):
+        out.append(
+            "the description does not say what comes back; say how much one answer holds "
+            "or name the fields a caller reads"
+        )
+    return out
+
+
+def _annotations(t: dict) -> list[str]:
+    a = t.get("annotations") or {}
+    out = [f"annotations has no boolean {h}" for h in HINTS if not isinstance(a.get(h), bool)]
+    if a.get("title") != t.get("title"):
+        out.append("annotations.title differs from title")
+    if a.get("readOnlyHint") is True:
+        if a.get("destructiveHint") is True:
+            out.append("a read-only tool cannot be destructive")
+        lead = (t.get("description") or "").split()
+        if lead and lead[0].lower() in WRITE_VERBS:
+            out.append(f"is marked read-only but its description opens with {lead[0]!r}")
+    return out
+
+
+def _length(t: dict) -> list[str]:
+    d = t.get("description") or ""
+    out = []
+    if d and not MIN_DESCRIPTION <= len(d) <= MAX_DESCRIPTION:
+        out.append(
+            f"the description is {len(d)} characters; keep it between {MIN_DESCRIPTION} "
+            f"and {MAX_DESCRIPTION}"
+        )
+    for s in sentences(d):
+        if len(s.split()) > MAX_SENTENCE_WORDS:
+            out.append(f"a sentence runs past {MAX_SENTENCE_WORDS} words: {s[:60]!r}")
+    return out
+
+
+def _naming(t: dict) -> list[str]:
+    if not NAME.match(t.get("name") or ""):
         return [
-            f"tdqs.json was scored under {store.get('rubric')}, not {rubric_id()}; run python -m publicdata.tdqs score"
-        ], report
-    scores = []
+            f"name {t.get('name')!r} should be lowercase verb_object snake case, "
+            "like the other tools"
+        ]
+    return []
+
+
+QUALITIES = (
+    ("naming", _naming),
+    ("purpose", _purpose),
+    ("usage", _usage),
+    ("parameters", _parameters),
+    ("limits", _limits),
+    ("returns", _returns),
+    ("annotations", _annotations),
+    ("length", _length),
+)
+
+
+def tool_problems(t: dict, siblings: list[str]) -> list[tuple[str, str]]:
+    out = []
+    for quality, f in QUALITIES:
+        found = f(t, siblings) if f is _usage else f(t)
+        out += [(quality, m) for m in found]
+    return out
+
+
+def set_problems(ts: list[dict]) -> list[tuple[str, str]]:
+    out = []
+    if len(ts) > MAX_TOOLS:
+        out.append(
+            ("tool count", f"{len(ts)} tools is more than {MAX_TOOLS}; merge tools that overlap")
+        )
+    seen: dict[str, int] = {}
     for t in ts:
-        s = store["tools"].get(definition_hash(t))
-        if not s:
-            errors.append(
-                f"{t['name']}: its definition changed and has no score; run python -m publicdata.tdqs score"
+        seen[t.get("name")] = seen.get(t.get("name"), 0) + 1
+    out += [("naming", f"{n} is used by {c} tools") for n, c in seen.items() if c > 1]
+    titles = [t.get("title") for t in ts if t.get("title")]
+    out += [
+        ("naming", f"title {x!r} is used twice")
+        for x in sorted({x for x in titles if titles.count(x) > 1})
+    ]
+    for a, b in itertools.combinations(ts, 2):
+        pa, pb = (sentences(t.get("description") or "")[:1] or [""] for t in (a, b))
+        o = overlap(pa[0], pb[0])
+        da, db = a.get("description") or "", b.get("description") or ""
+        if o >= OVERLAP_DUPLICATE:
+            out.append(
+                ("disambiguation", f"{a['name']} and {b['name']} open with near the same purpose")
             )
-            continue
-        scores.append(s["tdqs"])
-        soft = [f"{k} {v}" for k, v in s["median"].items() if v < 5]
-        report.append(
-            f"{t['name']:18s} {s['tdqs']:.1f}" + (f"  ({', '.join(soft)})" if soft else "")
-        )
-        if s["tdqs"] < MIN_TOOL:
-            errors.append(
-                f"{t['name']}: TDQS {s['tdqs']} is under {MIN_TOOL}; its judgements say why in tdqs.json"
+        elif o >= OVERLAP_NAMED and not (names(da, b["name"]) or names(db, a["name"])):
+            out.append(
+                (
+                    "disambiguation",
+                    f"{a['name']} and {b['name']} have similar purposes and neither names the "
+                    "other; say when to use each",
+                )
             )
-        if any(r.get("contradiction") for r in s["runs"]):
-            errors.append(f"{t['name']}: a judge found the description contradicts the annotations")
-    current = set_hash(ts)
-    if store["server"].get("hash") != current:
-        errors.append(
-            "the tool set changed and has no coherence score; run python -m publicdata.tdqs score"
-        )
-    elif len(scores) == len(ts):
-        s = server_scores(scores, store["server"]["median"])
+    return out
+
+
+def problems(ts: list[dict]) -> tuple[list[str], list[str]]:
+    """The failures that stop a merge, and a line per tool for the report."""
+    errors, report = [], []
+    all_names = [t.get("name") for t in ts]
+    for t in ts:
+        found = tool_problems(t, [n for n in all_names if n != t.get("name")])
+        errors += [f"{t.get('name')}: {q}: {m}" for q, m in found]
         report.append(
-            f"server             {s['overall']:.1f}  (quality {s['description_quality']}, coherence {s['coherence']})"
+            f"{t.get('name')!s:18s} "
+            + ("pass" if not found else "fails " + ", ".join(dict.fromkeys(q for q, _ in found)))
         )
-        if s["overall"] < MIN_SERVER:
-            errors.append(f"server: overall {s['overall']} is under {MIN_SERVER}")
+    found = set_problems(ts)
+    errors += [f"tool set: {q}: {m}" for q, m in found]
+    report.append(f"{'tool set':18s} " + ("pass" if not found else f"fails {len(found)}"))
     return errors, report
 
 
-def check() -> int:
-    errors, report = problems(tools(), load())
+def check(ts: list[dict] | None = None) -> int:
+    errors, report = problems(tools() if ts is None else ts)
     print("\n".join(report))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
-            f.write("### TDQS\n\n```\n" + "\n".join(report + errors) + "\n```\n")
+            f.write("### Tool definitions\n\n```\n" + "\n".join(report + errors) + "\n```\n")
     for e in errors:
-        print("TDQS: " + e, file=sys.stderr)
+        print("tool definition: " + e, file=sys.stderr)
     return 1 if errors else 0
 
 
@@ -385,9 +275,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m publicdata.tdqs", description=__doc__.splitlines()[0]
     )
-    ap.add_argument("command", choices=["score", "check"])
-    a = ap.parse_args(argv)
-    return score() if a.command == "score" else check()
+    ap.add_argument("command", choices=["check"])
+    ap.parse_args(argv)
+    return check()
 
 
 if __name__ == "__main__":

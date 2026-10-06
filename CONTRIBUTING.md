@@ -292,11 +292,14 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   page into one GeoJSON file.
 - An XML file is read one row per element named in `source.record`: its attributes as `@name`, each
   child's text by the child's name, and a child that repeats joined by ` | `.
-- The MCP tool definitions are held to a Tool Definition Quality Score of 4.8 per tool and for
-  the server, judged with the rubric the directories publish. After changing a tool's text in
-  `pipeline/publicdata/api.json`, a maintainer runs `python -m publicdata.tdqs score` (it needs a
-  signed-in `claude` CLI, and asks only about tools whose definition changed) and commits
-  `tdqs.json`. CI reads the committed scores and fails a tool that is unscored or under the bar.
+- The MCP tool definitions in `pipeline/publicdata/api.json` must pass a static check. Each tool
+  opens with a sentence saying what it does, names another tool to say when to use it, describes
+  every parameter, states what a call costs against the rate limit and what comes back, carries
+  annotations that agree with its description, and keeps its description between 200 and 1,000
+  characters. Tool names are lowercase verb_object snake case, and two tools with similar
+  purposes must name each other. Run `python -m publicdata.tdqs check` in `pipeline/` after
+  changing a tool's text. It works offline, prints the same result every time, and names the
+  tool and the quality a failure lacks. CI runs the same command.
 - `example` sets the dataset page's first query, the one the query tile answers and the console
   starts from: `where` (`field: value` for an exact match, `field: {gte: 1, lt: 9}` for the API's
   other operators, `newest` for the field's newest value), `group`, `metric` (`count`, or `sum`,

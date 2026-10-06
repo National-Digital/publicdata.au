@@ -55,8 +55,7 @@ jobs:
         with:
           python-version-file: .python-version
       - run: pip install -e ./pipeline
-      # Scores are judged by a maintainer with `python -m publicdata.tdqs score` and committed;
-      # CI reads tdqs.json and calls nothing.
+      # A static check of api.json's tool definitions; it asks no service.
       - working-directory: pipeline
         run: python -m publicdata.tdqs check
 
