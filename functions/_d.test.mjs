@@ -109,3 +109,12 @@ test('a publisher file the register no longer republishes is refused', async () 
   assert.equal((await get('/d/x/v/2026-04-24/source.csv')).status, 410);
   assert.equal((await get('/d/x/v/2026-04-24/data.csv')).status, 200);
 });
+
+test('a dated file saves under its dataset and version, and a page has no file name', async () => {
+  const r = await get('/d/x/v/2026-04-24/data.csv');
+  assert.equal(r.headers.get('content-disposition'), 'inline; filename="x_2026-04-24.csv"');
+  const ranged = await get('/d/x/v/2026-04-24/data.csv', { range: 'bytes=0-1' });
+  assert.equal(ranged.headers.get('content-disposition'), 'inline; filename="x_2026-04-24.csv"');
+  assert.equal((await get('/d/x/v/2026-04-24/')).headers.get('content-disposition'), null);
+  assert.equal((await get('/d/x/v/2026-04-24/index.md')).headers.get('content-disposition'), null);
+});

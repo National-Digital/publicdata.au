@@ -107,6 +107,13 @@ FORMAT_NOTES = {
 }
 
 
+def download_name(slug: str, version: str, rel: str) -> str:
+    """The name a version's file saves under: data.csv of qld-x 2026-04-24 is
+    qld-x_2026-04-24.csv. functions/_download.js does the same."""
+    tail = rel[4:] if rel.startswith("data.") else "_" + rel.replace("/", "_")
+    return f"{slug}_{version}{tail}"
+
+
 def fmt_size(n: int | None) -> str:
     if n is None:
         return ""
@@ -147,6 +154,7 @@ def env() -> Environment:
     )
     e.filters["linkify"] = linkify
     e.globals["cadence_words"] = cadence_words
+    e.globals["download_name"] = download_name
     e.globals["brand_fonts"] = brand.has_fonts()
     return e
 
@@ -3033,6 +3041,7 @@ def render_site(
                     "name": k,
                     "size": fmt_size(s),
                     "url": f"{version_url(ds.slug, v.manifest.version)}{k}",
+                    "download": download_name(ds.slug, v.manifest.version, k),
                 }
                 for k, s in v.files.items()
                 if "/" not in k
@@ -3237,6 +3246,7 @@ def render_site(
                 "slug": ds.slug,
                 "title": ds.title,
                 "base": base,
+                "latest": latest.manifest.version,
                 "formats": fmt_data,
                 "example_field": example_field,
                 "console": console,
@@ -3622,6 +3632,7 @@ def render_site(
                     "slug": hero.dataset.slug,
                     "title": hero.dataset.title,
                     "base": dataset_url(hero.dataset.slug),
+                    "latest": hero.latest.manifest.version,
                     "formats": demo_data,
                     "example_field": hero.dataset.partition_by[0]
                     if hero.dataset.partition_by

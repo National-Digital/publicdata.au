@@ -1,3 +1,5 @@
+import { disposition } from '../_download.js';
+
 // /d/* : serve the static file if Pages has it; redirect latest/ to the newest version;
 // otherwise look in R2, which holds every dated version's files and anything over the Pages limit.
 const TYPES = {
@@ -96,6 +98,8 @@ async function serve(request, env, url, latest) {
     if (!DATED.test(url.pathname) || PAGE.test(url.pathname) || (asset.status !== 200 && asset.status !== 206)) return asset;
     const r = new Response(asset.body, asset);
     r.headers.set('cache-control', 'public, max-age=31536000, immutable, no-transform');
+    const cd = disposition(decodeURIComponent(url.pathname.slice(1)));
+    if (cd) r.headers.set('content-disposition', cd);
     return r;
   }
   return (!page && (await fromR2(request, env, url))) || asset;
@@ -138,6 +142,8 @@ async function fromR2(request, env, url) {
   const page = PAGE.test('/' + key);
   headers.set('cache-control', DATED.test(key) && !page ? 'public, max-age=31536000, immutable, no-transform' : 'public, max-age=300, no-transform');
   if (page) for (const [k, v] of Object.entries(await headersFor(env))) headers.set(k, v);
+  const cd = disposition(key);
+  if (cd) headers.set('content-disposition', cd);
   // Range readers such as DuckDB size the file from HEAD before asking for bytes.
   if (head) {
     headers.set('content-length', String(obj.size));

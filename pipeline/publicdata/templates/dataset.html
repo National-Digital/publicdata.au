@@ -61,7 +61,7 @@
     </select>
     <span class="fmt-note">"Latest" redirects to the newest version and will change when the publisher releases again. A dated version never changes.</span>
   </div>
-  <div class="urlbox"><div class="path" id="url" tabindex="0">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}">Download</a></div>
+  <div class="urlbox"><div class="path" id="url" tabindex="0">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}" download="{{ download_name(ds.slug, latest.version, formats[0].file) }}">Download</a></div>
   <p class="fmt-note" id="fmt-note"></p>
   <div>
     <div class="tools" role="tablist" aria-label="How to use" id="tools"></div>
