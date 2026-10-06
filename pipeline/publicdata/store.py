@@ -36,6 +36,9 @@ class Manifest:
     notes: list[str] = field(default_factory=list)
     # A digest of the normalised rows in any order, so a reordered export is no new version.
     rows_sha256: str = ""
+    # The Parquet layout the fetch found in the register (serialise.profile.layout), which the
+    # version's data.parquet keeps for good; empty for a version fetched before the profile.
+    parquet: dict = field(default_factory=dict)
 
     @property
     def ext(self) -> str:
@@ -46,6 +49,8 @@ class Manifest:
         # Left out when empty, so a manifest written before the field keeps its bytes and cache key.
         if not d["rows_sha256"]:
             del d["rows_sha256"]
+        if not d["parquet"]:
+            del d["parquet"]
         return json.dumps(d, indent=2, ensure_ascii=False) + "\n"
 
     @classmethod

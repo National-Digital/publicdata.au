@@ -132,9 +132,13 @@ def test_load_files_rebuild_the_latest_version_and_register_it(tmp_path, fixture
         db.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()
         == src.execute("SELECT COUNT(*) FROM records").fetchone()
     )
+    # D1 holds the rows in the Parquet's order, which the register sorts for this dataset.
     assert (
-        db.execute(f'SELECT * FROM "{tbl}" ORDER BY rowid LIMIT 3').fetchall()
-        == src.execute("SELECT * FROM records ORDER BY rowid LIMIT 3").fetchall()
+        db.execute(f'SELECT * FROM "{tbl}" ORDER BY crash_ref_number LIMIT 3').fetchall()
+        == src.execute("SELECT * FROM records ORDER BY crash_ref_number LIMIT 3").fetchall()
+    )
+    assert [r[0] for r in db.execute(f'SELECT crash_year FROM "{tbl}" ORDER BY rowid')] == sorted(
+        r[0] for r in src.execute("SELECT crash_year FROM records")
     )
     slug, version, t, fields, rows, attribution, header = db.execute(
         "SELECT * FROM _versions WHERE slug = 'qld-road-crash-locations'"
@@ -157,6 +161,7 @@ def test_only_the_newest_versions_are_kept():
     assert stmts == [
         'DROP TABLE IF EXISTS "v_x_20260101";',
         "DELETE FROM _versions WHERE slug = 'x' AND version = '2026-01-01';",
+        "DELETE FROM _orders WHERE slug = 'x' AND version = '2026-01-01';",
     ]
 
 

@@ -63,6 +63,8 @@ class Table:
     geometry: pa.Array | None = None
     # The place spine layers a point dataset was joined to, with the version of each.
     places: list[dict] = field(default_factory=list)
+    # (table, (sort, key), permutation) once the build has sorted this table, so it sorts once.
+    order: tuple | None = field(default=None, repr=False, compare=False)
 
     @property
     def rows(self) -> int:

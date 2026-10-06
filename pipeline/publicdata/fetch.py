@@ -1841,6 +1841,9 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
     if data is None:
         return None
     m.rows_sha256, n = _rows(ds, m, data)
+    from .serialise.profile import layout
+
+    m.parquet = layout(ds)
     existing = store.manifests(store_dir, ds.slug)
     if m.rows_sha256 and existing and existing[-1].rows_sha256 == m.rows_sha256:
         return None
