@@ -31,7 +31,16 @@ from .provenance import (
 )
 from .records import connect
 from .register import NEWEST, WHERE_OPS, Dataset
-from .serialise import FORMAT_LABEL, FORMATS, MEDIA, SHAPE_FORMATS, formats_for, pretty
+from .serialise import (
+    FORMAT_LABEL,
+    FORMATS,
+    MEDIA,
+    SHAPE_FORMATS,
+    formats_for,
+    left_out,
+    measured_of,
+    pretty,
+)
 from .serialise.geo import geo_kind
 from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
 from .spine import DATUM as SPINE_DATUM
@@ -237,8 +246,16 @@ SITE_ORDER = (
 
 
 def _fmts(ds: Dataset, v: VersionOut) -> list[str]:
-    have = set(formats_for(v.rows, geo_kind(ds)))
+    have = set(formats_for(v.rows, geo_kind(ds), measured_of(v.manifest.fetched_at, v.files)))
     return [f for f in SITE_ORDER if f in have]
+
+
+def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
+    """Why each format a table version lacks is not there, one sentence each, in site order."""
+    if ds.kind == "database":
+        return []
+    gone = left_out(v.rows, geo_kind(ds), measured_of(v.manifest.fetched_at, v.files))
+    return [gone[f] for f in SITE_ORDER if f in gone]
 
 
 def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
@@ -279,7 +296,8 @@ def _seo_title(ds: Dataset, v: VersionOut, span: str = "") -> str:
     have = set(_fmts(ds, v))
     # At most four names keep the title inside what a result page shows; the description lists them all.
     names = ["CSV", *(["JSON"] if "json" in have else []), "Parquet"]
-    fmts = ", ".join([*names, "GeoJSON" if "geojson" in have else "SQLite"])
+    last = "GeoJSON" if "geojson" in have else "SQLite" if "sqlite" in have else "DuckDB"
+    fmts = ", ".join([*names, last])
     lead = ds.search_title or ds.title
     return f"{lead}{f' {years}' if years else ''}: {fmts} download | {HOST}"
 
@@ -315,7 +333,8 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
     if "data.xlsx" in v.files:
         excel = f"Yes. {vbase}data.xlsx is a workbook with the {fmt_int(v.rows)} rows on a records sheet, the field list on a second sheet and the provenance on a third. The CSV also opens in Excel."
     else:
-        excel = f"Not as a workbook. Excel stops at 1,048,576 rows and this table has {fmt_int(v.rows)}, so there is no data.xlsx. Load the CSV or the Parquet file with Power Query, or take one partition file at a time."
+        why = left_out(v.rows, geo_kind(ds), measured_of(m.fetched_at, v.files)).get("xlsx", "")
+        excel = f"Not as a workbook. {why} Load the CSV or the Parquet file with Power Query, or take one partition file at a time."
     out.append(
         (
             f"Can I open {short} in Excel?",
@@ -1462,6 +1481,8 @@ def _md_twin_dataset(
     ]
     for fmt in _fmts(ds, v):
         lines.append(f"- {fmt}: {base}latest/data.{fmt} ({fmt_size(v.files.get(f'data.{fmt}'))})")
+    if why := _left_out(ds, v):
+        lines += ["", *why]
     lines += [
         "",
         f"Pinned version {m.version}: `{vbase}data.<format>`. Dated versions never change.",
@@ -1679,7 +1700,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, xlsx, json, parquet, sqlite, duckdb, ndjson, arrow, csv.gz, and geojson, gpkg and geo.parquet where the dataset has coordinates or shapes, with pmtiles vector tiles for boundary layers.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions made before the size limits came in also carry arrow. A version page says why a format is not there.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 </ul>
 <h2>Inside every data file</h2>
@@ -3069,6 +3090,7 @@ def render_site(
                     ),
                     *[f"- {f['name']}: {f['url']} ({f['size']})" for f in files],
                     "",
+                    *[f"{why}\n" for why in _left_out(ds, v)],
                     "## Attribution",
                     "",
                     attribution(ds, v.manifest),
@@ -3091,6 +3113,7 @@ def render_site(
                 v=view,
                 is_latest=v is latest,
                 files=files,
+                left_out=_left_out(ds, v),
                 partition_dirs=list(v.partitions.keys()),
                 change=view["change"],
                 fig=vfig,
@@ -3319,6 +3342,7 @@ def render_site(
             latest=views[-1],
             versions=views,
             formats=formats,
+            left_out=_left_out(ds, latest),
             ds_data=ds_data,
             console=console,
             explore_url=explore["page"] if explore else "",
@@ -3751,7 +3775,7 @@ def render_site(
         "@id": CATALOG_ID,
         "name": HOST,
         "url": SITE + "/",
-        "description": "Versioned republication of Australian open government data as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage, with a query API, a browser explorer and an MCP server.",
+        "description": "Versioned republication of Australian open government data as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage, with a query API, a browser explorer and an MCP server.",
         # The operator's accounts on GitHub and on the data hubs that carry copies of these datasets.
         "provider": {**OPERATOR_ORG, "sameAs": accounts},
     }
@@ -3767,7 +3791,7 @@ def render_site(
             "",
             f"# {brand.HEADLINE}",
             "",
-            f"publicdata.au republishes Australian government datasets as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage. Every release a publisher makes becomes a dated version that never changes, with its schema, its provenance and a diff against the release before. A query API answers filters and counts from a URL, an explorer charts every row in the browser, and an MCP server at {SITE}/mcp gives agents the same tools. There are no keys and no accounts. No government agency runs or has endorsed this site.",
+            f"publicdata.au republishes Australian government datasets as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage. Every release a publisher makes becomes a dated version that never changes, with its schema, its provenance and a diff against the release before. A query API answers filters and counts from a URL, an explorer charts every row in the browser, and an MCP server at {SITE}/mcp gives agents the same tools. There are no keys and no accounts. No government agency runs or has endorsed this site.",
             "",
             "## Datasets",
             "",
@@ -4300,7 +4324,12 @@ def render_site(
             if ds.licence.condition:
                 full.append(f"  Licence condition: {ds.licence.condition}")
             continue
-        line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(o.latest.rows)} rows, {len(ds.fields)} fields. Parquet {vb}data.parquet{f' · JSON {vb}data.json' if 'data.json' in o.latest.files else ''} · CSV {vb}data.csv{f' · Excel {vb}data.xlsx' if 'data.xlsx' in o.latest.files else ''} · SQLite {vb}data.sqlite · DuckDB {vb}data.duckdb · Arrow {vb}data.arrow{' · GeoJSON ' + vb + 'data.geojson' if 'data.geojson' in o.latest.files else ''}{' · GeoPackage ' + vb + 'data.gpkg' if ds.geometry else ''} · Markdown {dataset_url(ds.slug)}index.md"
+        files = " · ".join(
+            f"{FORMAT_LABEL[f]} {vb}data.{f}"
+            for f in ("parquet", "json", "csv", "xlsx", "sqlite", "duckdb", "geojson", "gpkg")
+            if f"data.{f}" in o.latest.files
+        )
+        line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(o.latest.rows)} rows, {len(ds.fields)} fields. {files} · Markdown {dataset_url(ds.slug)}index.md"
         llms.append(line)
         full += [line, "  Fields: " + ", ".join(f"{f.name} ({f.type})" for f in ds.fields)]
         if ds.key:

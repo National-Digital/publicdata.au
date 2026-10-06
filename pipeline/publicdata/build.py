@@ -25,10 +25,14 @@ from .provenance import OPERATOR_URL
 from .provenance import header as prov_header
 from .register import Dataset
 from .serialise import (
+    MEASURED,
     MEDIA,
     WRITERS,
+    capped,
     csvw_metadata,
     formats_for,
+    left_out,
+    measured_of,
     pretty,
     schema_sql,
     table_schema,
@@ -188,10 +192,15 @@ def build_version(
     def hdr(rows: int, rel: str) -> dict:
         return prov_header(ds, m, rows, base + rel)
 
-    fmts = formats_for(tbl.rows, geo_kind(ds))
+    measured = None
+    if capped(m.fetched_at):
+        # Written whatever --formats says, since their sizes decide which other formats are made.
+        write_formats(tbl, list(MEASURED), hdr, vdir)
+        measured = {f: (vdir / f"data.{f}").stat().st_size for f in MEASURED}
+    fmts = formats_for(tbl.rows, geo_kind(ds), measured)
     if "ndjson" not in fmts:
         raise ValueError("every build writes data.ndjson, which the dataset page reads back")
-    write_formats(tbl, fmts, hdr, vdir)
+    write_formats(tbl, [f for f in fmts if measured is None or f not in MEASURED], hdr, vdir)
     query = _query_copy(tbl, hdr(tbl.rows, "data.parquet"), vdir, out)
     partitions = write_partitions(tbl, hdr, vdir)
     (vdir / "schema.json").write_text(pretty(table_schema(tbl)), encoding="utf-8")
@@ -212,6 +221,9 @@ def build_version(
         man["omitted_upstream_columns"] = {c: ds.omit[c] for c in tbl.omitted_columns}
     if tbl.places:
         man["places"] = tbl.places
+    if measured is not None:
+        man["measured_bytes"] = {f"data.{f}": n for f, n in measured.items()}
+        man["formats_left_out"] = left_out(tbl.rows, geo_kind(ds), measured)
     man["url"] = base
     (vdir / "manifest.json").write_text(pretty(man), encoding="utf-8")
     return tbl, VersionOut(
@@ -326,7 +338,7 @@ def _datapackage(dout: DatasetOut) -> dict:
                 }
             )
     else:
-        for fmt in formats_for(v.rows, geo_kind(ds)):
+        for fmt in _want(ds, m, v.rows, v.files):
             name = f"data.{fmt}"
             resources.append(
                 {
@@ -460,11 +472,16 @@ def _meta(vout: VersionOut, writers: dict[str, str]) -> dict:
     }
 
 
-def current(ds: Dataset, hit: dict, now: dict[str, str]) -> bool:
+def _want(ds: Dataset, m: store.Manifest, rows: int, files: dict[str, int]) -> list[str]:
+    """The formats a table version carries, by its fetch date and its measured files."""
+    return formats_for(rows, geo_kind(ds), measured_of(m.fetched_at, files))
+
+
+def current(ds: Dataset, m: store.Manifest, hit: dict, now: dict[str, str]) -> bool:
     """Whether a cached version already holds every format the current writers would make."""
     if ds.kind == "database":
         return True
-    want = formats_for(hit["rows"], geo_kind(ds))
+    want = _want(ds, m, hit["rows"], hit["files"])
     seen = hit.get("writers", {})
     return (
         all(seen.get(f) == now[f] for f in want)
@@ -486,7 +503,7 @@ def pending(
     n = 0
     for m in store.manifests(store_dir, ds.slug):
         meta = cache.root / version_key(cache, ds, m, store_dir) / "meta.json"
-        if not meta.is_file() or not current(ds, json.loads(meta.read_text("utf-8")), now):
+        if not meta.is_file() or not current(ds, m, json.loads(meta.read_text("utf-8")), now):
             n += max(m.bytes, 1)
     return n
 
@@ -524,12 +541,12 @@ def grow_cached(
 
     if ds.kind == "database":
         return hit
-    want = formats_for(hit["rows"], geo_kind(ds))
+    want = _want(ds, m, hit["rows"], hit["files"])
     now = writer_keys()
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
     stale = list(changed)
-    if current(ds, hit, now):
+    if current(ds, m, hit, now):
         return hit
     # The rows come from the Parquet, a layer's shapes included; a changed Parquet writer is a new
     # version.
@@ -551,7 +568,24 @@ def grow_cached(
         stale = ["csv", *stale]  # the gzip reads the CSV, written here and not kept
     for p in [vdir / f"data.{f}" for f in stale]:
         p.unlink(missing_ok=True)
-    write_formats(tbl, [f for f in formats_for(hit["rows"], geo_kind(ds)) if f in stale], hdr, vdir)
+    first = [f for f in MEASURED if f in stale] if capped(m.fetched_at) else []
+    if first:
+        # A capped version's NDJSON and CSV sizes pick its other formats. Rewritten, they must
+        # pick the same ones, or the version is built again from its source.
+        write_formats(tbl, first, hdr, vdir)
+        sizes = {
+            f: _size(vdir / f"data.{f}") if f in first else hit["files"][f"data.{f}"]
+            for f in MEASURED
+        }
+        if formats_for(hit["rows"], geo_kind(ds), sizes) != want:
+            return None
+        mpath = vdir / "manifest.json"
+        man = json.loads(mpath.read_text(encoding="utf-8"))
+        man["measured_bytes"] = {f"data.{f}": n for f, n in sizes.items()}
+        man["formats_left_out"] = left_out(hit["rows"], geo_kind(ds), sizes)
+        mpath.unlink()  # a link into the cache entry, which a write would change
+        mpath.write_text(pretty(man), encoding="utf-8")
+    write_formats(tbl, [f for f in want if f in stale and f not in first], hdr, vdir)
     # A format no longer made is dropped from the record, unless the build is limited to a
     # subset by --formats: the files are still published, and a limited build never shrinks
     # an entry a full build will grow again.
@@ -566,6 +600,8 @@ def grow_cached(
     }
     for f in stale:
         files[f"data.{f}"] = _size(vdir / f"data.{f}")
+    if first:
+        files["manifest.json"] = _size(vdir / "manifest.json")
     if "csv" in stale and "csv" not in changed:
         (vdir / "data.csv").unlink()  # written only to make the gzip; the published one stands
     writers = {f: now[f] for f in want}
@@ -607,7 +643,7 @@ def _cached_version(
         writers = (
             {}
             if ds.kind == "database"
-            else {f: now[f] for f in formats_for(vout.rows, geo_kind(ds))}
+            else {f: now[f] for f in _want(ds, m, vout.rows, vout.files)}
         )
         cache.put(key, _meta(vout, writers), vdir, kept)
         if tbl is not None and m.parquet.get("sort") and (vdir / "data.parquet").is_file():

@@ -2,7 +2,7 @@
   "dataset": "qld-road-crash-factors",
   "version": "2026-04-24",
   "as_at": "2025-06-30",
-  "fetched_at": "2026-09-24T14:15:48+00:00",
+  "fetched_at": "2026-10-07T14:15:48+00:00",
   "sha256": "3822a21156382e1883676d75fd4eef95b0200fc63208e6a4a16fd95c957adb8c",
   "bytes": 17926,
   "filename": "_e_alcohol_speed_fatigue_defect.csv",

@@ -1,7 +1,7 @@
 {
   "_comment": "Every sentence the site says about the query API and the agent tools. The tools under webmcp serve both the pages and the MCP server at /mcp. The build writes them into openapi.json, the agents page, llms.txt, each dataset page and its Markdown twin, site.js and functions/_tools.json. {name} is filled from limits; `code` becomes code in HTML. The gate checks limits, operators, metrics and parameters against functions/_query.js and functions/_api.js.",
   "site": {
-    "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage at URLs that never change. Every release is a dated, immutable version with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it."
+    "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs that never change. Every release is a dated, immutable version with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it."
   },
   "limits": {
     "requests": 60,

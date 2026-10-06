@@ -261,7 +261,31 @@ def checked(
                 f"tables/{t.name}.parquet" for t in ds.tables
             )
         else:
-            fmts = serialise.formats_for(int(m.get("rows", 0)), geo_kind(ds))
+            rows = int(m.get("rows", 0))
+            measured = None
+            if serialise.capped(m.get("fetched_at", "")):
+                got = m.get("measured_bytes") or {}
+                measured = {f: got[f"data.{f}"] for f in serialise.MEASURED if f"data.{f}" in got}
+                if len(measured) != len(serialise.MEASURED):
+                    errors.append(f"{slug}/{version}: manifest lacks the measured file sizes")
+                    continue
+                gone = serialise.left_out(rows, geo_kind(ds), measured)
+                if m.get("formats_left_out") != gone:
+                    errors.append(f"{slug}/{version}: formats_left_out does not follow the caps")
+                for x in (*gone, "arrow"):
+                    if have(f"data.{x}"):
+                        errors.append(
+                            f"{slug}/{version}: data.{x} is published though the caps leave it out"
+                        )
+                vpage = vdir / "index.html"
+                if site and vpage.exists():
+                    text = vpage.read_text(encoding="utf-8")
+                    for x, why in gone.items():
+                        if html_escape(why) not in text:
+                            errors.append(
+                                f"{slug}/{version}: the version page does not say why data.{x} is not there"
+                            )
+            fmts = serialise.formats_for(rows, geo_kind(ds), measured)
             need = (
                 *(f"data.{x}" for x in fmts),
                 "schema.json",

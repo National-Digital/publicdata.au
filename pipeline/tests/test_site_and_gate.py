@@ -60,8 +60,12 @@ def test_full_fixture_build_passes_gate_and_house_rules(register_dir, tmp_path, 
     assert re.search(r'<script src="/static/site\.js\?v=[0-9a-f]{12}" defer>', home)
     ds = (out / "d" / "qld-road-crash-locations" / "index.html").read_text(encoding="utf-8")
     assert 'data-fmt="parquet"' in ds and 'data-fmt="geojson"' in ds
-    for key in ("xlsx", "gpkg", "arrow", "csv.gz", "duckdb"):
+    for key in ("xlsx", "gpkg", "geo.parquet", "csv.gz", "duckdb"):
         assert f'data-fmt="{key}"' in ds, key
+    # Fetched after the size limits came in, so no Arrow; a version fetched before keeps it.
+    assert 'data-fmt="arrow"' not in ds
+    older = (out / "d" / "qld-road-casualties" / "index.html").read_text(encoding="utf-8")
+    assert 'data-fmt="arrow"' in older
     # Every dataset page shows how to open it from Excel, Power BI, R, Python and DuckDB.
     assert "Use it in Excel, R, Python and more" in ds
     assert "latest/data.csv</code>" in ds
@@ -239,7 +243,7 @@ def test_full_fixture_build_passes_gate_and_house_rules(register_dir, tmp_path, 
     assert "content-encoding" not in fn
     assert "obj.range.suffix !== undefined" in fn
     assert (
-        "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, Arrow"
+        "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, or"
         in ds
     )
     # Every HTML page names a Markdown twin that exists.
@@ -562,10 +566,10 @@ def test_catalog_modified_moves_with_the_newest_release(tmp_path):
     store = tmp_path / "store"
     shutil.copytree(ROOT / "pipeline" / "tests" / "fixtures" / "store", store)
     old = store / "qld-road-casualties" / "2026-04-24"
-    new = old.parent / "2026-10-01"
+    new = old.parent / "2026-10-09"
     shutil.copytree(old, new)
     m = json.loads((new / "manifest.json").read_text(encoding="utf-8"))
-    m.update(version="2026-10-01", fetched_at="2026-10-01T02:00:00+00:00")
+    m.update(version="2026-10-09", fetched_at="2026-10-09T02:00:00+00:00")
     (new / "manifest.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
     out = tmp_path / "dist"
     subprocess.run(
@@ -573,9 +577,9 @@ def test_catalog_modified_moves_with_the_newest_release(tmp_path):
         check=True,
     )
     catalog = json.loads((out / "catalog.json").read_text(encoding="utf-8"))
-    assert catalog["modified"] == "2026-10-01"
+    assert catalog["modified"] == "2026-10-09"
     by_id = {d["identifier"]: d for d in catalog["dataset"]}
-    assert by_id["qld-road-casualties"]["modified"] == "2026-10-01"
+    assert by_id["qld-road-casualties"]["modified"] == "2026-10-09"
 
 
 def test_the_gate_refuses_a_page_that_leaves_out_the_licence_condition(

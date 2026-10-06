@@ -20,16 +20,28 @@ import xlsxwriter
 
 from ..normalise import Table
 
-# Every whole-table format, in the order the site lists them. Excel is skipped above its row limit.
-FORMATS = ("json", "ndjson", "csv", "parquet", "sqlite", "duckdb", "xlsx", "arrow", "csv.gz")
+# Every whole-table format, in the order the site lists them. A version fetched before
+# CAPPED_FROM keeps the set it was built with, Arrow included.
+FORMATS = ("json", "ndjson", "csv", "parquet", "sqlite", "duckdb", "xlsx", "csv.gz")
+LEGACY_FORMATS = ("json", "ndjson", "csv", "parquet", "sqlite", "duckdb", "xlsx", "arrow", "csv.gz")
 GEO_FORMATS = ("geojson", "gpkg", "geo.parquet")
 # A polygon or line layer keeps its shapes in data.parquet itself, which is GeoParquet, and adds
 # vector tiles for maps.
 SHAPE_FORMATS = ("geojson", "gpkg", "pmtiles")
 EXCEL_MAX_ROWS = 1_048_575
-# Above this a JSON document that holds the whole table is too big for a reader to parse at once,
-# so JSON and GeoJSON are left to NDJSON, the partition files and the query API.
+# Before CAPPED_FROM, a JSON document that holds the whole table stopped here.
 JSON_MAX_ROWS = 2_000_000
+CAPPED_FROM = "2026-10-07"
+# The files every capped version writes first, whose sizes decide the rest.
+MEASURED = ("ndjson", "csv")
+# Each capped format: the file it is measured on, and the most bytes that file may hold. JSON and
+# GeoJSON are about the size of the NDJSON; SQLite and Excel follow the CSV.
+CAPS = {
+    "sqlite": ("csv", 500_000_000),
+    "geojson": ("ndjson", 100_000_000),
+    "xlsx": ("csv", 50_000_000),
+    "json": ("ndjson", 50_000_000),
+}
 MEDIA = {
     "json": "application/json",
     "ndjson": "application/x-ndjson",
@@ -70,15 +82,77 @@ FORMAT_LABEL = {
 LIMIT: set[str] | None = None
 
 
-def formats_for(rows: int, geometry: bool | str) -> list[str]:
+def capped(fetched_at: str) -> bool:
+    """Whether a version fetched then takes the capped format set."""
+    return (fetched_at or "")[:10] >= CAPPED_FROM
+
+
+def measured_of(fetched_at: str, files: dict[str, int]) -> dict[str, int] | None:
+    """The measured file sizes a capped version's formats follow, from its file record; None for
+    a version fetched before CAPPED_FROM."""
+    if not capped(fetched_at):
+        return None
+    return {f: files[f"data.{f}"] for f in MEASURED if f"data.{f}" in files}
+
+
+def _kind(geometry: bool | str) -> str:
+    return "point" if geometry is True else (geometry or "")
+
+
+def left_out(rows: int, geometry: bool | str, measured: dict[str, int] | None) -> dict[str, str]:
+    """Each format a version does not carry, with the reason in a sentence. Arrow is left out of
+    every capped version and is not named."""
+    kind = _kind(geometry)
+    if measured is None:
+        over = {"xlsx"} if rows > EXCEL_MAX_ROWS else set()
+        if rows > JSON_MAX_ROWS:
+            over |= {"json", "geojson"} if kind else {"json"}
+        return {f: _row_reason(f) for f in sorted(over)}
+    have = set(FORMATS) | set(_geo_formats(kind))
+    out = {}
+    for fmt, (on, limit) in CAPS.items():
+        if fmt not in have:
+            continue
+        size = measured.get(on)
+        if size is None:
+            raise ValueError(f"{fmt} is measured on data.{on}, which this version has no size for")
+        if fmt == "xlsx" and rows > EXCEL_MAX_ROWS:
+            out[fmt] = _row_reason(fmt)
+        elif size > limit:
+            out[fmt] = (
+                f"{FORMAT_LABEL[fmt]} is not offered because the table is "
+                f"{size / 1e6:,.1f} MB as {FORMAT_LABEL[on]}, over the {limit / 1e6:,.0f} MB limit for "
+                f"{FORMAT_LABEL[fmt]}."
+            )
+    return out
+
+
+def _row_reason(fmt: str) -> str:
+    if fmt == "xlsx":
+        return (
+            f"Excel is not offered because the table is over {EXCEL_MAX_ROWS:,} rows, "
+            "which is as many as a worksheet holds below its header row."
+        )
+    return (
+        f"{FORMAT_LABEL[fmt]} is not offered because the table is over {JSON_MAX_ROWS:,} rows, "
+        "too many for one document a reader parses at once."
+    )
+
+
+def _geo_formats(kind: str) -> tuple[str, ...]:
+    return () if not kind else GEO_FORMATS if kind == "point" else SHAPE_FORMATS
+
+
+def formats_for(
+    rows: int, geometry: bool | str, measured: dict[str, int] | None = None
+) -> list[str]:
     """The formats a version carries. `geometry` is the dataset's geometry kind, or True for
-    points."""
-    kind = "point" if geometry is True else (geometry or "")
-    over = {"xlsx"} if rows > EXCEL_MAX_ROWS else set()
-    if rows > JSON_MAX_ROWS:
-        over |= {"json", "geojson"}
-    geo = () if not kind else GEO_FORMATS if kind == "point" else SHAPE_FORMATS
-    out = [f for f in (*FORMATS, *geo) if f not in over]
+    points. `measured` is a capped version's NDJSON and CSV sizes, and None gives the set a
+    version fetched before CAPPED_FROM was built with."""
+    kind = _kind(geometry)
+    base = LEGACY_FORMATS if measured is None else FORMATS
+    over = left_out(rows, kind, measured)
+    out = [f for f in (*base, *_geo_formats(kind)) if f not in over]
     return out if LIMIT is None else [f for f in out if f in LIMIT]
 
 
@@ -557,7 +631,7 @@ WRITERS = {
     "geo.parquet": lambda tbl, header, path, vdir: write_geo_parquet(tbl, header, path),
     "pmtiles": lambda tbl, header, path, vdir: write_pmtiles(tbl, header, path),
 }
-assert set(WRITERS) == {*FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}
+assert set(WRITERS) == {*LEGACY_FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}
 # The module that writes each format, for the cache's writer keys, and the formats a writer
 # derives its file from, whose modules its key takes in too.
 WRITER_MODULES = {fmt: fmt.replace(".", "_") for fmt in WRITERS}

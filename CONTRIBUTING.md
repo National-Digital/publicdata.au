@@ -185,6 +185,10 @@ deterministic bytes out, with no network, clock or randomness.
 1. Add the writer to `pipeline/publicdata/serialise/writers/` and register it in `WRITERS` in
    `serialise/__init__.py`, with its place in `FORMATS` (or the geo lists), its media type in
    `MEDIA` and its name in `FORMAT_LABEL`. The order of `FORMATS` is the order the site lists them.
+   `LEGACY_FORMATS` is the set of versions fetched before `CAPPED_FROM`; add the format there too
+   only if those versions should carry it. A format whose file grows past what people can open
+   takes a limit in `CAPS`, measured on the NDJSON or the CSV, and the version pages then say
+   why it is missing.
 2. Carry the provenance header into the file in whatever way the format allows, as the other
    writers do.
 3. Describe the format in `pipeline/publicdata/api.json`, which the pages, the API and the MCP

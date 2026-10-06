@@ -8,7 +8,7 @@
 [![DCO](https://img.shields.io/badge/DCO-sign--off%20required-blue.svg)](https://developercertificate.org/)
 [![PyPI](https://img.shields.io/pypi/v/publicdata-au)](https://pypi.org/project/publicdata-au/)
 
-Australian government open data, republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage at URLs
+Australian government open data, republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs
 that never change. Every release the publisher makes becomes a dated, immutable version with its
 schema, provenance, the publisher's own file and a diff against the release before.
 
