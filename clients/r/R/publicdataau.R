@@ -414,7 +414,8 @@ save_file <- function(slug, format, version, path, table = NULL) {
 #'   datasets with a location or a shape. Parquet, CSV, CSV (gzip), NDJSON and
 #'   DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out
 #'   of a version whose table is over their size limits, and Arrow is only on
-#'   versions made before October 2026.
+#'   versions fetched before the format change, whose manifest has no `caps`
+#'   field.
 #' @param version A version date from [pd_versions()]. The newest when `NULL`.
 #' @param path Where to save the file. When `NULL`, a file in the session's
 #'   temporary directory named for the slug and version, or the file in the
@@ -517,10 +518,20 @@ read_csv_gz <- function(slug, version, cache, columns) {
   }
   got <- fetch_file(slug, "csv.gz", version, NULL, cache)
   if (got$temp) on.exit(unlink(got$path), add = TRUE)
-  classes <- if (is.null(f)) NA else stats::setNames(unname(csv_classes[f$type]), f$name)
+  classes <- c(suppressed = "character")
+  if (!is.null(f)) classes <- c(stats::setNames(unname(csv_classes[f$type]), f$name), classes)
+  header <- names(utils::read.csv(gzfile(got$path), nrows = 0, check.names = FALSE))
+  classes <- classes[names(classes) %in% header]
+  if (!length(classes)) classes <- NA
   df <- utils::read.csv(gzfile(got$path), colClasses = classes, na.strings = "",
                         check.names = FALSE, stringsAsFactors = FALSE, encoding = "UTF-8")
   if (!is.null(columns)) df <- df[, columns, drop = FALSE]
+  if ("suppressed" %in% names(df)) {
+    # The CSV joins the suppressed field names with ";"; the Parquet holds a list.
+    df$suppressed <- lapply(df$suppressed, function(x) {
+      if (is.na(x) || !nzchar(x)) character() else strsplit(x, ";", fixed = TRUE)[[1]]
+    })
+  }
   df <- as_tbl(labelled(typed(df, f), f))
   at <- if (is.null(got$version) || is.na(got$version)) version else got$version
   attr(df, "publicdata") <- file_header(slug, at)

@@ -5,7 +5,10 @@
   table of a database is served only as Parquet and still needs 'arrow'.
 * `pd_download()` documents the formats every version carries. Excel, JSON,
   GeoJSON and SQLite are left out of a version whose table is over their size
-  limits, and Arrow files are only on versions made before October 2026.
+  limits, and Arrow files are only on versions fetched before the format
+  change, whose manifest has no `caps` field.
+* In the CSV fallback the `suppressed` column is a list of field names, as
+  it is in the Parquet file.
 
 # publicdataau 0.4.1
 

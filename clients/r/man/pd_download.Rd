@@ -22,7 +22,8 @@ pd_download(
 datasets with a location or a shape. Parquet, CSV, CSV (gzip), NDJSON and
 DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out
 of a version whose table is over their size limits, and Arrow is only on
-versions made before October 2026.}
+versions fetched before the format change, whose manifest has no `caps`
+field.}
 
 \item{version}{A version date from [pd_versions()]. The newest when `NULL`.}
 

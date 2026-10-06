@@ -68,8 +68,8 @@ path <- pd_download("au-road-deaths", "csv", path = "au-road-deaths.csv")
 `pd_read()` reads the Parquet file with 'arrow' when it is installed with zstd. Otherwise it reads
 the gzipped CSV and types the columns from the version's fields. Parquet, CSV, CSV (gzip), NDJSON
 and DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out of a version whose
-table is over their size limits, and the version's page says why. Arrow files are on versions made
-before October 2026.
+table is over their size limits, and the version's page says why. Arrow files are only on versions
+fetched before the format change, whose manifest has no `caps` field.
 
 A version never changes once published, so a downloaded file can be kept and reused. Nothing is
 kept unless you ask:

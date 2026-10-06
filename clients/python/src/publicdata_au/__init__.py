@@ -103,7 +103,7 @@ FORMATS = (
     "geo.parquet",
 )
 # On every table version. The others are left out of a version when the table is over their size
-# limits, and Arrow is only on versions made before those limits came in.
+# limits, and Arrow is only on versions whose manifest has no `caps` field.
 ALWAYS = ("parquet", "csv", "csv.gz", "ndjson", "duckdb")
 _CSV_DTYPES = {"string": "string", "integer": "Int64", "number": "float64", "boolean": "boolean"}
 PAGE_MAX = 10_000
@@ -682,15 +682,7 @@ class Client:
             resp = self._open(self.file_url(slug, format, version, table))
         except PublicDataError as err:
             if err.status == 404 and table is None and format not in ALWAYS:
-                raise PublicDataError(
-                    404,
-                    f"{slug!r} has no data.{format} in this version. Excel, JSON, GeoJSON and "
-                    "SQLite are left out of a version when the table is over their size limits, "
-                    "and the version's page says why. Arrow is only on versions made before "
-                    f"October 2026. {', '.join(ALWAYS)} are on every version.",
-                    err.body,
-                    err.url,
-                ) from None
+                raise PublicDataError(404, _absent_why(slug, format), err.body, err.url) from None
             raise
         with resp as r:
             final = r.geturl()
@@ -777,13 +769,24 @@ class Client:
                 p,
                 compression="gzip",
                 usecols=list(columns) if columns else None,
-                dtype={n: _CSV_DTYPES.get(t, "string") for n, t in types.items()},
+                dtype={
+                    **{n: _CSV_DTYPES.get(t, "string") for n, t in types.items()},
+                    "suppressed": "string",
+                },
                 keep_default_na=False,
                 na_values=[""],
+                float_precision="round_trip",
             )
+        if columns:
+            df = df[list(columns)]
         for n, t in types.items():
             if n in df.columns and t in ("date", "datetime"):
                 df[n] = pd.to_datetime(df[n], errors="coerce")
+        if "suppressed" in df.columns:
+            # The CSV joins the suppressed field names with ";"; the Parquet holds a list.
+            df["suppressed"] = [
+                [] if pd.isna(v) or v == "" else str(v).split(";") for v in df["suppressed"]
+            ]
         df.attrs["publicdata"] = self._file_header(slug, version or got)
         self._notice(slug, df.attrs["publicdata"].get("licence"))
         return df
@@ -1125,6 +1128,25 @@ class Client:
                 LicenceCondition,
                 stacklevel=3,
             )
+
+
+def _absent_why(slug: str, format: str) -> str:
+    """Why a version may have no data.<format>, for a 404 on one."""
+    head = f"{slug!r} has no data.{format} in this version."
+    always = f"{', '.join(ALWAYS)} are on every table version."
+    if format in ("gpkg", "geo.parquet"):
+        return f"{head} Only datasets with a location or a shape have it. {always}"
+    if format == "arrow":
+        return (
+            f"{head} Arrow is only on versions fetched before the format change, whose "
+            f"manifest has no caps field. {always}"
+        )
+    geo = " GeoJSON is only for datasets with a location or a shape." if format == "geojson" else ""
+    return (
+        f"{head} Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over "
+        f"their size limits, and the version's manifest names the reason under "
+        f"formats_left_out.{geo} {always}"
+    )
 
 
 def _datetime(v: str) -> dt.datetime:
