@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Ask a question or share an idea
+    url: https://github.com/National-Digital/publicdata.au/discussions
+    about: Questions, ideas and things you have built with the data. Issues are for faults.
   - name: Ask for a dataset
     url: https://publicdata.au/
     about: Search for it and vote for it on the site. The most-voted requests are built first.

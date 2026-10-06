@@ -1726,7 +1726,7 @@ PROSE = {
 <h2 id="fix">Fix something</h2>
 <p>Every dataset page links to the register entry it is built from, so a clearer description or a field the publisher renamed is a small pull request. Faults in the site, the query API, the MCP server or the Python and R clients go in <a href="{repo}/issues">the issues</a>, along with any file that differs from the publisher's own. Improvements to the documentation are as welcome as code.</p>
 <h2>Without writing code</h2>
-<p>Votes in the <a href="/backlog/">backlog</a> decide which datasets are built next. A report of a file that differs from the publisher's, or of a page that reads badly, helps as much as a pull request. A publisher that confirms a licence in writing can move a blocked dataset onto the list.</p>
+<p>Votes in the <a href="/backlog/">backlog</a> decide which datasets are built next. A report of a file that differs from the publisher's, or of a page that reads badly, helps as much as a pull request. A publisher that confirms a licence in writing can move a blocked dataset onto the list. Questions and ideas that are not a fault go in <a href="{repo}/discussions">the discussions</a>.</p>
 <h2>How a change is accepted</h2>
 <p>Sign off each commit with <code>git commit -s</code>, which certifies under the <a href="https://developercertificate.org/">Developer Certificate of Origin</a> that you may submit it. Title the pull request as a Conventional Commit, such as <code>data(register): add &lt;what it is&gt;</code>. The checks build and test the site and need no credentials, so they run on a pull request from a fork. A maintainer then reviews it and squash-merges it, and the release notes on GitHub name the people whose changes each release carries.</p>
 <p>The rules every change is held to are in <a href="{repo}/blob/main/CONTRIBUTING.md#ground-rules">the guide</a>. The site publishes what the publisher published and derives nothing from it, and a version never changes once it is out. By taking part you agree to the <a href="{repo}/blob/main/CODE_OF_CONDUCT.md">code of conduct</a>. Report a security issue privately, as the <a href="{repo}/blob/main/SECURITY.md">security policy</a> describes.</p>
@@ -1760,7 +1760,8 @@ PROSE = {
 <h2>The data</h2>
 <p>Each dataset belongs to its publisher and is republished under the licence the publisher chose, which is named on the dataset page and inside every file. That licence governs what you may do with the data, and these terms do not narrow it.</p>
 <p>Most datasets are under a Creative Commons Attribution licence. When you share the data, or something made from it, the licence requires you to credit the publisher in a reasonable way, and the attribution string in every file does this in the publisher's words. We also ask you to say the data came from publicdata.au and link to the version you used. The licence does not require this, and you are free to decline. The <code>cite</code> string in every file does both.</p>
-<p>The site's own text, design and code belong to National Digital.</p>
+<h2>The site's code and text</h2>
+<p>The code that builds and runs the site is open source under the <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU Affero General Public License v3.0 or later</a>, and its source is <a href="{repo}">on GitHub</a>. If you run a modified copy as a service, the licence requires you to offer its users the source of your changes. The text we write for each dataset's register entry is under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. The names publicdata.au and National Digital, and their marks, are outside both licences, and <a href="{repo}/blob/main/BRAND.md">BRAND.md</a> says what a copy of the site must change. The rest of the site's own text belongs to National Digital.</p>
 <h2>No endorsement</h2>
 <p>publicdata.au is a private website with no connection to any government agency. No publisher has endorsed it, and nothing on it speaks for a publisher.</p>
 <h2>Accuracy</h2>
@@ -1788,8 +1789,8 @@ PROSE = {
 # The date the terms last changed, and a hash of their text. The gate fails when the text changes
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
-    "29 September 2026",
-    "d459146bb6c5acca826f63f8c5b9adc32ad61b3072263084b6941229fb326858",
+    "6 October 2026",
+    "4ce25a2e3b856f96612c6da5b55ae9aa3b21bcac9bddcaca5d4a417a61f9f8bd",
 )
 
 
