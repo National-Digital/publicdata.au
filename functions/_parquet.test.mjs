@@ -401,11 +401,19 @@ test('an ordered page counts offset + limit against the rows it may hold, before
   await assert.rejects(parquetRows(env, entry, qs(4), URL_, small), (e) => {
     assert.ok(e instanceof BudgetError);
     assert.match(e.message, /7 ordered rows .*\(6 ordered rows\)/);
-    assert.match(e.message, /page past that with where on the order field/);
+    // The advice keeps the tied rows: an inclusive bound in the order's direction, then a skip.
+    assert.match(e.message, /filter speed=lte\.<the last speed a page gave>, start offset again at 0 and skip/);
     assert.ok(e.message.endsWith('ORDER BY "speed" DESC NULLS LAST, "lga" ASC NULLS FIRST, "year" ASC NULLS LAST, "lga" ASC NULLS LAST, file_row_number LIMIT 2 OFFSET 4'), e.message);
     return true;
   });
   assert.equal(reads.length, 0);
+  await assert.rejects(parquetRows(env, entry, new URLSearchParams('order=speed.asc&limit=2&offset=4'), URL_, small), /filter speed=gte\./);
+  // The heap never holds more than can match, so a page past the end answers empty, as D1 does.
+  const past = new URLSearchParams('year=eq.2019&order=speed.desc&offset=100&limit=1');
+  const end = await parquetRows(env, entry, past, URL_, { ...BUDGET, held: 8 });
+  assert.deepEqual(end.rows, []);
+  assert.equal(end.used.held, 8);
+  assert.deepEqual((await d1('rows', past.toString(), SLUG3)).rows, []);
   // Without an order, a page is found by counting, so nothing is held.
   assert.equal((await parquetRows(env, entry, new URLSearchParams('limit=2&offset=30'), URL_, small)).used.held, 0);
 
@@ -421,6 +429,38 @@ test('an ordered page counts offset + limit against the rows it may hold, before
     assert.match(e.message, /3,899,003 ordered rows/);
     return true;
   });
+});
+
+test('an ordered page is charged for the depth of its heap, and an aggregate for its buckets', async () => {
+  // Each candidate row is compared once per level of the heap, so a deep page costs more values.
+  const b = fixture('large-profiled.parquet');
+  const big = { DIST: { async get(key, o = {}) {
+    const r = o.range || {}, s = r.suffix !== undefined ? b.length - r.suffix : r.offset, e = r.suffix !== undefined ? b.length : s + r.length;
+    const u = b.subarray(s, e);
+    return { size: b.length, arrayBuffer: async () => u.buffer.slice(u.byteOffset, u.byteOffset + u.length) };
+  } } };
+  const large = await openVersion(big, 'big', '2026-01-02');
+  const values = async (offset) => {
+    let msg = '';
+    await assert.rejects(parquetRows(big, large, new URLSearchParams(`order=n.desc&limit=1&offset=${offset}`), 'u', { ...BUDGET, values: 1 }), (e) => { msg = e.message; return true; });
+    return msg.match(/read ([\d,]+) values/)[1];
+  };
+  assert.equal(await values(0), '20,000,000');
+  assert.equal(await values(300), '40,000,000');
+  assert.equal(await values(70000), '60,000,000');
+
+  // Every distinct group is a bucket in memory, so their number is capped and the SQL given.
+  const qs = new URLSearchParams('group=lga&metric=count');
+  await assert.rejects(parquetAggregate(env, entry, qs, URL_, { ...BUDGET, buckets: 3 }), (e) => {
+    assert.ok(e instanceof BudgetError);
+    assert.match(e.message, /4 distinct groups .*\(3 distinct groups\)/);
+    assert.match(e.message, /Group by fewer or coarser fields/);
+    assert.ok(e.message.endsWith(`SELECT "lga" AS "lga", COUNT(*) AS "count" FROM read_parquet('${URL_}', file_row_number = true) GROUP BY "lga" ORDER BY "lga" ASC NULLS FIRST LIMIT 100 OFFSET 0`), e.message);
+    return true;
+  });
+  const ok = await parquetAggregate(env, entry, qs, URL_, { ...BUDGET, buckets: 5 });
+  assert.equal(ok.used.buckets, 5);
+  assert.deepEqual(ok.rows, (await d1('aggregate', qs.toString(), SLUG3)).rows);
 });
 
 test('a like pattern is charged for its length on every value it is matched against', async () => {

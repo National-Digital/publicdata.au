@@ -281,7 +281,10 @@ rows that the statistics prove match are counted without being read. The pages l
 less than 256 KB apart read as one, and decoded with hyparquet a few row groups at a time.
 Before any data is read, the pages a query needs are priced from the page index, and a call may
 read 64 row groups, 8 MB, 4 million values and 160 ranges. An ordered page holds every row
-before it, so offset + limit may come to at most 100,000 rows there. Each value a `like` pattern
+before it, so offset + limit, or the rows that can match where that is fewer, may come to at most
+100,000 rows there. Each candidate row of an order costs one more value for every eight levels of
+that heap, since it is compared once per level. An aggregate holds one bucket per distinct group
+and may hold 50,000. Each value a `like` pattern
 with a `*` is matched against counts once more for every eight characters of the pattern. A
 query that needs more is refused with the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, the
 suppressed flags joined by semicolons, and a 64-bit integer as a number while it is exact and as

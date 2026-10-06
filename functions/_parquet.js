@@ -9,8 +9,9 @@ import { fieldMap, filterSpecs, groupFields, likePattern, metricSpecs, orderSpec
 
 // What one call may read. Workers hide CPU time from the code that spends it, so cost is bounded
 // by what decoding is proportional to: row groups, compressed bytes and the values decoded. An
-// ordered page keeps every row before it in a heap, so offset + limit is held to its own cap.
-export const BUDGET = { groups: 64, bytes: 8 * 2 ** 20, values: 4_000_000, ranges: 160, held: 100_000 };
+// ordered page keeps every row before it in a heap, so offset + limit is held to its own cap, and
+// an aggregate holds one bucket per distinct group, so those are capped too.
+export const BUDGET = { groups: 64, bytes: 8 * 2 ** 20, values: 4_000_000, ranges: 160, held: 100_000, buckets: 50_000 };
 const PARALLEL = 6;
 const STREAM = 8;
 // R2 answers a range in about 50 to 80 ms whatever its size, so near ranges are read as one.
@@ -333,7 +334,7 @@ function blockFile(env, entry, blocks) {
 class Scan {
   constructor(env, entry, ix, budget, refuse, specs = []) {
     Object.assign(this, { env, entry, ix, budget, refuse });
-    this.used = { groups: 0, bytes: 0, values: 0, ranges: 0, held: 0 };
+    this.used = { groups: 0, bytes: 0, values: 0, ranges: 0, held: 0, buckets: 0 };
     this.weight = likeWeights(specs);
     this.cols = new Map();
     this.seen = new Set();
@@ -374,10 +375,10 @@ class Scan {
   }
 
   // Holds a read to the budget, refusing the query before anything is fetched.
-  charge(needs, held = 0) {
+  charge(needs, extra = {}) {
     const { todo, ranges, cost } = this.plan(needs);
     const u = { ...this.used };
-    u.held += held;
+    for (const k of Object.keys(extra)) u[k] += extra[k];
     for (const i of cost.groups) if (!this.seen.has(i)) { u.groups++; this.seen.add(i); }
     u.bytes += cost.bytes;
     u.values += cost.values;
@@ -605,15 +606,26 @@ export function duckdbSQL(url, types, specs, tail) {
   return `SELECT ${tail.select} FROM read_parquet('${url}', file_row_number = true)${where.length ? ' WHERE ' + where.join(' AND ') : ''}${tail.rest}`;
 }
 
-function refusal(entry, url, sql, budget) {
+// Advice for a page past the held cap that loses no rows: restart from the boundary value with an
+// inclusive bound, since a strict one skips the rest of a value that has ties.
+function deeper(order, cap) {
+  const o = order[0];
+  const op = o && o.dir === 'asc' ? 'gte' : 'lte';
+  return `An ordered page holds every row before it, so keep offset + limit under ${cap}. `
+    + (o ? `To page further, filter ${o.name}=${op}.<the last ${o.name} a page gave>, start offset again at 0 and skip the rows of that value you already have, or order by a field that is unique in this version.` : '');
+}
+
+function refusal(entry, url, sql, budget, order = []) {
   const mb = (n) => (n / 2 ** 20).toFixed(1);
   return (u, over) => {
     const n = (x) => x.toLocaleString('en-AU');
-    const what = { groups: `${u.groups} row groups`, bytes: `${mb(u.bytes)} MB`, values: `${n(u.values)} values`, ranges: `${u.ranges} reads`, held: `${n(u.held)} ordered rows` };
-    const cap = { groups: `${budget.groups} row groups`, bytes: `${mb(budget.bytes)} MB`, values: `${n(budget.values)} values`, ranges: `${budget.ranges} reads`, held: `${n(budget.held)} ordered rows` };
+    const what = { groups: `${u.groups} row groups`, bytes: `${mb(u.bytes)} MB`, values: `${n(u.values)} values`, ranges: `${u.ranges} reads`, held: `${n(u.held)} ordered rows`, buckets: `${n(u.buckets)} distinct groups` };
+    const cap = { groups: `${budget.groups} row groups`, bytes: `${mb(budget.bytes)} MB`, values: `${n(budget.values)} values`, ranges: `${budget.ranges} reads`, held: `${n(budget.held)} ordered rows`, buckets: `${n(budget.buckets)} distinct groups` };
     const narrow = over.includes('held')
-      ? `An ordered page holds every row before it, so keep offset + limit under ${n(budget.held)} and page past that with where on the order field, such as lt. the last value a page gave.`
-      : 'Narrow where to fewer rows, such as one year or one place.';
+      ? deeper(order, n(budget.held))
+      : over.includes('buckets')
+        ? 'Group by fewer or coarser fields, or narrow where to fewer rows.'
+        : 'Narrow where to fewer rows, such as one year or one place.';
     return new BudgetError(
       `This query would read ${over.map((k) => what[k]).join(' and ')} of the version's ${n(entry.rows)} rows, more than one call may read (${over.map((k) => cap[k]).join(', ')}). `
       + `${narrow} To answer it as asked, download ${url} or run this DuckDB SQL, which reads that dated version's Parquet file directly: ${sql}`,
@@ -646,10 +658,15 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET) {
   const fnames = [...new Set(specs.map((s) => s.name))];
   const onames = order.map((o) => o.name);
   const ix = await pageIndex(env, entry, [...fnames, ...onames, ...cols]);
-  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget), specs);
+  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget, order), specs);
   const groups = prune(entry, specs, ix);
   const want = offset + limit + 1;
-  const todo = scan.charge(needsOf(groups, onames, fnames), order.length ? want : 0);
+  // The heap never holds more rows than can match, and each candidate costs a compare per level
+  // of it: one more value for every eight levels, measured against decoding.
+  const candidates = groups.reduce((n, p) => n + p.segs.reduce((a, s) => a + s.to - s.from, 0), 0);
+  const held = order.length ? Math.min(want, candidates) : 0;
+  const depth = held > 1 ? Math.floor(Math.log2(held) / 8) : 0;
+  const todo = scan.charge(needsOf(groups, onames, fnames), { held, values: candidates * depth });
   const found = [];
   const collect = (p) => found.push(matchesOf(scan, p, specs));
   // An order needs its columns for every match, so those are kept; filter columns are not.
@@ -747,7 +764,10 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
       const vals = gcols.map((c) => c[r]);
       const key = JSON.stringify(vals);
       let b = buckets.get(key);
-      if (!b) buckets.set(key, (b = { vals, acc: fresh() }));
+      if (!b) {
+        if (buckets.size >= budget.buckets) throw scan.refuse({ ...scan.used, buckets: buckets.size + 1 }, ['buckets']);
+        buckets.set(key, (b = { vals, acc: fresh() }));
+      }
       metrics.forEach((x, k) => {
         const a = b.acc[k];
         if (!x.field) { a.n++; return; }
@@ -772,6 +792,7 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
     });
     return row;
   });
+  scan.used.buckets = buckets.size;
   out.sort(sorter([...order, ...byGroup], (row, name) => row[name]));
   const more = out.length > offset + limit;
   out = out.slice(offset, offset + limit);
