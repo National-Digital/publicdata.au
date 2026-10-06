@@ -28,7 +28,7 @@ pipeline/publicdata/
   gate.py              fail-closed checks over dist/
   site.py              dataset pages, request pages, agency pages, from the same model
   figures.py           build-time figures: rows per year and rows per map cell, counted in
-                       each version's data.sqlite and drawn as inline SVG; a part year is
+                       each version's data.parquet and drawn as inline SVG; a part year is
                        left out and named, a state with no located data is drawn hatched;
                        a register entry's chart block keeps the chart to the rows it names
                        and sets its colour and its measure
@@ -116,12 +116,12 @@ the build, with nothing written by hand:
 - partition files for each `partition_by` field;
 - the query API over D1 for the newest versions, with OpenAPI at `/d/<slug>/openapi.json` and
   the query console on the dataset page, whose field values and first query come from the
-  version's data.sqlite;
+  version's data.parquet;
 - the explorer at `/d/<slug>/explore/` and its frame at `/d/<slug>/embed/`, whose first
   dashboard comes from the same field hints as the console;
 - a figure band on the dataset page and each version page: rows per year, split by the same
   field the explorer colours by, and a map of the rows when they have coordinates. Each is a
-  count of the rows in that version, worked out in the build from data.sqlite. A year that
+  count of the rows in that version, worked out in the build from data.parquet. A year that
   ends after the version's as-at date (or its fetched date) is not drawn and the caption says
   so, so a chart never falls away at a part year. The explorer shows the same figures, dimmed,
   while it loads. The home page overlays the maps of the located crash datasets named in
@@ -222,8 +222,11 @@ shapes its rows are unchanged. The deploy keeps a build cache in R2, under `_bui
 files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
 the deploy that built them, so a cached build lists them in `absent.json` instead of writing them,
 the gate counts them as present, and `dist-push --expect` stops the deploy if R2 lacks any of
-them. The Parquet a diff or the history archive reads, and the SQLite the pages draw their
-figures from, are read back from `publicdata-dist` when needed (`build --published`). The cache key splits in two: everything the build imports except
+them. The Parquet a diff, the history archive or a page reads is read back from
+`publicdata-dist` when needed (`build --published`). The build never reads a data.sqlite: its
+figures, query console and D1 load query the Parquet through DuckDB (`records.connect`), as a
+view shaped like the SQLite file's records table, with SQLite's float sums and tie order, so
+the pages come out byte for byte as they did from SQLite. The cache key splits in two: everything the build imports except
 the format writers (`cache.environment_key`) names the entry, and each writer under
 `serialise/writers/` has a key of its own (`cache.writer_key`), recorded in the entry per format.
 A writer added or changed does not invalidate an entry: the build reads the version's rows back
@@ -252,7 +255,8 @@ Everything the site answers dynamically is under `/api/v1/`. `/api/v1/datasets/<
 `/aggregate` answer from D1 for the newest loaded version, the same under
 `/api/v1/datasets/<slug>/versions/<date>/` for a dated version, and `/api/v1/datasets/<slug>/versions`
 lists what is loaded; `/api/v1/datasets?q=` searches the datasets served here, votes are `/api/v1/votes`, the catalogue search `/api/v1/catalogue` and requests `/api/v1/requests`. The deploy loads the latest
-version of each live dataset from that version's own data.sqlite (`publicdata d1 sql`), one table
+version of each live dataset from that version's own data.parquet, typed as its data.sqlite
+(`publicdata d1 sql`), one table
 per version with indexes on the key and partition fields, and records it in `_versions` with its
 field list, licence and attribution. At most two versions per dataset are loaded; every version
 stays available as files. A version whose data.sqlite is over 500 MB, or a dataset whose entry sets

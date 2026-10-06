@@ -9,7 +9,6 @@ import html
 import json
 import re
 import shutil
-import sqlite3
 import urllib.parse
 from pathlib import Path
 
@@ -30,6 +29,7 @@ from .provenance import (
     landing,
     long_date,
 )
+from .records import connect
 from .register import NEWEST, WHERE_OPS, Dataset
 from .serialise import FORMAT_LABEL, FORMATS, MEDIA, SHAPE_FORMATS, formats_for, pretty
 from .serialise.geo import geo_kind
@@ -743,7 +743,7 @@ def _sample(ds: Dataset, db: Path, within: dict | None = None) -> dict:
         order=order,
         spread=spread,
     )
-    # SQLite holds a boolean as 1 or 0; the table shows it as the JSON does.
+    # The records hold a boolean as 1 or 0; the table shows it as the JSON does.
     flags = [i for i, f in enumerate(out["fields"]) if ds.field(f).type == "boolean"]
     for r in out["rows"]:
         for i in flags:
@@ -2103,11 +2103,11 @@ def _fields_resource(o: DatasetOut, console: dict) -> dict:
     }
 
 
-def _console(ds: Dataset, sqlite_path: Path) -> dict:
+def _console(ds: Dataset, parquet: Path) -> dict:
     """Fields with value hints and a first query for the dataset page's query console, read from
-    the same data.sqlite the query API is loaded from."""
-    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-    cols = {r[1] for r in con.execute("PRAGMA table_info(records)")}
+    the same rows the query API is loaded from."""
+    con = connect(parquet, [f.name for f in ds.fields])
+    cols = set(con.columns())
     names = [f.name for f in ds.fields if f.name in cols]
     q = lambda n: '"' + n + '"'  # noqa: E731
     stats = con.execute(
@@ -3033,7 +3033,7 @@ def render_site(
                     ds,
                     v.manifest,
                     hints,
-                    out / "d" / ds.slug / "v" / v.manifest.version / "data.sqlite",
+                    out / "d" / ds.slug / "v" / v.manifest.version / "data.parquet",
                     out,
                 )
             )
@@ -3183,10 +3183,10 @@ def render_site(
             ds.partition_by[0] if ds.partition_by else (ds.key[0] if ds.key else ds.fields[0].name)
         )
         console = hints = None
-        sqlite_path = out / "d" / ds.slug / "v" / m.version / "data.sqlite"
-        if sqlite_path.exists():
-            hints = _console(ds, sqlite_path)
-        if QUERY_API and hints and queryable(ds, sqlite_path):
+        rows_path = out / "d" / ds.slug / "v" / m.version / "data.parquet"
+        if rows_path.exists():
+            hints = _console(ds, rows_path)
+        if QUERY_API and hints and queryable(ds, latest.files.get("data.sqlite")):
             queried.append(o)
             console = hints
             _write(out, f"d/{ds.slug}/openapi.json", pretty(_dataset_openapi(o, console)))
@@ -3209,11 +3209,11 @@ def render_site(
                     },
                 }
             )
-        fig = figures.dataset_figures(ds, m, hints, sqlite_path, out)
+        fig = figures.dataset_figures(ds, m, hints, rows_path, out)
         figs[ds.slug] = fig
         consoles[ds.slug] = console
         views_by[ds.slug] = views
-        example = figures.example_rows(sqlite_path, console) if console else []
+        example = figures.example_rows(rows_path, console, key=ds.key) if console else []
         explore = None
         ex_versions = [
             {
@@ -3278,7 +3278,7 @@ def render_site(
             crumbs.append((ds.collection_title, collection_url(ds.collection)))
         crumbs.append((ds.title, base))
         related = _related(ds, live)
-        sample_rows = _sample(ds, sqlite_path)
+        sample_rows = _sample(ds, rows_path)
         serialise_dictionary(ds, latest, out / "d" / ds.slug / "schema.xlsx")
         places = _places(ds, latest)
         card = _dataset_card(out, ds, latest, f"og/d/{ds.slug}.png", cache)
@@ -3350,7 +3350,7 @@ def render_site(
             o,
             views[-1],
             console,
-            sqlite_path,
+            rows_path,
             out,
             page,
             places,
@@ -3596,7 +3596,7 @@ def render_site(
         present += [x for x in states if x not in present]
         hero_slug = hero_slug or slug
         g = o.dataset.geometry
-        db = out / "d" / slug / "v" / o.latest.manifest.version / "data.sqlite"
+        db = out / "d" / slug / "v" / o.latest.manifest.version / "data.parquet"
         c = figures.cells(db, g["lon"], g["lat"], spec["where"])
         if c:
             parts.append((states[0], c))
@@ -3652,8 +3652,8 @@ def render_site(
     if show and consoles.get(show.dataset.slug):
         sd, sm = show.dataset, show.latest.manifest
         con = consoles[sd.slug]
-        db = out / "d" / sd.slug / "v" / sm.version / "data.sqlite"
-        srows = figures.example_rows(db, con)
+        db = out / "d" / sd.slug / "v" / sm.version / "data.parquet"
+        srows = figures.example_rows(db, con, key=sd.key)
         group = (con["example"]["group"] or [None])[0]
         # The demo adds the groups up and hands the agent its filters as exact matches.
         adds = con["example"]["metric"].split(".")[0] in ("count", "sum")
@@ -3714,9 +3714,9 @@ def render_site(
     )
     if shown:
         hf = figs[shown.dataset.slug]
-        hdb = out / "d" / shown.dataset.slug / "v" / shown.latest.manifest.version / "data.sqlite"
+        hdb = out / "d" / shown.dataset.slug / "v" / shown.latest.manifest.version / "data.parquet"
         hcon = consoles.get(shown.dataset.slug)
-        hrows = figures.example_rows(hdb, hcon) if hcon else []
+        hrows = figures.example_rows(hdb, hcon, key=shown.dataset.key) if hcon else []
         bars_title = _example_title(shown.dataset, hcon) if hrows else ""
         preview = {
             "slug": shown.dataset.slug,

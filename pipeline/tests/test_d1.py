@@ -457,19 +457,19 @@ def test_a_loaded_version_whose_fields_changed_is_loaded_again(tmp_path):
     v = root / "d" / "x-y" / "v" / "2026-01-02"
     v.mkdir(parents=True)
     (root / "latest.json").write_text(json.dumps({"x-y": "2026-01-02"}))
-    db = sqlite3.connect(v / "data.sqlite")
-    db.executescript(
-        """CREATE TABLE records (a INTEGER, sal_2021_name TEXT);
-        CREATE TABLE fields (name TEXT, type TEXT);
-        INSERT INTO fields VALUES ('a', 'integer'), ('sal_2021_name', 'string');
-        CREATE TABLE publicdata (key TEXT, value TEXT);
-        INSERT INTO records VALUES (1, 'Kingaroy');"""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    t = pa.table({"a": pa.array([1], pa.int64()), "sal_2021_name": ["Kingaroy"]})
+    pq.write_table(t.replace_schema_metadata({"publicdata": "{}"}), v / "data.parquet")
+    # The loader sizes the version's data.sqlite from its dataset's data package.
+    (root / "d" / "x-y" / "datapackage.json").write_text(
+        json.dumps({"resources": [{"path": "/d/x-y/v/2026-01-02/data.sqlite", "bytes": 8192}]})
     )
-    db.commit()
-    db.close()
-    ds = SimpleNamespace(slug="x-y", key=(), partition_by=(), query=True)
+    fields = (SimpleNamespace(name="a", type="integer"), SimpleNamespace(name="sal_2021_name", type="string"))  # fmt: skip
+    ds = SimpleNamespace(slug="x-y", key=(), partition_by=(), query=True, fields=fields)
     loaded = {"x-y": ["2026-01-02"]}
-    same = json.dumps(d1.built_fields(v / "data.sqlite"))
+    same = json.dumps(d1.built_fields(ds, v / "data.parquet"))
     assert (
         d1.write_loads([root], [ds], loaded, tmp_path / "a", "", {("x-y", "2026-01-02"): same})
         == []

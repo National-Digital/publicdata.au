@@ -643,7 +643,9 @@ def _console_db(tmp_path, rows):
     con.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", rows)
     con.commit()
     con.close()
-    return db
+    from .conftest import as_parquet
+
+    return as_parquet(db)
 
 
 def _console_ds(**kw):

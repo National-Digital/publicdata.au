@@ -232,20 +232,20 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
 
     cat = catalogue_latest(store_dir)
     if not args.no_site:
-        # The pages draw their figures from every version's SQLite, so a cached version's comes
+        # The pages draw their figures from every version's Parquet, so a cached version's comes
         # back first; a page drawn without it would only lose its figures.
         want = [
-            f"d/{o.dataset.slug}/v/{v.manifest.version}/data.sqlite"
+            f"d/{o.dataset.slug}/v/{v.manifest.version}/data.parquet"
             for o in outs
             for v in o.versions
-            if "data.sqlite" in v.absent
+            if "data.parquet" in v.absent
         ]
         missing = [
             r for r, p in zip(want, published.current.paths(want), strict=True) if not p.exists()
         ]
         if missing:
             sys.exit(
-                f"build: {len(missing)} cached version(s) have no SQLite to draw from, e.g. "
+                f"build: {len(missing)} cached version(s) have no Parquet to draw from, e.g. "
                 f"{missing[0]}; pass --published, or build without the cache"
             )
         render_site(
@@ -714,7 +714,7 @@ def main(argv=None) -> int:
         "--published",
         default="",
         metavar="DIR|r2://BUCKET",
-        help="where a cached version's Parquet and SQLite are read back from, as the site lays them out",
+        help="where a cached version's Parquet is read back from, as the site lays it out",
     )
     b.set_defaults(fn=cmd_build)
     pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")

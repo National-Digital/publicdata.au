@@ -1,5 +1,5 @@
-"""A cached version's Parquet and SQLite, which its cache entry leaves out, read back from where
-the build that made them put them: a shard's tree, or the published files in R2."""
+"""A cached version's Parquet, which its cache entry leaves out, read back from where the build
+that made it put it: a shard's tree, or the published files in R2."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .cache import _link_or_copy
 
-# The deploy reads every version's SQLite for its figures, so downloads run side by side.
+# The deploy reads every version's Parquet for its figures, so downloads run side by side.
 WORKERS = 16
 
 

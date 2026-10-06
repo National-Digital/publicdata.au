@@ -1,5 +1,5 @@
 """Build-time figures for the pages: rows per year and rows per map cell, read from a version's
-data.sqlite and drawn as inline SVG. A figure is a count of the rows in the file it sits
+data.parquet and drawn as inline SVG. A figure is a count of the rows in the file it sits
 beside, worked out in the build. Nothing else is added and the files are untouched."""
 
 from __future__ import annotations
@@ -9,13 +9,13 @@ import io
 import json
 import math
 import re
-import sqlite3
 from pathlib import Path
 
 from PIL import Image
 
 from .explorer import YEAR, split_field
 from .provenance import long_date
+from .records import connect
 from .register import WHERE_OPS
 
 STEP = 0.05
@@ -108,12 +108,12 @@ def series(
     """Rows (or the summed count field) per year, split by a category, kept to the register's
     chart condition when it has one. A year that ends after the cut-off is left out and named,
     so a chart never falls away at a part year."""
-    y = _q(yf) if kind == "integer" else f"CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
-    agg = _agg(metric)
+    y = _q(yf) if kind == "integer" else f"TRY_CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
     cols = f"{y}, {_q(split)}" if split else y
     cond, params = _conditions(where)
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = connect(db)
     try:
+        agg = _agg(metric, con)
         rows = con.execute(
             f"SELECT {cols}, {agg} FROM records WHERE {y} IS NOT NULL{cond} GROUP BY {'1, 2' if split else '1'}",
             params,
@@ -164,18 +164,18 @@ def series(
 
 
 def _columns(db: Path) -> set[str]:
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = connect(db)
     try:
-        return {r[1] for r in con.execute("PRAGMA table_info(records)")}
+        return set(con.columns())
     finally:
         con.close()
 
 
-def _agg(metric: str) -> str:
+def _agg(metric: str, con) -> str:
     if metric == "count":
         return "COUNT(*)"
     fn, name = metric.split(".", 1)
-    return f"{fn.upper()}({_q(name)})"
+    return con.agg(fn, name)
 
 
 AGG_WORDS = {"avg": "Average", "min": "Lowest", "max": "Highest"}
@@ -219,7 +219,7 @@ def _conditions(where) -> tuple[str, list]:
         if w["op"] not in ("=", "!=", ">", "<", ">=", "<="):
             raise ValueError(w["op"])
         sql += f" AND {_q(w['field'])} {w['op']} ?"
-        # SQLite holds a boolean as 1 or 0.
+        # The records view holds a boolean as 1 or 0, as SQLite does.
         params.append({"true": 1, "false": 0}.get(w["value"], w["value"]))
     return sql, params
 
@@ -378,10 +378,10 @@ def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], flo
     if isinstance(where, tuple):
         where = {"field": where[0], "op": where[1], "value": where[2]}
     cond, params = _conditions(where)
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = connect(db)
     try:
         rows = con.execute(
-            f"SELECT CAST(({_q(lon)} - {LON0}) / {STEP} AS INTEGER), CAST(({LAT1} - {_q(lat)}) / {STEP} AS INTEGER), COUNT(*)"
+            f"SELECT CAST(trunc(({_q(lon)} - {LON0}) / {STEP}) AS INTEGER), CAST(trunc(({LAT1} - {_q(lat)}) / {STEP}) AS INTEGER), COUNT(*)"
             f" FROM records WHERE {_q(lon)} BETWEEN {LON0} AND {LON1} AND {_q(lat)} BETWEEN {LAT0} AND {LAT1}{cond}"
             " GROUP BY 1, 2",
             params,
@@ -683,28 +683,36 @@ def national_map(
     )
 
 
-def example_rows(db: Path, console: dict, limit: int = 8) -> list[tuple[str, float]]:
-    """The query console's first aggregate, answered from the same SQLite the API loads."""
+def example_rows(
+    db: Path, console: dict, limit: int = 8, key: tuple[str, ...] = ()
+) -> list[tuple[str, float]]:
+    """The query console's first aggregate, answered from the rows the API loads. key is the
+    dataset's key, which data.sqlite indexes."""
     ex = console["example"]
     group = (ex.get("group") or [None])[0]
     if not group or not db.exists():
         return []
-    agg = _agg(ex["metric"])
     types = {e["name"]: e["type"] for e in console["fields"]}
     where, params = [], []
     for f in ex.get("filters", []):
         where.append(f"{_q(f['field'])} {WHERE_OPS[f['op']]} ?")
-        # The API takes true and false for a boolean, which SQLite holds as 1 and 0.
+        # The API takes true and false for a boolean, which the records hold as 1 and 0.
         v = f["value"]
         params.append(
             {"true": 1, "false": 0}.get(v, v) if types.get(f["field"]) == "boolean" else v
         )
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    # Equal totals come in the order SQLite gives them: ascending when its key index hands it the
+    # groups in order, which it does for a key field whose earlier key fields are all pinned to
+    # one value, else descending.
+    pinned = {f["field"] for f in ex.get("filters", []) if f["op"] == "eq"}
+    indexed = any(k == group and set(key[:i]) <= pinned for i, k in enumerate(key))
+    con = connect(db)
     try:
+        agg = _agg(ex["metric"], con)
         rows = con.execute(
             f"SELECT {_q(group)}, {agg} FROM records"
             + (f" WHERE {' AND '.join(where)}" if where else "")
-            + f" GROUP BY 1 ORDER BY 2 DESC LIMIT {int(limit)}",
+            + f" GROUP BY 1 ORDER BY 2 DESC, 1 {'ASC' if indexed else 'DESC'} LIMIT {int(limit)}",
             params,
         ).fetchall()
     finally:
@@ -742,9 +750,9 @@ def sample_rows(
     null cell is "" unless nulls asks for None, which a page shows as null."""
     if not db.exists() or not fields:
         return {"fields": [], "rows": []}
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = connect(db)
     try:
-        have = {r[1] for r in con.execute("PRAGMA table_info(records)")}
+        have = set(con.columns())
         cols = [f for f in fields if f in have]
         if not cols:
             return {"fields": [], "rows": []}

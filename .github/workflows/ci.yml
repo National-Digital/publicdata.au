@@ -102,9 +102,10 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       # Two builds from the same snapshots must be byte-identical, and so must a build through the
       # cache, except that a warm build leaves out the files it lists as already published. A warm
-      # build reads a cached version's Parquet and SQLite back from the tree that published them,
-      # as a deploy reads them from R2. The gate runs on the full build and on the warm one. A DuckDB file's bytes depend on how its
-      # storage sampled each block, so those are compared by content instead (dbcheck).
+      # build reads a cached version's Parquet back from the tree that published it, as a deploy
+      # reads it from R2. The gate runs on the full build and on the warm one. A DuckDB file's
+      # bytes depend on how its storage sampled each block, so those are compared by content
+      # instead (dbcheck).
       - if: steps.check.outputs.exists == 'true'
         run: |
           python -m publicdata build --fixtures --out /tmp/build-a

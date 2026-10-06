@@ -388,6 +388,8 @@ def test_formats_must_be_known_and_keep_what_the_build_reads_back(fixture_store,
 def test_a_limited_build_never_shrinks_a_full_entry(
     fixture_store, fixture_builds, tmp_path, capsys
 ):
+    import json
+
     from publicdata.__main__ import main
 
     _plain, cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
@@ -396,9 +398,10 @@ def test_a_limited_build_never_shrinks_a_full_entry(
     assert main([*run, "--out", str(tmp_path / "full"), "--absent", str(tmp_path / "full.json")]) == 0  # fmt: skip
     out = capsys.readouterr().out
     assert out.count("40 reused, 0 built, 0 file(s) written") == 2
-    assert (
-        tmp_path / "full" / "d" / "qld-road-crash-factors" / "v" / "2026-04-24" / "data.sqlite"
-    ).exists()
+    # The entry still lists the SQLite, which stays published and is not read back.
+    assert "d/qld-road-crash-factors/v/2026-04-24/data.sqlite" in json.loads(
+        (tmp_path / "full.json").read_text()
+    )
 
 
 def test_cache_prune_drops_only_what_no_stored_version_uses(

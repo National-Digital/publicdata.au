@@ -52,7 +52,7 @@ class VersionOut:
 
 # What a cached version keeps: the small files a later build reads back, for the gate and the
 # dataset schema. The rest are written once to R2 by the build that made them, and the Parquet
-# and SQLite a diff, the history archive or a page reads are fetched back from there.
+# a diff, the history archive or a page reads is fetched back from there.
 KEPT = re.compile(r"^(manifest\.json|schema\.json|schema\.sql)$")
 
 

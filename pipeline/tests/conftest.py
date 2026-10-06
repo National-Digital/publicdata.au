@@ -88,3 +88,24 @@ def make_manifest(data: bytes, **kw) -> Manifest:
 
 def read_json(p: Path):
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+def as_parquet(db: Path) -> Path:
+    """A hand-made data.sqlite's records table as the data.parquet beside it, typed from its
+    declared columns, which is what the build reads now."""
+    import sqlite3
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    types = {"INTEGER": pa.int64(), "REAL": pa.float64(), "TEXT": pa.string()}
+    con = sqlite3.connect(db)
+    cols = con.execute("PRAGMA table_info(records)").fetchall()
+    rows = con.execute("SELECT * FROM records").fetchall()
+    con.close()
+    out = db.with_name("data.parquet")
+    pq.write_table(
+        pa.table({c[1]: pa.array([r[i] for r in rows], types[c[2]]) for i, c in enumerate(cols)}),
+        out,
+    )
+    return out

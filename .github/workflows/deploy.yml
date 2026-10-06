@@ -181,7 +181,7 @@ jobs:
           echo "Release $V" >> "$GITHUB_STEP_SUMMARY"
       # Version directories built from unchanged sources with unchanged code are reused, keeping
       # only their small files; the rest were pushed to R2 by the job that made them, and the
-      # Parquet and SQLite the pages read come back from there.
+      # Parquet the pages read comes back from there.
       # Only a push to main writes the cache, once every entry's files are in R2: after the
       # shards, which pushed theirs, and again after this job's own R2 push, which also deletes
       # the entries the build pruned.
