@@ -420,6 +420,7 @@ def test_download_follows_latest_and_names_the_version(client, tmp_path, monkeyp
 
 def test_read_takes_provenance_from_the_file_it_read(client):
     pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
     df = client.read("a", version="2026-08-07")
     assert list(df["n"]) == [1, 2, 3]
     assert df.attrs["publicdata"]["version"] == "2026-08-07"
@@ -583,6 +584,8 @@ def test_cite_as_text_and_bibtex(client):
 
 
 def test_the_cache_keeps_a_version_and_reuses_it(client, tmp_path):
+    pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
     client.cache = True
     client._cache_dir = tmp_path / "cache"
     client.read("a")
@@ -604,6 +607,8 @@ def test_the_cache_keeps_a_version_and_reuses_it(client, tmp_path):
 
 
 def test_nothing_is_kept_unless_asked(client, tmp_path):
+    pytest.importorskip("pandas")
+    pytest.importorskip("pyarrow")
     client._cache_dir = tmp_path / "cache"
     client.read("a")
     assert not (tmp_path / "cache").exists()

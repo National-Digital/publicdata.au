@@ -67,8 +67,9 @@ pd_au.download("au-road-deaths", "csv")  # or parquet, csv.gz, json, ndjson, sql
 `read()` reads the Parquet file with pyarrow. Without pyarrow it reads the gzipped CSV and types
 each column from the version's fields as the Parquet path does: whole numbers as int64 (float64
 when one is missing), dates as `datetime.date`, timestamps as `datetime64[ms]`, booleans as bool
-(objects when one is missing) and `suppressed` as arrays of field names. Parquet, CSV, CSV (gzip), NDJSON and DuckDB are on every
-version. Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over their size
+(objects when one is missing) and `suppressed` as arrays of field names. An `int32` field reads
+as int64, and a shape layer's `geometry` column is in the Parquet file only, so read a layer with
+pyarrow. Parquet, CSV, CSV (gzip), NDJSON and DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over their size
 limits, and the version's page says why. Arrow files are only on versions fetched before the format
 change, whose manifest has no `caps` field.
 
