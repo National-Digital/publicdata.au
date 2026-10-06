@@ -132,7 +132,10 @@ test('tools/list is every tool in api.json with the schema the pages register', 
     assert.equal(t.description, mcpText(page[t.name].description), t.name);
     assert.equal(t.title, page[t.name].title, t.name);
     const schema = plain(page[t.name].inputSchema);
-    if (schema.properties.version) schema.properties.version.description = fill(raw.mcp.version);
+    for (const [k, text] of Object.entries(fill(raw.mcp.parameters))) {
+      const prop = Object.keys(raw.webmcp.tools[t.name].input).find((n) => raw.webmcp.tools[t.name].input[n].api === k);
+      if (prop) schema.properties[prop].description = text;
+    }
     assert.deepEqual(t.inputSchema, schema, t.name);
     assert.deepEqual(t.annotations ?? null, plain(page[t.name].annotations ?? null), t.name);
   }

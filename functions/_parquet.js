@@ -21,6 +21,9 @@ const FOOTERS = 32;
 const PROFILE = 'publicdata.profile';
 const PROFILES = new Set(['1']);
 
+// Part of every cached answer's key, raised when a change alters what an answer holds.
+export const ENGINE = '2';
+
 export class BudgetError extends Error {}
 
 const compressors = { ZSTD: (input, n) => decompress(input, new Uint8Array(n)) };
@@ -44,10 +47,20 @@ function fieldType(e) {
   return null;
 }
 
-// Values as D1 returns them: booleans as 1 and 0, and a 64-bit integer as a number while it is
-// exact, else as its digits.
+// The suppressed flags are a list of field names, which D1 holds joined by semicolons.
+function listType(node) {
+  const lt = node.element.logical_type && node.element.logical_type.type;
+  if (node.element.converted_type !== 'LIST' && lt !== 'LIST') return null;
+  let n = node;
+  while (n.children.length === 1) n = n.children[0];
+  return !n.children.length && n.element.type === 'BYTE_ARRAY' ? 'array' : null;
+}
+
+// Values as D1 returns them: booleans as 1 and 0, a list joined by semicolons, and a 64-bit
+// integer as a number while it is exact, else as its digits.
 function value(type, v) {
   if (v === undefined || v === null) return null;
+  if (type === 'array') return Array.isArray(v) && v.length ? v.join(';') : null;
   if (typeof v === 'bigint') return Number.isSafeInteger(Number(v)) ? Number(v) : String(v);
   if (type === 'boolean') return v ? 1 : 0;
   if (type === 'number' && Number.isNaN(v)) return null;
@@ -107,14 +120,13 @@ async function readFooter(env, key) {
   if (len > buf.byteLength) buf = await readRange(env, key, size - len, len);
   const metadata = parquetMetadata(buf.slice(buf.byteLength - len).buffer, { parsers });
   const kv = (metadata.key_value_metadata || []).find((x) => x.key === 'publicdata');
-  const header = kv ? JSON.parse(kv.value) : {};
+  const header = kv ? JSON.parse(kv.value) : null;
   const fields = [];
   const elements = new Map();
   for (const node of parquetSchema(metadata).children) {
-    const t = node.children.length ? null : fieldType(node.element);
+    const t = node.children.length ? listType(node) : fieldType(node.element);
     if (t) { fields.push({ name: node.element.name, type: t }); elements.set(node.element.name, node.element); }
   }
-  // A nested column has no field, so only flat columns are mapped to their chunk.
   const types = new Map(fields.map((f) => [f.name, f.type]));
   let start = 0;
   const groups = metadata.row_groups.map((g) => {
@@ -122,12 +134,14 @@ async function readFooter(env, key) {
     const chunks = {};
     for (const c of g.columns) {
       const md = c.meta_data;
-      const name = md && md.path_in_schema.length === 1 ? md.path_in_schema[0] : null;
-      if (!name || !types.has(name)) continue;
+      const name = md && md.path_in_schema[0];
+      if (!name || !types.has(name) || (md.path_in_schema.length > 1) !== (types.get(name) === 'array')) continue;
       const at = Number(md.dictionary_page_offset || md.data_page_offset);
       const span = (o, l) => (o !== undefined && o !== null && l ? { start: Number(o), end: Number(o) + l } : null);
       const ci = span(c.column_index_offset, c.column_index_length), oi = span(c.offset_index_offset, c.offset_index_length);
-      chunks[name] = { start: at, end: at + Number(md.total_compressed_size), stats: stat(types.get(name), md.statistics, rows), ci, oi };
+      // A list's statistics describe its items, so they say nothing about the rows.
+      const list = types.get(name) === 'array';
+      chunks[name] = { start: at, end: at + Number(md.total_compressed_size), stats: list ? null : stat(types.get(name), md.statistics, rows), ci: list ? null : ci, oi: list ? null : oi, list };
     }
     const out = { start, rows, chunks };
     start += rows;
@@ -135,7 +149,11 @@ async function readFooter(env, key) {
   });
   const mark = (metadata.key_value_metadata || []).find((x) => x.key === PROFILE);
   const profiled = !!mark && PROFILES.has(mark.value);
-  return { key, size, metadata, header, fields, types, elements, groups, rows: start, profiled, pages: new Map() };
+  // The order a profile file is written in: its sort, then the key, then the source position.
+  const leaves = metadata.row_groups.length ? metadata.row_groups[0].columns : [];
+  const sortedBy = ((metadata.row_groups[0] && metadata.row_groups[0].sorting_columns) || [])
+    .map((c) => ({ name: leaves[c.column_idx].meta_data.path_in_schema[0], desc: !!c.descending, nullsFirst: !!c.nulls_first }));
+  return { key, size, metadata, header, fields, types, elements, groups, rows: start, profiled, sortedBy, pages: new Map() };
 }
 
 // The build writes a profile copy of every version, old ones included, at _q/, which no public
@@ -143,7 +161,7 @@ async function readFooter(env, key) {
 async function locate(env, slug, version) {
   try {
     const q = await readFooter(env, `_q/${slug}/${version}.parquet`);
-    if (q && q.profiled) return q;
+    if (q && q.profiled && q.header) return q;
   } catch (e) {
     console.error(`_q ${slug} ${version}: ${(e && e.message) || e}`);
   }
@@ -153,13 +171,16 @@ async function locate(env, slug, version) {
 // One version's footer, read once per isolate. A version never changes, so it is never stale.
 export async function openVersion(env, slug, version) {
   const id = `${slug}/${version}`;
-  if (!footers.has(id)) {
-    const p = locate(env, slug, version);
-    footers.set(id, p);
-    if (footers.size > FOOTERS) footers.delete(footers.keys().next().value);
-    p.then((e) => { if (!e) footers.delete(id); }, () => footers.delete(id));
+  let p = footers.get(id);
+  // Least recently used goes first: a hit moves to the back of the map's order.
+  if (p) footers.delete(id);
+  else {
+    p = locate(env, slug, version);
+    p.then((e) => { if (!e && footers.get(id) === p) footers.delete(id); }, () => { if (footers.get(id) === p) footers.delete(id); });
   }
-  return footers.get(id);
+  footers.set(id, p);
+  if (footers.size > FOOTERS) footers.delete(footers.keys().next().value);
+  return p;
 }
 
 function coalesce(chunks) {
@@ -313,8 +334,14 @@ class Scan {
   plan(needs) {
     const todo = [];
     for (const { i, names, from, to } of needs) {
-      const left = [...new Set(names)].filter((n) => !this.has(i, n, from, to));
-      if (left.length && to > from) todo.push({ i, from, to, names: left });
+      const g = this.entry.groups[i];
+      const uniq = [...new Set(names)];
+      // hyparquet decodes a list column a whole chunk at a time, so its rows are read whole.
+      const parts = [[uniq.filter((n) => !g.chunks[n].list), from, to], [uniq.filter((n) => g.chunks[n].list), 0, g.rows]];
+      for (const [ns, a, b] of parts) {
+        const left = ns.filter((n) => !this.has(i, n, a, b));
+        if (left.length && b > a) todo.push({ i, from: a, to: b, names: left });
+      }
     }
     const want = [];
     const cost = { groups: new Set(todo.map((t) => t.i)), bytes: 0, values: 0 };
@@ -404,18 +431,49 @@ function eachHit(scan, p, specs, fn) {
   }
 }
 
+// A group's matches as segments, each a range the statistics proved or the list of rows that
+// passed, so a proven range is counted and paged by arithmetic and never held row by row.
+function matchesOf(scan, p, specs) {
+  return p.segs.map((seg) => {
+    const h = scan.hits(p, seg, specs);
+    return h ? { rows: h, n: h.length } : { from: seg.from, n: seg.to - seg.from };
+  });
+}
+const nth = (m, j) => (m.rows ? m.rows[j] : m.from + j);
+
+// Compensated (Kahan-Babuska-Neumaier) summation, as SQLite sums, so ten 0.1s make 1.
+export function addInto(a, n) {
+  const t = a.sum + n;
+  a.c += Math.abs(a.sum) >= Math.abs(n) ? (a.sum - t) + n : (n - t) + a.sum;
+  a.sum = t;
+}
+
 const needsOf = (groups, names, filterNames) => groups.flatMap((p) => p.segs.map((seg) => (
   { i: p.i, from: seg.from, to: seg.to, names: [...(seg.all ? [] : filterNames), ...names] }
 )));
 
 const ascii = (v) => v.replace(/[A-Z]+/g, (c) => c.toLowerCase());
 
+// A pattern with * as its only wildcard, matched without backtracking: on a mismatch the last *
+// takes one more character, so the work is at most the pattern's length times the value's.
+export function glob(p, v) {
+  let i = 0, j = 0, star = -1, mark = 0;
+  while (j < v.length) {
+    if (i < p.length && p[i] === '*') { star = i++; mark = j; }
+    else if (i < p.length && p[i] === v[j]) { i++; j++; }
+    else if (star >= 0) { i = star + 1; j = ++mark; }
+    else return false;
+  }
+  while (i < p.length && p[i] === '*') i++;
+  return i === p.length;
+}
+
 export function prepare(specs) {
   return specs.map((s) => {
     const p = { ...s };
     if (s.op === 'in') p.set = new Set(s.args);
     // * is the only wildcard. SQLite's LIKE ignores case in ASCII letters only, and so does this.
-    if (s.op === 'like' || s.op === 'ilike') p.re = new RegExp(`^${ascii(s.args[0]).split('*').map((x) => x.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('.*')}$`, 's');
+    if (s.op === 'like' || s.op === 'ilike') p.glob = ascii(s.args[0]);
     return p;
   });
 }
@@ -433,7 +491,7 @@ export function matches(s, v) {
     case 'lt': r = cmp(v, a) < 0; break;
     case 'lte': r = cmp(v, a) <= 0; break;
     case 'in': r = s.set.has(v) || s.args.some((x) => cmp(v, x) === 0); break;
-    default: r = s.re.test(ascii(String(v)));
+    default: r = glob(s.glob, ascii(String(v)));
   }
   return s.not ? !r : r;
 }
@@ -494,8 +552,17 @@ function lit(type, v) {
   if (typeof v === 'number') return String(v);
   return `'${String(v).replace(/'/g, "''")}'`;
 }
+// The order a profile file holds its rows in, which the DuckDB SQL reproduces from the
+// published file: the sort, then the key, then the source position.
+function fileOrder(entry) {
+  return [...entry.sortedBy.map((c) => `"${c.name}" ${c.desc ? 'DESC' : 'ASC'} NULLS ${c.nullsFirst ? 'FIRST' : 'LAST'}`), 'file_row_number'];
+}
+// SQLite puts nulls first going up and last coming down, so DuckDB is told the same.
+const sqlOrder = (o) => `"${o.name}" ${o.dir === 'asc' ? 'ASC NULLS FIRST' : 'DESC NULLS LAST'}`;
+const col = (types, n) => (types.get(n) === 'array' ? `NULLIF(array_to_string("${n}", ';'), '')` : `"${n}"`);
+
 export function duckdbSQL(url, types, specs, tail) {
-  const q = (n) => `"${n}"`;
+  const q = (n) => col(types, n);
   const where = specs.map(({ name, op, not, args }) => {
     const t = types.get(name);
     const ops = { eq: '=', neq: '!=', gt: '>', gte: '>=', lt: '<', lte: '<=' };
@@ -506,7 +573,7 @@ export function duckdbSQL(url, types, specs, tail) {
     else s = `${q(name)} ILIKE ${lit('string', likePattern(args[0]))} ESCAPE '\\'`;
     return not ? `NOT (${s})` : s;
   });
-  return `SELECT ${tail.select} FROM '${url}'${where.length ? ' WHERE ' + where.join(' AND ') : ''}${tail.rest}`;
+  return `SELECT ${tail.select} FROM read_parquet('${url}', file_row_number = true)${where.length ? ' WHERE ' + where.join(' AND ') : ''}${tail.rest}`;
 }
 
 function refusal(entry, url, sql, budget) {
@@ -538,10 +605,9 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET) {
   const specs = prepare(filterSpecs(params, m));
   const order = orderSpecs(params.get('order'), new Set(m.keys()));
   const { limit, offset } = paging(params);
-  const q = (n) => `"${n}"`;
   const sql = duckdbSQL(url, entry.types, specs, {
-    select: cols.map(q).join(', '),
-    rest: `${order.length ? ' ORDER BY ' + order.map((o) => `${q(o.name)} ${o.dir.toUpperCase()}`).join(', ') : ''} LIMIT ${limit} OFFSET ${offset}`,
+    select: cols.map((c) => `${col(entry.types, c)} AS "${c}"`).join(', '),
+    rest: ` ORDER BY ${[...order.map(sqlOrder), ...fileOrder(entry)].join(', ')} LIMIT ${limit} OFFSET ${offset}`,
   });
   if (!entry.profiled) throw unprofiled(entry, url, sql);
   const fnames = [...new Set(specs.map((s) => s.name))];
@@ -550,24 +616,48 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET) {
   const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget));
   const groups = prune(entry, specs, ix);
   const todo = scan.charge(needsOf(groups, onames, fnames));
-  const hits = [];
-  const collect = (p) => { const h = []; eachHit(scan, p, specs, (r) => h.push(r)); hits.push(h); };
+  const found = [];
+  const collect = (p) => found.push(matchesOf(scan, p, specs));
   // An order needs its columns for every match, so those are kept; filter columns are not.
   if (order.length) { await scan.read(todo); groups.forEach(collect); } else await scan.stream(groups, todo, collect);
-  const matched = hits.reduce((n, h) => n + h.length, 0);
+  const matched = found.reduce((n, ms) => n + ms.reduce((a, x) => a + x.n, 0), 0);
+  const want = offset + limit + 1;
   let picks = [];
   if (order.length) {
-    groups.forEach((p, k) => { for (const r of hits[k]) picks.push({ i: p.i, r }); });
-    picks.sort(sorter(order, (x, name) => scan.col(x.i, name)[x.r]));
-    picks = picks.slice(offset, offset + limit + 1);
+    // The first offset + limit + 1 matches in order, kept in a heap of that size. Ties fall to
+    // the file's own order.
+    const by = sorter(order, (x, name) => scan.col(x.i, name)[x.r]);
+    const less = (x, y) => by(x, y) || x.i - y.i || x.r - y.r;
+    const heap = [];
+    const up = (k) => { while (k) { const h = (k - 1) >> 1; if (less(heap[h], heap[k]) >= 0) break; [heap[h], heap[k]] = [heap[k], heap[h]]; k = h; } };
+    const down = (k) => {
+      for (;;) {
+        const l = 2 * k + 1, r = l + 1;
+        let top = k;
+        if (l < heap.length && less(heap[l], heap[top]) > 0) top = l;
+        if (r < heap.length && less(heap[r], heap[top]) > 0) top = r;
+        if (top === k) return;
+        [heap[k], heap[top]] = [heap[top], heap[k]];
+        k = top;
+      }
+    };
+    groups.forEach((p, k) => {
+      for (const m of found[k]) for (let j = 0; j < m.n; j++) {
+        const x = { i: p.i, r: nth(m, j) };
+        if (heap.length < want) { heap.push(x); up(heap.length - 1); } else if (less(x, heap[0]) < 0) { heap[0] = x; down(0); }
+      }
+    });
+    picks = heap.sort(less).slice(offset);
   } else {
     let skip = offset;
-    for (let k = 0; k < groups.length && picks.length <= limit; k++) {
-      const n = hits[k].length;
-      if (skip >= n) { skip -= n; continue; }
-      const take = Math.min(n - skip, limit + 1 - picks.length);
-      for (let j = skip; j < skip + take; j++) picks.push({ i: groups[k].i, r: hits[k][j] });
-      skip = 0;
+    for (let k = 0; k < groups.length && picks.length < limit + 1; k++) {
+      for (const m of found[k]) {
+        if (skip >= m.n) { skip -= m.n; continue; }
+        const take = Math.min(m.n - skip, limit + 1 - picks.length);
+        for (let j = skip; j < skip + take; j++) picks.push({ i: groups[k].i, r: nth(m, j) });
+        skip = 0;
+        if (picks.length > limit) break;
+      }
     }
   }
   const more = picks.length > limit;
@@ -592,10 +682,11 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
   const order = orderSpecs(params.get('order'), allowed);
   const { limit, offset } = paging(params);
   const q = (n) => `"${n}"`;
-  const sqlOrder = order.length ? order.map((o) => `${q(o.name)} ${o.dir.toUpperCase()}`) : group.map(q);
+  const byGroup = group.map((name) => ({ name, dir: 'asc' }));
+  const ordered = [...order, ...byGroup].map(sqlOrder);
   const sql = duckdbSQL(url, entry.types, specs, {
-    select: [...group.map(q), ...metrics.map((x) => `${x.fn.toUpperCase()}(${x.field ? q(x.field) : '*'}) AS ${q(x.as)}`)].join(', '),
-    rest: `${group.length ? ' GROUP BY ' + group.map(q).join(', ') : ''}${sqlOrder.length ? ' ORDER BY ' + sqlOrder.join(', ') : ''} LIMIT ${limit} OFFSET ${offset}`,
+    select: [...group.map((n) => `${col(entry.types, n)} AS ${q(n)}`), ...metrics.map((x) => `${x.fn.toUpperCase()}(${x.field ? col(entry.types, x.field) : '*'}) AS ${q(x.as)}`)].join(', '),
+    rest: `${group.length ? ' GROUP BY ' + group.map((n) => col(entry.types, n)).join(', ') : ''}${ordered.length ? ' ORDER BY ' + ordered.join(', ') : ''} LIMIT ${limit} OFFSET ${offset}`,
   });
   if (!entry.profiled) throw unprofiled(entry, url, sql);
   const fnames = [...new Set(specs.map((s) => s.name))];
@@ -605,8 +696,17 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
   const groups = prune(entry, specs, ix);
   const todo = scan.charge(needsOf(groups, [...group, ...mnames], fnames));
   const buckets = new Map();
+  const fresh = () => metrics.map(() => ({ n: 0, sum: 0, c: 0, best: null }));
   let matched = 0;
+  // A plain count needs no column, so a proven range is added as a number.
+  const counting = !group.length && metrics.every((x) => !x.field);
   await scan.stream(groups, todo, (p) => {
+    if (counting) {
+      let b = buckets.get('[]');
+      if (!b) buckets.set('[]', (b = { vals: [], acc: fresh() }));
+      for (const m of matchesOf(scan, p, specs)) { matched += m.n; for (const a of b.acc) a.n += m.n; }
+      return;
+    }
     const gcols = group.map((n) => scan.col(p.i, n));
     const mcols = metrics.map((x) => (x.field ? scan.col(p.i, x.field) : null));
     eachHit(scan, p, specs, (r) => {
@@ -614,31 +714,31 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
       const vals = gcols.map((c) => c[r]);
       const key = JSON.stringify(vals);
       let b = buckets.get(key);
-      if (!b) buckets.set(key, (b = { vals, acc: metrics.map(() => ({ n: 0, sum: 0, best: null })) }));
+      if (!b) buckets.set(key, (b = { vals, acc: fresh() }));
       metrics.forEach((x, k) => {
         const a = b.acc[k];
         if (!x.field) { a.n++; return; }
         const v = mcols[k][r];
         if (v === null || v === undefined) return;
         a.n++;
-        if (x.fn === 'sum' || x.fn === 'avg') a.sum += Number(v);
+        if (x.fn === 'sum' || x.fn === 'avg') addInto(a, Number(v));
         else if (x.fn === 'min' && (a.best === null || cmp(v, a.best) < 0)) a.best = v;
         else if (x.fn === 'max' && (a.best === null || cmp(v, a.best) > 0)) a.best = v;
       });
     });
   });
   // With no group there is one answer row, even when nothing matches, as in SQL.
-  if (!group.length && !buckets.size) buckets.set('[]', { vals: [], acc: metrics.map(() => ({ n: 0, sum: 0, best: null })) });
+  if (!group.length && !buckets.size) buckets.set('[]', { vals: [], acc: fresh() });
   let out = [...buckets.values()].map((b) => {
     const row = {};
     group.forEach((n, k) => { row[n] = b.vals[k]; });
     metrics.forEach((x, k) => {
       const a = b.acc[k];
-      row[x.as] = x.fn === 'count' ? a.n : x.fn === 'sum' ? (a.n ? a.sum : null) : x.fn === 'avg' ? (a.n ? a.sum / a.n : null) : a.best;
+      const total = a.sum + a.c;
+      row[x.as] = x.fn === 'count' ? a.n : x.fn === 'sum' ? (a.n ? total : null) : x.fn === 'avg' ? (a.n ? total / a.n : null) : a.best;
     });
     return row;
   });
-  const byGroup = group.map((name) => ({ name, dir: 'asc' }));
   out.sort(sorter([...order, ...byGroup], (row, name) => row[name]));
   const more = out.length > offset + limit;
   out = out.slice(offset, offset + limit);

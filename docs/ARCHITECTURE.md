@@ -279,9 +279,16 @@ rows that the statistics prove match are counted without being read. The pages l
 less than 256 KB apart read as one, and decoded with hyparquet a few row groups at a time.
 Before any data is read, the pages a query needs are priced from the page index, and a call may
 read 64 row groups, 8 MB, 4 million values and 160 ranges. A query that needs more is refused with
-the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, and a
-64-bit integer as a number while it is exact and as its digits beyond that. Answers are cached at
-the edge by version.
+the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, the
+suppressed flags joined by semicolons, and a 64-bit integer as a number while it is exact and as
+its digits beyond that. Sums and averages are compensated as SQLite's are, and `like` is matched
+without backtracking. Rows the statistics prove match are counted and paged by arithmetic, never
+one index per row. Without an order, and for ties, an answer from Parquet follows the file's own
+order: the declared sort, then the key, then the source position. D1 keeps the publisher's
+order, and the DuckDB SQL rebuilds the file's order from the published file with
+`file_row_number`. Footers are kept least recently used first. Answers are cached at the edge by
+version and engine version, and each links the version's manifest, since the query API path
+answers only while D1 holds the version. A file with no `publicdata` provenance key is refused.
 
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until

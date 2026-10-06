@@ -121,11 +121,13 @@ def resource_text(title: str, publisher: str) -> str:
     )
 
 
-def _input_schema(t: dict, version: str | None = None) -> dict:
-    """A tool's input schema for any dataset. site.js builds the same, then narrows it on a dataset page."""
+def _input_schema(t: dict, overrides: dict | None = None) -> dict:
+    """A tool's input schema for any dataset. site.js builds the same, then narrows it on a dataset
+    page. `overrides` gives the server's own text for a parameter, by its API name."""
     s = spec()
     w = s["webmcp"]
-    version = version or w["version"]
+    overrides = overrides or {}
+    version = overrides.get("version", w["version"])
     props = {}
     for k, p in t["input"].items():
         if p.get("api") == "filters":
@@ -134,6 +136,8 @@ def _input_schema(t: dict, version: str | None = None) -> dict:
         o = {x: v for x, v in p.items() if x != "api"}
         if "description" not in o and p.get("api") == "version":
             o["description"] = version
+        elif "description" not in o and p.get("api") in overrides:
+            o["description"] = overrides[p["api"]]
         elif "description" not in o and p.get("api"):
             o["description"] = param_text(p["api"])
         props[k] = o
@@ -159,7 +163,7 @@ def mcp_spec() -> dict:
             "name": name,
             "title": t["title"],
             "description": description,
-            "inputSchema": _input_schema(t, m["version"]),
+            "inputSchema": _input_schema(t, m["parameters"]),
             "outputSchema": t["output"],
             "annotations": {"title": t["title"], **t["annotations"]},
         }

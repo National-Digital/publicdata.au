@@ -410,7 +410,7 @@
           },
           "order": {
             "type": "string",
-            "description": "field.asc or field.desc, comma-separated. The publisher's row order when absent."
+            "description": "field.asc or field.desc, comma-separated. When absent, and for ties, a version the query API loads keeps the publisher's order, and any other version the order of its Parquet file, which follows the dataset's declared sort where it has one."
           },
           "limit": {
             "type": "integer",
@@ -470,6 +470,10 @@
           "file": {
             "type": "string",
             "description": "The Parquet file the answer was read from, when it came from the file"
+          },
+          "manifest": {
+            "type": "string",
+            "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"
           },
           "attribution": {
             "type": [
@@ -583,6 +587,10 @@
           "file": {
             "type": "string",
             "description": "The Parquet file the answer was read from, when it came from the file"
+          },
+          "manifest": {
+            "type": "string",
+            "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"
           },
           "attribution": {
             "type": [

@@ -21,6 +21,9 @@ from publicdata.serialise.writers import parquet as writer
 FIXTURE = Path(__file__).parent / "fixtures" / "parquet" / "rows.parquet"
 PROFILED = FIXTURE.with_name("rows-profiled.parquet")
 UNSORTED = FIXTURE.with_name("rows-profiled-unsorted.parquet")
+LARGE = FIXTURE.with_name("large-profiled.parquet")
+BARE = FIXTURE.with_name("rows-no-provenance.parquet")
+LARGE_ROWS = 20_000_000
 PROFILE = {b"publicdata.profile": b"1"}
 INT32 = ["year"]
 GROUP_ROWS = 8
@@ -44,7 +47,7 @@ HEADER = {
 
 def rows() -> dict[str, list]:
     places = ["Brisbane", "Gold Coast", "Logan", "Cairns", None]
-    out = {k: [] for k in FIELDS}
+    out = {k: [] for k in [*FIELDS, "suppressed"]}
     for i in range(40):
         out["lga"].append(places[i % 5])
         out["year"].append(2018 + i // GROUP_ROWS)
@@ -58,12 +61,21 @@ def rows() -> dict[str, list]:
         out["seen"].append(None if blank else dt.datetime(2026, 4, 24, i % 24, i, 5))
         # Above 2**53, so a reader must keep it as text to keep it exact.
         out["ref"].append(2**53 + i if i % 10 == 9 else 1000 * i)
+        # The flags normalise writes for cells the publisher suppressed, such as "<5".
+        out["suppressed"].append(
+            [f for f, v in (("fatal", out["fatal"][-1]), ("speed", out["speed"][-1])) if v is None]
+        )
     return out
 
 
-def write(path: Path, profiled: bool = False, sort: bool = True) -> None:
+def write(path: Path, profiled: bool = False, sort: bool = True, provenance: bool = True) -> None:
     data = rows()
-    table = pa.table({k: pa.array(data[k], ARROW_TYPES[t]) for k, t in FIELDS.items()})
+    table = pa.table(
+        {
+            **{k: pa.array(data[k], ARROW_TYPES[t]) for k, t in FIELDS.items()},
+            "suppressed": pa.array(data["suppressed"], pa.list_(pa.string())),
+        }
+    )
     extra = {"row_group_size": GROUP_ROWS}
     if profiled:
         table = table.cast(
@@ -81,7 +93,10 @@ def write(path: Path, profiled: bool = False, sort: bool = True) -> None:
 
     def write_table(t, where, **k):
         if profiled:
-            t = t.replace_schema_metadata({**t.schema.metadata, **PROFILE})
+            meta = {**t.schema.metadata, **PROFILE}
+            if not provenance:
+                meta.pop(b"publicdata")
+            t = t.replace_schema_metadata(meta)
         pq.write_table(t, where, **{**k, **extra})
 
     writer.pq = SimpleNamespace(write_table=write_table)
@@ -89,6 +104,16 @@ def write(path: Path, profiled: bool = False, sort: bool = True) -> None:
         writer.write_parquet(SimpleNamespace(table=table), HEADER, path)
     finally:
         writer.pq = pq
+
+
+def write_large(path: Path) -> None:
+    """Twenty million rows of one constant column, in the profile's 500,000-row groups, so a
+    reader that holds one index per row runs out of a small heap."""
+    table = pa.table({"n": pa.array([0] * LARGE_ROWS, pa.int32())})
+    table = table.replace_schema_metadata(
+        {b"publicdata": b'{"attribution": "Large fixture."}', **PROFILE}
+    )
+    pq.write_table(table, path, compression="zstd", row_group_size=500_000, write_statistics=True)
 
 
 def test_the_committed_fixtures_are_what_the_writer_writes(tmp_path):
@@ -105,6 +130,10 @@ def test_the_committed_fixtures_are_what_the_writer_writes(tmp_path):
         assert a.read().equals(b.read())
         assert bool(a.metadata.row_group(0).sorting_columns) == (profiled and sort)
         assert (b"publicdata.profile" in a.schema_arrow.metadata) == profiled
+    large = pq.ParquetFile(LARGE)
+    assert large.metadata.num_rows == LARGE_ROWS
+    assert b"publicdata.profile" in large.schema_arrow.metadata
+    assert b"publicdata" not in pq.ParquetFile(BARE).schema_arrow.metadata
 
 
 if __name__ == "__main__":
@@ -112,3 +141,5 @@ if __name__ == "__main__":
     write(FIXTURE)
     write(PROFILED, profiled=True)
     write(UNSORTED, profiled=True, sort=False)
+    write_large(LARGE)
+    write(BARE, profiled=True, provenance=False)
