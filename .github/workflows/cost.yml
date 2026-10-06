@@ -1,0 +1,33 @@
+name: Storage cost
+
+# Runs on every pull request, so it can be a required check; it gates only the register entries
+# a change adds or edits. A fetch PR changes store manifests alone and always passes. Labels
+# rerun it, so adding cost-approved clears a failure without a new push.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+  group: cost-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cost:
+    name: Storage cost
+    runs-on: ubuntu-latest
+    steps:
+      # The merge commit and its first parent, the base, are enough to list what changed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - run: pip install -e ./pipeline
+      - working-directory: pipeline
+        env:
+          APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'cost-approved') }}
+        run: python -m publicdata cost --base HEAD^1 --probe $([ "$APPROVED" = true ] && echo --approved)

@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs | cost."""
 
 from __future__ import annotations
 
@@ -592,6 +592,28 @@ def cmd_hubs(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_cost(args) -> int:
+    import datetime as dt
+
+    from . import cost
+    from .register import load
+
+    changed = set(args.slug)
+    if args.base:
+        changed |= cost.changed_slugs(REGISTER, cost.git_changed(args.base, ROOT), ROOT)
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    return cost.run(
+        load(REGISTER),
+        Path(args.store),
+        args.catalog or cost.CATALOG,
+        changed,
+        today,
+        approved=args.approved,
+        probe_new=args.probe,
+        summary=args.summary,
+    )
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -743,6 +765,18 @@ def main(argv=None) -> int:
         help="re-apply cards, page settings and notebooks to versions a hub already holds",
     )
     hb.set_defaults(fn=cmd_hubs)
+    co = sub.add_parser("cost", help="project each entry's storage growth and gate changed ones")
+    co.add_argument("slug", nargs="*", help="entries to gate, as well as those --base finds")
+    co.add_argument("--base", help="gate the register entries changed since this ref")
+    co.add_argument("--store", default=str(STORE))
+    co.add_argument("--catalog", help="a catalog.json path or URL (default the live site's)")
+    co.add_argument("--today", help="the date versions are counted back from (YYYY-MM-DD)")
+    co.add_argument("--approved", action="store_true", help="the change carries cost-approved")
+    co.add_argument("--probe", action="store_true", help="read a new entry's source size")
+    co.add_argument(
+        "--summary", help="append the Markdown table here (default GITHUB_STEP_SUMMARY)"
+    )
+    co.set_defaults(fn=cmd_cost)
     args = ap.parse_args(argv)
     return args.fn(args)
 
