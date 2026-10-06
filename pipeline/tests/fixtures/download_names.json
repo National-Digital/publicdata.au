@@ -1,0 +1,8 @@
+[
+  {"slug": "vic-vehicle-registrations-by-postcode", "version": "2026-07-14", "rel": "data.json", "name": "vic-vehicle-registrations-by-postcode_2026-07-14.json"},
+  {"slug": "qld-road-crash-locations", "version": "2026-04-24", "rel": "data.csv.gz", "name": "qld-road-crash-locations_2026-04-24.csv.gz"},
+  {"slug": "qld-road-crash-locations", "version": "2026-04-24", "rel": "data.csv-metadata.json", "name": "qld-road-crash-locations_2026-04-24.csv-metadata.json"},
+  {"slug": "qld-road-crash-locations", "version": "2026-04-24", "rel": "source.xlsx", "name": "qld-road-crash-locations_2026-04-24_source.xlsx"},
+  {"slug": "qld-road-crash-locations", "version": "2026-04-24", "rel": "manifest.json", "name": "qld-road-crash-locations_2026-04-24_manifest.json"},
+  {"slug": "vic-vehicle-registrations-by-postcode", "version": "2026-07-14", "rel": "by/postcode/3000.json", "name": "vic-vehicle-registrations-by-postcode_2026-07-14_by_postcode_3000.json"}
+]

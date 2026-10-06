@@ -180,7 +180,7 @@
         {% for f in demo.formats %}<button type="button" aria-pressed="{{ 'true' if loop.first else 'false' }}" data-fmt="{{ f.key }}">{{ f.label }}<span class="sz">{{ f.size }}</span></button>{% endfor %}
       </div>
     </div>
-    <div class="urlbox"><div class="path" id="url" tabindex="0">{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}">Download</a></div>
+    <div class="urlbox"><div class="path" id="url" tabindex="0">{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}" download="{{ download_name(demo.slug, demo.version, demo.formats[0].file) }}">Download</a></div>
     <p class="fmt-note" id="fmt-note"></p>
     <div>
       <div class="tools" role="tablist" aria-label="How to use" id="tools"></div>

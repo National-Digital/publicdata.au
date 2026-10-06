@@ -3,6 +3,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -823,3 +824,17 @@ def test_the_entry_link_keeps_the_folder_an_entry_sits_in():
     ds = make_dataset([], slug="x")
     assert register_path(ds) == "register/x.yaml"
     assert register_path(replace(ds, path="/w/register/qld/x.yaml")) == "register/qld/x.yaml"
+
+
+def test_a_downloaded_file_is_named_after_its_dataset_and_version(fixture_site):
+    from publicdata.site import download_name
+
+    cases = json.loads((Path(__file__).parent / "fixtures" / "download_names.json").read_text())
+    for c in cases:
+        assert download_name(c["slug"], c["version"], c["rel"]) == c["name"], c["rel"]
+    slug, version = "qld-road-crash-locations", "2026-04-24"
+    page = (fixture_site / "d" / slug / "v" / version / "index.html").read_text(encoding="utf-8")
+    assert f'download="{slug}_{version}.parquet"' in page
+    assert f'download="{slug}_{version}_source.' in page
+    ds = (fixture_site / "d" / slug / "index.html").read_text(encoding="utf-8")
+    assert re.search(rf'id="dl" href="[^"]+" download="{slug}_{version}\.\w+"', ds)

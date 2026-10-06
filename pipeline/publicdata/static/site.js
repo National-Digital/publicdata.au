@@ -26,6 +26,11 @@
       var file = D.formats[f].file;
       return D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
     }
+    // download_name() in site.py and functions/_download.js.
+    function saveAs() {
+      var v = ver ? ver.value : 'latest', file = D.formats[fmt()].file;
+      return D.slug + '_' + (v === 'latest' ? D.latest : v) + (file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_'));
+    }
     function q(s) { return '"' + s + '"'; }
     function tools(f, u) {
       var t = {}, name = u.split('/').pop(), tbl = D.slug.replace(/-/g, '_'), key = D.example_field;
@@ -75,6 +80,7 @@
       var f = fmt(), u = url();
       document.getElementById('url').textContent = u;
       document.getElementById('dl').setAttribute('href', u);
+      document.getElementById('dl').setAttribute('download', saveAs());
       document.getElementById('fmt-note').innerHTML = D.formats[f].note;
       var t = tools(f, u), names = Object.keys(t);
       if (names.indexOf(curTool) < 0) curTool = names[0];
