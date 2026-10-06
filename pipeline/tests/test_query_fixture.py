@@ -1,9 +1,11 @@
 """The Parquet files the functions' tests read, written by the pipeline's own writer.
 
-rows.parquet differs from a published version only in its row-group size, so 40 rows make five
-groups. rows-profiled.parquet is the same rows under the query profile the MCP server reads:
-sorted, with the sort recorded in the footer and a page index of two-row pages. Run
-`python -m tests.test_query_fixture` in pipeline/ to write them again.
+rows.parquet is a file from before the query profile, with 40 rows in five groups. The other two
+are the same rows under the profile the MCP server reads (ADR 0008): the profile key in the
+footer and year narrowed to INT32. rows-profiled.parquet is sorted, with the sort recorded and a
+page index of two-row pages; rows-profiled-unsorted.parquet keeps the publisher's order and has
+no page index. Only the row-group and page sizes are shrunk, so a small file has groups and
+pages to prune. Run `python -m tests.test_query_fixture` in pipeline/ to write them again.
 """
 
 import datetime as dt
@@ -18,6 +20,9 @@ from publicdata.serialise.writers import parquet as writer
 
 FIXTURE = Path(__file__).parent / "fixtures" / "parquet" / "rows.parquet"
 PROFILED = FIXTURE.with_name("rows-profiled.parquet")
+UNSORTED = FIXTURE.with_name("rows-profiled-unsorted.parquet")
+PROFILE = {b"publicdata.profile": b"1"}
+INT32 = ["year"]
 GROUP_ROWS = 8
 SORT = ["year", "lga"]
 FIELDS = {
@@ -56,21 +61,30 @@ def rows() -> dict[str, list]:
     return out
 
 
-def write(path: Path, profiled: bool = False) -> None:
+def write(path: Path, profiled: bool = False, sort: bool = True) -> None:
     data = rows()
     table = pa.table({k: pa.array(data[k], ARROW_TYPES[t]) for k, t in FIELDS.items()})
     extra = {"row_group_size": GROUP_ROWS}
     if profiled:
-        table = table.sort_by([(k, "ascending", "at_start") for k in SORT])
+        table = table.cast(
+            pa.schema([f.with_type(pa.int32()) if f.name in INT32 else f for f in table.schema])
+        )
+        extra["max_rows_per_page"] = 2
+    if profiled and sort:
+        table = table.sort_by([(k, "ascending", "at_end") for k in SORT])
         extra |= {
             "sorting_columns": [
-                pq.SortingColumn(table.schema.get_field_index(k), nulls_first=True) for k in SORT
+                pq.SortingColumn(table.schema.get_field_index(k), nulls_first=False) for k in SORT
             ],
             "write_page_index": True,
-            "max_rows_per_page": 2,
         }
-    write_table = writer.pq.write_table
-    writer.pq = SimpleNamespace(write_table=lambda *a, **k: write_table(*a, **{**k, **extra}))
+
+    def write_table(t, where, **k):
+        if profiled:
+            t = t.replace_schema_metadata({**t.schema.metadata, **PROFILE})
+        pq.write_table(t, where, **{**k, **extra})
+
+    writer.pq = SimpleNamespace(write_table=write_table)
     try:
         writer.write_parquet(SimpleNamespace(table=table), HEADER, path)
     finally:
@@ -78,17 +92,23 @@ def write(path: Path, profiled: bool = False) -> None:
 
 
 def test_the_committed_fixtures_are_what_the_writer_writes(tmp_path):
-    for committed, profiled in ((FIXTURE, False), (PROFILED, True)):
+    for committed, profiled, sort in (
+        (FIXTURE, False, False),
+        (PROFILED, True, True),
+        (UNSORTED, True, False),
+    ):
         fresh = tmp_path / committed.name
-        write(fresh, profiled)
+        write(fresh, profiled, sort)
         a, b = pq.ParquetFile(committed), pq.ParquetFile(fresh)
         assert a.metadata.num_row_groups == b.metadata.num_row_groups == 5
         assert a.schema_arrow.equals(b.schema_arrow, check_metadata=True)
         assert a.read().equals(b.read())
-        assert bool(a.metadata.row_group(0).sorting_columns) == profiled
+        assert bool(a.metadata.row_group(0).sorting_columns) == (profiled and sort)
+        assert (b"publicdata.profile" in a.schema_arrow.metadata) == profiled
 
 
 if __name__ == "__main__":
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
     write(FIXTURE)
     write(PROFILED, profiled=True)
+    write(UNSORTED, profiled=True, sort=False)

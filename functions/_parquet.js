@@ -3,8 +3,9 @@ import { decompress } from 'fzstd';
 import { fieldMap, filterSpecs, groupFields, likePattern, metricSpecs, orderSpecs, paging, selectFields } from './_query.js';
 
 // The query API's rows and aggregate queries, answered from a version's data.parquet in R2 for
-// the versions D1 does not hold. Only a file written under the query profile is read: rows sorted,
-// the sort recorded in the footer and a page index, so a filter on the sort reads few pages.
+// the versions D1 does not hold. Only a file written under the query profile is read, as its
+// footer key says (pipeline/publicdata/serialise/profile.py). A sorted one has a page index, so a
+// filter on the sort reads few pages; without one, a column chunk is read as a single page.
 
 // What one call may read. Workers hide CPU time from the code that spends it, so cost is bounded
 // by what decoding is proportional to: row groups, compressed bytes and the values decoded.
@@ -17,6 +18,8 @@ const RUN = 8 * 2 ** 20;
 const TAIL = 64 * 1024;
 const FOOTER_MAX = 16 * 2 ** 20;
 const FOOTERS = 32;
+const PROFILE = 'publicdata.profile';
+const PROFILES = new Set(['1']);
 
 export class BudgetError extends Error {}
 
@@ -114,7 +117,6 @@ async function readFooter(env, key) {
   // A nested column has no field, so only flat columns are mapped to their chunk.
   const types = new Map(fields.map((f) => [f.name, f.type]));
   let start = 0;
-  let indexed = true;
   const groups = metadata.row_groups.map((g) => {
     const rows = Number(g.num_rows);
     const chunks = {};
@@ -125,14 +127,14 @@ async function readFooter(env, key) {
       const at = Number(md.dictionary_page_offset || md.data_page_offset);
       const span = (o, l) => (o !== undefined && o !== null && l ? { start: Number(o), end: Number(o) + l } : null);
       const ci = span(c.column_index_offset, c.column_index_length), oi = span(c.offset_index_offset, c.offset_index_length);
-      if (!oi) indexed = false;
       chunks[name] = { start: at, end: at + Number(md.total_compressed_size), stats: stat(types.get(name), md.statistics, rows), ci, oi };
     }
-    const out = { start, rows, chunks, sorted: !!(g.sorting_columns && g.sorting_columns.length) };
+    const out = { start, rows, chunks };
     start += rows;
     return out;
   });
-  const profiled = groups.length > 0 && indexed && groups.every((g) => g.sorted);
+  const mark = (metadata.key_value_metadata || []).find((x) => x.key === PROFILE);
+  const profiled = !!mark && PROFILES.has(mark.value);
   return { key, size, metadata, header, fields, types, elements, groups, rows: start, profiled, pages: new Map() };
 }
 
@@ -192,11 +194,13 @@ async function pageIndex(env, entry, names) {
   const todo = [...new Set(names)].filter((n) => !entry.pages.has(n));
   if (todo.length) {
     const want = [];
-    for (const n of todo) for (const g of entry.groups) { const c = g.chunks[n]; if (c.ci) want.push(c.ci); want.push(c.oi); }
+    for (const n of todo) for (const g of entry.groups) { const c = g.chunks[n]; if (c.oi) want.push(c.oi, ...(c.ci ? [c.ci] : [])); }
     const read = fetchAll(env, entry.key, coalesce(want));
     for (const n of todo) {
       entry.pages.set(n, read.then((blocks) => entry.groups.map((g) => {
         const c = g.chunks[n];
+        // An unsorted profile file has no page index, so the chunk is one page with its statistics.
+        if (!c.oi) return { pages: [{ from: 0, to: g.rows, start: c.start, end: c.end, st: c.stats }], dict: { start: c.start, end: c.start }, oi: null };
         const bytes = (r) => { const b = blocks.find((x) => x.start <= r.start && r.end <= x.end); return b.buf.slice(r.start - b.start, r.end - b.start); };
         const oiBytes = bytes(c.oi);
         const locs = readOffsetIndex({ view: new DataView(oiBytes.buffer), offset: 0 }).page_locations;
@@ -306,7 +310,7 @@ class Scan {
       for (const n of names) {
         const { pages, dict, oi } = this.ix[n][i];
         const hit = pages.filter((p) => p.to > from && p.from < to);
-        want.push(dict, { start: hit[0].start, end: hit[hit.length - 1].end }, oi);
+        want.push(dict, { start: hit[0].start, end: hit[hit.length - 1].end }, ...(oi ? [oi] : []));
         cost.bytes += dict.end - dict.start + hit.reduce((a, p) => a + p.end - p.start, 0);
         cost.values += hit.reduce((a, p) => a + p.to - p.from, 0);
       }
@@ -506,10 +510,11 @@ function refusal(entry, url, sql, budget) {
 }
 
 
-// A file written before the query profile is not scanned: unsorted, it costs seconds of CPU.
+// A file written before the query profile is not scanned: unsorted, with small row groups and no
+// page index, it costs seconds of CPU.
 function unprofiled(entry, url, sql) {
   return new BudgetError(
-    `This version's Parquet file has not been rebuilt sorted and indexed for queries yet, so this server does not scan it. `
+    `This version's Parquet file was written before the query profile and has not been rebuilt yet, so this server does not scan it. `
     + `Until it has been, download ${url} or run this DuckDB SQL, which reads that file directly: ${sql}`,
   );
 }

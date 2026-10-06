@@ -10,11 +10,14 @@ import { BUDGET, BudgetError, openVersion, parquetAggregate, parquetRows } from 
 import { onRequestPost } from './mcp.js';
 
 // The fixtures are written by the pipeline's Parquet writer with eight rows to a group
-// (pipeline/tests/test_query_fixture.py), so five groups, one per year, can be pruned. The
-// profiled one is sorted by year and place, with a page index of two-row pages.
+// (pipeline/tests/test_query_fixture.py), so five groups, one per year, can be pruned. The two
+// under the query profile carry its footer key and year as INT32; the sorted one is ordered by
+// year and place with a page index of two-row pages, and the other has no page index.
 const fixture = (name) => readFileSync(new URL(`../pipeline/tests/fixtures/parquet/${name}`, import.meta.url));
 const bytes = fixture('rows-profiled.parquet');
+const unsortedBytes = fixture('rows-profiled-unsorted.parquet');
 const plain = fixture('rows.parquet');
+const SLUG2 = 'crashes-unsorted';
 const SLUG = 'crashes', NEWEST = '2026-04-24', OLDER = '2025-01-01', UNSORTED = '2024-01-01';
 const URL_ = `https://publicdata.au/d/${SLUG}/v/${OLDER}/data.parquet`;
 
@@ -34,24 +37,30 @@ const DIST = {
   },
   async head() { return null; },
 };
-const put = (version, b = bytes) => objects.set(`d/${SLUG}/v/${version}/data.parquet`, b);
+const put = (version, b = bytes, slug = SLUG) => objects.set(`d/${slug}/v/${version}/data.parquet`, b);
 put(NEWEST);
 put(OLDER);
 put(UNSORTED, plain);
+put(OLDER, unsortedBytes, SLUG2);
 
 // D1 holds the newest version, over the same rows, so every Parquet answer for the older one can
 // be held to the answer the query API gives.
-const all = await parquetReadObjects({ file: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length), compressors: { ZSTD: (i, n) => decompress(i, new Uint8Array(n)) } });
 const entry = await openVersion({ DIST }, SLUG, OLDER);
+const unsorted = await openVersion({ DIST }, SLUG2, OLDER);
 const fields = entry.fields;
 const sql = new DatabaseSync(':memory:');
 sql.exec('CREATE TABLE _versions (slug TEXT, version TEXT, tbl TEXT, fields TEXT, rows INTEGER, attribution TEXT, header TEXT)');
-sql.exec('CREATE TABLE t (lga TEXT, year INTEGER, fatal INTEGER, speed REAL, day TEXT, seen TEXT, ref REAL)');
-sql.prepare('INSERT INTO _versions VALUES (?, ?, ?, ?, ?, ?, ?)').run(SLUG, NEWEST, 't', JSON.stringify(fields), all.length, entry.header.attribution, JSON.stringify(entry.header));
-const ins = sql.prepare('INSERT INTO t VALUES (?, ?, ?, ?, ?, ?, ?)');
-for (const r of all) {
-  ins.run(r.lga, Number(r.year), r.fatal === null ? null : r.fatal ? 1 : 0, r.speed, r.day && r.day.toISOString().slice(0, 10), r.seen && r.seen.toISOString().slice(0, 19), Number(r.ref));
+async function load(slug, tbl, b, e) {
+  const all = await parquetReadObjects({ file: b.buffer.slice(b.byteOffset, b.byteOffset + b.length), compressors: { ZSTD: (i, n) => decompress(i, new Uint8Array(n)) } });
+  sql.exec(`CREATE TABLE ${tbl} (lga TEXT, year INTEGER, fatal INTEGER, speed REAL, day TEXT, seen TEXT, ref REAL)`);
+  sql.prepare('INSERT INTO _versions VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, NEWEST, tbl, JSON.stringify(e.fields), all.length, e.header.attribution, JSON.stringify(e.header));
+  const ins = sql.prepare(`INSERT INTO ${tbl} VALUES (?, ?, ?, ?, ?, ?, ?)`);
+  for (const r of all) {
+    ins.run(r.lga, Number(r.year), r.fatal === null ? null : r.fatal ? 1 : 0, r.speed, r.day && r.day.toISOString().slice(0, 10), r.seen && r.seen.toISOString().slice(0, 19), Number(r.ref));
+  }
 }
+await load(SLUG, 't', bytes, entry);
+await load(SLUG2, 't2', unsortedBytes, unsorted);
 const DB = {
   prepare(q) {
     let binds = [];
@@ -64,21 +73,23 @@ const DB = {
   },
 };
 globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
-const assets = { '/latest.json': { [SLUG]: NEWEST } };
+const assets = { '/latest.json': { [SLUG]: NEWEST, [SLUG2]: NEWEST } };
 const env = {
   DB, DIST,
   ASSETS: { fetch: async (r) => { const p = new URL(r.url || r).pathname; return p in assets ? Response.json(assets[p]) : new Response('', { status: 404 }); } },
 };
 
-async function d1(op, qs) {
-  const request = new Request(`https://publicdata.au/api/v1/datasets/${SLUG}/${op}?${qs}`);
-  const r = await answer({ request, env, params: { slug: SLUG }, waitUntil() {} }, op === 'rows' ? rowsQuery : aggregateQuery, op);
+async function d1(op, qs, slug = SLUG) {
+  const request = new Request(`https://publicdata.au/api/v1/datasets/${slug}/${op}?${qs}`);
+  const r = await answer({ request, env, params: { slug }, waitUntil() {} }, op === 'rows' ? rowsQuery : aggregateQuery, op);
   const b = await r.json();
   assert.equal(r.status, 200, `${qs}: ${b.error} ${b.detail}`);
   return b;
 }
 // The one value D1 cannot hold exactly is left out of the comparison and checked on its own.
 const noRef = (rows) => rows.map(({ ref, ...r }) => r);
+// Both profile files, sorted with a page index and in the publisher's order without one.
+const FILES = [[SLUG, entry], [SLUG2, unsorted]];
 
 test('rows match the query API answer for every filter, order and page', async () => {
   const cases = [
@@ -88,13 +99,13 @@ test('rows match the query API answer for every filter, order and page', async (
     'seen=lt.2026-04-24T10:00:00', 'lga=neq.Logan', 'year=not.eq.2018&limit=5&offset=30', 'select=year,lga&limit=3&offset=38',
     'year=eq.2030', 'order=fatal.asc,day.desc&limit=12', 'day=is.null', 'day=gte.2019-06-01&day=lt.2021-01-01', 'seen=not.is.null&order=seen.desc&limit=4',
   ];
-  for (const qs of cases) {
-    const want = await d1('rows', qs);
-    const got = await parquetRows(env, entry, new URLSearchParams(qs), URL_);
-    assert.deepEqual(noRef(got.rows), noRef(want.rows), qs);
-    assert.equal(got.more, want.next !== null, qs);
-    const count = await d1('aggregate', qs.split('&').filter((p) => !/^(order|limit|offset|select)=/.test(p)).join('&'));
-    assert.equal(got.matched, count.rows[0].count, qs);
+  for (const [slug, e] of FILES) for (const qs of cases) {
+    const want = await d1('rows', qs, slug);
+    const got = await parquetRows(env, e, new URLSearchParams(qs), URL_);
+    assert.deepEqual(noRef(got.rows), noRef(want.rows), `${slug} ${qs}`);
+    assert.equal(got.more, want.next !== null, `${slug} ${qs}`);
+    const count = await d1('aggregate', qs.split('&').filter((p) => !/^(order|limit|offset|select)=/.test(p)).join('&'), slug);
+    assert.equal(got.matched, count.rows[0].count, `${slug} ${qs}`);
   }
 });
 
@@ -104,11 +115,11 @@ test('aggregates match the query API answer', async () => {
     'metric=count&year=eq.2030', 'metric=sum.fatal,min.speed,max.seen', 'group=fatal,year&metric=count&limit=4&offset=2',
     'group=lga&metric=sum.fatal&lga=not.is.null&order=sum_fatal.desc,lga.asc&limit=2', 'group=year&metric=count&year=gte.2021',
   ];
-  for (const qs of cases) {
-    const want = await d1('aggregate', qs);
-    const got = await parquetAggregate(env, entry, new URLSearchParams(qs), URL_);
-    assert.deepEqual(got.rows, want.rows, qs);
-    assert.equal(got.more, want.next !== null, qs);
+  for (const [slug, e] of FILES) for (const qs of cases) {
+    const want = await d1('aggregate', qs, slug);
+    const got = await parquetAggregate(env, e, new URLSearchParams(qs), URL_);
+    assert.deepEqual(got.rows, want.rows, `${slug} ${qs}`);
+    assert.equal(got.more, want.next !== null, `${slug} ${qs}`);
   }
 });
 
@@ -137,7 +148,7 @@ test('the footer and page index are read once per version', async () => {
   await parquetAggregate(env, entry, new URLSearchParams('group=lga&year=eq.2020&limit=5'), URL_);
   // Only data pages are read the second time.
   assert.ok(reads.length > 0);
-  const pagesAt = new Set(entry.groups.flatMap((g) => Object.values(g.chunks).flatMap((c) => [c.ci && c.ci.start, c.oi.start])));
+  const pagesAt = new Set(entry.groups.flatMap((g) => Object.values(g.chunks).flatMap((c) => [c.ci && c.ci.start, c.oi && c.oi.start])));
   assert.ok(reads.every((r) => !pagesAt.has(r.start)), JSON.stringify(reads));
 });
 
@@ -145,11 +156,12 @@ test('a file written before the query profile is refused with DuckDB SQL, before
   const old = await openVersion({ DIST }, SLUG, UNSORTED);
   assert.equal(old.profiled, false);
   assert.equal(entry.profiled, true);
+  assert.equal(unsorted.profiled, true);
   reads.length = 0;
   const url = `https://publicdata.au/d/${SLUG}/v/${UNSORTED}/data.parquet`;
   await assert.rejects(parquetAggregate(env, old, new URLSearchParams('group=lga&year=eq.2019'), url), (e) => {
     assert.ok(e instanceof BudgetError);
-    assert.match(e.message, /not been rebuilt sorted and indexed/);
+    assert.match(e.message, /written before the query profile/);
     assert.ok(e.message.endsWith(`SELECT "lga", COUNT(*) AS "count" FROM '${url}' WHERE "year" = 2019 GROUP BY "lga" ORDER BY "lga" LIMIT 100 OFFSET 0`), e.message);
     return true;
   });
@@ -178,6 +190,9 @@ test('a query over the budget is refused with DuckDB SQL that answers it from th
 test('64-bit integers come back as numbers while exact and as text beyond, and types read as D1 gives them', async () => {
   const r = await parquetRows(env, entry, new URLSearchParams('ref=eq.1000&select=ref,year,fatal,day,seen'), URL_);
   assert.deepEqual(r.rows, [{ ref: 1000, year: 2018, fatal: 0, day: '2018-02-02', seen: '2026-04-24T01:01:05' }]);
+  // year is INT32 under the profile and decodes to plain numbers, as ref's INT64 does while exact.
+  assert.equal(entry.elements.get('year').type, 'INT32');
+  assert.equal(entry.elements.get('ref').type, 'INT64');
   assert.deepEqual(fields.map((f) => [f.name, f.type]), [['lga', 'string'], ['year', 'integer'], ['fatal', 'boolean'], ['speed', 'number'], ['day', 'date'], ['seen', 'datetime'], ['ref', 'integer']]);
   const big = await parquetRows(env, entry, new URLSearchParams('ref=gt.9007199254740000&select=ref'), URL_);
   assert.deepEqual(big.rows.map((x) => x.ref).sort(), ['9007199254741001', '9007199254741011', '9007199254741021', '9007199254741031']);
@@ -224,4 +239,16 @@ test('the budget error reaches the agent, and a file that cannot be read says wh
   } finally {
     put(OLDER);
   }
+});
+
+test('a profile file without a page index is read a column chunk at a time', async () => {
+  assert.ok(unsorted.groups.every((g) => Object.values(g.chunks).every((c) => !c.oi)));
+  const url = `https://publicdata.au/d/${SLUG2}/v/${OLDER}/data.parquet`;
+  // The year statistics of each row group still rule out the others.
+  const one = await parquetAggregate(env, unsorted, new URLSearchParams('year=eq.2019&group=lga'), url);
+  assert.equal(one.used.groups, 1);
+  assert.equal(one.matched, 8);
+  const r = await call('query_rows', { slug: SLUG2, version: OLDER, where: { year: { min: 2021 } }, select: ['year'], limit: 2 });
+  assert.deepEqual(r.rows, [{ year: 2021 }, { year: 2021 }]);
+  assert.equal(r.matched, 16);
 });
