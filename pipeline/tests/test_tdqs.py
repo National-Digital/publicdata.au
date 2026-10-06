@@ -71,6 +71,48 @@ def test_removing_the_sentence_for_a_quality_fails_that_quality(quality, sentenc
     assert [e.split(":")[:2] for e in errors] == [["search_datasets", f" {quality}"]]
 
 
+RETURN_SENTENCES = {
+    "search_datasets": ["Up to 50 matches come back in one answer, with no paging."],
+    "get_dataset": ["The whole history comes back in one answer, with no paging."],
+    "list_fields": ["The answer describes the newest version, in one page."],
+    "list_partitions": ["Every value comes back in one answer, with no paging."],
+    "query_rows": [
+        "One page holds up to limit rows, and offset steps through the rest until next_offset "
+        "is null."
+    ],
+    "count_rows": [
+        "Groups come back largest first, and truncated means raise limit or narrow where."
+    ],
+    "diff_versions": [
+        "One answer holds the counts of rows added, removed, changed and unchanged, the keys of "
+        "the rows added, removed and changed, and up to ten changed rows with their old and new "
+        "values."
+    ],
+    "search_catalogue": ["A page holds 20 records, those that can take a vote first."],
+    "list_backlog": [
+        "Votes on catalogue records that no entry has claimed yet come back apart, under the vote "
+        "key search_catalogue uses.",
+        "The whole backlog comes back in one answer, with no paging, and the call costs nothing "
+        "against the rate limit.",
+    ],
+    "upvote_dataset": ["The answer gives the dataset's vote total after this call."],
+}
+
+
+def test_every_tool_has_its_return_sentence_listed():
+    assert set(RETURN_SENTENCES) == {t["name"] for t in tdqs.tools()}
+
+
+@pytest.mark.parametrize("name", sorted(RETURN_SENTENCES))
+def test_removing_the_return_sentence_fails_returns_for_every_tool(name):
+    ts = _tools()
+    t = _by_name(ts, name)
+    for sentence in RETURN_SENTENCES[name]:
+        assert sentence in tdqs.sentences(t["description"])
+        _drop(t, sentence)
+    assert any(e.startswith(f"{name}: returns:") for e in tdqs.problems(ts)[0])
+
+
 def test_removing_the_purpose_sentence_fails_purpose():
     ts = _tools()
     t = _by_name(ts, "get_dataset")

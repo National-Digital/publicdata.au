@@ -30,7 +30,7 @@ NOT_A_PURPOSE = {"a", "an", "the", "this", "it", "use", "used", "tool"}
 WRITE_VERBS = {"add", "create", "delete", "remove", "set", "update", "write"}
 LIMITS = re.compile(r"rate limit|queries each address may make", re.I)
 RETURNS = re.compile(
-    r"\bcomes? back\b|\bthe answer\b|\bone (?:answer|page)\b|\ba page holds\b|\bnext_offset\b"
+    r"\bcomes? back\b|\bthe answer\b|\bone (?:answer|page)\b|\ba page holds\b"
     r"|\breturns? (?!(?:a |an )?(?:\d+ )?error)",
     re.I,
 )
@@ -141,12 +141,11 @@ def _returns(t: dict) -> list[str]:
         for r in s.get("required") or []
         if r not in props
     ]
-    d = t.get("description") or ""
-    inputs = set((t.get("inputSchema") or {}).get("properties") or {})
-    if not RETURNS.search(d) and not any(names(d, p) for p in props if p not in inputs):
+    # Output field names such as rows or key are ordinary words, so only a return cue counts.
+    if not RETURNS.search(t.get("description") or ""):
         out.append(
-            "the description does not say what comes back; say how much one answer holds "
-            "or name the fields a caller reads"
+            "the description does not say what comes back; add a sentence saying what one "
+            "answer holds, such as 'Up to 50 matches come back in one answer'"
         )
     return out
 

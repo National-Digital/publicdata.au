@@ -105,7 +105,7 @@
       },
       "query_rows": {
         "title": "Query rows",
-        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nPage with offset until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
+        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nOne page holds up to limit rows, and offset steps through the rest until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "api": "rows",
         "input": {
@@ -138,7 +138,7 @@
       },
       "diff_versions": {
         "title": "Compare versions",
-        "description": "Compare two consecutive versions of a served dataset row by row on its key fields, to see what a publisher changed between releases. from and to must be adjacent dates in the version history from get_dataset, older first. Any other pair returns a 404 error, so step through a longer span one pair at a time. A dataset with no key, which list_fields shows as an empty key, gets row counts only, and a dataset with one version has nothing to compare. The call costs nothing against the rate limit.",
+        "description": "Compare two consecutive versions of a served dataset row by row on its key fields, to see what a publisher changed between releases. from and to must be adjacent dates in the version history from get_dataset, older first. Any other pair returns a 404 error, so step through a longer span one pair at a time. A dataset with no key, which list_fields shows as an empty key, gets row counts only, and a dataset with one version has nothing to compare. One answer holds the counts of rows added, removed, changed and unchanged, the keys of the rows added, removed and changed, and up to ten changed rows with their old and new values. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" },
@@ -171,7 +171,7 @@
       },
       "upvote_dataset": {
         "title": "Vote for a dataset",
-        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, and a second vote from the same caller on the same day adds nothing. The call costs nothing against the rate limit.",
+        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, and a second vote from the same caller on the same day adds nothing. The answer gives the dataset's vote total after this call. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "The vote key of a search_catalogue row, or a slug from /backlog.json" }
