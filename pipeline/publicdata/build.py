@@ -574,9 +574,7 @@ def grow_cached(
     meta = {**hit, "files": dict(sorted(files.items())), "writers": writers}
     if "ndjson" in stale:
         meta["first"] = _first_row(vdir)  # the dataset page shows it
-    cache.put(key, meta, vdir, kept)
-    if m.parquet.get("sort"):
-        _keep_order(cache, key, tbl, vdir / "data.parquet")
+    cache.put(key, meta, vdir, kept, _order_file(tbl, vdir / "data.parquet"))
     cache.grown += len(stale)
     return meta
 
@@ -609,9 +607,8 @@ def _cached_version(
             if ds.kind == "database"
             else {f: now[f] for f in formats_for(vout.rows, geo_kind(ds))}
         )
-        cache.put(key, _meta(vout, writers), vdir, kept)
-        if tbl is not None and m.parquet.get("sort") and (vdir / "data.parquet").is_file():
-            _keep_order(cache, key, tbl, vdir / "data.parquet")
+        order = _order_file(tbl, vdir / "data.parquet") if tbl is not None else {}
+        cache.put(key, _meta(vout, writers), vdir, kept, order)
     return tbl, vout
 
 
@@ -621,12 +618,17 @@ def _cached_version(
 ORDER = "order.parquet"
 
 
-def _keep_order(cache: BuildCache, key: str, tbl: Table, parquet: Path) -> None:
+def _order_file(tbl: Table, parquet: Path) -> dict[str, bytes]:
+    """The cache entry's ORDER file for a sorted version, by name, or none."""
     lay = tbl.manifest.parquet
+    if not lay.get("sort") or not parquet.is_file():
+        return {}
     perm = order_of(tbl, lay["sort"], lay["key"])
     meta = {"parquet_sha256": sha256(parquet), "parquet_bytes": str(parquet.stat().st_size)}
     t = pa.table({"source_row": perm}).replace_schema_metadata(meta)
-    pq.write_table(t, cache.root / key / ORDER, compression="zstd")
+    sink = pa.BufferOutputStream()
+    pq.write_table(t, sink, compression="zstd")
+    return {ORDER: sink.getvalue().to_pybytes()}
 
 
 def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Table | None:

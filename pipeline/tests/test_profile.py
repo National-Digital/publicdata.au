@@ -2,6 +2,7 @@ import json
 import random
 import sqlite3
 from dataclasses import replace
+from pathlib import Path
 
 import duckdb
 import pyarrow as pa
@@ -360,3 +361,55 @@ def test_sort_lookup_and_int32_name_declared_fields(over, match):
         parse(_raw(fields=fields, **over), "x")
     ds = parse(_raw(fields=fields, sort=["a"], lookup=["a"], int32=["n"]), "x")
     assert (ds.sort, ds.lookup, ds.int32) == (("a",), ("a",), ("n",))
+
+
+def test_a_fetch_holds_a_version_that_does_not_fit_an_int32_field(tmp_path, monkeypatch):
+    ds = _ds(int32=("big",), source=Source(adapter="file", url="https://e/f.csv"))
+    lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
+    m = make_manifest(CSV, dataset="t", version="2026-10-01")
+    monkeypatch.setitem(fetch.ADAPTERS, "file", lambda d, s: (CSV, m, lic))
+    with pytest.raises(fetch.FetchError, match="t: big holds 1 to 5000000000, outside 32 bits"):
+        fetch.fetch(ds, tmp_path)
+    assert store.manifests(tmp_path, "t") == []
+
+
+def test_register_validate_checks_int32_against_the_versions_at_hand(tmp_path):
+    from publicdata.validate import int32_misfits
+
+    s = tmp_path / "store"
+    plain = _ds()
+    m = _m(plain)
+    store.write(s, m, CSV)
+    declared = _ds(int32=("id", "big"))
+    assert int32_misfits(declared, m, s, []) == ["big holds 1 to 5000000000, outside 32 bits"]
+    assert int32_misfits(_ds(int32=("id",)), m, s, []) == []
+    # A built Parquet answers from its statistics, before the source.
+    build_version(plain, m, CSV, tmp_path / "dist")
+    (s / "t" / m.version / "source.csv").unlink()
+    assert int32_misfits(declared, m, s, [tmp_path / "dist"]) == [
+        "big holds 1 to 5000000000, outside 32 bits"
+    ]
+    assert int32_misfits(declared, m, s, []) is None
+
+
+def test_the_order_file_is_in_the_entry_before_its_record(tmp_path):
+    cache = BuildCache(tmp_path / "cache")
+    seen = []
+    real = Path.write_text
+
+    def spy(self, *a, **k):
+        if self.name == "meta.json":
+            seen.append((self.parent / "order.parquet").is_file())
+        return real(self, *a, **k)
+
+    import unittest.mock
+
+    with unittest.mock.patch.object(Path, "write_text", spy):
+        cache.put("k", {}, extra={"order.parquet": b"x"})
+    assert seen == [True]
+
+
+def test_sort_or_int32_on_a_database_names_the_rule():
+    for name in ("sort", "int32"):
+        with pytest.raises(RegisterError, match=f"{name} is for a table entry"):
+            parse(_raw(kind="database", **{name: ["a"]}), "x")

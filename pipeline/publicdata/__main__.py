@@ -29,7 +29,26 @@ def cmd_register(args) -> int:
             print(
                 f"note: {d.slug} has {len(bare)} fields without a label; `publicdata register labels {d.slug}` drafts them"
             )
-    return 0
+    from .store import manifests
+    from .validate import int32_misfits
+
+    store_dir = Path(getattr(args, "store", STORE))
+    bad, unchecked = [], 0
+    for d in ds:
+        if not d.int32 or not d.publishable:
+            continue
+        for m in manifests(store_dir, d.slug):
+            found = int32_misfits(d, m, store_dir, [Path(b) for b in getattr(args, "built", [])])
+            if found is None:
+                unchecked += 1
+            bad += [f"{d.slug}/{m.version}: {x}" for x in found or []]
+    for b in bad:
+        print(f"int32: {b}")
+    if unchecked:
+        print(
+            f"int32: {unchecked} stored version(s) not checked, since neither their Parquet nor their source is here"
+        )
+    return 1 if bad else 0
 
 
 def cmd_labels(args) -> int:
@@ -694,7 +713,17 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("register").add_subparsers(dest="sub", required=True)
-    r.add_parser("validate").set_defaults(fn=cmd_register)
+    rv = r.add_parser("validate")
+    rv.add_argument(
+        "--store", default=str(STORE), help="the store whose versions int32 is checked against"
+    )
+    rv.add_argument(
+        "--built",
+        action="append",
+        default=[],
+        help="a built tree whose Parquet int32 is checked against, before the store's sources",
+    )
+    rv.set_defaults(fn=cmd_register)
     lb = r.add_parser("labels", help="draft labels for fields that have none")
     lb.add_argument("slug", nargs="*")
     lb.add_argument("--write", action="store_true", help="write the drafts into the register YAML")

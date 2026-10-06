@@ -488,7 +488,7 @@ def parse(raw: dict, ctx: str) -> Dataset:
         collection_title=str(raw.get("collection_title", "")),
         key=key,
         partition_by=partition_by,
-        **_profile(raw, fields, ctx),
+        **_profile(raw, fields, kind, ctx),
         unpivot=unpivot,
         wide=wide,
         geometry=geometry,
@@ -639,13 +639,18 @@ def parse(raw: dict, ctx: str) -> Dataset:
     return ds
 
 
-def _profile(raw: dict, fields: list[Field], ctx: str) -> dict:
+def _profile(raw: dict, fields: list[Field], kind: str, ctx: str) -> dict:
     """`sort`, `lookup` and `int32`: declared fields, each named once. A boolean has two values,
     which a bloom filter cannot tell apart, and only an integer field can be INT32."""
     by = {f.name: f for f in fields}
     out = {}
     for name in ("sort", "lookup", "int32"):
         val = raw.get(name) or []
+        if val and kind == "database":
+            # A database's tables keep the publisher's order and DuckDB's types.
+            raise RegisterError(
+                f"{ctx}: {name} is for a table entry; a kind: database entry takes none"
+            )
         if not isinstance(val, list):
             raise RegisterError(f"{ctx}: {name} is a list of fields")
         names = tuple(str(v) for v in val)
