@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
 import hashlib
 import json
 import os
@@ -14,6 +15,9 @@ from importlib.metadata import version as dist_version
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent
+# Raised in a reviewed change whose edit to the build code changes the bytes of versions across
+# datasets; it rebuilds every version. A register entry's `rebuild` does the same for one dataset.
+REBUILD = 1
 LIBRARIES = ("pyarrow", "xlsxwriter", "openpyxl", "zstandard", "pyyaml", "duckdb")
 # One module per format. A version's rows are shaped by everything else the build imports, so a
 # writer added or changed rewrites only its own file in a cached version; the JSON and GeoJSON
@@ -72,7 +76,9 @@ def _is_writer(p: Path) -> bool:
 
 def code_files() -> list[Path]:
     """build.py and everything it imports inside the package, except the format writers, which
-    are keyed one by one; the writers that shape a version are added back."""
+    are keyed one by one; the writers that shape a version are added back. These shape every
+    version's bytes but are not in its key: an edit to one is checked against real versions
+    (`publicdata verify`) and raises a rebuild number when it changes them."""
     seen: set[Path] = set()
     todo = [PACKAGE / "build.py", PACKAGE / "__init__.py"]
     todo += [p for w in ROW_WRITERS if (p := _writers_dir() / f"{w}.py").is_file()]
@@ -92,12 +98,63 @@ def _runtime(h) -> None:
 
 
 def environment_key() -> str:
-    """What shapes a version's rows and its files other than the format writers'."""
-    h = hashlib.sha256()
-    for p in code_files():
-        h.update(str(p.relative_to(PACKAGE)).encode() + b"\0" + p.read_bytes() + b"\0")
+    """What every version's key shares: the global rebuild number, the writers that also make
+    the partition files, and the runtime and libraries."""
+    h = hashlib.sha256(f"rebuild={REBUILD}\0".encode())
+    for w in ROW_WRITERS:
+        p = _writers_dir() / f"{w}.py"
+        h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
     _runtime(h)
     return h.hexdigest()
+
+
+def _plain(v):
+    if dataclasses.is_dataclass(v) and not isinstance(v, type):
+        out = {}
+        for f in sorted(dataclasses.fields(v), key=lambda f: f.name):
+            x = getattr(v, f.name)
+            if not f.repr:
+                continue
+            if f.default is not dataclasses.MISSING and x == f.default:
+                continue
+            if f.default_factory is not dataclasses.MISSING and x == f.default_factory():
+                continue
+            out[f.name] = _plain(x)
+        return out
+    if isinstance(v, (list, tuple)):
+        return [_plain(x) for x in v]
+    if isinstance(v, dict):
+        return {str(k): _plain(x) for k, x in v.items()}
+    return v
+
+
+def entry_key(ds) -> str:
+    """A register entry as its key reads it: the fields in its repr that differ from their
+    defaults, so a field added to the register changes no existing key."""
+    return json.dumps(_plain(ds), ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def digest(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def digests(root: Path, only=None) -> dict[str, str]:
+    """The SHA-256 of each file under root, or of those named in only. A DuckDB file's bytes
+    differ from one write to the next, so it has none."""
+    rels = (
+        only
+        if only is not None
+        else [p.relative_to(root).as_posix() for p in sorted(root.rglob("*")) if p.is_file()]
+    )
+    return {
+        rel: digest(root / rel)
+        for rel in sorted(rels)
+        if Path(rel).name != "data.duckdb" and (root / rel).is_file()
+    }
 
 
 def writer_key(fmt: str) -> str:

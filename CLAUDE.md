@@ -26,6 +26,11 @@
   tests there.
 - Versions are immutable and dated by source change. An unchanged source hash produces no
   version. Two builds of one snapshot are byte-identical; CI proves it.
+- A version's build cache key is its inputs and never the build code. An edit to the code that
+  changes any published file raises `rebuild:` in the register entry of each dataset it affects,
+  or `REBUILD` in `pipeline/publicdata/cache.py` when it reaches across datasets. The deploy's
+  real-data check (`publicdata verify`) fails a change that alters a reused version without one.
+  A format writer change needs no number.
 - This is an archive. Versions are never deleted or rewritten; a withdrawn source keeps its
   version. Portal history is backfilled as versions marked `backfilled`.
 - Every payload carries provenance: publisher, licence, attribution, source URL, fetched-at

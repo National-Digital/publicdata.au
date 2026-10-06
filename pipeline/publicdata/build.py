@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 import zstandard
 
 from . import OPERATOR, SITE, published, store
-from .cache import BuildCache, _link_or_copy
+from .cache import BuildCache, _link_or_copy, digests, entry_key
 from .diff import diff
 from .normalise import Table, normalise
 from .provenance import OPERATOR_URL
@@ -465,15 +465,17 @@ def _datapackage(dout: DatasetOut) -> dict:
 def version_key(
     cache: BuildCache, ds: Dataset, m: store.Manifest, store_dir: Path | None = None
 ) -> str:
-    """A version's cache entry: its register entry and manifest, and for a dataset joined to the
-    place spine, the spine layers it reads."""
+    """A version's cache entry: its register entry, its rebuild number among them, and manifest,
+    and for a dataset joined to the place spine, the spine layers it reads. The build code is not
+    in it, so an edit to the code reuses every version until a rebuild number is raised."""
     if ds.enrich:
         from .spine import spine_versions
 
         if store_dir is None:
             raise ValueError(f"{ds.slug}: a spine-joined version's key needs the store")
-        return cache.key(repr(ds), m.to_json(), spine_versions(ds.enrich, store_dir), "version")
-    return cache.key(repr(ds), m.to_json(), "version")
+        layers = spine_versions(ds.enrich, store_dir)
+        return cache.key(entry_key(ds), m.to_json(), layers, "version")
+    return cache.key(entry_key(ds), m.to_json(), "version")
 
 
 def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
@@ -503,8 +505,9 @@ def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> Versio
     )
 
 
-def _meta(vout: VersionOut, writers: dict[str, str]) -> dict:
+def _meta(vout: VersionOut, writers: dict[str, str], vdir: Path) -> dict:
     return {
+        "sha256": digests(vdir),
         "rows": vout.rows,
         "files": vout.files,
         "unknown_columns": vout.unknown_columns,
@@ -650,7 +653,9 @@ def grow_cached(
     writers = {f: now[f] for f in want}
     if serialise.LIMIT is not None:
         writers = {**seen, **writers}  # a limited build forgets no writer it did not run
-    meta = {**hit, "files": dict(sorted(files.items())), "writers": writers}
+    sums = {k: v for k, v in hit.get("sha256", {}).items() if k in files}
+    sums |= digests(vdir, [f"data.{f}" for f in stale] + (["manifest.json"] if resized else []))
+    meta = {**hit, "files": dict(sorted(files.items())), "writers": writers, "sha256": sums}
     if "ndjson" in stale:
         meta["first"] = _first_row(vdir)  # the dataset page shows it
     cache.put(key, meta, vdir, kept, _order_file(tbl, vdir / "data.parquet"))
@@ -687,7 +692,7 @@ def _cached_version(
             else {f: now[f] for f in _want(ds, vout.rows, vout.left_out)}
         )
         order = _order_file(tbl, vdir / "data.parquet") if tbl is not None else {}
-        cache.put(key, _meta(vout, writers), vdir, kept, order)
+        cache.put(key, _meta(vout, writers, vdir), vdir, kept, order)
     return tbl, vout
 
 

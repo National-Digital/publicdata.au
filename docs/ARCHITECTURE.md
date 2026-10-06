@@ -298,8 +298,8 @@ with the site's security headers from `/static/page-headers.json` and a five-min
 because it says whether it is the newest. Pull-request previews skip
 `--versioned`, because they never write to R2.
 
-A version built once is not built again while its source, its register entry and the code that
-shapes its rows are unchanged. The deploy keeps a build cache in R2, under `_build/` in
+A version built once is not built again while its inputs are unchanged: its source, its register
+entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps a build cache in R2, under `_build/` in
 `publicdata-raw` (`publicdata cache pull|push`), that holds for each version only its small
 files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
 the deploy that built them, so a cached build lists them in `absent.json` instead of writing them,
@@ -311,8 +311,16 @@ view shaped like the SQLite file's records table, with SQLite's tie order, NaN r
 parameters compared as SQLite's column affinity would (`Records.param`). Its rowid is the row's
 place in the Parquet, and floats are summed in that order as SQLite sums them, so the pages come
 out as they did from SQLite for an entry in the publisher's order; for a sorted entry the order is
-the sorted one, and a float total can differ from data.sqlite's in its last digit. The cache key splits in two: everything the build imports except
-the format writers (`cache.environment_key`) names the entry, and each writer under
+the sorted one, and a float total can differ from data.sqlite's in its last digit. The cache key splits in two. A version's entry is named by its inputs (`build.version_key`):
+the register entry as `cache.entry_key` reads it, which is the fields in its repr that differ from
+their defaults, so a field added to the register changes no key; the manifest; the spine layers a
+joined dataset reads; and `cache.environment_key`, which holds the global rebuild number
+`cache.REBUILD`, the JSON and GeoJSON writers that also make the partition files, and the Python,
+SQLite and library versions. The rest of the build code is left out, so an edit to it reuses every
+version. An edit that changes a version's bytes raises `rebuild` in the register entry of each
+dataset it affects, or `REBUILD` for every dataset. Either moves the versions' keys and with them
+the keys of their diffs and history archive, which are named by the keys of the versions they
+come from. Each writer under
 `serialise/writers/` has a key of its own (`cache.writer_key`), recorded in the entry per format.
 A writer added or changed does not invalidate an entry: the build reads the version's rows back
 from the cached Parquet, the way the diff does, writes only the files whose writer the entry has
@@ -327,8 +335,7 @@ through either, and a rewritten NDJSON, CSV or GeoJSON has its new size recorded
 manifest. A format left out by its cap is never published: SQLite, Excel and JSON are not
 written, and GeoJSON is written only to be measured and is deleted before the version is
 cached, so none of them is in the entry or `absent.json`. The limits live in
-`serialise/__init__.py`, inside the environment key, and apply only to versions built for the
-first time. The
+`serialise/__init__.py` and apply only to versions built for the first time. The
 determinism job proves this by building the fixtures with a subset of formats into a cache and
 then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, each entry's record after its files,
 and the last push of a deploy to main notes the entries its build pruned in `_build/.unused.json`.
@@ -346,6 +353,23 @@ hands over the cache entries it wrote, with the version files a preview serves. 
 then builds the whole site from the cache those entries filled, links the preview files in with
 `build --built`, and pushes the pages. Every deploy is therefore limited by its largest single
 dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
+
+Because the build code is not in a version's key, the deploy checks a change to it against real
+versions. The plan job lists the files the change touches, and when one is a module the build
+imports outside the format writers (`cache.code_files`) it picks a sample of datasets
+(`publicdata verify plan`). The cheapest dataset of each stratum comes first, where a stratum is a
+combination of kind, adapter, file format, geometry, spine join, sort, partitions, wide or unpivoted
+reading and suppression; others follow in an order the commit's hash picks, up to 300 MB of source
+and none over 60 MB. A verify job builds every version of each from its source with the new code
+and compares it with the cache entry a deploy would reuse, file by file through the SHA-256 the
+entry records, and compares the diffs and the history archive with theirs (`publicdata verify
+run`). A version whose key the change moved, by a raised number or a new input, is built again
+anyway and is not compared, and a format whose writer changed is left to the deploy, which writes
+it again. A difference fails the deploy job, on a pull request and again on the push to main, and
+names the dataset, the version and the file. The reference is the cache entry because it records
+what the build made when the version was last built, which is what a reuse stands for. A dated
+file in R2 is never overwritten outside a replace dispatch, so it keeps the bytes of the version's
+first build, and a raised number alone does not change it.
 
 ## Query API
 

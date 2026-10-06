@@ -199,6 +199,31 @@ deterministic bytes out, with no network, clock or randomness.
 5. A new format is added to every version at the next deploy, and the old versions' other files
    are left as they are. Open the pull request as `feat(serialise): ...`.
 
+## Change the build code
+
+A deploy reuses every version it has built before while the version's inputs are the same: its
+source, its register entry, its manifest, the JSON and GeoJSON writers, the Python and library
+versions, and two rebuild numbers. The rest of the build code under `pipeline/publicdata/` is not
+in that key, so an edit to `normalise.py`, `build.py` or any other module the build imports leaves
+every published version as it was.
+
+- When your change alters what a version's files hold, raise a rebuild number in the same pull
+  request. Add or raise `rebuild:` in the register entry of each dataset it affects, which starts
+  at 0, or raise `REBUILD` in `pipeline/publicdata/cache.py` when the change reaches datasets you
+  cannot list. Say in the pull request which number you raised and why.
+- A change to a format writer under `serialise/writers/` needs no number. Each writer has a key of
+  its own, and the deploy writes that format again into every version.
+- The deploy checks every change to the build code against real data (`publicdata verify`). It
+  builds a sample of stored datasets from their sources, at least one of each adapter and shape
+  that fits its budget, and compares each version, diff and history archive a deploy would reuse
+  with what was built before. A difference fails the deploy and names the dataset, the version and
+  the file, and the fix is to raise the number it names. To check datasets beyond the sample,
+  pull their sources and cache entries from R2 and run
+  `python -m publicdata verify run <slug>... --cache <cache> --published r2://publicdata-dist`.
+- A raised number builds the dataset's versions, diffs and history again, so the pages and the
+  cache follow the new code. A dated file already in R2 is still never overwritten; replacing the
+  published files is the `replace` dispatch under Withdraw a dataset or correct published files.
+
 ## Licences that are not Creative Commons
 
 A publisher's own open grant is admitted as a file in `register/licences/` that quotes the publisher
@@ -217,7 +242,8 @@ that is missing any of the four. A written permission is one such file,
   as a tombstone that keeps the manifest and hash.
 - To rebuild files a bug wrote wrongly, a maintainer runs the Deploy workflow with `replace` set
   to the version prefixes, which also purges them from the edge cache. The pull request that fixed
-  the bug says which versions it affects.
+  the bug says which versions it affects and raises their rebuild number (see Change the build
+  code).
 
 ## Change the API or the MCP tools
 
@@ -314,6 +340,9 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,
   and the build writes a page per value under `/d/<slug>/in/<value>/`.
+- `rebuild` is a whole number, 0 when left out, that a pull request raises when its change to the
+  build code alters this dataset's published files. Raising it builds every version, diff and
+  history archive of the dataset again (see Change the build code).
 - `sort` lists the fields data.parquet is ordered by, for an entry whose queries mostly filter on
   fields the publisher's order does not group. The build breaks ties by the `key`, then by the
   row's place in the source, and writes a page index for the sorted file. Without `sort` the rows
