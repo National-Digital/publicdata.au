@@ -62,8 +62,19 @@ async function live(ctx) {
   return newestOf || (newestOf = await file(ctx, '/latest.json'));
 }
 
-// The row tools read the version's Parquet file, so any version answers. The query API's D1
-// tables stay behind it for the newest version, should the file not be read.
+// Whether D1 holds this version, in which case the query API answers it.
+async function held(env, slug, version) {
+  if (!env.DB) return false;
+  try {
+    return !!(await env.DB.prepare('SELECT 1 AS held FROM _versions WHERE slug = ? AND version = ?').bind(slug, version).first());
+  } catch {
+    return false;
+  }
+}
+
+// The versions D1 does not hold are read from their Parquet file: those older than the two it
+// loads, and those it never loads because they are too large or their entry sets query: false.
+// Returns null when the query API should answer instead.
 async function parquet(ctx, slug, version, op, qs) {
   if (!ctx.env.DIST) return null;
   if (version !== undefined && !VERSION.test(version)) throw new ToolError('version is a date, YYYY-MM-DD, from get_dataset');
@@ -73,6 +84,7 @@ async function parquet(ctx, slug, version, op, qs) {
   const newest = latest[slug];
   if (!newest) return null;
   const v = version || newest;
+  if (await held(ctx.env, slug, v)) return null;
   const path = API + enc(slug) + '/versions/' + v + '/' + op + (qs.length ? '?' + qs.join('&') : '');
   const url = SITE + '/d/' + enc(slug) + '/v/' + v + '/data.parquet';
   const key = new Request(SITE + '/_parquet' + path);
@@ -85,9 +97,8 @@ async function parquet(ctx, slug, version, op, qs) {
   } catch (e) {
     if (e instanceof BudgetError) throw new ToolError(e.message);
     if (e instanceof QueryError) throw e;
-    if (v !== newest) throw new ToolError(`version ${v} of ${slug} could not be read (${String((e && e.message) || e).slice(0, 200)}); its files are at ${SITE}/d/${slug}/v/${v}/`);
     console.error(`parquet ${slug} ${v}: ${(e && e.stack) || e}`);
-    return null;
+    throw new ToolError(`version ${v} of ${slug} could not be read; its files are at ${SITE}/d/${slug}/v/${v}/`);
   }
   if (!entry) {
     if (v === newest) return null;

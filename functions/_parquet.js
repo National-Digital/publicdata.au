@@ -1,14 +1,16 @@
-import { parquetMetadata, parquetRead, parquetSchema } from 'hyparquet';
+import { parquetMetadata, parquetRead, parquetSchema, readColumnIndex, readOffsetIndex } from 'hyparquet';
 import { decompress } from 'fzstd';
 import { fieldMap, filterSpecs, groupFields, likePattern, metricSpecs, orderSpecs, paging, selectFields } from './_query.js';
 
-// The query API's rows and aggregate queries, answered from a version's data.parquet in R2 so
-// that every version can be queried.
+// The query API's rows and aggregate queries, answered from a version's data.parquet in R2 for
+// the versions D1 does not hold. Only a file written under the query profile is read: rows sorted,
+// the sort recorded in the footer and a page index, so a filter on the sort reads few pages.
 
 // What one call may read. Workers hide CPU time from the code that spends it, so cost is bounded
 // by what decoding is proportional to: row groups, compressed bytes and the values decoded.
-export const BUDGET = { groups: 128, bytes: 8 * 2 ** 20, values: 8_000_000, ranges: 160 };
+export const BUDGET = { groups: 64, bytes: 8 * 2 ** 20, values: 4_000_000, ranges: 160 };
 const PARALLEL = 6;
+const STREAM = 8;
 // R2 answers a range in about 50 to 80 ms whatever its size, so near ranges are read as one.
 const GAP = 256 * 1024;
 const RUN = 8 * 2 ** 20;
@@ -85,7 +87,9 @@ const footers = new Map();
 async function readRange(env, key, offset, length) {
   const o = await env.DIST.get(key, { range: { offset, length } });
   if (!o) throw new Error(`${key} is not in R2`);
-  return new Uint8Array(await o.arrayBuffer());
+  const buf = new Uint8Array(await o.arrayBuffer());
+  if (buf.byteLength !== length) throw new Error(`${key} gave ${buf.byteLength} bytes at ${offset}, not ${length}`);
+  return buf;
 }
 
 async function readFooter(env, key) {
@@ -102,28 +106,34 @@ async function readFooter(env, key) {
   const kv = (metadata.key_value_metadata || []).find((x) => x.key === 'publicdata');
   const header = kv ? JSON.parse(kv.value) : {};
   const fields = [];
+  const elements = new Map();
   for (const node of parquetSchema(metadata).children) {
     const t = node.children.length ? null : fieldType(node.element);
-    if (t) fields.push({ name: node.element.name, type: t });
+    if (t) { fields.push({ name: node.element.name, type: t }); elements.set(node.element.name, node.element); }
   }
   // A nested column has no field, so only flat columns are mapped to their chunk.
   const types = new Map(fields.map((f) => [f.name, f.type]));
   let start = 0;
+  let indexed = true;
   const groups = metadata.row_groups.map((g) => {
     const rows = Number(g.num_rows);
     const chunks = {};
-    g.columns.forEach((c) => {
+    for (const c of g.columns) {
       const md = c.meta_data;
       const name = md && md.path_in_schema.length === 1 ? md.path_in_schema[0] : null;
-      if (!name || !types.has(name)) return;
+      if (!name || !types.has(name)) continue;
       const at = Number(md.dictionary_page_offset || md.data_page_offset);
-      chunks[name] = { start: at, end: at + Number(md.total_compressed_size), stats: stat(types.get(name), md.statistics, rows) };
-    });
-    const out = { start, rows, chunks };
+      const span = (o, l) => (o !== undefined && o !== null && l ? { start: Number(o), end: Number(o) + l } : null);
+      const ci = span(c.column_index_offset, c.column_index_length), oi = span(c.offset_index_offset, c.offset_index_length);
+      if (!oi) indexed = false;
+      chunks[name] = { start: at, end: at + Number(md.total_compressed_size), stats: stat(types.get(name), md.statistics, rows), ci, oi };
+    }
+    const out = { start, rows, chunks, sorted: !!(g.sorting_columns && g.sorting_columns.length) };
     start += rows;
     return out;
   });
-  return { key, size, metadata, header, fields, types, groups, rows: start };
+  const profiled = groups.length > 0 && indexed && groups.every((g) => g.sorted);
+  return { key, size, metadata, header, fields, types, elements, groups, rows: start, profiled, pages: new Map() };
 }
 
 // One version's footer, read once per isolate. A version never changes, so it is never stale.
@@ -137,6 +147,250 @@ export async function openVersion(env, slug, version) {
   }
   return footers.get(key);
 }
+
+function coalesce(chunks) {
+  const sorted = chunks.filter((c) => c.end > c.start).map((c) => ({ start: c.start, end: c.end })).sort((a, b) => a.start - b.start);
+  const out = [];
+  for (const c of sorted) {
+    const last = out[out.length - 1];
+    if (last && c.start <= last.end + GAP && Math.max(last.end, c.end) - last.start <= RUN) last.end = Math.max(last.end, c.end);
+    else out.push(c);
+  }
+  return out;
+}
+
+async function fetchAll(env, key, ranges) {
+  let next = 0;
+  const work = async () => {
+    while (next < ranges.length) {
+      const r = ranges[next++];
+      r.buf = await readRange(env, key, r.start, r.end - r.start);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, ranges.length) }, work));
+  return ranges;
+}
+
+// hyparquet converts a date or time bound as it reads it and throws on the empty bound of a page
+// that is all null, so those are read as plain integers and converted here.
+function columnIndex(buf, element, type) {
+  const raw = type === 'date' || type === 'datetime';
+  const ix = readColumnIndex({ view: new DataView(buf.buffer), offset: 0 }, raw ? { type: element.type } : element, parsers);
+  if (!raw) return ix;
+  const unit = (element.logical_type && element.logical_type.unit) || (element.converted_type === 'TIMESTAMP_MICROS' ? 'MICROS' : 'MILLIS');
+  const conv = (v) => {
+    if (typeof v !== 'number' && typeof v !== 'bigint') return undefined;
+    if (type === 'date') return parsers.dateFromDays(Number(v));
+    return unit === 'NANOS' ? parsers.timestampFromNanoseconds(v) : unit === 'MICROS' ? parsers.timestampFromMicroseconds(v) : parsers.timestampFromMilliseconds(v);
+  };
+  return { ...ix, min_values: ix.min_values.map(conv), max_values: ix.max_values.map(conv) };
+}
+
+// The page index of the named columns in every row group, read once per version and column.
+// Each page carries its rows, its bytes and its statistics in the form the predicates compare.
+async function pageIndex(env, entry, names) {
+  const todo = [...new Set(names)].filter((n) => !entry.pages.has(n));
+  if (todo.length) {
+    const want = [];
+    for (const n of todo) for (const g of entry.groups) { const c = g.chunks[n]; if (c.ci) want.push(c.ci); want.push(c.oi); }
+    const read = fetchAll(env, entry.key, coalesce(want));
+    for (const n of todo) {
+      entry.pages.set(n, read.then((blocks) => entry.groups.map((g) => {
+        const c = g.chunks[n];
+        const bytes = (r) => { const b = blocks.find((x) => x.start <= r.start && r.end <= x.end); return b.buf.slice(r.start - b.start, r.end - b.start); };
+        const oiBytes = bytes(c.oi);
+        const locs = readOffsetIndex({ view: new DataView(oiBytes.buffer), offset: 0 }).page_locations;
+        const t = entry.types.get(n);
+        const ix = c.ci ? columnIndex(bytes(c.ci), entry.elements.get(n), t) : null;
+        const pages = locs.map((l, k) => {
+          const from = Number(l.first_row_index), to = k + 1 < locs.length ? Number(locs[k + 1].first_row_index) : g.rows;
+          const st = ix ? stat(t, {
+            min_value: ix.null_pages[k] ? undefined : ix.min_values[k],
+            max_value: ix.null_pages[k] ? undefined : ix.max_values[k],
+            null_count: ix.null_pages[k] ? to - from : ix.null_counts ? ix.null_counts[k] : undefined,
+          }, to - from) : null;
+          return { from, to, start: Number(l.offset), end: Number(l.offset) + l.compressed_page_size, st };
+        });
+        // hyparquet reads the dictionary and the offset index beside the pages it decodes.
+        return { pages, dict: { start: c.start, end: pages.length ? pages[0].start : c.start }, oi: { ...c.oi, buf: oiBytes } };
+      })));
+      entry.pages.get(n).catch(() => entry.pages.delete(n));
+    }
+  }
+  return Object.fromEntries(await Promise.all([...new Set(names)].map(async (n) => [n, await entry.pages.get(n)])));
+}
+
+// The row ranges of a group a query must look at: none where a page proves no row matches, and
+// marked all where its pages prove every row does, so those are counted without being read.
+function segments(g, gi, specs, ix) {
+  if (!specs.length) return [{ from: 0, to: g.rows, all: true }];
+  const cuts = new Set([0, g.rows]);
+  for (const s of specs) for (const p of ix[s.name][gi].pages) cuts.add(p.from);
+  const edges = [...cuts].sort((a, b) => a - b);
+  const out = [];
+  for (let k = 0; k + 1 < edges.length; k++) {
+    const from = edges[k], to = edges[k + 1];
+    let state = 2;
+    for (const s of specs) {
+      const p = ix[s.name][gi].pages.find((x) => x.from <= from && from < x.to);
+      state = Math.min(state, none(s, p.st) ? 0 : all(s, p.st) ? 2 : 1);
+    }
+    if (!state) continue;
+    const last = out[out.length - 1];
+    if (last && last.to === from && last.all === (state === 2)) last.to = to;
+    else out.push({ from, to, all: state === 2 });
+  }
+  return out;
+}
+
+// The groups that can hold a match, with the row ranges in each that can.
+function prune(entry, specs, ix) {
+  const out = [];
+  entry.groups.forEach((g, i) => {
+    if (!g.rows || specs.some((s) => none(s, g.chunks[s.name].stats))) return;
+    const segs = segments(g, i, specs, ix);
+    if (segs.length) out.push({ i, g, segs });
+  });
+  return out;
+}
+
+// An AsyncBuffer over the fetched ranges. A slice across two of them is joined; anything not
+// fetched is read from R2 on its own.
+function blockFile(env, entry, blocks) {
+  return {
+    byteLength: entry.size,
+    slice(start, end = entry.size) {
+      const one = blocks.find((x) => x.start <= start && end <= x.end);
+      if (one) return one.buf.slice(start - one.start, end - one.start).buffer;
+      const parts = blocks.filter((x) => x.end > start && x.start < end).sort((a, b) => a.start - b.start);
+      let at = start;
+      for (const b of parts) { if (b.start > at) break; at = Math.max(at, b.end); }
+      if (at >= end) {
+        const out = new Uint8Array(end - start);
+        for (const b of parts) {
+          const from = Math.max(b.start, start), to = Math.min(b.end, end);
+          out.set(b.buf.subarray(from - b.start, to - b.start), from - start);
+        }
+        return out.buffer;
+      }
+      return readRange(env, entry.key, start, end - start).then((u) => u.buffer);
+    },
+  };
+}
+
+class Scan {
+  constructor(env, entry, ix, budget, refuse) {
+    Object.assign(this, { env, entry, ix, budget, refuse });
+    this.used = { groups: 0, bytes: 0, values: 0, ranges: 0 };
+    this.cols = new Map();
+    this.seen = new Set();
+  }
+
+  has(i, name, from, to) {
+    const c = this.cols.get(i) && this.cols.get(i)[name];
+    return !!c && c.spans.some(([a, b]) => a <= from && to <= b);
+  }
+  col(i, name) { return this.cols.get(i)[name].data; }
+
+  // What a read of rows from to to of the named columns of each group will fetch and decode,
+  // worked out from the page index before any data is read.
+  plan(needs) {
+    const todo = [];
+    for (const { i, names, from, to } of needs) {
+      const left = [...new Set(names)].filter((n) => !this.has(i, n, from, to));
+      if (left.length && to > from) todo.push({ i, from, to, names: left });
+    }
+    const want = [];
+    const cost = { groups: new Set(todo.map((t) => t.i)), bytes: 0, values: 0 };
+    for (const { i, names, from, to } of todo) {
+      for (const n of names) {
+        const { pages, dict, oi } = this.ix[n][i];
+        const hit = pages.filter((p) => p.to > from && p.from < to);
+        want.push(dict, { start: hit[0].start, end: hit[hit.length - 1].end }, oi);
+        cost.bytes += dict.end - dict.start + hit.reduce((a, p) => a + p.end - p.start, 0);
+        cost.values += hit.reduce((a, p) => a + p.to - p.from, 0);
+      }
+    }
+    return { todo, want, ranges: coalesce(want.filter((r) => !r.buf)), cost };
+  }
+
+  // Holds a read to the budget, refusing the query before anything is fetched.
+  charge(needs) {
+    const { todo, ranges, cost } = this.plan(needs);
+    const u = { ...this.used };
+    for (const i of cost.groups) if (!this.seen.has(i)) { u.groups++; this.seen.add(i); }
+    u.bytes += cost.bytes;
+    u.values += cost.values;
+    u.ranges += ranges.length;
+    const over = Object.keys(this.budget).filter((k) => u[k] > this.budget[k]);
+    if (over.length) throw this.refuse(u, over);
+    this.used = u;
+    return todo;
+  }
+
+  async read(todo) {
+    const { want, ranges } = this.plan(todo);
+    if (!todo.length) return;
+    const blocks = [...want.filter((r) => r.buf), ...(await fetchAll(this.env, this.entry.key, ranges))];
+    const file = blockFile(this.env, this.entry, blocks);
+    for (const { i, names, from, to } of todo) {
+      const g = this.entry.groups[i];
+      const have = this.cols.get(i) || {};
+      for (const n of names) if (!have[n]) have[n] = { spans: [], data: null };
+      this.cols.set(i, have);
+      await parquetRead({
+        file, metadata: this.entry.metadata, columns: names, rowStart: g.start + from, rowEnd: g.start + to, useOffsetIndex: true, compressors, parsers,
+        onChunk: ({ columnName, columnData, rowStart }) => {
+          const t = this.entry.types.get(columnName), c = have[columnName], at = rowStart - g.start;
+          // A whole group in one plain array is converted where it lies, which spares a copy.
+          if (!c.data && at === 0 && columnData.length === g.rows && Array.isArray(columnData)) {
+            for (let j = 0; j < columnData.length; j++) columnData[j] = value(t, columnData[j]);
+            c.data = columnData;
+            return;
+          }
+          if (!c.data) c.data = new Array(g.rows);
+          for (let j = 0; j < columnData.length; j++) c.data[at + j] = value(t, columnData[j]);
+        },
+      });
+      for (const n of names) have[n].spans.push([from, to]);
+    }
+  }
+
+  load(needs) { return this.read(this.charge(needs)); }
+
+  // Reads the charged needs a few groups at a time, handing each group to fn and then letting its
+  // columns go, so a whole-table count never holds every column in memory at once.
+  async stream(groups, todo, fn) {
+    for (let k = 0; k < groups.length; k += STREAM) {
+      const batch = groups.slice(k, k + STREAM);
+      const ids = new Set(batch.map((p) => p.i));
+      await this.read(todo.filter((t) => ids.has(t.i)));
+      for (const p of batch) { fn(p); this.cols.delete(p.i); }
+    }
+  }
+
+  // The rows of a segment that match every filter, as indexes, or null when all of them do.
+  hits(p, seg, specs) {
+    if (seg.all) return null;
+    const out = [];
+    const cols = specs.map((s) => this.col(p.i, s.name));
+    for (let r = seg.from; r < seg.to; r++) if (specs.every((s, k) => matches(s, cols[k][r]))) out.push(r);
+    return out;
+  }
+}
+
+// Each matching row of a group, in order, without building a row object.
+function eachHit(scan, p, specs, fn) {
+  for (const seg of p.segs) {
+    const h = scan.hits(p, seg, specs);
+    if (h) for (const r of h) fn(r);
+    else for (let r = seg.from; r < seg.to; r++) fn(r);
+  }
+}
+
+const needsOf = (groups, names, filterNames) => groups.flatMap((p) => p.segs.map((seg) => (
+  { i: p.i, from: seg.from, to: seg.to, names: [...(seg.all ? [] : filterNames), ...names] }
+)));
 
 const ascii = (v) => v.replace(/[A-Z]+/g, (c) => c.toLowerCase());
 
@@ -205,120 +459,6 @@ function all(s, st) {
   }
 }
 
-// The groups that can hold a match, each marked full when every row of it matches.
-function prune(entry, specs) {
-  const out = [];
-  entry.groups.forEach((g, i) => {
-    if (!g.rows) return;
-    if (specs.some((s) => none(s, g.chunks[s.name].stats))) return;
-    out.push({ i, g, full: specs.every((s) => all(s, g.chunks[s.name].stats)) });
-  });
-  return out;
-}
-
-function coalesce(chunks) {
-  const sorted = chunks.map((c) => ({ start: c.start, end: c.end })).sort((a, b) => a.start - b.start);
-  const out = [];
-  for (const c of sorted) {
-    const last = out[out.length - 1];
-    if (last && c.start <= last.end + GAP && Math.max(last.end, c.end) - last.start <= RUN) last.end = Math.max(last.end, c.end);
-    else out.push(c);
-  }
-  return out;
-}
-
-async function fetchAll(env, key, ranges) {
-  let next = 0;
-  const work = async () => {
-    while (next < ranges.length) {
-      const r = ranges[next++];
-      r.buf = await readRange(env, key, r.start, r.end - r.start);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(PARALLEL, ranges.length) }, work));
-  return ranges;
-}
-
-// An AsyncBuffer over the fetched ranges. hyparquet asks only for what was planned; anything else
-// is read from R2 on its own.
-function blockFile(env, entry, blocks) {
-  return {
-    byteLength: entry.size,
-    slice(start, end = entry.size) {
-      const b = blocks.find((x) => x.start <= start && end <= x.end);
-      if (b) return b.buf.slice(start - b.start, end - b.start).buffer;
-      return readRange(env, entry.key, start, end - start).then((u) => u.buffer);
-    },
-  };
-}
-
-class Scan {
-  constructor(env, entry, budget, refuse) {
-    Object.assign(this, { env, entry, budget, refuse });
-    this.used = { groups: 0, bytes: 0, values: 0, ranges: 0 };
-    this.cols = new Map();
-    this.seen = new Set();
-  }
-
-  has(i, name, from, to) {
-    const c = this.cols.get(i) && this.cols.get(i)[name];
-    return !!c && c.from <= from && c.to >= to;
-  }
-  col(i, name) { return this.cols.get(i)[name].data; }
-
-  // Reads the named columns of each group, rows from to to of it when given, after checking the
-  // whole read against the budget. hyparquet skips the pages before a range and stops after it.
-  async load(needs) {
-    const todo = needs.map(({ i, names, from = 0, to = this.entry.groups[i].rows }) => (
-      { i, from, to, names: [...new Set(names)].filter((n) => !this.has(i, n, from, to)) }
-    )).filter((n) => n.names.length);
-    if (!todo.length) return;
-    const chunks = [];
-    const u = { ...this.used };
-    for (const { i, names, from, to } of todo) {
-      const g = this.entry.groups[i];
-      if (!this.seen.has(i)) u.groups++;
-      for (const n of names) {
-        chunks.push(g.chunks[n]);
-        u.bytes += g.chunks[n].end - g.chunks[n].start;
-        u.values += to - from;
-      }
-    }
-    const ranges = coalesce(chunks);
-    u.ranges += ranges.length;
-    const over = Object.keys(this.budget).filter((k) => u[k] > this.budget[k]);
-    if (over.length) throw this.refuse(u, over);
-    this.used = u;
-    const file = blockFile(this.env, this.entry, await fetchAll(this.env, this.entry.key, ranges));
-    for (const { i, names, from, to } of todo) {
-      this.seen.add(i);
-      const g = this.entry.groups[i];
-      const whole = from === 0 && to === g.rows;
-      const got = {};
-      for (const n of names) got[n] = { from, to, data: whole ? new Array(g.rows).fill(null) : new Array(g.rows) };
-      await parquetRead({
-        file, metadata: this.entry.metadata, columns: names, rowStart: g.start + from, rowEnd: g.start + to, compressors, parsers,
-        onChunk: ({ columnName, columnData, rowStart }) => {
-          const t = this.entry.types.get(columnName), out = got[columnName].data, at = rowStart - g.start;
-          for (let j = 0; j < columnData.length; j++) out[at + j] = value(t, columnData[j]);
-        },
-      });
-      this.cols.set(i, { ...(this.cols.get(i) || {}), ...got });
-    }
-  }
-
-  // The rows of a group that match every filter, as indexes.
-  hits(p, specs) {
-    if (p.full || !specs.length) return null;
-    const out = [];
-    const cols = specs.map((s) => this.col(p.i, s.name));
-    for (let r = 0; r < p.g.rows; r++) if (specs.every((s, k) => matches(s, cols[k][r]))) out.push(r);
-    return out;
-  }
-}
-
-const each = (hits, rows, fn) => { if (hits) for (const r of hits) fn(r); else for (let r = 0; r < rows; r++) fn(r); };
-
 function sorter(order, get) {
   return (a, b) => {
     for (const { name, dir } of order) {
@@ -365,6 +505,15 @@ function refusal(entry, url, sql, budget) {
   };
 }
 
+
+// A file written before the query profile is not scanned: unsorted, it costs seconds of CPU.
+function unprofiled(entry, url, sql) {
+  return new BudgetError(
+    `This version's Parquet file has not been rebuilt sorted and indexed for queries yet, so this server does not scan it. `
+    + `Until it has been, download ${url} or run this DuckDB SQL, which reads that file directly: ${sql}`,
+  );
+}
+
 // The rows of one version, as rowsQuery and answer() would give them from D1.
 export async function parquetRows(env, entry, params, url, budget = BUDGET) {
   const m = fieldMap(entry.fields);
@@ -377,24 +526,30 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET) {
     select: cols.map(q).join(', '),
     rest: `${order.length ? ' ORDER BY ' + order.map((o) => `${q(o.name)} ${o.dir.toUpperCase()}`).join(', ') : ''} LIMIT ${limit} OFFSET ${offset}`,
   });
-  const scan = new Scan(env, entry, budget, refusal(entry, url, sql, budget));
-  const groups = prune(entry, specs);
+  if (!entry.profiled) throw unprofiled(entry, url, sql);
   const fnames = [...new Set(specs.map((s) => s.name))];
-  await scan.load(groups.map((p) => ({ i: p.i, names: [...(p.full ? [] : fnames), ...order.map((o) => o.name)] })));
-  const hits = groups.map((p) => scan.hits(p, specs));
-  const matched = groups.reduce((n, p, k) => n + (hits[k] ? hits[k].length : p.g.rows), 0);
+  const onames = order.map((o) => o.name);
+  const ix = await pageIndex(env, entry, [...fnames, ...onames, ...cols]);
+  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget));
+  const groups = prune(entry, specs, ix);
+  const todo = scan.charge(needsOf(groups, onames, fnames));
+  const hits = [];
+  const collect = (p) => { const h = []; eachHit(scan, p, specs, (r) => h.push(r)); hits.push(h); };
+  // An order needs its columns for every match, so those are kept; filter columns are not.
+  if (order.length) { await scan.read(todo); groups.forEach(collect); } else await scan.stream(groups, todo, collect);
+  const matched = hits.reduce((n, h) => n + h.length, 0);
   let picks = [];
   if (order.length) {
-    groups.forEach((p, k) => each(hits[k], p.g.rows, (r) => picks.push({ i: p.i, r })));
+    groups.forEach((p, k) => { for (const r of hits[k]) picks.push({ i: p.i, r }); });
     picks.sort(sorter(order, (x, name) => scan.col(x.i, name)[x.r]));
     picks = picks.slice(offset, offset + limit + 1);
   } else {
     let skip = offset;
     for (let k = 0; k < groups.length && picks.length <= limit; k++) {
-      const n = hits[k] ? hits[k].length : groups[k].g.rows;
+      const n = hits[k].length;
       if (skip >= n) { skip -= n; continue; }
       const take = Math.min(n - skip, limit + 1 - picks.length);
-      for (let j = skip; j < skip + take; j++) picks.push({ i: groups[k].i, r: hits[k] ? hits[k][j] : j });
+      for (let j = skip; j < skip + take; j++) picks.push({ i: groups[k].i, r: hits[k][j] });
       skip = 0;
     }
   }
@@ -425,18 +580,19 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
     select: [...group.map(q), ...metrics.map((x) => `${x.fn.toUpperCase()}(${x.field ? q(x.field) : '*'}) AS ${q(x.as)}`)].join(', '),
     rest: `${group.length ? ' GROUP BY ' + group.map(q).join(', ') : ''}${sqlOrder.length ? ' ORDER BY ' + sqlOrder.join(', ') : ''} LIMIT ${limit} OFFSET ${offset}`,
   });
-  const scan = new Scan(env, entry, budget, refusal(entry, url, sql, budget));
-  const groups = prune(entry, specs);
+  if (!entry.profiled) throw unprofiled(entry, url, sql);
   const fnames = [...new Set(specs.map((s) => s.name))];
   const mnames = metrics.filter((x) => x.field).map((x) => x.field);
-  await scan.load(groups.map((p) => ({ i: p.i, names: [...(p.full ? [] : fnames), ...group, ...mnames] })));
+  const ix = await pageIndex(env, entry, [...fnames, ...group, ...mnames]);
+  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget));
+  const groups = prune(entry, specs, ix);
+  const todo = scan.charge(needsOf(groups, [...group, ...mnames], fnames));
   const buckets = new Map();
   let matched = 0;
-  groups.forEach((p) => {
-    const hits = scan.hits(p, specs);
+  await scan.stream(groups, todo, (p) => {
     const gcols = group.map((n) => scan.col(p.i, n));
     const mcols = metrics.map((x) => (x.field ? scan.col(p.i, x.field) : null));
-    each(hits, p.g.rows, (r) => {
+    eachHit(scan, p, specs, (r) => {
       matched++;
       const vals = gcols.map((c) => c[r]);
       const key = JSON.stringify(vals);
@@ -446,7 +602,7 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
         const a = b.acc[k];
         if (!x.field) { a.n++; return; }
         const v = mcols[k][r];
-        if (v === null) return;
+        if (v === null || v === undefined) return;
         a.n++;
         if (x.fn === 'sum' || x.fn === 'avg') a.sum += Number(v);
         else if (x.fn === 'min' && (a.best === null || cmp(v, a.best) < 0)) a.best = v;

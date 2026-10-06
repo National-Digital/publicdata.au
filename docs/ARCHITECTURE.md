@@ -262,17 +262,21 @@ headers. Dated answers are cached at the edge for good, the newest for five minu
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
 `RateLimit-Policy` and a JSON body; every API answer carries the same policy header.
 
-The MCP server's `query_rows` and `count_rows` read the version's `data.parquet` from R2 instead
-(`functions/_parquet.js`), with the same filters, so they answer for every dated version and for
-versions D1 never loads. Each version's footer is read once per isolate. A row group whose
-statistics rule out a filter is skipped, and one whose statistics prove every row matches is
-counted without being read. The column chunks a query needs are fetched six at a time, ranges
-less than 256 KB apart are read as one, and hyparquet decodes only the rows a page of answers
-needs. Values come back as D1 gives them: booleans as 1 and 0, dates as text, and a 64-bit
-integer as a number while it is exact and as its digits beyond that. A call may read 128 row
-groups, 8 MB, 8 million values and 160 ranges. A query that needs more is refused with DuckDB SQL
-that answers it from the file. Answers are cached at the edge by version. When the newest
-version's file cannot be read, the tools answer from D1 as they did before.
+The MCP server's `query_rows` and `count_rows` answer from D1 for the versions it holds. Any
+other version, older than the two loaded, over the size limit or in an entry with `query: false`,
+is read from its `data.parquet` in R2 (`functions/_parquet.js`) with the same filters. Only a file
+written under the query profile is read: rows sorted, the sort recorded as `sorting_columns` in
+the footer, and a page index. A file without it is refused with DuckDB SQL that answers the query
+from the file, since an unsorted scan took 20 seconds of CPU in the benchmark. Each version's
+footer, and the page index of each column a query touches, are read once per isolate. Row-group
+statistics and then page statistics rule out what cannot match, and rows that the statistics
+prove match are counted without being read. The pages left are fetched six at a time, ranges
+less than 256 KB apart read as one, and decoded with hyparquet a few row groups at a time.
+Before any data is read, the pages a query needs are priced from the page index, and a call may
+read 64 row groups, 8 MB, 4 million values and 160 ranges. A query that needs more is refused with
+the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, and a
+64-bit integer as a number while it is exact and as its digits beyond that. Answers are cached at
+the edge by version.
 
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until

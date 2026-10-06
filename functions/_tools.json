@@ -427,7 +427,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. Every version can be queried. The newest version when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent."
           }
         },
         "required": [
@@ -534,7 +534,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. Every version can be queried. The newest version when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent."
           }
         },
         "required": [

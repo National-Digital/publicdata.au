@@ -9,11 +9,14 @@ import { aggregateQuery, rowsQuery } from './_query.js';
 import { BUDGET, BudgetError, openVersion, parquetAggregate, parquetRows } from './_parquet.js';
 import { onRequestPost } from './mcp.js';
 
-// The fixture is written by the pipeline's own Parquet writer with eight rows to a group
-// (pipeline/tests/test_query_fixture.py), so five groups, one per year, can be pruned.
-const bytes = readFileSync(new URL('../pipeline/tests/fixtures/parquet/rows.parquet', import.meta.url));
-const SLUG = 'crashes', NEWEST = '2026-04-24', OLDER = '2025-01-01';
-const URL_ = `https://publicdata.au/d/${SLUG}/v/${NEWEST}/data.parquet`;
+// The fixtures are written by the pipeline's Parquet writer with eight rows to a group
+// (pipeline/tests/test_query_fixture.py), so five groups, one per year, can be pruned. The
+// profiled one is sorted by year and place, with a page index of two-row pages.
+const fixture = (name) => readFileSync(new URL(`../pipeline/tests/fixtures/parquet/${name}`, import.meta.url));
+const bytes = fixture('rows-profiled.parquet');
+const plain = fixture('rows.parquet');
+const SLUG = 'crashes', NEWEST = '2026-04-24', OLDER = '2025-01-01', UNSORTED = '2024-01-01';
+const URL_ = `https://publicdata.au/d/${SLUG}/v/${OLDER}/data.parquet`;
 
 // R2 as the binding behaves: suffix and offset ranges, and the size of the whole object.
 const objects = new Map();
@@ -34,10 +37,12 @@ const DIST = {
 const put = (version, b = bytes) => objects.set(`d/${SLUG}/v/${version}/data.parquet`, b);
 put(NEWEST);
 put(OLDER);
+put(UNSORTED, plain);
 
-// D1 over the same rows, so every Parquet answer can be held to the answer the query API gives.
+// D1 holds the newest version, over the same rows, so every Parquet answer for the older one can
+// be held to the answer the query API gives.
 const all = await parquetReadObjects({ file: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length), compressors: { ZSTD: (i, n) => decompress(i, new Uint8Array(n)) } });
-const entry = await openVersion({ DIST }, SLUG, NEWEST);
+const entry = await openVersion({ DIST }, SLUG, OLDER);
 const fields = entry.fields;
 const sql = new DatabaseSync(':memory:');
 sql.exec('CREATE TABLE _versions (slug TEXT, version TEXT, tbl TEXT, fields TEXT, rows INTEGER, attribution TEXT, header TEXT)');
@@ -45,7 +50,7 @@ sql.exec('CREATE TABLE t (lga TEXT, year INTEGER, fatal INTEGER, speed REAL, day
 sql.prepare('INSERT INTO _versions VALUES (?, ?, ?, ?, ?, ?, ?)').run(SLUG, NEWEST, 't', JSON.stringify(fields), all.length, entry.header.attribution, JSON.stringify(entry.header));
 const ins = sql.prepare('INSERT INTO t VALUES (?, ?, ?, ?, ?, ?, ?)');
 for (const r of all) {
-  ins.run(r.lga, Number(r.year), r.fatal === null ? null : r.fatal ? 1 : 0, r.speed, r.day.toISOString().slice(0, 10), r.seen.toISOString().slice(0, 19), Number(r.ref));
+  ins.run(r.lga, Number(r.year), r.fatal === null ? null : r.fatal ? 1 : 0, r.speed, r.day && r.day.toISOString().slice(0, 10), r.seen && r.seen.toISOString().slice(0, 19), Number(r.ref));
 }
 const DB = {
   prepare(q) {
@@ -81,7 +86,7 @@ test('rows match the query API answer for every filter, order and page', async (
     'lga=in.(Brisbane,Cairns)', 'lga=ilike.*coast*', 'lga=like.Gold*', 'lga=like.gold*', 'lga=like.*_*', 'lga=ilike.LO*N', 'fatal=eq.true', 'fatal=is.null',
     'speed=gt.55&order=speed.desc,lga.asc', 'order=lga.asc,year.desc&limit=7&offset=3', 'day=gte.2020-06-01',
     'seen=lt.2026-04-24T10:00:00', 'lga=neq.Logan', 'year=not.eq.2018&limit=5&offset=30', 'select=year,lga&limit=3&offset=38',
-    'year=eq.2030', 'order=fatal.asc,day.desc&limit=12',
+    'year=eq.2030', 'order=fatal.asc,day.desc&limit=12', 'day=is.null', 'day=gte.2019-06-01&day=lt.2021-01-01', 'seen=not.is.null&order=seen.desc&limit=4',
   ];
   for (const qs of cases) {
     const want = await d1('rows', qs);
@@ -107,29 +112,58 @@ test('aggregates match the query API answer', async () => {
   }
 });
 
-test('row groups are pruned on their statistics and a whole-group match reads nothing', async () => {
-  reads.length = 0;
+test('row groups and pages are pruned on their statistics, and a proven match reads no filter column', async () => {
+  const lga = (i) => entry.groups[i].chunks.lga;
   const one = await parquetRows(env, entry, new URLSearchParams('year=eq.2019&select=lga'), URL_);
   assert.equal(one.matched, 8);
   // Every row of 2019's group matches, so only the selected column of that group is read.
-  assert.deepEqual(one.used, { groups: 1, bytes: entry.groups[1].chunks.lga.end - entry.groups[1].chunks.lga.start, values: 8, ranges: 1 });
-  assert.ok(reads.every((r) => r.start >= entry.groups[1].chunks.lga.start && r.end <= entry.groups[1].chunks.lga.end));
+  assert.deepEqual([one.used.groups, one.used.values], [1, 8]);
+  assert.ok(one.used.bytes <= lga(1).end - lga(1).start);
+  const place = await parquetAggregate(env, entry, new URLSearchParams('year=eq.2019&lga=eq.Logan'), URL_);
+  assert.equal(place.rows[0].count, 1);
+  // Sorted by place within the year, so only the page holding Logan is decoded, in both columns.
+  assert.deepEqual([place.used.groups, place.used.values], [1, 4]);
   const count = await parquetAggregate(env, entry, new URLSearchParams('year=gte.2021'), URL_);
   assert.equal(count.rows[0].count, 16);
   assert.equal(count.used.groups, 0);
-  const some = await parquetAggregate(env, entry, new URLSearchParams('year=gte.2021&lga=eq.Logan'), URL_);
-  assert.equal(some.used.groups, 2);
   assert.equal((await parquetAggregate(env, entry, new URLSearchParams(''), URL_)).used.groups, 0);
   assert.equal((await parquetAggregate(env, entry, new URLSearchParams('year=eq.1999&lga=eq.Logan'), URL_)).used.groups, 0);
 });
 
+test('the footer and page index are read once per version', async () => {
+  await parquetAggregate(env, entry, new URLSearchParams('group=lga&year=eq.2020'), URL_);
+  reads.length = 0;
+  assert.equal(entry, await openVersion({ DIST }, SLUG, OLDER));
+  await parquetAggregate(env, entry, new URLSearchParams('group=lga&year=eq.2020&limit=5'), URL_);
+  // Only data pages are read the second time.
+  assert.ok(reads.length > 0);
+  const pagesAt = new Set(entry.groups.flatMap((g) => Object.values(g.chunks).flatMap((c) => [c.ci && c.ci.start, c.oi.start])));
+  assert.ok(reads.every((r) => !pagesAt.has(r.start)), JSON.stringify(reads));
+});
+
+test('a file written before the query profile is refused with DuckDB SQL, before any data is read', async () => {
+  const old = await openVersion({ DIST }, SLUG, UNSORTED);
+  assert.equal(old.profiled, false);
+  assert.equal(entry.profiled, true);
+  reads.length = 0;
+  const url = `https://publicdata.au/d/${SLUG}/v/${UNSORTED}/data.parquet`;
+  await assert.rejects(parquetAggregate(env, old, new URLSearchParams('group=lga&year=eq.2019'), url), (e) => {
+    assert.ok(e instanceof BudgetError);
+    assert.match(e.message, /not been rebuilt sorted and indexed/);
+    assert.ok(e.message.endsWith(`SELECT "lga", COUNT(*) AS "count" FROM '${url}' WHERE "year" = 2019 GROUP BY "lga" ORDER BY "lga" LIMIT 100 OFFSET 0`), e.message);
+    return true;
+  });
+  assert.equal(reads.length, 0);
+  await assert.rejects(parquetRows(env, old, new URLSearchParams('nope=eq.1'), url), /no field nope/);
+});
+
 test('a query over the budget is refused with DuckDB SQL that answers it from the file', async () => {
   const small = { ...BUDGET, groups: 2 };
-  await assert.rejects(parquetRows(env, entry, new URLSearchParams('lga=eq.Logan&fatal=eq.true&order=day.desc'), URL_, small), (e) => {
+  await assert.rejects(parquetRows(env, entry, new URLSearchParams('lga=not.is.null&fatal=eq.true&order=day.desc'), URL_, small), (e) => {
     assert.ok(e instanceof BudgetError);
     assert.match(e.message, /would read 5 row groups .*\(2 row groups/);
     assert.match(e.message, /Narrow where/);
-    assert.ok(e.message.endsWith(`SELECT "lga", "year", "fatal", "speed", "day", "seen", "ref" FROM '${URL_}' WHERE "lga" = 'Logan' AND "fatal" = true ORDER BY "day" DESC LIMIT 100 OFFSET 0`), e.message);
+    assert.ok(e.message.endsWith(`SELECT "lga", "year", "fatal", "speed", "day", "seen", "ref" FROM '${URL_}' WHERE NOT ("lga" IS NULL) AND "fatal" = true ORDER BY "day" DESC LIMIT 100 OFFSET 0`), e.message);
     return true;
   });
   await assert.rejects(parquetAggregate(env, entry, new URLSearchParams("group=lga&metric=avg.speed&lga=ilike.*o'c*"), URL_, { ...BUDGET, bytes: 100 }), (e) => {
@@ -138,16 +172,15 @@ test('a query over the budget is refused with DuckDB SQL that answers it from th
     return true;
   });
   // Within budget, the same queries answer.
-  assert.ok((await parquetRows(env, entry, new URLSearchParams('lga=eq.Logan&fatal=eq.true&order=day.desc'), URL_)).rows.length);
+  assert.ok((await parquetRows(env, entry, new URLSearchParams('lga=not.is.null&fatal=eq.true&order=day.desc'), URL_)).rows.length);
 });
 
 test('64-bit integers come back as numbers while exact and as text beyond, and types read as D1 gives them', async () => {
-  const r = await parquetRows(env, entry, new URLSearchParams('select=ref,year,fatal,day,seen&limit=10'), URL_);
-  assert.deepEqual(r.rows[1], { ref: 1000, year: 2018, fatal: 0, day: '2018-02-02', seen: '2026-04-24T01:01:05' });
-  assert.equal(r.rows[9].ref, '9007199254741001');
+  const r = await parquetRows(env, entry, new URLSearchParams('ref=eq.1000&select=ref,year,fatal,day,seen'), URL_);
+  assert.deepEqual(r.rows, [{ ref: 1000, year: 2018, fatal: 0, day: '2018-02-02', seen: '2026-04-24T01:01:05' }]);
   assert.deepEqual(fields.map((f) => [f.name, f.type]), [['lga', 'string'], ['year', 'integer'], ['fatal', 'boolean'], ['speed', 'number'], ['day', 'date'], ['seen', 'datetime'], ['ref', 'integer']]);
   const big = await parquetRows(env, entry, new URLSearchParams('ref=gt.9007199254740000&select=ref'), URL_);
-  assert.deepEqual(big.rows.map((x) => x.ref), ['9007199254741001', '9007199254741011', '9007199254741021', '9007199254741031']);
+  assert.deepEqual(big.rows.map((x) => x.ref).sort(), ['9007199254741001', '9007199254741011', '9007199254741021', '9007199254741031']);
 });
 
 let id = 0;
@@ -157,48 +190,38 @@ async function call(name, args) {
   return r.result.isError ? { error: r.result.content[0].text } : r.result.structuredContent;
 }
 
-test('the row tools read any version from its file and name it', async () => {
+test('D1 answers the versions it holds and the file answers the rest, naming the version', async () => {
   const newest = await call('query_rows', { slug: SLUG, where: { year: 2019 }, select: ['lga'], limit: 3 });
   assert.equal(newest.version, NEWEST);
-  assert.equal(newest.matched, 8);
-  assert.equal(newest.next_offset, 3);
-  assert.equal(newest.attribution, entry.header.attribution);
-  assert.equal(newest.file, URL_);
-  assert.equal(newest.query, `https://publicdata.au/api/v1/datasets/${SLUG}/versions/${NEWEST}/rows?year=eq.2019&limit=3&offset=0&select=lga`);
-  const older = await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['year'], where: { lga: 'Logan' } });
+  assert.equal(newest.file, undefined);
+  assert.equal(newest.query, `https://publicdata.au/api/v1/datasets/${SLUG}/rows?year=eq.2019&limit=3&offset=0&select=lga`);
+  const older = await call('query_rows', { slug: SLUG, version: OLDER, where: { year: 2019 }, select: ['lga'], limit: 3 });
   assert.equal(older.version, OLDER);
-  assert.equal(older.file, `https://publicdata.au/d/${SLUG}/v/${OLDER}/data.parquet`);
-  assert.deepEqual(older.groups, [[2018, 2], [2020, 2], [2022, 2], [2019, 1], [2021, 1]].map(([year, count]) => ({ year, count })));
+  assert.equal(older.matched, 8);
+  assert.equal(older.next_offset, 3);
+  assert.deepEqual(older.rows, newest.rows);
+  assert.equal(older.attribution, entry.header.attribution);
+  assert.equal(older.file, URL_);
+  assert.equal(older.query, `https://publicdata.au/api/v1/datasets/${SLUG}/versions/${OLDER}/rows?year=eq.2019&limit=3&offset=0&select=lga`);
+  const groups = await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['year'], where: { lga: 'Logan' } });
+  assert.deepEqual(groups.groups, [[2018, 2], [2020, 2], [2022, 2], [2019, 1], [2021, 1]].map(([year, count]) => ({ year, count })));
+  assert.match((await call('count_rows', { slug: SLUG, version: UNSORTED, group_by: ['lga'] })).error, /DuckDB SQL.*GROUP BY "lga"/);
   assert.match((await call('query_rows', { slug: SLUG, version: '2020-01-01' })).error, /has no version 2020-01-01/);
-  assert.match((await call('count_rows', { slug: SLUG, where: { nope: 1 } })).error, /no field nope/);
+  assert.match((await call('count_rows', { slug: SLUG, version: OLDER, where: { nope: 1 } })).error, /no field nope/);
 });
 
-test('the budget error reaches the agent, and D1 answers the newest version when its file cannot be read', async () => {
+test('the budget error reaches the agent, and a file that cannot be read says where the files are', async () => {
   const was = BUDGET.groups;
   BUDGET.groups = 1;
   try {
-    assert.match((await call('count_rows', { slug: SLUG, group_by: ['lga'] })).error, /DuckDB SQL.*GROUP BY "lga"/);
+    assert.match((await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['lga'] })).error, /Narrow where.*DuckDB SQL.*GROUP BY "lga"/);
   } finally {
     BUDGET.groups = was;
   }
-  put(NEWEST, bytes.subarray(0, 100));
   put(OLDER, bytes.subarray(0, 100));
   try {
-    const r = await call('count_rows', { slug: SLUG, group_by: ['year'], where: { lga: 'Logan' }, version: undefined });
-    assert.equal(r.version, NEWEST);
-    assert.equal(r.file, undefined);
-    assert.equal(r.query, `https://publicdata.au/api/v1/datasets/${SLUG}/aggregate?lga=eq.Logan&metric=count&order=count.desc&limit=100&group=year`);
-    assert.equal(r.matched, 8);
-    assert.match((await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['lga'] })).error, /could not be read .*files are at/);
+    assert.match((await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['speed'] })).error, /could not be read; its files are at/);
   } finally {
-    put(NEWEST);
     put(OLDER);
   }
-});
-
-test('a footer is read once per version', async () => {
-  reads.length = 0;
-  const a = await openVersion({ DIST }, SLUG, NEWEST);
-  assert.equal(a, await openVersion({ DIST }, SLUG, NEWEST));
-  assert.equal(reads.length, 0);
 });
