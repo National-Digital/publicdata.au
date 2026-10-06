@@ -7,10 +7,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
-concurrency:
-  group: cost-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -18,6 +14,13 @@ jobs:
   cost:
     name: Storage cost
     runs-on: ubuntu-latest
+    # Only this job is cancelled by a newer event, so the revoke job always runs to the end.
+    concurrency:
+      group: cost-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       # The merge commit and its first parent, the base, are enough to list what changed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,25 +32,39 @@ jobs:
       - run: pip install -e ./pipeline
       # An approval covers the commit it was given on. A push never counts as approved, and the
       # revoke job takes the label off. A fork's token cannot, so there only the run the label
-      # itself triggered counts.
+      # itself triggered counts. The label is read again here so a revoke that finished after
+      # this event still applies.
       - working-directory: pipeline
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
           APPROVED: >-
             ${{ (github.event.action == 'labeled' && github.event.label.name == 'cost-approved')
             || (contains(fromJSON('["opened", "labeled", "unlabeled"]'), github.event.action)
             && contains(github.event.pull_request.labels.*.name, 'cost-approved')
             && github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: python -m publicdata cost --base HEAD^1 --probe $([ "$APPROVED" = true ] && echo --approved)
+        run: |
+          set -euo pipefail
+          if [ "$APPROVED" = true ] && ! gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' | grep -qx cost-approved; then
+            APPROVED=false
+          fi
+          python -m publicdata cost --base HEAD^1 --probe $([ "$APPROVED" = true ] && echo --approved)
 
   revoke:
     name: Revoke cost approval on push
     # Side effects run only in the public repo, never in a fork or a private copy.
-    if: github.repository == 'National-Digital/publicdata.au' && contains(fromJSON('["synchronize", "reopened"]'), github.event.action) && contains(github.event.pull_request.labels.*.name, 'cost-approved') && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.repository == 'National-Digital/publicdata.au' && github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'cost-approved') && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
     env:
       GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
     steps:
-      # A label removed with this token starts no new run, so the push's own run decides.
-      - run: gh api -X DELETE "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/cost-approved"
+      # A label removed with this token starts no new run, so the push's own run decides. An
+      # earlier push's revoke may already have removed it.
+      - run: |
+          gh api -X DELETE "repos/$REPO/issues/$PR/labels/cost-approved" \
+            || ! gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' | grep -qx cost-approved

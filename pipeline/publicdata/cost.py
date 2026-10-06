@@ -65,10 +65,11 @@ def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple
     if not ds.publishable:
         return 0.0, "not publishable"
     cap = FEED_MAX if ds.source.feed else WEEKLY_MAX
-    declared = per_year(ds.source.cadence, ds.source.feed)
+    declared = per_year(ds.source.cadence, ds.source.feed, today)
     if not versions:
         n, basis = (declared, "cadence") if declared is not None else (DEFAULT_PER_YEAR, "default")
-        return float(min(n, cap)), basis
+        # The first fetch stores a version whatever the cadence says.
+        return float(min(max(n, 1), cap)), basis
     since = today - dt.timedelta(days=365)
     recent = sum(1 for v in versions if since < dt.date.fromisoformat(v) <= today)
     if declared is not None and declared >= recent:
@@ -122,6 +123,23 @@ def _head(url: str, timeout: float) -> int | None:
         return int(n) if n else None
 
 
+def _ranged(url: str, timeout: float) -> int | None:
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Range": "bytes=0-0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        total = r.headers.get("Content-Range", "").rpartition("/")[2]
+        return int(total) if total.isdigit() else None
+
+
+def _size(url: str, timeout: float) -> int | None:
+    """A presigned S3 redirect refuses HEAD, so a one-byte GET reads the size from Content-Range."""
+    try:
+        if n := _head(url, timeout):
+            return n
+    except OSError:
+        pass
+    return _ranged(url, timeout)
+
+
 def probe(ds: Dataset, timeout: float = 30) -> int | None:
     """The size of the file the fetch would read: the CKAN resource the entry resolves to, the
     way the fetch picks it, or a fixed file URL. Other adapters are not sized."""
@@ -134,11 +152,12 @@ def probe(ds: Dataset, timeout: float = 30) -> int | None:
             s = requests.Session()
             s.headers["User-Agent"] = UA
             res = pick_resource(ds, _package(ds, s, f"{ds.source.portal.rstrip('/')}/api/3/action")["resources"])  # fmt: skip
-            if res.get("size"):
+            # Some portals give the size as text ("2 MiB"); the host's headers are exact.
+            if str(res.get("size") or "").isdigit():
                 return int(res["size"])
-            return _head(res["url"], timeout)
+            return _size(res["url"], timeout)
         if ds.source.adapter == "file" and not ds.source.page_size:
-            return _head(ds.source.url, timeout)
+            return _size(ds.source.url, timeout)
     except Exception:  # noqa: BLE001
         return None
     return None
@@ -155,20 +174,26 @@ def project(
     probing: bool = False,
 ) -> list[Projection]:
     """`sizes` is None when the catalogue could not be read; a changed entry is then unknown.
-    `fresh` are changed entries whose source moved, sized from the new file alone."""
+    `fresh` are changed entries whose source moved: sized from the new file, and never below
+    what the newest version measures."""
     out = []
     for ds in datasets:
         ms = store.manifests(store_dir, ds.slug)
         n, n_basis = versions_per_year(ds, [m.version for m in ms], today)
         newest = ms[-1] if ms else None
         b, basis = None, "unknown"
-        if ds.slug in fresh or (ds.slug in changed and not ms):
+        measured = None
+        if sizes and sizes.get(ds.slug):
+            measured = measured_bytes(ds, sizes[ds.slug], newest.bytes if newest else 0)
+        if sizes is None and ds.slug in changed and ms:
+            pass
+        elif ds.slug in fresh or (ds.slug in changed and not ms):
             if probing and (src := prober(ds)):
                 b, basis = src * SOURCE_MULTIPLIER, "estimate"
-        elif sizes is None and ds.slug in changed:
-            pass
-        elif sizes and sizes.get(ds.slug):
-            b, basis = measured_bytes(ds, sizes[ds.slug], newest.bytes if newest else 0), "measured"
+                if measured is not None and measured >= b:
+                    b, basis = measured, "measured"
+        elif measured is not None:
+            b, basis = measured, "measured"
         elif newest is not None:
             b, basis = newest.bytes * SOURCE_MULTIPLIER, "estimate"
         out.append(Projection(ds.slug, b, basis, n, n_basis, len(ms)))
@@ -269,6 +294,9 @@ def changed_entries(register_dir: Path, paths: list[str], root: Path) -> dict[st
 def _source(text: str) -> dict:
     src = dict((yaml.safe_load(text) or {}).get("source") or {})
     src.pop("cadence", None)
+    # A CKAN entry's url is the landing page; the fetch reads the portal, package and resource.
+    if src.get("adapter") == "ckan-resource":
+        src.pop("url", None)
     return src
 
 
@@ -336,8 +364,8 @@ def report(
         elif over:
             lines.append(
                 f"Over budget: {', '.join(p.slug for p in over)}. A maintainer who accepts the "
-                f"cost adds the `{APPROVAL_LABEL}` label, which reruns this check. A later push "
-                "removes the label, so each new commit is approved again."
+                f"cost adds the `{APPROVAL_LABEL}` label, which reruns this check. The label "
+                "approves only the commit it was added on, so each new commit is approved again."
             )
         else:
             lines.append("Every changed entry is within budget.")

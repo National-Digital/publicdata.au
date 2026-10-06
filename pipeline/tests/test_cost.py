@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 import subprocess
+import urllib.error
 from dataclasses import replace
 
 import pytest
@@ -72,7 +73,21 @@ def catalog(**sizes):
     ],
 )
 def test_a_declared_cadence_names_a_rate(text, n):
-    assert cadence.per_year(text) == n
+    assert cadence.per_year(text, today=TODAY) == n
+
+
+@pytest.mark.parametrize(
+    ("text", "n"),
+    [
+        ("weekly until 2030", 52),
+        ("weekly until December 2026", 52),
+        ("weekly until October 2026", 52),
+        ("weekly until September 2026", 0),
+        ("monthly until 2025", 0),
+    ],
+)
+def test_an_end_date_ends_the_rate_only_once_it_has_passed(text, n):
+    assert cadence.per_year(text, today=TODAY) == n
 
 
 def test_the_rate_is_the_larger_of_declared_and_observed_and_capped():
@@ -93,6 +108,13 @@ def test_the_rate_is_the_larger_of_declared_and_observed_and_capped():
     assert cost.versions_per_year(replace(ds, status="blocked"), [], TODAY)[0] == 0
 
 
+def test_a_new_entry_counts_at_least_one_version_a_year():
+    # Its first fetch stores a version whatever the cadence says.
+    assert cost.versions_per_year(entry("t", "closed"), [], TODAY) == (1, "cadence")
+    assert cost.versions_per_year(entry("t", "monthly until June 2024"), [], TODAY)[0] == 1
+    assert cost.versions_per_year(entry("t", "weekly until 2030"), [], TODAY) == (52, "cadence")
+
+
 def test_kaggle_frequency_reads_the_same_rate():
     assert [cadence.kaggle_frequency(c) for c in ("daily", "weekly", "monthly", "quarterly")] == [
         "daily",
@@ -103,6 +125,7 @@ def test_kaggle_frequency_reads_the_same_rate():
     assert cadence.kaggle_frequency("about twice a year") == "annually"
     assert cadence.kaggle_frequency("closed") == "never"
     assert cadence.kaggle_frequency("as required") == "annually"
+    assert cadence.kaggle_frequency("as the police database changes") == "monthly"
 
 
 def test_measured_bytes_count_the_source_twice_and_the_partitions():
@@ -134,9 +157,9 @@ def test_the_catalogue_is_summed_by_file_so_a_database_keeps_every_table():
 def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
     stored(tmp_path, "served", "2026-10-01", size=GB)
     stored(tmp_path, "stored", "2026-10-01", size=GB)
-    stored(tmp_path, "moved", "2026-10-01", size=GB)
+    stored(tmp_path, "moved", "2026-10-01", size=1000)
     sizes = cost.catalogue_sizes(
-        catalog(served={"parquet": GB, "csv": GB}, moved={"parquet": 50 * GB})
+        catalog(served={"parquet": GB, "csv": GB}, moved={"parquet": 1000})
     )
     ds = [entry(s, "monthly") for s in ("served", "stored", "probed", "new", "moved")]
     sized = {"probed": GB // 10, "moved": GB // 100}
@@ -146,7 +169,7 @@ def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
     assert (p["served"].bytes_per_version, p["served"].basis) == (4 * GB, "measured")
     assert (p["stored"].bytes_per_version, p["stored"].basis) == (13 * GB, "estimate")
     assert (p["probed"].bytes_per_version, p["probed"].basis) == (13 * GB // 10, "estimate")
-    # A moved source is sized from the new file, not the stored one.
+    # A moved source is sized from the new file when that is larger than the stored one.
     assert (p["moved"].bytes_per_version, p["moved"].basis) == (13 * GB // 100, "estimate")
     assert p["new"].basis == "unknown" and p["new"].over_budget
     assert p["served"].gb_per_year == 48 and p["served"].over_budget
@@ -160,6 +183,77 @@ def test_a_ckan_entry_is_probed_at_the_resource_it_resolves_to(monkeypatch):
     resources = [{"id": "r0", "size": 1, "url": "x"}, {"id": "r1", "size": 4321, "url": "y"}]
     monkeypatch.setattr(fetch, "_package", lambda ds, s, api: {"resources": resources})
     assert cost.probe(ds) == 4321
+    resources[1] = {"id": "r1", "size": "2 MiB", "url": "y"}
+    monkeypatch.setattr(cost, "_size", lambda url, timeout: 2_251_010 if url == "y" else None)
+    assert cost.probe(ds) == 2_251_010
+
+
+@pytest.mark.parametrize("cad", ["weekly until 2030", "closed", "Closed"])
+def test_a_new_entry_cannot_project_zero_from_its_cadence(tmp_path, cad):
+    ds = [entry("copy", cad)]
+    out = cost.project(ds, tmp_path, {}, TODAY, frozenset({"copy"}), prober=lambda d: GB,
+                       probing=True)[0]  # fmt: skip
+    assert out.per_year >= 1 and out.gb_per_year >= 13 and out.over_budget
+
+
+def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
+    stored(tmp_path, "crime", "2026-10-01", size=GB // 10)
+    sizes = cost.catalogue_sizes(catalog(crime={"parquet": 2 * GB}))
+    ds = [entry("crime", "quarterly")]
+    small = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), frozenset({"crime"}),
+                         prober=lambda d: GB // 100, probing=True)[0]  # fmt: skip
+    assert (small.bytes_per_version, small.basis) == (2 * GB + 2 * GB // 10, "measured")
+    assert small.over_budget
+    big = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), frozenset({"crime"}),
+                       prober=lambda d: GB, probing=True)[0]  # fmt: skip
+    assert (big.bytes_per_version, big.basis) == (13 * GB, "estimate")
+    # A moved source the probe cannot size stays unknown and fails closed.
+    lost = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), frozenset({"crime"}),
+                        prober=lambda d: None, probing=True)[0]  # fmt: skip
+    assert lost.basis == "unknown" and lost.over_budget
+
+
+def test_a_ckan_landing_page_edit_is_not_a_moved_source(tmp_path):
+    def git(*a):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+
+    def write(slug, url, resource="r1", adapter="ckan-resource"):
+        (tmp_path / "register" / f"{slug}.yaml").write_text(
+            f"source:\n  adapter: {adapter}\n  url: {url}\n  resource: {resource}\n", "utf-8"
+        )
+
+    git("init", "-q")
+    (tmp_path / "register").mkdir()
+    for slug in ("page", "res", "file"):
+        write(slug, f"https://x/{slug}", adapter="file" if slug == "file" else "ckan-resource")
+    git("add", ".")
+    git("-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qm", "base")
+    write("page", "https://x/page/")
+    write("res", "https://x/res", resource="r2")
+    write("file", "https://x/file/", adapter="file")
+    entries = {s: f"register/{s}.yaml" for s in ("page", "res", "file")}
+    assert cost.source_moved(tmp_path, "HEAD", entries) == {"res", "file"}
+
+
+def test_a_host_that_refuses_head_is_sized_from_a_one_byte_get(monkeypatch):
+    class Resp:
+        def __init__(self, headers):
+            self.headers = headers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def urlopen(req, timeout):
+        if req.get_method() == "HEAD":
+            raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+        assert req.get_header("Range") == "bytes=0-0"
+        return Resp({"Content-Range": "bytes 0-0/987654"})
+
+    monkeypatch.setattr(cost.urllib.request, "urlopen", urlopen)
+    assert cost._size("https://example.gov.au/f.csv", 5) == 987654
 
 
 def test_a_moved_source_is_found_against_the_base(tmp_path):

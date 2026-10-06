@@ -3,18 +3,18 @@ here, so the two never disagree about how often a dataset changes."""
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 
 # The weekly fetch makes at most one version a week, and the daily feed run one a day.
 WEEKLY_MAX = 52
 FEED_MAX = 365
 
-# An end date or a closed state outranks a rate in the same phrase ("monthly until June 2024").
-ENDED = re.compile(
-    r"\buntil (\w+ )?\d{4}\b"
-    r"|^(historical, )?(closed|no longer updated|not updated)\b"
-    r"|\bno new readings\b"
-)
+# A closed state, or an end date that has passed, outranks a rate in the same phrase ("monthly
+# until June 2024").
+ENDED = re.compile(r"^(historical, )?(closed|no longer updated|not updated)\b|\bno new readings\b")
+UNTIL = re.compile(r"\buntil (?:([a-z]+) )?(\d{4})\b")
+MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 # First match wins; the rate words come before the words that only describe the history.
 RATES = (
     (r"\bchecked weekly\b", 52),
@@ -30,10 +30,20 @@ RATES = (
 )
 
 
-def per_year(text: str, feed: bool = False) -> float | None:
+def _ended(t: str, today: dt.date) -> bool:
+    if ENDED.search(t):
+        return True
+    m = UNTIL.search(t)
+    if not m:
+        return False
+    month = MONTHS.index(m[1][:3]) + 1 if m[1] and m[1][:3] in MONTHS else 12
+    return (int(m[2]), month) < (today.year, today.month)
+
+
+def per_year(text: str, feed: bool = False, today: dt.date | None = None) -> float | None:
     """The rate the cadence names, or None when it names none ("irregular", "as required")."""
     t = text.strip().lower()
-    if ENDED.search(t):
+    if _ended(t, today or dt.date.today()):
         return 0.0
     for pattern, n in RATES:
         if re.search(pattern, t):
@@ -41,9 +51,15 @@ def per_year(text: str, feed: bool = False) -> float | None:
     return float(FEED_MAX) if feed else None
 
 
+# Cadences that name no rate but whose rate is known from the store's history.
+KAGGLE_KNOWN = {"as the police database changes": "monthly"}
+
+
 def kaggle_frequency(text: str) -> str:
     """Kaggle's fixed choices. A rate between two takes the slower one, so a page never promises
     updates more often than the publisher makes them."""
+    if known := KAGGLE_KNOWN.get(text.strip().lower()):
+        return known
     n = per_year(text)
     if n is None:
         return "annually"
