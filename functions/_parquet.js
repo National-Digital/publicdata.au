@@ -2,9 +2,9 @@ import { parquetMetadata, parquetRead, parquetSchema, readColumnIndex, readOffse
 import { decompress } from 'fzstd';
 import { fieldMap, filterSpecs, groupFields, likePattern, metricSpecs, orderSpecs, paging, selectFields } from './_query.js';
 
-// The query API's rows and aggregate queries, answered from a version's data.parquet in R2 for
-// the versions D1 does not hold. Only a file written under the query profile is read, as its
-// footer key says (pipeline/publicdata/serialise/profile.py). A sorted one has a page index, so a
+// The query API's rows and aggregate queries, answered from Parquet in R2 for the versions D1 does
+// not hold. Only a file written under the query profile is read, as its footer key says
+// (pipeline/publicdata/serialise/profile.py). A sorted one has a page index, so a
 // filter on the sort reads few pages; without one, a column chunk is read as a single page.
 
 // What one call may read. Workers hide CPU time from the code that spends it, so cost is bounded
@@ -138,16 +138,28 @@ async function readFooter(env, key) {
   return { key, size, metadata, header, fields, types, elements, groups, rows: start, profiled, pages: new Map() };
 }
 
+// The build writes a profile copy of every version, old ones included, at _q/, which no public
+// route serves. The published file answers only when it carries the profile itself.
+async function locate(env, slug, version) {
+  try {
+    const q = await readFooter(env, `_q/${slug}/${version}.parquet`);
+    if (q && q.profiled) return q;
+  } catch (e) {
+    console.error(`_q ${slug} ${version}: ${(e && e.message) || e}`);
+  }
+  return readFooter(env, `d/${slug}/v/${version}/data.parquet`);
+}
+
 // One version's footer, read once per isolate. A version never changes, so it is never stale.
 export async function openVersion(env, slug, version) {
-  const key = `d/${slug}/v/${version}/data.parquet`;
-  if (!footers.has(key)) {
-    const p = readFooter(env, key);
-    footers.set(key, p);
+  const id = `${slug}/${version}`;
+  if (!footers.has(id)) {
+    const p = locate(env, slug, version);
+    footers.set(id, p);
     if (footers.size > FOOTERS) footers.delete(footers.keys().next().value);
-    p.then((e) => { if (!e) footers.delete(key); }, () => footers.delete(key));
+    p.then((e) => { if (!e) footers.delete(id); }, () => footers.delete(id));
   }
-  return footers.get(key);
+  return footers.get(id);
 }
 
 function coalesce(chunks) {

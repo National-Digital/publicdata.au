@@ -265,10 +265,13 @@ requests per 10 seconds from one address the zone answers 429 with `Retry-After`
 
 The MCP server's `query_rows` and `count_rows` answer from D1 for the versions it holds. Any
 other version, older than the two loaded, over the size limit or in an entry with `query: false`,
-is read from its `data.parquet` in R2 (`functions/_parquet.js`) with the same filters. Only a file
-written under the query profile is read, which its footer says with the key `publicdata.profile`
-(ADR 0008). A file without it is refused with DuckDB SQL that answers the query from the file,
-since an unsorted scan of the old files took 20 seconds of CPU in the benchmark. A sorted profile
+is read from Parquet in R2 (`functions/_parquet.js`) with the same filters. The build writes a
+profile copy of every version, old ones included, at `_q/<slug>/<version>.parquet` in
+`publicdata-dist`, which no route serves, and the engine reads that first. Without one it reads
+the published `data.parquet`, but only when that file carries the profile's footer key
+`publicdata.profile` (ADR 0008). Otherwise the query is refused with DuckDB SQL that answers it
+from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
+benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A sorted profile
 file has a page index, and one without is read a column chunk at a time. Each version's
 footer, and the page index of each column a query touches, are read once per isolate. Row-group
 statistics, and page statistics where there is a page index, rule out what cannot match, and

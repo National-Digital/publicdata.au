@@ -8,6 +8,7 @@ import { answer } from './_api.js';
 import { aggregateQuery, rowsQuery } from './_query.js';
 import { BUDGET, BudgetError, matches, openVersion, parquetAggregate, parquetRows, prepare } from './_parquet.js';
 import { onRequestPost } from './mcp.js';
+import { onRequestGet as dFile } from './d/[[path]].js';
 
 // The fixtures are written by the pipeline's Parquet writer with eight rows to a group
 // (pipeline/tests/test_query_fixture.py), so five groups, one per year, can be pruned. The two
@@ -37,9 +38,12 @@ const DIST = {
   },
   async head() { return null; },
 };
+// The published file at d/, and the build's internal profile copy at _q/ that no route serves.
 const put = (version, b = bytes, slug = SLUG) => objects.set(`d/${slug}/v/${version}/data.parquet`, b);
+const putQ = (version, b = bytes, slug = SLUG) => objects.set(`_q/${slug}/${version}.parquet`, b);
 put(NEWEST);
-put(OLDER);
+put(OLDER, plain);
+putQ(OLDER);
 put(UNSORTED, plain);
 put(OLDER, unsortedBytes, SLUG2);
 
@@ -233,11 +237,13 @@ test('the budget error reaches the agent, and a file that cannot be read says wh
   } finally {
     BUDGET.groups = was;
   }
-  put(OLDER, bytes.subarray(0, 100));
+  putQ(OLDER, bytes.subarray(0, 100));
   try {
-    assert.match((await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['speed'] })).error, /could not be read; its files are at/);
+    const e = (await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['speed'] })).error;
+    assert.match(e, /could not be read; its files are at/);
+    assert.doesNotMatch(e, /_q/);
   } finally {
-    put(OLDER);
+    putQ(OLDER);
   }
 });
 
@@ -263,4 +269,47 @@ test('like and ilike ignore case in ASCII letters only, as the query API does', 
     assert.equal(like(op, '100%_*', '100%_rural'), true, op);
     assert.equal(like(op, '100%_*', '100xyrural'), false, op);
   }
+});
+
+test('the internal profile copy answers first, and answers still name the published file', async () => {
+  assert.equal(entry.key, `_q/${SLUG}/${OLDER}.parquet`);
+  assert.equal(unsorted.key, `d/${SLUG2}/v/${OLDER}/data.parquet`);
+  assert.equal((await openVersion({ DIST }, SLUG, UNSORTED)).key, `d/${SLUG}/v/${UNSORTED}/data.parquet`);
+  reads.length = 0;
+  const r = await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['lga'], where: { year: 2022 } });
+  assert.ok(reads.length && reads.every((x) => x.key.startsWith('_q/')));
+  assert.equal(r.file, URL_);
+  assert.doesNotMatch(JSON.stringify(r), /_q/);
+  const was = BUDGET.groups;
+  BUDGET.groups = 1;
+  try {
+    const e = (await call('query_rows', { slug: SLUG, version: OLDER, where: { lga: 'Logan' } })).error;
+    assert.match(e, new RegExp(`FROM '${URL_}'`));
+    assert.doesNotMatch(e, /_q/);
+  } finally {
+    BUDGET.groups = was;
+  }
+});
+
+test('no /d/ request reaches the _q/ copies', async () => {
+  const asked = [];
+  const r2 = { get: async (k) => { asked.push(k); return null; }, head: async (k) => { asked.push(k); return null; }, list: async () => ({ objects: [] }) };
+  const denv = { DIST: r2, ASSETS: { fetch: async () => new Response('', { status: 404 }) } };
+  const tries = [
+    `/d/${SLUG}/v/${OLDER}/../../../../_q/${SLUG}/${OLDER}.parquet`,
+    `/d/%2e%2e/_q/${SLUG}/${OLDER}.parquet`,
+    `/d/${SLUG}/v/${OLDER}/..%2F..%2F..%2F..%2F_q%2F${SLUG}%2F${OLDER}.parquet`,
+    `/d/%2F_q/${SLUG}/${OLDER}.parquet`,
+    `/d/${SLUG}/v/${OLDER}/%5C..%5C..%5C_q%5C${SLUG}.parquet`,
+  ];
+  for (const t of tries) {
+    const url = new URL('https://publicdata.au' + t);
+    // Pages runs the /d/ function only on /d/ paths, after the URL is normalised.
+    if (!url.pathname.startsWith('/d/')) continue;
+    const res = await dFile({ request: new Request(url), env: denv });
+    assert.notEqual(res.status, 200, t);
+  }
+  assert.ok(asked.length > 0);
+  assert.ok(asked.every((k) => k.startsWith('d/')), JSON.stringify(asked));
+  for (const t of tries.slice(0, 2)) assert.ok(!new URL('https://publicdata.au' + t).pathname.startsWith('/d/'), t);
 });
