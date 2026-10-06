@@ -1828,7 +1828,7 @@ PROSE = {
 <p>The data licences are separate from the site's code, and stay that way. The code is open source under the GNU Affero General Public License, on <a href="{repo}">GitHub</a>, and the <a href="/contribute/">contributing page</a> explains how to add a dataset or improve the site.</p>
 <h2 id="corrections">Corrections</h2>
 <p>If a value is wrong, it is almost always wrong in the publisher's file as well, because this site publishes what the publisher publishes. Send those to the publisher, whose contact is on each dataset page.</p>
-<p>If the serialisation is wrong, for example a column typed badly or a row missing, <a href="{repo}/issues/new?template=data-problem.yml">open an issue on GitHub</a> or <a href="https://nationaldigital.com.au/contact/">tell National Digital</a>. We fix it, publish a new build, and record the correction in the version's notes. A dated version keeps the same content once it is published. Its files change only to correct a fault in our conversion, to comply with the law, or when a publisher asks us to remove its dataset, and the change is recorded in that version's notes. The <a href="{repo}/blob/main/docs/CORRECTIONS.md">corrections policy</a> sets out each step and keeps a log of every correction.</p>
+<p>If the serialisation is wrong, for example a column typed badly or a row missing, <a href="{repo}/issues/new?template=data-problem.yml">open an issue on GitHub</a> or <a href="https://nationaldigital.com.au/contact/">tell National Digital</a>. We fix it, publish a new build, and record the correction in the version's notes. A dated version keeps the same content once it is published. Its files change only to correct a fault in our conversion or in the publisher's attribution, to comply with the law, or when a publisher asks us to remove its dataset, and the change is recorded in that version's notes. The <a href="{repo}/blob/main/docs/CORRECTIONS.md">corrections policy</a> sets out each step and keeps a log of every correction.</p>
 <h2 id="cite">Citing the files</h2>
 <p>The licence on each dataset requires the publisher's attribution, and it is inside every file. We ask for one thing more: say that the file came from publicdata.au and link to the version you used. The link lets a reader fetch the same bytes, and it is how other people find this site. Every dataset page has the sentence ready to copy as text, HTML, Markdown and BibTeX.</p>
 <h2>Privacy</h2>
@@ -1899,7 +1899,7 @@ PROSE = {
 <h2>Votes and dataset requests</h2>
 <p>A vote is stored under a salted hash of your address and browser, and no name or account is attached to it. The <a href="/privacy/">privacy page</a> sets out how this works. A vote asks for a dataset to be built sooner and does not oblige us to build it.</p>
 <h2>Versions and changes</h2>
-<p>A dated version keeps the same content once it is published. We change the files at a version URL only to correct a fault in our conversion, to comply with the law, or when a publisher asks us to remove its dataset, and we record the change in that version's notes.</p>
+<p>A dated version keeps the same content once it is published. We change the files at a version URL only to correct a fault in our conversion or in the publisher's attribution, to comply with the law, or when a publisher asks us to remove its dataset, and we record the change in that version's notes.</p>
 <p>The site is free and may be unavailable at times. Paths other than dated versions may change, and so may the tools. We may change these terms. A change applies only to use after the date it was made, and these terms were last changed on {terms_changed}.</p>
 <h2>Liability</h2>
 <p>To the extent the law allows, National Digital is not liable for any loss or damage that arises from using the site, the data, the query API or the MCP server. This includes loss caused by our negligence and loss from an answer a program or an AI agent gives from the data.</p>
@@ -1917,7 +1917,7 @@ PROSE = {
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
     "6 October 2026",
-    "4ce25a2e3b856f96612c6da5b55ae9aa3b21bcac9bddcaca5d4a417a61f9f8bd",
+    "9c980b65ff9a94242796d36470ef0ea4558f56c1ab299c5829c6d2443003bfec",
 )
 
 

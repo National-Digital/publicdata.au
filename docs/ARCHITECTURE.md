@@ -271,10 +271,11 @@ This site is the version history the portals do not keep. The archive role has i
 
 - Every version is kept indefinitely. A version is never deleted, including when the publisher
   withdraws or replaces the source file, and its source bytes never change. Its converted files
-  are rebuilt only to correct a fault in our conversion, to comply with the law, or when a
-  publisher asks for removal, and the change goes in the version's notes
-  ([CORRECTIONS.md](CORRECTIONS.md)). A legal takedown is the only time a file is removed, and
-  it is recorded in `changes.json` as a tombstone that keeps the manifest and hash.
+  are rebuilt only to correct a fault in our conversion or in the publisher's attribution, to
+  comply with the law, or when a publisher asks for removal, and the change goes in the
+  version's notes ([CORRECTIONS.md](CORRECTIONS.md)). A legal takedown is the only time a file
+  is removed, and it is recorded in `changes.json` as a tombstone that keeps the manifest and
+  hash.
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.

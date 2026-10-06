@@ -35,7 +35,8 @@ beside every version as `source.<ext>` with its SHA-256 in `manifest.json`.
 
 1. **Fix the conversion.** A pull request fixes the cause and adds a test that fails without the
    fix. Its description lists the version prefixes it affects, such as
-   `d/qld-road-crash-locations/v/2026-04-24/`.
+   `d/qld-road-crash-locations/v/2026-04-24/`. A wrong attribution, such as a dead link or a
+   misnamed publisher, is fixed in the register entry and needs no test.
 2. **Note each affected version.** The same pull request adds a dated line to the `notes` of each
    affected version's manifest in `store/`. The line says what was wrong and what changed. Notes
    are shown on the version's page and stay there.
@@ -50,9 +51,9 @@ beside every version as `source.<ext>` with its SHA-256 in `manifest.json`.
 - **The publisher's file.** `source.<ext>` and its hash stay as they were fetched. The raw store is
   append-only.
 - **The version itself.** A version is never deleted, and its URL keeps working. Its converted
-  files change only to correct a fault in our conversion, to comply with the law, or when a
-  publisher asks for its dataset to be removed, as the [terms](https://publicdata.au/terms/) say.
-  Each such change is recorded in the version's notes.
+  files change only to correct a fault in our conversion or in the publisher's attribution, to
+  comply with the law, or when a publisher asks for its dataset to be removed, as the
+  [terms](https://publicdata.au/terms/) say. Each such change is recorded in the version's notes.
 - **The history.** A legal takedown is the only time a file is removed. It is recorded in
   `changes.json` as a tombstone that keeps the manifest and hash. When a publisher withdraws a
   source, its register entry records the reason and the versions already published stay where
