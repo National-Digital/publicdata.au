@@ -157,7 +157,7 @@
     "act-vehicles-registered": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-vehicles-registered",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/act-vehicles-registered",
-      "zenodo": "10.5281/zenodo.23123524"
+      "zenodo": "10.5281/zenodo.23173852"
     },
     "asic-business-names": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/asic-business-names",
@@ -548,6 +548,11 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/nt-mineral-production",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nt-mineral-production",
       "zenodo": "10.5281/zenodo.23150917"
+    },
+    "nt-urban-public-housing-wait-list": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nt-urban-public-housing-wait-list",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nt-urban-public-housing-wait-list",
+      "zenodo": "10.5281/zenodo.23173837"
     },
     "qld-all-abilities-playgrounds": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-all-abilities-playgrounds",
