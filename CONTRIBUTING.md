@@ -8,6 +8,9 @@ the rules every change is held to.
 By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues
 privately as [SECURITY.md](SECURITY.md) describes.
 
+Questions and ideas that are not a fault go in
+[Discussions](https://github.com/National-Digital/publicdata.au/discussions).
+
 ## Ground rules
 
 The build enforces these, so a change that breaks one fails its checks. `CLAUDE.md` states them in
