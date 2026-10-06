@@ -38,6 +38,7 @@ from .serialise import (
     SHAPE_FORMATS,
     formats_for,
     pretty,
+    profile,
     reasons,
 )
 from .serialise.geo import geo_kind
@@ -783,6 +784,17 @@ def _sample(ds: Dataset, db: Path, within: dict | None = None) -> dict:
         w = ds.field(name).display
         return w if w[1:2].isupper() else w[:1].lower() + w[1:]
 
+    # A version written under a sort: has its rows, and so its sample, in that order.
+    sorted_by = [
+        f
+        for f in (profile.signature(db) if db.exists() else "").split(",")
+        if f and f not in ds.key
+    ]
+    source_order = (
+        "sorted by " + ", then ".join(low(f) for f in sorted_by)
+        if sorted_by
+        else "in the publisher's order"
+    )
     if spec.get("label"):
         how = spec["label"]
     elif order or spread:
@@ -791,11 +803,11 @@ def _sample(ds: Dataset, db: Path, within: dict | None = None) -> dict:
                 "From the latest version",
                 *([f"newest first by {low(order[0][0])}"] if order else []),
                 *([f"each {low(spread)} in turn"] if spread else []),
-                "then in the publisher's order, with every field.",
+                f"then {source_order}, with every field.",
             ]
         )
     else:
-        how = "From the latest version, in the publisher's order, with every field."
+        how = f"From the latest version, {source_order}, with every field."
     plain = not (order or spread or spec.get("where") or spec.get("label"))
     rows = "row" if n == 1 else "rows"
     out["heading"] = f"The first {n} {rows}" if plain else f"A sample of {n} {rows}"

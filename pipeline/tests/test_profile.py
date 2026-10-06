@@ -91,6 +91,35 @@ def test_the_other_formats_keep_the_source_order_and_duckdb_follows_the_parquet(
     assert [r[0] for r in db.execute("SELECT id FROM records").fetchall()] == SORTED
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_the_duckdb_file_is_written_in_one_insert(tmp_path, monkeypatch, legacy):
+    # DuckDB writes a larger file when the rows arrive in several inserts, so the slices a sort
+    # reads in are streamed into one.
+    from publicdata.serialise.writers import duckdb as writer
+
+    real_chunks, real_connect = profile.chunks, writer.duckdb_connect
+    monkeypatch.setattr(profile, "chunks", lambda t, perm, rows=2: real_chunks(t, perm, rows))
+    inserts = []
+
+    class Counting:
+        def __init__(self, con):
+            self.con = con
+
+        def execute(self, sql, *a):
+            inserts.extend([sql] if sql.startswith("INSERT INTO records") else [])
+            return self.con.execute(sql, *a)
+
+        def __getattr__(self, name):
+            return getattr(self.con, name)
+
+    monkeypatch.setattr(writer, "duckdb_connect", lambda *a: Counting(real_connect(*a)))
+    vdir, _ = _build(tmp_path, _ds(sort=("year", "place")), legacy=legacy)
+    assert len(inserts) == 1
+    db = duckdb.connect(str(vdir / "data.duckdb"), read_only=True)
+    ids = [r[0] for r in db.execute("SELECT id FROM records").fetchall()]
+    assert ids == (SOURCE if legacy else SORTED)
+
+
 def test_the_build_sorts_a_version_once(tmp_path, monkeypatch):
     calls = []
     real = profile.permutation
@@ -438,3 +467,16 @@ def test_sort_or_int32_on_a_database_names_the_rule():
     for name in ("sort", "int32"):
         with pytest.raises(RegisterError, match=f"{name} is for a table entry"):
             parse(_raw(kind="database", **{name: ["a"]}), "x")
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_the_sample_note_names_the_order_the_rows_are_in(tmp_path, legacy):
+    from publicdata.site import _sample
+
+    ds = _ds(sort=("year", "place"))
+    vdir, _ = _build(tmp_path, ds, legacy=legacy)
+    note = json.dumps(_sample(ds, vdir / "data.parquet"))
+    if legacy:
+        assert "in the publisher's order" in note and "sorted by" not in note
+    else:
+        assert "sorted by year, then place" in note and "publisher's order" not in note

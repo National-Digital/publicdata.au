@@ -95,7 +95,8 @@ def version_sql(sqlite_path: Path, slug: str, version: str, index_fields: tuple[
 
 def parquet_version_sql(parquet: Path, ds, version: str, index_fields: tuple[str, ...]):
     """Yields the statements that create and fill one dataset version's table from its Parquet,
-    typed and ordered as its data.sqlite."""
+    typed as its data.sqlite and in the Parquet's row order, which is the publisher's unless
+    the version was written under a sort."""
     from .records import connect
 
     cols = parquet_columns(parquet, ds)
