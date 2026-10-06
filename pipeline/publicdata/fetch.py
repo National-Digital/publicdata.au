@@ -1942,6 +1942,7 @@ def fetch_rolling(
     updates.cut says so. A feed records every read, changed or not, in read.json."""
     from . import updates
     from .normalise import normalise
+    from .serialise.profile import layout
 
     existing = store.manifests(store_dir, ds.slug, fetches=True)
     prev = existing[-1] if existing else None
@@ -1967,6 +1968,8 @@ def fetch_rolling(
         cut=why,
         history=None,
         period=periods.recorded(ds.period),
+        update=ds.update,
+        parquet=layout(ds),
     )
     m.rows_sha256 = updates.digest(tbl)
     tbl = replace(tbl, manifest=m)
@@ -2000,8 +2003,8 @@ def fetch_rolling(
 
 
 PROMOTED_NOTE = (
-    "Kept as a dated version on {day}, the first read of a new month, which found the table as "
-    "this fetch left it."
+    "Kept as a dated version on {day}, when a read in a later month found the table as this "
+    "fetch left it."
 )
 
 
@@ -2010,22 +2013,18 @@ def _promote(ds, store_dir: Path, prev, snaps, today: dt.date):
     is no snapshot, that fetch becomes one where it stands, under its own date; nothing is dated
     again."""
     from . import updates
-    from .serialise import pretty
 
     if ds.update == "feed":
         store.write_read(store_dir, ds.slug, today.isoformat(), prev.version)
     if prev.snapshot:
         return None
-    why = updates.cut(ds, None, snaps, today)
+    # Judged by the fetch's own date: it was the last change of its month or of its period.
+    why = updates.closing(periods.of_manifest(prev), dt.date.fromisoformat(prev.version), today)
     if not why:
         return None
+    # Recorded in the manifest alone; the fetch's change log, published already, stays as it is.
     m = replace(prev, snapshot=True, cut=why, notes=[*prev.notes, PROMOTED_NOTE.format(day=today)])
     (store.version_dir(store_dir, m.dataset, m.version) / "manifest.json").write_text(
         m.to_json(), encoding="utf-8"
     )
-    log_path = store.change_log(store_dir, m)
-    if log_path.exists():
-        log = json.loads(log_path.read_text(encoding="utf-8"))
-        log["snapshot"] = why
-        log_path.write_text(pretty(log), encoding="utf-8")
     return m

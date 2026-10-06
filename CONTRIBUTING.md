@@ -279,9 +279,11 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   `key`. Each read that changed a row is stored as a fetch with a change log by key, served at
   `latest/` and listed in `/d/<slug>/changes/`, and it becomes a dated snapshot when it is the
   first fetch, when it revises a finished period, when more than 5% of rows changed, when a
-  period has closed or when it is the first change of the month. An unchanged read in a new month
-  makes the newest fetch a snapshot under its own date. A feed also keeps every state each key has
-  held, with `first_seen` and `last_seen`, and records its newest read in the raw store, so a
+  period has closed or when it is the first change of the month. An unchanged read in a later month
+  makes the newest fetch a snapshot under its own date, as the last change of its month. Each
+  fetch records its class, so changing `update` leaves the versions already made as they were. A feed also keeps every state each key has
+  held, with `first_seen` and `last_seen` (the dates this site first and last read it, marked as
+  computed in the history's Table Schema), and records its newest read in the raw store, so a
   quiet day opens no pull request; an empty feed is a state like any other. While an earlier fetch of the dataset waits in an open
   pull request, the fetch holds it back. Each hub takes a rolling source or a feed at
   most once a month, and Zenodo takes only its Parquet and gzipped CSV. docs/ARCHITECTURE.md has the details.

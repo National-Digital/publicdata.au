@@ -156,6 +156,16 @@ jobs:
           diff -r --exclude=data.duckdb /tmp/classes-a-less /tmp/classes-warm
           python -m publicdata gate /tmp/classes-a --register $reg
           python -m publicdata gate /tmp/classes-warm --register $reg --absent /tmp/classes-absent-warm.json
+          # The entries change class, volatile columns and grain after the cache is filled. Each
+          # version keeps what its manifest recorded, so the warm build matches a plain one.
+          cp -r $reg /tmp/classes-reg-b
+          sed -i -e 's/^update: rolling$/update: release/' -e '/^volatile:/d' /tmp/classes-reg-b/test-rolling.yaml
+          sed -i -e 's/^  grain: year$/  grain: quarter/' /tmp/classes-reg-b/test-feed.yaml
+          python -m publicdata build --store /tmp/classes-store --register /tmp/classes-reg-b --out /tmp/classes-b-plain
+          python -m publicdata build --store /tmp/classes-store --register /tmp/classes-reg-b --out /tmp/classes-b-warm --cache /tmp/classes-cache --absent /tmp/classes-absent-b.json --published /tmp/classes-cold
+          jq -r '.[]' /tmp/classes-absent-b.json | (cd /tmp/classes-b-plain && xargs -r rm --)
+          find /tmp/classes-b-plain -type d -empty -delete
+          diff -r --exclude=data.duckdb /tmp/classes-b-plain /tmp/classes-b-warm
 
   accessibility:
     name: Accessibility

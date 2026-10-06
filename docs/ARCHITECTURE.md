@@ -235,14 +235,21 @@ snapshot is immutable for good.
   which are its revisions. It refreshes `latest/`. It becomes a snapshot, the dated version the
   site publishes, when it is the first fetch, when it revises a finished period, when more than
   5% of the previous fetch's rows changed, when a period has closed since the last snapshot, or
-  when it is the first change of a month. A read in a new month that finds the table as a fetch
-  that is no snapshot left it makes that fetch a snapshot where it stands: its manifest gains
-  `"snapshot": true` and the reason, under its own date, and nothing is dated again.
-  `updates.cut` holds the rules.
+  when it is the first change of a month. A read in a later month or period that finds the table
+  as a fetch that is no snapshot left it makes that fetch a snapshot where it stands, judged by
+  the fetch's own date: it was the last change of its month (`month-end`) or before its period
+  closed (`period-end`). Its manifest gains `"snapshot": true` and the reason under its own date,
+  and its change log, already published, is left as it was. `updates.cut` and `updates.closing`
+  hold the rules. Each fetch records the class in its manifest (`update`), and a version flags
+  revisions by the class it was fetched under, so changing an entry's class leaves its versions
+  as they are.
 - `feed` is current state only, read daily. It follows the rolling rules and keeps one more
   table: every state a key has held, with the first and last fetch that held it (`first_seen`,
   `last_seen`), without the volatile columns. The fetch keeps it beside the source as
-  `history.parquet`, and each snapshot and `latest/` publish it split by period. A state the
+  `history.parquet`, and each snapshot and `latest/` publish it split by period, with
+  `history/schema.json` marking `first_seen` and `last_seen` as computed by this site
+  (`publicdata:derived`, as a joined column is): they are the dates the site first and last read
+  the row in that state, and the dataset page says so. A state the
   feed no longer holds keeps the date of the last fetch that held it, and one that comes back
   starts a new row. States are compared on the columns both sides hold, so a column that stops
   being volatile joins the history with nulls for the rows before. An empty read is a state
@@ -290,14 +297,16 @@ longer grain would still fit.
 Each part is `parts/<period>.parquet` and `parts/<period>.csv.gz` under the version, named
 `2025`, `2025-26`, `2025-Q1` or `2025-01`, with four-digit years and an `undated` part for rows
 that have no date. Every part carries the provenance header with the period it holds, and every
-part of a version has the same column types, decided from the whole table. `revision_window`
+part follows the Parquet layout the version's manifest records (its sort, lookup and INT32
+fields), so every part of a version has the same column types. `revision_window`
 (default 2) counts the open periods: the current one and the one before. An older part is
 finished. A finished part is written once: a later snapshot whose rows for that period are the
 same, volatile columns included, and whose column types are the same does not write it again,
 and its manifest points at the earlier version that holds the file. A part is marked `revised`
 when the change logs since the snapshot before name its period as revised, which is the same
-list the manifest's `revised` holds; for a release, which keeps no change log, a finished part
-whose rows outside the volatile columns differ from the snapshot before's. A feed's history
+list the manifest's `revised` holds; for a version fetched as a release, which keeps no change
+log, a finished part whose rows outside the volatile columns differ from the snapshot before's.
+The two ways never share a cache key. A feed's history
 parts change whenever a current row's `last_seen` moves, and are never called revisions. The
 undated part is never finished. Which parts a version reuses depends on the snapshot before it,
 so a version's cache key takes that snapshot's key and the revisions logged since, and a cold

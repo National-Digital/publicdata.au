@@ -66,7 +66,10 @@ jobs:
           set -o pipefail
           # A rolling source or a feed whose earlier fetch still waits in an open pull request is
           # held, since this checkout lacks that fetch to compare with.
-          hold=$(gh pr list --state open --search "head:data/fetch-" --json files --jq '.[].files[].path' | awk -F/ '$1 == "store" {print $2}' | sort -u | paste -sd' ')
+          # Every open fetch PR and every file in each, since a weekly PR can list hundreds.
+          hold=$(for n in $(gh pr list --state open --search "head:data/fetch-" --limit 1000 --json number --jq '.[].number'); do
+                   gh api "repos/${{ github.repository }}/pulls/$n/files" --paginate --jq '.[].filename'
+                 done | awk -F/ '$1 == "store" {print $2}' | sort -u | paste -sd' ')
           python -m publicdata fetch --store store --groups groups.json ${FEEDS} --hold ${hold} | tee fetch.log
       - name: Count new versions
         id: fetch

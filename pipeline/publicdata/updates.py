@@ -131,12 +131,25 @@ def cut(ds: Dataset, log: dict | None, snapshots: list[Manifest], day: dt.date) 
     return ""
 
 
+def closing(per, fetched: dt.date, today: dt.date) -> str:
+    """Why a fetch that is no snapshot becomes one when a later read finds it unchanged: it was
+    the last change before its period (the one its manifest records) closed, or of its month.
+    "" while both are still open."""
+    if per is not None and periods.of_day(fetched, per.grain) != periods.of_day(today, per.grain):
+        return "period-end"
+    if (fetched.year, fetched.month) != (today.year, today.month):
+        return "month-end"
+    return ""
+
+
 CUT_WORDS = {
     "first": "it was the first fetch",
     "revision": "a finished period changed",
     "churn": f"more than {CHURN:.0%} of rows changed",
     "period-close": "a period closed",
     "monthly": "it was the first change of the month",
+    "month-end": "it was the last change of its month",
+    "period-end": "it was the last change before its period closed",
 }
 
 

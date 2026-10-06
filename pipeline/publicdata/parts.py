@@ -15,13 +15,9 @@ import pyarrow.compute as pc
 
 from . import SITE, periods
 from .normalise import Table
+from .serialise import profile
 from .serialise.writers.csv_gz import write_csv_gz
 from .serialise.writers.parquet import write_parquet
-
-try:
-    from .serialise import profile
-except ImportError:  # the Parquet profile lands separately; until then every part is as written
-    profile = None
 
 FORMATS = ("parquet", "csv.gz")
 # The whole-table files are written beside the parts while the table is this small; above it a
@@ -46,11 +42,23 @@ def url(slug: str, rec: dict, fmt: str) -> str:
     return f"{SITE}/{tree}/{rec['files'][fmt]['path']}"
 
 
-def _schema(sub: pa.Table, narrow: dict) -> str:
-    """The part's Parquet column types as they would be written, for the reuse test."""
+def _layout(t: pa.Table, lay: dict) -> dict:
+    """The version's recorded Parquet layout as it applies to table t: a feed's history lacks the
+    volatile columns, so a sort, lookup or INT32 field it does not hold is left out."""
+    if not lay:
+        return {}
+    have = set(t.column_names)
+    return {
+        k: [c for c in v if c in have] if k in profile.LAYOUT_KEYS[1:] else v
+        for k, v in lay.items()
+    }
+
+
+def _schema(sub: pa.Table, lay: dict) -> str:
+    """The part's Parquet column types as the layout writes them, for the reuse test."""
     empty = sub.slice(0, 0)
-    if profile and narrow:
-        empty = profile.narrow(empty, narrow["int32"])
+    if lay.get("int32"):
+        empty = profile.narrow(empty, lay["int32"])
     return hashlib.sha256(str(empty.schema.remove_metadata()).encode()).hexdigest()
 
 
@@ -77,14 +85,14 @@ def write(
     names = periods.ordered(set(labels.to_pylist()))
     out = []
     volatile = [c for c in ds.volatile if c in t.column_names]
-    # Narrowed to INT32 by the whole table, so every part of a version has the same column types.
-    narrow = {"int32": profile.int32_columns(t)} if profile else {}
+    # Every part follows the layout the version's manifest records, so all have the same types.
+    lay = _layout(t, tbl.manifest.parquet)
     flagged = set(revised or ())
     for p in names:
         sub = t.filter(pc.equal(labels, p))
         digest = rows_digest(sub)
         steady = rows_digest(sub.drop_columns(volatile)) if volatile else digest
-        schema = _schema(sub, narrow)
+        schema = _schema(sub, lay)
         done = periods.finished(p, day, per)
         was = before.get(p)
         if revised is None and done and was and was["finished"]:
@@ -102,13 +110,13 @@ def write(
         files = {}
         d = vdir / name
         d.mkdir(parents=True, exist_ok=True)
-        part = replace(tbl, table=sub, geometry=None)
+        part = replace(tbl, table=sub, geometry=None, order=None)
         for fmt in FORMATS:
             rel = f"{name}/{p}.{fmt}"
             h = hdr(sub.num_rows, rel)
             h["period"] = {"field": per.field, "grain": per.grain, "value": p}
             if fmt == "parquet":
-                write_parquet(part, h, vdir / rel, **narrow)
+                write_parquet(part, h, vdir / rel, lay=lay)
             else:
                 with tempfile.TemporaryDirectory() as tmp:
                     write_csv_gz(part, vdir / rel, Path(tmp))

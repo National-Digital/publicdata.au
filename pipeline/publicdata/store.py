@@ -48,6 +48,9 @@ class Manifest:
     # The register's period when this was fetched; the version is split by it, and a version
     # fetched before an entry had one keeps its whole-table layout.
     period: dict | None = None
+    # The register's update class when this was fetched; empty for a release. It decides how the
+    # version flags revisions, so a later change of class leaves the version as it was.
+    update: str = ""
 
     @property
     def ext(self) -> str:
@@ -67,6 +70,8 @@ class Manifest:
         for k in ("history", "period"):
             if d[k] is None:
                 del d[k]
+        if not d["update"]:
+            del d["update"]
         return json.dumps(d, indent=2, ensure_ascii=False) + "\n"
 
     @classmethod

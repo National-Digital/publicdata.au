@@ -368,8 +368,42 @@ def _parts(
             "history",
             revised=set(),
         )
-        split["history"] = {**m.history, "parts": hrecs, **({"read": read} if read else {})}
+        (vdir / "history").mkdir(exist_ok=True)
+        (vdir / "history" / "schema.json").write_text(
+            pretty(history_schema(tbl, seen)), encoding="utf-8"
+        )
+        split["history"] = {
+            **m.history,
+            "schema": "history/schema.json",
+            "parts": hrecs,
+            **({"read": read} if read else {}),
+        }
     return split
+
+
+def history_schema(tbl: Table, seen: pa.Table) -> dict:
+    """A feed history's Table Schema: the table's own fields it keeps, then first_seen and
+    last_seen, marked as computed by this site the way a joined column is."""
+    from .updates import FIRST_SEEN, LAST_SEEN
+
+    base = table_schema(tbl)
+    fields = [f for f in base["fields"] if f["name"] in seen.column_names]
+    for name, words in (
+        (FIRST_SEEN, "The date publicdata.au first read this row, in this state, in the feed."),
+        (LAST_SEEN, "The date publicdata.au last read this row, in this state, in the feed."),
+    ):
+        fields.append(
+            {
+                "name": name,
+                "type": "date",
+                "title": name,
+                "description": words,
+                "publicdata:derived": {"method": "observed by publicdata.au"},
+            }
+        )
+    # A key holds one row per state, so a state is its key and the day it was first read.
+    key = {"primaryKey": [*base["primaryKey"], FIRST_SEEN]} if base.get("primaryKey") else {}
+    return {**base, "fields": fields, **key}
 
 
 def _first_of(tbl: Table) -> str:
@@ -588,7 +622,10 @@ def version_key(
     warm one never lay its parts out differently."""
     split = ()
     if m.period:
-        split = (prior, ",".join(sorted(revised_since(ds, store_dir, m) or ())))
+        # A release flags revisions by digest (None); a rolling source or a feed by its change
+        # logs, whose set may be empty. The two never share a key.
+        revised = revised_since(ds, store_dir, m)
+        split = (prior, "digest" if revised is None else "logs:" + ",".join(sorted(revised)))
     if ds.enrich:
         from .spine import spine_versions
 
@@ -612,8 +649,9 @@ def version_keys(
 
 def revised_since(ds: Dataset, store_dir: Path | None, m: store.Manifest) -> set[str] | None:
     """The periods the change logs revised after the snapshot before m, up to m itself. None for
-    a release, which keeps no change log."""
-    if ds.update == "release" or store_dir is None:
+    a version fetched as a release, which keeps no change log; the class is the one m records, so
+    a later change of class leaves the version as it was."""
+    if not m.update or m.update == "release" or store_dir is None:
         return None
     all_ = store.manifests(store_dir, ds.slug, fetches=True)
     snaps = [x.version for x in all_ if x.snapshot and x.version < m.version]

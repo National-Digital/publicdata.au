@@ -236,12 +236,14 @@ def test_an_unchanged_read_in_a_new_month_keeps_the_newest_fetch_where_it_stands
     shutil.copyfile(days / "2026-08-11.csv", again)
     m = classes_fixture.read(ds, tmp_path, again)
     # Nothing is dated again: the August fetch becomes the snapshot under its own date.
-    assert (m.version, m.snapshot, m.cut) == ("2026-08-11", True, "monthly")
+    # Judged by its own date: it was the last change of August.
+    assert (m.version, m.snapshot, m.cut) == ("2026-08-11", True, "month-end")
     assert not (tmp_path / "test-rolling" / "2026-09-02").exists()
     on_disk = store.Manifest.read(tmp_path / "test-rolling" / "2026-08-11" / "manifest.json")
-    assert (on_disk.snapshot, on_disk.cut, on_disk.sha256) == (True, "monthly", m.sha256)
+    assert (on_disk.snapshot, on_disk.cut, on_disk.sha256) == (True, "month-end", m.sha256)
     assert "2026-09-02" in on_disk.notes[-1]
-    assert log_of(tmp_path, "test-rolling", "2026-08-11")["snapshot"] == "monthly"
+    # The change log, published when the fetch was, is left as it was.
+    assert log_of(tmp_path, "test-rolling", "2026-08-11")["snapshot"] == ""
     later = tmp_path / "in" / "2026-09-09.csv"
     shutil.copyfile(again, later)
     assert classes_fixture.read(ds, tmp_path, later) is None
@@ -678,3 +680,50 @@ def test_latest_carries_last_seen_only_to_a_read_of_its_own_fetch(fetched, tmp_p
     store.write_read(copy, "test-feed", "2026-10-09", "2026-10-05")
     build_dataset(ds, copy, tmp_path / "read")
     assert last_seen_of_a(tmp_path / "read") == "2026-10-09"
+
+
+def test_a_promotion_is_judged_by_the_fetch_s_own_date():
+    year = Period("d", "year")
+    d = dt.date.fromisoformat
+    assert updates.closing(None, d("2026-08-11"), d("2026-09-02")) == "month-end"
+    assert updates.closing(None, d("2026-09-01"), d("2026-09-29")) == ""
+    assert updates.closing(year, d("2026-12-30"), d("2027-01-05")) == "period-end"
+    assert updates.closing(year, d("2026-11-30"), d("2026-12-05")) == "month-end"
+
+
+def test_each_fetch_records_its_class_and_a_version_keeps_it(fetched, tmp_path):
+    from publicdata.build import revised_since, version_key
+    from publicdata.cache import BuildCache
+
+    st, _ = fetched
+    assert {m.update for m in store.manifests(st, "test-rolling", fetches=True)} == {"rolling"}
+    assert {m.update for m in store.manifests(st, "test-feed", fetches=True)} == {"feed"}
+    ds = registered()["test-rolling"]
+    m = store.manifests(st, "test-rolling")[1]
+    # The register's class no longer decides how the version flags revisions.
+    assert revised_since(replace(ds, update="release"), st, m) == set()
+    as_release = replace(m, update="")
+    assert revised_since(ds, st, as_release) is None
+    cache = BuildCache(tmp_path / "cache")
+    assert version_key(cache, ds, m, st, "p") != version_key(
+        cache, ds, replace(m, update=""), st, "p"
+    )
+
+
+def test_a_feed_s_history_marks_first_and_last_seen_as_observed_here(built, tmp_path):
+    from publicdata.site import render_site
+
+    out, outs = built
+    schema = json.loads((tree(out, "test-feed", "2026-10-03") / "history/schema.json").read_text())
+    by = {f["name"]: f for f in schema["fields"]}
+    for name in ("first_seen", "last_seen"):
+        assert by[name]["publicdata:derived"] == {"method": "observed by publicdata.au"}
+        assert by[name]["type"] == "date"
+    assert "publicdata:derived" not in by["road"]
+    assert schema["primaryKey"] == ["id", "first_seen"]
+    assert manifest(out, "test-feed", "2026-10-03")["history"]["schema"] == "history/schema.json"
+    site = tmp_path / "site"
+    shutil.copytree(out, site)
+    render_site(list(outs.values()), site)
+    page = (site / "d/test-feed/index.html").read_text("utf-8")
+    assert "the dates it first and last read the row in that state" in page
