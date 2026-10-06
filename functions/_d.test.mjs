@@ -158,6 +158,7 @@ const STORED = {
   'd/x/v/2026-04-24/data.json': gzipSync('{"records":[]}'),
   'd/x/v/2026-04-24/data.parquet': Buffer.from('PAR1....PAR1'),
   'd/x/v/2026-03-01/data.csv': Buffer.from(CSV),
+  'd/x/v/2026-04-24/data.ndjson': gzipSync('{"a":1}\n'.repeat(200)),
 };
 const stored = (k, opts = {}, withBody = true) => {
   const bytes = STORED[k];
@@ -169,7 +170,7 @@ const stored = (k, opts = {}, withBody = true) => {
   const body = range ? bytes.subarray(range.offset, range.offset + range.length) : bytes;
   return {
     size: bytes.length, httpEtag: '"g"', range: opts.range ? range || { offset: 0, length: bytes.length } : undefined,
-    httpMetadata: gz ? { contentEncoding: 'gzip', contentType: 'text/csv; charset=utf-8' } : {},
+    httpMetadata: gz ? { contentEncoding: k.endsWith('.ndjson') ? 'gzip,aws-chunked' : 'gzip', contentType: 'text/csv; charset=utf-8' } : {},
     customMetadata: gz ? { size: String(k.endsWith('.csv') ? CSV.length : 14), sha256: 'x' } : {},
     ...(withBody ? { body: new Blob([body]).stream() } : {}),
     writeHttpMetadata(h) { if (gz) { h.set('content-encoding', 'gzip'); h.set('content-type', 'text/csv; charset=utf-8'); } },
@@ -257,4 +258,13 @@ test('data.csv.gz is served from the stored CSV as a gzip file, ranges and all',
   // A CSV stored before gzip at rest has no gzip to alias.
   assert.equal((await gget('/d/x/v/2026-03-01/data.csv.gz')).status, 404);
   assert.equal(await (await gget('/d/x/v/2026-03-01/data.csv', { 'accept-encoding': 'gzip' })).text(), CSV);
+});
+
+test('a stored encoding listed with aws-chunked is still gzip, and goes out as plain gzip', async () => {
+  const enc = await gget('/d/x/v/2026-04-24/data.ndjson', { 'accept-encoding': 'gzip' });
+  assert.equal(enc.headers.get('content-encoding'), 'gzip');
+  assert.equal(enc.headers.get('content-type'), 'application/x-ndjson');
+  const plain = await gget('/d/x/v/2026-04-24/data.ndjson');
+  assert.equal(plain.headers.get('content-encoding'), null);
+  assert.equal(await plain.text(), '{"a":1}\n'.repeat(200));
 });

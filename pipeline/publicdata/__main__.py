@@ -538,7 +538,12 @@ def cmd_dist_push(args) -> int:
 def cmd_r2_restore_gzip(args) -> int:
     from .r2 import restore_gzip
 
-    t = restore_gzip(prefix=args.prefix, apply=args.apply, workers=args.workers)
+    t = restore_gzip(
+        prefix=args.prefix,
+        apply=args.apply,
+        workers=args.workers,
+        dedupe_csv_gz=args.dedupe_csv_gz,
+    )
     return 1 if t["failed"] else 0
 
 
@@ -836,6 +841,11 @@ def main(argv=None) -> int:
     rg.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
     rg.add_argument("--apply", action="store_true", help="rewrite the objects, not just count them")
     rg.add_argument("--workers", type=int, default=4)
+    rg.add_argument(
+        "--dedupe-csv-gz",
+        action="store_true",
+        help="delete a version's data.csv.gz once the gzipped data.csv beside it holds its bytes",
+    )
     rg.set_defaults(fn=cmd_r2_restore_gzip)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(

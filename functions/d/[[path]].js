@@ -203,7 +203,8 @@ async function fromR2(request, env, url) {
   return new Response(null, { status: 304, headers });
 }
 
-const gzipped = (obj) => obj.httpMetadata?.contentEncoding === 'gzip';
+// Content-Encoding is a list of tokens; an upload can leave aws-chunked beside gzip.
+const gzipped = (obj) => (obj.httpMetadata?.contentEncoding || '').split(',').some((t) => t.trim().toLowerCase() === 'gzip');
 
 // The Workers runtime always asks for gzip itself; what the client asked for is on cf.
 function acceptsGzip(request) {

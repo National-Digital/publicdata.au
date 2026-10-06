@@ -206,24 +206,36 @@ route reaches. The Pages Function under `functions/d/` serves a static file
 when Pages has it, redirects `latest/` from `latest.json`, and otherwise streams the object from
 R2 with a sized HEAD and immutable caching.
 
-A dated text file (CSV, NDJSON, JSON, GeoJSON, `schema.sql` and any other text over 1 KB) and a
-dated SQLite file are stored in R2 gzipped: deterministic gzip at level 6 with no name and mtime
-0, marked `Content-Encoding: gzip`, with the decoded size and SHA-256 as metadata (`size`,
-`sha256`). `dist-push` gzips them on upload. The function sends the stored bytes with
+A dated text file (CSV, NDJSON, JSON, GeoJSON, `schema.sql` and any other text over 1 KB) is
+stored in R2 gzipped: deterministic gzip at level 6 with no name and mtime 0, marked
+`Content-Encoding: gzip`, with the decoded size and SHA-256 as metadata (`size`, `sha256`).
+`dist-push` gzips them on upload, with botocore's checksums set to `when_required` so that an
+upload is never marked `aws-chunked`; readers still treat Content-Encoding as a list of tokens.
+The query layer's files under `_q/` are never gzipped. The function sends the stored bytes with
 `Content-Encoding: gzip` to a client that accepts gzip, which it reads from
 `request.cf.clientAcceptEncoding` because the runtime always asks for gzip itself, and decodes
 them with `DecompressionStream` for any other client. Such a response drops `no-transform`, so the
 edge, which caches whichever encoding it was sent first, can decode it for a client that cannot.
-A HEAD gives the size of what a GET would send. Byte ranges are offered on Parquet, DuckDB and the
-publisher's file, and on the other binary formats (Arrow, Excel, GeoPackage, PMTiles), which stay
-as written; a range asked of a gzipped text file is answered 200 with the whole file and
-`Accept-Ranges: none`, which a range client reads as a server without ranges. A version's
-`data.csv.gz` is the CSV gzipped the same way, so `dist-push` stores no separate copy of it once
-the CSV is stored gzipped: the function serves `data.csv.gz` from the stored CSV's bytes as
-`application/gzip`, with no `Content-Encoding` and with byte ranges. Versions pushed before this
-keep their own `data.csv.gz`, which is served first. `publicdata r2 restore-gzip` rewrites the
-text files stored before this in place, checking every object's decoded SHA-256 before and after;
-it is a dry run unless given `--apply`, and skips what is already gzipped. A dataset missing from `latest.json` (the register withheld it)
+A HEAD gives the size of what a GET would send.
+
+Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles,
+`data.csv.gz` and the publisher's file, which are stored as written. A range asked of a CSV,
+NDJSON, JSON or GeoJSON file is answered 200 with the whole file and `Accept-Ranges: none`, which
+a range client reads as a server without ranges. A reader that scans lazily or seeks, such as
+polars `scan_csv` or `scan_ndjson` or an fsspec file opened over HTTP, should read `data.parquet`
+or `data.csv.gz` instead.
+
+A version's `data.csv.gz` is the CSV gzipped the same way, so `dist-push` stores no separate copy
+of it once the CSV is stored gzipped: the function serves `data.csv.gz` from the stored CSV's
+bytes as `application/gzip`, with no `Content-Encoding` and with byte ranges. A replace writes an
+existing `data.csv.gz` again, because the function serves a stored key before the alias. Versions
+pushed before this keep their own `data.csv.gz`. `publicdata r2 restore-gzip` rewrites the text
+files stored before this in place. It checks every object's hash before and after, makes both
+the rewrite and any rollback conditional on the ETag it read, so a deploy writing the same key is
+never undone, is a dry run from the listing unless given `--apply`, and skips what is already
+gzipped; `--dedupe-csv-gz` also deletes an old `data.csv.gz` whose bytes the gzipped CSV now
+holds. A deployment whose function predates gzip at rest serves these objects wrongly, so once
+they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe. A dataset missing from `latest.json` (the register withheld it)
 answers 410 for every file R2 still holds, `latest/` included, and so does each path in
 `withheld.json`, the publisher's files of an entry with `source_withheld`, which the build stops
 writing but R2 kept. The edge caches nothing over 512 MB
