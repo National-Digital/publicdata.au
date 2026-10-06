@@ -62,8 +62,9 @@ that version's query API answers under `api/v1/datasets/<slug>/versions/<date>/`
 copies sit outside that, and the maintainer deals with each one.
 
 - The query API loads a version into D1 again only when its fields change, and it holds only each
-  dataset's newest version. When a fix changes values in a newest version and keeps its fields,
-  the maintainer deletes that version's row from D1 before dispatching the rebuild, with
+  dataset's newest version. Its answers carry the attribution from D1 as well as the values. When a
+  fix changes values or the attribution in a newest version and keeps its fields, the maintainer
+  deletes that version's row from D1 before dispatching the rebuild, with
   `npx wrangler d1 execute publicdata --remote --command "DELETE FROM _versions WHERE slug = '<slug>' AND version = '<date>'"`.
   The `replace` run then loads the version again. An older version is not in D1, so it needs
   nothing.
@@ -111,7 +112,9 @@ These are not corrections, and they change what a version's URL serves.
 ## Correction log
 
 Each correction to a published version is recorded here. The log starts with the public
-repository on 4 October 2026, and no published version has been corrected since then.
+repository on 4 October 2026. An entry whose rebuild has not yet run says so, and it is updated
+once the rebuild is confirmed.
 
 | Date | Versions | What was wrong | What changed | Copies cleared | Pull request |
 | --- | --- | --- | --- | --- | --- |
+| 6 October 2026 | `d/au-births-by-age-of-mother/v/2026-10-03/`, `d/au-births-by-age-of-father/v/2026-10-03/`, `d/au-births-by-state/v/2026-10-03/`, `d/au-building-approvals-by-lga-2025-26/v/2026-10-03/` | The attribution in every file linked the ABS dataflow at `explore.data.abs.gov.au`, a host that no longer resolves. | The register entries link the same dataflows at `dataexplorer.abs.gov.au`, and the dataset pages have shown the working link since the deploy of 6 October 2026. The data is unchanged. A dated note in each version's manifest and a `replace` rebuild of the four versions are still to come, and until the rebuild runs the dated files keep the dead link. | None has been cleared yet. Each version is its dataset's newest, so its D1 row is deleted before the `replace` run, and the run purges the edge. Cached client copies keep the dead link until the user clears the cache. | [#33](https://github.com/National-Digital/publicdata.au/pull/33) |
