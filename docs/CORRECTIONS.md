@@ -43,27 +43,38 @@ beside every version as `source.<ext>` with its SHA-256 in `manifest.json`.
    affected version's manifest in `store/`. The line says what was wrong and what changed. Notes
    are shown on the version's page and stay there. They go in this pull request because the
    rebuild in the next step is what writes the corrected manifest to R2.
-3. **Rebuild the versions.** Straight after the pull request merges, a maintainer runs the Deploy
-   workflow with `replace` set to those prefixes. The run rebuilds the files and purges the old
-   copies from the edge cache. Until it finishes, the version's page already shows the note while
-   the old files are still served.
-4. **Close the issue.** The issue links the pull request and the versions it rebuilt, and the
-   correction goes in the log below.
+3. **Rebuild the versions.** Once the deploy that the merge started has finished, a maintainer
+   runs the Deploy workflow with `replace` set to those prefixes. Push and dispatch runs on `main`
+   share one queue, and a newer run cancels one that is still waiting, so the dispatch goes in
+   only when nothing else is queued. The run rebuilds the files and purges the old copies from
+   the edge cache. Until it finishes, the version's page already shows the note while the old
+   files are still served.
+4. **Confirm the rebuild.** The maintainer checks that the `replace` run completed and that its
+   "Purge replaced versions from the edge" step passed, then fetches one corrected file to see the
+   fix. A cancelled or failed run is dispatched again.
+5. **Close the issue.** The issue links the pull request, the `replace` run and the versions it
+   rebuilt, and the correction goes in the log below.
 
 ## What a rebuild does not reach
 
-The Deploy run replaces the files in R2 and purges `d/<slug>/v/<date>/` at the edge. Some copies
-sit outside that, and the maintainer checks each one.
+The Deploy run replaces the files in R2, and `publicdata purge` clears `d/<slug>/v/<date>/` and
+that version's query API answers under `api/v1/datasets/<slug>/versions/<date>/` at the edge. Some
+copies sit outside that, and the maintainer deals with each one.
 
-- The query API loads a version into D1 again only when its fields change. A fix that changes
-  values and keeps the fields leaves the old rows in D1 until that version is loaded again.
-- A dated query API answer is cached for a year, and the purge does not cover `/api/`.
+- The query API loads a version into D1 again only when its fields change, and it holds only each
+  dataset's newest version. When a fix changes values in a newest version and keeps its fields,
+  the maintainer deletes that version's row from D1 before dispatching the rebuild, with
+  `npx wrangler d1 execute publicdata --remote --command "DELETE FROM _versions WHERE slug = '<slug>' AND version = '<date>'"`.
+  The `replace` run then loads the version again. An older version is not in D1, so it needs
+  nothing.
 - The Python and R clients, with their cache turned on, keep a downloaded version and do not
-  fetch it again. Users clear it with `cache_clear()` in Python or `pd_cache_clear()` in R.
+  fetch it again. Users clear it with `cache_clear()` in Python or `pd_cache_clear()` in R, and
+  the client documentation says so. The version's notes are how they learn of the correction.
 - The purge needs the `CLOUDFLARE_PURGE_TOKEN` secret. Without it the run only warns, and the
-  prefixes must be purged by hand.
+  maintainer runs `publicdata purge` with the same prefixes and the token.
 
-Each correction in the log says which of these it needed.
+Each correction in the log says which of these it needed. A copy that could not be cleared is
+recorded as stale, with the date it stops being served.
 
 ## What a correction leaves alone
 
@@ -81,14 +92,21 @@ These are not corrections, and they change what a version's URL serves.
 
 - When a publisher withdraws a source, its register entry stays `live` so the versions already
   published are still served, and its `note` says the source was withdrawn. Any other status takes
-  the dataset out of `latest.json`, and every file of every version then answers 410.
+  the dataset out of `latest.json`, and every file of every version then answers 410. A live entry
+  is still fetched every day. While the source is gone each fetch reports the dataset as failed,
+  and if the publisher later serves a file at the same address, the fetch makes a new version
+  from it. A maintainer checks any such version before it merges and reverts it when the file is
+  not the same dataset.
 - When a licence turns out not to allow publication, a maintainer withholds the dataset or the
   affected files. A withheld dataset answers 410 for every file R2 still holds, and a file listed
   in `withheld.json`, such as the publisher's file of an entry with `source_withheld`, answers 410
   too. The site says why.
-- A file is removed only for a legal takedown or a publisher's request to remove its dataset. The
-  removal is recorded in `changes.json` as a tombstone that keeps the manifest and hash, and the
-  dataset's files answer 410.
+- A file is removed only for a legal takedown or a publisher's request to remove its dataset.
+  Nothing in the build does this on its own, so a maintainer does it by hand. They withhold the
+  dataset by moving its register entry out of `live`, so every file R2 still holds answers 410.
+  They delete the removed files from R2 and run `publicdata purge` on each affected version. They
+  set `tombstone` in each affected version's manifest in `store/` to the date and the reason,
+  which keeps the manifest and the source hash on record. The removal then goes in the log below.
 
 ## Correction log
 

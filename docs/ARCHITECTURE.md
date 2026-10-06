@@ -1,7 +1,7 @@
 # Architecture
 
 One job: take a dataset a government already publishes under an open licence and serve it
-as immutable, versioned, schema-carrying files that never send traffic back to the source.
+as dated, versioned, schema-carrying files that never send traffic back to the source.
 
 ## The shape
 
@@ -120,7 +120,7 @@ pipeline/publicdata/
 /health.json
 ```
 
-Immutable versions are cached for a year. Every dataset page carries schema.org Dataset
+Dated versions are cached for a year. Every dataset page carries schema.org Dataset
 JSON-LD.
 
 ## What every dataset gets
@@ -129,8 +129,8 @@ A register entry that passes `register validate` and has a stored version gets a
 the build, with nothing written by hand:
 
 - the dataset page, its Markdown twin, schema.org Dataset JSON-LD and a catalogue record;
-- one dated, immutable version per source change, each with its files, its manifest, the
-  publisher's own file and a diff against the version before. Every table version has Parquet,
+- one dated version per source change, which keeps its content, each with its files, its
+  manifest, the publisher's own file and a diff against the version before. Every table version has Parquet,
   CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
   `data.geo.parquet` and a GeoPackage, and a polygon or line layer keeps its shapes in
   `data.parquet`, which is GeoParquet, with a GeoPackage and PMTiles vector tiles. The DuckDB
@@ -274,8 +274,9 @@ This site is the version history the portals do not keep. The archive role has i
   are rebuilt only to correct a fault in our conversion or in the publisher's attribution, to
   comply with the law, or when a publisher asks for removal, and the change goes in the
   version's notes ([CORRECTIONS.md](CORRECTIONS.md)). A file is removed only for a legal
-  takedown or a publisher's request to remove its dataset, and the removal is recorded in
-  `changes.json` as a tombstone that keeps the manifest and hash.
+  takedown or a publisher's request to remove its dataset. The dataset is withheld, the files
+  are deleted from R2 and purged, and the version's `tombstone` keeps the manifest and hash on
+  record.
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
@@ -395,7 +396,7 @@ Each shard pulls only the cache entries its datasets key to (`cache pull --only`
 hands over the cache entries it wrote, with the version files a preview serves. The deploy job
 then builds the whole site from the cache those entries filled, links the preview files in with
 `build --built`, and pushes the pages. Every deploy is therefore limited by its largest single
-dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
+dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote and their query API answers from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
 
 Because the build code is not in a version's key, the deploy checks a change to it against real
 versions. The plan job lists the files the change touches since its base, which for a pull
