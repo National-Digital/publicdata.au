@@ -327,12 +327,13 @@ such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 - When a licence turns out not to allow publication, a maintainer withholds the dataset or the
   affected columns, as `source_withheld` and the omitted fields do. The build stops making those
   files and the site says why.
-- A legal takedown is the only time a published file is removed. It is recorded in `changes.json`
-  as a tombstone that keeps the manifest and hash.
-- To rebuild files a bug wrote wrongly, a maintainer runs the Deploy workflow with `replace` set
-  to the version prefixes, which also purges them from the edge cache. The pull request that fixed
-  the bug says which versions it affects and raises their rebuild number (see Change the build
-  code).
+- A published file is removed only for a legal takedown or a publisher's request to remove its
+  dataset. The removal is recorded in `changes.json` as a tombstone that keeps the manifest and
+  hash.
+- To rebuild files a bug wrote wrongly, or whose attribution was wrong, a maintainer runs the
+  Deploy workflow with `replace` set to the version prefixes, which also purges them from the edge
+  cache. The pull request that made the fix says which versions it affects and raises their
+  rebuild number (see Change the build code).
 - [docs/CORRECTIONS.md](docs/CORRECTIONS.md) has the whole process, from a report to the correction
   log.
 

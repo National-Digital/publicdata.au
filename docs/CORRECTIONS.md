@@ -13,7 +13,8 @@ fault is.
   version made from their release carries the fix. Each dataset page names the publisher and links
   to the source.
 - **Our copy differs from the publisher's file.** Examples are a column typed badly, a row
-  missing, a suppressed cell read as a number or a file that fails to open. Open a
+  missing, a suppressed cell read as a number, a file that fails to open, or an attribution with
+  a dead link or the wrong publisher. Open a
   [data problem](https://github.com/National-Digital/publicdata.au/issues/new?template=data-problem.yml)
   issue, or write to [National Digital](https://nationaldigital.com.au/contact/) if you would
   rather not post in public. Give the version URL, what differs, and a link to the publisher's copy
@@ -54,8 +55,9 @@ beside every version as `source.<ext>` with its SHA-256 in `manifest.json`.
   files change only to correct a fault in our conversion or in the publisher's attribution, to
   comply with the law, or when a publisher asks for its dataset to be removed, as the
   [terms](https://publicdata.au/terms/) say. Each such change is recorded in the version's notes.
-- **The history.** A legal takedown is the only time a file is removed. It is recorded in
-  `changes.json` as a tombstone that keeps the manifest and hash. When a publisher withdraws a
+- **The history.** A file is removed only for a legal takedown or a publisher's request to
+  remove its dataset. The removal is recorded in `changes.json` as a tombstone that keeps the
+  manifest and hash. When a publisher withdraws a
   source, its register entry records the reason and the versions already published stay where
   they are.
 
