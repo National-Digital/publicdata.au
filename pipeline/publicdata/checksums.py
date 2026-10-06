@@ -4,18 +4,22 @@ Nothing the build imports reads this module, so adding or changing it keys no ve
 names the file as the site saves it (`site.download_name`), so `sha256sum -c --ignore-missing
 SHA256SUMS` checks the files a browser or `curl -OJ` downloaded. The hashes come from the SHA-256
 that `r2.push` stores with every object, and an object without one is read and hashed only when
-the caller allows it. A version's list is written again when R2 holds a file newer than it, which
+the caller allows it. A source file served from the raw store takes its hash from the version's
+manifest. A version's list is written again when R2 holds a file newer than it, which
 is how a format added to a cached version reaches the list, or when its prefix is replaced.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sys
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from .store import ext_of
 
 BUCKET = "publicdata-dist"
 NAME = "SHA256SUMS"
@@ -91,6 +95,15 @@ def _read_sha256(s3, bucket: str, key: str) -> str:
     return h.hexdigest()
 
 
+def _source_line(s3, bucket: str, prefix: str) -> tuple[str, str] | None:
+    """The publisher's file as the manifest records it, for a version whose source.<ext> is served
+    from the raw store and so is missing from this listing."""
+    m = json.loads(s3.get_object(Bucket=bucket, Key=prefix + "manifest.json")["Body"].read())
+    if m.get("source_withheld") or not HEX.match(m.get("sha256", "")):
+        return None
+    return f"source.{ext_of(m.get('filename', ''))}", m["sha256"]
+
+
 def version_sums(
     s3,
     bucket: str,
@@ -134,6 +147,10 @@ def version_sums(
             unknown.append(key)
         else:
             sums[name] = h
+    if "manifest.json" in objects and not any(r.startswith("source.") for r in objects):
+        src = _source_line(s3, bucket, prefix)
+        if src:
+            sums[download_name(slug, version, src[0])] = src[1]
     return sums, unknown
 
 

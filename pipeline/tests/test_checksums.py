@@ -135,3 +135,37 @@ def test_backfill_finds_every_dataset_in_the_bucket(tmp_path):
 
 def test_the_build_cache_key_does_not_cover_checksums():
     assert all(p.name not in ("checksums.py", "__main__.py") for p in cache.code_files())
+
+
+def manifest(**kw) -> bytes:
+    import json
+
+    return json.dumps({"sha256": sha(b"raw bytes"), "filename": "Crashes.CSV", **kw}).encode()
+
+
+def test_a_source_served_from_the_raw_store_takes_its_hash_from_the_manifest():
+    objs = version()
+    objs[V + "manifest.json"] = (manifest(), T0, sha(manifest()))
+    s3 = FakeS3(objs)
+    assert checksums.update(["x"], s3=s3) == (1, [])
+    sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
+    assert sums["x_2026-04-24_source.csv"] == sha(b"raw bytes")
+    assert len(sums) == 5
+
+
+def test_a_source_in_the_listing_or_withheld_adds_no_manifest_line():
+    objs = version()
+    objs[V + "manifest.json"] = (manifest(), T0, sha(manifest()))
+    objs[V + "source.csv"] = (b"raw bytes", T0, sha(b"raw bytes"))
+    s3 = FakeS3(objs)
+    checksums.update(["x"], s3=s3)
+    assert V + "manifest.json" not in s3.gets
+    sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
+    assert sums["x_2026-04-24_source.csv"] == sha(b"raw bytes")
+    withheld = manifest(source_withheld="changed one column")
+    objs = version()
+    objs[V + "manifest.json"] = (withheld, T0, sha(withheld))
+    s3 = FakeS3(objs)
+    checksums.update(["x"], s3=s3)
+    sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
+    assert not any("source" in n for n in sums)

@@ -236,12 +236,14 @@ only for versions the cache does not hold. A deploy dispatched with `replace` bu
 Every dated version in R2 carries `SHA256SUMS`, one `sha256sum` line per file under the name the
 site saves it as (`site.download_name`), so `sha256sum -c --ignore-missing SHA256SUMS` checks a
 download. The build never writes it, so the cache key does not cover it and adding it rebuilt
-nothing. The last step of a production deploy, `publicdata checksums`, lists each dataset's
-versions in R2 and writes the list for any version that has none or holds a file newer than it,
-which is how a format added to a cached version gains its line. The hashes are the SHA-256 that
-`dist-push` stores with each object, so no file is read back; a version with a file stored without
-one is skipped and reported. `publicdata checksums --all --download` is the backfill a maintainer
-runs once: it covers every dataset R2 holds and reads and hashes any file stored without a hash.
+nothing. A production deploy runs `publicdata checksums` straight after the Pages deploy. It lists
+each dataset's versions in R2 and writes the list for any version that has none or holds a file
+newer than it, which is how a format added to a cached version gains its line. The hashes are the
+SHA-256 that `dist-push` stores with each object, so no data file is read back. A source file served from
+the raw store takes the SHA-256 its `manifest.json` records. A version with a file stored without a
+hash is skipped and reported. The step may fail without failing the deploy, since the next deploy
+catches up. `publicdata checksums --all --download` is the backfill a maintainer runs once: it
+covers every dataset R2 holds and reads and hashes any file stored without a hash.
 The list is served with a five-minute cache, since it grows when a format is added.
 
 One runner's disk cannot hold a build of every version at once, so the deploy builds in shards.
