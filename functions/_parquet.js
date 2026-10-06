@@ -8,8 +8,9 @@ import { fieldMap, filterSpecs, groupFields, likePattern, metricSpecs, orderSpec
 // filter on the sort reads few pages; without one, a column chunk is read as a single page.
 
 // What one call may read. Workers hide CPU time from the code that spends it, so cost is bounded
-// by what decoding is proportional to: row groups, compressed bytes and the values decoded.
-export const BUDGET = { groups: 64, bytes: 8 * 2 ** 20, values: 4_000_000, ranges: 160 };
+// by what decoding is proportional to: row groups, compressed bytes and the values decoded. An
+// ordered page keeps every row before it in a heap, so offset + limit is held to its own cap.
+export const BUDGET = { groups: 64, bytes: 8 * 2 ** 20, values: 4_000_000, ranges: 160, held: 100_000 };
 const PARALLEL = 6;
 const STREAM = 8;
 // R2 answers a range in about 50 to 80 ms whatever its size, so near ranges are read as one.
@@ -159,13 +160,27 @@ async function readFooter(env, key) {
 // The build writes a profile copy of every version, old ones included, at _q/, which no public
 // route serves. The published file answers only when it carries the profile itself.
 async function locate(env, slug, version) {
-  try {
-    const q = await readFooter(env, `_q/${slug}/${version}.parquet`);
-    if (q && q.profiled && q.header) return q;
-  } catch (e) {
-    console.error(`_q ${slug} ${version}: ${(e && e.message) || e}`);
-  }
-  return readFooter(env, `d/${slug}/v/${version}/data.parquet`);
+  const [q, pub] = await Promise.all([
+    readFooter(env, `_q/${slug}/${version}.parquet`).catch((e) => {
+      // A copy that is not a Parquet file is passed over; a failed read is not, or the isolate
+      // would keep the published file in its place.
+      if (/is not a Parquet file|has a footer of/.test(e.message)) { console.error(`_q ${slug} ${version}: ${e.message}`); return null; }
+      throw e;
+    }),
+    readFooter(env, `d/${slug}/v/${version}/data.parquet`),
+  ]);
+  if (q && q.profiled && q.header && pub && sameVersion(q, pub)) return q;
+  if (q && pub) console.error(`_q ${slug} ${version}: the copy does not match the published file`);
+  return pub;
+}
+
+// Answers name the published file, so a copy answers only when it holds the same version of the
+// same source in the same number of rows.
+function sameVersion(q, pub) {
+  if (q.rows !== pub.rows || !pub.header) return false;
+  const a = q.header, b = pub.header;
+  return a.dataset === b.dataset && a.version === b.version
+    && JSON.stringify(a.source && a.source.sha256) === JSON.stringify(b.source && b.source.sha256);
 }
 
 // One version's footer, read once per isolate. A version never changes, so it is never stale.
@@ -316,9 +331,10 @@ function blockFile(env, entry, blocks) {
 }
 
 class Scan {
-  constructor(env, entry, ix, budget, refuse) {
+  constructor(env, entry, ix, budget, refuse, specs = []) {
     Object.assign(this, { env, entry, ix, budget, refuse });
-    this.used = { groups: 0, bytes: 0, values: 0, ranges: 0 };
+    this.used = { groups: 0, bytes: 0, values: 0, ranges: 0, held: 0 };
+    this.weight = likeWeights(specs);
     this.cols = new Map();
     this.seen = new Set();
   }
@@ -351,16 +367,17 @@ class Scan {
         const hit = pages.filter((p) => p.to > from && p.from < to);
         want.push(dict, { start: hit[0].start, end: hit[hit.length - 1].end }, ...(oi ? [oi] : []));
         cost.bytes += dict.end - dict.start + hit.reduce((a, p) => a + p.end - p.start, 0);
-        cost.values += hit.reduce((a, p) => a + p.to - p.from, 0);
+        cost.values += hit.reduce((a, p) => a + p.to - p.from, 0) * (this.weight.get(n) || 1);
       }
     }
     return { todo, want, ranges: coalesce(want.filter((r) => !r.buf)), cost };
   }
 
   // Holds a read to the budget, refusing the query before anything is fetched.
-  charge(needs) {
+  charge(needs, held = 0) {
     const { todo, ranges, cost } = this.plan(needs);
     const u = { ...this.used };
+    u.held += held;
     for (const i of cost.groups) if (!this.seen.has(i)) { u.groups++; this.seen.add(i); }
     u.bytes += cost.bytes;
     u.values += cost.values;
@@ -446,6 +463,18 @@ export function addInto(a, n) {
   const t = a.sum + n;
   a.c += Math.abs(a.sum) >= Math.abs(n) ? (a.sum - t) + n : (n - t) + a.sum;
   a.sum = t;
+}
+
+// A like pattern with a * can cost its length times the value's length to match, so each value
+// a like filter reads is charged as one value for every eight characters of pattern.
+function likeWeights(specs) {
+  const w = new Map();
+  for (const s of specs) {
+    if ((s.op === 'like' || s.op === 'ilike') && s.args[0].includes('*')) {
+      w.set(s.name, (w.get(s.name) || 1) + Math.ceil(s.args[0].length / 8));
+    }
+  }
+  return w;
 }
 
 const needsOf = (groups, names, filterNames) => groups.flatMap((p) => p.segs.map((seg) => (
@@ -579,11 +608,15 @@ export function duckdbSQL(url, types, specs, tail) {
 function refusal(entry, url, sql, budget) {
   const mb = (n) => (n / 2 ** 20).toFixed(1);
   return (u, over) => {
-    const what = { groups: `${u.groups} row groups`, bytes: `${mb(u.bytes)} MB`, values: `${u.values.toLocaleString('en-AU')} values`, ranges: `${u.ranges} reads` };
-    const cap = { groups: `${budget.groups} row groups`, bytes: `${mb(budget.bytes)} MB`, values: `${budget.values.toLocaleString('en-AU')} values`, ranges: `${budget.ranges} reads` };
+    const n = (x) => x.toLocaleString('en-AU');
+    const what = { groups: `${u.groups} row groups`, bytes: `${mb(u.bytes)} MB`, values: `${n(u.values)} values`, ranges: `${u.ranges} reads`, held: `${n(u.held)} ordered rows` };
+    const cap = { groups: `${budget.groups} row groups`, bytes: `${mb(budget.bytes)} MB`, values: `${n(budget.values)} values`, ranges: `${budget.ranges} reads`, held: `${n(budget.held)} ordered rows` };
+    const narrow = over.includes('held')
+      ? `An ordered page holds every row before it, so keep offset + limit under ${n(budget.held)} and page past that with where on the order field, such as lt. the last value a page gave.`
+      : 'Narrow where to fewer rows, such as one year or one place.';
     return new BudgetError(
-      `This query would read ${over.map((k) => what[k]).join(' and ')} of the version's ${entry.rows.toLocaleString('en-AU')} rows, more than one call may read (${over.map((k) => cap[k]).join(', ')}). `
-      + `Narrow where to fewer rows, such as one year or one place. To answer it as asked, download ${url} or run this DuckDB SQL, which reads that dated version's Parquet file directly: ${sql}`,
+      `This query would read ${over.map((k) => what[k]).join(' and ')} of the version's ${n(entry.rows)} rows, more than one call may read (${over.map((k) => cap[k]).join(', ')}). `
+      + `${narrow} To answer it as asked, download ${url} or run this DuckDB SQL, which reads that dated version's Parquet file directly: ${sql}`,
     );
   };
 }
@@ -613,15 +646,15 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET) {
   const fnames = [...new Set(specs.map((s) => s.name))];
   const onames = order.map((o) => o.name);
   const ix = await pageIndex(env, entry, [...fnames, ...onames, ...cols]);
-  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget));
+  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget), specs);
   const groups = prune(entry, specs, ix);
-  const todo = scan.charge(needsOf(groups, onames, fnames));
+  const want = offset + limit + 1;
+  const todo = scan.charge(needsOf(groups, onames, fnames), order.length ? want : 0);
   const found = [];
   const collect = (p) => found.push(matchesOf(scan, p, specs));
   // An order needs its columns for every match, so those are kept; filter columns are not.
   if (order.length) { await scan.read(todo); groups.forEach(collect); } else await scan.stream(groups, todo, collect);
   const matched = found.reduce((n, ms) => n + ms.reduce((a, x) => a + x.n, 0), 0);
-  const want = offset + limit + 1;
   let picks = [];
   if (order.length) {
     // The first offset + limit + 1 matches in order, kept in a heap of that size. Ties fall to
@@ -692,7 +725,7 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
   const fnames = [...new Set(specs.map((s) => s.name))];
   const mnames = metrics.filter((x) => x.field).map((x) => x.field);
   const ix = await pageIndex(env, entry, [...fnames, ...group, ...mnames]);
-  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget));
+  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget), specs);
   const groups = prune(entry, specs, ix);
   const todo = scan.charge(needsOf(groups, [...group, ...mnames], fnames));
   const buckets = new Map();

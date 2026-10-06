@@ -389,3 +389,71 @@ test('sums are compensated as SQLite sums, and like never backtracks', () => {
   assert.equal(glob('a*', ''), false);
   assert.equal(glob('**', ''), true);
 });
+
+test('an ordered page counts offset + limit against the rows it may hold, before any data is read', async () => {
+  const qs = (offset) => new URLSearchParams(`order=speed.desc,lga.asc&select=lga,speed&limit=2&offset=${offset}`);
+  const small = { ...BUDGET, held: 6 };
+  const ok = await parquetRows(env, entry, qs(3), URL_, small);
+  assert.equal(ok.used.held, 6);
+  assert.deepEqual(noRef(ok.rows), noRef((await d1('rows', qs(3).toString(), SLUG3)).rows));
+  await parquetRows(env, entry, qs(0), URL_);
+  reads.length = 0;
+  await assert.rejects(parquetRows(env, entry, qs(4), URL_, small), (e) => {
+    assert.ok(e instanceof BudgetError);
+    assert.match(e.message, /7 ordered rows .*\(6 ordered rows\)/);
+    assert.match(e.message, /page past that with where on the order field/);
+    assert.ok(e.message.endsWith('ORDER BY "speed" DESC NULLS LAST, "lga" ASC NULLS FIRST, "year" ASC NULLS LAST, "lga" ASC NULLS LAST, file_row_number LIMIT 2 OFFSET 4'), e.message);
+    return true;
+  });
+  assert.equal(reads.length, 0);
+  // Without an order, a page is found by counting, so nothing is held.
+  assert.equal((await parquetRows(env, entry, new URLSearchParams('limit=2&offset=30'), URL_, small)).used.held, 0);
+
+  // The review's case: a deep offset into a twenty-million-row file is refused before it is read.
+  const b = fixture('large-profiled.parquet');
+  const big = { DIST: { async get(key, o = {}) {
+    const r = o.range || {}, s = r.suffix !== undefined ? b.length - r.suffix : r.offset, e = r.suffix !== undefined ? b.length : s + r.length;
+    const u = b.subarray(s, e);
+    return { size: b.length, arrayBuffer: async () => u.buffer.slice(u.byteOffset, u.byteOffset + u.length) };
+  } } };
+  const large = await openVersion(big, 'big', '2026-01-01');
+  await assert.rejects(parquetRows(big, large, new URLSearchParams('n=lt.3900000&order=n.desc&offset=3899000&limit=2'), 'u'), (e) => {
+    assert.match(e.message, /3,899,003 ordered rows/);
+    return true;
+  });
+});
+
+test('a like pattern is charged for its length on every value it is matched against', async () => {
+  const used = async (qs) => (await parquetAggregate(env, entry, new URLSearchParams(qs), URL_)).used.values;
+  // A pattern without * matches as plain text and costs what any filter costs.
+  const base = await used('lga=like.Nowhere&year=eq.2019');
+  assert.ok(base > 0);
+  // A three-character pattern counts each lga value twice; a hundred characters, fourteen times.
+  const lga = (await used('lga=like.*o*&year=eq.2019')) - base;
+  assert.ok(lga > 0);
+  const long = '*o'.repeat(50);
+  assert.equal(await used(`lga=like.${long}&year=eq.2019`), base + 13 * lga);
+  await assert.rejects(parquetAggregate(env, entry, new URLSearchParams(`lga=like.${long}`), URL_, { ...BUDGET, values: 100 }), /values/);
+});
+
+test('the internal copy answers only while it matches the published file, and a failed read is not kept', async () => {
+  const V = '2022-02-02';
+  // A copy of another version, or of a different number of rows, is passed over for the published file.
+  put(V, plain);
+  objects.set(`_q/${SLUG}/${V}.parquet`, fixture('large-profiled.parquet'));
+  assert.equal((await openVersion({ DIST }, SLUG, V)).key, `d/${SLUG}/v/${V}/data.parquet`);
+  const W = '2022-03-03';
+  put(W, plain);
+  objects.set(`_q/${SLUG}/${W}.parquet`, Buffer.from('not parquet at all'));
+  assert.equal((await openVersion({ DIST }, SLUG, W)).key, `d/${SLUG}/v/${W}/data.parquet`);
+
+  // A transient R2 failure on the copy fails the call, and the next call reads the copy.
+  const X = '2022-04-04';
+  put(X, plain);
+  putQ(X);
+  let fail = true;
+  const flaky = { DIST: { get: (key, o) => (fail && key.startsWith('_q/') ? Promise.reject(new Error('R2 503')) : DIST.get(key, o)) } };
+  await assert.rejects(openVersion(flaky, SLUG, X), /R2 503/);
+  fail = false;
+  assert.equal((await openVersion(flaky, SLUG, X)).key, `_q/${SLUG}/${X}.parquet`);
+});

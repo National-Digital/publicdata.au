@@ -267,7 +267,9 @@ The MCP server's `query_rows` and `count_rows` answer from D1 for the versions i
 other version, older than the two loaded, over the size limit or in an entry with `query: false`,
 is read from Parquet in R2 (`functions/_parquet.js`) with the same filters. The build writes a
 profile copy of every version, old ones included, at `_q/<slug>/<version>.parquet` in
-`publicdata-dist`, which no route serves, and the engine reads that first. Without one it reads
+`publicdata-dist`, which no route serves, and the engine reads that first when its row count,
+version and source hash match the published file's footer. A failed read of the copy fails the
+call, so the published file never stands in for it by accident. Without a matching copy it reads
 the published `data.parquet`, but only when that file carries the profile's footer key
 `publicdata.profile` (ADR 0008). Otherwise the query is refused with DuckDB SQL that answers it
 from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
@@ -278,8 +280,10 @@ statistics, and page statistics where there is a page index, rule out what canno
 rows that the statistics prove match are counted without being read. The pages left are fetched six at a time, ranges
 less than 256 KB apart read as one, and decoded with hyparquet a few row groups at a time.
 Before any data is read, the pages a query needs are priced from the page index, and a call may
-read 64 row groups, 8 MB, 4 million values and 160 ranges. A query that needs more is refused with
-the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, the
+read 64 row groups, 8 MB, 4 million values and 160 ranges. An ordered page holds every row
+before it, so offset + limit may come to at most 100,000 rows there. Each value a `like` pattern
+with a `*` is matched against counts once more for every eight characters of the pattern. A
+query that needs more is refused with the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, the
 suppressed flags joined by semicolons, and a 64-bit integer as a number while it is exact and as
 its digits beyond that. Sums and averages are compensated as SQLite's are, and `like` is matched
 without backtracking. Rows the statistics prove match are counted and paged by arithmetic, never
