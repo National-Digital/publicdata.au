@@ -6,7 +6,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .. import dumps
+from .. import dumps, profile
 from ..geo import _connect, _with_geometry
 
 _PROJJSON: dict[str, dict] = {}
@@ -46,8 +46,8 @@ def write_shape_parquet(tbl, header: dict, path: Path) -> None:
             "geometry": {"encoding": "WKB", "geometry_types": kinds, "crs": projjson(DATUM)}
         },
     }
-    t = t.replace_schema_metadata({"publicdata": dumps(header), "geo": dumps(geo)})
-    pq.write_table(t, path, compression="zstd", write_statistics=True, row_group_size=65_536)
+    ds = tbl.dataset
+    profile.write(t, header, path, ds.sort, ds.key, ds.lookup, extra={"geo": dumps(geo)})
 
 
 def write_geo_parquet(tbl, header: dict, path: Path) -> None:

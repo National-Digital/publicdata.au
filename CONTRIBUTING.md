@@ -118,8 +118,8 @@ The pipeline package in `pipeline/` is not published, so it makes no versioning 
    `register/<slug>.yaml` with the publisher, licence and attribution from the portal and every
    field typed from a sample of the file, at status `building`.
 3. Finish the entry by hand. Write the title, `search_title`, description and the TODOs the draft
-   left. Keep only the fields that should be published (the allow-list), set `key` and
-   `partition_by` where they apply, and give geometry as Reference below describes. Set
+   left. Keep only the fields that should be published (the allow-list), set `key`,
+   `partition_by` and `sort` where they apply, and give geometry as Reference below describes. Set
    `licence.reviewed` to the day you read the licence.
 4. Label the fields: `python -m publicdata register labels <slug> --write`, then read the drafts.
 5. Fetch and build it locally as Set up shows, and run the gate. The gate prints the page's
@@ -310,6 +310,17 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,
   and the build writes a page per value under `/d/<slug>/in/<value>/`.
+- `sort` lists the fields data.parquet is ordered by, for an entry whose queries mostly filter on
+  fields the publisher's order does not group. The build breaks ties by the `key`, then by the
+  row's place in the source, and writes a page index for the sorted file. Without `sort` the rows
+  keep the publisher's order and the file has no page index, so set `sort` to the field the
+  source is already ordered by when that order serves the main filter. Only data.parquet and the
+  files made from it are sorted. A sort that suits one filter slows another, so give the
+  benchmark or the queries that justify it in the PR. Changing `sort` rebuilds every version of
+  the entry and never cuts a new one.
+- `lookup` lists fields that get a bloom filter in data.parquet, for an equality lookup, such as
+  an identifier, on an entry sorted for another filter. A boolean field cannot be a lookup.
+  Neither field applies to a `kind: database` entry.
 - Each field carries a `label`, the name a reader sees in the explorer. `publicdata register
   labels <slug> --write` fills in any that are missing, reusing the label another entry gives a
   field of the same name and drafting the rest from the name. Review the drafts in the PR.

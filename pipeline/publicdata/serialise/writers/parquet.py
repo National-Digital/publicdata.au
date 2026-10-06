@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
-import pyarrow.parquet as pq
-
 from ...normalise import Table
-from .. import dumps
+from .. import profile
 
 
-def write_parquet(tbl: Table, header: dict, path: Path) -> None:
-    t = tbl.table.replace_schema_metadata({"publicdata": dumps(header)})
-    pq.write_table(t, path, compression="zstd", write_statistics=True, row_group_size=65_536)
+def write_parquet(tbl: Table, header: dict, path: Path, int32: Sequence[str] | None = None) -> None:
+    ds = tbl.dataset
+    profile.write(tbl.table, header, path, ds.sort, ds.key, ds.lookup, int32)

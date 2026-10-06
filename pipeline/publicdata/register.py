@@ -266,6 +266,9 @@ class Dataset:
     collection_title: str = ""
     key: tuple[str, ...] = ()
     partition_by: tuple[str, ...] = ()
+    # The Parquet's row order and its bloom-filtered fields (docs/adr/0008).
+    sort: tuple[str, ...] = ()
+    lookup: tuple[str, ...] = ()
     unpivot: str = ""
     wide: dict | None = None
     geometry: dict | None = None
@@ -484,6 +487,7 @@ def parse(raw: dict, ctx: str) -> Dataset:
         collection_title=str(raw.get("collection_title", "")),
         key=key,
         partition_by=partition_by,
+        **_profile(raw, fields, ctx),
         unpivot=unpivot,
         wide=wide,
         geometry=geometry,
@@ -518,7 +522,17 @@ def parse(raw: dict, ctx: str) -> Dataset:
         **(_database(raw, ctx) if kind == "database" else {}),
     )
     if kind == "database":
-        for k in ("fields", "key", "partition_by", "geometry", "wide", "unpivot", "omit"):
+        for k in (
+            "fields",
+            "key",
+            "partition_by",
+            "sort",
+            "lookup",
+            "geometry",
+            "wide",
+            "unpivot",
+            "omit",
+        ):
             if raw.get(k):
                 raise RegisterError(f"{ctx}: a database has no top-level {k}; it goes on a table")
         # A database's cells are typed by DuckDB with no suppressed flag, so a release that
@@ -621,6 +635,27 @@ def parse(raw: dict, ctx: str) -> Dataset:
     if ds.status == "blocked" and not ds.blocked_reason:
         raise RegisterError(f"{ctx}: blocked needs blocked_reason")
     return ds
+
+
+def _profile(raw: dict, fields: list[Field], ctx: str) -> dict:
+    """`sort` and `lookup`: declared fields, each named once. A boolean has two values, which a
+    bloom filter cannot tell apart."""
+    by = {f.name: f for f in fields}
+    out = {}
+    for name in ("sort", "lookup"):
+        val = raw.get(name) or []
+        if not isinstance(val, list):
+            raise RegisterError(f"{ctx}: {name} is a list of fields")
+        names = tuple(str(v) for v in val)
+        if len(set(names)) < len(names):
+            raise RegisterError(f"{ctx}: {name} names a field twice")
+        for n in names:
+            if n not in by:
+                raise RegisterError(f"{ctx}: {name} field '{n}' is not a declared field")
+            if name == "lookup" and by[n].type == "boolean":
+                raise RegisterError(f"{ctx}: lookup field '{n}' is a boolean")
+        out[name] = names
+    return out
 
 
 def _fields(raw: list, ctx: str) -> list[Field]:

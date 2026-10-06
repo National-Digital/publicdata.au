@@ -128,6 +128,38 @@ the build, with nothing written by hand:
   `HERO_MAP` and hatches each state none of them covers, so a state with no published data
   never reads as a state with no crashes.
 
+## Parquet profile
+
+Every Parquet file the build writes follows one profile (`serialise/profile.py`, ADR 0008), and
+says so in its footer: the key `publicdata.profile` holds the profile version, now `1`, beside the
+`publicdata` provenance key. A reader checks that key before it relies on the order, the sizes or
+the page index.
+
+- Order. Without `sort:` the rows keep the publisher's order. With it, the rows are sorted by the
+  `sort:` fields, then the `key`, then each row's position in the source, so the order is
+  complete and two builds agree byte for byte. Nulls sort last. DuckDB works out the order,
+  since it spills to disk. A sorted file records `sorting_columns` (the sort fields, then the
+  key) in every row group.
+- Scope. The sort applies to data.parquet and to what is made from it: data.duckdb, the history
+  archive and a layer's GeoParquet. JSON, NDJSON, CSV, Excel, SQLite, Arrow, the partition files
+  and the publisher's file keep the source order. The figures, the query console and the D1 load
+  read the Parquet, so they see its order.
+- Lookups. Each `lookup:` field gets a bloom filter in every row group, sized from its distinct
+  values with a 1% false-positive rate, so an equality lookup can skip row groups when the sort
+  serves another filter.
+- Types. A 64-bit integer column whose values all fit 32 bits is written as INT32. The build reads
+  such a column back as 64 bits (`profile.widen`), so a diff or a format written from the Parquet
+  sees the types normalise made.
+- Encoding. zstd, dictionary encoding and statistics on every column. The page index (column and
+  offset indexes) is written on sorted files only, since on an unsorted file it saves no work
+  and multiplies the reads.
+- Sizes. 500,000 rows to a row group and 10,000 rows to a page, set by the October 2026 follow-up
+  benchmark. The tables of a `kind: database` release follow the same profile without a sort.
+
+`rows_sha256` hashes each row and sorts the hashes, so a new `sort:` never cuts a new version.
+data.geo.parquet, the GIS download for a table with coordinates, is written by DuckDB's spatial
+extension and is outside the profile.
+
 A register entry with `kind: database` is a publisher's release of several related tables, such
 as G-NAF: an archive of delimited files, which `database.member_match` groups into tables by a
 named pattern, each table with its own field allow-list, key and `references` (table.field), and
@@ -154,8 +186,9 @@ because the explorer holds the whole file in the browser.
 data.parquet, loads it into an in-memory table and draws a Perspective workspace over it:
 panels, drag layout, master and detail cross-filtering, chart types, and export of any panel as
 CSV, JSON, Arrow or PNG. Every chart is a DuckDB query in the browser, so the explorer puts no
-load on the query API and has no rate limit. Integer fields that fit 32 bits are cast back from
-BIGINT so Perspective shows them as integers.
+load on the query API and has no rate limit. Integer fields that fit 32 bits are written as INT32
+under the Parquet profile; the explorer still casts them to INTEGER, which leaves a profile file
+unchanged and keeps an older file's BIGINT columns showing as integers in Perspective.
 
 The whole dashboard is the URL fragment: the workspace JSON, deflated and base64url-encoded, plus
 the version when it is not the newest. "Save a short link" posts it to `/api/v1/views`, which
@@ -225,15 +258,20 @@ the gate counts them as present, and `dist-push --expect` stops the deploy if R2
 them. The Parquet a diff, the history archive or a page reads is read back from
 `publicdata-dist` when needed (`build --published`). The build never reads a data.sqlite: its
 figures, query console and D1 load query the Parquet through DuckDB (`records.connect`), as a
-view shaped like the SQLite file's records table, with SQLite's float sums, tie order, NaN read
-as null and parameters compared as SQLite's column affinity would (`Records.param`), so
-the pages come out byte for byte as they did from SQLite. The cache key splits in two: everything the build imports except
+view shaped like the SQLite file's records table, with SQLite's tie order, NaN read as null and
+parameters compared as SQLite's column affinity would (`Records.param`). Its rowid is the row's
+place in the Parquet, and floats are summed in that order as SQLite sums them, so the pages come
+out as they did from SQLite for an entry in the publisher's order; for a sorted entry the order is
+the sorted one, and a float total can differ from data.sqlite's in its last digit. The cache key splits in two: everything the build imports except
 the format writers (`cache.environment_key`) names the entry, and each writer under
 `serialise/writers/` has a key of its own (`cache.writer_key`), recorded in the entry per format.
 A writer added or changed does not invalidate an entry: the build reads the version's rows back
 from the cached Parquet, the way the diff does, writes only the files whose writer the entry has
-not seen, and records them. A changed Parquet writer, or a change to the JSON and GeoJSON
-writers that also make the partition files, rebuilds the version from its source. The
+not seen, and records them. A sorted version's Parquet no longer holds the source order, so its
+cache entry keeps that order beside the record (`order.parquet`), and the build puts the rows back
+in it before it writes a format that keeps the publisher's order; an entry without it is built
+again. A changed Parquet writer, a change to the Parquet profile, or a change to the JSON and
+GeoJSON writers that also make the partition files, rebuilds the version from its source. The
 determinism job proves this by building the fixtures with a subset of formats into a cache and
 then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, each entry's record after its files,
 and the last push of a deploy to main notes the entries its build pruned in `_build/.unused.json`.
@@ -258,8 +296,8 @@ Everything the site answers dynamically is under `/api/v1/`. `/api/v1/datasets/<
 `/aggregate` answer from D1 for the newest loaded version, the same under
 `/api/v1/datasets/<slug>/versions/<date>/` for a dated version, and `/api/v1/datasets/<slug>/versions`
 lists what is loaded; `/api/v1/datasets?q=` searches the datasets served here, votes are `/api/v1/votes`, the catalogue search `/api/v1/catalogue` and requests `/api/v1/requests`. The deploy loads the latest
-version of each live dataset from that version's own data.parquet, typed as its data.sqlite
-(`publicdata d1 sql`), one table
+version of each live dataset from that version's own data.parquet, typed as its data.sqlite and
+in the Parquet's row order (`publicdata d1 sql`), one table
 per version with indexes on the key and partition fields, and records it in `_versions` with its
 field list, licence and attribution. At most two versions per dataset are loaded; every version
 stays available as files. A version whose data.sqlite is over 500 MB, or a dataset whose entry sets

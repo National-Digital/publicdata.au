@@ -9,9 +9,11 @@ import re
 import shutil
 import tarfile
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import zstandard
 
@@ -33,6 +35,7 @@ from .serialise import (
     write_partitions,
 )
 from .serialise.geo import geo_kind
+from .serialise.profile import permutation, widen
 
 REGISTER_DIR = Path(__file__).resolve().parents[2] / "register"
 
@@ -493,6 +496,10 @@ def grow_cached(
         return prov_header(ds, m, rows, base + rel)
 
     tbl = _built_table(ds, m, out)
+    if ds.sort:
+        tbl = _source_order(tbl, cache, key)
+        if tbl is None:
+            return None
     if "csv.gz" in stale and "csv" not in stale and not (vdir / "data.csv").exists():
         stale = ["csv", *stale]  # the gzip reads the CSV, written here and not kept
     for p in [vdir / f"data.{f}" for f in stale]:
@@ -521,6 +528,8 @@ def grow_cached(
     if "ndjson" in stale:
         meta["first"] = _first_row(vdir)  # the dataset page shows it
     cache.put(key, meta, vdir, kept)
+    if ds.sort:
+        _keep_order(cache, key, tbl)
     cache.grown += len(stale)
     return meta
 
@@ -554,7 +563,33 @@ def _cached_version(
             else {f: now[f] for f in formats_for(vout.rows, geo_kind(ds))}
         )
         cache.put(key, _meta(vout, writers), vdir, kept)
+        if tbl is not None and ds.sort:
+            _keep_order(cache, key, tbl)
     return tbl, vout
+
+
+# A sorted version's source order, beside its cache entry, so a format that keeps the publisher's
+# order can be written from the sorted Parquet without building the version again.
+ORDER = "order.parquet"
+
+
+def _keep_order(cache: BuildCache, key: str, tbl: Table) -> None:
+    perm = permutation(tbl.table, tbl.dataset.sort, tbl.dataset.key)
+    pq.write_table(pa.table({"source_row": perm}), cache.root / key / ORDER, compression="zstd")
+
+
+def _source_order(tbl: Table, cache: BuildCache, key: str) -> Table | None:
+    """A table read back from its sorted Parquet, in the publisher's order again, or None when
+    the cache entry does not record that order."""
+    p = cache.root / key / ORDER
+    if not p.is_file():
+        return None
+    perm = pq.read_table(p).column("source_row")
+    if len(perm) != tbl.rows:
+        return None
+    back = pc.sort_indices(perm)
+    geometry = tbl.geometry.take(back) if tbl.geometry is not None else None
+    return replace(tbl, table=tbl.table.take(back), geometry=geometry)
 
 
 def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:
@@ -591,7 +626,7 @@ def _built_table(ds: Dataset, m: store.Manifest, out: Path) -> Table:
     return Table(
         dataset=ds,
         manifest=m,
-        table=t.replace_schema_metadata(None),
+        table=widen(t.replace_schema_metadata(None)),
         geometry=geometry,
         places=places,
     )
