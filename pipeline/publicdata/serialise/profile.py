@@ -1,5 +1,7 @@
-"""The Parquet profile (docs/adr/0008-parquet-is-the-base-format.md). It lives outside writers/ so
-the build cache keys every version on it: a change here rebuilds every version.
+"""The Parquet profile (docs/adr/0008-parquet-is-the-base-format.md). It lives outside writers/, so
+it is build code that no cache key reads: a change here that alters a version's data.parquet or
+its query copy raises a rebuild number, and the real-data check (`publicdata verify`) compares
+both.
 
 A published file never changes (ADR 0002), so a version's data.parquet follows the layout its
 manifest records from the fetch that made it (`Manifest.parquet`), and a version fetched before

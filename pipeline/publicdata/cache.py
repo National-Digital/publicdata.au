@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -18,7 +19,16 @@ PACKAGE = Path(__file__).resolve().parent
 # Raised in a reviewed change whose edit to the build code changes the bytes of versions across
 # datasets; it rebuilds every version. A register entry's `rebuild` does the same for one dataset.
 REBUILD = 1
-LIBRARIES = ("pyarrow", "xlsxwriter", "openpyxl", "zstandard", "pyyaml", "duckdb")
+LIBRARIES = (
+    "pyarrow",
+    "xlsxwriter",
+    "openpyxl",
+    "xlrd",
+    "zstandard",
+    "pyyaml",
+    "duckdb",
+    "pmtiles",
+)
 # One module per format. A version's rows are shaped by everything else the build imports, so a
 # writer added or changed rewrites only its own file in a cached version; the JSON and GeoJSON
 # writers also make the partition files, so they shape the version and stay in the rows key.
@@ -91,6 +101,22 @@ def code_files() -> list[Path]:
     return sorted(seen)
 
 
+@functools.cache
+def spatial_version() -> str:
+    """The installed DuckDB spatial extension, which joins the spine and draws the shapes."""
+    import duckdb
+
+    con = duckdb.connect()
+    try:
+        row = con.execute(
+            "SELECT extension_version FROM duckdb_extensions() "
+            "WHERE extension_name = 'spatial' AND installed"
+        ).fetchone()
+    finally:
+        con.close()
+    return row[0] if row and row[0] else "none"
+
+
 def _runtime(h) -> None:
     h.update(sys.version.encode() + sqlite3.sqlite_version.encode())
     for lib in LIBRARIES:
@@ -99,8 +125,8 @@ def _runtime(h) -> None:
 
 def environment_key() -> str:
     """What every version's key shares: the global rebuild number, the writers that also make
-    the partition files, and the runtime and libraries."""
-    h = hashlib.sha256(f"rebuild={REBUILD}\0".encode())
+    the partition files, and the runtime, libraries and spatial extension."""
+    h = hashlib.sha256(f"rebuild={REBUILD}\0spatial={spatial_version()}\0".encode())
     for w in ROW_WRITERS:
         p = _writers_dir() / f"{w}.py"
         h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
@@ -142,29 +168,57 @@ def digest(p: Path) -> str:
     return h.hexdigest()
 
 
-def digests(root: Path, only=None) -> dict[str, str]:
+def digests(root: Path, only=None, databases: bool = True) -> dict[str, str]:
     """The SHA-256 of each file under root, or of those named in only. A DuckDB file's bytes
-    differ from one write to the next, so it has none."""
+    differ from one write to the next, so it gets a digest of its tables, rows and comments
+    instead, or none when databases is False, as for a database release of many gigabytes."""
+    from .serialise import duckdb_digest
+
     rels = (
         only
         if only is not None
         else [p.relative_to(root).as_posix() for p in sorted(root.rglob("*")) if p.is_file()]
     )
-    return {
-        rel: digest(root / rel)
-        for rel in sorted(rels)
-        if Path(rel).name != "data.duckdb" and (root / rel).is_file()
-    }
+    out = {}
+    for rel in sorted(rels):
+        p = root / rel
+        if not p.is_file():
+            continue
+        if p.name != "data.duckdb":
+            out[rel] = digest(p)
+        elif databases:
+            out[rel] = "duckdb:" + duckdb_digest(p)
+    return out
+
+
+def writer_files(fmt: str) -> list[Path]:
+    """The writer modules one format's file comes from: those its entry in WRITERS calls, as a
+    shape layer's Parquet calls the GeoParquet writer, those of the formats it derives its file
+    from, and the writer modules each of them imports."""
+    from .serialise import WRITER_DEPENDS, WRITERS
+
+    todo = set()
+    for f in (fmt, *WRITER_DEPENDS.get(fmt, ())):
+        fn = WRITERS[f]
+        for name in fn.__code__.co_names:
+            obj = fn.__globals__.get(name)
+            mod = sys.modules.get(getattr(obj, "__module__", "") or "")
+            if mod is not None and getattr(mod, "__file__", None):
+                p = Path(mod.__file__).resolve()
+                if _is_writer(p):
+                    todo.add(p)
+    seen: set[Path] = set()
+    while todo:
+        p = todo.pop()
+        seen.add(p)
+        todo |= {q for q in _imports(p) if _is_writer(q)} - seen
+    return sorted(seen)
 
 
 def writer_key(fmt: str) -> str:
-    """What shapes one format's file beyond the rows: its writer's module, the modules of the
-    formats it derives its file from, and the libraries."""
-    from .serialise import WRITER_DEPENDS, WRITER_MODULES
-
+    """What shapes one format's file beyond the rows: its writer modules and the libraries."""
     h = hashlib.sha256()
-    for f in (fmt, *WRITER_DEPENDS.get(fmt, ())):
-        p = _writers_dir() / f"{WRITER_MODULES[f]}.py"
+    for p in writer_files(fmt):
         h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
     _runtime(h)
     return h.hexdigest()

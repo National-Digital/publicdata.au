@@ -30,7 +30,8 @@
   changes any published file raises `rebuild:` in the register entry of each dataset it affects,
   or `REBUILD` in `pipeline/publicdata/cache.py` when it reaches across datasets. The deploy's
   real-data check (`publicdata verify`) fails a change that alters a reused version without one.
-  A format writer change needs no number.
+  A format writer change needs no number. Changing the default of an existing register field
+  needs `REBUILD`, and so does a change the check finds in more than one dataset.
 - This is an archive. Versions are never deleted or rewritten; a withdrawn source keeps its
   version. Portal history is backfilled as versions marked `backfilled`.
 - Every payload carries provenance: publisher, licence, attribution, source URL, fetched-at

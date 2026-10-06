@@ -657,6 +657,15 @@ def cmd_verify(args) -> int:
         changed = []
         if args.changed:
             changed = Path(args.changed).read_text(encoding="utf-8").splitlines()
+        if args.before and (moved := verify.changed_defaults(Path(args.before))):
+            for k in moved:
+                print(
+                    f"::error::the default of {k} changed. A version's key leaves out every "
+                    "field at its default, so raise REBUILD in pipeline/publicdata/cache.py "
+                    "in the same change.",
+                    file=sys.stderr,
+                )
+            return 1
         mods = verify.unkeyed(changed)
         if not mods:
             print("verify: no change to the build code outside the keys", file=sys.stderr)
@@ -864,6 +873,9 @@ def main(argv=None) -> int:
     vf.add_argument("--published", default="", help="run: the published tree, or r2://<bucket>")
     vf.add_argument("--changed", help="plan: a file listing the changed paths, one per line")
     vf.add_argument("--seed", default="", help="plan: picks the datasets beyond one per stratum")
+    vf.add_argument(
+        "--before", help="plan: a folder with the base's register.py and cache.py, to compare"
+    )
     vf.add_argument("--budget-mb", type=int, help="plan: source megabytes to build (300)")
     vf.add_argument("--cap-mb", type=int, help="plan: the largest dataset taken, in MB (60)")
     vf.set_defaults(fn=cmd_verify)

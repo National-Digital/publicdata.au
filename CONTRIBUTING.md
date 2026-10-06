@@ -202,8 +202,9 @@ deterministic bytes out, with no network, clock or randomness.
 ## Change the build code
 
 A deploy reuses every version it has built before while the version's inputs are the same: its
-source, its register entry, its manifest, the JSON and GeoJSON writers, the Python and library
-versions, and two rebuild numbers. The rest of the build code under `pipeline/publicdata/` is not
+source, its register entry, its manifest, the register entries of the spine layers it joins, the
+JSON and GeoJSON writers, the Python, library and DuckDB spatial extension versions, and two
+rebuild numbers. The rest of the build code under `pipeline/publicdata/` is not
 in that key, so an edit to `normalise.py`, `build.py` or any other module the build imports leaves
 every published version as it was.
 
@@ -213,11 +214,17 @@ every published version as it was.
   cannot list. Say in the pull request which number you raised and why.
 - A change to a format writer under `serialise/writers/` needs no number. Each writer has a key of
   its own, and the deploy writes that format again into every version.
+- Changing the default of an existing register field needs `REBUILD`, since a version's key leaves
+  out every field at its default. The deploy's plan fails such a change without it. Adding a new
+  field with a default needs no number.
 - The deploy checks every change to the build code against real data (`publicdata verify`). It
   builds a sample of stored datasets from their sources, at least one of each adapter and shape
-  that fits its budget, and compares each version, diff and history archive a deploy would reuse
-  with what was built before. A difference fails the deploy and names the dataset, the version and
-  the file, and the fix is to raise the number it names. To check datasets beyond the sample,
+  that fits its budget, and compares each version, its query copy, diff and history archive a
+  deploy would reuse with what was built before. A difference fails the deploy and names the
+  dataset, the version and the file. When more than one sampled dataset differs, raise `REBUILD`:
+  the sample is a part of the store, and raising only the entries it names leaves the rest
+  reused with their old files. A push to main is checked against the last release, so a change
+  is checked again until a deploy passes. To check datasets beyond the sample,
   pull their sources and cache entries from R2 and run
   `python -m publicdata verify run <slug>... --cache <cache> --published r2://publicdata-dist`.
 - A raised number builds the dataset's versions, diffs and history again, so the pages and the

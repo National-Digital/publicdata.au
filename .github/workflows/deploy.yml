@@ -43,12 +43,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2 # the commit before, which the real-data check compares the code with
+          fetch-depth: 0 # the last release tag, which the real-data check compares the code with
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-      # The same install as the build, since the libraries are part of every cache key.
+      # The same install as the build, since the libraries and the spatial extension are part of
+      # every cache key.
       - run: pip install -e './pipeline[deploy]'
+      - run: python -m publicdata spine install
       # The build cache lives in R2; a plan reads each entry's record alone. This job has no
       # /mnt/work, which only the build runner creates.
       - name: Pull the build cache's records
@@ -69,20 +71,33 @@ jobs:
           fi
           echo "shards=$(python -m publicdata shards --store store ${CACHE:+--cache "$CACHE"})" >> "$GITHUB_OUTPUT"
       # A version's key leaves the build code out, so a change to that code is checked against a
-      # sample of real versions before a deploy reuses them. A push compares with the commit
-      # main was at before it.
+      # sample of real versions before a deploy reuses them. A pull request compares with its
+      # base. A push compares with the last release tag, which only a deploy that passed the
+      # check cuts, so a change whose deploy failed or was cancelled while it waited is checked
+      # again by the next push.
       - name: Choose the versions the code change is checked against
         id: verify
         if: env.HAS_CF == 'true' && github.event_name != 'workflow_dispatch'
         env:
+          EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           base=HEAD^1
-          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            git fetch --quiet --depth=1 origin "$BEFORE" && base="$BEFORE"
+          if [ "$EVENT" = "push" ]; then
+            tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+            if [ -n "$tag" ]; then
+              base="$tag"
+            elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              base="$BEFORE"
+            fi
           fi
+          echo "Real-data check: the code is compared with $base ($(git rev-parse --short "$base"))" >> "$GITHUB_STEP_SUMMARY"
           git diff --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
-          slugs=$(python -m publicdata verify plan --store store --seed "$GITHUB_SHA" --changed "$RUNNER_TEMP/changed.txt")
+          mkdir -p "$RUNNER_TEMP/before"
+          for f in register.py cache.py; do
+            git show "$base:pipeline/publicdata/$f" > "$RUNNER_TEMP/before/$f" 2>/dev/null || rm -f "$RUNNER_TEMP/before/$f"
+          done
+          slugs=$(python -m publicdata verify plan --store store --seed "$GITHUB_SHA" --changed "$RUNNER_TEMP/changed.txt" --before "$RUNNER_TEMP/before")
           echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
 
   # Builds the sample from its sources with this code and compares every version, diff and
