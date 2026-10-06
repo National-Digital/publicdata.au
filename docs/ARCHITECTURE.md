@@ -288,6 +288,13 @@ float's NaN as null, as `data.sqlite` holds it, and totals floats with compensat
 the same Parquet always gives the same rollup. A version whose totals include an infinity has no
 JSON form and is left to D1.
 
+A published version keeps the schema it was built with, so a rollup takes its fields from the
+version. They are the fields `_versions` lists for it, or the register's when D1 lists none, kept
+only where the Parquet has the column and typed by the column when the stated type does not fit
+it. A version that fails for any other reason, such as a download error, is logged as a warning
+and skipped. Its rollup stays when it was built from the bytes R2 still publishes, the other
+versions are written and pushed, and the next deploy tries it again.
+
 A version gets a rollup when its table has at least 5,000 rows and its entry does not set
 `query: false`; a smaller table is answered at once by any engine. The candidate cubes are the
 field sets the entry's `example` and `chart` ask about, each field readers count by (at most

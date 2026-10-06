@@ -324,7 +324,7 @@ jobs:
           REPLACE: ${{ github.event.inputs.replace }}
         run: |
           npx --yes wrangler@4 d1 execute publicdata --remote --json \
-            --command "SELECT slug, version, rows FROM _versions" > held.json
+            --command "SELECT slug, version, rows, fields FROM _versions" > held.json
           python -m publicdata rollup --loaded held.json --root "$DIST" --root "$DIST_LARGE" --out rollups ${REPLACE:+--replace $REPLACE}
       - name: Comment the preview URL
         if: env.HAS_CF == 'true' && github.event_name == 'pull_request'

@@ -381,17 +381,24 @@ def cmd_rollup(args) -> int:
 
     from .r2 import client
     from .register import load
-    from .rollup import R2Store, held, write
+    from .rollup import R2Store, held, held_fields, write
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
         print(f"rollup: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
-    loaded = held(_d1_rows(json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")))
+    rows = _d1_rows(json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]"))
+    loaded = held(rows)
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
     store = R2Store(client(), args.bucket)
     written, keep = write(
-        live, loaded, store, Path(args.out), [Path(r) for r in args.root], args.replace
+        live,
+        loaded,
+        store,
+        Path(args.out),
+        [Path(r) for r in args.root],
+        args.replace,
+        fields=held_fields(rows),
     )
     stale = sorted(store.keys() - keep)
     print(f"rollup: {len(written)} written, {len(keep) - len(written)} current, {len(stale)} stale")
@@ -733,7 +740,7 @@ def main(argv=None) -> int:
     d1l.set_defaults(fn=cmd_d1_load)
     ro = sub.add_parser("rollup", help="write, push and prune the rollups of the versions D1 holds")
     ro.add_argument(
-        "--loaded", required=True, help="D1's _versions rows (slug, version, rows) as JSON"
+        "--loaded", required=True, help="D1's _versions rows (slug, version, rows, fields) as JSON"
     )
     ro.add_argument(
         "--root", action="append", default=[], help="a built tree to read Parquet from first"

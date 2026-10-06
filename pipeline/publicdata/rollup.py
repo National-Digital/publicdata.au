@@ -25,6 +25,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Protocol
 
 FORMAT = "publicdata-rollup/2"
@@ -367,6 +368,66 @@ def held(rows: Iterable[dict]) -> dict[str, dict[str, int]]:
     return out
 
 
+def held_fields(rows: Iterable[dict]) -> dict[tuple[str, str], list[dict]]:
+    """The field list D1 validates each version's queries against, from its `_versions` rows."""
+    out = {}
+    for r in rows:
+        f = r.get("fields")
+        if f:
+            out[(r["slug"], r["version"])] = json.loads(f) if isinstance(f, str) else f
+    return out
+
+
+@dataclass(frozen=True)
+class VField:
+    name: str
+    type: str
+
+
+# The register types a Parquet column of each DuckDB type can hold, the first being the one a
+# column takes when its stated type does not fit it.
+_FITS = {
+    "VARCHAR": ("string", "date", "datetime"),
+    "BOOLEAN": ("boolean",),
+    "DATE": ("date",),
+    "DOUBLE": ("number",),
+    "FLOAT": ("number",),
+}
+_INTS = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "UTINYINT", "USMALLINT")
+_INTS += ("UINTEGER", "UBIGINT")
+
+
+def _fits(duck: str) -> tuple[str, ...]:
+    if duck in _INTS:
+        return ("integer", "number")
+    if duck.startswith("DECIMAL"):
+        return ("number",)
+    if duck.startswith("TIMESTAMP"):
+        return ("datetime",)
+    return _FITS.get(duck, ())
+
+
+def version_fields(stated: Iterable, columns: dict[str, str]) -> tuple[VField, ...]:
+    """A version's own fields: those stated (by D1, else the register) that its Parquet holds,
+    each typed as stated when the column can hold that type and by the column otherwise. A
+    published version keeps the schema it was built with whatever the register says now."""
+    out = []
+    for f in stated:
+        name, typ = (f["name"], f["type"]) if isinstance(f, dict) else (f.name, f.type)
+        fits = _fits(columns.get(name, ""))
+        if fits:
+            out.append(VField(name, typ if typ in fits else fits[0]))
+    return tuple(out)
+
+
+def _as_version(ds, fields: tuple[VField, ...]):
+    return SimpleNamespace(slug=ds.slug, example=ds.example, chart=ds.chart, fields=fields)
+
+
+def parquet_columns(run: Run) -> dict[str, str]:
+    return {n: t for n, t, *_ in run("DESCRIBE SELECT * FROM records")}
+
+
 @dataclass(frozen=True)
 class Written:
     path: Path
@@ -390,12 +451,13 @@ def write(
     roots: Sequence[Path] = (),
     replace: Sequence[str] = (),
     log=print,
+    fields: dict[tuple[str, str], list[dict]] | None = None,
 ) -> tuple[list[Written], set[str]]:
     """A rollup for every version D1 holds whose stored rollup was not built from the Parquet R2
     now publishes, or which a replace names. Returns what was written and every rollup key that
     should stay, so the caller can delete the rest. A version's Parquet comes from a built tree
     when one holds the same bytes, and otherwise from R2, which backfills a version this deploy
-    did not build."""
+    did not build. A version that fails is logged and skipped, so it holds back no other."""
     written: list[Written] = []
     keep: set[str] = set()
     for ds in datasets:
@@ -405,35 +467,32 @@ def write(
             if rows < MIN_ROWS:
                 continue
             k = key(ds.slug, version)
-            ident = store.parquet(ds.slug, version)
-            if ident is None:
-                log(f"rollup: {ds.slug}@{version} has no Parquet in R2, so it has no rollup")
-                continue
-            forced = f"d/{ds.slug}/v/{version}/".startswith(tuple(replace)) if replace else False
-            if not forced and store.stamp(k) == ident:
-                keep.add(k)
-                continue
-            with tempfile.TemporaryDirectory() as tmp:
-                src = _local(roots, ds.slug, version, ident)
-                if src is None:
-                    src = Path(tmp) / "data.parquet"
-                    store.fetch(ds.slug, version, src)
-                run, con = parquet_run(src)
-                try:
-                    n = int(run("SELECT COUNT(*) FROM records")[0][0])
-                    header = parquet_header(src)
-                    p, body = make(ds, run, n, header, ds.slug, version)
-                    # A version no cube fits still gets a rollup, so the next deploy does not
-                    # read its Parquet again; the function finds no cube and asks D1.
-                    if p is None:
-                        p = Plan((), (), ())
-                        body = build(ds, run, p, header, ds.slug, version)
-                except ValueError as e:
-                    # An infinite total has no JSON form; D1 answers this version instead.
-                    log(f"rollup: {ds.slug}@{version} has no rollup: {e}")
+            current = False
+            try:
+                ident = store.parquet(ds.slug, version)
+                if ident is None:
+                    log(f"rollup: {ds.slug}@{version} has no Parquet in R2, so it has no rollup")
                     continue
-                finally:
-                    con.close()
+                current = store.stamp(k) == ident
+                forced = (
+                    f"d/{ds.slug}/v/{version}/".startswith(tuple(replace)) if replace else False
+                )
+                if current and not forced:
+                    keep.add(k)
+                    continue
+                stated = (fields or {}).get((ds.slug, version)) or ds.fields
+                got = _one(ds, version, stated, store, roots, ident, log)
+            except Exception as e:
+                # A rollup still built from the published bytes stays; the next deploy tries again.
+                log(
+                    f"::warning::rollup: {ds.slug}@{version} failed, so it keeps no new rollup: {e!r}"
+                )
+                if current:
+                    keep.add(k)
+                continue
+            if got is None:
+                continue
+            p, body = got
             dest = out / k
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(body)
@@ -443,6 +502,32 @@ def write(
                 f"rollup: {ds.slug}@{version} {len(p.cubes)} cubes, {sum(p.groups)} groups, {len(body)} bytes"
             )
     return written, keep
+
+
+def _one(ds, version, stated, store: Store, roots, ident: str, log):
+    with tempfile.TemporaryDirectory() as tmp:
+        src = _local(roots, ds.slug, version, ident)
+        if src is None:
+            src = Path(tmp) / "data.parquet"
+            store.fetch(ds.slug, version, src)
+        run, con = parquet_run(src)
+        try:
+            vds = _as_version(ds, version_fields(stated, parquet_columns(run)))
+            n = int(run("SELECT COUNT(*) FROM records")[0][0])
+            header = parquet_header(src)
+            p, body = make(vds, run, n, header, ds.slug, version)
+            # A version no cube fits still gets a rollup, so the next deploy does not read its
+            # Parquet again; the function finds no cube and asks D1.
+            if p is None:
+                p = Plan((), (), ())
+                body = build(vds, run, p, header, ds.slug, version)
+        except ValueError as e:
+            # An infinite total has no JSON form; D1 answers this version instead.
+            log(f"rollup: {ds.slug}@{version} has no rollup: {e}")
+            return None
+        finally:
+            con.close()
+    return p, body
 
 
 class R2Store:

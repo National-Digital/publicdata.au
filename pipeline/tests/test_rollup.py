@@ -227,6 +227,87 @@ def test_write_gives_a_version_no_cube_fits_an_empty_rollup(tmp_path):
     assert json.loads(gzip.decompress(got[0].path.read_bytes()))["cubes"] == []
 
 
+def test_write_builds_each_version_from_its_own_schema(tmp_path):
+    # D1 holds a version built before the register added a field and retyped another.
+    fields, rows = _wide()
+    store = FakeStore(_versions(tmp_path, fields, rows, ("2026-01-01",)))
+    now = [
+        *({**f, "type": "integer"} if f["name"] == "kind" else f for f in fields),
+        {"name": "added", "type": "string"},
+    ]
+    held = {"t": {"2026-01-01": len(rows)}}
+    got, _ = rollup.write([_ds(now)], held, store, tmp_path / "a", log=lambda *_: None)
+    obj = json.loads(gzip.decompress(got[0].path.read_bytes()))
+    assert obj["fields"] == fields
+    assert any("kind" in c["dims"] for c in obj["cubes"])
+    # The field list D1 validates the version's queries against wins over the register.
+    stated = [{"name": "region", "type": "string"}, {"name": "n", "type": "number"}]
+    got, _ = rollup.write(
+        [_ds(now)],
+        held,
+        store,
+        tmp_path / "b",
+        log=lambda *_: None,
+        fields={("t", "2026-01-01"): stated},
+    )
+    obj = json.loads(gzip.decompress(got[0].path.read_bytes()))
+    assert obj["fields"] == stated
+    assert {d for c in obj["cubes"] for d in c["dims"]} <= {"region", "n"}
+
+
+def test_version_fields_type_a_column_by_what_it_holds():
+    cols = {"a": "VARCHAR", "b": "BIGINT", "c": "DOUBLE", "d": "DATE", "e": "STRUCT(x INTEGER)"}
+    stated = [
+        {"name": "a", "type": "integer"},
+        {"name": "b", "type": "number"},
+        {"name": "c", "type": "integer"},
+        {"name": "d", "type": "date"},
+        {"name": "e", "type": "string"},
+        {"name": "f", "type": "string"},
+    ]
+    assert [(f.name, f.type) for f in rollup.version_fields(stated, cols)] == [
+        ("a", "string"),
+        ("b", "number"),
+        ("c", "number"),
+        ("d", "date"),
+    ]
+
+
+def test_write_skips_a_version_that_fails_and_writes_the_rest(tmp_path):
+    fields, rows = _wide()
+    pq = _versions(tmp_path, fields, rows)
+
+    class Flaky(FakeStore):
+        def fetch(self, slug, version, dest):
+            if version == "2026-01-01":
+                raise OSError("connection reset")
+            super().fetch(slug, version, dest)
+
+    store = Flaky(pq)
+    held = {"t": {"2026-01-01": len(rows), "2026-02-01": len(rows)}}
+    logs = []
+    got, keep = rollup.write([_ds(fields)], held, store, tmp_path / "a", log=logs.append)
+    assert [w.key for w in got] == ["_rollup/t/2026-02-01.json.gz"]
+    assert keep == {"_rollup/t/2026-02-01.json.gz"}
+    assert any("2026-01-01 failed" in m for m in logs)
+    # A replace that fails keeps the rollup still built from the published bytes.
+    k = rollup.key("t", "2026-01-01")
+    store.stamps = {k: rollup.file_identity(pq[("t", "2026-01-01")])}
+    got, keep = rollup.write(
+        [_ds(fields)], held, store, tmp_path / "b", replace=["d/t/"], log=lambda *_: None
+    )
+    assert k in keep and k not in {w.key for w in got}
+
+
+def test_held_fields_reads_d1_rows():
+    f = [{"name": "a", "type": "string"}]
+    rows = [
+        {"slug": "t", "version": "2026-01-01", "fields": json.dumps(f)},
+        {"slug": "t", "version": "2026-02-01"},
+    ]
+    assert rollup.held_fields(rows) == {("t", "2026-01-01"): f}
+
+
 def _floats(n=8_000, nan=float("nan")):
     fields = [{"name": "kind", "type": "string"}, {"name": "x", "type": "number"}]
     rows = [(f"k{i % 4}", nan if i % 97 == 0 else 0.1 * (i % 13) + 1e-7 * i) for i in range(n)]
