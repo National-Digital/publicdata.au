@@ -372,6 +372,22 @@ def cmd_d1_load(args) -> int:
     return 1 if failed else 0
 
 
+def cmd_rollup(args) -> int:
+    """Write the rollup of every built version R2 does not hold yet, then push them."""
+    from .r2 import _etags, client, push
+    from .register import load
+    from .rollup import PREFIX, write
+
+    live = [d for d in load(REGISTER) if d.status in ("live", "building")]
+    have = set() if args.dry_run else set(_etags(client(), args.bucket, PREFIX))
+    out = Path(args.out)
+    written = write([Path(r) for r in args.root], live, have, out)
+    print(f"rollup: {len(written)} new, {len(have)} already in R2")
+    if written and not args.dry_run:
+        push(out / PREFIX, args.bucket, prefix=PREFIX)
+    return 0
+
+
 def cmd_store(args) -> int:
     from .brand import FONTS
     from .r2 import pull_fonts, pull_store, push
@@ -699,6 +715,12 @@ def main(argv=None) -> int:
     d1l = d1.add_parser("load", help="run the load files against D1, verify and retry")
     d1l.add_argument("--dir", required=True)
     d1l.set_defaults(fn=cmd_d1_load)
+    ro = sub.add_parser("rollup", help="write and push the rollups of versions R2 lacks")
+    ro.add_argument("--root", action="append", required=True, help="a built tree; repeat for each")
+    ro.add_argument("--out", required=True)
+    ro.add_argument("--bucket", default="publicdata-dist")
+    ro.add_argument("--dry-run", action="store_true", help="write every rollup locally, push none")
+    ro.set_defaults(fn=cmd_rollup)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])
     st.add_argument("--store", default=str(STORE))

@@ -312,6 +312,15 @@ jobs:
           fi
           python -m publicdata d1 sql --root "$DIST" --root "$DIST_LARGE" --loaded loaded.json --out d1-load --stamp "$GITHUB_RUN_ID" --catalogue catalogue-search.sqlite
           python -m publicdata d1 load --dir d1-load
+      # The MCP server answers counts from each version's rollup in R2 before it asks D1. Only the
+      # versions R2 lacks are written, so the first run fills every version and later runs the new.
+      - name: Write rollups for new versions
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m publicdata rollup --root "$DIST" --root "$DIST_LARGE" --out rollups
       - name: Comment the preview URL
         if: env.HAS_CF == 'true' && github.event_name == 'pull_request'
         env:
