@@ -13,16 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # The pre-push hook runs `pytest -m "not slow"`. A test is slow when it uses one of SLOW_FIXTURES
 # or is named in SLOW_TESTS (relative to tests/, without parameters).
-SLOW_FIXTURES = {"fixture_site", "site_copy", "fixture_builds", "site"}
+SLOW_FIXTURES = {"fixture_site", "site_copy", "fixture_builds", "site", "fixture_store"}
 SLOW_TESTS = {
-    "test_brand.py::test_an_older_version_page_carries_its_own_card",
-    "test_brand.py::test_card_entries_outlast_the_first_prune_and_the_last_drops_the_unused",
-    "test_build.py::test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table",
-    "test_build.py::test_a_table_version_carries_a_duckdb_file_with_typed_columns_and_provenance",
-    "test_build.py::test_excel_is_skipped_above_the_row_limit",
-    "test_build.py::test_fixture_build_is_deterministic_and_carries_provenance",
-    "test_build.py::test_geometry_fixture_writes_valid_excel_geopackage_and_arrow",
-    "test_build.py::test_json_and_geojson_are_skipped_above_their_row_limit",
     "test_cache.py::test_a_code_change_prunes_the_old_entries_before_it_builds",
     "test_cache.py::test_a_new_version_diffs_against_the_cached_one_without_its_source",
     "test_cache.py::test_a_register_change_rebuilds_and_prune_drops_the_old_entry",
@@ -33,7 +25,6 @@ SLOW_TESTS = {
     "test_diff.py::test_the_arrow_diff_matches_the_per_row_reference_on_random_versions",
     "test_directory.py::test_a_live_entry_marks_the_record_its_source_url_names_as_served",
     "test_directory.py::test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record",
-    "test_directory.py::test_before_the_first_harvest_the_directory_claims_nothing_about_the_portals",
     "test_fetch.py::test_ala_reads_each_provider_in_slices_and_dates_the_version_by_the_newest_load",
     "test_fetch.py::test_ala_splits_one_place_and_second_by_year_and_refuses_what_it_cannot_read",
     "test_fetch.py::test_new_versions_are_grouped_by_government_for_their_own_pull_requests",
@@ -44,17 +35,13 @@ SLOW_TESTS = {
     "test_hubs.py::test_hubs_command_fails_when_a_hub_fails",
     "test_hubs.py::test_hubs_render_command_writes_every_hubs_files",
     "test_hubs.py::test_the_hubs_command_writes_the_record_as_it_goes",
-    "test_r2.py::test_pull_skips_the_versions_the_build_cache_holds",
     "test_register.py::test_label_drafts_reuse_the_register_then_read_the_name",
     "test_register.py::test_real_register_loads",
-    "test_shards.py::test_a_version_whose_writer_changed_is_still_to_build",
-    "test_shards.py::test_shards_fill_the_cache_the_deploy_builds_from",
     "test_site_and_gate.py::test_a_withheld_source_is_left_out_listed_and_not_expected",
     "test_site_and_gate.py::test_bibtex_protects_the_institutional_author_and_the_title",
     "test_site_and_gate.py::test_catalog_modified_moves_with_the_newest_release",
     "test_site_and_gate.py::test_home_links_to_the_dataset_when_its_table_has_no_explorer",
     "test_site_and_gate.py::test_labels_are_words_unique_and_never_a_field_name",
-    "test_site_and_gate.py::test_the_gate_refuses_a_page_that_leaves_out_the_licence_condition",
     "test_spine.py::test_a_partitioned_polygon_layer_writes_json_partitions_without_point_geojson",
     "test_spine.py::test_a_publishers_datum_is_moved_to_gda2020_for_the_join_only",
     "test_spine.py::test_each_point_takes_the_area_it_falls_in_and_blanks_stay_null",

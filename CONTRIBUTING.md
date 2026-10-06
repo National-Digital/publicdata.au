@@ -65,17 +65,18 @@ The `core.hooksPath` line in Set up switches on three hooks in `.githooks/`. The
 machine what CI would fail a few minutes later, and they replace no CI check.
 
 - `prepare-commit-msg` adds the DCO `Signed-off-by` trailer to every commit, once.
-- `pre-commit` runs `ruff check` and `ruff format --check` from `pipeline/`, with CI's settings, on
-  the staged content of each staged Python file under `pipeline/`. It names each file and rule that
-  fails and stops the commit. A commit with no staged Python file under `pipeline/` runs no check.
-  It takes well under a second.
+- `pre-commit` runs `ruff check` and `ruff format --check` on the staged content of each staged
+  Python file under `pipeline/` or `clients/python/`. It runs from that file's directory, so each
+  takes the settings CI uses for it. It names each file and rule that fails and stops the commit. A
+  commit with no staged Python file in either directory runs no check. It takes well under a
+  second.
 - `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
   and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
   It should take under a minute on a laptop.
 
 The fast tests are every test that is not marked `slow`. `pipeline/tests/conftest.py` decides
-which tests are slow: those that use a fixture site build (`SLOW_FIXTURES`) and those named in
-`SLOW_TESTS`. Move a test in or out of the fast run there. CI runs every test.
+which tests are slow: those that use the fixture store or a fixture site build (`SLOW_FIXTURES`)
+and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI runs every test.
 
 A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
 through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python

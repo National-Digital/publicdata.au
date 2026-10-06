@@ -36,6 +36,8 @@ def repo(tmp_path) -> Path:
     (r / "pipeline").mkdir(parents=True)
     shutil.copytree(ROOT / ".githooks", r / ".githooks")
     shutil.copy(ROOT / "pipeline" / "pyproject.toml", r / "pipeline" / "pyproject.toml")
+    (r / "clients" / "python").mkdir(parents=True)
+    shutil.copy(ROOT / "clients" / "python" / "pyproject.toml", r / "clients" / "python")
     path = [_bin(tmp_path)]
     for args in (
         ["init", "-q", "-b", "main"],
@@ -75,6 +77,31 @@ def test_pre_commit_stops_a_file_ruff_would_reformat(repo, tmp_path):
     )
     assert out.returncode != 0
     assert "pipeline/publicdata/ugly.py: not formatted" in out.stdout + out.stderr
+
+
+@needs_ruff
+def test_pre_commit_stops_a_lint_error_in_the_python_client(repo, tmp_path):
+    out = _commit(repo, {"clients/python/src/bad.py": "import os\n"}, [_bin(tmp_path, ruff=RUFF)])
+    assert out.returncode != 0
+    assert "src/bad.py" in out.stdout + out.stderr
+    assert "F401" in out.stdout + out.stderr
+
+
+@needs_ruff
+def test_each_python_tree_is_checked_with_its_own_settings(repo, tmp_path):
+    # UP017 needs Python 3.11, which the pipeline targets and the client does not.
+    code = "import datetime\n\nX = datetime.timezone.utc\n"
+    path = [_bin(tmp_path, ruff=RUFF)]
+    assert _commit(repo, {"clients/python/src/utc.py": code}, path).returncode == 0
+    out = _commit(repo, {"pipeline/publicdata/utc.py": code}, path)
+    assert out.returncode != 0
+    assert "UP017" in out.stdout + out.stderr
+    # ruff's defaults leave UP out, so this fails only under the client's own settings.
+    _run([GIT, "reset", "-q", "--hard"], repo, path, check=True)
+    old = "from typing import Optional\n\nX: Optional[int] = None\n"
+    out = _commit(repo, {"clients/python/src/old.py": old}, path)
+    assert out.returncode != 0
+    assert "UP0" in out.stdout + out.stderr
 
 
 @needs_ruff
