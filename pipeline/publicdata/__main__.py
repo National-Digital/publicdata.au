@@ -123,8 +123,16 @@ def cmd_fetch(args) -> int:
             continue
         if d.status not in ("live", "building") or d.source.adapter == "none":
             continue
-        if args.feeds and not d.source.feed:
+        if args.feeds and not (d.source.feed or d.update == "feed"):
             continue
+        # A rolling source compares each read with its newest fetch; while an earlier fetch waits
+        # in an open pull request, this checkout lacks it, so the read waits too.
+        if d.slug in args.hold and d.update != "release":
+            print(f"{d.slug}: HELD an earlier fetch is waiting to be merged")
+            continue
+        from . import store as st
+
+        read_before = st.last_read(store_dir, d.slug)
         # One dataset that cannot be fetched is reported and the rest go ahead.
         try:
             m = fetch(d, store_dir)
@@ -136,15 +144,27 @@ def cmd_fetch(args) -> int:
             failed += 1
             print(f"{d.slug}: FAILED {e}")
             continue
+        read = st.last_read(store_dir, d.slug)
+        jur = d.publisher.jurisdiction.lower()
+        # A feed's read record goes to the raw store with store push, never into a pull request,
+        # so a quiet day opens none.
+        if d.update == "feed" and read and read != read_before and m is None:
+            print(f"{d.slug}: read {read['read']}, unchanged since {read['fetch']}")
+            continue
         if m is None:
             print(f"{d.slug}: unchanged")
         else:
             changed += 1
-            groups.setdefault(d.publisher.jurisdiction.lower(), []).append(
-                (store_dir / d.slug / m.version / "manifest.json").as_posix()
+            names = ["manifest.json", *(["changes.json"] if d.update != "release" else [])]
+            groups.setdefault(jur, []).extend(
+                (store_dir / d.slug / m.version / n).as_posix() for n in names
             )
+            # A rolling source's fetch that is not a snapshot publishes its change log and
+            # latest/, and no dated version.
+            what = "version" if m.snapshot else "fetch"
             print(
-                f"{d.slug}: new version {m.version} ({m.bytes} bytes, {m.encoding}, sha256 {m.sha256[:12]})"
+                f"{d.slug}: new {what} {m.version} ({m.bytes} bytes, {m.encoding}, sha256 {m.sha256[:12]})"
+                + (f", snapshot: {m.cut}" if m.cut else "")
             )
     if args.groups:
         import json
@@ -178,7 +198,7 @@ def cmd_build(args) -> int:
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    datasets = load(REGISTER)
+    datasets = load(Path(args.register))
     cache = None
     if args.cache and not args.absent:
         sys.exit(
@@ -289,7 +309,7 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
 def cmd_gate(args) -> int:
     from .gate import main
 
-    return main(Path(args.out), REGISTER, _absent(args.absent), not args.versions_only)
+    return main(Path(args.out), Path(args.register), _absent(args.absent), not args.versions_only)
 
 
 def _absent(path: str | None) -> list[str]:
@@ -438,7 +458,15 @@ def cmd_store(args) -> int:
     from .r2 import pull_fonts, pull_store, push
 
     store_dir = Path(args.store)
-    if args.sub == "pull":
+    if args.sub == "pull" and args.rolling:
+        from .register import load
+
+        # A rolling source or a feed is compared with its newest fetch, which the fetch reads.
+        want = ("feed",) if args.feeds else ("rolling", "feed")
+        slugs = tuple(d.slug for d in load(REGISTER) if d.update in want)
+        n = pull_store(store_dir, only=slugs, newest=True) if slugs else 0
+        print(f"store pull: {n} file(s) of the newest fetches")
+    elif args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
         fonts = pull_fonts(FONTS)
@@ -449,10 +477,21 @@ def cmd_store(args) -> int:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)
         n = 0
-        for src in sorted(store_dir.glob("*/*/source.*")):
-            v = (src.parts[-3], src.parts[-2])
+        # A feed's newest read is one mutable key per dataset beside its folders.
+        for rec in sorted(store_dir.glob("*/read.json")):
+            slug = rec.parent.name
             n += push(
-                src.parent,
+                rec.parent,
+                "publicdata-raw",
+                f"{slug}/",
+                immutable=lambda key: False,
+                include=lambda key, slug=slug: key == f"{slug}/read.json",
+            )
+        held = [*store_dir.glob("*/*/source.*"), *store_dir.glob("*/*/history.parquet")]
+        for vdir in sorted({p.parent for p in held}):
+            v = (vdir.parts[-2], vdir.parts[-1])
+            n += push(
+                vdir,
                 "publicdata-raw",
                 f"{v[0]}/{v[1]}/",
                 immutable=lambda key, v=v: v in committed,
@@ -492,7 +531,7 @@ def _with_layers(only: list[str]) -> tuple[str, ...]:
 def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     """The versions the build will take from the cache, so their source bytes are not needed."""
     from . import store
-    from .build import version_key
+    from .build import latest_key, newest_fetch, version_key
     from .cache import BuildCache
     from .register import load
     from .spine import LAYERS
@@ -517,6 +556,11 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
         ms = store.manifests(store_dir, LAYERS[k].slug)
         if ms:
             cached.discard((LAYERS[k].slug, ms[-1].version))
+    # latest/ is built from a rolling source's newest fetch, which may also be a snapshot.
+    for d in datasets:
+        m = newest_fetch(d, store_dir)
+        if m and not cache.has(latest_key(cache, d, m, store_dir)):
+            cached.discard((d.slug, m.version))
     return cached
 
 
@@ -717,6 +761,13 @@ def main(argv=None) -> int:
         "--feeds", action="store_true", help="fetch only the live feeds, as the daily run does"
     )
     f.add_argument(
+        "--hold",
+        nargs="*",
+        default=[],
+        metavar="SLUG",
+        help="rolling sources and feeds with a fetch still waiting in an open pull request",
+    )
+    f.add_argument(
         "--file",
         action="append",
         default=[],
@@ -725,6 +776,7 @@ def main(argv=None) -> int:
     )
     f.set_defaults(fn=cmd_fetch)
     b = sub.add_parser("build")
+    b.add_argument("--register", default=str(REGISTER), help="the register to build from")
     b.add_argument("slug", nargs="*")
     b.add_argument("--store", default=str(STORE))
     b.add_argument("--out", default=str(ROOT / "dist"))
@@ -785,6 +837,7 @@ def main(argv=None) -> int:
     cpr.add_argument("--cache", required=True)
     cpr.set_defaults(fn=cmd_cache_prune)
     g = sub.add_parser("gate")
+    g.add_argument("--register", default=str(REGISTER), help="the register the build read")
     g.add_argument("out", nargs="?", default=str(ROOT / "dist"))
     g.add_argument("--absent", help="the build's list of published files it left out")
     g.add_argument(
@@ -824,6 +877,12 @@ def main(argv=None) -> int:
         "--only", nargs="*", default=[], help="dataset slugs to pull, such as catalogue"
     )
     st.add_argument("--cache", help="skip versions this build cache already holds")
+    st.add_argument(
+        "--rolling",
+        action="store_true",
+        help="pull only the newest fetch of each rolling source and feed, as the fetch reads it",
+    )
+    st.add_argument("--feeds", action="store_true", help="with --rolling, the feeds alone")
     st.set_defaults(fn=cmd_store)
     dp = sub.add_parser("dist-push")
     dp.add_argument("--large", default=str(ROOT / "dist-large"))

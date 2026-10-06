@@ -420,3 +420,120 @@ def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
     monkeypatch.setattr(r2, "client", lambda: FakeS3({"x/2026-09-01/source.csv"}))
     with pytest.raises(SystemExit, match="d/x/v/2026-10-01/source.csv"):
         r2.check_sources([tmp_path])
+
+
+def test_pull_takes_snapshots_and_only_the_newest_fetch_of_a_rolling_source(tmp_path, monkeypatch):
+    import shutil
+
+    from publicdata import store
+
+    def put(version, snapshot, history=False):
+        d = tmp_path / "s" / "r" / version
+        d.mkdir(parents=True)
+        body = version.encode()
+        m = store.Manifest("r", version, "", "", hashlib.sha256(body).hexdigest(), len(body),
+                           "r.csv", "utf-8", {}, {}, snapshot=snapshot)  # fmt: skip
+        if history:
+            m.history = {"sha256": hashlib.sha256(b"h" + body).hexdigest(), "bytes": 1, "rows": 1}
+        (d / "manifest.json").write_text(m.to_json())
+        src = tmp_path / "raw" / "r" / version
+        src.mkdir(parents=True)
+        (src / "source.csv").write_bytes(body)
+        (src / "history.parquet").write_bytes(b"h" + body)
+
+    put("2026-08-04", True, history=True)
+    put("2026-08-11", False, history=True)
+    put("2026-09-01", True, history=True)
+    put("2026-09-08", False, history=True)
+    got = []
+
+    class Fake(FakeS3):
+        def download_file(self, bucket, key, dest):
+            got.append(key)
+            shutil.copyfile(tmp_path / "raw" / key, dest)
+
+    monkeypatch.setattr(r2, "client", lambda: Fake(set()))
+    r2.pull_store(tmp_path / "s")
+    # The feed's read record is asked for too; this store has none.
+    assert "r/read.json" in got
+    got.remove("r/read.json")
+    assert sorted(got) == [
+        f"r/{v}/{f}"
+        for v in ("2026-08-04", "2026-09-01", "2026-09-08")
+        for f in ("history.parquet", "source.csv")
+    ]
+    for p in (tmp_path / "s").rglob("source.csv"):
+        p.unlink()
+    got.clear()
+    r2.pull_store(tmp_path / "s", only=("r",), newest=True)
+    assert got == ["r/2026-09-08/source.csv"]
+
+
+def test_a_missing_newest_fetch_is_reported_and_the_other_datasets_still_pull(
+    tmp_path, monkeypatch, capsys
+):
+    import shutil
+
+    from publicdata import store
+
+    for slug in ("a", "b"):
+        d = tmp_path / "s" / slug / "2026-10-01"
+        d.mkdir(parents=True)
+        body = slug.encode()
+        m = store.Manifest(slug, "2026-10-01", "", "", hashlib.sha256(body).hexdigest(), 1,
+                           f"{slug}.csv", "utf-8", {}, {})  # fmt: skip
+        (d / "manifest.json").write_text(m.to_json())
+        (tmp_path / "raw" / slug / "2026-10-01").mkdir(parents=True)
+        (tmp_path / "raw" / slug / "2026-10-01" / "source.csv").write_bytes(body)
+    (tmp_path / "raw" / "a" / "2026-10-01" / "source.csv").unlink()
+
+    class Fake(FakeS3):
+        def download_file(self, bucket, key, dest):
+            shutil.copyfile(tmp_path / "raw" / key, dest)
+
+    monkeypatch.setattr(r2, "client", lambda: Fake(set()))
+    assert r2.pull_store(tmp_path / "s", only=("a", "b"), newest=True) == 1
+    assert "WARNING a: a/2026-10-01/source.csv not pulled" in capsys.readouterr().out
+    assert (tmp_path / "s" / "b" / "2026-10-01" / "source.csv").is_file()
+    assert not (tmp_path / "s" / "a" / "2026-10-01" / "source.csv").exists()
+
+
+def test_a_feed_s_read_record_goes_to_the_raw_store_and_comes_back(tmp_path, monkeypatch):
+    import shutil
+    from pathlib import Path
+
+    from publicdata import store
+    from publicdata.__main__ import main
+
+    s = tmp_path / "s"
+    d = s / "f" / "2026-10-05"
+    d.mkdir(parents=True)
+    m = store.Manifest("f", "2026-10-05", "", "", hashlib.sha256(b"x").hexdigest(), 1, "f.csv",
+                       "utf-8", {}, {}, history={"sha256": hashlib.sha256(b"h").hexdigest(), "bytes": 1, "rows": 1})  # fmt: skip
+    (d / "manifest.json").write_text(m.to_json())
+    store.write_read(s, "f", "2026-10-06", "2026-10-05")
+    held = {}
+
+    class Fake(FakeS3):
+        def upload_file(self, path, bucket, key, ExtraArgs):
+            held[key] = Path(path).read_bytes()
+
+        def download_file(self, bucket, key, dest):
+            if key not in held:
+                raise FileNotFoundError(key)
+            Path(dest).write_bytes(held[key])
+
+    monkeypatch.setattr(r2, "client", lambda: Fake(set()))
+    monkeypatch.setattr("publicdata.__main__._committed_versions", lambda store_dir: set())
+    assert main(["store", "push", "--store", str(s)]) == 0
+    assert json.loads(held["f/read.json"]) == {"read": "2026-10-06", "fetch": "2026-10-05"}
+    store.read_path(s, "f").unlink()
+    held["f/2026-10-05/source.csv"] = b"x"
+    held["f/2026-10-05/history.parquet"] = b"h"
+    r2.pull_store(s)
+    assert store.last_read(s, "f") == {"read": "2026-10-06", "fetch": "2026-10-05"}
+    del held["f/read.json"]
+    store.read_path(s, "f").unlink()
+    r2.pull_store(s)
+    assert not store.read_path(s, "f").exists()
+    shutil.rmtree(s)

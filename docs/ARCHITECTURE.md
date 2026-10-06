@@ -7,7 +7,7 @@ as immutable, versioned, schema-carrying files that never send traffic back to t
 
 ```
 register/**/<slug>.yaml source, fetch strategy, cadence, licence + evidence, attribution,
-                       column allow-list, geometry, partition key, status
+                       column allow-list, geometry, partition key, update class, period, status
 pipeline/publicdata/
   fetch.py             adapters: file (a fixed URL, licence checked against the evidence page's
                        words), kiwis (Water Data Online series as one CSV), aihw (an AIHW data
@@ -20,6 +20,11 @@ pipeline/publicdata/
                        depth of 5,000)
   register_draft.py    a first register entry from a CKAN dataset URL, for review
   store.py             raw/<slug>/<YYYY-MM-DD>/<sha256>.<ext> + manifest, append-only
+  updates.py           rolling sources and feeds: each fetch's change log by key, when a fetch
+                       becomes a snapshot, and a feed's history of every row state
+  periods.py           period labels (year, quarter, month, undated), the revision window and
+                       the part size the grain is held to
+  parts.py             a period table's parts, each written once it is finished
   normalise.py         CSV/XLSX/GeoJSON -> tabular model + Table Schema, allow-listed columns;
                        a point geometry becomes two fields, a zip yields its named member
   serialise/           pure functions: json, ndjson, csv, csv.gz, parquet, sqlite, xlsx, arrow,
@@ -48,7 +53,10 @@ pipeline/publicdata/
 4. Ingest is an allow-list; unknown upstream columns are reported and held.
 5. Licence is read every run and gates the publish. Old versions stay up under the licence
    they were published under.
-6. Versions are immutable and dated by source change; unchanged hash, no version.
+6. Versions are immutable and dated by source change; unchanged hash, no version. A release
+   makes a version of every changed fetch. A rolling source or a feed keeps every fetch that
+   changed it, with a change log, and only some fetches become snapshots, the dated versions;
+   the rest are served at `latest/` until the next one (see Update classes).
 7. Serialisers are pure functions of the model.
 8. Every payload carries provenance.
 9. Requesters are organisations, never people.
@@ -84,10 +92,20 @@ pipeline/publicdata/
 /d/<slug>/changes.json               consecutive diffs: row deltas and schema diffs
 /d/<slug>/diff/<a>..<b>.json         diff between two consecutive versions
 /d/<slug>/history.tar.zst            every version's parquet + manifest
-/d/<slug>/latest/  -> /d/<slug>/v/<YYYY-MM-DD>/      302, max-age 300
+/d/<slug>/latest/  -> /d/<slug>/v/<YYYY-MM-DD>/      302, max-age 300; a rolling source's or
+                                     a feed's files are its newest fetch, served in place,
+                                     max-age 300 (latest/ itself still redirects)
+/d/<slug>/fetch/<fetch-date>/        that newest fetch's own folder, which latest/ reads
+/d/<slug>/changes/index.json         a rolling source's or a feed's every fetch: date, counts,
+                                     whether it became a snapshot and why
+/d/<slug>/changes/<fetch-date>.json  one fetch against the fetch before it, by key
 /d/<slug>/v/<date>/                  version page: kept and cited, noindex, not in the sitemap
 /d/<slug>/v/<date>/data.{json,ndjson,csv,csv.gz,parquet,sqlite,xlsx,arrow,geojson,gpkg}
 /d/<slug>/v/<date>/by/<field>/<value>.json           where partition_by is declared
+/d/<slug>/v/<date>/parts/<period>.{parquet,csv.gz}   where period is declared; a finished
+                                     part may live under an earlier date, as the manifest says
+/d/<slug>/v/<date>/history/<period>.{parquet,csv.gz} a feed's row states with first_seen and
+                                     last_seen
 /d/<slug>/v/<date>/manifest.json     source URL, fetched-at, SHA-256 of source bytes
 /d/<slug>/v/<date>/source.<ext>      the bytes as fetched, served from publicdata-raw
 /d/<slug>/openapi.json               OpenAPI for this dataset's query paths
@@ -97,6 +115,8 @@ pipeline/publicdata/
 /government/                         what a public servant needs before using the site
 /llms.txt
 /health.json
+/current.json                        rolling sources and feeds: the fetch each latest/ holds and
+                                     the name of its publisher's file
 ```
 
 Immutable versions are cached for a year. Every dataset page carries schema.org Dataset
@@ -199,6 +219,102 @@ rows. A text field with 2 to 30 values becomes the master bar chart; a date fiel
 field named for a year, becomes the trend. A dataset whose Parquet is over 100 MB gets no explorer,
 because the explorer holds the whole file in the browser.
 
+## Update classes
+
+A register entry's `update` says how its source changes. Each class keeps rule 6, and every
+snapshot is immutable for good.
+
+- `release` (the default) is a dated edition: each changed fetch is a version, dated by the
+  publisher's change. Every entry in the register today is a release. It is checked weekly.
+- `rolling` is a table the publisher sends whole each time. It is read weekly. Each read is
+  compared with the newest fetch by `key`, and a read that changed nothing outside the entry's
+  `volatile` columns (an `updated_at` the publisher restamps, say) is no fetch at all. A changed
+  read is stored as a fetch, dated by the day it was read, with its change log beside its
+  manifest (`store/<slug>/<date>/changes.json`): rows added, removed and changed by key, the keys
+  of each (up to 10,000 of each kind), the periods it touched and the finished ones among them,
+  which are its revisions. It refreshes `latest/`. It becomes a snapshot, the dated version the
+  site publishes, when it is the first fetch, when it revises a finished period, when more than
+  5% of the previous fetch's rows changed, when a period has closed since the last snapshot, or
+  when it is the first change of a month. A read in a new month that finds the table as a fetch
+  that is no snapshot left it makes that fetch a snapshot where it stands: its manifest gains
+  `"snapshot": true` and the reason, under its own date, and nothing is dated again.
+  `updates.cut` holds the rules.
+- `feed` is current state only, read daily. It follows the rolling rules and keeps one more
+  table: every state a key has held, with the first and last fetch that held it (`first_seen`,
+  `last_seen`), without the volatile columns. The fetch keeps it beside the source as
+  `history.parquet`, and each snapshot and `latest/` publish it split by period. A state the
+  feed no longer holds keeps the date of the last fetch that held it, and one that comes back
+  starts a new row. States are compared on the columns both sides hold, so a column that stops
+  being volatile joins the history with nulls for the rows before. An empty read is a state
+  too: it is a fetch, its change log removes every row and its history closes them. Every read
+  writes `read.json`, the day it read and the fetch it found, which `store push` puts in
+  publicdata-raw at `<slug>/read.json` beside the feed's folders. It never goes into git, so a
+  quiet day opens no pull request. The build pulls it as it pulls `history.parquet`, and
+  `latest/`'s history carries the rows the newest fetch held to that read; latest's cache key
+  takes the read. A record that is missing, or that names a fetch the checkout does not hold yet,
+  is not taken, and `last_seen` stops at the newest fetch. A quiet read reaches `latest/` at the
+  next deploy. A feed always has a period.
+
+The manifest of a fetch that is no snapshot says `"snapshot": false`, and a snapshot's says
+why it was cut (`cut`). Both kinds stay in the raw store. `latest/` of a rolling source or a
+feed is its newest fetch built whole, every format and its parts, under `d/<slug>/fetch/<date>/`
+named for that fetch. `current.json` names the fetch and the publisher's file of each such
+dataset, and the `/d/` function serves `latest/<file>` from that folder, on Pages or in R2,
+with a five-minute cache and the dated file name to save it as; `latest/source.<ext>` comes from
+the raw store. A file an older fetch wrote is never served again, and while a deploy is half out
+the old `current.json` keeps pointing at the old folder. A release's `latest/` still redirects
+to its newest dated version, and `latest.json` names every dataset's newest snapshot, which the
+query API, the catalogue and the hubs read. The older `source.feed: true` is a release read daily,
+one version per day it changed; `update: feed` replaces it and an entry may not give both.
+
+Each read is compared with the newest fetch the checkout holds, so the fetch holds a rolling
+source or a feed back (`fetch --hold`) while an earlier fetch of it waits in an open pull
+request. The gate checks that every change log was compared with the fetch just before it, so a
+log that skipped one is never published.
+
+## Periods
+
+`period: {field, grain}` names the date field (or an integer year with grain `year`) and the
+grain: `year`, `fiscal` (the July to June financial year), `quarter` or `month`. A fetch records
+the register's period in its manifest, and a version is split by the period its own manifest
+names. Adding a period to an entry with history therefore changes none of its versions: the
+next fetch is the first one split.
+
+A table whose rows carry their own date needs a period once its newest version is over 100 MB of
+Parquet or 5 million rows, and a feed always does. The grain is the largest that keeps each
+part's Parquet at or under 100 MB. The gate holds both rules: a dated table over the threshold
+whose register entry has no period fails, unless `gate.PERIOD_PENDING` names it with the change
+that will split it, and the newest version's grain fails when a part is too large or the next
+longer grain would still fit.
+
+Each part is `parts/<period>.parquet` and `parts/<period>.csv.gz` under the version, named
+`2025`, `2025-26`, `2025-Q1` or `2025-01`, with four-digit years and an `undated` part for rows
+that have no date. Every part carries the provenance header with the period it holds, and every
+part of a version has the same column types, decided from the whole table. `revision_window`
+(default 2) counts the open periods: the current one and the one before. An older part is
+finished. A finished part is written once: a later snapshot whose rows for that period are the
+same, volatile columns included, and whose column types are the same does not write it again,
+and its manifest points at the earlier version that holds the file. A part is marked `revised`
+when the change logs since the snapshot before name its period as revised, which is the same
+list the manifest's `revised` holds; for a release, which keeps no change log, a finished part
+whose rows outside the volatile columns differ from the snapshot before's. A feed's history
+parts change whenever a current row's `last_seen` moves, and are never called revisions. The
+undated part is never finished. Which parts a version reuses depends on the snapshot before it,
+so a version's cache key takes that snapshot's key and the revisions logged since, and a cold
+build lays the parts out as a warm one does. Each part is digested and written on its own, so a
+version's parts are separate build units.
+
+`data.<ext>` of a split table is the whole table, written beside the parts while the parts'
+Parquet adds up to 100 MB or less and the table has 5 million rows or fewer. Past that, the version
+is its parts and `data.duckdb`, which holds a `parts` table naming each part's URL and a
+`records()` table macro that reads every part's Parquet over HTTPS when it is called
+(`records(files := [...])` reads the parts named). `"whole": false` in the manifest says so. Such
+a version has no query API, explorer or pages by place, since each reads one whole file; its
+dataset page says so, and `llms.txt` lists only the files it has. The gate fails a table
+dataset's page that has no query console and gives no reason. A diff or the history archive
+reads the parts back. Either way there is one dataset page, and it lists the newest snapshot's
+parts.
+
 ## Explorer
 
 `/d/<slug>/explore/` loads DuckDB-WASM and Perspective, downloads one dated version's
@@ -241,6 +357,10 @@ This site is the version history the portals do not keep. The archive role has i
 - Any two versions can be compared: `/d/<slug>/diff/<a>..<b>.json` lists added, removed and
   changed rows by the declared key, and field-level schema differences. `changes.json` is
   the same for consecutive pairs.
+- A rolling source or a feed keeps every fetch that changed it, snapshot or not, in the raw store
+  with its change log, so the archive holds the dated versions and every state the site read
+  between them. `/d/<slug>/changes/` publishes each fetch's log. A finished period's part is kept
+  once and named by every later snapshot that holds the same rows.
 - `versions.json` per dataset lists every version with date, as-at, row count, field count,
   source hash and encoding. `/d/<slug>/history.tar.zst` bundles every version's data.parquet
   and manifest for offline use.
@@ -266,7 +386,10 @@ ranges. A query copy is written once like a dated file. A missing one is uploade
 the versions published before the profile get theirs on the first deploy after it; a later
 profile writes beside them (`<version>.p<N>.parquet`), and an edit to `sort`, `lookup` or
 `int32` reaches the copies of versions that have none yet. The gate wants every table version's
-query copy in the tree or among the files a cached build left out (`dist-push --expect`). The edge caches nothing over 512 MB
+query copy in the tree or among the files a cached build left out (`dist-push --expect`); a
+version written as parts alone has none, and `latest/` is no version. For a dataset
+`current.json` names, a file under `latest/` is its newest fetch, served from Pages or R2 in place
+with a five-minute cache. The edge caches nothing over 512 MB
 and, until it learns a file is too large, answers a byte range with the whole file, so a dated
 file over 500 MB is redirected to its URL with `?edge=bypass`; a zone Cache Rule placed after
 "Dated version trees" bypasses the cache for that query, and without it large files fall back to
@@ -413,6 +536,14 @@ notes say so. A source whose file host turns automated clients away is marked `m
 reads its portal record, lists a changed file in the **Manual downloads due** issue, and takes the
 bytes from a file a person downloaded (`fetch --file`).
 
+A rolling source's or a feed's fetches sit in the same layout, one dated folder each, with
+`changes.json` committed beside the manifest, and a feed's `history.parquet` beside the source
+and its `read.json` beside its folders in R2, neither of them in git. The fetch compares each read with the newest
+fetch, so it first pulls that fetch's bytes (`store pull --rolling`, the feeds alone on the daily
+run); a dataset whose bytes cannot be pulled is reported and its fetch fails alone. A build pulls every snapshot and only the newest fetch, which `latest/`
+is built from. The weekly run reads every entry and the daily run reads the feeds, and a fetch
+that is no snapshot goes into its government's pull request like a version.
+
 ## Votes and requests
 
 The backlog is the whole catalogue. The build writes one search row per listed record
@@ -452,7 +583,9 @@ licence, attribution, the publisher's file hash) and text that links the version
 back survives a re-upload. A licence with no hub mapping in `hubs.LICENCES` is refused, a licence with a
 condition of use is refused since no hub can state it, a database is refused since the hubs take
 one table, and an Australian port goes up as "other" with the licence named in the text where a
-hub has no id for it. Zenodo gets a DOI per version under one concept DOI, and relates each record to the version
+hub has no id for it. A rolling source or a feed goes to each hub at most once a month, from a snapshot: only when its
+newest snapshot is in a later month than the newest copy that hub holds. Zenodo takes Parquet and
+gzipped CSV alone for it. Zenodo gets a DOI per version under one concept DOI, and relates each record to the version
 URL, the dataset page and the publisher's page. `--render <dir>` writes what each hub would
 receive, without the data, for review.
 

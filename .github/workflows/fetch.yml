@@ -8,7 +8,8 @@ name: Fetch
 on:
   schedule:
     - cron: "17 19 * * 1" # Tuesday 05:17 Brisbane
-    # Live feeds (source.feed) every other day of the week, so each day a feed changes is a version.
+    # Feeds (update: feed, and the older source.feed) every other day of the week. A release is
+    # checked and a rolling source read in the weekly run alone.
     - cron: "47 19 * * 0,2-6" # 05:47 Brisbane
   workflow_dispatch:
 
@@ -48,19 +49,33 @@ jobs:
           python-version: ${{ steps.py.outputs.version }}
           activate-environment: true
       - run: uv pip install -e './pipeline[deploy]'
+      # A rolling source or a feed is compared with its newest fetch, whose bytes are in R2.
+      - name: Pull the newest fetch of each rolling source and feed
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          FEEDS: ${{ github.event.schedule == '47 19 * * 0,2-6' && '--feeds' || '' }}
+        run: python -m publicdata store pull --store store --rolling ${FEEDS}
       - name: Fetch
         id: run
         env:
           FEEDS: ${{ github.event.schedule == '47 19 * * 0,2-6' && '--feeds' || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
-          python -m publicdata fetch --store store --groups groups.json ${FEEDS} | tee fetch.log
+          # A rolling source or a feed whose earlier fetch still waits in an open pull request is
+          # held, since this checkout lacks that fetch to compare with.
+          hold=$(gh pr list --state open --search "head:data/fetch-" --json files --jq '.[].files[].path' | awk -F/ '$1 == "store" {print $2}' | sort -u | paste -sd' ')
+          python -m publicdata fetch --store store --groups groups.json ${FEEDS} --hold ${hold} | tee fetch.log
       - name: Count new versions
         id: fetch
         run: |
-          echo "changed=$(grep -cE ': new version [0-9]{4}-' fetch.log || true)" >> "$GITHUB_OUTPUT"
+          echo "changed=$(grep -cE ': new (version|fetch) [0-9]{4}-' fetch.log || true)" >> "$GITHUB_OUTPUT"
+          echo "reads=$(grep -cE ': read [0-9]{4}-' fetch.log || true)" >> "$GITHUB_OUTPUT"
+      # A feed's read with no change goes to R2 alone, so a quiet day opens no pull request.
       - name: Push raw bytes to R2
-        if: steps.fetch.outputs.changed != '0'
+        if: steps.fetch.outputs.changed != '0' || steps.fetch.outputs.reads != '0'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
@@ -97,8 +112,8 @@ jobs:
           jurs=$(groups)
           for jur in $jurs; do
             mapfile -t files < <(groups "$jur")
-            slugs=$(for f in "${files[@]}"; do basename "$(dirname "$(dirname "$f")")"; done | paste -sd'|')
-            lines=$(grep -E "^($slugs): new version [0-9]{4}-" fetch.log || true)
+            slugs=$(for f in "${files[@]}"; do echo "$f" | cut -d/ -f2; done | sort -u | paste -sd'|')
+            lines=$(grep -E "^($slugs): new (version|fetch) [0-9]{4}-" fetch.log || true)
             # One government's failure is reported and the others still get their pull requests.
             # The other governments' manifests stay untracked in the tree while each branch is cut.
             # A failed command inside an if condition does not stop a set -e shell, so each step is chained.

@@ -171,29 +171,57 @@ def pull_store(
     bucket: str = "publicdata-raw",
     only: tuple[str, ...] = (),
     skip: set[tuple[str, str]] = frozenset(),
+    newest: bool = False,
 ) -> int:
     """Fetch every source file a committed manifest names and is missing locally, except the
     versions in skip, which the build takes from its cache. Only the newest catalogue snapshot is
-    needed to build."""
+    needed to build, and of a rolling source's fetches that are no snapshot, only the newest,
+    which latest/ serves. With newest, only each dataset's newest fetch is fetched."""
     from . import store as st
     from .catalogue import SLUG as CATALOGUE
 
     s3 = client()
     n = 0
     paths = sorted(store.glob("*/*/manifest.json"))
+    last = {p.parts[-3]: p for p in paths}
     old_catalogues = [p for p in paths if p.parts[-3] == CATALOGUE][:-1]
     for mp in (p for p in paths if p not in old_catalogues and (not only or p.parts[-3] in only)):
-        if (mp.parts[-3], mp.parts[-2]) in skip:
+        if (mp.parts[-3], mp.parts[-2]) in skip or (newest and last[mp.parts[-3]] != mp):
             continue
         m = st.Manifest.read(mp)
-        dest = st.source_path(store, m)
-        if dest.exists() and st.sha256_file(dest) == m.sha256:
+        if not m.snapshot and last[mp.parts[-3]] != mp:
             continue
-        key = f"{m.dataset}/{m.version}/source.{m.ext}"
-        s3.download_file(bucket, key, str(dest))
-        st.verify(store, m)
-        n += 1
-        print(f"got {bucket}/{key}")
+        want = [(st.source_path(store, m), m.sha256)]
+        if m.history:
+            want.append((st.history_path(store, m), m.history["sha256"]))
+        for dest, sha in want:
+            if dest.exists() and st.sha256_file(dest) == sha:
+                continue
+            key = f"{m.dataset}/{m.version}/{dest.name}"
+            try:
+                s3.download_file(bucket, key, str(dest))
+                if st.sha256_file(dest) != sha:
+                    raise ValueError(f"{dest}: sha256 does not match the manifest")
+            except Exception as e:  # noqa: BLE001 - the fetch reports the dataset it holds back
+                if not newest:
+                    raise
+                dest.unlink(missing_ok=True)
+                print(f"WARNING {m.dataset}: {key} not pulled ({e}); its fetch will be held back")
+                continue
+            n += 1
+            print(f"got {bucket}/{key}")
+    # A feed's newest read, beside its folders and rewritten by every fetch, so always read again.
+    # A feed without one carries last_seen to its newest fetch alone.
+    if not newest:
+        for slug in sorted({p.parts[-3] for p in paths if not only or p.parts[-3] in only}):
+            if not st.Manifest.read(last[slug]).history:
+                continue
+            dest = st.read_path(store, slug)
+            try:
+                s3.download_file(bucket, f"{slug}/read.json", str(dest))
+                n += 1
+            except Exception:  # noqa: BLE001 - absent until the feed's first quiet read
+                dest.unlink(missing_ok=True)
     return n
 
 

@@ -19,11 +19,12 @@ import re
 import time
 import urllib.parse
 import zoneinfo
+from dataclasses import replace
 from pathlib import Path
 
 import requests
 
-from . import catalogue, store
+from . import catalogue, periods, store
 from .normalise import detect_encoding
 from .register import Dataset
 
@@ -92,7 +93,7 @@ def ckan_resource(ds: Dataset, store_dir: Path, session: requests.Session | None
         "read_from": f"{api}/package_show?id={p['name']}",
         "read_at": _now(),
     }
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if (
         ds.source.manual
         and ds.slug not in MANUAL
@@ -349,7 +350,7 @@ def _portal_version(
 ):
     """Download a portal's export and make its manifest. The export is dated by the portal's own
     change date, and an unchanged SHA-256 is no version."""
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     r = s.get(url, timeout=600, allow_redirects=True)
     # A portal that builds its export on request answers 202 until the file is ready.
     for _ in range(EXPORT_WAITS):
@@ -539,7 +540,7 @@ def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | Non
     lines = ",\n".join(json.dumps(f, sort_keys=True, separators=(",", ":")) for f in feats)
     data = f'{{"type":"FeatureCollection","features":[\n{lines}\n]}}\n'.encode()
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     date_fields = [f["name"] for f in info["fields"] if f["type"] == "esriFieldTypeDate"]
@@ -736,7 +737,7 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
         "country:Australia",
         "license:(" + " OR ".join(f'"{x}"' for x in ALA_LICENCES) + ")",
     ]
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     before = (existing[-1].source.get("providers") or {}) if existing else {}
     rows: dict[str, dict] = {}
     counts: dict[str, dict] = {}
@@ -894,7 +895,7 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
     evidence page's own words, read every run."""
     s = _session(session)
     licence = statement_licence(ds, s)
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if ds.source.page_size:
         r, data = _wfs_pages(ds, s)
     else:
@@ -1097,7 +1098,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
         source |= {"series": ds.source.package, "series_read": len(values), "newest": newest}
     data = out.getvalue().encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     today = dt.datetime.now(TZ).date()
@@ -1222,7 +1223,7 @@ def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
     url = hit["resultUrl"]
     if url.startswith("/"):
         url = "https://www.aihw.gov.au" + url
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     f = _download(ds, s, url)
     data = f.content
     expect_page(ds, url, f, data)
@@ -1300,7 +1301,7 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
         )
     f = files[0]
     url = f["links"]["self"]
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     r = _download(ds, s, url)
     data = r.content
     expect_page(ds, url, r, data)
@@ -1517,7 +1518,7 @@ def _stack_version(
     notes: tuple[str, ...] = (),
 ):
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     today = dt.datetime.now(TZ).date()
@@ -1600,7 +1601,7 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         for p, r in resources
     )
     if ds.source.manual and ds.slug not in MANUAL:
-        existing = store.manifests(store_dir, ds.slug)
+        existing = store.manifests(store_dir, ds.slug, fetches=True)
         was = existing[-1].source if existing else {}
         if was.get("newest_resource") == changed and sorted(
             w["resource"] for w in was.get("workbooks", [])
@@ -1838,20 +1839,25 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
         if not licence.get(k):
             raise FetchError(f"{ds.slug}: the {ds.source.adapter} adapter did not record {k}")
     check_licence(ds, licence)
+    if ds.update != "release":
+        return fetch_rolling(ds, store_dir, data, m, licence, dt.datetime.now(TZ).date())
     if data is None:
         return None
     m.rows_sha256, n = _rows(ds, m, data)
     from .serialise.profile import layout
 
     m.parquet = layout(ds)
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if m.rows_sha256 and existing and existing[-1].rows_sha256 == m.rows_sha256:
         return None
     # Portals sometimes serve an export with its header and nothing else for a while.
     if n == 0 and existing:
         raise FetchError(f"{ds.slug}: the portal served no rows; the newest version has some")
+    m.period = periods.recorded(ds.period)
     if ds.source.feed:
-        m = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
+        m = feed_version(
+            m, store.manifests(store_dir, ds.slug, fetches=True), dt.datetime.now(TZ).date()
+        )
         if m is None:
             return None
     store.write(store_dir, m, data)
@@ -1897,4 +1903,129 @@ def feed_version(m: store.Manifest, existing: list[store.Manifest], today: dt.da
         return None
     m.version = today.isoformat()
     m.notes = [FEED_NOTE]
+    return m
+
+
+ROLLING_NOTE = (
+    "The publisher sends the whole table each time, so this fetch is dated by the day it was read "
+    "and compared with the fetch before it by key."
+)
+FEED_CLASS_NOTE = (
+    "The publisher serves only what is current, so this fetch is dated by the day it was read and "
+    "compared with the fetch before it by key."
+)
+
+
+def _held(store_dir: Path, m: store.Manifest) -> bytes:
+    """A stored fetch's bytes, which a rolling source compares the next fetch with."""
+    try:
+        store.verify(store_dir, m)
+    except (FileNotFoundError, ValueError) as e:
+        raise FetchError(
+            f"{m.dataset}: {e}; run `publicdata store pull --rolling` before fetching"
+        ) from e
+    return store.source_path(store_dir, m).read_bytes()
+
+
+def fetch_rolling(
+    ds: Dataset,
+    store_dir: Path,
+    data: bytes | None,
+    m: store.Manifest,
+    licence: dict,
+    today: dt.date,
+) -> store.Manifest | None:
+    """A rolling source or a feed. A read whose rows, less the volatile columns, are those of the
+    fetch before is no fetch. When the month has turned since the last snapshot and the newest
+    fetch is not one, that fetch is kept as a snapshot under its own date. Every fetch kept writes
+    its change log beside its manifest, a feed's its history too, and becomes a snapshot when
+    updates.cut says so. A feed records every read, changed or not, in read.json."""
+    from . import updates
+    from .normalise import normalise
+
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
+    prev = existing[-1] if existing else None
+    snaps = [x for x in existing if x.snapshot]
+    if prev is not None and prev.version == today.isoformat():
+        return None  # A day is one fetch; a second change waits for the next run.
+    if data is None:
+        return _promote(ds, store_dir, prev, snaps, today)
+    tbl = normalise(ds, m, data)
+    # An empty feed is a state like any other: nothing is current. A rolling table never is.
+    if tbl.rows == 0 and existing and ds.update != "feed":
+        raise FetchError(f"{ds.slug}: the portal served no rows; the newest fetch has some")
+    before = normalise(ds, prev, _held(store_dir, prev)) if prev else None
+    if before is not None and updates.digest(before) == updates.digest(tbl):
+        return _promote(ds, store_dir, prev, snaps, today)
+    log = updates.compare(before, tbl, today)
+    why = updates.cut(ds, log, snaps, today)
+    m = replace(
+        m,
+        version=today.isoformat(),
+        notes=[ROLLING_NOTE if ds.update == "rolling" else FEED_CLASS_NOTE],
+        snapshot=bool(why),
+        cut=why,
+        history=None,
+        period=periods.recorded(ds.period),
+    )
+    m.rows_sha256 = updates.digest(tbl)
+    tbl = replace(tbl, manifest=m)
+    log["to"] = m.version
+    log["fetched_at"] = m.fetched_at
+    log["snapshot"] = why
+    seen = None
+    import pyarrow.parquet as pq
+
+    if ds.update == "feed":
+        old = store.history_path(store_dir, prev) if prev is not None else None
+        if prev is not None and prev.history and not (old and old.exists()):
+            raise FetchError(f"{ds.slug}: {old} is missing; run `publicdata store pull --rolling`")
+        held = pq.read_table(old) if prev is not None and prev.history else None
+        seen = updates.history(held, tbl, m.version, prev.version if prev else "")
+    d = store.write(store_dir, m, data)
+    if seen is not None:
+        pq.write_table(seen, d / "history.parquet", compression="zstd", row_group_size=65_536)
+        m.history = {
+            "sha256": store.sha256_file(d / "history.parquet"),
+            "bytes": (d / "history.parquet").stat().st_size,
+            "rows": seen.num_rows,
+        }
+        (d / "manifest.json").write_text(m.to_json(), encoding="utf-8")
+    from .serialise import pretty
+
+    store.change_log(store_dir, m).write_text(pretty(log), encoding="utf-8")
+    if ds.update == "feed":
+        store.write_read(store_dir, ds.slug, m.version, m.version)
+    return m
+
+
+PROMOTED_NOTE = (
+    "Kept as a dated version on {day}, the first read of a new month, which found the table as "
+    "this fetch left it."
+)
+
+
+def _promote(ds, store_dir: Path, prev, snaps, today: dt.date):
+    """An unchanged read. When the month has turned since the last snapshot and the newest fetch
+    is no snapshot, that fetch becomes one where it stands, under its own date; nothing is dated
+    again."""
+    from . import updates
+    from .serialise import pretty
+
+    if ds.update == "feed":
+        store.write_read(store_dir, ds.slug, today.isoformat(), prev.version)
+    if prev.snapshot:
+        return None
+    why = updates.cut(ds, None, snaps, today)
+    if not why:
+        return None
+    m = replace(prev, snapshot=True, cut=why, notes=[*prev.notes, PROMOTED_NOTE.format(day=today)])
+    (store.version_dir(store_dir, m.dataset, m.version) / "manifest.json").write_text(
+        m.to_json(), encoding="utf-8"
+    )
+    log_path = store.change_log(store_dir, m)
+    if log_path.exists():
+        log = json.loads(log_path.read_text(encoding="utf-8"))
+        log["snapshot"] = why
+        log_path.write_text(pretty(log), encoding="utf-8")
     return m
