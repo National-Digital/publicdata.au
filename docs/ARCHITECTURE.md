@@ -89,7 +89,7 @@ pipeline/publicdata/
 /d/<slug>/v/<date>/data.{json,ndjson,csv,csv.gz,parquet,sqlite,xlsx,arrow,geojson,gpkg}
 /d/<slug>/v/<date>/by/<field>/<value>.json           where partition_by is declared
 /d/<slug>/v/<date>/manifest.json     source URL, fetched-at, SHA-256 of source bytes
-/d/<slug>/v/<date>/source.<ext>      the bytes as fetched
+/d/<slug>/v/<date>/source.<ext>      the bytes as fetched, served from publicdata-raw
 /d/<slug>/openapi.json               OpenAPI for this dataset's query paths
 /d/<slug>/explore/                   the explorer; ?view=<id> opens a saved dashboard
 /d/<slug>/embed/                     the same dashboard in a frame, with the attribution
@@ -217,11 +217,13 @@ because it says whether it is the newest. Pull-request previews skip
 `--versioned`, because they never write to R2.
 
 A version built once is not built again while its source, its register entry and the code that
-shapes its rows are unchanged. The deploy keeps a build cache that holds, for each version, only
-the files later steps read: the manifest, the schema, the SQL, Parquet and SQLite. Its other files
-were pushed to R2 by the deploy that built them, so a cached build lists them in `absent.json`
-instead of writing them, the gate counts them as present, and `dist-push --expect` stops the
-deploy if R2 lacks any of them. The cache key splits in two: everything the build imports except
+shapes its rows are unchanged. The deploy keeps a build cache in R2, under `_build/` in
+`publicdata-raw` (`publicdata cache pull|push`), that holds for each version only its small
+files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
+the deploy that built them, so a cached build lists them in `absent.json` instead of writing them,
+the gate counts them as present, and `dist-push --expect` stops the deploy if R2 lacks any of
+them. The Parquet a diff or the history archive reads, and the SQLite the pages draw their
+figures from, are read back from `publicdata-dist` when needed (`build --published`). The cache key splits in two: everything the build imports except
 the format writers (`cache.environment_key`) names the entry, and each writer under
 `serialise/writers/` has a key of its own (`cache.writer_key`), recorded in the entry per format.
 A writer added or changed does not invalidate an entry: the build reads the version's rows back
@@ -229,8 +231,10 @@ from the cached Parquet, the way the diff does, writes only the files whose writ
 not seen, and records them. A changed Parquet writer, or a change to the JSON and GeoJSON
 writers that also make the partition files, rebuilds the version from its source. The
 determinism job proves this by building the fixtures with a subset of formats into a cache and
-then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, and source bytes are pulled
-only for versions the cache does not hold. A deploy dispatched with `replace` builds without it.
+then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, each entry's record after its files,
+and the last push of a deploy to main deletes the entries its build pruned. Source bytes are
+pulled only for versions the cache does not hold. A deploy dispatched with `replace` builds
+without it.
 
 One runner's disk cannot hold a build of every version at once, so the deploy builds in shards.
 A plan job lists the versions the cache cannot serve, those with no entry and those a writer
@@ -320,7 +324,9 @@ votable record ids so the vote endpoint reads one small file per check.
 
 `store/<slug>/<version>/manifest.json` is committed. The bytes beside it (`source.<ext>`) are
 not; they live in the R2 bucket `publicdata-raw` under the same path and are pulled by hash
-before every build (`publicdata store pull`). A committed manifest with no matching object is a
+before every build (`publicdata store pull`). No built tree holds them: the `/d/` function serves
+a version's `source.<ext>` from `publicdata-raw`, only once that version's manifest is published,
+and `dist-push` stops the deploy if a published version's file is missing there. A committed manifest with no matching object is a
 build failure, never a silent skip. A download that is empty, or an HTML page where a data file should be, is
 refused and reported; it never becomes a version. One dataset that cannot be fetched does not
 stop the others, and the fetch workflow ends red when anything failed. The scheduled fetch workflow pushes new bytes and opens one

@@ -154,10 +154,11 @@ def cmd_fetch(args) -> int:
     return 0
 
 
+R2 = "r2://"
+
+
 def cmd_build(args) -> int:
-    from .build import build_dataset
     from .register import load
-    from .site import render_site
 
     out = Path(args.out)
     store_dir = FIXTURES if args.fixtures else Path(args.store)
@@ -190,6 +191,26 @@ def cmd_build(args) -> int:
         if not args.slug:
             n = _prune_unusable(cache, datasets, store_dir)
             print(f"cache: {n} entries this build cannot use removed first")
+    from . import published
+
+    download = None
+    if args.published.startswith(R2):
+        from .r2 import downloader
+
+        download = downloader(args.published[len(R2) :])
+    source = Path(args.published) if args.published and not download else None
+    published.current = published.Published(out, args.built, source, download)
+    try:
+        return _build(args, out, store_dir, datasets, cache)
+    finally:
+        published.current = None
+
+
+def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
+    from . import published
+    from .build import build_dataset
+    from .site import render_site
+
     outs = []
     for d in datasets:
         if args.slug and d.slug not in args.slug:
@@ -211,6 +232,22 @@ def cmd_build(args) -> int:
 
     cat = catalogue_latest(store_dir)
     if not args.no_site:
+        # The pages draw their figures from every version's SQLite, so a cached version's comes
+        # back first; a page drawn without it would only lose its figures.
+        want = [
+            f"d/{o.dataset.slug}/v/{v.manifest.version}/data.sqlite"
+            for o in outs
+            for v in o.versions
+            if "data.sqlite" in v.absent
+        ]
+        missing = [
+            r for r, p in zip(want, published.current.paths(want), strict=True) if not p.exists()
+        ]
+        if missing:
+            sys.exit(
+                f"build: {len(missing)} cached version(s) have no SQLite to draw from, e.g. "
+                f"{missing[0]}; pass --published, or build without the cache"
+            )
         render_site(
             outs,
             out,
@@ -230,11 +267,13 @@ def cmd_build(args) -> int:
         )
         import json
 
+        # A file read back from R2 or a shard's tree is in this tree now.
         absent = sorted(
-            f"d/{o.dataset.slug}/v/{v.manifest.version}/{rel}"
+            r
             for o in outs
             for v in o.versions
             for rel in v.absent
+            if not (out / (r := f"d/{o.dataset.slug}/v/{v.manifest.version}/{rel}")).exists()
         )
         Path(args.absent).write_text(json.dumps(absent, indent=0) + "\n", encoding="utf-8")
         print(f"cache: {len(absent)} published file(s) left out, listed in {args.absent}")
@@ -477,6 +516,8 @@ def cmd_dist_push(args) -> int:
     if bad:
         print(f"dist push: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
+    from .r2 import check_sources
+
     n = push(
         Path(args.large),
         "publicdata-dist",
@@ -487,6 +528,9 @@ def cmd_dist_push(args) -> int:
     )
     print(
         f"dist push: {n} file(s){' (replacing under ' + ', '.join(args.replace) + ')' if args.replace else ''}"
+    )
+    print(
+        f"dist push: {check_sources([Path(args.large)])} publisher's file(s) found in the raw store"
     )
     return 0
 
@@ -525,6 +569,19 @@ def cmd_cache_prune(args) -> int:
 
     n = _prune_unusable(BuildCache(Path(args.cache)), load(REGISTER), Path(args.store))
     print(f"cache: {n} entries no version in the store can use removed")
+    return 0
+
+
+def cmd_cache(args) -> int:
+    from .r2 import cache_pull, cache_push
+
+    root = Path(args.cache)
+    if args.sub == "pull":
+        n = cache_pull(root, meta_only=args.meta_only)
+        print(f"cache pull: {n} entries")
+    else:
+        up, gone = cache_push(root, prune=args.prune)
+        print(f"cache push: {up} file(s) uploaded, {gone} no longer used deleted")
     return 0
 
 
@@ -653,6 +710,12 @@ def main(argv=None) -> int:
         metavar="DIR",
         help="a shard's built tree; a file the cache leaves out is linked in from it when there",
     )
+    b.add_argument(
+        "--published",
+        default="",
+        metavar="DIR|r2://BUCKET",
+        help="where a cached version's Parquet and SQLite are read back from, as the site lays them out",
+    )
     b.set_defaults(fn=cmd_build)
     pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
@@ -662,6 +725,14 @@ def main(argv=None) -> int:
     sh.add_argument("--cache", help="the build cache; without it every version is built")
     sh.add_argument("--count", type=int, default=4)
     sh.set_defaults(fn=cmd_shards)
+    cc = sub.add_parser("cache", help="copy the build cache between this disk and R2")
+    cc.add_argument("sub", choices=["pull", "push"])
+    cc.add_argument("--cache", required=True)
+    cc.add_argument("--meta-only", action="store_true", help="pull each entry's record alone")
+    cc.add_argument(
+        "--prune", action="store_true", help="push, and delete the entries this disk has dropped"
+    )
+    cc.set_defaults(fn=cmd_cache)
     cpr = sub.add_parser("cache-prune", help="drop build cache entries no stored version uses")
     cpr.add_argument("--store", default=str(STORE))
     cpr.add_argument("--cache", required=True)

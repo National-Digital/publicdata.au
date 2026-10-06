@@ -1,4 +1,5 @@
-"""Turn the register and the raw store into dist/. Never touches the network."""
+"""Turn the register and the raw store into dist/. Never touches upstream: a cached version's
+Parquet comes back through published, from the tree or R2 that holds it."""
 
 from __future__ import annotations
 
@@ -14,8 +15,8 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import zstandard
 
-from . import OPERATOR, SITE, store
-from .cache import BuildCache, _link_or_copy, _read_only
+from . import OPERATOR, SITE, published, store
+from .cache import BuildCache, _link_or_copy
 from .diff import diff
 from .normalise import Table, normalise
 from .provenance import OPERATOR_URL
@@ -49,11 +50,22 @@ class VersionOut:
     tables: dict[str, int] = field(default_factory=dict)  # a database's tables and their rows
 
 
-# What a cached version keeps: the files a later build reads back, for the gate, the dataset
-# schema, the diff, the history archive, the query console and the D1 load. The rest are written
-# once to R2 by the build that made them. A database keeps its schema and script; its DuckDB and
-# Parquet files are written once.
-KEPT = re.compile(r"^(manifest\.json|schema\.json|schema\.sql|data\.parquet|data\.sqlite)$")
+# What a cached version keeps: the small files a later build reads back, for the gate and the
+# dataset schema. The rest are written once to R2 by the build that made them, and the Parquet
+# and SQLite a diff, the history archive or a page reads are fetched back from there.
+KEPT = re.compile(r"^(manifest\.json|schema\.json|schema\.sql)$")
+
+
+def source_name(ds: Dataset, m: store.Manifest) -> str:
+    """The publisher's file as a version lists it. Its bytes stay in the raw store, which the /d/
+    function serves it from, so no built tree holds it."""
+    return "" if ds.source_withheld else f"source.{m.ext}"
+
+
+def _with_source(files: dict[str, int], ds: Dataset, m: store.Manifest) -> dict[str, int]:
+    if not (name := source_name(ds, m)):
+        return files
+    return dict(sorted({**files, name: m.bytes}.items(), key=lambda kv: Path(kv[0])))
 
 
 def kept(rel: str) -> bool:
@@ -115,11 +127,6 @@ def build_database_version(
         return prov_header(ds, m, rows, base + rel)
 
     db = build_database(ds, m, src, vdir, hdr)
-    # The publisher's archive is gigabytes: a hard link where the store and the build share a
-    # disk, a copy where they do not.
-    linked = vdir / f"source.{m.ext}"
-    _link_or_copy(str(src), str(linked))
-    _read_only(linked)  # a write through the link would change the store, so it fails instead
     man = json.loads(m.to_json())
     man["kind"] = "database"
     man["rows"] = db.rows
@@ -135,7 +142,7 @@ def build_database_version(
     return None, VersionOut(
         m,
         db.rows,
-        _sizes(vdir),
+        _with_source(_sizes(vdir), ds, m),
         man["unknown_upstream_columns"] + man["unknown_upstream_tables"],
         0,
         {},
@@ -178,8 +185,6 @@ def build_version(
     (vdir / "data.csv-metadata.json").write_text(
         pretty(csvw_metadata(tbl, hdr(tbl.rows, "data.csv-metadata.json"))), encoding="utf-8"
     )
-    if not ds.source_withheld:
-        (vdir / f"source.{m.ext}").write_bytes(data)
     man = json.loads(m.to_json())
     if ds.source_withheld:
         man["source_withheld"] = ds.source_withheld
@@ -198,7 +203,7 @@ def build_version(
     return tbl, VersionOut(
         m,
         tbl.rows,
-        _sizes(vdir),
+        _with_source(_sizes(vdir), ds, m),
         tbl.unknown_columns,
         tbl.suppressed_cells,
         partitions,
@@ -228,7 +233,7 @@ def _history(dout: DatasetOut, out: Path, cache: BuildCache | None, keys: list[s
         )
         for v in dout.versions:
             for name in kept:
-                p = ddir / "v" / v.manifest.version / name
+                p = published.path(out, f"d/{dout.dataset.slug}/v/{v.manifest.version}/{name}")
                 ti = tarfile.TarInfo(f"{dout.dataset.slug}/{v.manifest.version}/{name}")
                 ti.size = p.stat().st_size
                 ti.mtime = 0
@@ -381,7 +386,7 @@ def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
     return {*keys, *diffs, *([cache.key(*keys, "history")] if keys else [])}
 
 
-def _from_cache(m: store.Manifest, hit: dict, vdir: Path) -> VersionOut:
+def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> VersionOut:
     return VersionOut(
         m,
         hit["rows"],
@@ -390,7 +395,9 @@ def _from_cache(m: store.Manifest, hit: dict, vdir: Path) -> VersionOut:
         hit["suppressed_cells"],
         hit["partitions"],
         hit["first"],
-        tuple(sorted(k for k in hit["files"] if not (vdir / k).exists())),
+        tuple(
+            sorted(k for k in hit["files"] if k != source_name(ds, m) and not (vdir / k).exists())
+        ),
         hit.get("tables", {}),
     )
 
@@ -476,14 +483,16 @@ def grow_cached(
         return hit
     # The rows come from the Parquet, a layer's shapes included; a changed Parquet writer is a new
     # version.
-    if "parquet" in stale or not (vdir / "data.parquet").exists():
+    out = vdir.parents[3]
+    rel = vdir.relative_to(out).as_posix()
+    if "parquet" in stale or not published.path(out, f"{rel}/data.parquet").exists():
         return None
     base = version_url(ds.slug, m.version)
 
     def hdr(rows: int, rel: str) -> dict:
         return prov_header(ds, m, rows, base + rel)
 
-    tbl = _built_table(ds, m, vdir.parents[3])
+    tbl = _built_table(ds, m, out)
     if "csv.gz" in stale and "csv" not in stale and not (vdir / "data.csv").exists():
         stale = ["csv", *stale]  # the gzip reads the CSV, written here and not kept
     for p in [vdir / f"data.{f}" for f in stale]:
@@ -527,7 +536,7 @@ def _cached_version(
         if hit is not None:
             hit = grow_cached(ds, m, hit, vdir, cache, key)
         if hit is not None:
-            return None, _from_cache(m, hit, vdir)
+            return None, _from_cache(ds, m, hit, vdir)
     store.verify(store_dir, m)
     src = store.source_path(store_dir, m)
     if ds.kind == "database":
@@ -570,7 +579,7 @@ def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:
 
 def _built_table(ds: Dataset, m: store.Manifest, out: Path) -> Table:
     """A built version's rows read back from its Parquet, which holds exactly what normalise made."""
-    t = pq.read_table(out / "d" / ds.slug / "v" / m.version / "data.parquet")
+    t = pq.read_table(published.path(out, f"d/{ds.slug}/v/{m.version}/data.parquet"))
     geometry = None
     if geo_kind(ds) in ("polygon", "line"):
         # A layer's Parquet carries its shapes after the fields.

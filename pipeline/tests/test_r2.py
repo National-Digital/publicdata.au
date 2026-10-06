@@ -200,3 +200,86 @@ def test_store_push_replaces_raw_bytes_only_for_versions_main_never_took(tmp_pat
         "x/2026-10-04/manifest.json",
         "x/2026-10-04/source.csv",
     ]
+
+
+class Bucket(FakeS3):
+    """FakeS3 holding bytes, so the cache can go up and come back down."""
+
+    def __init__(self):
+        super().__init__(set())
+        self.bytes = {}
+        self.deleted = []
+
+    def upload_file(self, path, bucket, key, ExtraArgs):
+        super().upload_file(path, bucket, key, ExtraArgs)
+        data = open(path, "rb").read()
+        self.bytes[key] = data
+        self.existing.add(key)
+        self.etags[key] = hashlib.md5(data).hexdigest()
+
+    def download_file(self, bucket, key, dest):
+        open(dest, "wb").write(self.bytes[key])
+
+    def delete_objects(self, Bucket, Delete):
+        for o in Delete["Objects"]:
+            self.deleted.append(o["Key"])
+            self.existing.discard(o["Key"])
+            self.bytes.pop(o["Key"])
+
+
+def _entry(root, key, meta="{}", files=()):
+    (root / key / "files").mkdir(parents=True)
+    for name in files:
+        (root / key / "files" / name).write_text(name)
+    (root / key / "meta.json").write_text(meta)
+
+
+def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_dropped(
+    tmp_path, monkeypatch
+):
+    bucket = Bucket()
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    up = tmp_path / "up"
+    _entry(up, "a" * 64, files=("manifest.json",))
+    _entry(up, "b" * 64)
+    (up / ".c.tmp").mkdir()  # an entry a failed put left half written
+    assert r2.cache_push(up) == (3, 0)
+    # meta.json goes last, so an interrupted push never leaves a record without its files.
+    assert [k for k, _ in bucket.puts][-2:] == [f"_build/{'a' * 64}/meta.json", f"_build/{'b' * 64}/meta.json"]  # fmt: skip
+    assert r2.cache_push(up) == (0, 0)
+    (up / ("a" * 64) / "meta.json").write_text('{"grown": 1}')
+    assert r2.cache_push(up) == (1, 0)
+    assert r2.cache_pull(tmp_path / "meta", meta_only=True) == 2
+    assert (
+        sorted(p.name for p in (tmp_path / "meta").rglob("*") if p.is_file()) == ["meta.json"] * 2
+    )
+    down = tmp_path / "down"
+    assert r2.cache_pull(down) == 2
+    assert (down / ("a" * 64) / "files" / "manifest.json").read_text() == "manifest.json"
+    assert (down / ("a" * 64) / "meta.json").read_text() == '{"grown": 1}'
+    import shutil
+
+    shutil.rmtree(up / ("b" * 64))
+    assert r2.cache_push(up) == (0, 0)  # without prune nothing goes
+    assert r2.cache_push(up, prune=True) == (0, 1)
+    assert bucket.deleted == [f"_build/{'b' * 64}/meta.json"]
+
+
+def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
+    import json
+
+    import pytest
+
+    for slug, version, man in (
+        ("x", "2026-10-01", {"filename": "Crashes.CSV"}),
+        ("y", "2026-10-02", {"filename": "a.zip", "source_withheld": "Its terms are unclear."}),
+    ):
+        v = tmp_path / "d" / slug / "v" / version
+        v.mkdir(parents=True)
+        (v / "manifest.json").write_text(json.dumps(man))
+    assert r2.source_keys(tmp_path) == {"d/x/v/2026-10-01/source.csv": "x/2026-10-01/source.csv"}
+    monkeypatch.setattr(r2, "client", lambda: FakeS3({"x/2026-10-01/source.csv"}))
+    assert r2.check_sources([tmp_path]) == 1
+    monkeypatch.setattr(r2, "client", lambda: FakeS3({"x/2026-09-01/source.csv"}))
+    with pytest.raises(SystemExit, match="d/x/v/2026-10-01/source.csv"):
+        r2.check_sources([tmp_path])

@@ -1,6 +1,5 @@
 import filecmp
 import json
-import os
 import shutil
 import sqlite3
 
@@ -25,7 +24,7 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     for name in ("a", "b"):
         out = tmp_path / name
         out.mkdir()
-        build_dataset(ds, fixture_store, out)
+        built = build_dataset(ds, fixture_store, out)
         outs.append(out)
     a, b = outs
     assert _tree(a) == _tree(b)
@@ -49,7 +48,9 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
         con.execute("select value from publicdata where key='version'").fetchone()[0]
         == "2026-04-24"
     )
-    assert (vdir / "source.csv").exists()
+    # The publisher's file is served from the raw store, so the tree lists it and holds none.
+    assert not (vdir / "source.csv").exists()
+    assert built.latest.files["source.csv"] == built.latest.manifest.bytes > 0
     versions = read_json(a / "d" / ds.slug / "versions.json")
     assert versions["latest"] == "2026-04-24" and versions["versions"][0]["rows"] == 300
     idx = read_json(vdir / "by" / "crash_year" / "index.json")
@@ -237,8 +238,8 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
     sql = (vdir / "schema.sql").read_text(encoding="utf-8")
     assert 'FOREIGN KEY ("locality_pid") REFERENCES "locality" ("locality_pid")' in sql
     assert 'CREATE VIEW "address_view" AS' in sql
-    # The archive is linked from the store and read-only, so a write through it fails.
-    assert (vdir / "source.zip").exists() and not os.access(vdir / "source.zip", os.W_OK)
+    # The archive stays in the store, and the version lists it at its size there.
+    assert not (vdir / "source.zip").exists() and v.files["source.zip"] == v.manifest.bytes
     pkg = read_json(a / "d" / ds.slug / "datapackage.json")
     assert pkg["publicdata:kind"] == "database" and pkg["resources"][0]["name"] == "duckdb"
     assert pkg["licenses"][0]["publicdata:condition"]

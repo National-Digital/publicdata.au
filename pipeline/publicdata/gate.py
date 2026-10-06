@@ -11,7 +11,7 @@ from html import escape as html_escape
 from html import unescape as html_unescape
 from pathlib import Path
 
-from . import SITE, explorer, serialise, store, structured
+from . import SITE, explorer, serialise, structured
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
 
@@ -270,8 +270,6 @@ def checked(
         for f in need:
             if not have(f):
                 errors.append(f"{slug}/{version}: missing {f}")
-        if not ds.source_withheld and not have(f"source.{store.ext_of(m.get('filename', ''))}"):
-            errors.append(f"{slug}/{version}: missing source file")
         if m.get("unknown_upstream_columns"):
             errors.append(
                 f"{slug}/{version}: unknown upstream columns held: {m['unknown_upstream_columns']}"
@@ -320,6 +318,7 @@ def checked(
             f"{rel}: missing {v['parquet']}"
             for v in data["versions"]
             if not (out / v["parquet"].lstrip("/")).exists()
+            and v["parquet"].lstrip("/") not in absent
         ]
         if not (page.parent.parent / "embed" / "index.html").exists():
             errors.append(f"{rel}: no embed page beside it")
