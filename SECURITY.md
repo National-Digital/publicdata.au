@@ -49,9 +49,9 @@ denial-of-service findings.
   to a commit.
 - Credentials are Actions secrets held in environments. The deploy's and the fetch's can be used
   only from `main`, and each token holds only the access its job needs.
-- No credential, private hostname or internal address is committed anywhere in the repository,
-  comments and commit messages included. Every push and pull request is scanned for secrets
-  across the whole history.
+- No credential, private hostname or internal address appears anywhere in the repository or in
+  its pull requests and issues, comments and commit messages included. Every push and pull
+  request is scanned for secrets across the whole history.
 - CodeQL and dependency review run on every pull request. Dependabot raises security updates.
 - Changes to `main` go through a pull request with a maintainer's review and green checks. Only
   the fetch app's own data pull requests are approved by automation, under the conditions in

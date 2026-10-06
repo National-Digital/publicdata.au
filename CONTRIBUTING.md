@@ -69,7 +69,10 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   `feat fix docs chore perf refactor test build ci style revert data`; `data` is for register
   entries and store manifests. The squash merge makes the title the commit subject on `main`, and
   the title decides the release number (see Versioning).
-- Say in the description what changed and why, and what you ran to check it. The template asks.
+- Keep one concern to a pull request. An unrelated fix found on the way gets its own.
+- Say in the description what changed and why, what you ran to check it and what you could not
+  check. The template asks. Name anything a maintainer must do beyond merging, such as a secret, a
+  manual download or the versions a `replace` deploy must rebuild.
 - A pull request merges when a maintainer has approved it and every required check is green:
   tests, the register, the build and gate, the clients, secret scanning, CodeQL, dependency review,
   the DCO and the title. Pull requests are squash-merged.
@@ -77,6 +80,21 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   the fetch app opened them from a run on `main`, with one signed-off commit of store manifests.
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
+
+## Reviewing a pull request
+
+- Read the whole changed file and the code that calls it before judging a line. Comment only on
+  what the change adds or makes worse.
+- Raise only genuine issues. Each one gives its file and line, the input or state that breaks it,
+  and a fix or the existing code to use instead. A doubt you cannot settle is marked as
+  unconfirmed, with what would settle it. When there is nothing to raise, approve.
+- A test must be able to fail. Flag a test that restates the implementation, mocks the thing it
+  tests or asserts nothing that matters, and say what it should assert.
+- Ask why any new `noqa`, `type: ignore` or skipped test is needed. Leave formatting and lint to
+  CI.
+- Check the change against the [rules the build enforces](docs/ARCHITECTURE.md#rules-that-decide-the-code),
+  and check that the docs describing the changed behaviour were updated.
+- Read the earlier reviews first, so a point already resolved is not raised again.
 
 ## Site copy
 
@@ -231,6 +249,8 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
 ## Reference
 
 - Comments state constraints the code cannot show, in one or two lines of *why*.
+- Before writing a helper, search for one that already exists. Follow the conventions of the
+  neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
   failing-fixture test does not count.
 - New datasets enter through `register/<slug>.yaml` with licence id, evidence URL,
