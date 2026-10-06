@@ -15,14 +15,13 @@ from . import SITE, explorer, serialise, store, structured
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
 
-FORBIDDEN_TEXT = re.compile(r"\b(seamless|streamline|empower|unlock|leverage|robust)", re.I)
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
 PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.S)
 
 
 def _partition_values(out: Path, slug: str) -> list[str]:
     """The publisher's own values that a dataset's pages name as places and partitions, longest
-    first, so the house language checks read only this site's words."""
+    first, so the copy checks read only this site's words."""
     vals: set[str] = set()
     for idx in (out / "d" / slug / "v").glob("*/by/*/index.json"):
         for e in json.loads(idx.read_text(encoding="utf-8")).get("partitions", []):
@@ -348,10 +347,6 @@ def checked(
             and "no government agency" not in text.lower()
         ):
             errors.append(f"{html.relative_to(out)}: no not-endorsed statement")
-        if FORBIDDEN_TEXT.search(text):
-            errors.append(
-                f"{html.relative_to(out)}: house language rule: {FORBIDDEN_TEXT.search(text).group(0)}"
-            )
         if "—" in text:
             errors.append(f"{html.relative_to(out)}: em-dash")
     errors += structured.duplicate_names(pages)

@@ -206,7 +206,7 @@ def server_message(name: str, ts: list[dict]) -> str:
 
 
 def ask(system: str, message: str, keys: tuple[str, ...]) -> dict:
-    """One judgement, through the Claude Code CLI, which a maintainer has signed in.
+    """One judgement, through the Claude Code CLI so the org's Claude Code token can pay for it.
     A reply that is not the promised JSON is asked again, as the rubric does."""
     for _ in range(3):
         r = subprocess.run(

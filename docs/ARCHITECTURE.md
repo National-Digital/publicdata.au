@@ -41,18 +41,31 @@ pipeline/publicdata/
 
 ## Rules that decide the code
 
-1. The published site never fetches upstream.
-2. Nothing derived. Re-keying, re-typing, declared joins only. A database's views are the
-   publisher's own scripts, kept in the register.
-3. Suppression survives as a typed flag, never a number or a blank.
+1. The published site never fetches upstream. Every file in `dist/` is built from stored
+   snapshots.
+2. Nothing derived. Re-keying, re-typing and joining on a declared key only, where a point's
+   location against a named version of an ABS boundary layer counts as a declared key (the
+   place spine). Joined columns are marked as joined in the schema. No rates, rankings,
+   thresholds, estimates or imputations, and a publisher's coordinates are never moved. A
+   database's views are the publisher's own scripts, kept in the register.
+3. Suppression survives: a source cell such as "<5" becomes a null with a typed `suppressed`
+   flag, never 0, 5 or a blank.
 4. Ingest is an allow-list; unknown upstream columns are reported and held.
-5. Licence is read every run and gates the publish. Old versions stay up under the licence
-   they were published under.
-6. Versions are immutable and dated by source change; unchanged hash, no version.
-7. Serialisers are pure functions of the model.
-8. Every payload carries provenance.
+5. Licence is data. Every register entry carries a licence id, an evidence URL from the
+   publisher's own statement, an attribution string and the date a person reviewed it
+   (`licence.reviewed`). Every fetch reads the licence again and records where and when in the
+   version's manifest, and the gate refuses a dataset whose licence is not open or has changed
+   since review. A grant that is not Creative Commons is admitted only through
+   `register/licences/`, which quotes the publisher on reproduction, adaptation, commercial use
+   and attribution. Old versions stay up under the licence they were published under.
+6. Versions are immutable and dated by source change; unchanged hash, no version. The
+   [Archive](#archive) section says how long they are kept and what may change.
+7. Serialisers are pure functions of the model. Two builds of one snapshot are byte-identical,
+   and CI proves it.
+8. Every payload carries provenance: publisher, licence, attribution, source URL, fetch time and
+   source hash.
 9. Requesters are organisations, never people.
-10. Every page says the publisher has not endorsed the site.
+10. Every page and catalogue record says the publisher has not endorsed the site.
 11. Every page passes WCAG 2.2 AA in both colour schemes; CI runs axe over the fixture build
     (`scripts/a11y.mjs`). A map is a PNG file under `maps/` in an `img` whose alt is worked
     out from the cells, with a vector SVG over it; no SVG embeds a raster, and every figure's

@@ -1,11 +1,17 @@
 # Working in this repository
 
-Read `CONTRIBUTING.md` for setup, test and pull-request steps and `docs/ARCHITECTURE.md` for
-the rules the build enforces. The points below are the ones no other file states.
+This file tells an agent where the project's rules are kept. Each rule is stated once, in the
+file named for it here, and linked from everywhere else.
 
-- No credentials or private hostnames anywhere, including comments and commit messages.
-- A comment states a constraint the code cannot show, in one or two lines of why.
-- Site copy is a heading followed by plain sentences. The gate fails a page that uses
-  seamless, streamline, empower, unlock, leverage or robust.
-- The only analytics is the first-party Cloudflare Web Analytics beacon. No cookies, no other
-  tracking. The CSP in `_headers` is the enforcement and the test suite checks the beacon.
+- [`README.md`](README.md): what the project is and what it serves.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, tests, commits and pull requests, the routine
+  changes step by step, and the [code and copy conventions](CONTRIBUTING.md#code-and-copy),
+  comments included.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the
+  [rules the build enforces](docs/ARCHITECTURE.md#rules-that-decide-the-code), the
+  [archive](docs/ARCHITECTURE.md#archive) and the [analytics](docs/ARCHITECTURE.md#analytics)
+  the site may run.
+- [`SECURITY.md`](SECURITY.md): what is never committed, credentials and private hostnames
+  among it, and how to report a vulnerability.
+- [`GOVERNANCE.md`](GOVERNANCE.md): who decides.
+- [`BRAND.md`](BRAND.md): the name, the mark and the typography the gate checks.

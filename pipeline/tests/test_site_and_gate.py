@@ -13,7 +13,7 @@ from publicdata.gate import check
 from .conftest import ROOT
 
 
-def test_full_fixture_build_passes_gate_and_house_rules(register_dir, tmp_path, site_copy):
+def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     out = site_copy
     assert check(out, register_dir) == []
     home = (out / "index.html").read_text(encoding="utf-8")
@@ -613,7 +613,7 @@ def test_the_gate_refuses_a_page_that_leaves_out_the_licence_condition(
         f.write_text(kept, encoding="utf-8")
 
 
-def test_the_house_language_check_reads_past_a_publishers_own_values(tmp_path):
+def test_the_copy_checks_read_past_a_publishers_own_values(tmp_path):
     import json as _json
 
     from publicdata import gate
@@ -621,16 +621,16 @@ def test_the_house_language_check_reads_past_a_publishers_own_values(tmp_path):
     idx = tmp_path / "d" / "x" / "v" / "2026-01-01" / "by" / "class"
     idx.mkdir(parents=True)
     (idx / "index.json").write_text(
-        _json.dumps({"partitions": [{"value": "Restricted To Seamless Flooring"}]})
+        _json.dumps({"partitions": [{"value": "Flooring — Restricted"}]})
     )
     page = tmp_path / "d" / "x" / "in" / "restricted" / "index.html"
     page.parent.mkdir(parents=True)
-    text = "<h1>Restricted To Seamless Flooring</h1><p>Our words.</p>"
+    text = "<h1>Flooring — Restricted</h1><p>Our words.</p>"
     left = gate._without_publisher_values(text, page, tmp_path, {})
-    assert not gate.FORBIDDEN_TEXT.search(left)
+    assert left == "<h1></h1><p>Our words.</p>"
     # This site's own copy is still read.
-    left = gate._without_publisher_values(text + "<p>A seamless page.</p>", page, tmp_path, {})
-    assert gate.FORBIDDEN_TEXT.search(left)
+    left = gate._without_publisher_values(text + "<p>A page — ours.</p>", page, tmp_path, {})
+    assert left == "<h1></h1><p>Our words.</p><p>A page — ours.</p>"
 
 
 def _console_db(tmp_path, rows):
