@@ -25,7 +25,9 @@ def _parquet_misfits(path: Path, cols) -> list[str]:
             if st is None or not st.has_min_max:
                 if st is not None and st.null_count == meta.row_group(g).num_rows:
                     continue
-                return misfits(pq.read_table(path, columns=[c]), [c])
+                out += misfits(pq.read_table(path, columns=[c]), [c])
+                lo = None
+                break
             lo = st.min if lo is None else min(lo, st.min)
             hi = st.max if hi is None else max(hi, st.max)
         if lo is not None and not (INT32[0] <= lo and hi <= INT32[1]):
@@ -47,4 +49,8 @@ def int32_misfits(ds, m, store_dir: Path, built: list[Path]) -> list[str] | None
     src = store.source_path(store_dir, m)
     if not src.is_file():
         return None
-    return misfits(normalise(ds, m, src.read_bytes()).table, ds.int32)
+    try:
+        table = normalise(ds, m, src.read_bytes()).table
+    except Exception as e:
+        return [f"its source no longer normalises ({e})"]
+    return misfits(table, ds.int32)

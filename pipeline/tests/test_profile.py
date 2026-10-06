@@ -392,6 +392,31 @@ def test_register_validate_checks_int32_against_the_versions_at_hand(tmp_path):
     assert int32_misfits(declared, m, s, []) is None
 
 
+def test_validate_reads_every_column_when_a_file_has_no_statistics(tmp_path):
+    from publicdata.validate import _parquet_misfits
+
+    path = tmp_path / "x.parquet"
+    pq.write_table(pa.table({"a": [1, 2], "b": [1, 2**40]}), path, write_statistics=False)
+    assert _parquet_misfits(path, ("a", "b")) == _parquet_misfits(path, ("b",)) != []
+
+
+def test_validate_reports_a_source_that_no_longer_normalises(tmp_path, monkeypatch):
+    from publicdata import normalise
+    from publicdata.validate import int32_misfits
+
+    s = tmp_path / "store"
+    m = _m(_ds())
+    store.write(s, m, CSV)
+
+    def broken(*a, **k):
+        raise ValueError("bad row")
+
+    monkeypatch.setattr(normalise, "normalise", broken)
+    assert int32_misfits(_ds(int32=("id",)), m, s, []) == [
+        "its source no longer normalises (bad row)"
+    ]
+
+
 def test_the_order_file_is_in_the_entry_before_its_record(tmp_path):
     cache = BuildCache(tmp_path / "cache")
     seen = []

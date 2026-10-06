@@ -320,8 +320,8 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
 - `lookup` lists fields that get a bloom filter in data.parquet, for an equality lookup, such as
   an identifier, on an entry sorted for another filter. A boolean field cannot be a lookup.
 - `int32` lists integer fields written as INT32 in data.parquet, for a field whose values always
-  fit 32 bits, such as a year, a count or a short identifier. A version holding a larger value
-  stops the build, so leave out anything that can grow past 2,147,483,647.
+  fit 32 bits, such as a year, a count or a short identifier. A new version holding a larger
+  value is held at its fetch, so leave out anything that can grow past 2,147,483,647.
 - A version keeps the `sort`, `lookup` and `int32` its fetch found, so an edit to them changes
   the files of later versions and the query copies not yet written. A query copy already in R2
   keeps the order it was written in, since its key names only the profile version; each copy
