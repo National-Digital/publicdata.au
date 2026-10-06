@@ -333,6 +333,8 @@ such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
   to the version prefixes, which also purges them from the edge cache. The pull request that fixed
   the bug says which versions it affects and raises their rebuild number (see Change the build
   code).
+- [docs/CORRECTIONS.md](docs/CORRECTIONS.md) has the whole process, from a report to the correction
+  log.
 
 ## Change the API or the MCP tools
 
