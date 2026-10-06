@@ -3,11 +3,25 @@ served stale until its prefix is purged."""
 
 from __future__ import annotations
 
+import re
+
 import requests
 
 API = "https://api.cloudflare.com/client/v4"
 HOST = "publicdata.au"
 BATCH = 30  # prefixes per purge request
+VERSION = re.compile(r"^d/([a-z0-9][a-z0-9-]*)/v/(\d{4}-\d{2}-\d{2})/$")
+
+
+def with_answers(prefixes: list[str]) -> list[str]:
+    """Each d/<slug>/v/<date>/ prefix and the query API answers of that version, which the API
+    caches for a year as well."""
+    out = []
+    for p in prefixes:
+        out.append(p)
+        if m := VERSION.match(p):
+            out.append(f"api/v1/datasets/{m[1]}/versions/{m[2]}/")
+    return out
 
 
 def purge(prefixes: list[str], token: str, host: str = HOST, session=requests) -> int:
