@@ -106,6 +106,8 @@ partition_by:
 - state
 sort:
 - station_no
+int32:
+- quality_code
 row_label: Storage days
 fields:
 - name: station_no
