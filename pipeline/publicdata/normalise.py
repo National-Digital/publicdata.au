@@ -69,6 +69,18 @@ class Table:
         return self.table.num_rows
 
 
+def detect_encoding(data: bytes, preferred: str = "") -> str:
+    for enc in [preferred, "utf-8-sig", "cp1252"]:
+        if not enc:
+            continue
+        try:
+            data.decode(enc)
+            return enc
+        except UnicodeDecodeError:
+            continue
+    return "latin-1"
+
+
 def _header(text: str, delimiter: str = ",") -> list[str]:
     # As written, spaces included: Arrow names the columns this way, so every one is typed as text.
     return next(csv.reader(io.StringIO(text.splitlines()[0]), delimiter=delimiter))
@@ -546,8 +558,6 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
                 )
             raw = read_xml(data, ds.source.record)
         else:
-            from .fetch import detect_encoding
-
             enc = m.encoding if m.ext != "zip" else detect_encoding(data, ds.source.encoding)
             raw = read_csv(data, enc, ds.source.delimiter, ds.source.header_row, short)
     if ds.unpivot:

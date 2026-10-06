@@ -133,6 +133,8 @@ def test_the_key_covers_every_module_the_version_build_imports():
     names = {str(p.relative_to(PACKAGE)) for p in code_files()}
     assert {"build.py", "normalise.py", "serialise/__init__.py", "provenance.py"} <= names
     assert "site.py" not in names
+    # Fetching and harvesting shape no built file, so an edit to them rebuilds nothing.
+    assert not {"fetch.py", "catalogue.py", "browser.py"} & names
 
 
 def test_absolute_package_imports_are_followed(tmp_path, monkeypatch):

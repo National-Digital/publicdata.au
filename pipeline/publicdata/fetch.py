@@ -24,6 +24,7 @@ from pathlib import Path
 import requests
 
 from . import catalogue, store
+from .normalise import detect_encoding
 from .register import Dataset
 
 TZ = zoneinfo.ZoneInfo("Australia/Brisbane")
@@ -76,18 +77,6 @@ def parse_as_at(text: str, regex: str) -> str:
         return dt.date(int(mm.group(3)), int(mm.group(2)), int(mm.group(1))).isoformat()
     mm = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
     return mm.group(0) if mm else ""
-
-
-def detect_encoding(data: bytes, preferred: str = "") -> str:
-    for enc in [preferred, "utf-8-sig", "cp1252"]:
-        if not enc:
-            continue
-        try:
-            data.decode(enc)
-            return enc
-        except UnicodeDecodeError:
-            continue
-    return "latin-1"
 
 
 def ckan_resource(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
