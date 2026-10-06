@@ -37,7 +37,7 @@ licence:
   statement: All material presented on this website is provided under a Creative Commons Attribution 4.0
     International licence
   attribution: Australian Bureau of Statistics, Registered births, nuptiality by age of mother, 1975 onwards
-    (BIRTHS_AGE_MOTHER), ABS Data Explorer, sourced {sourced}, https://explore.data.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=BIRTHS_AGE_MOTHER&df[ag]=ABS&df[vs]=1.0.0,
+    (BIRTHS_AGE_MOTHER), ABS Data Explorer, sourced {sourced}, https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=BIRTHS_AGE_MOTHER&df[ag]=ABS&df[vs]=1.0.0,
     licensed under CC BY 4.0.
 temporal_start: '1975-01-01'
 search_title: Births by age of mother each year since 1975, Australia (ABS)

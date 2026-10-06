@@ -31,7 +31,7 @@ licence:
   statement: All material presented on this website is provided under a Creative Commons Attribution 4.0
     International licence
   attribution: Australian Bureau of Statistics, Building Approvals by Local Government Area (LGA 2025) (BA_LGA2025),
-    ABS Data Explorer, sourced {sourced}, https://explore.data.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=BA_LGA2025&df[ag]=ABS&df[vs]=1.0.0,
+    ABS Data Explorer, sourced {sourced}, https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=BA_LGA2025&df[ag]=ABS&df[vs]=1.0.0,
     licensed under CC BY 4.0.
 temporal_start: '2025-07-01'
 search_title: Building approvals by council area each month, 2025-26, Australia (ABS)
