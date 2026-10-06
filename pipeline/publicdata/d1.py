@@ -32,9 +32,9 @@ MAX_VALUES = 10_000
 # D1 runs out of memory when one import holds more than a few MB of rows (20 MB failed, 5 MB
 # loaded 75,000 rows in 7 s), so a version loads in parts of this size.
 PART_BYTES = 5_000_000
-# A version whose data.sqlite is larger stays files-only: loading runs at about 45 MB of SQL a
-# minute and the database holds 10 GB in all.
-MAX_SQLITE = 500_000_000
+# A version whose data.csv is larger stays files-only: loading runs at about 45 MB of SQL a
+# minute and the database holds 10 GB in all. The CSV is on every version, where SQLite is not.
+MAX_CSV = 500_000_000
 # Versions load side by side, each writing its own table and its own _versions row, and the parts
 # of one version always run in order.
 WORKERS = 4
@@ -246,10 +246,10 @@ def prune_sql(slug: str, loaded: list[str], new: str, keep: int = KEEP):
         yield f"DELETE FROM _orders WHERE slug = {literal(slug)} AND version = {literal(v)};"
 
 
-def queryable(ds, sqlite_bytes: int | None) -> bool:
-    """Whether the query API serves this version, by the size of its data.sqlite. The build and
+def queryable(ds, csv_bytes: int | None) -> bool:
+    """Whether the query API serves this version, by the size of its data.csv. The build and
     the loader both ask here."""
-    return bool(ds.query and sqlite_bytes and sqlite_bytes <= MAX_SQLITE)
+    return bool(ds.query and csv_bytes and csv_bytes <= MAX_CSV)
 
 
 def _fields(src: sqlite3.Connection) -> list[dict]:
@@ -269,9 +269,9 @@ def built_fields(ds, parquet: Path) -> list[dict]:
     return fields + ([{"name": "suppressed", "type": "array"}] if "suppressed" in have else [])
 
 
-def _sqlite_bytes(roots: list[Path], slug: str, version: str) -> int | None:
-    """The size of a version's data.sqlite, as its dataset's data package lists it."""
-    want = f"/d/{slug}/v/{version}/data.sqlite"
+def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:
+    """The size of a version's data.csv, as its dataset's data package lists it."""
+    want = f"/d/{slug}/v/{version}/data.csv"
     for r in roots:
         p = r / "d" / slug / "datapackage.json"
         if p.exists():
@@ -316,7 +316,7 @@ def write_loads(
                 or (json.loads(had) == built_fields(ds, src) and ord_ == signature(src))
             ):
                 continue
-        if src is None or not queryable(ds, _sqlite_bytes(roots, ds.slug, version)):
+        if src is None or not queryable(ds, _csv_bytes(roots, ds.slug, version)):
             continue
         try:
             body = list(parquet_version_sql(src, ds, version, (*ds.key, *ds.partition_by)))

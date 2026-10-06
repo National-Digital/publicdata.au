@@ -2,7 +2,7 @@
   "dataset": "qld-road-crash-locations",
   "version": "2026-04-24",
   "as_at": "2025-06-30",
-  "fetched_at": "2026-10-07T14:15:48+00:00",
+  "fetched_at": "2026-09-24T14:15:48+00:00",
   "sha256": "cd24ede2c8b01015bf64fb7bac88a47d7fedebd7e5181fb39f9fbd8d4f3c0bb9",
   "bytes": 155376,
   "filename": "_1_crash_locations.csv",
@@ -58,5 +58,6 @@
       "count_unit_pedestrian",
       "count_unit_other"
     ]
-  }
+  },
+  "caps": 1
 }

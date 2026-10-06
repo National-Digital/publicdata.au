@@ -262,16 +262,23 @@ def checked(
             )
         else:
             rows = int(m.get("rows", 0))
-            measured = None
-            if serialise.capped(m.get("fetched_at", "")):
-                got = m.get("measured_bytes") or {}
-                measured = {f: got[f"data.{f}"] for f in serialise.MEASURED if f"data.{f}" in got}
-                if len(measured) != len(serialise.MEASURED):
-                    errors.append(f"{slug}/{version}: manifest lacks the measured file sizes")
+            gone = None
+            if serialise.capped(m):
+                gone = m.get("formats_left_out")
+                measured = m.get("measured_bytes")
+                if not isinstance(gone, dict) or not isinstance(measured, dict):
+                    errors.append(f"{slug}/{version}: manifest lacks its format record")
                     continue
-                gone = serialise.left_out(rows, geo_kind(ds), measured)
-                if m.get("formats_left_out") != gone:
-                    errors.append(f"{slug}/{version}: formats_left_out does not follow the caps")
+                if not set(gone) <= set(serialise.cappable(geo_kind(ds))):
+                    errors.append(
+                        f"{slug}/{version}: formats_left_out names a format no cap covers"
+                    )
+                for f in serialise.MEASURED:
+                    if f"data.{f}" not in measured:
+                        errors.append(f"{slug}/{version}: measured_bytes lacks data.{f}")
+                for name, n in measured.items():
+                    if (vdir / name).is_file() and (vdir / name).stat().st_size != n:
+                        errors.append(f"{slug}/{version}: measured_bytes disagrees with {name}")
                 for x in (*gone, "arrow"):
                     if have(f"data.{x}"):
                         errors.append(
@@ -285,7 +292,7 @@ def checked(
                             errors.append(
                                 f"{slug}/{version}: the version page does not say why data.{x} is not there"
                             )
-            fmts = serialise.formats_for(rows, geo_kind(ds), measured)
+            fmts = serialise.formats_for(rows, geo_kind(ds), gone)
             need = (
                 *(f"data.{x}" for x in fmts),
                 "schema.json",

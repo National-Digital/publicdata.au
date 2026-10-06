@@ -37,9 +37,8 @@ from .serialise import (
     MEDIA,
     SHAPE_FORMATS,
     formats_for,
-    left_out,
-    measured_of,
     pretty,
+    reasons,
 )
 from .serialise.geo import geo_kind
 from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
@@ -245,8 +244,19 @@ SITE_ORDER = (
 )
 
 
+def _file_formats_text() -> str:
+    """Which formats a version has, from api.json, with the limits filled in from CAPS."""
+    from .serialise import CAPS, EXCEL_MAX_ROWS, JSON_MAX_ROWS
+
+    mb = {f"{f}_mb": CAPS[f][1] // 1_000_000 for f in CAPS}
+    return at.fill(
+        at.spec()["site"]["file_formats"],
+        {**mb, "excel_rows": EXCEL_MAX_ROWS, "json_rows": JSON_MAX_ROWS},
+    )
+
+
 def _fmts(ds: Dataset, v: VersionOut) -> list[str]:
-    have = set(formats_for(v.rows, geo_kind(ds), measured_of(v.manifest.fetched_at, v.files)))
+    have = set(formats_for(v.rows, geo_kind(ds), v.left_out))
     return [f for f in SITE_ORDER if f in have]
 
 
@@ -254,7 +264,7 @@ def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
     """Why each format a table version lacks is not there, one sentence each, in site order."""
     if ds.kind == "database":
         return []
-    gone = left_out(v.rows, geo_kind(ds), measured_of(v.manifest.fetched_at, v.files))
+    gone = reasons(v.rows, geo_kind(ds), v.left_out)
     return [gone[f] for f in SITE_ORDER if f in gone]
 
 
@@ -330,10 +340,10 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
             f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
         )
     ]
-    if "data.xlsx" in v.files:
+    why = reasons(v.rows, geo_kind(ds), v.left_out).get("xlsx")
+    if not why:
         excel = f"Yes. {vbase}data.xlsx is a workbook with the {fmt_int(v.rows)} rows on a records sheet, the field list on a second sheet and the provenance on a third. The CSV also opens in Excel."
     else:
-        why = left_out(v.rows, geo_kind(ds), measured_of(m.fetched_at, v.files)).get("xlsx", "")
         excel = f"Not as a workbook. {why} Load the CSV or the Parquet file with Power Query, or take one partition file at a time."
     out.append(
         (
@@ -1700,7 +1710,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions made before the size limits came in also carry arrow. A version page says why a format is not there.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 </ul>
 <h2>Inside every data file</h2>
@@ -2346,7 +2356,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
         "in": "path",
         "required": True,
         "schema": {"type": "string", "enum": fmts},
-        "description": "geojson, gpkg and geo.parquet exist only for datasets that declare geometry, and pmtiles only for polygon and line layers; xlsx only up to the Excel row limit; json and geojson only up to 2,000,000 rows, above which parquet, ndjson and csv serve the whole table.",
+        "description": _file_formats_text(),
     }
 
     def j(desc, schema=None):
@@ -3209,7 +3219,7 @@ def render_site(
         rows_path = out / "d" / ds.slug / "v" / m.version / "data.parquet"
         if rows_path.exists():
             hints = _console(ds, rows_path)
-        if QUERY_API and hints and queryable(ds, latest.files.get("data.sqlite")):
+        if QUERY_API and hints and queryable(ds, latest.files.get("data.csv")):
             queried.append(o)
             console = hints
             _write(out, f"d/{ds.slug}/openapi.json", pretty(_dataset_openapi(o, console)))

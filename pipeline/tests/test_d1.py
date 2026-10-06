@@ -359,9 +359,9 @@ def test_a_version_too_large_for_d1_is_files_only_everywhere(tmp_path, monkeypat
 
     out = tmp_path / "dist"
     big = out / "d" / "qld-road-crash-locations"
-    monkeypatch.setattr(d1, "MAX_SQLITE", 100_000)
+    monkeypatch.setattr(d1, "MAX_CSV", 100_000)
     assert main(["build", "--fixtures", "--out", str(out)]) == 0
-    assert (big / "v" / "2026-04-24" / "data.sqlite").stat().st_size > d1.MAX_SQLITE
+    assert (big / "v" / "2026-04-24" / "data.csv").stat().st_size > d1.MAX_CSV
     page = (big / "index.html").read_text(encoding="utf-8")
     assert 'id="console"' not in page and not (big / "fields.json").exists()
     assert not (big / "openapi.json").exists() and (big / "explore" / "index.html").exists()
@@ -467,9 +467,9 @@ def test_a_loaded_version_whose_fields_changed_is_loaded_again(tmp_path):
 
     t = pa.table({"a": pa.array([1], pa.int64()), "sal_2021_name": ["Kingaroy"]})
     pq.write_table(t.replace_schema_metadata({"publicdata": "{}"}), v / "data.parquet")
-    # The loader sizes the version's data.sqlite from its dataset's data package.
+    # The loader sizes the version's data.csv from its dataset's data package.
     (root / "d" / "x-y" / "datapackage.json").write_text(
-        json.dumps({"resources": [{"path": "/d/x-y/v/2026-01-02/data.sqlite", "bytes": 8192}]})
+        json.dumps({"resources": [{"path": "/d/x-y/v/2026-01-02/data.csv", "bytes": 8192}]})
     )
     fields = (SimpleNamespace(name="a", type="integer"), SimpleNamespace(name="sal_2021_name", type="string"))  # fmt: skip
     ds = SimpleNamespace(slug="x-y", key=(), partition_by=(), query=True, fields=fields)

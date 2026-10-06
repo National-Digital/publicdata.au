@@ -24,7 +24,7 @@ pipeline/publicdata/
                        a point geometry becomes two fields, a zip yields its named member
   serialise/           pure functions: json, ndjson, csv, csv.gz, parquet, sqlite, duckdb, xlsx,
                        geojson, gpkg, geo.parquet, pmtiles, schema.sql, csvw, and arrow for
-                       versions fetched before the size limits; formats_for picks a version's set,
+                       versions without the caps stamp; formats_for gives a version's set,
                        datapackage, dcat, llms.txt
   gate.py              fail-closed checks over dist/
   site.py              dataset pages, request pages, agency pages, from the same model
@@ -90,7 +90,7 @@ pipeline/publicdata/
 /d/<slug>/v/<date>/data.{ndjson,csv,csv.gz,parquet,duckdb}     on every table version
 /d/<slug>/v/<date>/data.{json,sqlite,xlsx}                       within their size limits
 /d/<slug>/v/<date>/data.{gpkg,geo.parquet,geojson,pmtiles}        with coordinates or shapes
-/d/<slug>/v/<date>/data.arrow        versions fetched before the size limits only
+/d/<slug>/v/<date>/data.arrow        versions without the caps stamp only
 /d/<slug>/v/<date>/by/<field>/<value>.json           where partition_by is declared
 /d/<slug>/v/<date>/manifest.json     source URL, fetched-at, SHA-256 of source bytes
 /d/<slug>/v/<date>/source.<ext>      the bytes as fetched, served from publicdata-raw
@@ -121,13 +121,19 @@ the build, with nothing written by hand:
   against a version without a download;
 - the formats that grow with the table, each written only while the version is within its
   limit. SQLite is written up to 500 MB of CSV, Excel up to 50 MB of CSV and 1,048,575 rows,
-  JSON up to 50 MB of NDJSON, and GeoJSON up to 100 MB of NDJSON. The NDJSON and CSV are written
-  first and their byte counts decide the rest, so two builds of one snapshot make the same
-  choice. The manifest records those byte counts as `measured_bytes` and each format left out
-  with its reason as `formats_left_out`, the version and dataset pages say why the file is not
-  there, and the gate refuses a version that publishes a file past its cap. A version fetched
-  before `serialise.CAPPED_FROM` keeps the set it was built with, Arrow included, since a
-  dated version never changes; Arrow is not written for any later version;
+  JSON up to 50 MB of NDJSON, and GeoJSON up to a 100 MB file. The NDJSON and CSV are written
+  first and their byte counts decide SQLite, Excel and JSON. GeoJSON is written and measured on
+  its own bytes, because a layer's shapes are in no other text file, and dropped when it is
+  over. Every writer is deterministic, so two builds of one snapshot make the same choice. The
+  manifest records the byte counts as `measured_bytes` and each format left out with its reason
+  as `formats_left_out`, the version and dataset pages say why the file is not there, and the
+  gate refuses a version that publishes a left-out file or whose `measured_bytes` disagree with
+  the files beside it. The set is fixed when a version is first built: a later build of a
+  published version takes `formats_left_out` from its published manifest, so a changed cap or
+  writer never adds or drops a format on a dated version. The caps apply to versions whose store
+  manifest carries `"caps": 1`, which the fetch stamps on every manifest it writes. A version
+  without the stamp keeps the set it was built with under the old row limits, Arrow included;
+  Arrow is not written for any stamped version;
 - partition files for each `partition_by` field;
 - the query API over D1 for the newest versions, with OpenAPI at `/d/<slug>/openapi.json` and
   the query console on the dataset page, whose field values and first query come from the
@@ -314,7 +320,13 @@ Parquet it belongs to. The build puts the rows back in it before it writes a for
 publisher's order, and only when the Parquet it read back is that very file and carries the
 profile key and its sorting columns; otherwise the version is built again from its source. The
 query copies are outside the cache: a cached version's copy is listed as already published. A changed Parquet writer, a change to the Parquet profile, or a change to the JSON and
-GeoJSON writers that also make the partition files, rebuilds the version from its source. CAPS_PLACEHOLDER The
+GeoJSON writers that also make the partition files, rebuilds the version from its source. A capped version keeps its recorded format set
+through either, and a rewritten NDJSON, CSV or GeoJSON has its new size recorded in the
+manifest. A format left out by its cap is never published: SQLite, Excel and JSON are not
+written, and GeoJSON is written only to be measured and is deleted before the version is
+cached, so none of them is in the entry or `absent.json`. The limits live in
+`serialise/__init__.py`, inside the environment key, and apply only to versions built for the
+first time. The
 determinism job proves this by building the fixtures with a subset of formats into a cache and
 then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, each entry's record after its files,
 and the last push of a deploy to main notes the entries its build pruned in `_build/.unused.json`.
@@ -345,7 +357,7 @@ per version with indexes on the key and partition fields, and records it in `_ve
 field list, licence and attribution, and in `_orders` with the order its rows were taken in
 (`profile.signature`); a loaded version whose Parquet is in another order is loaded again, so its
 rowid agrees with the Parquet and the console. At most two versions per dataset are loaded; every version
-stays available as files. A version whose data.sqlite is over 500 MB, or a dataset whose entry sets
+stays available as files. A version whose data.csv is over 500 MB, or a dataset whose entry sets
 `query: false`, is not loaded, and its page, OpenAPI and MCP resources leave the query API out;
 `d1.queryable` is the one rule both the build and the loader read. Every other version is for the
 Parquet engine, which reads the version's query copy in `publicdata-dist`, never its data.parquet. Up to four versions load at

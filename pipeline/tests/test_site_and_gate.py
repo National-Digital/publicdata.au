@@ -566,10 +566,10 @@ def test_catalog_modified_moves_with_the_newest_release(tmp_path):
     store = tmp_path / "store"
     shutil.copytree(ROOT / "pipeline" / "tests" / "fixtures" / "store", store)
     old = store / "qld-road-casualties" / "2026-04-24"
-    new = old.parent / "2026-10-09"
+    new = old.parent / "2026-10-01"
     shutil.copytree(old, new)
     m = json.loads((new / "manifest.json").read_text(encoding="utf-8"))
-    m.update(version="2026-10-09", fetched_at="2026-10-09T02:00:00+00:00")
+    m.update(version="2026-10-01", fetched_at="2026-10-01T02:00:00+00:00")
     (new / "manifest.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
     out = tmp_path / "dist"
     subprocess.run(
@@ -577,9 +577,9 @@ def test_catalog_modified_moves_with_the_newest_release(tmp_path):
         check=True,
     )
     catalog = json.loads((out / "catalog.json").read_text(encoding="utf-8"))
-    assert catalog["modified"] == "2026-10-09"
+    assert catalog["modified"] == "2026-10-01"
     by_id = {d["identifier"]: d for d in catalog["dataset"]}
-    assert by_id["qld-road-casualties"]["modified"] == "2026-10-09"
+    assert by_id["qld-road-casualties"]["modified"] == "2026-10-01"
 
 
 def test_the_gate_refuses_a_page_that_leaves_out_the_licence_condition(

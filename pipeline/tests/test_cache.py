@@ -249,7 +249,7 @@ def test_a_cached_version_grows_into_new_formats_from_its_parquet(
     out = re.split(r"built \d+ files", capsys.readouterr().out, maxsplit=1)[
         1
     ]  # the grown build's lines
-    assert "40 reused, 0 built, 84 file(s) written into reused versions" in out
+    assert "40 reused, 0 built, 83 file(s) written into reused versions" in out
     absent = set(json.loads((tmp_path / "grown.json").read_text()))
     # The grown tree is the plain tree, less the files the cache had already published.
     for rel in _tree(plain):
