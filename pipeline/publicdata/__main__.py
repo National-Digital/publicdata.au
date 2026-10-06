@@ -577,11 +577,30 @@ def cmd_cache(args) -> int:
 
     root = Path(args.cache)
     if args.sub == "pull":
-        n = cache_pull(root, meta_only=args.meta_only)
+        entries = None
+        if args.only:
+            from .build import cache_keys
+            from .cache import BuildCache
+            from .register import load
+
+            if not args.store:
+                print("cache pull: --only needs --store")
+                return 2
+            cache = BuildCache(root)
+            entries = set().union(
+                *(
+                    cache_keys(cache, d, Path(args.store))
+                    for d in load(REGISTER)
+                    if d.slug in args.only
+                )
+            )
+        n = cache_pull(root, meta_only=args.meta_only, entries=entries)
         print(f"cache pull: {n} entries")
     else:
         up, gone = cache_push(root, prune=args.prune)
-        print(f"cache push: {up} file(s) uploaded, {gone} no longer used deleted")
+        print(
+            f"cache push: {up} file(s) uploaded, {gone} entries unused past the grace period deleted"
+        )
     return 0
 
 
@@ -729,8 +748,14 @@ def main(argv=None) -> int:
     cc.add_argument("sub", choices=["pull", "push"])
     cc.add_argument("--cache", required=True)
     cc.add_argument("--meta-only", action="store_true", help="pull each entry's record alone")
+    cc.add_argument("--store", help="the store whose manifests --only reads")
     cc.add_argument(
-        "--prune", action="store_true", help="push, and delete the entries this disk has dropped"
+        "--only", nargs="+", metavar="SLUG", help="pull only the entries these datasets can use"
+    )
+    cc.add_argument(
+        "--prune",
+        action="store_true",
+        help="push, and delete the entries this disk has dropped once they stay unused a day",
     )
     cc.set_defaults(fn=cmd_cache)
     cpr = sub.add_parser("cache-prune", help="drop build cache entries no stored version uses")

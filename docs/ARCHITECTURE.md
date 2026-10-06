@@ -236,7 +236,9 @@ not seen, and records them. A changed Parquet writer, or a change to the JSON an
 writers that also make the partition files, rebuilds the version from its source. The
 determinism job proves this by building the fixtures with a subset of formats into a cache and
 then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, each entry's record after its files,
-and the last push of a deploy to main deletes the entries its build pruned. Source bytes are
+and the last push of a deploy to main notes the entries its build pruned in `_build/.unused.json`.
+An entry is deleted, its record first, only once it has stayed unused for a day, so a preview
+that listed it before main stopped using it still finds it whole. Source bytes are
 pulled only for versions the cache does not hold. A deploy dispatched with `replace` builds
 without it.
 
@@ -244,7 +246,7 @@ One runner's disk cannot hold a build of every version at once, so the deploy bu
 A plan job lists the versions the cache cannot serve, those with no entry and those a writer
 would grow (`publicdata shards`), and packs their datasets by source bytes into at most four
 shard jobs; a dataset larger than a share builds alone, and a few small changes build in one job.
-Each shard builds its datasets without pages (`build --no-site`, `gate --versions-only`), pushes their dated files to R2 (`dist-push --dated-only`) and
+Each shard pulls only the cache entries its datasets key to (`cache pull --only`), builds its datasets without pages (`build --no-site`, `gate --versions-only`), pushes their dated files to R2 (`dist-push --dated-only`) and
 hands over the cache entries it wrote, with the version files a preview serves. The deploy job
 then builds the whole site from the cache those entries filled, links the preview files in with
 `build --built`, and pushes the pages. Every deploy is therefore limited by its largest single

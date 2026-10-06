@@ -86,7 +86,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-        run: python -m publicdata cache pull --cache "$BUILD_CACHE"
+          SLUGS: ${{ matrix.slugs }}
+        # Only the entries this shard's datasets key to, so no shard downloads the whole cache.
+        run: python -m publicdata cache pull --cache "$BUILD_CACHE" --store "$STORE" --only $SLUGS
       - name: Pull raw sources from R2
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
