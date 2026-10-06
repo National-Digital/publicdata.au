@@ -91,6 +91,11 @@ test('a query outside the rollup falls through', () => {
     'order=nope.desc',
     'limit=0',
     'lga=2020',
+    // Names every object inherits are no metric field.
+    'metric=max.toString',
+    'metric=count.constructor',
+    'metric=sum.__proto__',
+    'metric=min.hasOwnProperty',
   ]) assert.equal(aggregate(r, new URLSearchParams(qs)), null, qs);
 });
 

@@ -115,8 +115,9 @@ function metricOf(spec, r) {
   const [fn, name] = spec.split('.');
   if (!FNS.has(fn)) return null;
   if (fn === 'count' && !name) return { fn, as: 'count' };
-  if (!name || !(name in r.metrics)) return null;
+  if (!name || !Object.hasOwn(r.metrics, name)) return null;
   const f = r.fieldMap.get(name);
+  if (!f) return null;
   if (fn !== 'count' && fn !== 'min' && fn !== 'max' && !['integer', 'number', 'boolean'].includes(f.type)) return null;
   return { fn, name, as: `${fn}_${name}` };
 }
@@ -128,7 +129,7 @@ function cubeFor(r, params) {
   const mets = (params.get('metric') || 'count').split(',').map((s) => s.split('.')[1]).filter(Boolean);
   let best = null;
   for (const c of r.cubes) {
-    if (![...need].every((f) => c.dims.includes(f)) || !mets.every((m) => m in c.metrics)) continue;
+    if (![...need].every((f) => c.dims.includes(f)) || !mets.every((m) => Object.hasOwn(c.metrics, m))) continue;
     if (!best || c.count.length < best.count.length) best = c;
   }
   return best;
