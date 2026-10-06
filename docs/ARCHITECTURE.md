@@ -90,6 +90,7 @@ pipeline/publicdata/
 /d/<slug>/v/<date>/by/<field>/<value>.json           where partition_by is declared
 /d/<slug>/v/<date>/manifest.json     source URL, fetched-at, SHA-256 of source bytes
 /d/<slug>/v/<date>/source.<ext>      the bytes as fetched
+/d/<slug>/v/<date>/SHA256SUMS        SHA-256 of every file, under its download name
 /d/<slug>/openapi.json               OpenAPI for this dataset's query paths
 /d/<slug>/explore/                   the explorer; ?view=<id> opens a saved dashboard
 /d/<slug>/embed/                     the same dashboard in a frame, with the attribution
@@ -231,6 +232,17 @@ writers that also make the partition files, rebuilds the version from its source
 determinism job proves this by building the fixtures with a subset of formats into a cache and
 then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, and source bytes are pulled
 only for versions the cache does not hold. A deploy dispatched with `replace` builds without it.
+
+Every dated version in R2 carries `SHA256SUMS`, one `sha256sum` line per file under the name the
+site saves it as (`site.download_name`), so `sha256sum -c --ignore-missing SHA256SUMS` checks a
+download. The build never writes it, so the cache key does not cover it and adding it rebuilt
+nothing. The last step of a production deploy, `publicdata checksums`, lists each dataset's
+versions in R2 and writes the list for any version that has none or holds a file newer than it,
+which is how a format added to a cached version gains its line. The hashes are the SHA-256 that
+`dist-push` stores with each object, so no file is read back; a version with a file stored without
+one is skipped and reported. `publicdata checksums --all --download` is the backfill a maintainer
+runs once: it covers every dataset R2 holds and reads and hashes any file stored without a hash.
+The list is served with a five-minute cache, since it grows when a format is added.
 
 One runner's disk cannot hold a build of every version at once, so the deploy builds in shards.
 A plan job lists the versions the cache cannot serve, those with no entry and those a writer

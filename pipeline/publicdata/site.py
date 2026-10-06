@@ -1681,6 +1681,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, xlsx, json, parquet, sqlite, duckdb, ndjson, arrow, csv.gz, and geojson, gpkg and geo.parquet where the dataset has coordinates or shapes, with pmtiles vector tiles for boundary layers.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/SHA256SUMS</code> lists the SHA-256 of every file in the version, each under the name it downloads as, such as <code>&lt;slug&gt;_&lt;date&gt;.csv</code>. Run <code>sha256sum -c --ignore-missing SHA256SUMS</code> beside the files, or save them with <code>curl -OJ</code> so the names match.</li>
 </ul>
 <h2>Inside every data file</h2>
 <p>JSON, NDJSON, GeoJSON, Parquet and SQLite each carry a <code>publicdata</code> header with the publisher, licence, attribution string, a <code>cite</code> string, version, source URL and source SHA-256. The CSV has no room for a header, so read <code>manifest.json</code> beside it.</p>
@@ -3068,6 +3069,8 @@ def render_site(
                         else []
                     ),
                     *[f"- {f['name']}: {f['url']} ({f['size']})" for f in files],
+                    "",
+                    f"SHA-256 of every file, under the names they download as: {version_url(ds.slug, v.manifest.version)}SHA256SUMS",
                     "",
                     "## Attribution",
                     "",

@@ -312,6 +312,16 @@ jobs:
           fi
           python -m publicdata d1 sql --root "$DIST" --root "$DIST_LARGE" --loaded loaded.json --out d1-load --stamp "$GITHUB_RUN_ID" --catalogue catalogue-search.sqlite
           python -m publicdata d1 load --dir d1-load
+      # Made from the hashes R2 stored with each file, so the build and its cache key never see it.
+      # Last, so a failure never holds back the site or the query API.
+      - name: Write each version's SHA256SUMS
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          REPLACE: ${{ github.event.inputs.replace }}
+        run: python -m publicdata checksums --root "$DIST" --root "$DIST_LARGE" ${REPLACE:+--replace $REPLACE}
       - name: Comment the preview URL
         if: env.HAS_CF == 'true' && github.event_name == 'pull_request'
         env:

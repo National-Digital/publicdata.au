@@ -24,6 +24,7 @@
   <ul class="files">
   {% for f in files %}<li><a href="{{ f.url }}" download="{{ f.download }}" class="mono">{{ f.name }}</a><span>{{ f.size }}</span></li>{% endfor %}
   </ul>
+  <p class="muted" style="font-size:14.5px"><a href="{{ base }}v/{{ v.version }}/SHA256SUMS" class="mono">SHA256SUMS</a> holds the SHA-256 of every file in this version under the name it downloads as. Check what you downloaded with <span class="mono">sha256sum -c --ignore-missing SHA256SUMS</span> in the same folder.</p>
   {% if v.tables %}<p class="muted" style="font-size:14.5px">One Parquet file per table under <span class="mono">tables/</span>: {% for t, n in v.tables.items() %}<a href="{{ base }}v/{{ v.version }}/tables/{{ t }}.parquet" class="mono">{{ t }}</a> ({{ '{:,}'.format(n) }}){% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
   {% if partition_dirs %}<p class="muted" style="font-size:14.5px">Smaller files by field: {% for p in partition_dirs %}<a href="{{ base }}v/{{ v.version }}/by/{{ p }}/index.json" class="mono">by/{{ p }}/</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
   {% if change %}

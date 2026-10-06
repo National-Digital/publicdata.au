@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | hubs."""
 
 from __future__ import annotations
 
@@ -491,6 +491,29 @@ def cmd_dist_push(args) -> int:
     return 0
 
 
+def cmd_checksums(args) -> int:
+    from .checksums import slugs_in, slugs_in_bucket, update
+    from .r2 import client
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"checksums: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    if not args.all and not args.root:
+        print("checksums: name the built trees with --root, or pass --all")
+        return 2
+    s3 = client()
+    slugs = slugs_in_bucket(s3) if args.all else slugs_in(Path(r) for r in args.root)
+    n, held = update(slugs, replace=tuple(args.replace), download=args.download, s3=s3)
+    print(f"checksums: {n} SHA256SUMS written over {len(slugs)} dataset(s)")
+    if held:
+        print(
+            f"checksums: {len(held)} version(s) left without one; "
+            "run `publicdata checksums --all --download` to hash their files from R2"
+        )
+    return 0
+
+
 def cmd_purge(args) -> int:
     import os
 
@@ -654,6 +677,24 @@ def main(argv=None) -> int:
         help="a shard's built tree; a file the cache leaves out is linked in from it when there",
     )
     b.set_defaults(fn=cmd_build)
+    ck = sub.add_parser("checksums", help="write SHA256SUMS beside each dated version in R2")
+    ck.add_argument(
+        "--root", action="append", default=[], help="a built tree whose datasets to cover; repeat"
+    )
+    ck.add_argument("--all", action="store_true", help="every dataset R2 holds, as a backfill")
+    ck.add_argument(
+        "--download",
+        action="store_true",
+        help="read and hash a file R2 stored without its SHA-256, instead of skipping its version",
+    )
+    ck.add_argument(
+        "--replace",
+        nargs="*",
+        default=[],
+        metavar="PREFIX",
+        help="versions rewritten on purpose, whose lists are made again from scratch",
+    )
+    ck.set_defaults(fn=cmd_checksums)
     pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
     pg.set_defaults(fn=cmd_purge)
