@@ -273,9 +273,20 @@ The MCP tool `count_rows` answers from a version's rollup before it asks D1. A r
 gzipped JSON object in `publicdata-dist` under `_rollup/<slug>/<version>.json.gz`, outside the
 published tree, holding the version's counts and totals grouped several ways ("cubes"). It is a
 cache of answers the query API gives and is not offered as a download. It carries the version's
-provenance header. `publicdata rollup` writes one for every built version R2 lacks, after the site deploy,
-reading each version's Parquet with DuckDB in one pass per sixteen cubes. The build never imports
-`rollup.py`, so rollups shape no version and the build cache does not key on them.
+provenance header. The build never imports `rollup.py`, so rollups shape no version and the build
+cache does not key on them.
+
+`publicdata rollup` runs after the D1 load and follows what D1 holds, which `_versions` lists, so
+a version too large or too wide for D1, an entry with `query: false` and a deploy with D1 off get
+no rollup. Each rollup is stored with the identity of the Parquet it was built from: the SHA-256
+the push stores with every object, or the ETag of one pushed before it did. A version whose
+published Parquet has another identity, or which `--replace` names, gets its rollup written
+again, and the rollups of versions D1 no longer holds are deleted. The Parquet is read from a
+built tree when the tree holds the same bytes, and from `publicdata-dist` otherwise, so a version
+this deploy took from the build cache still gets its rollup. DuckDB reads it on one thread with a
+float's NaN as null, as `data.sqlite` holds it, and totals floats with compensated summation, so
+the same Parquet always gives the same rollup. A version whose totals include an infinity has no
+JSON form and is left to D1.
 
 A version gets a rollup when its table has at least 5,000 rows and its entry does not set
 `query: false`; a smaller table is answered at once by any engine. The candidate cubes are the
@@ -292,8 +303,12 @@ The function picks the smallest cube that holds every field a query filters or g
 the field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the answer is
 the one `/aggregate` gives; `functions/_rollup.test.mjs` runs random queries through both on
 the fixture in `pipeline/tests/fixtures/rollup`, whose rollup the Python tests pin byte for
-byte. A query no cube holds, a version other than the two newest, and a withheld dataset fall
-through to D1. Answers name the version and its `/aggregate` URL.
+byte. Each filter is decided once per distinct value, and LIKE patterns match without
+backtracking. `count_rows` orders equal totals by its groups, so its top groups are the same
+from either engine and from the query it cites. The function reads a rollup only while its
+stored identity matches the published Parquet's, and checks again after a minute. A query no
+cube holds, a version other than the two newest, a deploy without D1, and a withheld dataset
+fall through to D1. Answers name the version and its `/aggregate` URL.
 
 The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
 measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their

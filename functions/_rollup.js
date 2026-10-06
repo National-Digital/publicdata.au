@@ -38,6 +38,26 @@ export function cmp(a, b) {
 
 const lowerAscii = (s) => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 
+// A pattern whose only wildcard is *, matched without backtracking: the first piece anchors the
+// start, the last the end, and each piece between is taken at its earliest place, which is
+// always safe when * is the only wildcard.
+export function glob(pattern) {
+  const parts = pattern.split('*');
+  if (parts.length === 1) return (s) => s === pattern;
+  const head = parts[0], tail = parts[parts.length - 1], mid = parts.slice(1, -1);
+  return (s) => {
+    if (s.length < head.length + tail.length || !s.startsWith(head) || !s.endsWith(tail)) return false;
+    const end = s.length - tail.length;
+    let at = head.length;
+    for (const p of mid) {
+      const i = s.indexOf(p, at);
+      if (i < 0 || i + p.length > end) return false;
+      at = i + p.length;
+    }
+    return true;
+  };
+}
+
 function typed(field, raw) {
   if (field.type === 'integer' || field.type === 'number') {
     const n = Number(raw);
@@ -71,8 +91,8 @@ function test(field, value) {
     // SQLite's LIKE ignores case for ASCII letters only, which is also all LOWER() changes.
     if (field.type !== 'string') return null;
     binds = 1;
-    const re = new RegExp('^' + lowerAscii(arg).split('*').map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]*') + '$');
-    fn = (x) => (x === null ? null : re.test(lowerAscii(String(x))));
+    const match = glob(lowerAscii(arg));
+    fn = (x) => (x === null ? null : match(lowerAscii(String(x))));
   } else if (op === 'in') {
     const m = arg.match(/^\((.*)\)$/);
     if (!m) return null;
@@ -82,6 +102,13 @@ function test(field, value) {
     fn = (x) => (x === null ? null : items.some((t) => cmp(x, t) === 0));
   } else return null;
   return { binds, fn: not ? (x) => { const r = fn(x); return r === null ? null : !r; } : fn };
+}
+
+// Neumaier's compensated sum, as SQLite adds floats, so the groups' totals lose no digits.
+function add(a, x) {
+  const t = a.sum + x;
+  a.c += Math.abs(a.sum) >= Math.abs(x) ? (a.sum - t) + x : (x - t) + a.sum;
+  a.sum = t;
 }
 
 function metricOf(spec, r) {
@@ -130,7 +157,9 @@ function aggregateCube(r, fieldMap, params) {
     const t = test(r.fieldMap.get(k), v);
     if (!t) return null;
     binds += t.binds;
-    filters.push({ i: dimIx.get(k), fn: t.fn });
+    // Each filter is decided once per distinct value, so a row costs a lookup.
+    const d = dimIx.get(k);
+    filters.push({ d, ok: r.values[d].map((x) => t.fn(x) === true) });
   }
   if (binds > MAX_PARAMS) return null;
   const limit = params.has('limit') ? Number(params.get('limit')) : LIMIT_DEFAULT;
@@ -151,14 +180,14 @@ function aggregateCube(r, fieldMap, params) {
   let matched = 0;
   for (let i = 0; i < r.count.length; i++) {
     let pass = true;
-    for (const f of filters) if (f.fn(value(f.i, i)) !== true) { pass = false; break; }
+    for (const f of filters) if (!f.ok[r.codes[f.d][i]]) { pass = false; break; }
     if (!pass) continue;
     matched += r.count[i];
     let k = 0;
     for (let j = 0; j < gix.length; j++) k = k * radix[j] + r.codes[gix[j]][i];
     let b = buckets.get(k);
     if (!b) {
-      b = { keys: gix.map((d) => value(d, i)), count: 0, m: metrics.map(() => ({ sum: 0, n: 0, min: null, max: null, any: false })) };
+      b = { keys: gix.map((d) => value(d, i)), count: 0, m: metrics.map(() => ({ sum: 0, c: 0, n: 0, min: null, max: null, any: false })) };
       buckets.set(k, b);
     }
     b.count += r.count[i];
@@ -167,7 +196,7 @@ function aggregateCube(r, fieldMap, params) {
       const s = r.metrics[m.name], a = b.m[j];
       if (s.n[i] > 0) {
         a.any = true;
-        a.sum += s.sum[i];
+        add(a, s.sum[i]);
         a.n += s.n[i];
         if (a.min === null || cmp(s.min[i], a.min) < 0) a.min = s.min[i];
         if (a.max === null || cmp(s.max[i], a.max) > 0) a.max = s.max[i];
@@ -182,8 +211,8 @@ function aggregateCube(r, fieldMap, params) {
     metrics.forEach((m, j) => {
       const a = b.m[j];
       row[m.as] = m.fn === 'count' ? (m.name ? a.n : b.count)
-        : m.fn === 'sum' ? (a.any ? a.sum : null)
-        : m.fn === 'avg' ? (a.any ? a.sum / a.n : null)
+        : m.fn === 'sum' ? (a.any ? a.sum + a.c : null)
+        : m.fn === 'avg' ? (a.any ? (a.sum + a.c) / a.n : null)
         : m.fn === 'min' ? a.min : a.max;
     });
     return row;
@@ -209,7 +238,7 @@ async function newest(ctx, slug) {
     if (!r.ok) return null;
     latest = await r.json();
   }
-  return latest[slug] || null;
+  return Object.hasOwn(latest, slug) ? latest[slug] : null;
 }
 
 // The query API serves the two newest versions, and an answer names its API URL, so the rollup
@@ -221,22 +250,48 @@ async function recent(ctx, slug) {
   return (b.versions || []).map((x) => x.version).sort().reverse().slice(0, 2);
 }
 
+// What names a published Parquet's bytes, as rollup.identity() in the pipeline stamps it.
+export const identity = (o) => (o.customMetadata && o.customMetadata.sha256 ? `sha256:${o.customMetadata.sha256}` : `etag:${o.etag}`);
+
+// A rollup answers only while the Parquet it was built from is the one R2 publishes, so a
+// rebuilt version never answers from its old rows. The check is repeated after VALID_MS.
+const VALID_MS = 60_000;
+
+const stampOf = (o) => (o && o.customMetadata && o.customMetadata.parquet) || null;
+
 async function open(ctx, slug, version) {
   const k = key(slug, version);
-  if (loaded.has(k)) return loaded.get(k);
+  const hit = loaded.get(k);
+  if (hit && Date.now() - hit.at < VALID_MS) return hit.r;
+  loaded.delete(k);
   if (!ctx.env.DIST) return null;
-  const obj = await ctx.env.DIST.get(k);
-  if (!obj) return null;
-  const r = await gunzipJSON(obj.body);
+  const pqKey = `d/${slug}/v/${version}/data.parquet`;
+  // A rollup read before is checked by its metadata alone; a new one is read with its check.
+  const [obj, pq] = await Promise.all([hit ? ctx.env.DIST.head(k) : ctx.env.DIST.get(k), ctx.env.DIST.head(pqKey)]);
+  const stamp = stampOf(obj);
+  const fresh = stamp && pq && stamp === identity(pq);
+  if (!fresh || (hit && hit.stamp === stamp)) {
+    if (obj && obj.body) await obj.body.cancel();
+    if (!fresh) return null;
+    loaded.set(k, { ...hit, at: Date.now() });
+    return hit.r;
+  }
+  const body = hit ? await ctx.env.DIST.get(k) : obj;
+  if (!body || stampOf(body) !== stamp) {
+    if (body && body.body) await body.body.cancel();
+    return null;
+  }
+  const r = await gunzipJSON(body.body);
   if (loaded.size >= KEEP) loaded.delete(loaded.keys().next().value);
-  loaded.set(k, r);
+  loaded.set(k, { r, stamp, at: Date.now() });
   return r;
 }
 
 // The same return shape as the other engines, or null to fall through. A withheld dataset is
 // not in latest.json, so it falls through to the engine that answers 410.
 export async function rollup(ctx, slug, version, op, qs) {
-  if (op !== 'aggregate') return null;
+  // Without D1 the query URL an answer cites gives 503, so the rollup does not answer either.
+  if (op !== 'aggregate' || !ctx.env.DB) return null;
   if (version && !VERSION.test(version)) return null;
   const live = await newest(ctx, slug);
   if (!live) return null;

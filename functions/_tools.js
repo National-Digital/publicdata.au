@@ -105,7 +105,9 @@ EXEC.query_rows = async (ctx, input) => {
 EXEC.count_rows = async (ctx, input) => {
   const metric = input.metric || 'count', limit = input.limit || 100, group = input.group_by || [], slug = slugOf(input);
   const alias = metric === 'count' ? 'count' : metric.replace('.', '_');
-  const qs = filters(input.where).concat(['metric=' + enc(metric), 'order=' + enc(alias + '.desc'), 'limit=' + limit]);
+  // Equal totals come in group order, so the top groups are the same from every engine.
+  const order = [alias + '.desc', ...group.map((g) => g + '.asc')].map(enc).join(',');
+  const qs = filters(input.where).concat(['metric=' + enc(metric), 'order=' + order, 'limit=' + limit]);
   if (group.length) qs.push('group=' + group.map(enc).join(','));
   const r = await rollup(ctx, slug, input.version, 'aggregate', qs);
   if (r) return text({ version: r.version, group_by: group, metric, groups: r.rows, truncated: r.more, matched: r.matched, query: r.query, attribution: r.attribution });

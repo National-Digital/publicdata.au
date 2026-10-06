@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { gunzipSync } from 'node:zlib';
 import { aggregateQuery } from './_query.js';
-import { aggregate, rollup } from './_rollup.js';
+import { aggregate, glob, rollup } from './_rollup.js';
 
 // The rollup and the query API must give one answer. Both read the fixture the Python tests pin
 // (pipeline/tests/fixtures/rollup): the rows go into node:sqlite and run through the API's own
@@ -94,12 +94,23 @@ test('a query outside the rollup falls through', () => {
   ]) assert.equal(aggregate(r, new URLSearchParams(qs)), null, qs);
 });
 
+// R2 as the function sees it: each rollup carries the identity of the Parquet it was built from.
+function r2(parquets, rollups) {
+  const meta = (k) => ({ customMetadata: { parquet: rollups[k] }, etag: 'r' });
+  return {
+    get: async (k) => (k in rollups ? { ...meta(k), body: new Response(gz).body } : null),
+    head: async (k) => (k in rollups ? meta(k) : k in parquets ? { customMetadata: { sha256: parquets[k] }, etag: 'e' } : null),
+  };
+}
+
 test('rollup() reads R2, names the version and its provenance, and skips withheld datasets', async () => {
   const assets = { '/latest.json': { t: '2026-01-01' }, '/d/t/versions.json': { versions: [{ version: '2026-01-01' }, { version: '2025-01-01' }, { version: '2024-01-01' }] } };
+  const pq = { 'd/t/v/2026-01-01/data.parquet': 'a1', 'd/t/v/2025-01-01/data.parquet': 'b1', 'd/t/v/2024-01-01/data.parquet': 'c1' };
   const ctx = {
     env: {
+      DB: {},
       ASSETS: { fetch: async (q) => { const p = new URL(q.url).pathname; return p in assets ? Response.json(assets[p]) : new Response('', { status: 404 }); } },
-      DIST: { get: async (k) => (k === '_rollup/t/2026-01-01.json.gz' ? { body: new Response(gz).body } : null) },
+      DIST: r2(pq, { '_rollup/t/2026-01-01.json.gz': 'sha256:a1' }),
     },
   };
   const a = await rollup(ctx, 't', undefined, 'aggregate', ['severity=eq.Fatal', 'metric=count', 'group=year', 'order=count.desc,year.asc', 'limit=3']);
@@ -109,9 +120,58 @@ test('rollup() reads R2, names the version and its provenance, and skips withhel
   assert.match(a.query, /\/api\/v1\/datasets\/t\/versions\/2026-01-01\/aggregate\?severity=eq\.Fatal/);
   // A second-newest version is taken when R2 holds its rollup; an older one never is.
   assert.equal(await rollup(ctx, 't', '2025-01-01', 'aggregate', ['metric=count']), null);
-  ctx.env.DIST.get = async (k) => ({ body: new Response(gz).body, k });
+  ctx.env.DIST = r2(pq, { '_rollup/t/2025-01-01.json.gz': 'sha256:b1', '_rollup/t/2024-01-01.json.gz': 'sha256:c1' });
   assert.equal((await rollup(ctx, 't', '2025-01-01', 'aggregate', ['metric=count'])).version, '2025-01-01');
   assert.equal(await rollup(ctx, 't', '2024-01-01', 'aggregate', ['metric=count']), null);
   assert.equal(await rollup(ctx, 'gone', undefined, 'aggregate', ['metric=count']), null);
+  // A slug that names a property every object inherits is not a dataset.
+  assert.equal(await rollup(ctx, 'constructor', undefined, 'aggregate', ['metric=count']), null);
   assert.equal(await rollup(ctx, 't', undefined, 'rows', ['limit=5']), null);
+  // Without D1 the cited query URL gives 503, so the rollup does not answer either.
+  assert.equal(await rollup({ env: { ...ctx.env, DB: undefined } }, 't', '2025-01-01', 'aggregate', ['metric=count']), null);
+});
+
+test('a rollup built from other bytes than the published Parquet never answers', async () => {
+  // latest.json was read once by the test above; this version is the newest in versions.json.
+  const assets = { '/d/t/versions.json': { versions: [{ version: '2026-03-01' }, { version: '2026-01-01' }] } };
+  const env = {
+    DB: {},
+    ASSETS: { fetch: async (q) => { const p = new URL(q.url).pathname; return p in assets ? Response.json(assets[p]) : new Response('', { status: 404 }); } },
+  };
+  const k = '_rollup/t/2026-03-01.json.gz', pk = 'd/t/v/2026-03-01/data.parquet';
+  // Rebuilt under --replace: R2 publishes new Parquet and the rollup still names the old.
+  env.DIST = r2({ [pk]: 'new' }, { [k]: 'sha256:old' });
+  assert.equal(await rollup({ env }, 't', '2026-03-01', 'aggregate', ['metric=count']), null);
+  // A rollup written before rollups were stamped is not trusted either.
+  env.DIST = r2({ [pk]: 'new' }, { [k]: undefined });
+  assert.equal(await rollup({ env }, 't', '2026-03-01', 'aggregate', ['metric=count']), null);
+  // An object pushed without a stored SHA-256 is named by its ETag.
+  env.DIST = r2({}, { [k]: 'etag:e' });
+  env.DIST.head = async (x) => (x === k ? { customMetadata: { parquet: 'etag:e' } } : x === pk ? { customMetadata: {}, etag: 'e' } : null);
+  assert.ok(await rollup({ env }, 't', '2026-03-01', 'aggregate', ['metric=count']));
+  // Once the Parquet changes, the answer stops as soon as the cached check lapses.
+  const now = Date.now;
+  try {
+    env.DIST.head = async (x) => (x === k ? { customMetadata: { parquet: 'etag:e' } } : x === pk ? { customMetadata: { sha256: 'z' }, etag: 'f' } : null);
+    assert.ok(await rollup({ env }, 't', '2026-03-01', 'aggregate', ['metric=count']), 'still within the check interval');
+    Date.now = () => now() + 61_000;
+    assert.equal(await rollup({ env }, 't', '2026-03-01', 'aggregate', ['metric=count']), null);
+  } finally {
+    Date.now = now;
+  }
+});
+
+test('LIKE patterns match in linear time and as SQLite matches them', () => {
+  const ref = (p, s) => new RegExp('^' + p.split('*').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]*') + '$').test(s);
+  const alpha = ['a', 'b', 'e', '*', '%', '_', '𝔄'];
+  for (let i = 0; i < 5000; i++) {
+    const p = Array.from({ length: rand(7) }, () => pick(alpha)).join('');
+    const s = Array.from({ length: rand(9) }, () => pick(alpha.filter((c) => c !== '*'))).join('');
+    assert.equal(glob(p)(s), ref(p, s), `${p} on ${s}`);
+  }
+  // Eight wildcards over a long value took two minutes as a backtracking regex.
+  const long = 'e'.repeat(50_000);
+  const t = performance.now();
+  assert.equal(glob('*e*e*e*e*e*e*e*e*#')(long), false);
+  assert.ok(performance.now() - t < 200);
 });

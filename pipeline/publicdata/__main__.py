@@ -328,6 +328,13 @@ def cmd_catalogue_publishers(args) -> int:
     return 0
 
 
+def _d1_rows(raw) -> list[dict]:
+    """The rows of a `wrangler d1 execute --json` answer, or a plain list of rows."""
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "results" in raw[0]:
+        return [r for part in raw for r in part.get("results", [])]
+    return raw or []
+
+
 def cmd_d1(args) -> int:
     """Write one SQL file per live dataset whose latest version the query API has not loaded."""
     import json
@@ -339,12 +346,7 @@ def cmd_d1(args) -> int:
     loaded_fields: dict[tuple[str, str], str] = {}
     if args.loaded and Path(args.loaded).exists():
         raw = json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")
-        rows = (
-            [r for part in raw for r in part.get("results", [])]
-            if isinstance(raw, list) and raw and "results" in raw[0]
-            else raw
-        )
-        for r in rows or []:
+        for r in _d1_rows(raw):
             loaded.setdefault(r["slug"], []).append(r["version"])
             if "fields" in r:
                 loaded_fields[(r["slug"], r["version"])] = r["fields"]
@@ -373,18 +375,32 @@ def cmd_d1_load(args) -> int:
 
 
 def cmd_rollup(args) -> int:
-    """Write the rollup of every built version R2 does not hold yet, then push them."""
-    from .r2 import _etags, client, push
-    from .register import load
-    from .rollup import PREFIX, write
+    """Write the rollup of every version D1 holds whose rollup is missing or was built from other
+    bytes, push them, and delete the rollups of versions D1 no longer holds."""
+    import json
 
+    from .r2 import client
+    from .register import load
+    from .rollup import R2Store, held, write
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"rollup: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    loaded = held(_d1_rows(json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")))
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
-    have = set() if args.dry_run else set(_etags(client(), args.bucket, PREFIX))
-    out = Path(args.out)
-    written = write([Path(r) for r in args.root], live, have, out)
-    print(f"rollup: {len(written)} new, {len(have)} already in R2")
-    if written and not args.dry_run:
-        push(out / PREFIX, args.bucket, prefix=PREFIX)
+    store = R2Store(client(), args.bucket)
+    written, keep = write(
+        live, loaded, store, Path(args.out), [Path(r) for r in args.root], args.replace
+    )
+    stale = sorted(store.keys() - keep)
+    print(f"rollup: {len(written)} written, {len(keep) - len(written)} current, {len(stale)} stale")
+    if args.dry_run:
+        return 0
+    for w in written:
+        store.put(w)
+    if stale:
+        store.delete(stale)
     return 0
 
 
@@ -715,11 +731,19 @@ def main(argv=None) -> int:
     d1l = d1.add_parser("load", help="run the load files against D1, verify and retry")
     d1l.add_argument("--dir", required=True)
     d1l.set_defaults(fn=cmd_d1_load)
-    ro = sub.add_parser("rollup", help="write and push the rollups of versions R2 lacks")
-    ro.add_argument("--root", action="append", required=True, help="a built tree; repeat for each")
+    ro = sub.add_parser("rollup", help="write, push and prune the rollups of the versions D1 holds")
+    ro.add_argument(
+        "--loaded", required=True, help="D1's _versions rows (slug, version, rows) as JSON"
+    )
+    ro.add_argument(
+        "--root", action="append", default=[], help="a built tree to read Parquet from first"
+    )
     ro.add_argument("--out", required=True)
     ro.add_argument("--bucket", default="publicdata-dist")
-    ro.add_argument("--dry-run", action="store_true", help="write every rollup locally, push none")
+    ro.add_argument(
+        "--replace", nargs="*", default=[], help="d/<slug>/v/<date>/ prefixes to write again"
+    )
+    ro.add_argument("--dry-run", action="store_true", help="write rollups locally, push none")
     ro.set_defaults(fn=cmd_rollup)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])

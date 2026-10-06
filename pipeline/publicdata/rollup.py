@@ -8,8 +8,10 @@ smallest cube holding every field it names.
 
 A rollup is a cache of answers the query API gives for that version, kept in R2 under
 `_rollup/`, outside the published tree. It is never a download and carries the version's
-provenance header like every answer does. Rollups are written by the deploy after the build,
-so they shape no version's files and the build cache does not key on this module.
+provenance header like every answer does. Rollups are written by the deploy after the D1 load,
+for exactly the versions D1 holds, so they shape no version's files and the build cache does not
+key on this module. Each rollup is stamped with the identity of the Parquet it was built from,
+and the deploy writes it again and the function refuses it whenever that Parquet changes.
 """
 
 from __future__ import annotations
@@ -18,10 +20,12 @@ import datetime as dt
 import gzip
 import itertools
 import json
-from collections.abc import Callable, Sequence
+import tempfile
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from typing import Protocol
 
 FORMAT = "publicdata-rollup/2"
 PREFIX = "_rollup/"
@@ -241,7 +245,9 @@ def _pass(run: Run, batch, metrics, types: dict[str, str]) -> list[dict]:
     sel = [f"GROUPING({', '.join(_q(f) for f in cols)})", *(_q(f) for f in cols), "COUNT(*)"]
     for m in metrics:
         x = f"CAST({_q(m)} AS INTEGER)" if types[m] == "boolean" else _q(m)
-        sel += [f"SUM({x})", f"COUNT({_q(m)})", f"MIN({x})", f"MAX({x})"]
+        # Compensated, as SQLite sums floats, so a total does not hang on the order rows arrive.
+        total = f"fsum({x})" if types[m] == "number" else f"SUM({x})"
+        sel += [total, f"COUNT({_q(m)})", f"MIN({x})", f"MAX({x})"]
     rows = run(f"SELECT {', '.join(sel)} FROM records GROUP BY GROUPING SETS ({sets})")
     n = len(cols)
     by_mask: dict[int, list[tuple]] = {}
@@ -303,10 +309,23 @@ def make(ds, run: Run, rows: int, header: dict, slug: str, version: str, cap: in
 
 
 def parquet_run(path: Path):
+    """A DuckDB view over a version's Parquet, read the way data.sqlite holds it: a float's NaN
+    is null. One thread, so every float total is summed in file order and a rebuild of the same
+    Parquet gives the same bytes."""
     import duckdb
 
     con = duckdb.connect()
-    con.execute(f"CREATE VIEW records AS SELECT * FROM read_parquet('{path.as_posix()}')")
+    con.execute("SET threads = 1")
+    src = f"read_parquet('{path.as_posix()}')"
+    floats = [
+        n
+        for n, t, *_ in con.execute(f"DESCRIBE SELECT * FROM {src}").fetchall()
+        if t in ("DOUBLE", "FLOAT")
+    ]
+    nan = ", ".join(
+        f"CASE WHEN isnan({_q(n)}) THEN NULL ELSE {_q(n)} END AS {_q(n)}" for n in floats
+    )
+    con.execute(f"CREATE VIEW records AS SELECT * {f'REPLACE ({nan}) ' if nan else ''}FROM {src}")
     return (lambda sql: con.execute(sql).fetchall()), con
 
 
@@ -317,33 +336,160 @@ def parquet_header(path: Path) -> dict:
     return json.loads(meta.get(b"publicdata", b"{}"))
 
 
-def write(roots: list[Path], datasets, have: set[str], out: Path, log=print) -> list[Path]:
-    """A rollup for every built version of each queryable table that R2 does not hold yet."""
-    written = []
+def identity(sha256: str | None, etag: str) -> str:
+    """What names a published Parquet's bytes: the SHA-256 the push stores with every object, or
+    the ETag of an object pushed before it did. functions/_rollup.js computes the same."""
+    return f"sha256:{sha256}" if sha256 else f"etag:{etag.strip(chr(34))}"
+
+
+def file_identity(path: Path) -> str:
+    from .r2 import _sha256
+
+    return identity(_sha256(path), "")
+
+
+class Store(Protocol):
+    def parquet(self, slug: str, version: str) -> str | None:
+        """The identity of the version's published Parquet, or None when R2 lacks it."""
+
+    def stamp(self, k: str) -> str | None:
+        """The Parquet identity a stored rollup was built from, or None when there is none."""
+
+    def fetch(self, slug: str, version: str, dest: Path) -> None:
+        """Copies the version's published Parquet to dest."""
+
+
+def held(rows: Iterable[dict]) -> dict[str, dict[str, int]]:
+    """The versions D1 holds and their row counts, from its `_versions` rows."""
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        out.setdefault(r["slug"], {})[r["version"]] = int(r.get("rows") or 0)
+    return out
+
+
+@dataclass(frozen=True)
+class Written:
+    path: Path
+    key: str
+    parquet: str
+
+
+def _local(roots: list[Path], slug: str, version: str, want: str) -> Path | None:
+    rel = Path("d") / slug / "v" / version / "data.parquet"
+    for root in roots:
+        if (root / rel).exists() and file_identity(root / rel) == want:
+            return root / rel
+    return None
+
+
+def write(
+    datasets,
+    loaded: dict[str, dict[str, int]],
+    store: Store,
+    out: Path,
+    roots: Sequence[Path] = (),
+    replace: Sequence[str] = (),
+    log=print,
+) -> tuple[list[Written], set[str]]:
+    """A rollup for every version D1 holds whose stored rollup was not built from the Parquet R2
+    now publishes, or which a replace names. Returns what was written and every rollup key that
+    should stay, so the caller can delete the rest. A version's Parquet comes from a built tree
+    when one holds the same bytes, and otherwise from R2, which backfills a version this deploy
+    did not build."""
+    written: list[Written] = []
+    keep: set[str] = set()
     for ds in datasets:
         if ds.kind != "table" or not ds.query:
             continue
-        seen: set[str] = set()
-        for root in roots:
-            for src in sorted((root / "d" / ds.slug / "v").glob("*/data.parquet")):
-                version = src.parent.name
-                k = key(ds.slug, version)
-                if version in seen or k in have:
-                    continue
-                seen.add(version)
+        for version, rows in sorted(loaded.get(ds.slug, {}).items()):
+            if rows < MIN_ROWS:
+                continue
+            k = key(ds.slug, version)
+            ident = store.parquet(ds.slug, version)
+            if ident is None:
+                log(f"rollup: {ds.slug}@{version} has no Parquet in R2, so it has no rollup")
+                continue
+            forced = f"d/{ds.slug}/v/{version}/".startswith(tuple(replace)) if replace else False
+            if not forced and store.stamp(k) == ident:
+                keep.add(k)
+                continue
+            with tempfile.TemporaryDirectory() as tmp:
+                src = _local(roots, ds.slug, version, ident)
+                if src is None:
+                    src = Path(tmp) / "data.parquet"
+                    store.fetch(ds.slug, version, src)
                 run, con = parquet_run(src)
                 try:
-                    rows = int(run("SELECT COUNT(*) FROM records")[0][0])
-                    p, body = make(ds, run, rows, parquet_header(src), ds.slug, version)
+                    n = int(run("SELECT COUNT(*) FROM records")[0][0])
+                    header = parquet_header(src)
+                    p, body = make(ds, run, n, header, ds.slug, version)
+                    # A version no cube fits still gets a rollup, so the next deploy does not
+                    # read its Parquet again; the function finds no cube and asks D1.
                     if p is None:
-                        continue
+                        p = Plan((), (), ())
+                        body = build(ds, run, p, header, ds.slug, version)
+                except ValueError as e:
+                    # An infinite total has no JSON form; D1 answers this version instead.
+                    log(f"rollup: {ds.slug}@{version} has no rollup: {e}")
+                    continue
                 finally:
                     con.close()
-                dest = out / k
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(body)
-                written.append(dest)
-                log(
-                    f"rollup: {ds.slug}@{version} {len(p.cubes)} cubes, {sum(p.groups)} groups, {len(body)} bytes"
-                )
-    return written
+            dest = out / k
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(body)
+            written.append(Written(dest, k, ident))
+            keep.add(k)
+            log(
+                f"rollup: {ds.slug}@{version} {len(p.cubes)} cubes, {sum(p.groups)} groups, {len(body)} bytes"
+            )
+    return written, keep
+
+
+class R2Store:
+    """The Store over R2: published Parquet in `bucket`, rollups under PREFIX in the same."""
+
+    def __init__(self, s3, bucket: str):
+        self.s3, self.bucket = s3, bucket
+
+    def _head(self, k: str) -> dict | None:
+        from botocore.exceptions import ClientError
+
+        try:
+            return self.s3.head_object(Bucket=self.bucket, Key=k)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
+
+    def parquet(self, slug: str, version: str) -> str | None:
+        h = self._head(f"d/{slug}/v/{version}/data.parquet")
+        return identity(h.get("Metadata", {}).get("sha256"), h["ETag"]) if h else None
+
+    def stamp(self, k: str) -> str | None:
+        h = self._head(k)
+        return h.get("Metadata", {}).get("parquet") if h else None
+
+    def fetch(self, slug: str, version: str, dest: Path) -> None:
+        self.s3.download_file(self.bucket, f"d/{slug}/v/{version}/data.parquet", str(dest))
+
+    def keys(self) -> set[str]:
+        from .r2 import _etags
+
+        return set(_etags(self.s3, self.bucket, PREFIX))
+
+    def put(self, w: Written) -> None:
+        self.s3.upload_file(
+            str(w.path),
+            self.bucket,
+            w.key,
+            ExtraArgs={"ContentType": "application/gzip", "Metadata": {"parquet": w.parquet}},
+        )
+
+    def delete(self, keys: Sequence[str]) -> None:
+        for i in range(0, len(keys), 1000):
+            r = self.s3.delete_objects(
+                Bucket=self.bucket,
+                Delete={"Objects": [{"Key": k} for k in keys[i : i + 1000]], "Quiet": True},
+            )
+            if r.get("Errors"):
+                raise RuntimeError(f"rollup: deleting stale rollups failed: {r['Errors'][:3]}")
