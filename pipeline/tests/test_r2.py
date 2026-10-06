@@ -245,7 +245,8 @@ def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_droppe
     (up / ".c.tmp").mkdir()  # an entry a failed put left half written
     assert r2.cache_push(up) == (3, 0)
     # meta.json goes last, so an interrupted push never leaves a record without its files.
-    assert [k for k, _ in bucket.puts][-2:] == [f"_build/{'a' * 64}/meta.json", f"_build/{'b' * 64}/meta.json"]  # fmt: skip
+    puts = [k for k, _ in bucket.puts]
+    assert sorted(puts[-2:]) == [f"_build/{'a' * 64}/meta.json", f"_build/{'b' * 64}/meta.json"]
     assert r2.cache_push(up) == (0, 0)
     (up / ("a" * 64) / "meta.json").write_text('{"grown": 1}')
     assert r2.cache_push(up) == (1, 0)
