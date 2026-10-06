@@ -87,7 +87,7 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   what the change adds or makes worse.
 - Raise only genuine issues. Each one gives its file and line, the input or state that breaks it,
   and a fix or the existing code to use instead. A doubt you cannot settle is marked as
-  unconfirmed, with what would settle it. When there is nothing to raise, approve.
+  unconfirmed, with what would settle it. When there is nothing to raise, a maintainer approves.
 - A test must be able to fail. Flag a test that restates the implementation, mocks the thing it
   tests or asserts nothing that matters, and say what it should assert.
 - Ask why any new `noqa`, `type: ignore` or skipped test is needed. Leave formatting and lint to

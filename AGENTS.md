@@ -8,6 +8,8 @@ particular to agents.
 - An agent cannot certify the [Developer Certificate of Origin](CONTRIBUTING.md#commits-and-pull-requests).
   The person running it reviews the change and signs off each commit. Never add an agent as an
   author or co-author.
+- An agent does not approve, request changes on or merge a pull request. It reports its findings
+  to the person running it, who decides.
 - Do not fetch from publishers while exploring or testing. Work from `--fixtures` and the
   recorded responses in `pipeline/tests/`. A person runs real fetches, and nothing gets around a
   publisher's bot check.
