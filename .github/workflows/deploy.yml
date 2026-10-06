@@ -46,18 +46,19 @@ jobs:
           python-version-file: .python-version
       # The same install as the build, since the libraries are part of every cache key.
       - run: pip install -e './pipeline[deploy]'
-      # The build cache lives in R2; a plan reads each entry's record alone.
+      # The build cache lives in R2; a plan reads each entry's record alone. This job has no
+      # /mnt/work, which only the build runner creates.
       - name: Pull the build cache's records
         if: env.HAS_CF == 'true' && !github.event.inputs.replace
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-        run: python -m publicdata cache pull --cache /mnt/work/.build-cache --meta-only
+        run: python -m publicdata cache pull --cache "$RUNNER_TEMP/build-cache" --meta-only
       - name: Plan the shards
         id: plan
         env:
-          CACHE: ${{ !github.event.inputs.replace && '/mnt/work/.build-cache' || '' }}
+          CACHE: ${{ !github.event.inputs.replace && format('{0}/build-cache', runner.temp) || '' }}
         run: |
           if [ "$HAS_CF" != "true" ]; then
             echo "shards=[]" >> "$GITHUB_OUTPUT"
