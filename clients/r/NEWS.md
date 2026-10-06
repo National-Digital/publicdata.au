@@ -1,3 +1,12 @@
+# publicdataau 0.5.0
+
+* `pd_read()` reads the version's gzipped CSV, typed from its fields, when
+  'arrow' is not installed or was built without zstd, instead of stopping. A
+  table of a database is served only as Parquet and still needs 'arrow'.
+* `pd_download()` documents the formats every version carries. Excel, JSON,
+  GeoJSON and SQLite are left out of a version whose table is over their size
+  limits, and Arrow files are only on versions made before October 2026.
+
 # publicdataau 0.4.1
 
 * `pd_read()` stops with a clear error when 'arrow' was built without zstd,

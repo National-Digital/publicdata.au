@@ -1,6 +1,6 @@
 [project]
 name = "publicdata-au"
-version = "0.4.0"
+version = "0.5.0"
 description = "Query and download Australian government open data from publicdata.au."
 readme = "README.md"
 requires-python = ">=3.10"

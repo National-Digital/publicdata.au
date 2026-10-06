@@ -38,7 +38,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __all__ = [
     "Client",
     "Connection",
@@ -102,6 +102,10 @@ FORMATS = (
     "gpkg",
     "geo.parquet",
 )
+# On every table version. The others are left out of a version when the table is over their size
+# limits, and Arrow is only on versions made before those limits came in.
+ALWAYS = ("parquet", "csv", "csv.gz", "ndjson", "duckdb")
+_CSV_DTYPES = {"string": "string", "integer": "Int64", "number": "float64", "boolean": "boolean"}
 PAGE_MAX = 10_000
 
 
@@ -674,7 +678,21 @@ class Client:
         return f"{self.site}/d/{_slug(slug)}/{at}/data.{format}"
 
     def _save(self, slug, format, version, path, table=None) -> tuple[Path, str]:
-        with self._open(self.file_url(slug, format, version, table)) as r:
+        try:
+            resp = self._open(self.file_url(slug, format, version, table))
+        except PublicDataError as err:
+            if err.status == 404 and table is None and format not in ALWAYS:
+                raise PublicDataError(
+                    404,
+                    f"{slug!r} has no data.{format} in this version. Excel, JSON, GeoJSON and "
+                    "SQLite are left out of a version when the table is over their size limits, "
+                    "and the version's page says why. Arrow is only on versions made before "
+                    f"October 2026. {', '.join(ALWAYS)} are on every version.",
+                    err.body,
+                    err.url,
+                ) from None
+            raise
+        with resp as r:
             final = r.geturl()
             got = final.split("/v/", 1)[1].split("/", 1)[0] if "/v/" in final else "latest"
             dest = (
@@ -722,11 +740,19 @@ class Client:
         """The whole table as a pandas DataFrame, read from the version's Parquet file, or with
         `table` one table of a database. `columns` reads only those fields. `df.attrs["publicdata"]`
         is the provenance header the file itself carries: version, licence, attribution,
-        citation and source."""
-        import pyarrow.parquet as pq
-
+        citation and source. Without pyarrow the table is read from the gzipped CSV instead,
+        typed by the version's fields."""
         if columns is not None and (isinstance(columns, str) or not columns):
             raise ValueError("columns must be a list of field names, as fields() lists them")
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            if table:
+                raise ImportError(
+                    "a table of a database is served only as Parquet, which needs pyarrow: "
+                    "pip install 'publicdata-au[pandas]'"
+                ) from None
+            return self._read_csv(slug, version, cache, columns)
         with tempfile.TemporaryDirectory() as d:
             p, _ = self._fetch(slug, "parquet", version, table, cache, Path(d))
             tbl = pq.read_table(p, columns=list(columns) if columns else None)
@@ -735,6 +761,46 @@ class Client:
         df.attrs["publicdata"] = json.loads(header) if header else {}
         self._notice(slug, df.attrs["publicdata"].get("licence"))
         return df
+
+    def _read_csv(self, slug, version, cache, columns):
+        import pandas as pd
+
+        fields = self._field_types(slug, version)
+        if columns:
+            unknown = [c for c in columns if fields and c not in fields]
+            if unknown:
+                raise ValueError(f"unknown fields: {', '.join(unknown)}")
+        types = {n: f.get("type") for n, f in fields.items()}
+        with tempfile.TemporaryDirectory() as d:
+            p, got = self._fetch(slug, "csv.gz", version, None, cache, Path(d))
+            df = pd.read_csv(
+                p,
+                compression="gzip",
+                usecols=list(columns) if columns else None,
+                dtype={n: _CSV_DTYPES.get(t, "string") for n, t in types.items()},
+                keep_default_na=False,
+                na_values=[""],
+            )
+        for n, t in types.items():
+            if n in df.columns and t in ("date", "datetime"):
+                df[n] = pd.to_datetime(df[n], errors="coerce")
+        df.attrs["publicdata"] = self._file_header(slug, version or got)
+        self._notice(slug, df.attrs["publicdata"].get("licence"))
+        return df
+
+    def _file_header(self, slug: str, version: str | None) -> dict:
+        """The provenance header every file of a version carries, from the first line of its
+        NDJSON, read with a range request so the rest is not downloaded."""
+        url = self.file_url(slug, "ndjson", version if version != "latest" else None)
+        req = urllib.request.Request(
+            url, headers={"User-Agent": self.user_agent, "Range": "bytes=0-65535"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                line = r.read(65536).split(b"\n", 1)[0]
+            return json.loads(line).get("publicdata", {})
+        except (urllib.error.URLError, TimeoutError, ValueError, AttributeError):
+            return {}
 
     def read_geo(self, slug: str, version: str | None = None, *, cache: bool | None = None):
         """A dataset's map layer as a geopandas GeoDataFrame, read from the version's

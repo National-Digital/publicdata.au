@@ -411,7 +411,10 @@ save_file <- function(slug, format, version, path, table = NULL) {
 #' @param format One of `"parquet"`, `"csv"`, `"csv.gz"`, `"json"`,
 #'   `"ndjson"`, `"sqlite"`, `"duckdb"`, `"xlsx"`, `"arrow"`, `"geojson"`,
 #'   `"gpkg"` or `"geo.parquet"`. The last three are served only for
-#'   datasets with a location or a shape.
+#'   datasets with a location or a shape. Parquet, CSV, CSV (gzip), NDJSON and
+#'   DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out
+#'   of a version whose table is over their size limits, and Arrow is only on
+#'   versions made before October 2026.
 #' @param version A version date from [pd_versions()]. The newest when `NULL`.
 #' @param path Where to save the file. When `NULL`, a file in the session's
 #'   temporary directory named for the slug and version, or the file in the
@@ -453,7 +456,8 @@ pd_download <- function(slug, format = "parquet", version = NULL, path = NULL, t
 #' Read a whole table
 #'
 #' Downloads one version's Parquet file, or one table of a database, and reads
-#' it with 'arrow'.
+#' it with 'arrow'. Without 'arrow' built with zstd, a table is read from the
+#' version's gzipped CSV instead and typed from its fields.
 #'
 #' @inheritParams pd_download
 #' @param columns Fields to read, which saves memory on a wide table. Every
@@ -462,20 +466,22 @@ pd_download <- function(slug, format = "parquet", version = NULL, path = NULL, t
 #'   `attr(x, "publicdata")` is the provenance header the file itself carries:
 #'   version, licence, attribution, citation and source.
 #' @family files
-#' @examplesIf pd_available() && requireNamespace("arrow", quietly = TRUE) && arrow::codec_is_available("zstd")
+#' @examplesIf pd_available()
 #' crashes <- pd_read("qld-road-crash-factors")
 #' @export
 pd_read <- function(slug, version = NULL, table = NULL, cache = NULL, columns = NULL) {
-  need("arrow", "pd_read()")
-  if (!has_zstd()) {
-    pd_abort(
-      "pd_read() needs 'arrow' built with zstd, which publicdata.au's Parquet files use; ",
-      "reinstall it after Sys.setenv(ARROW_WITH_ZSTD = \"ON\"), or use pd_tbl()",
-      class = "publicdataau_no_zstd"
-    )
-  }
   if (!is.null(columns) && (!is.character(columns) || !length(columns))) {
     pd_abort("columns must be field names, as pd_fields() lists them")
+  }
+  if (!reads_parquet()) {
+    if (!is.null(table)) {
+      pd_abort(
+        "a table of a database is served only as Parquet, which pd_read() reads with 'arrow' ",
+        "built with zstd; reinstall it after Sys.setenv(ARROW_WITH_ZSTD = \"ON\"), or use pd_tbl()",
+        class = "publicdataau_no_zstd"
+      )
+    }
+    return(read_csv_gz(slug, version, cache, columns))
   }
   got <- fetch_file(slug, "parquet", version, table, cache)
   if (got$temp) on.exit(unlink(got$path), add = TRUE)
@@ -492,6 +498,47 @@ pd_read <- function(slug, version = NULL, table = NULL, cache = NULL, columns = 
 }
 
 has_zstd <- function() arrow::codec_is_available("zstd")
+
+reads_parquet <- function() requireNamespace("arrow", quietly = TRUE) && has_zstd()
+
+csv_classes <- c(string = "character", integer = "numeric", number = "numeric",
+                 boolean = "logical", date = "character", datetime = "character")
+
+# A table from the version's gzipped CSV, for a session that cannot read the Parquet file.
+read_csv_gz <- function(slug, version, cache, columns) {
+  rlang::inform(
+    "Reading the gzipped CSV, since 'arrow' with zstd is not installed.",
+    .frequency = "once", .frequency_id = "publicdataau_csv_gz"
+  )
+  f <- field_meta(slug, NULL, version)
+  if (!is.null(columns) && !is.null(f)) {
+    unknown <- setdiff(columns, f$name)
+    if (length(unknown)) pd_abort("unknown fields: ", paste(unknown, collapse = ", "))
+  }
+  got <- fetch_file(slug, "csv.gz", version, NULL, cache)
+  if (got$temp) on.exit(unlink(got$path), add = TRUE)
+  classes <- if (is.null(f)) NA else stats::setNames(unname(csv_classes[f$type]), f$name)
+  df <- utils::read.csv(gzfile(got$path), colClasses = classes, na.strings = "",
+                        check.names = FALSE, stringsAsFactors = FALSE, encoding = "UTF-8")
+  if (!is.null(columns)) df <- df[, columns, drop = FALSE]
+  df <- as_tbl(labelled(typed(df, f), f))
+  at <- if (is.null(got$version) || is.na(got$version)) version else got$version
+  attr(df, "publicdata") <- file_header(slug, at)
+  licence_notice(slug, attr(df, "publicdata")$licence)
+  df
+}
+
+# The provenance header every file of a version carries, from the first line of its NDJSON, read
+# with a range request so the rest is not downloaded.
+file_header <- function(slug, version) {
+  req <- httr2::req_headers(pd_request(file_url(slug, "ndjson", version)), Range = "bytes=0-65535")
+  tryCatch({
+    body <- rawToChar(httr2::resp_body_raw(pd_perform(req)))
+    Encoding(body) <- "UTF-8"
+    h <- jsonlite::fromJSON(strsplit(body, "\n", fixed = TRUE)[[1]][1], simplifyVector = FALSE)$publicdata
+    if (is.null(h)) list() else h
+  }, error = function(e) list())
+}
 
 need <- function(pkg, fn) {
   if (!requireNamespace(pkg, quietly = TRUE)) {

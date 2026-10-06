@@ -12,7 +12,10 @@ pd_url(slug, format = "parquet", version = NULL, table = NULL)
 \item{format}{One of `"parquet"`, `"csv"`, `"csv.gz"`, `"json"`,
 `"ndjson"`, `"sqlite"`, `"duckdb"`, `"xlsx"`, `"arrow"`, `"geojson"`,
 `"gpkg"` or `"geo.parquet"`. The last three are served only for
-datasets with a location or a shape.}
+datasets with a location or a shape. Parquet, CSV, CSV (gzip), NDJSON and
+DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out
+of a version whose table is over their size limits, and Arrow is only on
+versions made before October 2026.}
 
 \item{version}{A version date from [pd_versions()]. The newest when `NULL`.}
 

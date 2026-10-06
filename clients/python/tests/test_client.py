@@ -23,6 +23,7 @@ class Handler(BaseHTTPRequestHandler):
     failing = 0
     duckdb_bytes = b""
     gpkg_bytes = b""
+    ranges: list = []
 
     def log_message(self, *a):
         pass
@@ -217,6 +218,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/d/a/v/2026-08-07/data.csv":
             return self.send(200, b"n\n1\n", "text/csv")
+        if u.path == "/d/g/v/2026-08-07/schema.json":
+            fields = [
+                {"name": "n", "type": "integer"},
+                {"name": "day", "type": "date"},
+                {"name": "code", "type": "string"},
+                {"name": "flag", "type": "boolean"},
+            ]
+            return self.send(200, {"fields": fields})
+        if u.path == "/d/g/v/2026-08-07/data.csv.gz":
+            import gzip
+
+            body = b"n,day,code,flag\n1,2026-01-02,01234,true\n,,,false\n"
+            return self.send(200, gzip.compress(body, mtime=0), "application/gzip")
+        if u.path == "/d/g/v/2026-08-07/data.ndjson":
+            Handler.ranges.append(self.headers.get("Range"))
+            header = {**META, "not_endorsed": "The publisher has not endorsed this site."}
+            body = json.dumps({"publicdata": header}).encode() + b"\n" + b'{"n":1}\n'
+            return self.send(200, body, "application/x-ndjson")
         if u.path == "/d/a/v/2026-08-07/data.parquet":
             import pyarrow as pa
             import pyarrow.parquet as pq
@@ -364,6 +383,41 @@ def test_read_takes_provenance_from_the_file_it_read(client):
     assert df.attrs["publicdata"]["attribution"] == "Publisher, CC BY 4.0."
     assert "has not endorsed" in df.attrs["publicdata"]["not_endorsed"]
     assert not any(h[0].endswith("datapackage.json") for h in Handler.hits)
+
+
+def test_read_falls_back_to_the_gzipped_csv_without_pyarrow(client, monkeypatch):
+    pd = pytest.importorskip("pandas")
+    import builtins
+
+    real = builtins.__import__
+
+    def no_pyarrow(name, *a, **k):
+        if name == "pyarrow" or name.startswith("pyarrow."):
+            raise ImportError(name)
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_pyarrow)
+    df = client.read("g", version="2026-08-07")
+    assert list(df.columns) == ["n", "day", "code", "flag"]
+    assert str(df["n"].dtype) == "Int64" and df["n"].isna().tolist() == [False, True]
+    assert df["day"].iloc[0] == pd.Timestamp("2026-01-02") and pd.isna(df["day"].iloc[1])
+    assert df["code"].iloc[0] == "01234" and pd.isna(df["code"].iloc[1])
+    assert df["flag"].tolist() == [True, False]
+    assert df.attrs["publicdata"]["attribution"] == "Publisher, CC BY 4.0."
+    assert Handler.ranges[-1] == "bytes=0-65535"
+    assert list(client.read("g", version="2026-08-07", columns=["code"]).columns) == ["code"]
+    with pytest.raises(ValueError, match="unknown fields"):
+        client.read("g", version="2026-08-07", columns=["nope"])
+    with pytest.raises(ImportError, match="only as Parquet"):
+        client.read("db", "2026-08-07", table="thing")
+
+
+def test_a_format_a_version_leaves_out_says_why(client, tmp_path):
+    with pytest.raises(pd_au.PublicDataError, match="has no data.xlsx in this version") as err:
+        client.download("a", "xlsx", "2026-08-07", tmp_path / "x.xlsx")
+    assert err.value.status == 404 and "size limits" in str(err.value)
+    with pytest.raises(pd_au.PublicDataError, match="not here"):
+        client.download("a", "csv.gz", "2026-08-07", tmp_path / "x.csv.gz")
 
 
 def test_an_unreachable_site_raises_the_packages_own_error():
