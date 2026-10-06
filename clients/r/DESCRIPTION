@@ -32,6 +32,7 @@ Imports:
     tibble
 Suggests:
     arrow,
+    bit64,
     DBI,
     dbplyr,
     dplyr,

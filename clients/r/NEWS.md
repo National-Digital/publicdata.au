@@ -8,7 +8,10 @@
   limits, and Arrow files are only on versions fetched before the format
   change, whose manifest has no `caps` field.
 * In the CSV fallback the `suppressed` column is a list of field names, as
-  it is in the Parquet file.
+  it is in the Parquet file, and whole numbers past 32 bits come back as
+  'bit64' integer64, as 'arrow' gives them, when 'bit64' is installed.
+* `pd_download()` explains a 404 on a format a version does not have, with
+  the class `publicdataau_not_offered`.
 
 # publicdataau 0.4.1
 

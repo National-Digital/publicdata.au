@@ -105,7 +105,6 @@ FORMATS = (
 # On every table version. The others are left out of a version when the table is over their size
 # limits, and Arrow is only on versions whose manifest has no `caps` field.
 ALWAYS = ("parquet", "csv", "csv.gz", "ndjson", "duckdb")
-_CSV_DTYPES = {"string": "string", "integer": "Int64", "number": "float64", "boolean": "boolean"}
 PAGE_MAX = 10_000
 
 
@@ -736,9 +735,8 @@ class Client:
         typed by the version's fields."""
         if columns is not None and (isinstance(columns, str) or not columns):
             raise ValueError("columns must be a list of field names, as fields() lists them")
-        try:
-            import pyarrow.parquet as pq
-        except ImportError:
+        pq = _parquet_module()
+        if pq is None:
             if table:
                 raise ImportError(
                     "a table of a database is served only as Parquet, which needs pyarrow: "
@@ -762,31 +760,22 @@ class Client:
             unknown = [c for c in columns if fields and c not in fields]
             if unknown:
                 raise ValueError(f"unknown fields: {', '.join(unknown)}")
-        types = {n: f.get("type") for n, f in fields.items()}
         with tempfile.TemporaryDirectory() as d:
             p, got = self._fetch(slug, "csv.gz", version, None, cache, Path(d))
+            # Every column as text, then typed as the Parquet path types it.
             df = pd.read_csv(
                 p,
                 compression="gzip",
                 usecols=list(columns) if columns else None,
-                dtype={
-                    **{n: _CSV_DTYPES.get(t, "string") for n, t in types.items()},
-                    "suppressed": "string",
-                },
+                dtype=str,
                 keep_default_na=False,
                 na_values=[""],
-                float_precision="round_trip",
             )
         if columns:
             df = df[list(columns)]
-        for n, t in types.items():
-            if n in df.columns and t in ("date", "datetime"):
-                df[n] = pd.to_datetime(df[n], errors="coerce")
-        if "suppressed" in df.columns:
-            # The CSV joins the suppressed field names with ";"; the Parquet holds a list.
-            df["suppressed"] = [
-                [] if pd.isna(v) or v == "" else str(v).split(";") for v in df["suppressed"]
-            ]
+        for name in df.columns:
+            kind = "suppressed" if name == "suppressed" else fields.get(name, {}).get("type")
+            df[name] = _csv_column(df[name], kind)
         df.attrs["publicdata"] = self._file_header(slug, version or got)
         self._notice(slug, df.attrs["publicdata"].get("licence"))
         return df
@@ -1128,6 +1117,66 @@ class Client:
                 LicenceCondition,
                 stacklevel=3,
             )
+
+
+def _parquet_module():
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        return None
+    return pq
+
+
+def _csv_column(col, kind):
+    """One column of the gzipped CSV, typed as pyarrow types the Parquet file's column: numbers
+    as int64 or float64 (float64 when a whole number is missing), "nan" as NaN, dates as
+    datetime.date, timestamps as datetime64 or datetime when out of its range, booleans as bool
+    or objects when some are missing, and the suppressed names as arrays."""
+    import numpy as np
+    import pandas as pd
+
+    present = col.notna()
+
+    def each(f):
+        return pd.Series(
+            [f(v) if ok else None for v, ok in zip(col, present, strict=True)],
+            index=col.index,
+            dtype=object,
+        )
+
+    if kind == "integer" and present.all():
+        return pd.Series([int(v) for v in col], index=col.index, dtype="int64")
+    if kind in ("integer", "number"):
+        # float() reads "nan" and "inf" as the CSV writer writes them, and round-trips every double.
+        conv = float if kind == "number" else int
+        return pd.Series(
+            [conv(v) if ok else float("nan") for v, ok in zip(col, present, strict=True)],
+            index=col.index,
+            dtype="float64",
+        )
+    if kind == "date":
+        return each(dt.date.fromisoformat)
+    if kind == "datetime":
+        # The Parquet file stores milliseconds, which pyarrow 14 and later keep in pandas.
+        try:
+            stamps = [v if ok else "NaT" for v, ok in zip(col, present, strict=True)]
+            return pd.Series(np.array(stamps, dtype="datetime64[ms]"), index=col.index)
+        except ValueError:
+            return each(dt.datetime.fromisoformat)
+    if kind == "boolean":
+        out = each(lambda v: v.lower() == "true")
+        return out.astype(bool) if present.all() else out
+    if kind == "suppressed":
+        # The CSV joins the suppressed field names with ";"; the Parquet holds them as a list.
+        return pd.Series(
+            [
+                np.array(v.split(";") if ok and v else [], dtype=object)
+                for v, ok in zip(col, present, strict=True)
+            ],
+            index=col.index,
+            dtype=object,
+        )
+    return col if col.dtype != object else col.where(present, None)
 
 
 def _absent_why(slug: str, format: str) -> str:

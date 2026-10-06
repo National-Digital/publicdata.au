@@ -583,6 +583,25 @@ test_that("pd_read reads the gzipped CSV when arrow cannot read the Parquet file
   expect_error(pd_read("db", table = "thing"), class = "publicdataau_no_zstd")
 })
 
+test_that("whole numbers past 32 bits keep every digit in the CSV fallback", {
+  skip_if_not_installed("bit64")
+  x <- publicdataau:::as_int64(c("4611686018427387905", NA))
+  expect_s3_class(x, "integer64")
+  expect_equal(as.character(x[1]), "4611686018427387905")
+  expect_type(publicdataau:::as_int64(c("1", NA)), "integer")
+})
+
+test_that("a format a version leaves out says why", {
+  local_fake()
+  expect_error(pd_download("a", "xlsx", "2026-08-07", path = tempfile()),
+               "size limits", class = "publicdataau_not_offered")
+  expect_error(pd_download("a", "geo.parquet", "2026-08-07", path = tempfile()),
+               "location or a shape", class = "publicdataau_not_offered")
+  expect_error(pd_download("a", "arrow", "2026-08-07", path = tempfile()),
+               "no caps field", class = "publicdataau_not_offered")
+  expect_error(pd_download("a", "csv.gz", "2026-08-07", path = tempfile()), class = "httr2_http_404")
+})
+
 test_that("pd_read reads only the columns asked for", {
   skip_if_not_installed("arrow")
   local_fake()

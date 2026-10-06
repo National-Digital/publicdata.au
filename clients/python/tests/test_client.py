@@ -17,6 +17,56 @@ META = {
 }
 
 
+G_FIELDS = [
+    {"name": "n", "type": "integer"},
+    {"name": "big", "type": "integer"},
+    {"name": "x", "type": "number"},
+    {"name": "day", "type": "date"},
+    {"name": "at", "type": "datetime"},
+    {"name": "flag", "type": "boolean"},
+    {"name": "ok", "type": "boolean"},
+    {"name": "code", "type": "string"},
+]
+
+
+def _g_files():
+    """One table as the pipeline writes it: Parquet, and the CSV gzipped, with the suppressed
+    names joined by ";" as the CSV writer joins them."""
+    import datetime as dt
+    import gzip
+
+    import pyarrow as pa
+    import pyarrow.csv as pcsv
+    import pyarrow.parquet as pq
+
+    t = pa.table(
+        {
+            "n": pa.array([1, None, 3], pa.int64()),
+            "big": pa.array([2**62 + 1, 2, 3], pa.int64()),
+            "x": pa.array([0.1, float("nan"), 0.30000000000000004], pa.float64()),
+            "day": pa.array([dt.date(2026, 1, 2), None, dt.date(9999, 12, 31)], pa.date32()),
+            "at": pa.array(
+                [dt.datetime(2026, 1, 2, 3, 4, 5), None, dt.datetime(2026, 1, 3)],
+                pa.timestamp("s"),
+            ),
+            "flag": pa.array([True, None, False], pa.bool_()),
+            "ok": pa.array([True, False, True], pa.bool_()),
+            "code": pa.array(["01234", None, "x;y"], pa.string()),
+            "suppressed": pa.array([[], ["n", "day"], []], pa.list_(pa.string())),
+        }
+    )
+    buf = io.BytesIO()
+    pq.write_table(t.replace_schema_metadata({"publicdata": json.dumps(META)}), buf)
+    joined = pa.array([";".join(v) if v else None for v in t.column("suppressed").to_pylist()])
+    c = io.BytesIO()
+    pcsv.write_csv(
+        t.set_column(8, "suppressed", joined),
+        c,
+        pcsv.WriteOptions(include_header=True, quoting_style="needed"),
+    )
+    return buf.getvalue(), gzip.compress(c.getvalue(), mtime=0)
+
+
 class Handler(BaseHTTPRequestHandler):
     hits: list = []
     throttle = 0
@@ -219,21 +269,11 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/d/a/v/2026-08-07/data.csv":
             return self.send(200, b"n\n1\n", "text/csv")
         if u.path == "/d/g/v/2026-08-07/schema.json":
-            fields = [
-                {"name": "n", "type": "integer"},
-                {"name": "day", "type": "date"},
-                {"name": "code", "type": "string"},
-                {"name": "flag", "type": "boolean"},
-                {"name": "x", "type": "number"},
-            ]
-            return self.send(200, {"fields": fields})
+            return self.send(200, {"fields": G_FIELDS})
         if u.path == "/d/g/v/2026-08-07/data.csv.gz":
-            import gzip
-
-            body = (
-                b"n,day,code,flag,x,suppressed\n1,2026-01-02,01234,true,0.1,\n,,,false,2.5,n;day\n"
-            )
-            return self.send(200, gzip.compress(body, mtime=0), "application/gzip")
+            return self.send(200, _g_files()[1], "application/gzip")
+        if u.path == "/d/g/v/2026-08-07/data.parquet":
+            return self.send(200, _g_files()[0], "application/vnd.apache.parquet")
         if u.path == "/d/g/v/2026-08-07/data.ndjson":
             Handler.ranges.append(self.headers.get("Range"))
             header = {**META, "not_endorsed": "The publisher has not endorsed this site."}
@@ -388,26 +428,25 @@ def test_read_takes_provenance_from_the_file_it_read(client):
     assert not any(h[0].endswith("datapackage.json") for h in Handler.hits)
 
 
-def test_read_falls_back_to_the_gzipped_csv_without_pyarrow(client, monkeypatch):
+def test_read_falls_back_to_the_gzipped_csv_typed_as_the_parquet_path(client, monkeypatch):
     pd = pytest.importorskip("pandas")
-    import builtins
+    pytest.importorskip("pyarrow")
+    import datetime as dt
 
-    real = builtins.__import__
-
-    def no_pyarrow(name, *a, **k):
-        if name == "pyarrow" or name.startswith("pyarrow."):
-            raise ImportError(name)
-        return real(name, *a, **k)
-
-    monkeypatch.setattr(builtins, "__import__", no_pyarrow)
+    want = client.read("g", version="2026-08-07")
+    monkeypatch.setattr(pd_au, "_parquet_module", lambda: None)
     df = client.read("g", version="2026-08-07")
-    assert list(df.columns) == ["n", "day", "code", "flag", "x", "suppressed"]
-    assert str(df["n"].dtype) == "Int64" and df["n"].isna().tolist() == [False, True]
-    assert df["day"].iloc[0] == pd.Timestamp("2026-01-02") and pd.isna(df["day"].iloc[1])
-    assert df["code"].iloc[0] == "01234" and pd.isna(df["code"].iloc[1])
-    assert df["flag"].tolist() == [True, False]
-    assert df["x"].tolist() == [0.1, 2.5]
-    assert df["suppressed"].tolist() == [[], ["n", "day"]]
+    assert list(df.columns) == list(want.columns)
+    for name in df.columns:
+        if name == "suppressed":
+            assert [list(v) for v in df[name]] == [list(v) for v in want[name]]
+            assert all(type(v) is type(w) for v, w in zip(df[name], want[name], strict=True))
+        else:
+            pd.testing.assert_series_equal(df[name], want[name], check_dtype=True)
+    # A NaN stays NaN, an open-ended date stays a date, and nothing is coerced to a null.
+    assert pd.isna(df["x"].iloc[1]) and df["x"].iloc[2] == 0.30000000000000004
+    assert df["day"].iloc[2] == dt.date(9999, 12, 31) and df["day"].iloc[1] is None
+    assert df["big"].iloc[0] == 2**62 + 1 and df["code"].iloc[0] == "01234"
     assert df.attrs["publicdata"]["attribution"] == "Publisher, CC BY 4.0."
     assert Handler.ranges[-1] == "bytes=0-65535"
     picked = client.read("g", version="2026-08-07", columns=["code", "n"])
@@ -416,6 +455,15 @@ def test_read_falls_back_to_the_gzipped_csv_without_pyarrow(client, monkeypatch)
         client.read("g", version="2026-08-07", columns=["nope"])
     with pytest.raises(ImportError, match="only as Parquet"):
         client.read("db", "2026-08-07", table="thing")
+
+
+def test_a_far_timestamp_is_never_made_a_null():
+    pd = pytest.importorskip("pandas")
+    import datetime as dt
+
+    col = pd.Series(["9999-12-31 00:00:00", None], dtype=object)
+    out = pd_au._csv_column(col, "datetime")
+    assert out.iloc[0] == dt.datetime(9999, 12, 31) and pd.isna(out.iloc[1])
 
 
 def test_a_format_a_version_leaves_out_says_why(client, tmp_path):
