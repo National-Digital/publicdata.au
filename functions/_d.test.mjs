@@ -149,3 +149,16 @@ test("a version's source is the raw store's copy, and only for a version that wa
   // A register entry that withholds its source still refuses the raw store's copy.
   assert.equal((await at('/d/x/v/2026-04-24/source.csv')).status, 410);
 });
+
+test('a path with escapes is sent to its plain form, where a withheld file is still refused', async () => {
+  for (const path of ['/d/x/v/2026-04-24/sourc%65.csv', '/d/x/v/2026-04-24/source%2Ecsv', '/d/%78/v/2026-04-24/source.csv']) {
+    const r = await get(path);
+    assert.equal(r.status, 308, path);
+    assert.equal(r.headers.get('location'), '/d/x/v/2026-04-24/source.csv');
+    assert.equal((await get(r.headers.get('location'))).status, 410);
+  }
+  assert.equal((await get('/d/%67one/v/2026-04-24/data.csv')).headers.get('location'), '/d/gone/v/2026-04-24/data.csv');
+  assert.equal((await get('/d/x/v/2026-04-24/data.csv%3Fa')).status, 404);
+  assert.equal((await get('/d/x/v/2026-04-24/%E0%A4%A')).status, 404);
+  assert.equal((await get('/d/x/v/2026-04-24/data.csv')).status, 200);
+});
