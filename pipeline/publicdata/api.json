@@ -15,7 +15,7 @@
     "summary": "The query API returns only the rows you ask for, as JSON, NDJSON or CSV, from the same typed rows as the files. It needs no key.",
     "rows": "`/api/v1/datasets/<slug>/rows` filters, selects, orders and pages any dataset.",
     "aggregate": "`/api/v1/datasets/<slug>/aggregate` counts, sums, averages, minimums and maximums by group.",
-    "versions": "Without a version the API answers from the newest loaded version, and that answer changes when the publisher releases again. Put `versions/<date>/` before `rows` or `aggregate` for an answer that never changes. `/api/v1/datasets/<slug>/versions` lists the loaded versions.",
+    "versions": "Without a version the API answers from the newest loaded version, and that answer changes when the publisher releases again. Put `versions/<date>/` before `rows` or `aggregate` for an answer from that version alone. `/api/v1/datasets/<slug>/versions` lists the loaded versions.",
     "filters": "Each filter is `field=operator.value` in the query string, and every filter must match. A number or date field compares as a number or date, and a text field compares as text. Values are case-sensitive except with `ilike`. Prefix `not.` to negate a filter, as `not.eq.value`.",
     "provenance": "Every JSON answer carries the version, licence and attribution. CSV and NDJSON answers carry them in response headers.",
     "terms_limits": "The query API allows {requests} requests in {window_seconds} seconds from one address. The MCP server counts each row tool call as two requests, against its own limit of {requests} requests in {window_seconds} seconds from one address. Files have no rate limit.",
@@ -43,7 +43,7 @@
     "metric": { "on": "aggregate", "description": "`count`, `sum.field`, `avg.field`, `min.field` or `max.field`, comma-separated. `count` when absent." },
     "format": { "description": "`json`, `ndjson` or `csv`. JSON carries the provenance header, and the others carry it in response headers." },
     "slug": { "in": "path", "description": "The dataset's slug, as in its page URL `/d/<slug>/`." },
-    "version": { "in": "path", "description": "A dated version loaded for queries, from the versions path. Answers for a dated version never change." }
+    "version": { "in": "path", "description": "A dated version loaded for queries, from the versions path. A dated version's answers stay the same unless a correction rebuilds the version, which its notes record." }
   },
   "paths": {
     "rows": { "summary": "Query {title}", "description": "Rows of {title} in {when}, filtered and paged." },

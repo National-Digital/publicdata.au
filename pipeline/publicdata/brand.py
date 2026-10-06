@@ -45,7 +45,7 @@ SUPERSAMPLE = 8
 NAME = SITE.replace("https://", "")
 SHORT_NAME = "publicdata"
 HEADLINE = "Australian government open data, in the format you and your AI need."
-DESCRIPTION = "Australian government open data as dated versions that never change, with schema, provenance and diffs."
+DESCRIPTION = "Australian government open data as dated versions that keep their content, with schema, provenance and diffs."
 
 
 def favicon_svg() -> str:

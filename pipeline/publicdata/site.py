@@ -1419,7 +1419,7 @@ def _md_twin_database(
         f"- Schema: {vbase}schema.json",
         f"- The publisher's archive: {vbase}source.{m.ext} ({fmt_size(v.files.get(f'source.{m.ext}'))})",
         "",
-        f"{base}latest/ redirects to the newest version. Dated versions never change.",
+        f"{base}latest/ redirects to the newest version. Dated versions keep their content.",
         "",
         "## Tables",
         "",
@@ -1508,7 +1508,7 @@ def _md_twin_dataset(
         lines += ["", *why]
     lines += [
         "",
-        f"Pinned version {m.version}: `{vbase}data.<format>`. Dated versions never change.",
+        f"Pinned version {m.version}: `{vbase}data.<format>`. Dated versions keep their content.",
         "",
     ]
     if console:
@@ -1798,7 +1798,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 </ul>
 <h2>Inside every data file</h2>
@@ -1916,7 +1916,7 @@ PROSE = {
 # The date the terms last changed, and a hash of their text. The gate fails when the text changes
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
-    "6 October 2026",
+    "7 October 2026",
     "9c980b65ff9a94242796d36470ef0ea4558f56c1ab299c5829c6d2443003bfec",
 )
 
@@ -2458,10 +2458,10 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
         "info": {
             "title": HOST,
             "version": at.release(),
-            "summary": "Australian government open data as versioned, immutable files.",
+            "summary": "Australian government open data as dated versions that keep their content.",
             "description": "Every path is public, with no keys or accounts. Files have no download limit. "
             + at.spec()["api"]["rate_limit"]
-            + " Files under /v/<date>/ never change. "
+            + " Files under /v/<date>/ keep their content and change only for the reasons in /terms/. "
             "Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a publicdata provenance header. "
             "No government agency runs or has endorsed this site.",
             "contact": {"name": OPERATOR, "url": "https://nationaldigital.com.au/contact/"},
@@ -2637,7 +2637,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
             "/d/{slug}/v/{version}/data.{format}": {
                 "get": {
                     "tags": ["version"],
-                    "summary": "The whole dataset in one format. Immutable, cached one year. Range requests are honoured.",
+                    "summary": "The whole dataset in one format. Cached one year. Range requests are honoured.",
                     "operationId": "getData",
                     "parameters": [slug_p, ver_p, fmt_p],
                     "responses": {
@@ -2934,7 +2934,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
                                         "version": {
                                             "type": "string",
                                             "format": "date",
-                                            "description": "The dated version the dashboard reads. Its numbers never change.",
+                                            "description": "The dated version the dashboard reads.",
                                         },
                                         "workspace": {
                                             "type": "object",
@@ -3204,7 +3204,7 @@ def render_site(
                 "version.html",
                 md,
                 title=f"{ds.title} {v.manifest.version} | {HOST}",
-                description=f"Immutable version {v.manifest.version} of {ds.title}.",
+                description=f"Dated version {v.manifest.version} of {ds.title}.",
                 nav="datasets",
                 noindex=True,
                 og=card
@@ -4033,7 +4033,7 @@ def render_site(
         "home.html",
         home_md,
         title=f"{HOST}: Australian government open data as CSV, Excel, JSON, Parquet and SQLite",
-        description="Australian government open data as dated versions that never change, in eleven formats, with a query API, a browser explorer and an MCP server for AI agents. No keys, no accounts.",
+        description="Australian government open data as dated versions that keep their content, in eleven formats, with a query API, a browser explorer and an MCP server for AI agents. No keys, no accounts.",
         nav="datasets",
         headline=brand.HEADLINE,
         stats=stats,
@@ -4392,13 +4392,13 @@ def render_site(
         "",
         "No keys or accounts, and no download limit on files. "
         + at.spec()["api"]["rate_limit"]
-        + " `latest/` redirects (302) to the newest dated version; dated versions never change. Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a `publicdata` header with the publisher, licence, attribution, a ready-made `cite` string and the source SHA-256. When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL.",
+        + " `latest/` redirects (302) to the newest dated version; dated versions keep their content. Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a `publicdata` header with the publisher, licence, attribution, a ready-made `cite` string and the source SHA-256. When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL.",
         "",
         f"- Catalogue (DCAT JSON-LD): {SITE}/catalog.json",
         f"- Discovery manifest (ARD): {SITE}/.well-known/ard.json",
         f"- OpenAPI 3.1 for every path: {SITE}/openapi.json",
         "- MCP server: " + at.plain(at.spec()["mcp"]["intro"]),
-        f"- Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for a dated version that never changes; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
+        f"- Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
         + FILTER_HELP,
         f"- Every dataset on Australia's government portals, by government and publisher: {SITE}/browse/ (as data: {SITE}/catalogue/publishers.json, and catalogue.json on each publisher page)",
         f"- Backlog and licences: {SITE}/backlog.json",

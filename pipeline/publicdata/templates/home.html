@@ -96,7 +96,7 @@
       </div>
       <div class="arrow" aria-hidden="true">→</div>
       <div class="outs">
-        <a class="out" href="/d/{{ becomes.slug }}/v/{{ becomes.version }}/"><span class="k">A dated version</span><b>{{ becomes.version }}</b><p class="mono">/d/{{ becomes.slug }}/v/{{ becomes.version }}/</p><p>Never changes. Cached for a year. The publisher's file sits beside it, byte for byte.</p></a>
+        <a class="out" href="/d/{{ becomes.slug }}/v/{{ becomes.version }}/"><span class="k">A dated version</span><b>{{ becomes.version }}</b><p class="mono">/d/{{ becomes.slug }}/v/{{ becomes.version }}/</p><p>Keeps its content. Cached for a year. The publisher's file sits beside it, byte for byte.</p></a>
         <a class="out" href="/d/{{ becomes.slug }}/#get"><span class="k">{{ becomes.formats|length }} formats</span><b>Same rows, your choice of file</b><div class="chips">{% for f in becomes.formats %}<span>{{ f }}</span>{% endfor %}</div><p>Change the extension and the same version comes back as a different file.</p></a>
         {% if becomes.map %}<a class="out" href="/d/{{ becomes.slug }}/"><span class="k">A map</span><b>{{ becomes.rows }} {{ becomes.what|lower }}</b><div class="thumb">{{ becomes.map|safe }}</div></a>{% endif %}
         {% if becomes.chart %}<a class="out wide" href="/d/{{ becomes.slug }}/"><span class="k">A chart</span><b>{{ becomes.what }} per year, {{ becomes.years }}</b><div class="thumb">{{ becomes.chart|safe }}</div></a>{% endif %}
@@ -120,7 +120,7 @@
     <div class="k">The URL contract</div>
     <ul class="agent-list contract">
       <li><span class="path">/d/&lt;slug&gt;/latest/data.csv</span><span>302 to the newest dated version</span></li>
-      <li><span class="path">/d/&lt;slug&gt;/v/{{ keeps.view.version }}/data.csv</span><span>never changes, cached for a year</span></li>
+      <li><span class="path">/d/&lt;slug&gt;/v/{{ keeps.view.version }}/data.csv</span><span>keeps its content, cached for a year</span></li>
       <li><span class="path">/d/&lt;slug&gt;/v/{{ keeps.view.version }}/source.{{ keeps.view.ext }}</span><span>the publisher's file, byte for byte</span></li>
       <li><span class="path">/d/&lt;slug&gt;/v/{{ keeps.view.version }}/manifest.json</span><span>source URL, fetched-at, SHA-256</span></li>
       <li><span class="path">/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</span><span>rows added, removed and changed by key</span></li>
