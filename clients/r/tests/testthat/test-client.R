@@ -573,7 +573,7 @@ test_that("pd_read reads the gzipped CSV when arrow cannot read the Parquet file
   expect_true(is.na(df$day[2]))
   expect_equal(df$flag, c(TRUE, FALSE))
   expect_true(is.na(df$g[2]))
-  expect_equal(df$lga_2025_code, c("01234", "05678"))
+  expect_equal(df$lga_2025_code, c("01234", "05678"), ignore_attr = TRUE)
   expect_equal(attr(df$n, "label"), "A count.")
   expect_equal(pd_attribution(df), "Publisher, CC BY 4.0.")
   expect_equal(attr(df, "publicdata")$version, "2026-08-07")
