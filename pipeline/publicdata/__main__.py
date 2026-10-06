@@ -518,6 +518,8 @@ def cmd_dist_push(args) -> int:
         return 2
     from .r2 import check_sources
 
+    # Before anything goes up, so a version whose source the site cannot serve is never published.
+    found = check_sources([Path(args.large)])
     n = push(
         Path(args.large),
         "publicdata-dist",
@@ -529,9 +531,7 @@ def cmd_dist_push(args) -> int:
     print(
         f"dist push: {n} file(s){' (replacing under ' + ', '.join(args.replace) + ')' if args.replace else ''}"
     )
-    print(
-        f"dist push: {check_sources([Path(args.large)])} publisher's file(s) found in the raw store"
-    )
+    print(f"dist push: {found} publisher's file(s) found in the raw store")
     return 0
 
 
