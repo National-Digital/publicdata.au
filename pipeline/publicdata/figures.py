@@ -110,9 +110,9 @@ def series(
     so a chart never falls away at a part year."""
     y = _q(yf) if kind == "integer" else f"TRY_CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
     cols = f"{y}, {_q(split)}" if split else y
-    cond, params = _conditions(where)
     con = connect(db)
     try:
+        cond, params = _conditions(where, con)
         agg = _agg(metric, con)
         rows = con.execute(
             f"SELECT {cols}, {agg} FROM records WHERE {y} IS NOT NULL{cond} GROUP BY {'1, 2' if split else '1'}",
@@ -209,8 +209,9 @@ def basis(ds, metric: str) -> str:
     ] + f" of the {word} column"
 
 
-def _conditions(where) -> tuple[str, list]:
-    """One or more (field, op, value) conditions as SQL, each ANDed on."""
+def _conditions(where, con) -> tuple[str, list]:
+    """One or more (field, op, value) conditions as SQL, each ANDed on, with the values as the
+    connection's columns compare them."""
     if not where:
         return "", []
     conds = [where] if isinstance(where, dict) else list(where)
@@ -220,7 +221,7 @@ def _conditions(where) -> tuple[str, list]:
             raise ValueError(w["op"])
         sql += f" AND {_q(w['field'])} {w['op']} ?"
         # The records view holds a boolean as 1 or 0, as SQLite does.
-        params.append({"true": 1, "false": 0}.get(w["value"], w["value"]))
+        params.append(con.param(w["field"], {"true": 1, "false": 0}.get(w["value"], w["value"])))
     return sql, params
 
 
@@ -377,9 +378,9 @@ def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], flo
     when any are given: a (field, op, value) tuple, or one or more {field, op, value} dicts."""
     if isinstance(where, tuple):
         where = {"field": where[0], "op": where[1], "value": where[2]}
-    cond, params = _conditions(where)
     con = connect(db)
     try:
+        cond, params = _conditions(where, con)
         rows = con.execute(
             f"SELECT CAST(trunc(({_q(lon)} - {LON0}) / {STEP}) AS INTEGER), CAST(trunc(({LAT1} - {_q(lat)}) / {STEP}) AS INTEGER), COUNT(*)"
             f" FROM records WHERE {_q(lon)} BETWEEN {LON0} AND {LON1} AND {_q(lat)} BETWEEN {LAT0} AND {LAT1}{cond}"
@@ -708,6 +709,9 @@ def example_rows(
     indexed = any(k == group and set(key[:i]) <= pinned for i, k in enumerate(key))
     con = connect(db)
     try:
+        params = [
+            con.param(f["field"], v) for f, v in zip(ex.get("filters", []), params, strict=True)
+        ]
         agg = _agg(ex["metric"], con)
         rows = con.execute(
             f"SELECT {_q(group)}, {agg} FROM records"
@@ -761,7 +765,7 @@ def sample_rows(
             if w["value"] == "newest":
                 w = {**w, "value": newest(con, w["field"])}
             conds.append(w)
-        cond, params = _conditions(conds)
+        cond, params = _conditions(conds, con)
         terms = [(_q(f), " DESC" if desc else "") for f, desc in order if f in have]
         by = ", ".join([*(f + d for f, d in terms), "rowid"])
         if spread in have:

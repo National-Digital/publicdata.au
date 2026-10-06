@@ -2193,7 +2193,7 @@ def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
         ).fetchone()
         if row:
             filters.append({"field": first, "op": "eq", "value": str(row[0])})
-            cond, params = f" WHERE {q(first)} = ?", [row[0]]
+            cond, params = f" WHERE {q(first)} = ?", [con.param(first, row[0])]
 
     def splits(n: str) -> bool:
         # A group that is one value under the filter, such as a state's name under its code,

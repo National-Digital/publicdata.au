@@ -225,7 +225,8 @@ the gate counts them as present, and `dist-push --expect` stops the deploy if R2
 them. The Parquet a diff, the history archive or a page reads is read back from
 `publicdata-dist` when needed (`build --published`). The build never reads a data.sqlite: its
 figures, query console and D1 load query the Parquet through DuckDB (`records.connect`), as a
-view shaped like the SQLite file's records table, with SQLite's float sums and tie order, so
+view shaped like the SQLite file's records table, with SQLite's float sums, tie order, NaN read
+as null and parameters compared as SQLite's column affinity would (`Records.param`), so
 the pages come out byte for byte as they did from SQLite. The cache key splits in two: everything the build imports except
 the format writers (`cache.environment_key`) names the entry, and each writer under
 `serialise/writers/` has a key of its own (`cache.writer_key`), recorded in the entry per format.

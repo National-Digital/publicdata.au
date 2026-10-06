@@ -1,10 +1,14 @@
 """A version's rows for the build's own queries: DuckDB over its data.parquet, shaped as the
 records table of its data.sqlite. Dates are ISO text, booleans 1 and 0, the suppressed flags
-joined with ";", a layer's shapes left out, and rowid is the row's place in the file. The pages'
-figures, the query console and the D1 load read the Parquet alone, and answer as SQLite did."""
+joined with ";", a float's NaN a null, a layer's shapes left out, and rowid is the row's place in
+the file. The pages' figures, the query console and the D1 load read the Parquet alone, and
+answer as SQLite did."""
 
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
+from functools import lru_cache
 from pathlib import Path
 
 import pyarrow as pa
@@ -13,10 +17,12 @@ import pyarrow.parquet as pq
 ROWID = "rowid"
 # SQLite sums floats with Kahan-Babuska-Neumaier compensation, in row order, and averages the
 # compensated sum, so a total or a mean here agrees with it to the last bit.
-_PAIRS = "list_transform(list({c} ORDER BY rowid) FILTER (WHERE {c} IS NOT NULL), x -> {{'s': x, 'c': 0.0::DOUBLE}})"
+# The lambdas' names cannot be a column's, which would shadow them.
+_PAIRS = "list_transform(list({c} ORDER BY rowid) FILTER (WHERE {c} IS NOT NULL), kbn_x -> {{'s': kbn_x, 'c': 0.0::DOUBLE}})"
 _KBN = (
-    "list_reduce({pairs}, (a, x) -> {{'s': a.s + x.s, 'c': a.c + CASE WHEN abs(a.s) > abs(x.s)"
-    " THEN (a.s - (a.s + x.s)) + x.s ELSE (x.s - (a.s + x.s)) + a.s END}},"
+    "list_reduce({pairs}, (kbn_a, kbn_x) -> {{'s': kbn_a.s + kbn_x.s, 'c': kbn_a.c + CASE"
+    " WHEN abs(kbn_a.s) > abs(kbn_x.s) THEN (kbn_a.s - (kbn_a.s + kbn_x.s)) + kbn_x.s"
+    " ELSE (kbn_x.s - (kbn_a.s + kbn_x.s)) + kbn_a.s END}},"
     " {{'s': 0.0::DOUBLE, 'c': 0.0::DOUBLE}})"
 )
 
@@ -27,6 +33,9 @@ def _q(name: str) -> str:
 
 def _column(name: str, t: pa.DataType) -> str:
     c = _q(name)
+    if pa.types.is_floating(t):
+        # SQLite stores a NaN as NULL, and a NaN would turn a sum, a minimum or a maximum.
+        return f"CASE WHEN isnan({c}) THEN NULL ELSE {c} END AS {c}"
     if pa.types.is_date(t):
         return f"strftime({c}, '%Y-%m-%d') AS {c}"
     if pa.types.is_timestamp(t):
@@ -38,9 +47,18 @@ def _column(name: str, t: pa.DataType) -> str:
     return c
 
 
+@lru_cache(maxsize=4096, typed=True)
+def _affinity(value, affinity: str):
+    """value as SQLite holds it in a column of that affinity."""
+    with closing(sqlite3.connect(":memory:")) as s:
+        s.execute(f"CREATE TABLE t (v {affinity})")
+        s.execute("INSERT INTO t VALUES (?)", (value,))
+        return s.execute("SELECT v FROM t").fetchone()[0]
+
+
 class Records:
-    """A read-only connection whose `records` view holds one version's rows. Parameters are bound
-    as text, which DuckDB casts to the column's type, as SQLite's column affinity does."""
+    """A read-only connection whose `records` view holds one version's rows. A parameter compared
+    with a column goes through param, so it compares as it would against data.sqlite."""
 
     def __init__(self, parquet: Path, names: list[str] | None = None):
         import duckdb
@@ -55,7 +73,16 @@ class Records:
         self.con.execute("SET threads = 1")
         self.con.execute("SET TimeZone = 'UTC'")
         self.con.execute("SET default_null_order = 'nulls_first_on_asc_last_on_desc'")
-        self.floats = {n for n in self.names if pa.types.is_floating(schema.field(n).type)}
+        types = {n: schema.field(n).type for n in self.names}
+        self.floats = {n for n, t in types.items() if pa.types.is_floating(t)}
+        self.numeric = {
+            n
+            for n, t in types.items()
+            if pa.types.is_integer(t)
+            or pa.types.is_floating(t)
+            or pa.types.is_decimal(t)
+            or pa.types.is_boolean(t)
+        }
         cols = ", ".join(_column(n, schema.field(n).type) for n in self.names)
         path = str(parquet).replace("'", "''")
         self.con.execute(
@@ -75,8 +102,22 @@ class Records:
             return total if fn == "sum" else f"({total}) / count({c})"
         return f"{fn.upper()}({c})"
 
+    def param(self, name: str, value):
+        """value as SQLite compares it with the column: text that reads as a number becomes that
+        number against a numeric column, and a number becomes text against a text one. Text that
+        is not a number against a numeric column is refused, since SQLite would rank it above
+        every number."""
+        if value is None:
+            return None
+        if name not in self.numeric:
+            return _affinity(value, "TEXT")
+        v = _affinity(value, "NUMERIC")
+        if isinstance(v, str):
+            raise ValueError(f"{name} holds numbers, so it cannot be compared with {value!r}")
+        return v
+
     def execute(self, sql: str, params=()) -> Records:
-        self.con.execute(sql, [p if p is None or isinstance(p, str) else str(p) for p in params])
+        self.con.execute(sql, list(params))
         return self
 
     def fetchone(self):
