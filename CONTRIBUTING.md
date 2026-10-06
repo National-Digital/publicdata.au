@@ -106,8 +106,8 @@ superlative claims. [`BRAND.md`](BRAND.md#typography) sets the typography the ga
 publicdata.au has four kinds of version, and each has its own rule.
 
 - **Datasets** are versioned by date, not by number. A version is named for the day the publisher
-  changed the source, it never changes once published, and its URL never moves. An unchanged
-  source makes no version.
+  changed the source, and an unchanged source makes no version. The
+  [Archive](docs/ARCHITECTURE.md#archive) section says what may change once one is published.
 - **The site, API and MCP server** follow [semantic versioning](https://semver.org/) through
   release tags (`v2.21.1`). Each merge to `main` releases one: `feat` raises the minor number,
   any other type the patch number, and a breaking change, marked with `!` after the type
