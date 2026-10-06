@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | r2 restore-gzip | hubs."""
 
 from __future__ import annotations
 
@@ -535,6 +535,13 @@ def cmd_dist_push(args) -> int:
     return 0
 
 
+def cmd_r2_restore_gzip(args) -> int:
+    from .r2 import restore_gzip
+
+    t = restore_gzip(prefix=args.prefix, apply=args.apply, workers=args.workers)
+    return 1 if t["failed"] else 0
+
+
 def cmd_purge(args) -> int:
     import os
 
@@ -821,6 +828,15 @@ def main(argv=None) -> int:
         help="push only dated version files, leaving pages to the deploy that builds them all",
     )
     dp.set_defaults(fn=cmd_dist_push)
+    rr = sub.add_parser("r2").add_subparsers(dest="sub", required=True)
+    rg = rr.add_parser(
+        "restore-gzip",
+        help="store the dated text files in publicdata-dist gzipped, in place; a dry run unless --apply",
+    )
+    rg.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
+    rg.add_argument("--apply", action="store_true", help="rewrite the objects, not just count them")
+    rg.add_argument("--workers", type=int, default=4)
+    rg.set_defaults(fn=cmd_r2_restore_gzip)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"

@@ -1,6 +1,9 @@
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
 
 from publicdata import r2
 
@@ -420,3 +423,202 @@ def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
     monkeypatch.setattr(r2, "client", lambda: FakeS3({"x/2026-09-01/source.csv"}))
     with pytest.raises(SystemExit, match="d/x/v/2026-10-01/source.csv"):
         r2.check_sources([tmp_path])
+
+
+class ByteBucket:
+    """An S3 bucket that keeps bytes, headers and metadata, enough for push, the downloader and
+    the gzip restore."""
+
+    def __init__(self, objects=None):
+        self.objects = {}
+        for k, body in (objects or {}).items():
+            self.put(
+                k,
+                body,
+                {
+                    "ContentType": "text/csv; charset=utf-8",
+                    "Metadata": {"sha256": hashlib.sha256(body).hexdigest()},
+                },
+            )
+        self.puts = []
+        self.fail_put = set()
+
+    def put(self, key, body, args):
+        self.objects[key] = {"body": body, **args}
+
+    def get_paginator(self, name):
+        objs = self.objects
+
+        class P:
+            def paginate(self, Bucket, Prefix):
+                yield {
+                    "Contents": [
+                        {
+                            "Key": k,
+                            "Size": len(o["body"]),
+                            "ETag": f'"{hashlib.md5(o["body"]).hexdigest()}"',
+                        }
+                        for k, o in sorted(objs.items())
+                        if k.startswith(Prefix)
+                    ]
+                }
+
+        return P()
+
+    def head_object(self, Bucket, Key):
+        o = self.objects[Key]
+        head = {
+            "ContentLength": len(o["body"]),
+            "ContentType": o.get("ContentType"),
+            "Metadata": dict(o.get("Metadata", {})),
+            "ETag": f'"{hashlib.md5(o["body"]).hexdigest()}"',
+        }
+        if o.get("ContentEncoding"):
+            head["ContentEncoding"] = o["ContentEncoding"]
+        return head
+
+    def upload_file(self, path, bucket, key, ExtraArgs):
+        if key in self.fail_put:
+            self.fail_put.discard(key)
+            self.put(key, b"\x1f\x8bcorrupt", ExtraArgs)
+        else:
+            self.put(key, Path(path).read_bytes(), ExtraArgs)
+        self.puts.append(key)
+
+    def download_file(self, bucket, key, path):
+        from botocore.exceptions import ClientError
+
+        if key not in self.objects:
+            raise ClientError({"Error": {"Code": "404"}}, "GetObject")
+        Path(path).write_bytes(self.objects[key]["body"])
+
+
+CSV = b"a,b\n" + b"1,2\n" * 1000
+
+
+def test_push_stores_text_gzipped_and_aliases_the_csv_gz(tmp_path, monkeypatch, capsys):
+    import gzip
+
+    from publicdata.serialise.writers.csv_gz import write_csv_gz
+
+    v = tmp_path / "d" / "x" / "v" / "2026-04-24"
+    v.mkdir(parents=True)
+    (v / "data.csv").write_bytes(CSV)
+    write_csv_gz(None, v / "data.csv.gz", v)
+    (v / "data.parquet").write_bytes(b"PAR1" * 1000)
+    (v / "data.duckdb").write_bytes(b"DUCK" * 1000)
+    (v / "manifest.json").write_bytes(b"{}")
+    (v / "index.html").write_bytes(b"<html>" * 1000)
+    b = ByteBucket()
+    monkeypatch.setattr(r2, "client", lambda: b)
+    r2.push(tmp_path, "publicdata-dist", immutable=r2.dated_file)
+    o = b.objects
+    assert "d/x/v/2026-04-24/data.csv.gz" not in o
+    assert o["d/x/v/2026-04-24/data.csv"]["ContentEncoding"] == "gzip"
+    assert o["d/x/v/2026-04-24/data.csv"]["ContentType"] == "text/csv; charset=utf-8"
+    assert o["d/x/v/2026-04-24/data.csv"]["body"] == (v / "data.csv.gz").read_bytes()
+    assert gzip.decompress(o["d/x/v/2026-04-24/data.csv"]["body"]) == CSV
+    assert o["d/x/v/2026-04-24/data.csv"]["Metadata"] == {
+        "sha256": hashlib.sha256(CSV).hexdigest(),
+        "size": str(len(CSV)),
+    }
+    for name in ("data.parquet", "data.duckdb", "manifest.json", "index.html"):
+        assert "ContentEncoding" not in o[f"d/x/v/2026-04-24/{name}"], name
+    assert "alias publicdata-dist/d/x/v/2026-04-24/data.csv.gz" in capsys.readouterr().out
+    # The next cached build leaves both out; the stored CSV answers for the gzip.
+    r2.push(
+        tmp_path / "empty",
+        "publicdata-dist",
+        expect=["d/x/v/2026-04-24/data.csv", "d/x/v/2026-04-24/data.csv.gz"],
+    )
+    with pytest.raises(SystemExit, match="not in R2"):
+        r2.push(tmp_path / "empty", "publicdata-dist", expect=["d/x/v/2026-04-24/data.json.gz"])
+
+
+def test_a_csv_already_stored_keeps_its_own_csv_gz(tmp_path, monkeypatch):
+    v = tmp_path / "d" / "x" / "v" / "2026-04-24"
+    v.mkdir(parents=True)
+    (v / "data.csv").write_bytes(CSV)
+    from publicdata.serialise.writers.csv_gz import write_csv_gz
+
+    write_csv_gz(None, v / "data.csv.gz", v)
+    b = ByteBucket({"d/x/v/2026-04-24/data.csv": CSV})
+    monkeypatch.setattr(r2, "client", lambda: b)
+    r2.push(tmp_path, "publicdata-dist", immutable=r2.dated_file)
+    assert b.puts == ["d/x/v/2026-04-24/data.csv.gz"]
+
+
+def test_the_downloader_hands_back_the_file_a_gzipped_object_was(tmp_path, monkeypatch):
+    v = tmp_path / "d" / "x" / "v" / "2026-04-24"
+    v.mkdir(parents=True)
+    sqlite = b"SQLite format 3\x00" + bytes(4096)
+    (v / "data.sqlite").write_bytes(sqlite)
+    (v / "data.parquet").write_bytes(b"PAR1" * 1000)
+    b = ByteBucket()
+    monkeypatch.setattr(r2, "client", lambda: b)
+    r2.push(tmp_path, "publicdata-dist", immutable=r2.dated_file)
+    assert b.objects["d/x/v/2026-04-24/data.sqlite"]["ContentEncoding"] == "gzip"
+    get = r2.downloader("publicdata-dist")
+    for name, want in (("data.sqlite", sqlite), ("data.parquet", b"PAR1" * 1000)):
+        dest = tmp_path / name
+        assert get(f"d/x/v/2026-04-24/{name}", dest)
+        assert dest.read_bytes() == want
+    assert not get("d/x/v/2026-04-24/nothing.sqlite", tmp_path / "n")
+    b.objects["d/x/v/2026-04-24/data.sqlite"]["Metadata"]["sha256"] = "0" * 64
+    with pytest.raises(SystemExit, match="does not decode"):
+        get("d/x/v/2026-04-24/data.sqlite", tmp_path / "bad")
+
+
+def test_restore_gzip_is_a_dry_run_unless_applied_and_can_run_again(monkeypatch, capsys):
+    import gzip
+
+    plain = {
+        "d/x/v/2026-04-24/data.csv": CSV,
+        "d/x/v/2026-04-24/data.ndjson": b'{"a":1}\n' * 500,
+        "d/x/v/2026-04-24/data.parquet": b"PAR1" * 1000,
+        "d/x/v/2026-04-24/source.csv": CSV,
+        "d/x/v/2026-04-24/index.html": b"<html>" * 1000,
+        "d/x/v/2026-04-24/schema.sql": b"create table t (a int);",
+        "d/x/history.tar.zst": b"z" * 4096,
+    }
+    b = ByteBucket(plain)
+    monkeypatch.setattr(r2, "client", lambda: b)
+    t = r2.restore_gzip()
+    assert b.puts == []
+    assert (t["objects"], t["before"]) == (2, len(CSV) + 4000)
+    assert "dry run, 2 object(s)" in capsys.readouterr().out
+    t = r2.restore_gzip(apply=True)
+    assert sorted(b.puts) == ["d/x/v/2026-04-24/data.csv", "d/x/v/2026-04-24/data.ndjson"]
+    assert t["done"] == 2 and t["saved"] > 0
+    for k in ("d/x/v/2026-04-24/data.csv", "d/x/v/2026-04-24/data.ndjson"):
+        o = b.objects[k]
+        assert o["ContentEncoding"] == "gzip"
+        assert gzip.decompress(o["body"]) == plain[k]
+        assert o["Metadata"] == {
+            "sha256": hashlib.sha256(plain[k]).hexdigest(),
+            "size": str(len(plain[k])),
+        }
+    assert b.objects["d/x/v/2026-04-24/data.csv"]["ContentType"] == "text/csv; charset=utf-8"
+    assert "bytes saved" in capsys.readouterr().out
+    b.puts.clear()
+    t = r2.restore_gzip(apply=True)
+    assert b.puts == [] and t["done"] == 0
+
+
+def test_restore_gzip_refuses_bytes_that_do_not_match_and_puts_back_a_bad_rewrite(
+    monkeypatch, capsys
+):
+    b = ByteBucket(
+        {"d/x/v/2026-04-24/data.csv": CSV, "d/x/v/2026-04-24/data.json": b"[" + b"1," * 900 + b"1]"}
+    )
+    b.objects["d/x/v/2026-04-24/data.json"]["Metadata"]["sha256"] = "0" * 64
+    b.fail_put.add("d/x/v/2026-04-24/data.csv")
+    monkeypatch.setattr(r2, "client", lambda: b)
+    t = r2.restore_gzip(apply=True)
+    assert t["failed"] == 2 and t["done"] == 0
+    err = capsys.readouterr().err
+    assert "data.json FAILED read back as" in err
+    assert "data.csv FAILED" in err
+    assert b.objects["d/x/v/2026-04-24/data.csv"]["body"] == CSV
+    assert "ContentEncoding" not in b.objects["d/x/v/2026-04-24/data.csv"]
+    assert b.objects["d/x/v/2026-04-24/data.json"]["body"].startswith(b"[")

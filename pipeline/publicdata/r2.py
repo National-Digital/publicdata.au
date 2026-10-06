@@ -5,15 +5,22 @@ mutable is uploaded again when its bytes differ: by the listing's ETag, which is
 single-part upload, or else by the SHA-256 stored with the object. The S3 access key
 is the Cloudflare API token id and the secret is the SHA-256 of the token, which is how R2 maps
 account tokens onto S3 credentials.
+
+A dated text file, and a dated SQLite file, is stored gzipped (see stored_gzipped): marked with
+Content-Encoding gzip, with the size and SHA-256 of its decoded bytes as metadata. Parquet,
+DuckDB and the other binary formats stay as written, since readers ask them for byte ranges.
 """
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import mimetypes
 import os
 import re
+import shutil
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -81,6 +88,39 @@ def _sha256(p: Path) -> str:
     return h.hexdigest()
 
 
+# Stored gzipped. SQLite is read whole by its clients, so it goes in; the binary formats that
+# readers range over do not, and the publisher's file is served from the raw store as fetched.
+GZIP_SUFFIXES = (".csv", ".ndjson", ".json", ".geojson", ".sql", ".sqlite", ".md", ".txt")
+GZIP_MIN = 1024
+GZIP_LEVEL = 6
+GZIP_MAGIC = b"\x1f\x8b"
+
+
+def stored_gzipped(key: str, size: int) -> bool:
+    name = key.rsplit("/", 1)[-1]
+    return (
+        dated_file(key)
+        and name.endswith(GZIP_SUFFIXES)
+        and not name.startswith("source.")
+        and size >= GZIP_MIN
+    )
+
+
+def gzip_to(src: Path, dest: Path) -> None:
+    """No name and no mtime, so the bytes are a function of the input; at the level the csv.gz
+    writer uses, a CSV gzips to its data.csv.gz byte for byte."""
+    with src.open("rb") as f, dest.open("wb") as raw:
+        with gzip.GzipFile(
+            filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=GZIP_LEVEL
+        ) as gz:
+            shutil.copyfileobj(f, gz, 1 << 20)
+
+
+def gunzip_to(src: Path, dest: Path) -> None:
+    with gzip.open(src, "rb") as gz, dest.open("wb") as out:
+        shutil.copyfileobj(gz, out, 1 << 20)
+
+
 def versioned(key: str) -> bool:
     return bool(VERSIONED.search(key))
 
@@ -120,31 +160,62 @@ def push(
     existing = set(etags)
     check_expected(expect, existing, replace)
     n = 0
-    for p, key in zip(files, keys, strict=True):
-        forced = key.startswith(replace or ("\0",))
-        if key in existing and not forced and immutable(key):
-            continue
-        digest = None
-        if key in existing and not forced:
-            # A single-part upload's ETag is the MD5 of its bytes, so the listing settles most
-            # mutable keys without a HEAD each; a multipart one is checked by its stored SHA-256.
-            tag = etags[key]
-            if len(tag) == 32 and "-" not in tag:
-                if tag == _md5(p):
-                    continue
-            else:
-                digest = _sha256(p)
-                meta = s3.head_object(Bucket=bucket, Key=key).get("Metadata", {})
-                if meta.get("sha256") == digest:
-                    continue
-        digest = digest or _sha256(p)
-        ctype = TYPES.get(p.suffix) or mimetypes.guess_type(p.name)[0] or "application/octet-stream"
-        s3.upload_file(
-            str(p), bucket, key, ExtraArgs={"ContentType": ctype, "Metadata": {"sha256": digest}}
-        )
-        n += 1
-        print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")
+    tmp = Path(tempfile.mkdtemp(prefix="dist-push-"))
+    gzipped: dict[str, str] = {}
+    try:
+        for p, key in zip(files, keys, strict=True):
+            n += _push_one(s3, bucket, p, key, existing, etags, replace, immutable, tmp, gzipped)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     return n
+
+
+def _push_one(s3, bucket, p, key, existing, etags, replace, immutable, tmp, gzipped) -> int:
+    forced = key.startswith(replace or ("\0",))
+    if key in existing and not forced and immutable(key):
+        return 0
+    # The stored CSV this push just gzipped is these bytes already, and the function serves
+    # data.csv.gz from it.
+    if key.endswith(".csv.gz") and gzipped.get(key[:-3]) == _sha256(p):
+        print(f"alias {bucket}/{key} (served from {key[:-3]})")
+        return 0
+    digest = None
+    if key in existing and not forced:
+        # A single-part upload's ETag is the MD5 of its bytes, so the listing settles most
+        # mutable keys without a HEAD each; a multipart one is checked by its stored SHA-256.
+        tag = etags[key]
+        if len(tag) == 32 and "-" not in tag:
+            if tag == _md5(p):
+                return 0
+        else:
+            digest = _sha256(p)
+            meta = s3.head_object(Bucket=bucket, Key=key).get("Metadata", {})
+            if meta.get("sha256") == digest:
+                return 0
+    digest = digest or _sha256(p)
+    ctype = TYPES.get(p.suffix) or mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+    size = p.stat().st_size
+    if stored_gzipped(key, size):
+        gz = tmp / "body.gz"
+        gzip_to(p, gz)
+        s3.upload_file(str(gz), bucket, key, ExtraArgs=gzip_args(ctype, digest, size))
+        gzipped[key] = _sha256(gz)
+        print(f"put {bucket}/{key} ({size} bytes, {gz.stat().st_size} gzipped)")
+        gz.unlink()
+        return 1
+    s3.upload_file(
+        str(p), bucket, key, ExtraArgs={"ContentType": ctype, "Metadata": {"sha256": digest}}
+    )
+    print(f"put {bucket}/{key} ({size} bytes)")
+    return 1
+
+
+def gzip_args(ctype: str, sha256: str, size: int) -> dict:
+    return {
+        "ContentType": ctype,
+        "ContentEncoding": "gzip",
+        "Metadata": {"sha256": sha256, "size": str(size)},
+    }
 
 
 def check_expected(expect, existing: set[str], replace: tuple[str, ...] = ()) -> None:
@@ -154,7 +225,10 @@ def check_expected(expect, existing: set[str], replace: tuple[str, ...] = ()) ->
             f"{len(rebuilt)} file(s) under --replace came from the build cache, e.g. {rebuilt[0]}; "
             "build without the cache to replace them"
         )
-    missing = sorted(set(expect) - existing)
+    # A data.csv.gz is not stored apart from the gzipped data.csv it is served from.
+    missing = sorted(
+        k for k in set(expect) - existing if not (k.endswith(".csv.gz") and k[:-3] in existing)
+    )
     if missing:
         sys.exit(
             f"{len(missing)} file(s) the cached build left out are not in R2, e.g. "
@@ -228,9 +302,29 @@ def downloader(bucket: str) -> Callable[[str, Path], bool]:
             if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                 return False
             raise
+        decode_stored(s3, bucket, key, dest)
         return True
 
     return download
+
+
+def decode_stored(s3, bucket: str, key: str, dest: Path) -> None:
+    """Turn a downloaded object stored gzipped back into the file it was, checked against the
+    SHA-256 stored with it. Only bytes that open like gzip cost a HEAD."""
+    with dest.open("rb") as f:
+        if f.read(2) != GZIP_MAGIC:
+            return
+    head = s3.head_object(Bucket=bucket, Key=key)
+    if head.get("ContentEncoding") != "gzip":
+        return
+    plain = dest.with_name(dest.name + ".plain")
+    gunzip_to(dest, plain)
+    want = head.get("Metadata", {}).get("sha256")
+    if want and _sha256(plain) != want:
+        plain.unlink()
+        dest.unlink()
+        sys.exit(f"{bucket}/{key} does not decode to the SHA-256 stored with it")
+    plain.replace(dest)
 
 
 CACHE_BUCKET = "publicdata-raw"
@@ -418,3 +512,124 @@ def check_sources(roots: list[Path], bucket: str = "publicdata-raw") -> int:
             + ", ".join(missing[:5])
         )
     return len(want)
+
+
+def _listing(s3, bucket: str, prefix: str) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+        out.update((o["Key"], o.get("Size", 0)) for o in page.get("Contents", []))
+    return out
+
+
+def restore_gzip(
+    bucket: str = "publicdata-dist",
+    prefix: str = "d/",
+    apply: bool = False,
+    workers: int = 4,
+) -> dict:
+    """Store the dated text files that went up before gzip at rest gzipped, in place at the same
+    key. Each object's decoded bytes are checked against the SHA-256 it was stored with before it
+    is rewritten, and read back and checked again after; an object that fails the second check is
+    put back as it was. An object already marked gzip is skipped, so a run that stops can be run
+    again. Without apply it only counts. Returns the totals it printed."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    s3 = client()
+    todo = sorted((k, n) for k, n in _listing(s3, bucket, prefix).items() if stored_gzipped(k, n))
+    tmp = Path(tempfile.mkdtemp(prefix="restore-gzip-"))
+    totals = {"objects": 0, "done": 0, "already": 0, "failed": 0, "before": 0, "after": 0}
+    by_ext: dict[str, list[int]] = {}
+
+    def one(item: tuple[str, int]) -> tuple[str, int, int]:
+        key, size = item
+        head = s3.head_object(Bucket=bucket, Key=key)
+        if head.get("ContentEncoding") == "gzip":
+            return "already", size, size
+        if not apply:
+            return "candidate", size, size
+        work = Path(tempfile.mkdtemp(dir=tmp))
+        try:
+            return _restore_one(s3, bucket, key, head, work)
+        except Exception as e:  # one bad object must not stop the run
+            print(f"restore: {key} FAILED {e}", file=sys.stderr)
+            return "failed", size, size
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    try:
+        with ThreadPoolExecutor(workers) as pool:
+            for (key, _), (state, before, after) in zip(todo, pool.map(one, todo), strict=True):
+                totals["objects"] += 1
+                ext = key.rsplit(".", 1)[-1]
+                if state == "already":
+                    totals["already"] += 1
+                    continue
+                if state == "failed":
+                    totals["failed"] += 1
+                    continue
+                if state == "done":
+                    totals["done"] += 1
+                    print(f"gzip {bucket}/{key}: {before} -> {after} bytes")
+                totals["before"] += before
+                totals["after"] += after
+                e = by_ext.setdefault(ext, [0, 0, 0])
+                e[0] += 1
+                e[1] += before
+                e[2] += after
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    for ext, (n, before, after) in sorted(by_ext.items()):
+        line = f"restore: .{ext} {n} object(s), {before} bytes"
+        print(line + (f" -> {after}, {before - after} saved" if apply else ""))
+    left = totals["objects"] - totals["already"]
+    if apply:
+        print(
+            f"restore: {totals['done']} object(s) gzipped, {totals['before'] - totals['after']} "
+            f"bytes saved; {totals['already']} were already, {totals['failed']} failed"
+        )
+    else:
+        print(
+            f"restore: dry run, {left} object(s) of {totals['before']} bytes would be gzipped; "
+            f"{totals['already']} already are. Pass --apply to rewrite them."
+        )
+    totals["saved"] = totals["before"] - totals["after"]
+    return totals
+
+
+def _restore_one(s3, bucket: str, key: str, head: dict, work: Path) -> tuple[str, int, int]:
+    plain, gz, back = work / "plain", work / "body.gz", work / "back.gz"
+    s3.download_file(bucket, key, str(plain))
+    digest, size = _sha256(plain), plain.stat().st_size
+    want = head.get("Metadata", {}).get("sha256")
+    tag = head.get("ETag", "").strip('"')
+    if want and want != digest:
+        raise ValueError(f"read back as {digest}, stored with {want}")
+    if not want and len(tag) == 32 and "-" not in tag and tag != _md5(plain):
+        raise ValueError("read back with an MD5 that is not its ETag")
+    if size != head.get("ContentLength", size):
+        raise ValueError(f"read back {size} bytes of {head['ContentLength']}")
+    gzip_to(plain, gz)
+    check = work / "check"
+    gunzip_to(gz, check)
+    if _sha256(check) != digest:
+        raise ValueError("does not survive gzip")
+    ctype = head.get("ContentType") or TYPES.get(Path(key).suffix) or "application/octet-stream"
+    meta = {**head.get("Metadata", {}), "sha256": digest, "size": str(size)}
+    s3.upload_file(
+        str(gz), bucket, key, ExtraArgs={**gzip_args(ctype, digest, size), "Metadata": meta}
+    )
+    try:
+        s3.download_file(bucket, key, str(back))
+        if s3.head_object(Bucket=bucket, Key=key).get("ContentEncoding") != "gzip":
+            raise ValueError("is not marked gzip after the rewrite")
+        if back.read_bytes()[:2] == GZIP_MAGIC:
+            gunzip_to(back, check)
+        else:
+            back.replace(check)
+        if _sha256(check) != digest:
+            raise ValueError("does not decode to its bytes after the rewrite")
+    except Exception:
+        args = {"ContentType": ctype, "Metadata": head.get("Metadata", {})}
+        s3.upload_file(str(plain), bucket, key, ExtraArgs=args)
+        raise
+    return "done", size, gz.stat().st_size

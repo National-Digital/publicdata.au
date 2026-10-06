@@ -1679,7 +1679,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, xlsx, json, parquet, sqlite, duckdb, ndjson, arrow, csv.gz, and geojson, gpkg and geo.parquet where the dataset has coordinates or shapes, with pmtiles vector tiles for boundary layers.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, xlsx, json, parquet, sqlite, duckdb, ndjson, arrow, csv.gz, and geojson, gpkg and geo.parquet where the dataset has coordinates or shapes, with pmtiles vector tiles for boundary layers. Byte ranges are offered on Parquet, DuckDB and the publisher's file; the text formats and SQLite are sent whole, gzipped when the client accepts it.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 </ul>
 <h2>Inside every data file</h2>
@@ -2518,7 +2518,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
             "/d/{slug}/v/{version}/data.{format}": {
                 "get": {
                     "tags": ["version"],
-                    "summary": "The whole dataset in one format. Immutable, cached one year. Range requests are honoured.",
+                    "summary": "The whole dataset in one format. Immutable, cached one year. Byte ranges are offered on Parquet and DuckDB; the text formats and SQLite are sent whole, gzipped when the client accepts it.",
                     "operationId": "getData",
                     "parameters": [slug_p, ver_p, fmt_p],
                     "responses": {
