@@ -170,6 +170,22 @@ def test_the_command_fails_and_names_the_entry_to_bump(
     assert f"  {slug} (register/{slug}.yaml, rebuild 0 now)" in out
 
 
+def test_a_dataset_the_new_code_cannot_build_fails_the_check(two_datasets, tmp_path, monkeypatch):
+    from publicdata.verify import run
+
+    s, t, u = two_datasets
+    root = _build([t, u], s, tmp_path / "a", tmp_path / "cache").root
+    real = build.normalise
+
+    def normalise(ds, m, data):
+        if ds.slug == "t":
+            raise ValueError("broken")
+        return real(ds, m, data)
+
+    monkeypatch.setattr(build, "normalise", normalise)
+    assert run([t, u], s, root, tmp_path / "v") == 1
+
+
 def test_only_an_edit_outside_the_keys_needs_the_check():
     assert unkeyed(["pipeline/publicdata/normalise.py", "README.md"]) == [
         "pipeline/publicdata/normalise.py"

@@ -82,7 +82,8 @@ jobs:
             git fetch --quiet --depth=1 origin "$BEFORE" && base="$BEFORE"
           fi
           git diff --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
-          echo "slugs=$(python -m publicdata verify plan --store store --seed "$GITHUB_SHA" --changed "$RUNNER_TEMP/changed.txt")" >> "$GITHUB_OUTPUT"
+          slugs=$(python -m publicdata verify plan --store store --seed "$GITHUB_SHA" --changed "$RUNNER_TEMP/changed.txt")
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
 
   # Builds the sample from its sources with this code and compares every version, diff and
   # history archive a deploy would reuse with its cache entry. A difference fails the deploy and

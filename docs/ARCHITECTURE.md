@@ -360,7 +360,8 @@ imports outside the format writers (`cache.code_files`) it picks a sample of dat
 (`publicdata verify plan`). The cheapest dataset of each stratum comes first, where a stratum is a
 combination of kind, adapter, file format, geometry, spine join, sort, partitions, wide or unpivoted
 reading and suppression; others follow in an order the commit's hash picks, up to 300 MB of source
-and none over 60 MB. A verify job builds every version of each from its source with the new code
+and none over 60 MB. The spine layers a joined dataset reads are pulled beside it and not counted,
+so the join is checked whenever a joined dataset is drawn. A verify job builds every version of each from its source with the new code
 and compares it with the cache entry a deploy would reuse, file by file through the SHA-256 the
 entry records, and compares the diffs and the history archive with theirs (`publicdata verify
 run`). A version whose key the change moved, by a raised number or a new input, is built again

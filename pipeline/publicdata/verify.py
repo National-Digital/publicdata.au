@@ -29,20 +29,12 @@ def unkeyed(changed: list[str]) -> list[str]:
     return sorted(c for c in changed if c in mods)
 
 
-def _layers_bytes(ds: Dataset, store_dir: Path) -> int:
-    if not ds.enrich:
-        return 0
-    from .spine import LAYERS
-
-    return sum(
-        ms[-1].bytes for k in ds.enrich if (ms := store.manifests(store_dir, LAYERS[k].slug))
-    )
-
-
 def source_bytes(ds: Dataset, store_dir: Path) -> int:
-    """What building every version of a dataset reads, the spine layers it joins included."""
+    """The source bytes of every version of a dataset. The spine layers a joined dataset reads
+    are left out: every joined dataset shares them, and a sample without one never checks the
+    join."""
     ms = store.manifests(store_dir, ds.slug) if ds.publishable else []
-    return sum(max(m.bytes, 1) for m in ms) + _layers_bytes(ds, store_dir) if ms else 0
+    return sum(max(m.bytes, 1) for m in ms)
 
 
 def _stratum(ds: Dataset) -> tuple:
@@ -141,7 +133,7 @@ def _version(ds: Dataset, meta: dict, vout, vdir: Path, entry: Path) -> list[str
             out.append(f"{rel} is published and no longer built")
         elif rel not in old_files:
             out.append(f"{rel} is built now and was never published")
-        elif old_files[rel] != new_files[rel]:
+        elif old_files[rel] != new_files[rel] and Path(rel).name != "data.duckdb":
             out.append(f"{rel} is {new_files[rel]} bytes, {old_files[rel]} published")
     sums = meta.get("sha256")
     if sums is None:
@@ -195,10 +187,17 @@ def run(datasets: list[Dataset], store_dir: Path, cache_dir: Path, out: Path) ->
     from .serialise.profile import QUERY_DIR
 
     cache = BuildCache(cache_dir)
-    problems, compared, rebuilt = [], 0, 0
+    problems, failed, compared, rebuilt = [], [], 0, 0
     for ds in datasets:
-        p, c, r = check(ds, store_dir, cache, out)
-        print(f"verify: {ds.slug}: {c} version(s) compared, {r} to be built again")
+        try:
+            p, c, r = check(ds, store_dir, cache, out)
+        # Each dataset the new code cannot build is named, and the rest are still checked.
+        except Exception as e:
+            failed.append(f"d/{ds.slug}/: the build failed: {type(e).__name__}: {e}")
+            print(f"verify: {ds.slug}: the build failed")
+            p, c, r = [], 0, 0
+        else:
+            print(f"verify: {ds.slug}: {c} version(s) compared, {r} to be built again")
         problems += [(ds, x) for x in p]
         compared += c
         rebuilt += r
@@ -209,15 +208,18 @@ def run(datasets: list[Dataset], store_dir: Path, cache_dir: Path, out: Path) ->
         f"verify: {len(datasets)} dataset(s), {compared} version(s) compared with what a deploy "
         f"would reuse, {rebuilt} to be built again"
     )
+    for line in failed:
+        print(f"::error::{line}")
     if not problems:
-        return 0
+        return 1 if failed else 0
     for _ds, line in problems:
         print(f"::error::{line}")
     named = sorted({ds.slug: ds for ds, _ in problems}.items())
     print(
-        f"verify: this change alters the published files of {len(named)} dataset(s) whose "
+        f"verify: the code as it stands makes other files for {len(named)} dataset(s) than the "
         "versions a deploy would reuse unchanged. Raise `rebuild` in each one's register entry, "
-        "or REBUILD in pipeline/publicdata/cache.py when the change reaches across datasets:"
+        "or REBUILD in pipeline/publicdata/cache.py when the change reaches across datasets. An "
+        "earlier change can be the cause, and the same number fixes it:"
     )
     for slug, ds in named:
         where = Path(ds.path or f"{slug}.yaml")

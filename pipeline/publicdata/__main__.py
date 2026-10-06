@@ -656,7 +656,7 @@ def cmd_verify(args) -> int:
     if args.sub == "plan":
         changed = []
         if args.changed:
-            changed = Path(args.changed).read_text(encoding="utf-8").split()
+            changed = Path(args.changed).read_text(encoding="utf-8").splitlines()
         mods = verify.unkeyed(changed)
         if not mods:
             print("verify: no change to the build code outside the keys", file=sys.stderr)
@@ -666,6 +666,12 @@ def cmd_verify(args) -> int:
         budget = args.budget_mb * mb if args.budget_mb is not None else verify.BUDGET
         cap = args.cap_mb * mb if args.cap_mb is not None else verify.CAP
         slugs = verify.sample(datasets, store_dir, args.seed, budget, cap)
+        if not slugs:
+            print(
+                "verify: no stored dataset fits the budget, so nothing can be checked",
+                file=sys.stderr,
+            )
+            return 1
         print(" ".join(slugs))
         return 0
     if not args.cache:
