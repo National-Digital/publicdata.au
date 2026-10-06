@@ -2,6 +2,7 @@ import { disposition } from '../_download.js';
 
 // /d/* : serve the static file if Pages has it; redirect latest/ to the newest version;
 // otherwise look in R2, which holds every dated version's files and anything over the Pages limit.
+// A version's source.<ext> is the publisher's file, served from the raw store that keeps it.
 const TYPES = {
   json: 'application/json; charset=utf-8', geojson: 'application/geo+json', ndjson: 'application/x-ndjson',
   csv: 'text/csv; charset=utf-8', parquet: 'application/vnd.apache.parquet', sqlite: 'application/vnd.sqlite3',
@@ -54,10 +55,39 @@ async function archivedOf(env, slug) {
   return archive.get(slug);
 }
 
+const SOURCE = /^d\/([a-z0-9-]+)\/v\/(\d{4}-\d{2}-\d{2})\/(source\.[a-z0-9]+)$/;
+
+// The raw store also holds the bytes of a fetch that never became a version, so a file is served
+// only beside a published version's manifest: in R2, or on Pages for a preview.
+async function rawSource(env, url, key, read) {
+  const m = key.match(SOURCE);
+  if (!m || !env.RAW) return null;
+  const man = `d/${m[1]}/v/${m[2]}/manifest.json`;
+  let published = !!(await env.DIST.head(man));
+  if (!published) {
+    const r = await env.ASSETS.fetch(new Request(new URL('/' + man, url)));
+    if (r.body) await r.body.cancel();
+    published = r.ok;
+  }
+  // Pages binds R2 read-write only, so the archive is handed on with its two read methods alone.
+  const raw = { get: (k, o) => env.RAW.get(k, o), head: (k) => env.RAW.head(k) };
+  return published ? read(raw, `${m[1]}/${m[2]}/${m[3]}`) : null;
+}
+
 const WITHHELD = 'This file is withheld while its licence is reviewed. See https://publicdata.au/backlog/\n';
+
+// Every published key is plain, so a path with escapes is sent to its plain form, where the
+// withheld checks below read it as R2 and Pages would.
+const PLAIN = /^[A-Za-z0-9._~/-]*$/;
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
+  if (url.pathname.includes('%')) {
+    let plain = null;
+    try { plain = decodeURIComponent(url.pathname); } catch { /* a malformed escape names nothing */ }
+    if (!plain || !PLAIN.test(plain)) return new Response('Not found', { status: 404 });
+    return new Response(null, { status: 308, headers: { location: plain + url.search, 'cache-control': 'public, max-age=86400' } });
+  }
   const slug = (url.pathname.match(/^\/d\/([a-z0-9-]+)\//) || [])[1];
   const latest = slug ? await liveOf(env, url) : {};
   const r = await serve(request, env, url, latest);
@@ -109,7 +139,8 @@ async function fromR2(request, env, url) {
   const path = decodeURIComponent(url.pathname.replace(/^\//, ''));
   const key = path.endsWith('/') ? path + 'index.html' : path;
   const head = request.method === 'HEAD';
-  const obj = head ? await env.DIST.head(key) : await env.DIST.get(key, { range: request.headers, onlyIf: request.headers });
+  const read = (bucket, k) => (head ? bucket.head(k) : bucket.get(k, { range: request.headers, onlyIf: request.headers }));
+  const obj = (await read(env.DIST, key)) || (await rawSource(env, url, key, read));
   if (!obj) {
     // A version page asked for without its trailing slash, as Pages would redirect it.
     if (DATED.test(url.pathname + '/') && !/\.[a-z0-9]+$/i.test(key) && (await env.DIST.head(key + '/index.html'))) {

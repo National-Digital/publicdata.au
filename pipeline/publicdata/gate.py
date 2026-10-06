@@ -11,9 +11,10 @@ from html import escape as html_escape
 from html import unescape as html_unescape
 from pathlib import Path
 
-from . import SITE, explorer, serialise, store, structured
+from . import SITE, explorer, serialise, structured
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
+from .serialise.profile import query_key
 
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
 PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.S)
@@ -259,7 +260,38 @@ def checked(
                 f"tables/{t.name}.parquet" for t in ds.tables
             )
         else:
-            fmts = serialise.formats_for(int(m.get("rows", 0)), geo_kind(ds))
+            rows = int(m.get("rows", 0))
+            gone = None
+            if serialise.capped(m):
+                gone = m.get("formats_left_out")
+                measured = m.get("measured_bytes")
+                if not isinstance(gone, dict) or not isinstance(measured, dict):
+                    errors.append(f"{slug}/{version}: manifest lacks its format record")
+                    continue
+                if not set(gone) <= set(serialise.cappable(geo_kind(ds))):
+                    errors.append(
+                        f"{slug}/{version}: formats_left_out names a format no cap covers"
+                    )
+                for f in serialise.MEASURED:
+                    if f"data.{f}" not in measured:
+                        errors.append(f"{slug}/{version}: measured_bytes lacks data.{f}")
+                for name, n in measured.items():
+                    if (vdir / name).is_file() and (vdir / name).stat().st_size != n:
+                        errors.append(f"{slug}/{version}: measured_bytes disagrees with {name}")
+                for x in (*gone, "arrow"):
+                    if have(f"data.{x}"):
+                        errors.append(
+                            f"{slug}/{version}: data.{x} is published though the caps leave it out"
+                        )
+                vpage = vdir / "index.html"
+                if site and vpage.exists():
+                    text = vpage.read_text(encoding="utf-8")
+                    for x, why in gone.items():
+                        if html_escape(why) not in text:
+                            errors.append(
+                                f"{slug}/{version}: the version page does not say why data.{x} is not there"
+                            )
+            fmts = serialise.formats_for(rows, geo_kind(ds), gone)
             need = (
                 *(f"data.{x}" for x in fmts),
                 "schema.json",
@@ -269,8 +301,10 @@ def checked(
         for f in need:
             if not have(f):
                 errors.append(f"{slug}/{version}: missing {f}")
-        if not ds.source_withheld and not have(f"source.{store.ext_of(m.get('filename', ''))}"):
-            errors.append(f"{slug}/{version}: missing source file")
+        if ds.kind != "database":
+            q = query_key(slug, version)
+            if not (out / q).exists() and q not in absent:
+                errors.append(f"{slug}/{version}: missing its query copy {q}")
         if m.get("unknown_upstream_columns"):
             errors.append(
                 f"{slug}/{version}: unknown upstream columns held: {m['unknown_upstream_columns']}"
@@ -319,6 +353,7 @@ def checked(
             f"{rel}: missing {v['parquet']}"
             for v in data["versions"]
             if not (out / v["parquet"].lstrip("/")).exists()
+            and v["parquet"].lstrip("/") not in absent
         ]
         if not (page.parent.parent / "embed" / "index.html").exists():
             errors.append(f"{rel}: no embed page beside it")

@@ -60,8 +60,12 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     assert re.search(r'<script src="/static/site\.js\?v=[0-9a-f]{12}" defer>', home)
     ds = (out / "d" / "qld-road-crash-locations" / "index.html").read_text(encoding="utf-8")
     assert 'data-fmt="parquet"' in ds and 'data-fmt="geojson"' in ds
-    for key in ("xlsx", "gpkg", "arrow", "csv.gz", "duckdb"):
+    for key in ("xlsx", "gpkg", "geo.parquet", "csv.gz", "duckdb"):
         assert f'data-fmt="{key}"' in ds, key
+    # Fetched after the size limits came in, so no Arrow; a version fetched before keeps it.
+    assert 'data-fmt="arrow"' not in ds
+    older = (out / "d" / "qld-road-casualties" / "index.html").read_text(encoding="utf-8")
+    assert 'data-fmt="arrow"' in older
     # Every dataset page shows how to open it from Excel, Power BI, R, Python and DuckDB.
     assert "Use it in Excel, R, Python and more" in ds
     assert "latest/data.csv</code>" in ds
@@ -239,7 +243,7 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     assert "content-encoding" not in fn
     assert "obj.range.suffix !== undefined" in fn
     assert (
-        "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, Arrow"
+        "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, or"
         in ds
     )
     # Every HTML page names a Markdown twin that exists.
@@ -643,7 +647,9 @@ def _console_db(tmp_path, rows):
     con.executemany("INSERT INTO records VALUES (?, ?, ?, ?, ?, ?)", rows)
     con.commit()
     con.close()
-    return db
+    from .conftest import as_parquet
+
+    return as_parquet(db)
 
 
 def _console_ds(**kw):

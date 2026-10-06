@@ -1,4 +1,5 @@
-"""Turn the register and the raw store into dist/. Never touches the network."""
+"""Turn the register and the raw store into dist/. Never touches upstream: a cached version's
+Parquet comes back through published, from the tree or R2 that holds it."""
 
 from __future__ import annotations
 
@@ -8,30 +9,46 @@ import re
 import shutil
 import tarfile
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import zstandard
 
-from . import OPERATOR, SITE, store
-from .cache import BuildCache, _link_or_copy, _read_only
+from . import OPERATOR, SITE, published, store
+from .cache import BuildCache, _link_or_copy
 from .diff import diff
 from .normalise import Table, normalise
 from .provenance import OPERATOR_URL
 from .provenance import header as prov_header
 from .register import Dataset
 from .serialise import (
+    CAPS,
+    MEASURED,
     MEDIA,
     WRITERS,
+    cappable,
+    capped,
     csvw_metadata,
     formats_for,
+    over_cap,
     pretty,
     schema_sql,
     table_schema,
     write_partitions,
 )
 from .serialise.geo import geo_kind
+from .serialise.profile import (
+    layout,
+    order_of,
+    permutation,
+    query_key,
+    sha256,
+    signature,
+    widen,
+)
 
 REGISTER_DIR = Path(__file__).resolve().parents[2] / "register"
 
@@ -47,13 +64,27 @@ class VersionOut:
     first: str = ""  # the first row of data.ndjson, which the dataset page shows
     absent: tuple[str, ...] = ()  # files a cached build left out; already published
     tables: dict[str, int] = field(default_factory=dict)  # a database's tables and their rows
+    query: str = ""  # the tree path of a table version's query copy (serialise.profile)
+    # A capped version's formats_left_out, fixed when it was first built; None without the stamp.
+    left_out: dict[str, str] | None = None
 
 
-# What a cached version keeps: the files a later build reads back, for the gate, the dataset
-# schema, the diff, the history archive, the query console and the D1 load. The rest are written
-# once to R2 by the build that made them. A database keeps its schema and script; its DuckDB and
-# Parquet files are written once.
-KEPT = re.compile(r"^(manifest\.json|schema\.json|schema\.sql|data\.parquet|data\.sqlite)$")
+# What a cached version keeps: the small files a later build reads back, for the gate and the
+# dataset schema. The rest are written once to R2 by the build that made them, and the Parquet
+# a diff, the history archive or a page reads is fetched back from there.
+KEPT = re.compile(r"^(manifest\.json|schema\.json|schema\.sql)$")
+
+
+def source_name(ds: Dataset, m: store.Manifest) -> str:
+    """The publisher's file as a version lists it. Its bytes stay in the raw store, which the /d/
+    function serves it from, so no built tree holds it."""
+    return "" if ds.source_withheld else f"source.{m.ext}"
+
+
+def _with_source(files: dict[str, int], ds: Dataset, m: store.Manifest) -> dict[str, int]:
+    if not (name := source_name(ds, m)):
+        return files
+    return dict(sorted({**files, name: m.bytes}.items(), key=lambda kv: Path(kv[0])))
 
 
 def kept(rel: str) -> bool:
@@ -115,11 +146,6 @@ def build_database_version(
         return prov_header(ds, m, rows, base + rel)
 
     db = build_database(ds, m, src, vdir, hdr)
-    # The publisher's archive is gigabytes: a hard link where the store and the build share a
-    # disk, a copy where they do not.
-    linked = vdir / f"source.{m.ext}"
-    _link_or_copy(str(src), str(linked))
-    _read_only(linked)  # a write through the link would change the store, so it fails instead
     man = json.loads(m.to_json())
     man["kind"] = "database"
     man["rows"] = db.rows
@@ -135,7 +161,7 @@ def build_database_version(
     return None, VersionOut(
         m,
         db.rows,
-        _sizes(vdir),
+        _with_source(_sizes(vdir), ds, m),
         man["unknown_upstream_columns"] + man["unknown_upstream_tables"],
         0,
         {},
@@ -159,7 +185,9 @@ def build_version(
         if store_dir is None:
             raise ValueError(f"{ds.slug}: joining the place spine needs the store")
         tbl = enrich(tbl, store_dir, REGISTER_DIR)
+    tbl = _sorted_once(tbl, m.parquet)
     vdir = out / "d" / ds.slug / "v" / m.version
+    record = _published_record(ds, m, out) if capped(m) else None
     if vdir.exists():
         shutil.rmtree(vdir)
     vdir.mkdir(parents=True)
@@ -168,18 +196,21 @@ def build_version(
     def hdr(rows: int, rel: str) -> dict:
         return prov_header(ds, m, rows, base + rel)
 
-    fmts = formats_for(tbl.rows, geo_kind(ds))
+    gone = measured = None
+    written: list[str] = []
+    if capped(m):
+        gone, measured, written = _cap(tbl, ds, record, hdr, vdir)
+    fmts = formats_for(tbl.rows, geo_kind(ds), gone)
     if "ndjson" not in fmts:
         raise ValueError("every build writes data.ndjson, which the dataset page reads back")
-    write_formats(tbl, fmts, hdr, vdir)
+    write_formats(tbl, [f for f in fmts if f not in written], hdr, vdir)
+    query = _query_copy(tbl, hdr(tbl.rows, "data.parquet"), vdir, out)
     partitions = write_partitions(tbl, hdr, vdir)
     (vdir / "schema.json").write_text(pretty(table_schema(tbl)), encoding="utf-8")
     (vdir / "schema.sql").write_text(schema_sql(tbl, hdr(tbl.rows, "schema.sql")), encoding="utf-8")
     (vdir / "data.csv-metadata.json").write_text(
         pretty(csvw_metadata(tbl, hdr(tbl.rows, "data.csv-metadata.json"))), encoding="utf-8"
     )
-    if not ds.source_withheld:
-        (vdir / f"source.{m.ext}").write_bytes(data)
     man = json.loads(m.to_json())
     if ds.source_withheld:
         man["source_withheld"] = ds.source_withheld
@@ -193,17 +224,90 @@ def build_version(
         man["omitted_upstream_columns"] = {c: ds.omit[c] for c in tbl.omitted_columns}
     if tbl.places:
         man["places"] = tbl.places
+    if gone is not None:
+        man["measured_bytes"] = measured
+        man["formats_left_out"] = gone
     man["url"] = base
     (vdir / "manifest.json").write_text(pretty(man), encoding="utf-8")
     return tbl, VersionOut(
         m,
         tbl.rows,
-        _sizes(vdir),
+        _with_source(_sizes(vdir), ds, m),
         tbl.unknown_columns,
         tbl.suppressed_cells,
         partitions,
         _first_row(vdir),
+        query=query,
+        left_out=gone,
     )
+
+
+def _sorted_once(tbl: Table, lay: dict) -> Table:
+    """tbl carrying its permutation under layout `lay`, so every writer that sorts takes it."""
+    if not lay or not lay.get("sort"):
+        return tbl
+    perm = permutation(tbl.table, lay["sort"], lay["key"])
+    return replace(tbl, order=(tbl.table, (tuple(lay["sort"]), tuple(lay["key"])), perm))
+
+
+def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
+    """The version's query copy under the current profile and register entry, at its internal
+    key: the version's own data.parquet when that already follows them, else written again.
+    Returns its path in the tree."""
+    from .serialise.writers.geo_parquet import write_shape_parquet
+    from .serialise.writers.parquet import write_parquet
+
+    ds, m = tbl.dataset, tbl.manifest
+    rel = query_key(ds.slug, m.version)
+    p = out / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.unlink(missing_ok=True)
+    lay = layout(ds)
+    if m.parquet == lay and (vdir / "data.parquet").is_file():
+        _link_or_copy(str(vdir / "data.parquet"), str(p))
+        return rel
+    q = _sorted_once(tbl, lay)
+    (write_shape_parquet if q.geometry is not None else write_parquet)(q, header, p, lay=lay)
+    return rel
+
+
+def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict | None:
+    """The format record of a capped version already published: its manifest's
+    formats_left_out and measured_bytes, which no later build changes."""
+    p = published.path(out, f"d/{ds.slug}/v/{m.version}/manifest.json")
+    if not p.is_file():
+        return None
+    man = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(man.get("formats_left_out"), dict):
+        return None
+    return {"left_out": man["formats_left_out"], "measured": man.get("measured_bytes") or {}}
+
+
+def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
+    """A capped version's formats_left_out, its measured_bytes and the files left written. The
+    NDJSON and CSV are written first and measured, and a format measured on itself is written,
+    measured and deleted when it is over. A file --formats excludes is deleted once measured. A
+    version already published keeps its recorded set, and only the sizes of the files this build
+    keeps are taken again."""
+    from . import serialise
+
+    kind = geo_kind(ds)
+    selfish = [f for f in cappable(kind) if CAPS[f][0] == f]
+    probe = [*MEASURED, *(f for f in selfish if record is None or f not in record["left_out"])]
+    write_formats(tbl, probe, hdr, vdir)
+    sizes = {f"data.{f}": _size(vdir / f"data.{f}") for f in probe}
+    gone = dict(record["left_out"]) if record is not None else {}
+    if record is None:
+        for f in cappable(kind):
+            if why := over_cap(f, tbl.rows, sizes[f"data.{CAPS[f][0]}"]):
+                gone[f] = why
+    kept = [f for f in probe if f not in gone and (serialise.LIMIT is None or f in serialise.LIMIT)]
+    for f in probe:
+        if f not in kept:
+            (vdir / f"data.{f}").unlink()
+    if record is not None:
+        sizes = {**record["measured"], **{f"data.{f}": sizes[f"data.{f}"] for f in kept}}
+    return gone, sizes, probe
 
 
 def _first_row(vdir: Path) -> str:
@@ -228,7 +332,7 @@ def _history(dout: DatasetOut, out: Path, cache: BuildCache | None, keys: list[s
         )
         for v in dout.versions:
             for name in kept:
-                p = ddir / "v" / v.manifest.version / name
+                p = published.path(out, f"d/{dout.dataset.slug}/v/{v.manifest.version}/{name}")
                 ti = tarfile.TarInfo(f"{dout.dataset.slug}/{v.manifest.version}/{name}")
                 ti.size = p.stat().st_size
                 ti.mtime = 0
@@ -277,7 +381,7 @@ def _datapackage(dout: DatasetOut) -> dict:
                 }
             )
     else:
-        for fmt in formats_for(v.rows, geo_kind(ds)):
+        for fmt in _want(ds, v.rows, v.left_out):
             name = f"data.{fmt}"
             resources.append(
                 {
@@ -381,7 +485,7 @@ def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
     return {*keys, *diffs, *([cache.key(*keys, "history")] if keys else [])}
 
 
-def _from_cache(m: store.Manifest, hit: dict, vdir: Path) -> VersionOut:
+def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> VersionOut:
     return VersionOut(
         m,
         hit["rows"],
@@ -390,8 +494,12 @@ def _from_cache(m: store.Manifest, hit: dict, vdir: Path) -> VersionOut:
         hit["suppressed_cells"],
         hit["partitions"],
         hit["first"],
-        tuple(sorted(k for k in hit["files"] if not (vdir / k).exists())),
+        tuple(
+            sorted(k for k in hit["files"] if k != source_name(ds, m) and not (vdir / k).exists())
+        ),
         hit.get("tables", {}),
+        query_key(ds.slug, m.version) if ds.kind != "database" else "",
+        left_out=hit.get("left_out"),
     )
 
 
@@ -405,14 +513,20 @@ def _meta(vout: VersionOut, writers: dict[str, str]) -> dict:
         "first": vout.first,
         "tables": vout.tables,
         "writers": writers,
+        "left_out": vout.left_out,
     }
+
+
+def _want(ds: Dataset, rows: int, gone: dict[str, str] | None) -> list[str]:
+    """The formats a table version carries: its recorded set when capped, else the old rules."""
+    return formats_for(rows, geo_kind(ds), gone)
 
 
 def current(ds: Dataset, hit: dict, now: dict[str, str]) -> bool:
     """Whether a cached version already holds every format the current writers would make."""
     if ds.kind == "database":
         return True
-    want = formats_for(hit["rows"], geo_kind(ds))
+    want = _want(ds, hit["rows"], hit.get("left_out"))
     seen = hit.get("writers", {})
     return (
         all(seen.get(f) == now[f] for f in want)
@@ -452,6 +566,11 @@ def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
                 _link_or_copy(str(root / rel / f), str(out / rel / f))
             v.absent = tuple(f for f in v.absent if f not in took)
             n += len(took)
+            q = v.query
+            if q and not (out / q).exists() and (root / q).is_file():
+                (out / q).parent.mkdir(parents=True, exist_ok=True)
+                _link_or_copy(str(root / q), str(out / q))
+                n += 1
     return n
 
 
@@ -467,7 +586,7 @@ def grow_cached(
 
     if ds.kind == "database":
         return hit
-    want = formats_for(hit["rows"], geo_kind(ds))
+    want = _want(ds, hit["rows"], hit.get("left_out"))
     now = writer_keys()
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
@@ -476,19 +595,40 @@ def grow_cached(
         return hit
     # The rows come from the Parquet, a layer's shapes included; a changed Parquet writer is a new
     # version.
-    if "parquet" in stale or not (vdir / "data.parquet").exists():
+    out = vdir.parents[3]
+    rel = vdir.relative_to(out).as_posix()
+    if "parquet" in stale or not published.path(out, f"{rel}/data.parquet").exists():
         return None
     base = version_url(ds.slug, m.version)
 
     def hdr(rows: int, rel: str) -> dict:
         return prov_header(ds, m, rows, base + rel)
 
-    tbl = _built_table(ds, m, vdir.parents[3])
+    tbl = _built_table(ds, m, out)
+    if m.parquet.get("sort"):
+        tbl = _source_order(tbl, cache, key, vdir / "data.parquet")
+        if tbl is None:
+            return None
     if "csv.gz" in stale and "csv" not in stale and not (vdir / "data.csv").exists():
         stale = ["csv", *stale]  # the gzip reads the CSV, written here and not kept
     for p in [vdir / f"data.{f}" for f in stale]:
         p.unlink(missing_ok=True)
-    write_formats(tbl, [f for f in formats_for(hit["rows"], geo_kind(ds)) if f in stale], hdr, vdir)
+    write_formats(tbl, [f for f in want if f in stale], hdr, vdir)
+    # A capped version's set is fixed when it is first built. A rewritten file it was measured
+    # on has its new size recorded, so the manifest describes the files beside it.
+    mpath = vdir / "manifest.json"
+    man = json.loads(mpath.read_text(encoding="utf-8")) if hit.get("left_out") is not None else {}
+    resized = {
+        k: _size(vdir / k)
+        for k in man.get("measured_bytes", {})
+        if k[5:] in stale and (vdir / k).exists()
+    }
+    if resized and any(man["measured_bytes"][k] != n for k, n in resized.items()):
+        man["measured_bytes"] = {**man["measured_bytes"], **resized}
+        mpath.unlink()  # a link into the cache entry, which a write would change
+        mpath.write_text(pretty(man), encoding="utf-8")
+    else:
+        resized = {}
     # A format no longer made is dropped from the record, unless the build is limited to a
     # subset by --formats: the files are still published, and a limited build never shrinks
     # an entry a full build will grow again.
@@ -503,6 +643,8 @@ def grow_cached(
     }
     for f in stale:
         files[f"data.{f}"] = _size(vdir / f"data.{f}")
+    if resized:
+        files["manifest.json"] = _size(vdir / "manifest.json")
     if "csv" in stale and "csv" not in changed:
         (vdir / "data.csv").unlink()  # written only to make the gzip; the published one stands
     writers = {f: now[f] for f in want}
@@ -511,7 +653,7 @@ def grow_cached(
     meta = {**hit, "files": dict(sorted(files.items())), "writers": writers}
     if "ndjson" in stale:
         meta["first"] = _first_row(vdir)  # the dataset page shows it
-    cache.put(key, meta, vdir, kept)
+    cache.put(key, meta, vdir, kept, _order_file(tbl, vdir / "data.parquet"))
     cache.grown += len(stale)
     return meta
 
@@ -527,7 +669,7 @@ def _cached_version(
         if hit is not None:
             hit = grow_cached(ds, m, hit, vdir, cache, key)
         if hit is not None:
-            return None, _from_cache(m, hit, vdir)
+            return None, _from_cache(ds, m, hit, vdir)
     store.verify(store_dir, m)
     src = store.source_path(store_dir, m)
     if ds.kind == "database":
@@ -542,10 +684,59 @@ def _cached_version(
         writers = (
             {}
             if ds.kind == "database"
-            else {f: now[f] for f in formats_for(vout.rows, geo_kind(ds))}
+            else {f: now[f] for f in _want(ds, vout.rows, vout.left_out)}
         )
-        cache.put(key, _meta(vout, writers), vdir, kept)
+        order = _order_file(tbl, vdir / "data.parquet") if tbl is not None else {}
+        cache.put(key, _meta(vout, writers), vdir, kept, order)
     return tbl, vout
+
+
+# A sorted version's source order, beside its cache entry, so a format that keeps the publisher's
+# order can be written from the sorted Parquet without building the version again. It records
+# the Parquet it belongs to, and is used only on that file.
+ORDER = "order.parquet"
+
+
+def _order_file(tbl: Table, parquet: Path) -> dict[str, bytes]:
+    """The cache entry's ORDER file for a sorted version, by name, or none."""
+    lay = tbl.manifest.parquet
+    if not lay.get("sort") or not parquet.is_file():
+        return {}
+    perm = order_of(tbl, lay["sort"], lay["key"])
+    meta = {"parquet_sha256": sha256(parquet), "parquet_bytes": str(parquet.stat().st_size)}
+    t = pa.table({"source_row": perm}).replace_schema_metadata(meta)
+    sink = pa.BufferOutputStream()
+    pq.write_table(t, sink, compression="zstd")
+    return {ORDER: sink.getvalue().to_pybytes()}
+
+
+def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Table | None:
+    """A table read back from its sorted Parquet, in the publisher's order again, or None when
+    the cache entry records no order for that very file, as when the published file is another
+    build's, and the version must be built from its source."""
+    p = cache.root / key / ORDER
+    if not p.is_file() or not parquet.is_file():
+        return None
+    t = pq.read_table(p)
+    meta = t.schema.metadata or {}
+    if (
+        meta.get(b"parquet_bytes") != str(parquet.stat().st_size).encode()
+        or meta.get(b"parquet_sha256") != sha256(parquet).encode()
+        or not signature(parquet)
+        or t.num_rows != tbl.rows
+    ):
+        return None
+    perm = t.column("source_row").combine_chunks()
+    back = pc.sort_indices(perm)
+    geometry = tbl.geometry.take(back) if tbl.geometry is not None else None
+    lay = tbl.manifest.parquet
+    table = tbl.table.take(back)
+    return replace(
+        tbl,
+        table=table,
+        geometry=geometry,
+        order=(table, (tuple(lay["sort"]), tuple(lay["key"])), perm),
+    )
 
 
 def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:
@@ -570,7 +761,7 @@ def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:
 
 def _built_table(ds: Dataset, m: store.Manifest, out: Path) -> Table:
     """A built version's rows read back from its Parquet, which holds exactly what normalise made."""
-    t = pq.read_table(out / "d" / ds.slug / "v" / m.version / "data.parquet")
+    t = pq.read_table(published.path(out, f"d/{ds.slug}/v/{m.version}/data.parquet"))
     geometry = None
     if geo_kind(ds) in ("polygon", "line"):
         # A layer's Parquet carries its shapes after the fields.
@@ -582,7 +773,7 @@ def _built_table(ds: Dataset, m: store.Manifest, out: Path) -> Table:
     return Table(
         dataset=ds,
         manifest=m,
-        table=t.replace_schema_metadata(None),
+        table=widen(t.replace_schema_metadata(None)),
         geometry=geometry,
         places=places,
     )

@@ -149,5 +149,5 @@ def test_card_entries_outlast_the_first_prune_and_the_last_drops_the_unused(
     stale = cache / "card-stale"
     (stale / "files").mkdir(parents=True)
     (stale / "meta.json").write_text("{}")
-    assert main([*run, "--out", str(tmp_path / "b"), "--absent", str(tmp_path / "b.json")]) == 0
+    assert main([*run, "--out", str(tmp_path / "b"), "--absent", str(tmp_path / "b.json"), "--published", str(tmp_path / "a")]) == 0  # fmt: skip
     assert {p.name: p.joinpath("meta.json").stat().st_ino for p in cache.glob("card-*")} == cards

@@ -133,8 +133,8 @@ The pipeline package in `pipeline/` is not published, so it makes no versioning 
    `register/<slug>.yaml` with the publisher, licence and attribution from the portal and every
    field typed from a sample of the file, at status `building`.
 3. Finish the entry by hand. Write the title, `search_title`, description and the TODOs the draft
-   left. Keep only the fields that should be published (the allow-list), set `key` and
-   `partition_by` where they apply, and give geometry as Reference below describes. Set
+   left. Keep only the fields that should be published (the allow-list), set `key`,
+   `partition_by` and `sort` where they apply, and give geometry as Reference below describes. Set
    `licence.reviewed` to the day you read the licence.
 4. Label the fields: `python -m publicdata register labels <slug> --write`, then read the drafts.
 5. Fetch and build it locally as Set up shows, and run the gate. The gate prints the page's
@@ -200,6 +200,10 @@ deterministic bytes out, with no network, clock or randomness.
 1. Add the writer to `pipeline/publicdata/serialise/writers/` and register it in `WRITERS` in
    `serialise/__init__.py`, with its place in `FORMATS` (or the geo lists), its media type in
    `MEDIA` and its name in `FORMAT_LABEL`. The order of `FORMATS` is the order the site lists them.
+   `LEGACY_FORMATS` is the set of versions whose store manifest has no `caps` stamp; add it there too
+   only if those versions should carry it. A format whose file grows past what people can open
+   takes a limit in `CAPS`, measured on the NDJSON, the CSV or its own file, and the version pages then say
+   why it is missing.
 2. Carry the provenance header into the file in whatever way the format allows, as the other
    writers do.
 3. Describe the format in `pipeline/publicdata/api.json`, which the pages, the API and the MCP
@@ -324,6 +328,27 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,
   and the build writes a page per value under `/d/<slug>/in/<value>/`.
+- `sort` lists the fields data.parquet is ordered by, for an entry whose queries mostly filter on
+  fields the publisher's order does not group. The build breaks ties by the `key`, then by the
+  row's place in the source, and writes a page index for the sorted file. Without `sort` the rows
+  keep the publisher's order and the file has no page index, so set `sort` to the field the
+  source is already ordered by when that order serves the main filter. Only data.parquet and the
+  files made from it are sorted. A sort that suits one filter slows another, so give the
+  benchmark or the queries that justify it in the PR. Changing `sort` never cuts a new version.
+- `lookup` lists fields that get a bloom filter in data.parquet, for an equality lookup, such as
+  an identifier, on an entry sorted for another filter. A boolean field cannot be a lookup.
+- `int32` lists integer fields written as INT32 in data.parquet, for a field whose values always
+  fit 32 bits, such as a year, a count or a short identifier. A new version holding a larger
+  value is held at its fetch, so leave out anything that can grow past 2,147,483,647.
+- A version keeps the `sort`, `lookup` and `int32` its fetch found, so an edit to them changes
+  the files of later versions and the query copies not yet written. A query copy already in R2
+  keeps the order it was written in, since its key names only the profile version; each copy
+  records its own order in its footer (`sorting_columns`), so a reader takes the order from the
+  file. None of the three applies to a `kind: database` entry.
+- The fetch checks every `int32` field against a new version before it stores it, and holds the
+  dataset with an error naming the field when a value does not fit. Before declaring `int32` on
+  a field, run `python -m publicdata register validate`, which checks the stored versions whose
+  source or built Parquet (`--built <tree>`) is at hand.
 - Each field carries a `label`, the name a reader sees in the explorer. `publicdata register
   labels <slug> --write` fills in any that are missing, reusing the label another entry gives a
   field of the same name and drafting the rest from the name. Review the drafts in the PR.

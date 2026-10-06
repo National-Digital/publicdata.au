@@ -63,6 +63,7 @@
   </div>
   <div class="urlbox"><div class="path" id="url" tabindex="0">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}" download="{{ download_name(ds.slug, latest.version, formats[0].file) }}">Download</a></div>
   <p class="fmt-note" id="fmt-note"></p>
+  {% if left_out %}<p class="fmt-note">{{ left_out|join(' ') }}</p>{% endif %}
   <div>
     <div class="tools" role="tablist" aria-label="How to use" id="tools"></div>
     <pre id="snippet"><button class="copy abs" type="button" data-copy-target="snippet-code">Copy</button><code id="snippet-code"></code></pre>
