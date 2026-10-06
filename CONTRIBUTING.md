@@ -78,12 +78,10 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
 
-## Code and copy
+## Site copy
 
-- A comment states a constraint the code cannot show, in one or two lines of *why*. The account
-  of a change goes in its pull request.
-- Site copy states facts and gives the figure behind any comparison; it makes no absolute or
-  superlative claims. [`BRAND.md`](BRAND.md#typography) sets the typography the gate checks.
+Site copy states facts and gives the figure behind any comparison; it makes no absolute or
+superlative claims. [`BRAND.md`](BRAND.md#typography) sets the typography the gate checks.
 
 ## Versioning
 
@@ -232,6 +230,7 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
 
 ## Reference
 
+- Comments state constraints the code cannot show, in one or two lines of *why*.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
   failing-fixture test does not count.
 - New datasets enter through `register/<slug>.yaml` with licence id, evidence URL,
