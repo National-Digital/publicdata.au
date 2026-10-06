@@ -25,10 +25,15 @@ from .provenance import OPERATOR_URL
 from .provenance import header as prov_header
 from .register import Dataset
 from .serialise import (
+    CAPS,
+    MEASURED,
     MEDIA,
     WRITERS,
+    cappable,
+    capped,
     csvw_metadata,
     formats_for,
+    over_cap,
     pretty,
     schema_sql,
     table_schema,
@@ -60,6 +65,8 @@ class VersionOut:
     absent: tuple[str, ...] = ()  # files a cached build left out; already published
     tables: dict[str, int] = field(default_factory=dict)  # a database's tables and their rows
     query: str = ""  # the tree path of a table version's query copy (serialise.profile)
+    # A capped version's formats_left_out, fixed when it was first built; None without the stamp.
+    left_out: dict[str, str] | None = None
 
 
 # What a cached version keeps: the small files a later build reads back, for the gate and the
@@ -180,6 +187,7 @@ def build_version(
         tbl = enrich(tbl, store_dir, REGISTER_DIR)
     tbl = _sorted_once(tbl, m.parquet)
     vdir = out / "d" / ds.slug / "v" / m.version
+    record = _published_record(ds, m, out) if capped(m) else None
     if vdir.exists():
         shutil.rmtree(vdir)
     vdir.mkdir(parents=True)
@@ -188,10 +196,14 @@ def build_version(
     def hdr(rows: int, rel: str) -> dict:
         return prov_header(ds, m, rows, base + rel)
 
-    fmts = formats_for(tbl.rows, geo_kind(ds))
+    gone = measured = None
+    written: list[str] = []
+    if capped(m):
+        gone, measured, written = _cap(tbl, ds, record, hdr, vdir)
+    fmts = formats_for(tbl.rows, geo_kind(ds), gone)
     if "ndjson" not in fmts:
         raise ValueError("every build writes data.ndjson, which the dataset page reads back")
-    write_formats(tbl, fmts, hdr, vdir)
+    write_formats(tbl, [f for f in fmts if f not in written], hdr, vdir)
     query = _query_copy(tbl, hdr(tbl.rows, "data.parquet"), vdir, out)
     partitions = write_partitions(tbl, hdr, vdir)
     (vdir / "schema.json").write_text(pretty(table_schema(tbl)), encoding="utf-8")
@@ -212,6 +224,9 @@ def build_version(
         man["omitted_upstream_columns"] = {c: ds.omit[c] for c in tbl.omitted_columns}
     if tbl.places:
         man["places"] = tbl.places
+    if gone is not None:
+        man["measured_bytes"] = measured
+        man["formats_left_out"] = gone
     man["url"] = base
     (vdir / "manifest.json").write_text(pretty(man), encoding="utf-8")
     return tbl, VersionOut(
@@ -223,6 +238,7 @@ def build_version(
         partitions,
         _first_row(vdir),
         query=query,
+        left_out=gone,
     )
 
 
@@ -253,6 +269,45 @@ def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
     q = _sorted_once(tbl, lay)
     (write_shape_parquet if q.geometry is not None else write_parquet)(q, header, p, lay=lay)
     return rel
+
+
+def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict | None:
+    """The format record of a capped version already published: its manifest's
+    formats_left_out and measured_bytes, which no later build changes."""
+    p = published.path(out, f"d/{ds.slug}/v/{m.version}/manifest.json")
+    if not p.is_file():
+        return None
+    man = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(man.get("formats_left_out"), dict):
+        return None
+    return {"left_out": man["formats_left_out"], "measured": man.get("measured_bytes") or {}}
+
+
+def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
+    """A capped version's formats_left_out, its measured_bytes and the files left written. The
+    NDJSON and CSV are written first and measured, and a format measured on itself is written,
+    measured and deleted when it is over. A file --formats excludes is deleted once measured. A
+    version already published keeps its recorded set, and only the sizes of the files this build
+    keeps are taken again."""
+    from . import serialise
+
+    kind = geo_kind(ds)
+    selfish = [f for f in cappable(kind) if CAPS[f][0] == f]
+    probe = [*MEASURED, *(f for f in selfish if record is None or f not in record["left_out"])]
+    write_formats(tbl, probe, hdr, vdir)
+    sizes = {f"data.{f}": _size(vdir / f"data.{f}") for f in probe}
+    gone = dict(record["left_out"]) if record is not None else {}
+    if record is None:
+        for f in cappable(kind):
+            if why := over_cap(f, tbl.rows, sizes[f"data.{CAPS[f][0]}"]):
+                gone[f] = why
+    kept = [f for f in probe if f not in gone and (serialise.LIMIT is None or f in serialise.LIMIT)]
+    for f in probe:
+        if f not in kept:
+            (vdir / f"data.{f}").unlink()
+    if record is not None:
+        sizes = {**record["measured"], **{f"data.{f}": sizes[f"data.{f}"] for f in kept}}
+    return gone, sizes, probe
 
 
 def _first_row(vdir: Path) -> str:
@@ -326,7 +381,7 @@ def _datapackage(dout: DatasetOut) -> dict:
                 }
             )
     else:
-        for fmt in formats_for(v.rows, geo_kind(ds)):
+        for fmt in _want(ds, v.rows, v.left_out):
             name = f"data.{fmt}"
             resources.append(
                 {
@@ -444,6 +499,7 @@ def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> Versio
         ),
         hit.get("tables", {}),
         query_key(ds.slug, m.version) if ds.kind != "database" else "",
+        left_out=hit.get("left_out"),
     )
 
 
@@ -457,14 +513,20 @@ def _meta(vout: VersionOut, writers: dict[str, str]) -> dict:
         "first": vout.first,
         "tables": vout.tables,
         "writers": writers,
+        "left_out": vout.left_out,
     }
+
+
+def _want(ds: Dataset, rows: int, gone: dict[str, str] | None) -> list[str]:
+    """The formats a table version carries: its recorded set when capped, else the old rules."""
+    return formats_for(rows, geo_kind(ds), gone)
 
 
 def current(ds: Dataset, hit: dict, now: dict[str, str]) -> bool:
     """Whether a cached version already holds every format the current writers would make."""
     if ds.kind == "database":
         return True
-    want = formats_for(hit["rows"], geo_kind(ds))
+    want = _want(ds, hit["rows"], hit.get("left_out"))
     seen = hit.get("writers", {})
     return (
         all(seen.get(f) == now[f] for f in want)
@@ -524,7 +586,7 @@ def grow_cached(
 
     if ds.kind == "database":
         return hit
-    want = formats_for(hit["rows"], geo_kind(ds))
+    want = _want(ds, hit["rows"], hit.get("left_out"))
     now = writer_keys()
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
@@ -551,7 +613,22 @@ def grow_cached(
         stale = ["csv", *stale]  # the gzip reads the CSV, written here and not kept
     for p in [vdir / f"data.{f}" for f in stale]:
         p.unlink(missing_ok=True)
-    write_formats(tbl, [f for f in formats_for(hit["rows"], geo_kind(ds)) if f in stale], hdr, vdir)
+    write_formats(tbl, [f for f in want if f in stale], hdr, vdir)
+    # A capped version's set is fixed when it is first built. A rewritten file it was measured
+    # on has its new size recorded, so the manifest describes the files beside it.
+    mpath = vdir / "manifest.json"
+    man = json.loads(mpath.read_text(encoding="utf-8")) if hit.get("left_out") is not None else {}
+    resized = {
+        k: _size(vdir / k)
+        for k in man.get("measured_bytes", {})
+        if k[5:] in stale and (vdir / k).exists()
+    }
+    if resized and any(man["measured_bytes"][k] != n for k, n in resized.items()):
+        man["measured_bytes"] = {**man["measured_bytes"], **resized}
+        mpath.unlink()  # a link into the cache entry, which a write would change
+        mpath.write_text(pretty(man), encoding="utf-8")
+    else:
+        resized = {}
     # A format no longer made is dropped from the record, unless the build is limited to a
     # subset by --formats: the files are still published, and a limited build never shrinks
     # an entry a full build will grow again.
@@ -566,6 +643,8 @@ def grow_cached(
     }
     for f in stale:
         files[f"data.{f}"] = _size(vdir / f"data.{f}")
+    if resized:
+        files["manifest.json"] = _size(vdir / "manifest.json")
     if "csv" in stale and "csv" not in changed:
         (vdir / "data.csv").unlink()  # written only to make the gzip; the published one stands
     writers = {f: now[f] for f in want}
@@ -605,7 +684,7 @@ def _cached_version(
         writers = (
             {}
             if ds.kind == "database"
-            else {f: now[f] for f in formats_for(vout.rows, geo_kind(ds))}
+            else {f: now[f] for f in _want(ds, vout.rows, vout.left_out)}
         )
         order = _order_file(tbl, vdir / "data.parquet") if tbl is not None else {}
         cache.put(key, _meta(vout, writers), vdir, kept, order)

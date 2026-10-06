@@ -2,7 +2,8 @@
 
 Query and download Australian government open data from [publicdata.au](https://publicdata.au/).
 publicdata.au republishes datasets that governments already publish under open licences, keeps
-every version at a URL that never changes, and serves each one in twelve formats with a query API.
+every version at a URL that never changes, and serves each one as Parquet, CSV, Excel, JSON and
+other formats with a query API.
 
 This package works for every dataset the site serves, named by its slug, so a dataset added to
 the site needs no new release.
@@ -62,6 +63,15 @@ df = pd_au.read("au-road-deaths")  # needs the [pandas] extra
 df.attrs["publicdata"]  # the version, licence and attribution the file itself carries
 pd_au.download("au-road-deaths", "csv")  # or parquet, csv.gz, json, ndjson, sqlite, duckdb, ...
 ```
+
+`read()` reads the Parquet file with pyarrow. Without pyarrow it reads the gzipped CSV and types
+each column from the version's fields as the Parquet path does: whole numbers as int64 (float64
+when one is missing), dates as `datetime.date`, timestamps as `datetime64[ms]`, booleans as bool
+(objects when one is missing) and `suppressed` as arrays of field names. An `int32` field reads
+as int64, and a shape layer's `geometry` column is in the Parquet file only, so read a layer with
+pyarrow. Parquet, CSV, CSV (gzip), NDJSON and DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over their size
+limits, and the version's page says why. Arrow files are only on versions fetched before the format
+change, whose manifest has no `caps` field.
 
 A version never changes once published, so a downloaded file can be kept and reused. Nothing is
 kept unless you ask, with `cache=True` on a call or `PUBLICDATA_CACHE=1` for every call:

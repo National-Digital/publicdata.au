@@ -9,10 +9,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# The format rules a fetch stamps on each manifest it writes; a version without the stamp keeps
+# the formats it was first built with.
+CAPS_VERSION = 1
 
 
 def ext_of(filename: str) -> str:
@@ -39,6 +42,8 @@ class Manifest:
     # The Parquet layout the fetch found in the register (serialise.profile.layout), which the
     # version's data.parquet keeps for good; empty for a version fetched before the profile.
     parquet: dict = field(default_factory=dict)
+    # CAPS_VERSION when the fetch that wrote this manifest knew the caps, else 0.
+    caps: int = 0
 
     @property
     def ext(self) -> str:
@@ -51,12 +56,16 @@ class Manifest:
             del d["rows_sha256"]
         if not d["parquet"]:
             del d["parquet"]
+        if not d["caps"]:
+            del d["caps"]
         return json.dumps(d, indent=2, ensure_ascii=False) + "\n"
 
     @classmethod
     def read(cls, path: Path) -> Manifest:
         d = json.loads(path.read_text(encoding="utf-8"))
-        return cls(**d)
+        # A field this code does not know, written by newer code, is dropped rather than refused.
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
 
 def sha256_file(path: Path) -> str:

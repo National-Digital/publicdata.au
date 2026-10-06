@@ -261,7 +261,38 @@ def checked(
                 f"tables/{t.name}.parquet" for t in ds.tables
             )
         else:
-            fmts = serialise.formats_for(int(m.get("rows", 0)), geo_kind(ds))
+            rows = int(m.get("rows", 0))
+            gone = None
+            if serialise.capped(m):
+                gone = m.get("formats_left_out")
+                measured = m.get("measured_bytes")
+                if not isinstance(gone, dict) or not isinstance(measured, dict):
+                    errors.append(f"{slug}/{version}: manifest lacks its format record")
+                    continue
+                if not set(gone) <= set(serialise.cappable(geo_kind(ds))):
+                    errors.append(
+                        f"{slug}/{version}: formats_left_out names a format no cap covers"
+                    )
+                for f in serialise.MEASURED:
+                    if f"data.{f}" not in measured:
+                        errors.append(f"{slug}/{version}: measured_bytes lacks data.{f}")
+                for name, n in measured.items():
+                    if (vdir / name).is_file() and (vdir / name).stat().st_size != n:
+                        errors.append(f"{slug}/{version}: measured_bytes disagrees with {name}")
+                for x in (*gone, "arrow"):
+                    if have(f"data.{x}"):
+                        errors.append(
+                            f"{slug}/{version}: data.{x} is published though the caps leave it out"
+                        )
+                vpage = vdir / "index.html"
+                if site and vpage.exists():
+                    text = vpage.read_text(encoding="utf-8")
+                    for x, why in gone.items():
+                        if html_escape(why) not in text:
+                            errors.append(
+                                f"{slug}/{version}: the version page does not say why data.{x} is not there"
+                            )
+            fmts = serialise.formats_for(rows, geo_kind(ds), gone)
             need = (
                 *(f"data.{x}" for x in fmts),
                 "schema.json",

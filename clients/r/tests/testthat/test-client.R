@@ -551,10 +551,55 @@ test_that("pd_join_boundaries finds the layer from the column and joins in order
   expect_error(pd_join_boundaries(m), "already has a geometry")
 })
 
-test_that("pd_read explains a missing zstd codec", {
-  skip_if_not_installed("arrow")
-  local_mocked_bindings(has_zstd = function() FALSE)
-  expect_error(pd_read("a"), class = "publicdataau_no_zstd")
+test_that("pd_read reads the gzipped CSV when arrow cannot read the Parquet file", {
+  local_fake()
+  state$memo <- list()
+  src <- tempfile(fileext = ".csv.gz")
+  con <- gzfile(src, "w")
+  writeLines(c("n,day,flag,g,lga_2025_code,suppressed", "1,2026-01-02,true,x,01234,", "2,,false,,05678,g;day"), con)
+  close(con)
+  local_mocked_bindings(
+    reads_parquet = function() FALSE,
+    file_header = function(slug, version) list(version = version, attribution = "Publisher, CC BY 4.0."),
+    save_file = function(slug, format, version, path, table = NULL) {
+      expect_equal(format, "csv.gz")
+      file.copy(src, path, overwrite = TRUE)
+      list(path = path, version = "2026-08-07")
+    }
+  )
+  df <- pd_read("a")
+  expect_type(df$n, "integer")
+  expect_s3_class(df$day, "Date")
+  expect_true(is.na(df$day[2]))
+  expect_equal(df$flag, c(TRUE, FALSE))
+  expect_true(is.na(df$g[2]))
+  expect_equal(df$lga_2025_code, c("01234", "05678"), ignore_attr = TRUE)
+  expect_equal(attr(df$n, "label"), "A count.")
+  expect_equal(pd_attribution(df), "Publisher, CC BY 4.0.")
+  expect_equal(attr(df, "publicdata")$version, "2026-08-07")
+  expect_equal(df$suppressed, list(character(), c("g", "day")))
+  expect_equal(names(pd_read("a", columns = c("g", "n"))), c("g", "n"))
+  expect_error(pd_read("a", columns = "nope"), "unknown fields")
+  expect_error(pd_read("db", table = "thing"), class = "publicdataau_no_zstd")
+})
+
+test_that("whole numbers past 32 bits keep every digit in the CSV fallback", {
+  skip_if_not_installed("bit64")
+  x <- publicdataau:::as_int64(c("4611686018427387905", NA))
+  expect_s3_class(x, "integer64")
+  expect_equal(as.character(x[1]), "4611686018427387905")
+  expect_type(publicdataau:::as_int64(c("1", NA)), "integer")
+})
+
+test_that("a format a version leaves out says why", {
+  local_fake()
+  expect_error(pd_download("a", "xlsx", "2026-08-07", path = tempfile()),
+               "size limits", class = "publicdataau_not_offered")
+  expect_error(pd_download("a", "geo.parquet", "2026-08-07", path = tempfile()),
+               "location or a shape", class = "publicdataau_not_offered")
+  expect_error(pd_download("a", "arrow", "2026-08-07", path = tempfile()),
+               "no caps field", class = "publicdataau_not_offered")
+  expect_error(pd_download("a", "csv.gz", "2026-08-07", path = tempfile()), class = "httr2_http_404")
 })
 
 test_that("pd_read reads only the columns asked for", {

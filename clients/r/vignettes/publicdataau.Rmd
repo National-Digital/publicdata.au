@@ -129,7 +129,7 @@ pd_attribution(crashes)
 
 ## Whole tables
 
-`pd_read()` downloads a version's Parquet file and reads it with 'arrow'. `columns` reads only the fields asked for.
+`pd_read()` downloads a version's Parquet file and reads it with 'arrow', or reads the gzipped CSV when 'arrow' with zstd is not installed. `columns` reads only the fields asked for.
 
 
 ``` r

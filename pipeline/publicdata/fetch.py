@@ -1860,6 +1860,7 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
         m = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
         if m is None:
             return None
+    m.caps = store.CAPS_VERSION
     store.write(store_dir, m, data)
     return m
 

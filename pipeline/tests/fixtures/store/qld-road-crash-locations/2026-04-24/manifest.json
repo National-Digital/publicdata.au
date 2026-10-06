@@ -58,5 +58,6 @@
       "count_unit_pedestrian",
       "count_unit_other"
     ]
-  }
+  },
+  "caps": 1
 }

@@ -125,7 +125,7 @@ jobs:
           # A cached version built with fewer formats grows into the full set without a rebuild:
           # the missing files are written from the published Parquet, and the result matches the
           # full build, less the files the cache left out as already published.
-          python -m publicdata build --fixtures --out /tmp/build-few --cache /tmp/build-grow --absent /tmp/absent-few.json --formats ndjson,csv,parquet,sqlite,arrow,geojson
+          python -m publicdata build --fixtures --out /tmp/build-few --cache /tmp/build-grow --absent /tmp/absent-few.json --formats ndjson,csv,parquet,sqlite,geojson
           python -m publicdata build --fixtures --out /tmp/build-grown --cache /tmp/build-grow --absent /tmp/absent-grown.json --published /tmp/build-few | tee /tmp/grown.log
           grep -E "^cache: [0-9]+ reused, 0 built, [1-9][0-9]* file\(s\) written" /tmp/grown.log
           cp -r /tmp/build-a /tmp/build-a-grown
