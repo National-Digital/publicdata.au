@@ -13,8 +13,8 @@ Questions and ideas that are not a fault go in
 
 ## Ground rules
 
-The build enforces these, so a change that breaks one fails its checks. `CLAUDE.md` states them in
-full and `docs/ARCHITECTURE.md` explains the code they shape.
+The build enforces these, so a change that breaks one fails its checks. `docs/ARCHITECTURE.md`
+states them in full and explains the code they shape.
 
 - Nothing derived: data is re-keyed, re-typed and joined on a declared key, and never turned into
   rates, rankings or estimates.

@@ -13,8 +13,8 @@ keeping Australian open government data usable and available.
 
 The project's commitments are enforced by the build rather than promised. The gate refuses to
 publish a dataset whose licence is not open or has changed since a person reviewed it, versions are
-never rewritten or deleted, and two builds of one snapshot must be byte-identical. `CLAUDE.md` and
-`docs/ARCHITECTURE.md` set these rules out, and `CONTRIBUTING.md` describes how a change is made.
+never rewritten or deleted, and two builds of one snapshot must be byte-identical.
+`docs/ARCHITECTURE.md` sets these rules out, and `CONTRIBUTING.md` describes how a change is made.
 
 ## Contributing and conduct
 
