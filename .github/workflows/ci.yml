@@ -101,9 +101,11 @@ jobs:
       - if: steps.check.outputs.exists == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
       # Two builds from the same snapshots must be byte-identical, and so must a build through the
-      # cache, except that a warm build leaves out the files it lists as already published. The
-      # gate runs on the full build and on the warm one. A DuckDB file's bytes depend on how its
-      # storage sampled each block, so those are compared by content instead (dbcheck).
+      # cache, except that a warm build leaves out the files it lists as already published. A warm
+      # build reads a cached version's Parquet back from the tree that published it, as a deploy
+      # reads it from R2. The gate runs on the full build and on the warm one. A DuckDB file's
+      # bytes depend on how its storage sampled each block, so those are compared by content
+      # instead (dbcheck).
       - if: steps.check.outputs.exists == 'true'
         run: |
           python -m publicdata build --fixtures --out /tmp/build-a
@@ -111,7 +113,7 @@ jobs:
           diff -r --exclude=data.duckdb /tmp/build-a /tmp/build-b
           python -m publicdata.dbcheck /tmp/build-a /tmp/build-b
           python -m publicdata build --fixtures --out /tmp/build-cold --cache /tmp/build-cache --absent /tmp/absent-cold.json
-          python -m publicdata build --fixtures --out /tmp/build-warm --cache /tmp/build-cache --absent /tmp/absent-warm.json
+          python -m publicdata build --fixtures --out /tmp/build-warm --cache /tmp/build-cache --absent /tmp/absent-warm.json --published /tmp/build-cold
           diff -r --exclude=data.duckdb /tmp/build-a /tmp/build-cold
           python -m publicdata.dbcheck /tmp/build-a /tmp/build-cold
           test "$(cat /tmp/absent-cold.json)" = "[]"
@@ -121,10 +123,10 @@ jobs:
           diff -r --exclude=data.duckdb /tmp/build-a-less /tmp/build-warm
           python -m publicdata.dbcheck /tmp/build-a-less /tmp/build-warm
           # A cached version built with fewer formats grows into the full set without a rebuild:
-          # the missing files are written from the cached Parquet, and the result matches the
+          # the missing files are written from the published Parquet, and the result matches the
           # full build, less the files the cache left out as already published.
-          python -m publicdata build --fixtures --out /tmp/build-few --cache /tmp/build-grow --absent /tmp/absent-few.json --formats ndjson,csv,parquet,sqlite,arrow,geojson
-          python -m publicdata build --fixtures --out /tmp/build-grown --cache /tmp/build-grow --absent /tmp/absent-grown.json | tee /tmp/grown.log
+          python -m publicdata build --fixtures --out /tmp/build-few --cache /tmp/build-grow --absent /tmp/absent-few.json --formats ndjson,csv,parquet,sqlite,geojson
+          python -m publicdata build --fixtures --out /tmp/build-grown --cache /tmp/build-grow --absent /tmp/absent-grown.json --published /tmp/build-few | tee /tmp/grown.log
           grep -E "^cache: [0-9]+ reused, 0 built, [1-9][0-9]* file\(s\) written" /tmp/grown.log
           cp -r /tmp/build-a /tmp/build-a-grown
           jq -r '.[]' /tmp/absent-grown.json | (cd /tmp/build-a-grown && xargs -r rm --)

@@ -30,5 +30,34 @@
   "tombstone": null,
   "notes": [
     "fixture: first 300 rows of the release"
-  ]
+  ],
+  "parquet": {
+    "profile": "1",
+    "sort": [
+      "crash_year",
+      "loc_local_government_area"
+    ],
+    "key": [
+      "crash_ref_number"
+    ],
+    "lookup": [],
+    "int32": [
+      "crash_ref_number",
+      "crash_year",
+      "crash_hour",
+      "count_casualty_fatality",
+      "count_casualty_hospitalised",
+      "count_casualty_medically_treated",
+      "count_casualty_minor_injury",
+      "count_casualty_total",
+      "count_unit_car",
+      "count_unit_motorcycle_moped",
+      "count_unit_truck",
+      "count_unit_bus",
+      "count_unit_bicycle",
+      "count_unit_pedestrian",
+      "count_unit_other"
+    ]
+  },
+  "caps": 1
 }

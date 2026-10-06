@@ -1,7 +1,7 @@
 """SQL that loads dataset versions into D1 for the query API.
 
-Each loaded version is one table built from the version's own data.sqlite, so the API answers
-from the same typed rows as every file. The latest version of each live dataset is loaded; a
+Each loaded version is one table built from the version's own data.parquet, read as its
+data.sqlite holds it, so the API answers from the same typed rows as every file. The latest version of each live dataset is loaded; a
 dataset keeps at most KEEP versions in the database, and every version stays available as files.
 `_versions` records what is loaded, with the field list the API validates queries against.
 """
@@ -18,6 +18,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pyarrow.parquet as pq
+
+from .serialise import SQLITE_TYPES, dumps
+from .serialise.profile import signature
+
 KEEP = 2
 MAX_STATEMENT = 90_000  # D1 allows 100 KB per statement
 MAX_ROW = 2_000_000  # and 2 MB per row
@@ -27,9 +32,9 @@ MAX_VALUES = 10_000
 # D1 runs out of memory when one import holds more than a few MB of rows (20 MB failed, 5 MB
 # loaded 75,000 rows in 7 s), so a version loads in parts of this size.
 PART_BYTES = 5_000_000
-# A version whose data.sqlite is larger stays files-only: loading runs at about 45 MB of SQL a
-# minute and the database holds 10 GB in all.
-MAX_SQLITE = 500_000_000
+# A version whose data.csv is larger stays files-only: loading runs at about 45 MB of SQL a
+# minute and the database holds 10 GB in all. The CSV is on every version, where SQLite is not.
+MAX_CSV = 500_000_000
 # Versions load side by side, each writing its own table and its own _versions row, and the parts
 # of one version always run in order.
 WORKERS = 4
@@ -44,6 +49,15 @@ REGISTRY = """CREATE TABLE IF NOT EXISTS _versions (
   rows INTEGER NOT NULL,
   attribution TEXT NOT NULL,
   header TEXT NOT NULL,
+  PRIMARY KEY (slug, version)
+);"""
+# The row order each loaded version was taken in (serialise.profile.signature), kept apart from
+# _versions so the registry the API reads keeps its columns. A version loaded in another order
+# than its Parquet's is loaded again, so rowid agrees with the Parquet and the console.
+ORDERS = """CREATE TABLE IF NOT EXISTS _orders (
+  slug TEXT NOT NULL,
+  version TEXT NOT NULL,
+  ord TEXT NOT NULL,
   PRIMARY KEY (slug, version)
 );"""
 
@@ -67,23 +81,59 @@ def literal(v) -> str:
 
 
 def version_sql(sqlite_path: Path, slug: str, version: str, index_fields: tuple[str, ...]):
-    """Yields the statements that create and fill one version's table."""
+    """Yields the statements that create and fill one table from a SQLite file shaped as a
+    version's data.sqlite, as the catalogue and served indexes are."""
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    try:
+        cols = [(c[1], c[2]) for c in src.execute("PRAGMA table_info(records)").fetchall()]
+        header = dict(src.execute("SELECT key, value FROM publicdata").fetchall())
+        rows = src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
+        yield from _table_sql(slug, version, index_fields, cols, header, _fields(src), rows)
+    finally:
+        src.close()
+
+
+def parquet_version_sql(parquet: Path, ds, version: str, index_fields: tuple[str, ...]):
+    """Yields the statements that create and fill one dataset version's table from its Parquet,
+    typed as its data.sqlite and in the Parquet's row order, which is the publisher's unless
+    the version was written under a sort."""
+    from .records import connect
+
+    cols = parquet_columns(parquet, ds)
+    header = {
+        k: v if isinstance(v, str) else dumps(v)
+        for k, v in json.loads(pq.read_schema(parquet).metadata[b"publicdata"]).items()
+    }
+    with connect(parquet, [c for c, _ in cols]) as src:
+        src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
+        rows = (r for batch in iter(lambda: src.fetchmany(10_000), []) for r in batch)
+        yield from _table_sql(
+            ds.slug, version, index_fields, cols, header, built_fields(ds, parquet), rows
+        )
+
+
+def _q(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def parquet_columns(parquet: Path, ds) -> list[tuple[str, str]]:
+    """The records table's columns and SQLite types, as the SQLite writer declares them."""
+    have = set(pq.read_schema(parquet).names)
+    cols = [(f.name, SQLITE_TYPES[f.type]) for f in ds.fields if f.name in have]
+    return cols + ([("suppressed", "TEXT")] if "suppressed" in have else [])
+
+
+def _table_sql(slug, version, index_fields, cols, header, fields, rows):
     tbl = table_name(slug, version)
-    cols = src.execute("PRAGMA table_info(records)").fetchall()
-    names = [c[1] for c in cols]
-    header = dict(src.execute("SELECT key, value FROM publicdata").fetchall())
-    fields = _fields(src)
+    names = [c for c, _ in cols]
     yield f'DROP TABLE IF EXISTS "{tbl}";'
-    yield f'CREATE TABLE "{tbl}" ({", ".join(f"{chr(34)}{c[1]}{chr(34)} {c[2]}" for c in cols)});'
+    yield f'CREATE TABLE "{tbl}" ({", ".join(f"{chr(34)}{c}{chr(34)} {t}" for c, t in cols)});'
     head = f'INSERT INTO "{tbl}" ({", ".join(f"{chr(34)}{n}{chr(34)}" for n in names)}) VALUES '
     # D1's limit is in bytes, and a name or an address in another script takes several per letter.
     batch, size, n = [], len(head.encode()), 0
     wide: dict[int, int] = {}
     max_rows = max(1, MAX_VALUES // max(1, len(names)))
-    for row in src.execute(
-        f"SELECT {', '.join(f'{chr(34)}{c}{chr(34)}' for c in names)} FROM records"
-    ):
+    for row in rows:
         values = "(" + ",".join(literal(v) for v in row) + ")"
         width = len(values.encode())
         n += 1
@@ -138,7 +188,6 @@ def version_sql(sqlite_path: Path, slug: str, version: str, index_fields: tuple[
             f"({','.join(map(str, wide))})) = {sum(wide.values())}"
         )
     yield register + (");" if not wide else ";")
-    src.close()
 
 
 class TooWide(ValueError):
@@ -195,11 +244,13 @@ def prune_sql(slug: str, loaded: list[str], new: str, keep: int = KEEP):
     for v in versions[keep:]:
         yield f'DROP TABLE IF EXISTS "{table_name(slug, v)}";'
         yield f"DELETE FROM _versions WHERE slug = {literal(slug)} AND version = {literal(v)};"
+        yield f"DELETE FROM _orders WHERE slug = {literal(slug)} AND version = {literal(v)};"
 
 
-def queryable(ds, sqlite_path: Path) -> bool:
-    """Whether the query API serves this version. The build and the loader both ask here."""
-    return ds.query and sqlite_path.exists() and sqlite_path.stat().st_size <= MAX_SQLITE
+def queryable(ds, csv_bytes: int | None) -> bool:
+    """Whether the query API serves this version, by the size of its data.csv. The build and
+    the loader both ask here."""
+    return bool(ds.query and csv_bytes and csv_bytes <= MAX_CSV)
 
 
 def _fields(src: sqlite3.Connection) -> list[dict]:
@@ -212,12 +263,23 @@ def _fields(src: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def built_fields(sqlite_path: Path) -> list[dict]:
-    """The field list a version registers, as version_sql writes it to _versions."""
-    src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-    fields = _fields(src)
-    src.close()
-    return fields
+def built_fields(ds, parquet: Path) -> list[dict]:
+    """The field list a version registers, as its data.sqlite's fields table names them."""
+    have = set(pq.read_schema(parquet).names)
+    fields = [{"name": f.name, "type": f.type} for f in ds.fields if f.name in have]
+    return fields + ([{"name": "suppressed", "type": "array"}] if "suppressed" in have else [])
+
+
+def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:
+    """The size of a version's data.csv, as its dataset's data package lists it."""
+    want = f"/d/{slug}/v/{version}/data.csv"
+    for r in roots:
+        p = r / "d" / slug / "datapackage.json"
+        if p.exists():
+            for res in json.loads(p.read_text(encoding="utf-8")).get("resources", []):
+                if str(res.get("path", "")).endswith(want):
+                    return res.get("bytes")
+    return None
 
 
 def write_loads(
@@ -227,13 +289,15 @@ def write_loads(
     out: Path,
     stamp: str = "",
     loaded_fields: dict[tuple[str, str], str] | None = None,
+    loaded_orders: dict[tuple[str, str], str] | None = None,
 ) -> list[Path]:
     """SQL files for each live dataset whose latest version is not loaded yet, in parts that run
     in name order. The first part recreates the table and the last registers the version, so a
     part that fails leaves a table the API never reads and the next deploy starts that version
-    again. `roots` are the built trees to look for data.sqlite in, such as dist and the tree
+    again. `roots` are the built trees to look for data.parquet in, such as dist and the tree
     split off for R2. A loaded version whose fields differ from the built one, as when a column
-    is joined in, is loaded again."""
+    is joined in, or whose rows were taken in another order than its Parquet's, is loaded
+    again."""
     out.mkdir(parents=True, exist_ok=True)
     written = []
     latest_json = next((r / "latest.json" for r in roots if (r / "latest.json").exists()), None)
@@ -242,23 +306,39 @@ def write_loads(
         version = latest.get(ds.slug)
         if not version:
             continue
-        rel = Path("d") / ds.slug / "v" / version / "data.sqlite"
+        rel = Path("d") / ds.slug / "v" / version / "data.parquet"
         src = next((r / rel for r in roots if (r / rel).exists()), None)
         if version in loaded.get(ds.slug, []):
             had = (loaded_fields or {}).get((ds.slug, version))
-            if had is None or src is None or json.loads(had) == built_fields(src):
+            ord_ = (loaded_orders or {}).get((ds.slug, version), "")
+            if (
+                had is None
+                or src is None
+                or (json.loads(had) == built_fields(ds, src) and ord_ == signature(src))
+            ):
                 continue
-        if src is None or not queryable(ds, src):
+        if src is None or not queryable(ds, _csv_bytes(roots, ds.slug, version)):
             continue
         try:
-            body = list(version_sql(src, ds.slug, version, (*ds.key, *ds.partition_by)))
+            body = list(parquet_version_sql(src, ds, version, (*ds.key, *ds.partition_by)))
         except TooWide as e:
             print(f"d1: {ds.slug}@{version} stays files-only: {e}")
             continue
         register = body.pop()
         # Registering is the last statement of all, so a version counts as loaded only once every
         # part, the pruning of older versions included, has run.
-        stmts = [REGISTRY, *body, *prune_sql(ds.slug, loaded.get(ds.slug, []), version), register]
+        order = (
+            "INSERT OR REPLACE INTO _orders VALUES "
+            f"({literal(ds.slug)}, {literal(version)}, {literal(signature(src))});"
+        )
+        stmts = [
+            REGISTRY,
+            ORDERS,
+            *body,
+            *prune_sql(ds.slug, loaded.get(ds.slug, []), version),
+            order,
+            register,
+        ]
         written += _parts(out, f"{ds.slug}@{version}", stmts, stamp)
     return written
 

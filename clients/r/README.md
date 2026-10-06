@@ -2,8 +2,8 @@
 
 Query and download Australian government open data from [publicdata.au](https://publicdata.au/)
 in R. publicdata.au republishes datasets that governments already publish under open licences,
-keeps every version at a URL that never changes, and serves each one in twelve formats with a query
-API.
+keeps every version at a URL that never changes, and serves each one as Parquet, CSV, Excel, JSON
+and other formats with a query API.
 
 Every function takes a dataset's slug, so a dataset added to the site works with no new release.
 
@@ -61,9 +61,17 @@ releases again. Pass a date from `pd_versions()` for an answer that never change
 ## Whole tables
 
 ```r
-crashes <- pd_read("au-road-deaths")                   # needs the arrow package
+crashes <- pd_read("au-road-deaths")                   # Parquet with arrow, else the CSV
 path <- pd_download("au-road-deaths", "csv", path = "au-road-deaths.csv")
 ```
+
+`pd_read()` reads the Parquet file with 'arrow' when it is installed with zstd. Otherwise it reads
+the gzipped CSV and types the columns from the version's fields as 'arrow' would, with whole
+numbers past 32 bits as integer64 when 'bit64' is installed and doubles when it is not. A shape
+layer's `geometry` column is in the Parquet file only, so read a layer with 'arrow'. Parquet, CSV,
+CSV (gzip), NDJSON and DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out of a version whose
+table is over their size limits, and the version's page says why. Arrow files are only on versions
+fetched before the format change, whose manifest has no `caps` field.
 
 A version never changes once published, so a downloaded file can be kept and reused. Nothing is
 kept unless you ask:

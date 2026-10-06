@@ -24,6 +24,7 @@ from pathlib import Path
 import requests
 
 from . import catalogue, store
+from .normalise import detect_encoding
 from .register import Dataset
 
 TZ = zoneinfo.ZoneInfo("Australia/Brisbane")
@@ -76,18 +77,6 @@ def parse_as_at(text: str, regex: str) -> str:
         return dt.date(int(mm.group(3)), int(mm.group(2)), int(mm.group(1))).isoformat()
     mm = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
     return mm.group(0) if mm else ""
-
-
-def detect_encoding(data: bytes, preferred: str = "") -> str:
-    for enc in [preferred, "utf-8-sig", "cp1252"]:
-        if not enc:
-            continue
-        try:
-            data.decode(enc)
-            return enc
-        except UnicodeDecodeError:
-            continue
-    return "latin-1"
 
 
 def ckan_resource(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
@@ -1851,17 +1840,27 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
     check_licence(ds, licence)
     if data is None:
         return None
-    m.rows_sha256, n = _rows(ds, m, data)
+    m.rows_sha256, n, misfit = _rows(ds, m, data)
+    from .serialise.profile import layout
+
+    m.parquet = layout(ds)
     existing = store.manifests(store_dir, ds.slug)
     if m.rows_sha256 and existing and existing[-1].rows_sha256 == m.rows_sha256:
         return None
     # Portals sometimes serve an export with its header and nothing else for a while.
     if n == 0 and existing:
         raise FetchError(f"{ds.slug}: the portal served no rows; the newest version has some")
+    if misfit:
+        # Held here, so one release that outgrows a declared INT32 field never stops a deploy.
+        raise FetchError(
+            f"{ds.slug}: {'; '.join(misfit)}; take the field out of int32 before this version "
+            "is stored"
+        )
     if ds.source.feed:
         m = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
         if m is None:
             return None
+    m.caps = store.CAPS_VERSION
     store.write(store_dir, m, data)
     return m
 
@@ -1872,16 +1871,18 @@ def rows_digest(ds: Dataset, m: store.Manifest, data: bytes) -> str:
     return _rows(ds, m, data)[0]
 
 
-def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None]:
-    """The rows digest and the row count, which is None when the file does not normalise here."""
+def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None, list[str]]:
+    """The rows digest, the row count, which is None when the file does not normalise here, and
+    the declared INT32 fields the rows do not fit."""
     from .normalise import normalise
+    from .serialise.profile import misfits
 
     if ds.kind != "table":
-        return "", None
+        return "", None, []
     try:
         tbl = normalise(ds, m, data)
     except Exception:  # noqa: BLE001 - any failure falls back to the byte comparison
-        return "", None
+        return "", None, []
     cols = [tbl.table.column(n).to_pylist() for n in tbl.table.column_names]
     if tbl.geometry is not None:
         cols.append(tbl.geometry.to_pylist())
@@ -1889,7 +1890,7 @@ def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None]
     h = hashlib.sha256(repr(tbl.table.schema).encode())
     for r in rows:
         h.update(r)
-    return h.hexdigest(), len(rows)
+    return h.hexdigest(), len(rows), misfits(tbl.table, ds.int32)
 
 
 FEED_NOTE = (
