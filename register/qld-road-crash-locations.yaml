@@ -87,6 +87,9 @@ key:
 partition_by:
 - crash_year
 - loc_local_government_area
+sort:
+- crash_year
+- loc_local_government_area
 enrich:
 - sa2
 - lga

@@ -104,6 +104,8 @@ key:
 - date
 partition_by:
 - state
+sort:
+- station_no
 row_label: Storage days
 fields:
 - name: station_no
