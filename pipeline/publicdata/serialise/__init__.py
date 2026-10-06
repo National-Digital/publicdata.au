@@ -110,16 +110,22 @@ def over_cap(fmt: str, rows: int, size: int) -> str | None:
         return _row_reason(fmt)
     if size <= limit:
         return None
-    label = FORMAT_LABEL[fmt]
+    label, size_text = FORMAT_LABEL[fmt], _over(size, limit)
     if on == fmt:
         return (
-            f"{label} is not offered because the file would be {size / 1e6:,.1f} MB, over the "
+            f"{label} is not offered because the file would be {size_text}, over the "
             f"{limit / 1e6:,.0f} MB limit for {label}."
         )
     return (
-        f"{label} is not offered because the table is {size / 1e6:,.1f} MB as "
+        f"{label} is not offered because the table is {size_text} as "
         f"{FORMAT_LABEL[on]}, over the {limit / 1e6:,.0f} MB limit for {label}."
     )
+
+
+def _over(size: int, limit: int) -> str:
+    """A size past a limit, in MB, or in bytes when MB to one place would not show it is over."""
+    mb = f"{size / 1e6:,.1f}"
+    return f"{mb} MB" if float(mb.replace(",", "")) > limit / 1e6 else f"{size:,} bytes"
 
 
 def legacy_left_out(rows: int, geometry: bool | str) -> dict[str, str]:

@@ -284,24 +284,29 @@ def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict | None:
 
 
 def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
-    """A capped version's formats_left_out, its measured_bytes and the files written to find
-    them. The NDJSON and CSV are written first, whatever --formats says, and a format measured
-    on itself is written to be measured and dropped when it is over. A version already published
-    keeps its recorded set; only the sizes of the files this build wrote are taken again."""
+    """A capped version's formats_left_out, its measured_bytes and the files left written. The
+    NDJSON and CSV are written first and measured, and a format measured on itself is written,
+    measured and deleted when it is over. A file --formats excludes is deleted once measured. A
+    version already published keeps its recorded set, and only the sizes of the files this build
+    keeps are taken again."""
+    from . import serialise
+
     kind = geo_kind(ds)
     selfish = [f for f in cappable(kind) if CAPS[f][0] == f]
     probe = [*MEASURED, *(f for f in selfish if record is None or f not in record["left_out"])]
     write_formats(tbl, probe, hdr, vdir)
     sizes = {f"data.{f}": _size(vdir / f"data.{f}") for f in probe}
+    gone = dict(record["left_out"]) if record is not None else {}
+    if record is None:
+        for f in cappable(kind):
+            if why := over_cap(f, tbl.rows, sizes[f"data.{CAPS[f][0]}"]):
+                gone[f] = why
+    kept = [f for f in probe if f not in gone and (serialise.LIMIT is None or f in serialise.LIMIT)]
+    for f in probe:
+        if f not in kept:
+            (vdir / f"data.{f}").unlink()
     if record is not None:
-        return dict(record["left_out"]), {**record["measured"], **sizes}, probe
-    gone = {}
-    for f in cappable(kind):
-        why = over_cap(f, tbl.rows, sizes[f"data.{CAPS[f][0]}"])
-        if why:
-            gone[f] = why
-            if f in selfish:
-                (vdir / f"data.{f}").unlink()
+        sizes = {**record["measured"], **{f"data.{f}": sizes[f"data.{f}"] for f in kept}}
     return gone, sizes, probe
 
 
@@ -517,7 +522,7 @@ def _want(ds: Dataset, rows: int, gone: dict[str, str] | None) -> list[str]:
     return formats_for(rows, geo_kind(ds), gone)
 
 
-def current(ds: Dataset, m: store.Manifest, hit: dict, now: dict[str, str]) -> bool:
+def current(ds: Dataset, hit: dict, now: dict[str, str]) -> bool:
     """Whether a cached version already holds every format the current writers would make."""
     if ds.kind == "database":
         return True
@@ -543,7 +548,7 @@ def pending(
     n = 0
     for m in store.manifests(store_dir, ds.slug):
         meta = cache.root / version_key(cache, ds, m, store_dir) / "meta.json"
-        if not meta.is_file() or not current(ds, m, json.loads(meta.read_text("utf-8")), now):
+        if not meta.is_file() or not current(ds, json.loads(meta.read_text("utf-8")), now):
             n += max(m.bytes, 1)
     return n
 
@@ -586,7 +591,7 @@ def grow_cached(
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
     stale = list(changed)
-    if current(ds, m, hit, now):
+    if current(ds, hit, now):
         return hit
     # The rows come from the Parquet, a layer's shapes included; a changed Parquet writer is a new
     # version.

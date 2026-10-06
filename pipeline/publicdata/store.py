@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -63,7 +63,9 @@ class Manifest:
     @classmethod
     def read(cls, path: Path) -> Manifest:
         d = json.loads(path.read_text(encoding="utf-8"))
-        return cls(**d)
+        # A field this code does not know, written by newer code, is dropped rather than refused.
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
 
 def sha256_file(path: Path) -> str:

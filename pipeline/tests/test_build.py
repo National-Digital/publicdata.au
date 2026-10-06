@@ -2,6 +2,7 @@ import filecmp
 import json
 import shutil
 import sqlite3
+from pathlib import Path
 
 import pyarrow.parquet as pq
 
@@ -176,8 +177,12 @@ def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
     for f, (_on, limit) in CAPS.items():
         assert over_cap(f, 10, limit) is None
         assert over_cap(f, 10, limit + 1)
+    # Just over a limit reads in bytes, so the size never looks equal to the limit.
     assert over_cap("xlsx", 10, CAPS["xlsx"][1] + 1).startswith(
-        "Excel is not offered because the table is 50.0 MB as CSV, over the 50 MB limit"
+        "Excel is not offered because the table is 50,000,001 bytes as CSV, over the 50 MB limit"
+    )
+    assert over_cap("xlsx", 10, 60_000_000).startswith(
+        "Excel is not offered because the table is 60.0 MB as CSV, over the 50 MB limit"
     )
     assert over_cap("geojson", 10, 7_800_000_000) == (
         "GeoJSON is not offered because the file would be 7,800.0 MB, over the 100 MB limit "
@@ -487,3 +492,31 @@ def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_pat
         == 262144
     )
     con.close()
+
+
+def test_a_manifest_with_a_field_this_code_does_not_know_still_reads(tmp_path):
+    from publicdata.store import Manifest
+
+    src = Path(__file__).parent / "fixtures" / "store" / "qld-road-crash-factors" / "2026-04-24"
+    d = read_json(src / "manifest.json")
+    (tmp_path / "manifest.json").write_text(json.dumps({**d, "later": 2}), encoding="utf-8")
+    m = Manifest.read(tmp_path / "manifest.json")
+    assert m.caps == 1 and not hasattr(m, "later")
+
+
+def test_a_limited_build_measures_what_it_does_not_keep(register_dir, fixture_store, tmp_path):
+    from publicdata import serialise
+
+    ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
+    serialise.LIMIT = {"ndjson", "parquet"}
+    try:
+        build_dataset(ds, fixture_store, tmp_path)
+    finally:
+        serialise.LIMIT = None
+    vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
+    assert not (vdir / "data.csv").exists() and not (vdir / "data.geojson").exists()
+    man = read_json(vdir / "manifest.json")
+    assert set(man["measured_bytes"]) == {"data.ndjson", "data.csv", "data.geojson"}
+    full = tmp_path / "full"
+    build_dataset(ds, fixture_store, full)
+    assert read_json(full / "d" / ds.slug / "v" / "2026-04-24" / "manifest.json") == man
