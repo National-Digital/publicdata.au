@@ -38,6 +38,7 @@ SLOW_TESTS = {
     "test_fetch.py::test_ala_splits_one_place_and_second_by_year_and_refuses_what_it_cannot_read",
     "test_fetch.py::test_new_versions_are_grouped_by_government_for_their_own_pull_requests",
     "test_fetch.py::test_one_failing_dataset_does_not_stop_the_others",
+    "test_hooks.py::test_pre_push_from_a_worktree_hides_the_repository_from_the_tests",
     "test_hooks.py::test_pre_push_passes_when_the_fast_tests_pass_and_leaves_slow_ones_out",
     "test_hooks.py::test_pre_push_stops_a_failing_fast_test_and_names_it",
     "test_hubs.py::test_hubs_command_fails_when_a_hub_fails",

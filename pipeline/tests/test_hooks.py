@@ -145,6 +145,15 @@ def test_pre_push_passes_when_the_fast_tests_pass_and_leaves_slow_ones_out(repo,
     assert "node not found, JavaScript tests skipped" in out.stdout + out.stderr
 
 
+def test_pre_push_from_a_worktree_hides_the_repository_from_the_tests(repo, tmp_path):
+    path = [_bin(tmp_path), VENV_BIN]
+    tree = tmp_path / "tree"
+    _run([GIT, "worktree", "add", "-q", "-b", "side", str(tree)], repo, path, check=True)
+    files = {"pipeline/tests/test_x.py": "import os\n\n\ndef test_env():\n    assert 'GIT_DIR' not in os.environ\n"}  # fmt: skip
+    out = _push(tree, tmp_path, files, path)
+    assert out.returncode == 0, out.stdout + out.stderr
+
+
 def test_pre_push_skips_when_pytest_is_missing(repo, tmp_path):
     files = {"pipeline/tests/test_x.py": "def test_breaks():\n    assert False\n"}
     out = _push(repo, tmp_path, files, [_bin(tmp_path)])
