@@ -121,10 +121,11 @@ def resource_text(title: str, publisher: str) -> str:
     )
 
 
-def _input_schema(t: dict) -> dict:
+def _input_schema(t: dict, version: str | None = None) -> dict:
     """A tool's input schema for any dataset. site.js builds the same, then narrows it on a dataset page."""
     s = spec()
     w = s["webmcp"]
+    version = version or w["version"]
     props = {}
     for k, p in t["input"].items():
         if p.get("api") == "filters":
@@ -132,7 +133,7 @@ def _input_schema(t: dict) -> dict:
             continue
         o = {x: v for x, v in p.items() if x != "api"}
         if "description" not in o and p.get("api") == "version":
-            o["description"] = w["version"]
+            o["description"] = version
         elif "description" not in o and p.get("api"):
             o["description"] = param_text(p["api"])
         props[k] = o
@@ -150,11 +151,15 @@ def mcp_spec() -> dict:
     m = s["mcp"]
     tools = []
     for name, t in s["webmcp"]["tools"].items():
+        # The server's row tools read Parquet, so what they say about versions differs from the pages'.
+        description = t["description"]
+        for old, new in m["tool_text"].items():
+            description = description.replace(old, new)
         d = {
             "name": name,
             "title": t["title"],
-            "description": t["description"],
-            "inputSchema": _input_schema(t),
+            "description": description,
+            "inputSchema": _input_schema(t, m["version"]),
             "outputSchema": t["output"],
             "annotations": {"title": t["title"], **t["annotations"]},
         }

@@ -1,5 +1,6 @@
 import { answer } from './_api.js';
-import { aggregateQuery, rowsQuery } from './_query.js';
+import { QueryError, aggregateQuery, rowsQuery } from './_query.js';
+import { BudgetError, openVersion, parquetAggregate, parquetRows } from './_parquet.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 import { onRequestPost as castVote } from './api/v1/votes/[slug].js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
@@ -53,6 +54,51 @@ async function api(ctx, slug, op, version, qs) {
   return b;
 }
 
+const VERSION = /^\d{4}-\d{2}-\d{2}$/;
+
+// The live datasets and their newest versions. An isolate serves one deployment, so it is read once.
+let newestOf;
+async function live(ctx) {
+  return newestOf || (newestOf = await file(ctx, '/latest.json'));
+}
+
+// The row tools read the version's Parquet file, so any version answers. The query API's D1
+// tables stay behind it for the newest version, should the file not be read.
+async function parquet(ctx, slug, version, op, qs) {
+  if (!ctx.env.DIST) return null;
+  if (version !== undefined && !VERSION.test(version)) throw new ToolError('version is a date, YYYY-MM-DD, from get_dataset');
+  let latest;
+  try { latest = await live(ctx); } catch { return null; }
+  // A dataset missing from latest.json is answered by the query API, which says why.
+  const newest = latest[slug];
+  if (!newest) return null;
+  const v = version || newest;
+  const path = API + enc(slug) + '/versions/' + v + '/' + op + (qs.length ? '?' + qs.join('&') : '');
+  const url = SITE + '/d/' + enc(slug) + '/v/' + v + '/data.parquet';
+  const key = new Request(SITE + '/_parquet' + path);
+  const hit = await caches.default.match(key);
+  if (hit) return hit.json();
+  let r, entry;
+  try {
+    entry = await openVersion(ctx.env, slug, v);
+    if (entry) r = await (op === 'rows' ? parquetRows : parquetAggregate)(ctx.env, entry, new URLSearchParams(qs.join('&')), url);
+  } catch (e) {
+    if (e instanceof BudgetError) throw new ToolError(e.message);
+    if (e instanceof QueryError) throw e;
+    if (v !== newest) throw new ToolError(`version ${v} of ${slug} could not be read (${String((e && e.message) || e).slice(0, 200)}); its files are at ${SITE}/d/${slug}/v/${v}/`);
+    console.error(`parquet ${slug} ${v}: ${(e && e.stack) || e}`);
+    return null;
+  }
+  if (!entry) {
+    if (v === newest) return null;
+    throw new ToolError(`${slug} has no version ${v}; get_dataset lists its versions`);
+  }
+  const out = { version: v, rows: r.rows, more: r.more, matched: r.matched, query: SITE + path, attribution: entry.header.attribution ?? null, file: url };
+  // A version never changes, so its answer is kept as long as the edge keeps anything.
+  ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(out), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=31536000, immutable' } })));
+  return out;
+}
+
 async function total(ctx, slug, version, where) {
   const b = await api(ctx, slug, 'aggregate', version, filters(where));
   return b.rows[0] ? b.rows[0].count : 0;
@@ -97,6 +143,8 @@ EXEC.query_rows = async (ctx, input) => {
   const qs = filters(input.where).concat(['limit=' + limit, 'offset=' + offset]);
   if (input.select && input.select.length) qs.push('select=' + input.select.map(enc).join(','));
   if (input.order) qs.push('order=' + enc(input.order));
+  const p = await parquet(ctx, slug, input.version, 'rows', qs);
+  if (p) return text({ version: p.version, rows: p.rows, matched: p.matched, next_offset: p.more ? offset + limit : null, query: p.query, attribution: p.attribution, file: p.file });
   const b = await api(ctx, slug, 'rows', input.version, qs);
   const n = await total(ctx, slug, b.version, input.where);
   return text({ version: b.version, rows: b.rows, matched: n, next_offset: b.next ? offset + limit : null, query: b.url, attribution: b.publicdata && b.publicdata.attribution });
@@ -106,6 +154,8 @@ EXEC.count_rows = async (ctx, input) => {
   const alias = metric === 'count' ? 'count' : metric.replace('.', '_');
   const qs = filters(input.where).concat(['metric=' + enc(metric), 'order=' + enc(alias + '.desc'), 'limit=' + limit]);
   if (group.length) qs.push('group=' + group.map(enc).join(','));
+  const p = await parquet(ctx, slug, input.version, 'aggregate', qs);
+  if (p) return text({ version: p.version, group_by: group, metric, groups: p.rows, truncated: p.more, matched: p.matched, query: p.query, attribution: p.attribution, file: p.file });
   const b = await api(ctx, slug, 'aggregate', input.version, qs);
   const n = await total(ctx, slug, b.version, input.where);
   return text({ version: b.version, group_by: group, metric, groups: b.rows, truncated: !!b.next, matched: n, query: b.url, attribution: b.publicdata && b.publicdata.attribution });

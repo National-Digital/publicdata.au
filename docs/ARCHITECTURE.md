@@ -262,6 +262,18 @@ headers. Dated answers are cached at the edge for good, the newest for five minu
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
 `RateLimit-Policy` and a JSON body; every API answer carries the same policy header.
 
+The MCP server's `query_rows` and `count_rows` read the version's `data.parquet` from R2 instead
+(`functions/_parquet.js`), with the same filters, so they answer for every dated version and for
+versions D1 never loads. Each version's footer is read once per isolate. A row group whose
+statistics rule out a filter is skipped, and one whose statistics prove every row matches is
+counted without being read. The column chunks a query needs are fetched six at a time, ranges
+less than 256 KB apart are read as one, and hyparquet decodes only the rows a page of answers
+needs. Values come back as D1 gives them: booleans as 1 and 0, dates as text, and a 64-bit
+integer as a number while it is exact and as its digits beyond that. A call may read 128 row
+groups, 8 MB, 8 million values and 160 ranges. A query that needs more is refused with DuckDB SQL
+that answers it from the file. Answers are cached at the edge by version. When the newest
+version's file cannot be read, the tools answer from D1 as they did before.
+
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
 then the endpoints answer 503 and point to the files. The query builder is tested against

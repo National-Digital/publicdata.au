@@ -388,7 +388,7 @@
     {
       "name": "query_rows",
       "title": "Query rows",
-      "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nPage with offset until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the 60 queries each address may make in 10 seconds.",
+      "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion can be any date in the version history from get_dataset.\nPage with offset until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the 60 queries each address may make in 10 seconds.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -427,7 +427,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. The newest version loaded for queries when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. Every version can be queried. The newest version when absent."
           }
         },
         "required": [
@@ -465,7 +465,11 @@
           },
           "query": {
             "type": "string",
-            "description": "The query API URL that gives the same answer"
+            "description": "The query API URL for the same query, which answers while the API has the version loaded"
+          },
+          "file": {
+            "type": "string",
+            "description": "The Parquet file the answer was read from, when it came from the file"
           },
           "attribution": {
             "type": [
@@ -495,7 +499,7 @@
     {
       "name": "count_rows",
       "title": "Count and sum rows",
-      "description": "Count, sum, average, minimum or maximum rows of a served dataset across the whole table, grouped by up to three fields. For the rows themselves use query_rows.\nField names and values for group_by and where come from list_fields.\nsum and avg need a numeric or true-or-false field. min and max take any field.\nversion must be one of the two newest versions.\nGroups come back largest first, and truncated means raise limit or narrow where. An unknown field or version returns an error naming it.\nEach call costs two of the 60 queries each address may make in 10 seconds.",
+      "description": "Count, sum, average, minimum or maximum rows of a served dataset across the whole table, grouped by up to three fields. For the rows themselves use query_rows.\nField names and values for group_by and where come from list_fields.\nsum and avg need a numeric or true-or-false field. min and max take any field.\nversion can be any date in the version history from get_dataset.\nGroups come back largest first, and truncated means raise limit or narrow where. An unknown field or version returns an error naming it.\nEach call costs two of the 60 queries each address may make in 10 seconds.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -530,7 +534,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. The newest version loaded for queries when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. Every version can be queried. The newest version when absent."
           }
         },
         "required": [
@@ -574,7 +578,11 @@
           },
           "query": {
             "type": "string",
-            "description": "The query API URL that gives the same answer"
+            "description": "The query API URL for the same query, which answers while the API has the version loaded"
+          },
+          "file": {
+            "type": "string",
+            "description": "The Parquet file the answer was read from, when it came from the file"
           },
           "attribution": {
             "type": [

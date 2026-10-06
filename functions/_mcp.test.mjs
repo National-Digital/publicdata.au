@@ -124,12 +124,19 @@ test('initialize names the server and settles the protocol version', async () =>
 test('tools/list is every tool in api.json with the schema the pages register', async () => {
   const { tools } = (await rpc('tools/list')).body.result;
   assert.deepEqual(tools.map((t) => t.name), Object.keys(raw.webmcp.tools));
+  // The server's row tools read Parquet, so api.json gives them their own words on versions.
+  const mcpText = (d) => Object.entries(fill(raw.mcp.tool_text)).reduce((s, [a, b]) => s.replace(a, b), d);
+  let overridden = 0;
   for (const t of tools) {
-    assert.equal(t.description, page[t.name].description, t.name);
+    if (t.description !== page[t.name].description) overridden++;
+    assert.equal(t.description, mcpText(page[t.name].description), t.name);
     assert.equal(t.title, page[t.name].title, t.name);
-    assert.deepEqual(t.inputSchema, plain(page[t.name].inputSchema), t.name);
+    const schema = plain(page[t.name].inputSchema);
+    if (schema.properties.version) schema.properties.version.description = fill(raw.mcp.version);
+    assert.deepEqual(t.inputSchema, schema, t.name);
     assert.deepEqual(t.annotations ?? null, plain(page[t.name].annotations ?? null), t.name);
   }
+  assert.equal(overridden, 2);
 });
 
 test('every tool answers exactly as its twin in the page does', async () => {
@@ -170,7 +177,8 @@ test('a bad call comes back as a tool error the model can read', async () => {
   assert.match(await err('get_dataset', { slug: 'missing' }), /404/);
   assert.match(await err('list_fields', { slug: 'missing' }), /no queryable dataset with slug missing/);
   assert.match((await page.list_fields.execute({ slug: 'missing' }).catch((e) => e)).message, /no queryable dataset with slug missing/);
-  assert.match(await err('query_rows', { slug: 'crashes', version: '2020-01-01' }), /not loaded/);
+  assert.match(await err('query_rows', { slug: 'crashes', version: '2020-01-01' }), /crashes has no version 2020-01-01; get_dataset lists its versions/);
+  assert.match(await err('query_rows', { slug: 'crashes', version: 'latest' }), /version is a date/);
   const r = await rpc('tools/call', { name: 'drop_tables', arguments: {} });
   assert.equal(r.body.error.code, -32602);
 });
