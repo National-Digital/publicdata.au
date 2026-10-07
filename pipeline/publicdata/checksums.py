@@ -7,6 +7,7 @@ that `r2.push` stores with every object, and an object without one is read and h
 the caller allows it. A source file served from the raw store takes its hash from the version's
 manifest. A version's list is written again when R2 holds a file newer than it, which
 is how a format added to a cached version reaches the list, or when its prefix is replaced.
+The lists written are recorded as subjects, in the sha256sum format, for the deploy to attest.
 """
 
 from __future__ import annotations
@@ -28,6 +29,8 @@ PAGES = ("index.html", "index.md")
 KEY = re.compile(r"^d/([a-z0-9-]+)/v/(\d{4}-\d{2}-\d{2})/(.+)$")
 HEX = re.compile(r"^[0-9a-f]{64}$")
 WORKERS = 16
+# The most subjects one attestation takes (actions/attest).
+MAX_SUBJECTS = 1024
 
 
 def render(sums: dict[str, str]) -> str:
@@ -42,6 +45,19 @@ def parse(text: str) -> dict[str, str]:
         if sep and HEX.match(h) and n:
             out[n] = h
     return out
+
+
+def write_subjects(lists: dict[str, str], out: Path) -> list[Path]:
+    """The lists' keys and SHA-256 as sha256sum files of at most MAX_SUBJECTS lines each,
+    1.sha256, 2.sha256 and so on, one per attestation."""
+    out.mkdir(parents=True, exist_ok=True)
+    items = sorted(lists.items())
+    parts = []
+    for i in range(0, len(items), MAX_SUBJECTS):
+        p = out / f"{i // MAX_SUBJECTS + 1}.sha256"
+        p.write_text(render(dict(items[i : i + MAX_SUBJECTS])))
+        parts.append(p)
+    return parts
 
 
 def slugs_in(roots: Iterable[Path]) -> list[str]:
@@ -161,10 +177,13 @@ def update(
     download: bool = False,
     s3=None,
     workers: int = WORKERS,
+    lists: dict[str, str] | None = None,
+    every: bool = False,
 ) -> tuple[int, list[str]]:
     """Writes SHA256SUMS for every version of these datasets whose list is missing or stale.
     Returns how many were written and the versions left without one because a file's hash is
-    unknown."""
+    unknown. Each list written goes into `lists` as key -> SHA-256, and with `every` so does
+    each current list left alone, so all of them can be attested again."""
     if s3 is None:
         from .r2 import client
 
@@ -176,6 +195,10 @@ def update(
                 prefix = f"d/{slug}/v/{version}/"
                 replaced = prefix.startswith(replace) if replace else False
                 if not stale(objects, replaced):
+                    if every and lists is not None and NAME in objects:
+                        h = _stored_sha256(s3, bucket, prefix + NAME)
+                        if h:
+                            lists[prefix + NAME] = h
                     continue
                 sums, unknown = version_sums(
                     s3, bucket, slug, version, objects, replaced, download, pool
@@ -189,13 +212,16 @@ def update(
                     )
                     continue
                 body = render(sums).encode()
+                digest = hashlib.sha256(body).hexdigest()
                 s3.put_object(
                     Bucket=bucket,
                     Key=prefix + NAME,
                     Body=body,
                     ContentType=CONTENT_TYPE,
-                    Metadata={"sha256": hashlib.sha256(body).hexdigest()},
+                    Metadata={"sha256": digest},
                 )
+                if lists is not None:
+                    lists[prefix + NAME] = digest
                 written += 1
                 print(f"put {bucket}/{prefix}{NAME} ({len(sums)} files)")
     return written, held

@@ -169,3 +169,24 @@ def test_a_source_in_the_listing_or_withheld_adds_no_manifest_line():
     checksums.update(["x"], s3=s3)
     sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
     assert not any("source" in n for n in sums)
+
+
+def test_the_lists_written_are_recorded_to_attest_and_a_resign_adds_the_rest():
+    s3 = FakeS3(version())
+    written: dict[str, str] = {}
+    checksums.update(["x"], s3=s3, lists=written)
+    assert written == {V + "SHA256SUMS": sha(s3.objects[V + "SHA256SUMS"][0])}
+    again: dict[str, str] = {}
+    assert checksums.update(["x"], s3=s3, lists=again) == (0, []) and again == {}
+    checksums.update(["x"], s3=s3, lists=again, every=True)
+    assert again == written
+
+
+def test_subjects_are_split_into_attestations_of_at_most_1024(tmp_path):
+    lists = {f"d/x/v/{i:04d}/SHA256SUMS": sha(str(i).encode()) for i in range(1500)}
+    parts = checksums.write_subjects(lists, tmp_path / "lists")
+    assert [p.name for p in parts] == ["1.sha256", "2.sha256"]
+    first, second = (checksums.parse(p.read_text()) for p in parts)
+    assert len(first) == 1024 and len(second) == 476
+    assert first | second == lists
+    assert checksums.write_subjects({}, tmp_path / "none") == []

@@ -577,7 +577,7 @@ def cmd_dist_push(args) -> int:
 
 
 def cmd_checksums(args) -> int:
-    from .checksums import slugs_in, slugs_in_bucket, update
+    from .checksums import slugs_in, slugs_in_bucket, update, write_subjects
     from .r2 import client
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
@@ -589,14 +589,25 @@ def cmd_checksums(args) -> int:
         return 2
     s3 = client()
     slugs = slugs_in_bucket(s3) if args.all else slugs_in(Path(r) for r in args.root)
-    n, held = update(slugs, replace=tuple(args.replace), download=args.download, s3=s3)
+    lists: dict[str, str] = {}
+    n, held = update(
+        slugs,
+        replace=tuple(args.replace),
+        download=args.download,
+        s3=s3,
+        lists=lists,
+        every=args.resign,
+    )
     print(f"checksums: {n} SHA256SUMS written over {len(slugs)} dataset(s)")
+    if args.subjects:
+        parts = write_subjects(lists, Path(args.subjects))
+        print(f"checksums: {len(lists)} list(s) to attest in {len(parts)} part(s)")
     for prefix in held:
         print(f"::warning::{prefix}SHA256SUMS not written: a file has no stored SHA-256")
     if held:
         print(
             f"checksums: {len(held)} version(s) left without one; "
-            "run `publicdata checksums --all --download` to hash their files from R2"
+            "run the Checksums workflow to hash their files from R2 and sign the lists"
         )
     return 0
 
@@ -828,6 +839,14 @@ def main(argv=None) -> int:
         default=[],
         metavar="PREFIX",
         help="versions rewritten on purpose, whose lists are made again from scratch",
+    )
+    ck.add_argument(
+        "--subjects", metavar="DIR", help="write the lists to attest here, 1.sha256 and on"
+    )
+    ck.add_argument(
+        "--resign",
+        action="store_true",
+        help="add every current list to --subjects, not only those written, to attest them again",
     )
     ck.set_defaults(fn=cmd_checksums)
     pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")

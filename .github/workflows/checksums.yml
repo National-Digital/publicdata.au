@@ -1,0 +1,64 @@
+name: Checksums
+
+# Writes any missing SHA256SUMS across every dataset in R2, hashing a file stored without its
+# SHA-256, and signs every current list again. Run it once after the lists first ship, and after
+# a deploy warns that a list went unwritten or unsigned. A list signed twice verifies either way.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checksums
+  cancel-in-progress: false
+
+jobs:
+  write:
+    # Side effects run only in the public repo, never in a fork or a private copy.
+    if: github.repository == 'National-Digital/publicdata.au'
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      parts: ${{ steps.lists.outputs.parts }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - run: pip install -e './pipeline[deploy]'
+      - name: Write and list every SHA256SUMS
+        id: lists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python -m publicdata checksums --all --download --resign --subjects lists
+          echo "parts=$(find lists -name '*.sha256' -printf '%f\n' | sed 's/\.sha256$//' | sort -n | jq -Rnc '[inputs]')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lists
+          path: lists/
+          retention-days: 1
+
+  # An attestation takes at most 1,024 subjects, so each part of the listing is signed on its own.
+  sign:
+    needs: write
+    if: needs.write.outputs.parts != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        part: ${{ fromJSON(needs.write.outputs.parts) }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: lists
+          path: lists
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: lists/${{ matrix.part }}.sha256
