@@ -1,0 +1,89 @@
+name: Spatial extension
+
+# A pull request that raises duckdb needs DuckDB's spatial extension for the new release. This
+# copies the build DuckDB serves for it to publicdata-raw/_toolchain/ and commits its pin
+# (pipeline/publicdata/spatial-extension.json) to that pull request's branch. Main's code makes the
+# copy; the branch is read for its duckdb version only.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: The branch that raises duckdb in pipeline/requirements.txt
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spatial-extension
+
+jobs:
+  mirror:
+    # Side effects run only in the public repo, never in a fork or a private copy.
+    if: github.repository == 'National-Digital/publicdata.au' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    # The token that writes the raw store and nothing else, and the app that pushes the pin.
+    environment: fetch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.branch }}
+          path: branch
+          persist-credentials: false
+      - name: Read the branch's duckdb
+        id: duckdb
+        run: |
+          v=$(sed -n 's/^duckdb==\(.*\)$/\1/p' branch/pipeline/requirements.txt)
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::branch/pipeline/requirements.txt has no exact duckdb pin"
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - run: pip install -e './pipeline[deploy]'
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+      - run: pip install --no-deps "duckdb==$VERSION"
+        env:
+          VERSION: ${{ steps.duckdb.outputs.version }}
+      # Checks the download is byte for byte what DuckDB's own INSTALL fetches, and never replaces
+      # a copy already in R2.
+      - name: Copy the extension to R2 and pin it
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m publicdata spine mirror --pin branch/pipeline/publicdata/spatial-extension.json
+      # Pushed as the app, so the branch's checks run on the new commit.
+      - name: Act as the fetch app
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.FETCH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FETCH_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Commit the pin to the branch
+        working-directory: branch
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          BRANCH: ${{ inputs.branch }}
+          VERSION: ${{ steps.duckdb.outputs.version }}
+        run: |
+          if git diff --quiet -- pipeline/publicdata/spatial-extension.json; then
+            echo "$BRANCH already pins this build." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config --local --replace-all http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config user.name "publicdata fetch"
+          git config user.email "fetch@publicdata.au"
+          git commit -q -s -m "build: pin DuckDB's spatial extension for duckdb $VERSION" \
+            -m "Copied to R2 by the Spatial extension workflow, run ${{ github.run_id }}." \
+            -- pipeline/publicdata/spatial-extension.json
+          git push -q origin "HEAD:refs/heads/$BRANCH"
+          echo "Pinned the spatial extension for duckdb $VERSION on $BRANCH." >> "$GITHUB_STEP_SUMMARY"
