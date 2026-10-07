@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { test } from "node:test";
-import puppeteer from "puppeteer-core";
 import { HOUSE, TEXT_SPACING, house } from "./a11y-checks.mjs";
 
 // Each house rule is proven to fire on the defect it guards against, and to stay quiet on a page
-// without it. The browser is the same one the gate uses.
+// without it. The browser is the same one the gate uses; a job without Chrome or without the
+// npm packages (the Functions job runs every script test with neither) skips rather than fails.
 const chrome = process.env.CHROME_PATH || "/usr/bin/google-chrome";
-const skip = existsSync(chrome) ? false : `no Chrome at ${chrome}`;
+const puppeteer = await import("puppeteer-core").then((m) => m.default).catch(() => null);
+const skip = !puppeteer ? "puppeteer-core is not installed" : existsSync(chrome) ? false : `no Chrome at ${chrome}`;
 
 const BASE = `<!doctype html><meta charset="utf-8"><style>
 html{font-size:clamp(100%,.75rem + .35vw,125%)}body{margin:0;font:1rem/1.55 Arial,sans-serif}button{font:inherit}
