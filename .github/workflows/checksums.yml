@@ -6,6 +6,9 @@ name: Checksums
 on:
   workflow_dispatch:
 
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+
 permissions:
   contents: read
 
@@ -17,7 +20,7 @@ jobs:
   write:
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     outputs:
       parts: ${{ steps.lists.outputs.parts }}
@@ -46,7 +49,7 @@ jobs:
   sign:
     needs: write
     if: needs.write.outputs.parts != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
