@@ -277,6 +277,33 @@ module the build imports leaves every published version as it was.
   cache follow the new code. A dated file already in R2 is still never overwritten; replacing the
   published files is the `replace` dispatch under Withdraw a dataset or correct published files.
 
+## Toolchain versions
+
+Every tool and library CI, the deploy and the fetch runner use is pinned to an exact version, and
+each version lives in one file that the workflows read:
+
+| What | File |
+|---|---|
+| Python | `.python-version` |
+| Node | `.node-version` |
+| uv | `uv.toml` |
+| The pipeline's Python packages | `pipeline/requirements.txt` (a constraint on every install) |
+| The Python client's CI packages | `clients/python/requirements.txt` |
+| npm packages, wrangler, and the Chrome build the accessibility check runs (from `puppeteer-core`) | `package-lock.json` |
+| GitHub Actions | the commit SHA in each `uses:` |
+| Runner image | `ubuntu-24.04` in each `runs-on:` |
+| R and its CRAN snapshot date | `.github/workflows/clients.yml` |
+
+An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
+npm packages and the Actions; raise the others by hand. The Python version and the keyed
+libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles) are in the build's cache key, so
+raising one rebuilds every version, about four hours on main. Merge such a pull request on a day
+with no data pull request due.
+
+DuckDB's spatial extension is the one exception: DuckDB serves it for each release and can replace
+it within one. The datasets that load it are keyed on the build installed, and every job of a
+deploy checks that it has the same build as the plan.
+
 ## Licences that are not Creative Commons
 
 A publisher's own open grant is admitted as a file in `register/licences/` that quotes the publisher

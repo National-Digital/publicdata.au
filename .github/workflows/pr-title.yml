@@ -13,7 +13,7 @@ permissions:
 jobs:
   lint-title:
     name: Check title
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verify Conventional Commit title
         env:
