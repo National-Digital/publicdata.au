@@ -43,3 +43,4 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: left out of the pre-push run; tests/conftest.py decides which tests carry it"]

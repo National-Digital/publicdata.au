@@ -23,7 +23,7 @@ once a version is published.
 You need Python 3.14, Node 24 and `uv`. No credentials are needed to build, test or fetch.
 
 ```
-git config core.hooksPath .githooks   # signs off every commit for the DCO
+git config core.hooksPath .githooks   # sign-off, lint and test hooks (see Git hooks)
 uv venv .venv && . .venv/bin/activate
 uv pip install -e './pipeline[dev]'
 npm ci --ignore-scripts
@@ -50,6 +50,30 @@ The manifests in `store/` record each one's URL, hash and fetch time.
 The site's typeface is licensed to National Digital and is not in the repository. Without it,
 pages use system fonts and the social cards use Pillow's bundled Aileron; nothing else changes.
 `store pull` fetches it from the same private bucket for the deploy.
+
+## Git hooks
+
+The `core.hooksPath` line in Set up switches on three hooks in `.githooks/`. They catch on your
+machine what CI would fail a few minutes later, and they replace no CI check.
+
+- `prepare-commit-msg` adds the DCO `Signed-off-by` trailer to every commit, once.
+- `pre-commit` runs `ruff check` and `ruff format --check` on the staged content of each staged
+  Python file under `pipeline/` or `clients/python/`. It runs from that file's directory, so each
+  takes the settings CI uses for it. It names each file and rule that fails and stops the commit. A
+  commit with no staged Python file in either directory runs no check. It takes well under a
+  second.
+- `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
+  and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
+  It should take under a minute on a laptop.
+
+The fast tests are every test that is not marked `slow`. `pipeline/tests/conftest.py` decides
+which tests are slow: those that use the fixture store or a fixture site build (`SLOW_FIXTURES`)
+and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI runs every test.
+
+A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
+through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
+tests, and `node` for the JavaScript tests. To skip the hooks once, pass `--no-verify` to
+`git commit` or `git push`.
 
 ## Private copies
 
