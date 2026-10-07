@@ -63,7 +63,7 @@ pipeline/publicdata/
    since review. A grant that is not Creative Commons is admitted only through
    `register/licences/`, which quotes the publisher on reproduction, adaptation, commercial use
    and attribution. Old versions stay up under the licence they were published under.
-6. Versions are immutable and dated by source change; unchanged hash, no version. The
+6. Versions are dated by source change and keep their content; unchanged hash, no version. The
    [Archive](#archive) section says how long they are kept and what may change.
 7. Serialisers are pure functions of the model. Two builds of one snapshot are byte-identical,
    and CI proves it.
@@ -288,7 +288,7 @@ This site is the version history the portals do not keep. The archive role has i
 - `versions.json` per dataset lists every version with date, as-at, row count, field count,
   source hash and encoding. `/d/<slug>/history.tar.zst` bundles every version's data.parquet
   and manifest for offline use.
-- Publishers can cite a version URL knowing it will resolve to the same bytes in ten years.
+- Publishers can cite a version URL knowing it will resolve to the same data in ten years.
 
 ## Hosting
 

@@ -171,7 +171,7 @@ def push(
 ) -> int:
     """Upload every file under root that include accepts. An existing immutable key is skipped unless it starts
     with one of the replace prefixes, which name the versions whose serialisation was rebuilt on
-    purpose; the version notes for such a rebuild are committed separately. Every key in expect,
+    purpose; the version notes for such a rebuild come from the pull request that made the fix. Every key in expect,
     which a cached build left out, must already be in the bucket, or nothing is uploaded.
 
     With layouts, each dataset's layout (`profile.layout`), a query copy is uploaded again only

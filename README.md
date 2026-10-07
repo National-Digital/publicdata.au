@@ -9,8 +9,9 @@
 [![PyPI](https://img.shields.io/pypi/v/publicdata-au)](https://pypi.org/project/publicdata-au/)
 
 Australian government open data, republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs
-that never change. Every release the publisher makes becomes a dated, immutable version with its
-schema, provenance, the publisher's own file and a diff against the release before.
+that never change. Every release the publisher makes becomes a dated version that keeps its
+content, with its schema, provenance, the publisher's own file and a diff against the release
+before.
 
 This is an independent site run by National Digital. No government agency runs it, funds it or
 has endorsed it. Each dataset is republished under the publisher's licence with the attribution

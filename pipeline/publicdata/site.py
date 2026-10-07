@@ -1830,7 +1830,7 @@ PROSE = {
 <p>If a value is wrong, it is almost always wrong in the publisher's file as well, because this site publishes what the publisher publishes. Send those to the publisher, whose contact is on each dataset page.</p>
 <p>If the serialisation is wrong, for example a column typed badly or a row missing, <a href="{repo}/issues/new?template=data-problem.yml">open an issue on GitHub</a> or <a href="https://nationaldigital.com.au/contact/">tell National Digital</a>. We fix it, publish a new build, and record the correction in the version's notes. A dated version keeps the same content once it is published. Its files change only to correct a fault in our conversion or in the publisher's attribution, to comply with the law, or when a publisher asks us to remove its dataset, and the change is recorded in that version's notes. The <a href="{repo}/blob/main/docs/CORRECTIONS.md">corrections policy</a> sets out each step and keeps a log of every correction.</p>
 <h2 id="cite">Citing the files</h2>
-<p>The licence on each dataset requires the publisher's attribution, and it is inside every file. We ask for one thing more: say that the file came from publicdata.au and link to the version you used. The link lets a reader fetch the same bytes, and it is how other people find this site. Every dataset page has the sentence ready to copy as text, HTML, Markdown and BibTeX.</p>
+<p>The licence on each dataset requires the publisher's attribution, and it is inside every file. We ask for one thing more: say that the file came from publicdata.au and link to the version you used. The link lets a reader fetch the same data, and it is how other people find this site. Every dataset page has the sentence ready to copy as text, HTML, Markdown and BibTeX.</p>
 <h2>Privacy</h2>
 <p>The site sets no cookies. Page views are counted by Cloudflare Web Analytics, which is served from this site's own provider, stores nothing in the browser and does not follow anyone across sites. There is no other tracking. Votes in the backlog are counted once per browser per day using a salted hash that changes every day. Nobody is asked who they are. The <a href="/privacy/">privacy page</a> sets out everything the site records.</p>
 <h2>Security</h2>
@@ -1856,7 +1856,7 @@ PROSE = {
 <p>Votes in the <a href="/backlog/">backlog</a> decide which datasets are built next. A report of a file that differs from the publisher's, or of a page that reads badly, helps as much as a pull request. A publisher that confirms a licence in writing can move a blocked dataset onto the list. Questions and ideas that are not a fault go in <a href="{repo}/discussions">the discussions</a>.</p>
 <h2>How a change is accepted</h2>
 <p>Sign off each commit with <code>git commit -s</code>, which certifies under the <a href="https://developercertificate.org/">Developer Certificate of Origin</a> that you may submit it. Title the pull request as a Conventional Commit, such as <code>data(register): add &lt;what it is&gt;</code>. The checks build and test the site and need no credentials, so they run on a pull request from a fork. A maintainer then reviews it and squash-merges it, and the release notes on GitHub name the people whose changes each release carries.</p>
-<p>The rules every change is held to are in <a href="{repo}/blob/main/CONTRIBUTING.md#ground-rules">the guide</a>. The site publishes what the publisher published and derives nothing from it, and a version never changes once it is out. By taking part you agree to the <a href="{repo}/blob/main/CODE_OF_CONDUCT.md">code of conduct</a>. Report a security issue privately, as the <a href="{repo}/blob/main/SECURITY.md">security policy</a> describes.</p>
+<p>The rules every change is held to are in <a href="{repo}/blob/main/CONTRIBUTING.md#ground-rules">the guide</a>. The site publishes what the publisher published and derives nothing from it, and a version keeps its content once it is out. By taking part you agree to the <a href="{repo}/blob/main/CODE_OF_CONDUCT.md">code of conduct</a>. Report a security issue privately, as the <a href="{repo}/blob/main/SECURITY.md">security policy</a> describes.</p>
 <h2>Licences</h2>
 <p>Each dataset stays under its publisher's licence. The code is under the AGPL and the register's own text is under CC BY 4.0. The name publicdata.au and its mark are outside both licences, and <a href="{repo}/blob/main/BRAND.md">BRAND.md</a> says what a copy of the site may use.</p>
 """,
@@ -3174,13 +3174,17 @@ def render_site(
                     f"dataset: {base}",
                     f"rows: {v.rows}",
                     f"source_sha256: {v.manifest.sha256}",
-                    "immutable: true",
                     "---",
                     "",
                     f"# {ds.title}, version {v.manifest.version}",
                     "",
-                    f"{v.rows} rows, {ds.field_count} fields, fetched {view['fetched_long']}. This version never changes.",
+                    f"{v.rows} rows, {ds.field_count} fields, fetched {view['fetched_long']}. This version keeps its content. Its files change only for the reasons the terms give ({SITE}/terms/), and each change is recorded in its notes.",
                     "",
+                    *(
+                        ["## About this version", "", *v.manifest.notes, ""]
+                        if v.manifest.notes
+                        else []
+                    ),
                     *(
                         [f"Condition of use: {ds.licence.condition}", ""]
                         if ds.licence.condition
@@ -3889,7 +3893,7 @@ def render_site(
             "",
             f"# {brand.HEADLINE}",
             "",
-            f"publicdata.au republishes Australian government datasets as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage. Every release a publisher makes becomes a dated version that never changes, with its schema, its provenance and a diff against the release before. A query API answers filters and counts from a URL, an explorer charts every row in the browser, and an MCP server at {SITE}/mcp gives agents the same tools. There are no keys and no accounts. No government agency runs or has endorsed this site.",
+            f"publicdata.au republishes Australian government datasets as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage. Every release a publisher makes becomes a dated version that keeps its content, with its schema, its provenance and a diff against the release before. A query API answers filters and counts from a URL, an explorer charts every row in the browser, and an MCP server at {SITE}/mcp gives agents the same tools. There are no keys and no accounts. No government agency runs or has endorsed this site.",
             "",
             "## Datasets",
             "",

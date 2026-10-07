@@ -1,9 +1,9 @@
 # Contributing
 
-publicdata.au republishes Australian government open data as dated versions that never change.
-Contributions are welcome: a new dataset, a fix to an entry, a new output format, an adapter for a
-portal we cannot read yet, or a bug fix. This guide covers the routine changes step by step, then
-the rules every change is held to.
+publicdata.au republishes Australian government open data as dated versions that keep their
+content. Contributions are welcome: a new dataset, a fix to an entry, a new output format, an
+adapter for a portal we cannot read yet, or a bug fix. This guide covers the routine changes step
+by step, then the rules every change is held to.
 
 By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues
 privately as [SECURITY.md](SECURITY.md) describes.
@@ -181,9 +181,10 @@ the reason, so the site can say why.
 ## Change or fix a dataset entry
 
 Edit `register/<slug>.yaml` and open a `fix(register): ...` pull request. A field the publisher
-renamed, a resource that moved or a header that changed row are the usual causes. A change that
-would alter a published version's bytes is not possible: versions are immutable, so the fix applies
-from the next version. When the publisher changes its licence, the fetch stops that dataset until a
+renamed, a resource that moved or a header that changed row are the usual causes. The fix applies
+from the next version. When a fault in our conversion or a wrong attribution has already reached
+published versions, those versions are rebuilt as [docs/CORRECTIONS.md](docs/CORRECTIONS.md)
+describes. When the publisher changes its licence, the fetch stops that dataset until a
 person has read the new licence and updated `licence` and `licence.reviewed`.
 
 ## Manual sources
@@ -322,8 +323,9 @@ such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 
 ## Withdraw a dataset or correct published files
 
-- When a publisher withdraws a source, the entry stays and the versions already published stay
-  where they are. Set the entry's status and the reason, and no new versions are made.
+- When a publisher withdraws a source, the entry stays `live` so the versions already published
+  are still served, and its `note` says the source was withdrawn. Any other status withholds the
+  dataset, and every file of every version then answers 410.
 - When a licence turns out not to allow publication, a maintainer withholds the dataset or the
   affected columns, as `source_withheld` and the omitted fields do. The build stops making those
   files and the site says why.

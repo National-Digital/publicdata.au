@@ -876,3 +876,9 @@ def test_a_version_page_shows_the_version_notes(fixture_site):
     ).read_text(encoding="utf-8")
     assert "About this version" in page
     assert "fixture: first 300 rows of the release" in page
+    md = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.md"
+    ).read_text(encoding="utf-8")
+    assert "## About this version" in md
+    assert "fixture: first 300 rows of the release" in md
+    assert "immutable: true" not in md
