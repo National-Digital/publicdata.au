@@ -113,6 +113,26 @@ def test_a_financial_year_is_drawn_and_named_as_the_publisher_writes_it(tmp_path
     assert "2025-26 is not drawn" in fig["chart_caption"]
 
 
+def test_a_financial_year_is_read_however_the_publisher_writes_it():
+    starts = {
+        "2018-19": 2018,
+        "2011\u201312": 2011,
+        "2008/09": 2008,
+        "1931/1932": 1931,
+        "2011-2012": 2011,
+        "Detail Data 2008 - 2009": 2008,
+        "FY201213": 2012,
+        "FY24-25": 2024,
+        # Australia names a financial year by the year it ends.
+        "FY2010": 2009,
+        "1999-00": 1999,
+    }
+    for text, year in starts.items():
+        assert figures.financial_start(text) == year, text
+    for text in ("2015", "Total", "2011-13", "2010-2012", "FY24-26", "2019-20 to 2020-21", ""):
+        assert figures.financial_start(text) is None, text
+
+
 def test_the_year_comes_from_an_integer_year_field_before_a_date():
     ds = make_dataset(
         [

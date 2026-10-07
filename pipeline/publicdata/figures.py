@@ -98,6 +98,28 @@ def year_field(ds) -> tuple[str, str] | None:
     return None
 
 
+# A financial year with both its years, such as 2011-12, 2008/09, 2011-2012 or FY201213.
+FY_PAIR = re.compile(r"(?<!\d)(\d{4})\s*[-/]?\s*(\d{4}|\d{2})(?!\d)")
+# One written by the year it ends, as Australia names them: FY2010 is July 2009 to June 2010.
+FY_END = re.compile(r"^FY\s*(\d{4})$", re.I)
+FY_SHORT = re.compile(r"^FY\s*(\d{2})\s*-\s*(\d{2})$", re.I)
+
+
+def financial_start(text) -> int | None:
+    """The calendar year a financial year starts in, or None when the text is not one."""
+    t = re.sub(r"[\u2013\u2014]", "-", str(text)).strip()
+    if m := FY_END.match(t):
+        return int(m.group(1)) - 1
+    if m := FY_SHORT.match(t):
+        a, b = int(m.group(1)), int(m.group(2))
+        return 2000 + a if (a + 1) % 100 == b else None
+    pairs = FY_PAIR.findall(t)
+    if len(pairs) != 1:
+        return None
+    a, b = int(pairs[0][0]), pairs[0][1]
+    return a if int(b) == (a + 1 if len(b) == 4 else (a + 1) % 100) else None
+
+
 def series(
     db: Path,
     yf: str,
@@ -111,9 +133,9 @@ def series(
     chart condition when it has one. A year that ends after the cut-off is left out and named,
     so a chart never falls away at a part year. A financial year is drawn under the year it
     starts in and named as the publisher writes it."""
-    y = _q(yf) if kind == "integer" else f"TRY_CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
-    if kind == "financial":
-        y = f"CASE WHEN regexp_full_match({_q(yf)}, '\\d{{4}}-\\d{{2}}') THEN {y} END"
+    y = {"integer": _q(yf), "financial": _q(yf)}.get(
+        kind, f"TRY_CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
+    )
     cols = f"{y}, {_q(split)}" if split else y
     con = connect(db)
     try:
@@ -135,10 +157,13 @@ def series(
     finally:
         con.close()
     values: dict[int, dict[str, float]] = {}
+    names: dict[int, str] = {}
     for r in rows:
-        year = int(r[0])
-        if year < 1800 or year > 2200:
+        year = financial_start(r[0]) if kind == "financial" else int(r[0])
+        if year is None or year < 1800 or year > 2200:
             continue
+        if kind == "financial":
+            names[year] = min(names.get(year, str(r[0])), str(r[0]))
         key = str(r[1]) if split else ""
         values.setdefault(year, {})[key] = values.get(year, {}).get(key, 0) + (r[-1] or 0)
     years = sorted(values)
@@ -164,7 +189,7 @@ def series(
         "first": first or "",
         "categories": cats,
         "values": {y: values[y] for y in full},
-        "names": {y: f"{y}-{(y + 1) % 100:02d}" if kind == "financial" else str(y) for y in years},
+        "names": {y: names.get(y, str(y)) for y in years},
         # An average, lowest or highest per year does not add up across the years.
         "additive": metric == "count" or metric.startswith("sum."),
     }
