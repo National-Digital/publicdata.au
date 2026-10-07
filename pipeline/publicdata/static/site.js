@@ -26,10 +26,10 @@
       var file = D.formats[f].file;
       return D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
     }
-    // download_name() in site.py and functions/_download.js.
+    // download_name() in site.py, with the suffix it gives each format and the date latest/ serves.
     function saveAs() {
-      var v = ver ? ver.value : 'latest', file = D.formats[fmt()].file;
-      return D.slug + '_' + (v === 'latest' ? D.latest : v) + (file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_'));
+      var v = ver ? ver.value : 'latest';
+      return D.slug + '_' + (v === 'latest' ? D.served : v) + D.formats[fmt()].suffix;
     }
     function q(s) { return '"' + s + '"'; }
     function tools(f, u) {

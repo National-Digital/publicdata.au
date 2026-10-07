@@ -5,6 +5,7 @@ as the determinism job reads them too."""
 
 import datetime as dt
 import json
+import re
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -641,6 +642,38 @@ def test_the_pages_list_the_parts_and_say_how_the_source_is_followed(fetched, tm
     feed = (out / "d/test-feed/index.html").read_text("utf-8")
     assert "reads the feed every day" in feed and "history/2026.parquet" in feed
     assert gate.main(out, classes_fixture.REGISTER) == 0
+
+
+def test_a_part_and_latest_save_under_the_names_the_server_gives(fetched, tmp_path):
+    from publicdata.site import download_name, render_site
+
+    st, _ = fetched
+    out = tmp_path / "dist"
+    render_site([build_dataset(ds, st, out) for ds in registered().values()], out)
+    page = (out / "d/test-rolling/index.html").read_text("utf-8")
+    # latest/ serves the fetch of 2026-09-22, a week after the newest snapshot.
+    assert re.search(
+        r'id="dl" href="[^"]+/latest/data\.(\w+)" download="test-rolling_2026-09-22\.\1"', page
+    )
+    data = json.loads(re.search(r'id="ds-data">(.*?)</script>', page, re.S).group(1))
+    assert data["served"] == "2026-09-22" and data["latest"] == "2026-09-15"
+    for f, d in data["formats"].items():
+        name = download_name("test-rolling", data["served"], d["file"])
+        assert f"test-rolling_{data['served']}{d['suffix']}" == name, f
+    links = re.findall(r'<a href="https://publicdata\.au/(d/[^"]+)" download="([^"]+)"', page)
+    parts = [(u, n) for u, n in links if "/parts/" in u]
+    assert (
+        "d/test-rolling/v/2026-08-04/parts/2023.parquet",
+        "test-rolling_2026-08-04_2023.parquet",
+    ) in parts
+    feed = (out / "d/test-feed/index.html").read_text("utf-8")
+    links += re.findall(r'<a href="https://publicdata\.au/(d/[^"]+)" download="([^"]+)"', feed)
+    history = [(u, n) for u, n in links if "/history/" in u]
+    assert history and parts
+    for u, n in links:
+        _, slug, _, version, rel = u.split("/", 4)
+        assert n == download_name(slug, version, rel), u
+    assert any(n.endswith("_history_2026.parquet") for _, n in history)
 
 
 def test_every_part_of_a_version_has_the_same_column_types(built):

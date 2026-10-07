@@ -118,11 +118,25 @@ FORMAT_NOTES = {
 }
 
 
+def save_suffix(rel: str) -> str:
+    """What follows the slug and version in a saved file's name: data.csv is .csv, a period part
+    parts/2022.parquet is _2022.parquet, and any other path is joined with underscores."""
+    if rel.startswith("data."):
+        return rel[4:]
+    return "_" + (rel[6:] if rel.startswith("parts/") else rel).replace("/", "_")
+
+
 def download_name(slug: str, version: str, rel: str) -> str:
-    """The name a version's file saves under: data.csv of qld-x 2026-04-24 is
-    qld-x_2026-04-24.csv. functions/_download.js does the same."""
-    tail = rel[4:] if rel.startswith("data.") else "_" + rel.replace("/", "_")
-    return f"{slug}_{version}{tail}"
+    """The name a file saves under: data.csv of qld-x 2026-04-24 is qld-x_2026-04-24.csv, and a
+    file of no one version, such as the change log index, has no date. functions/_download.js
+    does the same, and the dataset page's script takes each format's suffix from the build."""
+    return slug + (f"_{version}" if version else "") + save_suffix(rel)
+
+
+def served_date(o) -> str:
+    """The date of what latest/ serves: a rolling source's or a feed's newest fetch, which
+    current.json names, else the newest snapshot."""
+    return (o.current or o.latest).manifest.version
 
 
 def fmt_size(n: int | None) -> str:
@@ -254,6 +268,7 @@ def _parts_view(ds: Dataset, out: Path, version: str) -> dict | None:
                     {
                         "label": FORMAT_LABEL[f],
                         "url": url(ds.slug, r, f),
+                        "download": download_name(ds.slug, r["tree"], r["files"][f]["path"]),
                         "size": fmt_size(r["files"][f]["bytes"]),
                     }
                     for f in FORMATS
@@ -837,6 +852,7 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
     fmt_data = {
         f["key"]: {
             "file": f["file"],
+            "suffix": save_suffix(f["file"]),
             "note": _format_note(ds, f["key"], latest.rows),
         }
         for f in formats
@@ -856,6 +872,7 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
             )
             fmt_data["partition"] = {
                 "file": ex["json"],
+                "suffix": save_suffix(ex["json"]),
                 "note": FORMAT_NOTES["partition"].format(
                     field=pf, count=len(entries), example=ex["json"]
                 ),
@@ -1230,6 +1247,7 @@ ROUTES = (
     "/d/*/v/*",
     "/d/*/diff/*",
     "/d/*/history.tar.zst",
+    "/d/*/changes/*",
 )
 
 
@@ -3580,6 +3598,7 @@ def render_site(
                 "title": ds.title,
                 "base": base,
                 "latest": latest.manifest.version,
+                "served": served_date(o),
                 "formats": fmt_data,
                 "example_field": example_field,
                 "console": console,
@@ -3649,6 +3668,7 @@ def render_site(
             ds=ds,
             base=base,
             latest=views[-1],
+            served=served_date(o),
             versions=views,
             formats=formats,
             left_out=_left_out(ds, latest),
@@ -3961,6 +3981,7 @@ def render_site(
         "slug": hero.dataset.slug,
         "title": hero.dataset.title,
         "version": hero.latest.manifest.version,
+        "served": served_date(hero),
         "rows": fmt_int(hero.latest.rows),
         "formats": [f for f in demo_formats if f["key"] != "partition"],
         "ds_data": _escape_script(
@@ -3970,6 +3991,7 @@ def render_site(
                     "title": hero.dataset.title,
                     "base": dataset_url(hero.dataset.slug),
                     "latest": hero.latest.manifest.version,
+                    "served": served_date(hero),
                     "formats": demo_data,
                     "example_field": hero.dataset.partition_by[0]
                     if hero.dataset.partition_by
