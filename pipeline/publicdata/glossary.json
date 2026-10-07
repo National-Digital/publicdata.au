@@ -1,4 +1,6 @@
 {
+  "AA": "the middle of the three conformance levels in the Web Content Accessibility Guidelines",
+  "AAA": "the highest of the three conformance levels in the Web Content Accessibility Guidelines",
   "AADT": "annual average daily traffic, the vehicles a day a counting station records averaged over a year",
   "ABN": "Australian Business Number, the eleven-digit identifier the Australian Business Register issues",
   "ABS": "Australian Bureau of Statistics",
@@ -131,6 +133,7 @@
   "VS Code": "Visual Studio Code, an editor that can connect to the MCP server",
   "W3C": "World Wide Web Consortium, the body that publishes web standards",
   "WA": "Western Australia",
+  "WCAG": "Web Content Accessibility Guidelines, the international standard for accessible web content",
   "WFS": "Web Feature Service, a standard interface for fetching map features",
   "WGS84": "World Geodetic System 1984, the coordinate frame GPS uses",
   "WMS": "Web Map Service, a standard interface for fetching map images",

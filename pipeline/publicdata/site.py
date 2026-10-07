@@ -1886,6 +1886,55 @@ PROSE = {
 <p>Questions about privacy go to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
 """,
     ),
+    "accessibility": (
+        "Accessibility",
+        "How publicdata.au is built and checked so people who use assistive technology can use it, and how to report a barrier.",
+        """
+<p>Last updated 8 October 2026.</p>
+<h2>Our commitment</h2>
+<p>We want everyone to be able to use publicdata.au and its data, whatever their disability, device or assistive technology. We aim to provide equal access consistently with the Disability Discrimination Act 1992. Meeting a standard supports that aim. We will still respond to any barrier a person meets and offer a reasonable alternative where one is needed.</p>
+<h2>The standard the site is held to</h2>
+<p>The site is built to the Web Content Accessibility Guidelines (WCAG) 2.2 at level AAA, the highest of its three levels. Dense data regions, which are long tables, dataset listings and the data explorer, are held to level AA for the size of targets and type, and to AAA for everything else. A table of many rows cannot give every cell a large target and still work as a table.</p>
+<p>We do not claim that every page conforms. The automated checks below run on a fixed set of pages that covers every kind of page the site builds. Some criteria have no reliable automated test and are met by design and checked in review.</p>
+<h2>How it is checked</h2>
+<p>Every change to the site has to pass these checks before it can be merged. Each runs in the light and in the dark colour scheme.</p>
+<ul>
+<li>The axe-core rules for WCAG 2.2 at levels A, AA and AAA, which include text contrast of at least 7 to 1.</li>
+<li>Text of at least 0.875rem where it is read and 0.75rem elsewhere. The base size grows on wide screens and follows the size set in your browser.</li>
+<li>Paragraphs and lists of no more than 80 characters a line.</li>
+<li>Links, buttons and fields of at least 44 by 44 pixels, or 24 by 24 inside a dense data region.</li>
+<li>Link text that says where the link goes.</li>
+<li>A visible focus outline on everything you can reach with the keyboard.</li>
+<li>No sideways scrolling at 320 pixels wide, or with line, letter, word and paragraph spacing increased.</li>
+<li>Every abbreviation in the site's own text spelt out on the page or listed under <a href="/about/#abbreviations">abbreviations</a>.</li>
+</ul>
+<p>Each check is first run against a page built to fail it, so a check that stops working fails the build. The abbreviation rule also runs on every page of every deploy and on the text of each new or changed dataset entry.</p>
+<h2>What the site provides</h2>
+<ul>
+<li>A skip link, labelled navigation and search, one main heading on every page and section headings in order.</li>
+<li>Charts and maps with a text description worked out from the values they show. The same numbers are in the dataset's files.</li>
+<li>Tables that scroll with the keyboard and are named for screen readers.</li>
+<li>Every dataset's rows as a CSV file, which opens in a spreadsheet or a text editor, and in most cases as Excel and JSON as well.</li>
+<li>A plain Markdown copy of every page, linked at the foot of the page.</li>
+<li>Colours that give way to your browser's forced-colours mode or your own style sheet, and light and dark schemes that follow your device's setting.</li>
+<li>Nothing timed. The only animation is the explorer's loading indicator, which stops when your device asks for reduced motion.</li>
+</ul>
+<h2>Known limitations</h2>
+<ul>
+<li>The data explorer is built on Perspective, a third-party component, and needs JavaScript and a recent browser. Its region is held to level AA, and we cannot change how the component itself works. The dataset page has every file and the query API as alternatives.</li>
+<li>Titles, descriptions and field names quoted from a publisher stay in the publisher's words, so they can hold abbreviations or terms the site does not expand.</li>
+<li>The publisher's own file is served as it was published. When it is a document or spreadsheet that is hard to use, the converted files usually work better.</li>
+<li>A map shows its values by shading. Its description and the dataset's files give the numbers.</li>
+</ul>
+<h2>Report a barrier or ask for another format</h2>
+<p>If part of the site is hard to use, tell us the page, what you were trying to do and, if you are comfortable saying, the browser or assistive technology you use. You can also ask for a dataset in a format the site does not offer. Write to <a href="https://nationaldigital.com.au/contact/">National Digital</a> or open an issue <a href="{repo}/issues">on GitHub</a>.</p>
+<p>When a report shows a barrier a machine can detect, we add a check for it to the gate so it cannot come back.</p>
+<h2>If you are not satisfied</h2>
+<p>We will try to resolve a concern with you directly. You can also make a complaint to the <a href="https://humanrights.gov.au/complaints">Australian Human Rights Commission</a>.</p>
+<h2>Review</h2>
+<p>This statement changes when the checks change. The checks are in the site's source, and <a href="{repo}/blob/main/docs/ACCESSIBILITY.md">the accessibility record</a> lists each criterion, the regions held to AA and how the criteria with no automated test are met.</p>
+""",
+    ),
     "terms": (
         "Terms of use",
         "The terms for using publicdata.au: its pages, data files, query API and MCP server.",
@@ -4618,6 +4667,7 @@ def render_site(
         f"{SITE}/agents/",
         f"{SITE}/about/",
         f"{SITE}/contribute/",
+        f"{SITE}/accessibility/",
         f"{SITE}/privacy/",
         f"{SITE}/terms/",
     ]

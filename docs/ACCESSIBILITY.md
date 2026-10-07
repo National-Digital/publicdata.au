@@ -4,6 +4,8 @@ The site is held to WCAG 2.2 level AAA, with one stated exception for dense data
 held to level AA. CI enforces what a machine can test and this page records how the rest is met, so
 the standard does not drift as pages change.
 
+The public statement at `/accessibility/` (in `site.py`'s `PROSE`) says the same in plain words and is held to this page: a check added or removed here changes it too.
+
 ## What the gate enforces
 
 `scripts/a11y.mjs` runs in CI over a fixture build of every kind of page, in light and in dark, and
