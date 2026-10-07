@@ -6,8 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-# The weekly fetch makes at most one version a week, and the daily feed run one a day.
-WEEKLY_MAX = 52
+# The daily feed run makes a version a day.
 FEED_MAX = 365
 
 # A closed state, or an end date that has passed, outranks a rate in the same phrase ("monthly

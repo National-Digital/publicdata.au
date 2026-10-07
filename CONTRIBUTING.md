@@ -165,14 +165,15 @@ The pipeline package in `pipeline/` is not published, so it makes no versioning 
    example query; if it reads poorly, set `example` and `chart` in the entry.
 6. Set `status: live` and open a pull request titled `data(register): add <what it is>`. Say where
    the licence evidence is and what you checked.
-7. The Storage cost check projects how much the entry adds to storage in a year: the bytes one
-   version publishes times the versions its cadence implies, plus a rebuild of every stored
-   version when an edit changes what a version publishes. An entry over 5 GB a year fails it
-   until a maintainer who accepts the cost adds the `cost-approved` label. The label approves
-   the commit it was added on, and a later push or reopening the pull request takes it off. On
-   a pull request from a fork the label cannot be taken off, so only the run its adding starts
-   counts: after a later push, reopen or label change, a maintainer removes it and adds it
-   again. Run `python -m publicdata cost <slug>` to see the figure first.
+7. The Storage cost check projects what the entry adds in a year: the bytes one version stores
+   in R2 times the versions its cadence implies, plus a rebuild of every stored version when an
+   edit changes what a version publishes, and the rows its versions write to D1, once for the
+   table and once for each index. An entry over 5 GB or 10,000,000 D1 rows a year fails it until
+   a maintainer other than the pull request's author adds the `cost-approved` label. The label
+   approves the commit it was added on: a later push, reopening the pull request or changing its
+   base needs it added again. The check runs the base branch's code against the pull request's
+   register, so a change to the check takes effect once it is merged. Run
+   `python -m publicdata cost <slug>` to see the figures first.
 
 A dataset that cannot be published yet keeps its entry at `backlog`, `assessing` or `blocked`, with
 the reason, so the site can say why.

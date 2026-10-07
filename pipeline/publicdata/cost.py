@@ -1,36 +1,116 @@
-"""Projected R2 storage growth per register entry, and the gate on entries a pull request changes.
+"""Projected R2 storage growth and D1 rows written per register entry, and the gate on entries a
+pull request changes.
 
 Kept out of build.py's imports so it never enters the build cache key."""
 
 from __future__ import annotations
 
 import datetime as dt
+import http.client
+import io
 import json
 import os
 import subprocess
+import time
+import urllib.error
+import urllib.parse
 import urllib.request
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
 
 from . import SITE, store
-from .cadence import FEED_MAX, WEEKLY_MAX, per_year
+from .cadence import FEED_MAX, per_year
+from .d1 import MAX_CSV, queryable
 from .register import Dataset
 
 GB = 10**9
 BUDGET_GB_YEAR = 5.0
-# Measured across the fleet: published bytes are about 13 times the source bytes.
+# D1 bills rows written past a monthly allowance, and each index on a table writes its row again.
+BUDGET_D1_ROWS_YEAR = 10_000_000
+# Published bytes over the publisher's bytes, measured across the fleet in October 2026: plain
+# tables reach 12x at the 90th percentile and spatial ones 29x at most.
 SOURCE_MULTIPLIER = 13
-# The raw bucket and the version's dist tree each hold the publisher's file. Drop to 1 once
-# the dist copy is served from raw (#48).
-SOURCE_COPIES = 2
+SPATIAL_MULTIPLIER = 30
+# A zip or gzip whose unpacked size cannot be read reached 149x, and a spreadsheet 90x.
+COMPRESSED_MULTIPLIER = 150
+SPREADSHEET_MULTIPLIER = 90
+# A gzip trailer holds the unpacked size modulo 4 GiB, which is ambiguous past this.
+GZIP_TRAILER_MAX = 20 * 10**6
+# Central directories larger than this are not read; the compressed multiplier applies.
+ZIP_DIRECTORY_MAX = 64 * 10**6
+# The fewest published bytes per row of any table in the fleet is about 205.
+PUBLISHED_BYTES_PER_ROW = 200
 DEFAULT_PER_YEAR = 52
-R2_USD_PER_GB_MONTH = 0.015
-R2_FREE_GB = 10
 APPROVAL_LABEL = "cost-approved"
 CATALOG = f"{SITE}/catalog.json"
 UA = "publicdata.au cost (+https://publicdata.au/about/)"
+GITHUB_API = "https://api.github.com"
+ATTEMPTS = 4
+SLEEP = time.sleep
+
+
+class Unsized(Exception):
+    """Why a source could not be sized."""
+
+
+def retry(fn, attempts: int | None = None, wait: float = 1.0):
+    """Calls fn until it returns, backing off on a dropped connection, a truncated body or a 5xx
+    or 429; any other HTTP error is final."""
+    attempts = attempts or ATTEMPTS
+    for i in range(attempts):
+        try:
+            return fn()
+        except urllib.error.HTTPError as e:
+            if e.code < 500 and e.code != 429:
+                raise
+            last: Exception = e
+        except (OSError, http.client.HTTPException) as e:
+            last = e
+        if i < attempts - 1:
+            SLEEP(wait * 2**i)
+    raise last
+
+
+@dataclass(frozen=True)
+class Sized:
+    """A source file: its bytes, its unpacked bytes when they could be read, and its kind
+    (plain, zip, gzip or spreadsheet)."""
+
+    bytes: int
+    kind: str = "plain"
+    unpacked: int | None = None
+
+
+def estimate(ds: Dataset, s: Sized) -> int:
+    """A version's bytes in R2 from its source: the published files, conservatively, and the
+    publisher's file once in the raw store."""
+    mult = SPATIAL_MULTIPLIER if ds.geometry else SOURCE_MULTIPLIER
+    if s.kind == "spreadsheet":
+        published = s.bytes * max(mult, SPREADSHEET_MULTIPLIER)
+    elif s.kind in ("zip", "gzip"):
+        if s.unpacked is None:
+            published = s.bytes * max(mult, COMPRESSED_MULTIPLIER)
+        else:
+            published = max(s.unpacked, s.bytes) * mult
+    else:
+        published = s.bytes * mult
+    return published + s.bytes
+
+
+def kind_of(name: str, content_type: str = "") -> str:
+    n = urllib.parse.urlsplit(name).path.lower() if "://" in name else name.lower()
+    ct = content_type.lower()
+    if n.endswith((".xlsx", ".xlsm", ".xls", ".ods")) or "spreadsheet" in ct or "excel" in ct:
+        return "spreadsheet"
+    if n.endswith((".zip", ".shz", ".kmz")) or "zip" in ct and "gzip" not in ct:
+        return "zip"
+    if n.endswith((".gz", ".tgz")) or "gzip" in ct:
+        return "gzip"
+    return "plain"
 
 
 @dataclass(frozen=True)
@@ -44,6 +124,13 @@ class Projection:
     budget_gb: float = BUDGET_GB_YEAR
     # A change to the entry's output rebuilds every stored version once with the new shape.
     rebuild_bytes: int = 0
+    # Rows each version loads into D1 and the indexes on its table; None rows when unknown.
+    d1_loaded: bool = False
+    d1_rows: int | None = None
+    d1_indexes: int = 0
+    # A changed output loads the newest version into D1 again.
+    d1_reload: bool = False
+    note: str = ""
 
     @property
     def gb_per_version(self) -> float | None:
@@ -55,30 +142,50 @@ class Projection:
         return None if g is None else g * self.per_year + self.rebuild_bytes / GB
 
     @property
-    def over_budget(self) -> bool:
+    def d1_rows_per_year(self) -> float | None:
+        if not self.d1_loaded:
+            return 0.0
+        if self.d1_rows is None:
+            return None
+        loads = self.per_year + (1 if self.d1_reload else 0)
+        return self.d1_rows * (1 + self.d1_indexes) * loads
+
+    @property
+    def over_storage(self) -> bool:
         g = self.gb_per_year
         # An entry whose size cannot be worked out fails closed until a person approves it.
         return (g is None and self.per_year > 0) or (g or 0) > self.budget_gb
 
+    @property
+    def over_d1(self) -> bool:
+        r = self.d1_rows_per_year
+        return (r is None and self.per_year > 0) or (r or 0) > BUDGET_D1_ROWS_YEAR
+
+    @property
+    def over_budget(self) -> bool:
+        return self.over_storage or self.over_d1
+
 
 def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple[float, str]:
-    """The larger of the declared rate and the versions of the last year, capped at what the
-    fetch can make. The fetch never reads the cadence, so the text alone cannot lower the rate."""
+    """The larger of the declared rate and the versions stored in the last year. A new entry
+    takes its cadence's rate in full; a feed is fetched daily whatever its cadence says."""
     if not ds.publishable:
         return 0.0, "not publishable"
-    cap = FEED_MAX if ds.source.feed else WEEKLY_MAX
     declared = per_year(ds.source.cadence, ds.source.feed, today)
+    if ds.source.feed:
+        declared = max(declared or 0.0, float(FEED_MAX))
     if not versions:
-        n, basis = (declared, "cadence") if declared is not None else (DEFAULT_PER_YEAR, "default")
+        if declared is None:
+            return float(DEFAULT_PER_YEAR), "default"
         # The first fetch stores a version whatever the cadence says.
-        return float(min(max(n, 1), cap)), basis
+        return float(max(declared, 1)), "cadence"
     since = today - dt.timedelta(days=365)
     recent = sum(1 for v in versions if since < dt.date.fromisoformat(v) <= today)
     # An ended cadence cannot bring the rate to zero while the fetch still runs.
     if declared and declared >= recent:
-        return float(min(declared, cap)), "cadence"
+        return float(declared), "cadence"
     # A served entry that has not changed for a year is still expected to change again.
-    return float(min(max(recent, 1), cap)), "observed"
+    return float(max(recent, 1)), "observed"
 
 
 def _upper(path: str, n: int) -> int:
@@ -104,12 +211,10 @@ def catalogue_sizes(catalog: dict) -> dict[str, dict[str, int]]:
 
 
 def measured_bytes(ds: Dataset, files: dict[str, int], source_bytes: int) -> int:
-    """A version's bytes in R2: its data files, the publisher's file in each bucket that holds
-    it, and the partition files, which hold the table again once per partition field. NDJSON
-    stands in for the partitions' JSON because data.json is not written for a large table."""
-    total = sum(files.values())
-    if not ds.source_withheld:
-        total += source_bytes * SOURCE_COPIES
+    """A version's bytes in R2: its data files, the publisher's file once in the raw store, and
+    the partition files, which hold the table again once per partition field. NDJSON stands in
+    for the partitions' JSON because data.json is not written for a large table."""
+    total = sum(files.values()) + source_bytes
     rows_json = files.get("data.ndjson") or files.get("data.json", 0)
     per_part = rows_json
     if ds.geometry and (ds.geometry or {}).get("kind", "point") == "point":
@@ -117,35 +222,140 @@ def measured_bytes(ds: Dataset, files: dict[str, int], source_bytes: int) -> int
     return total + per_part * len(ds.partition_by)
 
 
-def _head(url: str, timeout: float) -> int | None:
+def d1_indexes(ds: Dataset) -> int:
+    """d1.py indexes each key and partition field once."""
+    return len(dict.fromkeys((*ds.key, *ds.partition_by)))
+
+
+def _open(req: urllib.request.Request, timeout: float):
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _final(r, url: str) -> str:
+    return r.geturl() if hasattr(r, "geturl") else url
+
+
+def _head(url: str, timeout: float) -> tuple[int | None, str, str]:
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        if "html" in r.headers.get("Content-Type", ""):
-            return None
+    with _open(req, timeout) as r:
+        ct = r.headers.get("Content-Type", "")
+        if "html" in ct:
+            return None, ct, url
         n = r.headers.get("Content-Length")
-        return int(n) if n else None
+        return (int(n) if n else None), ct, _final(r, url)
 
 
-def _ranged(url: str, timeout: float) -> int | None:
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Range": "bytes=0-0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+def _get(url: str, timeout: float) -> tuple[int | None, str, str]:
+    """The headers of a GET, closed before its body is read; a Range would apply to a redirect
+    itself on some hosts. Without a length, a one-byte range of the final URL gives the size."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with _open(req, timeout) as r:
+        ct, n, final = r.headers.get("Content-Type", ""), r.headers.get("Content-Length"), _final(r, url)  # fmt: skip
+    if "html" in ct:
+        return None, ct, final
+    if n:
+        return int(n), ct, final
+    req = urllib.request.Request(final, headers={"User-Agent": UA, "Range": "bytes=0-0"})
+    with _open(req, timeout) as r:
         total = r.headers.get("Content-Range", "").rpartition("/")[2]
-        return int(total) if total.isdigit() else None
+        return (int(total) if total.isdigit() else None), ct, final
 
 
-def _size(url: str, timeout: float) -> int | None:
-    """A presigned S3 redirect refuses HEAD, so a one-byte GET reads the size from Content-Range."""
+def _size(url: str, timeout: float) -> tuple[int | None, str, str]:
+    """Bytes, type and the URL after redirects. A presigned S3 redirect refuses HEAD, so a GET's
+    headers are read instead."""
     try:
-        if n := _head(url, timeout):
-            return n
-    except OSError:
+        n, ct, final = retry(lambda: _head(url, timeout))
+        if n:
+            return n, ct, final
+    except OSError, http.client.HTTPException:
         pass
-    return _ranged(url, timeout)
+    return retry(lambda: _get(url, timeout))
 
 
-def probe(ds: Dataset, timeout: float = 30) -> int | None:
-    """The size of the file the fetch would read: the CKAN resource the entry resolves to, the
-    way the fetch picks it, or a fixed file URL. Other adapters are not sized."""
+def _range(url: str, start: int, end: int, timeout: float) -> bytes:
+    """Bytes start..end inclusive. A host that answers with the whole file is refused unread."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Range": f"bytes={start}-{end}"})
+
+    def get():
+        with _open(req, timeout) as r:
+            if getattr(r, "status", 206) != 206:
+                raise Unsized("the host does not serve byte ranges")
+            body = r.read(end - start + 1)
+            if len(body) != end - start + 1:
+                raise http.client.IncompleteRead(body, end - start + 1 - len(body))
+            return body
+
+    return retry(get)
+
+
+class _RangeFile(io.RawIOBase):
+    """A remote file read by byte ranges, enough for zipfile to read the central directory."""
+
+    def __init__(self, url: str, size: int, timeout: float):
+        self.url, self.size, self.timeout, self.pos = url, size, timeout, 0
+
+    def seekable(self):
+        return True
+
+    def readable(self):
+        return True
+
+    def tell(self):
+        return self.pos
+
+    def seek(self, offset, whence=0):
+        self.pos = {0: 0, 1: self.pos, 2: self.size}[whence] + offset
+        return self.pos
+
+    def read(self, n=-1):
+        end = self.size if n is None or n < 0 else min(self.size, self.pos + n)
+        if end - self.pos > ZIP_DIRECTORY_MAX:
+            raise Unsized("the zip's central directory is too large to read")
+        if end <= self.pos:
+            return b""
+        body = _range(self.url, self.pos, end - 1, self.timeout)
+        self.pos = end
+        return body
+
+
+def unpacked_bytes(url: str, size: int, kind: str, timeout: float = 30) -> int | None:
+    """A zip's members' unpacked bytes from its central directory, or a small gzip's from its
+    trailer. A member that is itself compressed is counted at the compressed multiplier."""
+    try:
+        if kind == "zip":
+            with zipfile.ZipFile(_RangeFile(url, size, timeout)) as z:
+                total = 0
+                for i in z.infolist():
+                    if kind_of(i.filename) in ("zip", "gzip"):
+                        total += i.file_size * COMPRESSED_MULTIPLIER
+                    else:
+                        total += i.file_size
+                return total
+        if kind == "gzip" and 4 <= size <= GZIP_TRAILER_MAX:
+            n = int.from_bytes(_range(url, size - 4, size - 1, timeout), "little")
+            while n < size:
+                n += 2**32
+            return n
+    except OSError, http.client.HTTPException, zipfile.BadZipFile, Unsized, ValueError:
+        return None
+    return None
+
+
+def _sized(url: str, timeout: float, hint: str = "") -> Sized:
+    # urllib would also open a file: URL on the runner.
+    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+        raise Unsized(f"{url} is not an http or https URL")
+    n, ct, final = _size(url, timeout)
+    if not n:
+        raise Unsized(f"{url} gave no size")
+    kind = kind_of(hint) if kind_of(hint) != "plain" else kind_of(url, ct)
+    return Sized(n, kind, unpacked_bytes(final, n, kind, timeout) if kind != "plain" else None)
+
+
+def probe(ds: Dataset, timeout: float = 30) -> Sized:
+    """The file the fetch would read: the CKAN resource the entry resolves to, the way the fetch
+    picks it, or a fixed file URL. Other adapters are not sized and raise Unsized."""
     try:
         if ds.source.adapter == "ckan-resource":
             import requests
@@ -154,16 +364,45 @@ def probe(ds: Dataset, timeout: float = 30) -> int | None:
 
             s = requests.Session()
             s.headers["User-Agent"] = UA
-            res = pick_resource(ds, _package(ds, s, f"{ds.source.portal.rstrip('/')}/api/3/action")["resources"])  # fmt: skip
+            api = f"{ds.source.portal.rstrip('/')}/api/3/action"
+            res = pick_resource(ds, retry(lambda: _package(ds, s, api))["resources"])
+            hint = f"x.{str(res.get('format') or '').lower()}" if res.get("format") else ""
+            hint = hint if kind_of(hint) != "plain" else str(res.get("url") or "")
             # Some portals give the size as text ("2 MiB"); the host's headers are exact.
-            if str(res.get("size") or "").isdigit():
-                return int(res["size"])
-            return _size(res["url"], timeout)
+            if str(res.get("size") or "").isdigit() and kind_of(hint) == "plain":
+                return Sized(int(res["size"]))
+            return _sized(res["url"], timeout, hint)
         if ds.source.adapter == "file" and not ds.source.page_size:
-            return _size(ds.source.url, timeout)
-    except Exception:  # noqa: BLE001
-        return None
-    return None
+            return _sized(ds.source.url, timeout, ds.source.format and f"x.{ds.source.format}")
+    except Unsized:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise Unsized(f"the source could not be read ({type(e).__name__}: {e})") from e
+    raise Unsized(f"the {ds.source.adapter} adapter's source is not sized ahead of a fetch")
+
+
+def live_rows(slugs: list[str], site: str = SITE, workers: int = 16) -> dict[str, int]:
+    """Rows of each dataset's newest version, from its versions.json; a slug that cannot be read
+    is left out."""
+
+    def one(slug: str) -> tuple[str, int | None]:
+        req = urllib.request.Request(f"{site}/d/{slug}/versions.json", headers={"User-Agent": UA})
+
+        def get():
+            with _open(req, 60) as r:
+                return json.load(r)
+
+        try:
+            doc = retry(get)
+        except OSError, http.client.HTTPException, ValueError:
+            return slug, None
+        latest = doc.get("latest")
+        return slug, next(
+            (int(v["rows"]) for v in doc.get("versions", []) if v.get("version") == latest), None
+        )
+
+    with ThreadPoolExecutor(workers) as ex:
+        return {s: n for s, n in ex.map(one, slugs) if n is not None}
 
 
 def project(
@@ -176,32 +415,41 @@ def project(
     prober=probe,
     probing: bool = False,
     reshaped: dict[str, dict] | None = None,
+    rows: dict[str, int] | None = None,
 ) -> list[Projection]:
     """`sizes` is None when the catalogue could not be read; a changed entry is then unknown.
     `fresh` are changed entries whose source or output shape moved: sized from the new file,
     and never below what the newest version measures. `reshaped` holds the base copy of each
-    entry whose output shape changed, so the rebuild of its stored versions is counted."""
+    entry whose output shape changed, so the rebuild of its stored versions is counted. `rows`
+    are each served entry's rows per version."""
     reshaped = reshaped or {}
+    rows = rows or {}
     out = []
     for ds in datasets:
         ms = store.manifests(store_dir, ds.slug)
         n, n_basis = versions_per_year(ds, [m.version for m in ms], today)
         newest = ms[-1] if ms else None
-        b, basis = None, "unknown"
+        b, basis, note = None, "unknown", ""
         measured = None
-        if sizes and sizes.get(ds.slug):
-            measured = measured_bytes(ds, sizes[ds.slug], newest.bytes if newest else 0)
+        files = (sizes or {}).get(ds.slug) or {}
+        if files:
+            measured = measured_bytes(ds, files, newest.bytes if newest else 0)
         if sizes is None and ds.slug in changed and ms:
-            pass
+            note = "the catalogue could not be read"
         elif ds.slug in fresh or (ds.slug in changed and not ms):
-            if probing and (src := prober(ds)):
-                b, basis = src * SOURCE_MULTIPLIER, "estimate"
-                if measured is not None and measured >= b:
+            if not probing:
+                note = "the source was not probed"
+            else:
+                try:
+                    b, basis = estimate(ds, prober(ds)), "estimate"
+                except Unsized as e:
+                    note = str(e)
+                if b is not None and measured is not None and measured >= b:
                     b, basis = measured, "measured"
         elif measured is not None:
             b, basis = measured, "measured"
         elif newest is not None:
-            b, basis = newest.bytes * SOURCE_MULTIPLIER, "estimate"
+            b, basis = estimate(ds, Sized(newest.bytes, kind_of(newest.filename))), "estimate"
         rebuild = 0
         if ds.slug in reshaped and ms and b is not None:
             old = reshaped[ds.slug]
@@ -211,23 +459,42 @@ def project(
                 geometry=old.get("geometry") or None,
             )
             was = (
-                measured_bytes(before, sizes[ds.slug], newest.bytes)
+                measured_bytes(before, files, newest.bytes)
                 if measured is not None
-                else newest.bytes * SOURCE_MULTIPLIER
+                else estimate(before, Sized(newest.bytes, kind_of(newest.filename)))
             )
             rebuild = max(0, b - was) * len(ms)
-        out.append(Projection(ds.slug, b, basis, n, n_basis, len(ms), rebuild_bytes=rebuild))
+        csv = files.get("data.csv")
+        loaded = (
+            ds.publishable and ds.query and not (csv and csv > MAX_CSV and ds.slug not in fresh)
+        )
+        r = rows.get(ds.slug)
+        if b is not None and (r is None or ds.slug in fresh):
+            r = max(r or 0, b // PUBLISHED_BYTES_PER_ROW)
+        out.append(
+            Projection(
+                ds.slug,
+                b,
+                basis,
+                n,
+                n_basis,
+                len(ms),
+                rebuild_bytes=rebuild,
+                d1_loaded=bool(loaded),
+                d1_rows=r,
+                d1_indexes=d1_indexes(ds),
+                d1_reload=ds.slug in reshaped and bool(ms),
+                note=note,
+            )
+        )
     return out
-
-
-def r2_usd_per_month(gb: float) -> float:
-    return max(0.0, gb - R2_FREE_GB) * R2_USD_PER_GB_MONTH
 
 
 @dataclass(frozen=True)
 class Fleet:
     stored_bytes: int
     bytes_per_year: int
+    d1_rows_per_year: int = 0
 
     @property
     def stored_gb(self) -> float:
@@ -237,20 +504,11 @@ class Fleet:
     def gb_per_year(self) -> float:
         return self.bytes_per_year / GB
 
-    @property
-    def usd_per_month_now(self) -> float:
-        return r2_usd_per_month(self.stored_gb)
-
-    @property
-    def usd_per_month_in_a_year(self) -> float:
-        return r2_usd_per_month(self.stored_gb + self.gb_per_year)
-
     def as_json(self) -> dict:
         return {
             "stored_bytes": self.stored_bytes,
             "growth_bytes_per_year": self.bytes_per_year,
-            "r2_usd_per_month": round(self.usd_per_month_now, 2),
-            "r2_usd_per_month_in_a_year": round(self.usd_per_month_in_a_year, 2),
+            "d1_rows_written_per_year": self.d1_rows_per_year,
         }
 
 
@@ -259,26 +517,28 @@ def fleet(projections: list[Projection]) -> Fleet:
     return Fleet(
         sum((p.bytes_per_version or 0) * p.stored_versions for p in projections),
         round(sum((p.bytes_per_version or 0) * p.per_year + p.rebuild_bytes for p in projections)),
+        round(sum(p.d1_rows_per_year or 0 for p in projections)),
     )
 
 
 def build_version_bytes(ds: Dataset, v) -> int:
-    """A built version's bytes in R2: every file in its tree, and the raw bucket's copies of
-    the publisher's file beyond the one in the tree."""
-    extra = 0 if ds.source_withheld else v.manifest.bytes * (SOURCE_COPIES - 1)
-    return sum(v.files.values()) + extra
+    """A built version's bytes in R2: every file it lists, and the publisher's file in the raw
+    store, which a withheld source keeps without listing."""
+    return sum(v.files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
 
 
 def fleet_from_build(outs, today: dt.date) -> Fleet:
-    """The same totals from a build, where every version's file sizes are known."""
-    stored = growth = 0
+    """The same totals from a build, where every version's file sizes and rows are known."""
+    stored = growth = rows = 0
     for o in outs:
         if not o.versions:
             continue
         stored += sum(build_version_bytes(o.dataset, v) for v in o.versions)
         n, _ = versions_per_year(o.dataset, [v.manifest.version for v in o.versions], today)
         growth += build_version_bytes(o.dataset, o.latest) * n
-    return Fleet(stored, round(growth))
+        if queryable(o.dataset, o.latest.files.get("data.csv")):
+            rows += o.latest.rows * (1 + d1_indexes(o.dataset)) * n
+    return Fleet(stored, round(growth), round(rows))
 
 
 def _git(root: Path, *a: str) -> str:
@@ -289,7 +549,27 @@ def _git(root: Path, *a: str) -> str:
 
 def changed_paths(base: str, root: Path) -> tuple[str, list[str]]:
     mb = _git(root, "merge-base", base, "HEAD")
-    return mb, _git(root, "diff", "--name-only", mb, "HEAD", "--", "register").splitlines()
+    return mb, _git(root, "diff", "--no-renames", "--name-only", mb, "HEAD", "--", "register").splitlines()  # fmt: skip
+
+
+def symlinks(root: Path) -> list[str]:
+    """Symbolic links in the register, committed or on disk. An entry reached through one could
+    change without its path changing, so the check refuses them."""
+    found = {
+        line.split("\t", 1)[1]
+        for line in _git(root, "ls-tree", "-r", "HEAD", "--", "register").splitlines()
+        if line.startswith("120000 ")
+    }
+    reg = root / "register"
+    if reg.is_symlink():
+        found.add("register")
+    elif reg.is_dir():
+        for d, dirs, names in os.walk(reg):
+            for name in dirs + names:
+                p = Path(d) / name
+                if p.is_symlink():
+                    found.add(p.relative_to(root).as_posix())
+    return sorted(found)
 
 
 def changed_entries(register_dir: Path, paths: list[str], root: Path) -> dict[str, str]:
@@ -373,13 +653,109 @@ def entry_changes(
 def load_catalog(where: str) -> dict:
     if where.startswith(("http://", "https://")):
         req = urllib.request.Request(where, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.load(r)
+
+        def get():
+            with _open(req, 60) as r:
+                return json.load(r)
+
+        return retry(get)
     return json.loads(Path(where).read_text(encoding="utf-8"))
+
+
+def _github(path: str, token: str):
+    req = urllib.request.Request(
+        f"{GITHUB_API}/{path}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": UA,
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+
+    def get():
+        with _open(req, 30) as r:
+            return json.load(r)
+
+    return retry(get)
+
+
+def _pages(get, path: str, key: str | None = None, limit: int = 30) -> list:
+    out = []
+    sep = "&" if "?" in path else "?"
+    for page in range(1, limit + 1):
+        doc = get(f"{path}{sep}per_page=100&page={page}")
+        items = doc[key] if key else doc
+        out += items
+        if len(items) < 100:
+            break
+    return out
+
+
+WRITE_ROLES = ("admin", "maintain", "write")
+
+
+def approval(repo: str, pr: int, get) -> tuple[bool, str]:
+    """Whether the pull request's newest commit carries an approval: the label is on, it was
+    last added by someone with write access who did not open the pull request, after the head
+    commit arrived and after any change of base. `get` reads a GitHub API path."""
+    pull = get(f"repos/{repo}/pulls/{pr}")
+    if APPROVAL_LABEL not in {lb["name"] for lb in pull.get("labels", [])}:
+        return False, "the label is not on the pull request"
+    author, head = pull["user"]["login"], pull["head"]["sha"]
+    last, rebased = None, ""
+    for e in _pages(get, f"repos/{repo}/issues/{pr}/events"):
+        if (
+            e.get("event") in ("labeled", "unlabeled")
+            and (e.get("label") or {}).get("name") == APPROVAL_LABEL
+        ):
+            last = e
+        elif e.get("event") == "base_ref_changed":
+            rebased = max(rebased, e["created_at"])
+    if not last or last["event"] != "labeled":
+        return False, "no labelling event was found"
+    actor, at = (last.get("actor") or {}).get("login", ""), last["created_at"]
+    if not actor or actor == author:
+        return False, "the label was added by the pull request's author"
+    try:
+        perm = get(f"repos/{repo}/collaborators/{urllib.parse.quote(actor)}/permission")
+    except urllib.error.HTTPError:
+        perm = {}
+    if perm.get("role_name") not in WRITE_ROLES and perm.get("permission") not in WRITE_ROLES:
+        return False, f"{actor} has no write access"
+    if rebased and at <= rebased:
+        return False, "the label predates a change of base branch"
+    since = head_since(repo, pull, get)
+    if since is None or at <= since:
+        return False, "the label predates the newest commit"
+    return True, f"approved by {actor} for {head[:7]}"
+
+
+def head_since(repo: str, pull: dict, get, workflow: str = "cost.yml") -> str | None:
+    """When the pull request's head became its current commit: the first of this check's runs in
+    the unbroken run of runs on that commit, newest first. Run times are the server's, where a
+    commit's own date is whatever its author wrote."""
+    head = pull["head"]
+    branch = urllib.parse.quote(head["ref"], safe="")
+    path = f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request_target&branch={branch}"  # fmt: skip
+    since = None
+    for r in _pages(get, path, "workflow_runs", limit=10):
+        if (r.get("head_repository") or {}).get("full_name") != (head.get("repo") or {}).get(
+            "full_name"
+        ):
+            continue
+        if r["head_sha"] != head["sha"]:
+            break
+        since = r["created_at"]
+    return since
 
 
 def _gb(x: float | None) -> str:
     return "?" if x is None else f"{x:.3f}"
+
+
+def _rows(x: float | None) -> str:
+    return "?" if x is None else f"{x:,.0f}"
 
 
 BASIS = {"measured": "", "estimate": " (estimate)", "unknown": " (size unknown)"}
@@ -388,18 +764,23 @@ BASIS = {"measured": "", "estimate": " (estimate)", "unknown": " (size unknown)"
 def _row(p: Projection) -> str:
     return (
         f"| `{p.slug}` | {_gb(p.gb_per_version)}{BASIS[p.basis]} | {p.per_year:g} ({p.per_year_basis}) "
-        f"| {_gb(p.rebuild_bytes / GB)} | {_gb(p.gb_per_year)} | {'yes' if p.over_budget else 'no'} |"
+        f"| {_gb(p.rebuild_bytes / GB)} | {_gb(p.gb_per_year)} | {_rows(p.d1_rows_per_year)} "
+        f"| {'yes' if p.over_budget else 'no'} |"
     )
 
 
 HEAD = (
-    "| slug | GB/version | versions/yr | rebuild GB | GB/yr | over budget |",
-    "|---|---|---|---|---|---|",
+    "| slug | GB/version | versions/yr | rebuild GB | GB/yr | D1 rows written/yr | over budget |",
+    "|---|---|---|---|---|---|---|",
 )
 
 
 def report(
-    projections: list[Projection], gated: set[str], approved: bool, note: str = ""
+    projections: list[Projection],
+    gated: set[str],
+    approved: bool,
+    note: str = "",
+    why: str = "",
 ) -> tuple[str, list[Projection]]:
     """The Markdown summary and the gated entries over budget."""
     f = fleet(projections)
@@ -409,19 +790,23 @@ def report(
         lines += [note, ""]
     if gated:
         lines += [
-            f"Entries this change adds or edits, against {BUDGET_GB_YEAR:g} GB a year each:",
+            f"Entries this change adds or edits, against {BUDGET_GB_YEAR:g} GB of storage and "
+            f"{BUDGET_D1_ROWS_YEAR:,} D1 rows written a year each:",
             "",
         ]
         lines += [*HEAD, *(_row(p) for p in projections if p.slug in gated), ""]
+        lines += [f"- `{p.slug}`: {p.note}." for p in projections if p.slug in gated and p.note]
+        if any(p.note for p in projections if p.slug in gated):
+            lines.append("")
         if over and approved:
-            lines.append(
-                f"Over budget and approved with the `{APPROVAL_LABEL}` label for this commit."
-            )
+            lines.append(f"Over budget and approved with the `{APPROVAL_LABEL}` label: {why}.")
         elif over:
             lines.append(
-                f"Over budget: {', '.join(p.slug for p in over)}. A maintainer who accepts the "
-                f"cost adds the `{APPROVAL_LABEL}` label, which reruns this check. The label "
-                "approves only the commit it was added on, so each new commit is approved again."
+                f"Over budget: {', '.join(p.slug for p in over)}. A maintainer other than the "
+                f"pull request's author who accepts the cost adds the `{APPROVAL_LABEL}` label, "
+                "which reruns this check. The label approves only the commit it was added on, so "
+                "a later push or a change of base needs it added again."
+                + (f" Not approved: {why}." if why else "")
             )
         else:
             lines.append("Every changed entry is within budget.")
@@ -434,16 +819,19 @@ def report(
         f"Projected growth: {f.gb_per_year:,.1f} GB a year across {len(projections)} entries.",
         f"Stored now (estimated as each stored version at its newest version's size): "
         f"{f.stored_gb:,.1f} GB.",
-        f"R2 Standard at ${R2_USD_PER_GB_MONTH} per GB-month after {R2_FREE_GB} GB free: "
-        f"${f.usd_per_month_now:,.2f} a month now and ${f.usd_per_month_in_a_year:,.2f} a month "
-        "in a year, since storage accumulates.",
+        f"Projected D1 rows written: {f.d1_rows_per_year:,} a year, each version's rows once "
+        "for the table and once for each index on it.",
         "",
         "A change to an entry's output rebuilds each of its stored versions once, counted at the "
-        "newest version's size in the rebuild column and in the year's figure. "
-        "Sizes marked estimate are the source bytes times "
-        f"{SOURCE_MULTIPLIER}, the fleet's measured ratio; the rest are read from the newest "
-        f"version's files in the catalogue, with the publisher's file counted {SOURCE_COPIES} "
-        "times for the buckets that hold it.",
+        "newest version's size in the rebuild column and in the year's figure, and loads its "
+        "newest version into D1 again. Sizes marked estimate are the source bytes times "
+        f"{SOURCE_MULTIPLIER} ({SPATIAL_MULTIPLIER} for a spatial entry), with a zip or gzip "
+        "counted at its unpacked size, or at "
+        f"{COMPRESSED_MULTIPLIER} times its bytes when that cannot be read, and a spreadsheet at "
+        f"{SPREADSHEET_MULTIPLIER} times. The rest are read from the newest version's files in "
+        "the catalogue, with the publisher's file counted once for the raw store. D1 rows are "
+        "the newest version's, or one per "
+        f"{PUBLISHED_BYTES_PER_ROW} published bytes for an estimate.",
         "",
         "<details><summary>Every entry</summary>",
         "",
@@ -467,7 +855,12 @@ def run(
     fresh: set[str] = frozenset(),
     summary: str | None = None,
     reshaped: dict[str, dict] | None = None,
+    approve=None,
+    rows: dict[str, int] | None = None,
+    prober=probe,
 ) -> int:
+    """`approve` is asked only when a changed entry is over budget, and returns (approved, why).
+    `rows` defaults to reading each served entry's rows from the site."""
     known = {d.slug for d in datasets}
     if missing := sorted(changed - known):
         print(f"cost: no register entry named {', '.join(missing)}")
@@ -475,12 +868,14 @@ def run(
     note = ""
     try:
         sizes = catalogue_sizes(load_catalog(catalog_src))
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, http.client.HTTPException) as e:
         sizes = None
         note = (
             f"The catalogue could not be read ({e}). Changed entries count as size unknown and "
             "the rest are estimates."
         )
+    if rows is None:
+        rows = live_rows(sorted(s for s in (sizes or {}) if s in known)) if sizes else {}
     projections = project(
         datasets,
         store_dir,
@@ -488,28 +883,40 @@ def run(
         today,
         frozenset(changed),
         frozenset(fresh),
+        prober=prober,
         probing=probing,
         reshaped=reshaped,
+        rows=rows,
     )
-    text, over = report(projections, changed, approved, note)
+    over = [p for p in projections if p.slug in changed and p.over_budget]
+    why = ""
+    if over and not approved and approve is not None:
+        approved, why = approve()
+    text, over = report(projections, changed, approved, note, why)
     f = fleet(projections)
     print(
         f"cost: {f.gb_per_year:,.1f} GB a year projected over {len(projections)} entries; "
-        f"{f.stored_gb:,.1f} GB stored (estimated); R2 ${f.usd_per_month_now:,.2f}/month now, "
-        f"${f.usd_per_month_in_a_year:,.2f}/month in a year"
+        f"{f.stored_gb:,.1f} GB stored (estimated); {f.d1_rows_per_year:,} D1 rows written a year"
     )
     for p in projections:
         if p.slug in changed:
             print(
                 f"cost: {p.slug} {_gb(p.gb_per_version)} GB/version ({p.basis}) x "
                 f"{p.per_year:g}/yr ({p.per_year_basis}) + {_gb(p.rebuild_bytes / GB)} GB rebuild "
-                f"= {_gb(p.gb_per_year)} GB/yr" + (" OVER BUDGET" if p.over_budget else "")
+                f"= {_gb(p.gb_per_year)} GB/yr; {_rows(p.d1_rows_per_year)} D1 rows/yr"
+                + (" OVER BUDGET" if p.over_budget else "")
+                + (f" ({p.note})" if p.note else "")
             )
     path = summary or os.environ.get("GITHUB_STEP_SUMMARY")
     if path:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(text)
     if over and not approved:
-        print(f"cost: over budget; add the `{APPROVAL_LABEL}` label to accept the cost")
+        print(
+            f"cost: over budget; a maintainer other than the author adds the `{APPROVAL_LABEL}` "
+            "label to accept the cost" + (f" ({why})" if why else "")
+        )
         return 1
+    if over:
+        print(f"cost: over budget, approved ({why or 'by flag'})")
     return 0

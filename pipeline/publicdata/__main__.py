@@ -793,15 +793,24 @@ def cmd_cost(args) -> int:
     from . import cost
     from .register import load
 
+    root = Path(args.root).resolve() if args.root else ROOT
+    register = root / "register"
     changed, fresh, reshaped = set(args.slug), set(), {}
     if args.base:
-        base, paths = cost.changed_paths(args.base, ROOT)
-        entries = cost.changed_entries(REGISTER, paths, ROOT)
+        if links := cost.symlinks(root):
+            print(f"cost: the register may not hold symbolic links: {', '.join(links)}")
+            return 2
+        base, paths = cost.changed_paths(args.base, root)
+        entries = cost.changed_entries(register, paths, root)
         changed |= set(entries)
-        fresh, reshaped = cost.entry_changes(ROOT, base, entries)
+        fresh, reshaped = cost.entry_changes(root, base, entries)
+    approve = None
+    if args.github_pr:
+        repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
+        approve = lambda: cost.approval(repo, args.github_pr, lambda p: cost._github(p, token))  # noqa: E731
     today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
     return cost.run(
-        load(REGISTER),
+        load(register),
         Path(args.store),
         args.catalog or cost.CATALOG,
         changed,
@@ -811,6 +820,7 @@ def cmd_cost(args) -> int:
         fresh=fresh,
         summary=args.summary,
         reshaped=reshaped,
+        approve=approve,
     )
 
 
@@ -1016,13 +1026,23 @@ def main(argv=None) -> int:
         help="re-apply cards, page settings and notebooks to versions a hub already holds",
     )
     hb.set_defaults(fn=cmd_hubs)
-    co = sub.add_parser("cost", help="project each entry's storage growth and gate changed ones")
+    co = sub.add_parser(
+        "cost", help="project each entry's storage growth and D1 writes and gate changed ones"
+    )
     co.add_argument("slug", nargs="*", help="entries to gate, as well as those --base finds")
     co.add_argument("--base", help="gate the register entries changed since this ref")
     co.add_argument("--store", default=str(STORE))
+    co.add_argument(
+        "--root", help="the checkout whose register and history are read (default this one)"
+    )
     co.add_argument("--catalog", help="a catalog.json path or URL (default the live site's)")
     co.add_argument("--today", help="the date versions are counted back from (YYYY-MM-DD)")
-    co.add_argument("--approved", action="store_true", help="the change carries cost-approved")
+    co.add_argument(
+        "--approved", action="store_true", help="treat an over-budget entry as approved"
+    )
+    co.add_argument(
+        "--github-pr", type=int, help="read this pull request's cost-approved label from GitHub"
+    )
     co.add_argument(
         "--probe", action="store_true", help="size a new or moved source from its portal or host"
     )

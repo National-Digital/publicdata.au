@@ -37,8 +37,8 @@ pipeline/publicdata/
                        page per topic listing what is served and what is coming
   brand.py             the mark, favicons, app icons, web app manifest, 1200x630 social cards
   hubs.py              copies each newest version to Hugging Face, Zenodo and Kaggle
-  cost.py              each register entry's projected R2 growth a year, and the pull request
-                       check that holds a changed entry over budget
+  cost.py              each register entry's projected R2 growth and D1 rows written a year,
+                       and the pull request check that holds a changed entry over budget
   cadence.py           the register's cadence text as versions a year, for the cost check
                        and the hubs
   __main__.py          register validate | draft | labels, fetch, build, gate, and the rest
