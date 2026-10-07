@@ -323,24 +323,8 @@ such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 
 ## Withdraw a dataset or correct published files
 
-- When a publisher withdraws a source, the entry stays `live` so the versions already published
-  are still served, and its `note` says the source was withdrawn. Any other status withholds the
-  dataset, and every file of every version then answers 410. A live entry is still fetched every
-  day, so a maintainer checks any new version it makes after the withdrawal.
-- When a licence turns out not to allow publication, a maintainer withholds the dataset or the
-  affected columns, as `source_withheld` and the omitted fields do. The build stops making those
-  files and the site says why.
-- A published file is removed only for a legal takedown or a publisher's request to remove its
-  dataset. A maintainer withholds the dataset, deletes the files from R2, purges them from the
-  edge and sets `tombstone` in each affected manifest in `store/`, which keeps the manifest and
-  hash on record.
-- To rebuild files a bug wrote wrongly, or whose attribution was wrong, a maintainer runs the
-  Deploy workflow with `replace` set to the version prefixes once the merge's own deploy has
-  finished. The run also purges them and their query API answers from the edge cache. The pull
-  request that made the fix says which versions it affects and raises
-  their rebuild number (see Change the build code).
-- [docs/CORRECTIONS.md](docs/CORRECTIONS.md) has the whole process, from a report to the correction
-  log.
+[docs/CORRECTIONS.md](docs/CORRECTIONS.md) covers a correction from the report to the log, and a
+withdrawal, withholding or removal, which change what a version's URL serves.
 
 ## Change the API or the MCP tools
 

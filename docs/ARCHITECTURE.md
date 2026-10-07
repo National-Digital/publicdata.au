@@ -130,8 +130,8 @@ the build, with nothing written by hand:
 
 - the dataset page, its Markdown twin, schema.org Dataset JSON-LD and a catalogue record;
 - one dated version per source change, which keeps its content, each with its files, its
-  manifest, the publisher's own file and a diff against the version before. Every table version has Parquet,
-  CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
+  manifest, the publisher's own file and a diff against the version before. Every table version
+  has Parquet, CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
   `data.geo.parquet` and a GeoPackage, and a polygon or line layer keeps its shapes in
   `data.parquet`, which is GeoParquet, with a GeoPackage and PMTiles vector tiles. The DuckDB
   file attaches read-only over HTTPS (the R2 function answers range requests), so a query runs
@@ -173,7 +173,8 @@ the key `publicdata.profile` holds the profile version, now `1`, beside the `pub
 provenance key. A reader checks that key before it relies on the order, the sizes or the page
 index.
 
-A published file keeps its bytes unless a correction rebuilds it (ADR 0002), so the profile reaches a version in one of two ways.
+A published file keeps its bytes unless a correction rebuilds it (ADR 0002), so the profile
+reaches a version in one of two ways.
 
 - A version's own files keep the layout its fetch recorded. `fetch` writes the register entry's
   layout (`profile.layout`: the profile version, `sort`, `key`, `lookup` and `int32`) into the
@@ -273,10 +274,9 @@ This site is the version history the portals do not keep. The archive role has i
   withdraws or replaces the source file, and its source bytes never change. Its converted files
   are rebuilt only to correct a fault in our conversion or in the publisher's attribution, to
   comply with the law, or when a publisher asks for removal, and the change goes in the
-  version's notes ([CORRECTIONS.md](CORRECTIONS.md)). A file is removed only for a legal
-  takedown or a publisher's request to remove its dataset. The dataset is withheld, the files
-  are deleted from R2 and purged, and the version's `tombstone` keeps the manifest and hash on
-  record.
+  version's notes. A file is removed only for a legal takedown or a publisher's request to
+  remove its dataset, and the version's `tombstone` keeps the manifest and hash on record.
+  [CORRECTIONS.md](CORRECTIONS.md) sets out the steps for each.
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.

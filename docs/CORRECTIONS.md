@@ -37,8 +37,11 @@ beside every version as `source.<ext>` with its SHA-256 in `manifest.json`.
 
 1. **Fix the conversion.** A pull request fixes the cause and adds a test that fails without the
    fix. Its description lists the version prefixes it affects, such as
-   `d/qld-road-crash-locations/v/2026-04-24/`. A wrong attribution, such as a dead link or a
-   misnamed publisher, is fixed in the register entry and needs no test.
+   `d/qld-road-crash-locations/v/2026-04-24/`. It raises the rebuild number of each affected
+   dataset, or `REBUILD` in `cache.py` when the fault reaches across datasets, as
+   [Change the build code](../CONTRIBUTING.md#change-the-build-code) sets out. A wrong
+   attribution, such as a dead link or a misnamed publisher, is fixed in the register entry and
+   needs no test.
 2. **Note each affected version.** The same pull request adds a dated line to the `notes` of each
    affected version's manifest in `store/`. The line says what was wrong and what changed. Notes
    are shown on the version's page and stay there. They go in this pull request because the
@@ -80,10 +83,9 @@ recorded as stale, with the date it stops being served.
 ## What a correction leaves alone
 
 - `source.<ext>` and its hash stay as they were fetched. The raw store is append-only.
-- A version is never deleted. Its converted files change only to correct a fault in our conversion
-  or in the publisher's attribution, to comply with the law, or when a publisher asks for its
-  dataset to be removed, as the [terms](https://publicdata.au/terms/) say. Each such change is
-  recorded in the version's notes.
+- A version is never deleted, and its converted files change only for the reasons the
+  [Archive](ARCHITECTURE.md#archive) rules give, which the [terms](https://publicdata.au/terms/)
+  state for readers. Each such change is recorded in the version's notes.
 - The version's URL keeps working, except in the cases under "Withdrawal, withholding and
   removal".
 
