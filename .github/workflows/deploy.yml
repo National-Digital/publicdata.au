@@ -19,6 +19,9 @@ on:
 
 # A new push to a pull request cancels its running preview, which writes nothing to R2. Main and
 # dispatched runs always finish, because a production deploy cut short leaves R2 half written.
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -33,7 +36,7 @@ jobs:
   # from the cache they filled. A replace dispatch rebuilds every version, so every dataset is
   # planned.
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: ${{ github.repository == 'National-Digital/publicdata.au' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -124,7 +127,7 @@ jobs:
   verify:
     needs: plan
     if: ${{ needs.plan.result == 'success' && needs.plan.outputs.verify != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A hung build ends as a failure the deploy stops on, well inside the six-hour job limit.
     timeout-minutes: 150
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
@@ -164,7 +167,7 @@ jobs:
     name: shard ${{ strategy.job-index }}
     needs: [plan, verify]
     if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') && needs.plan.outputs.shards != '[]' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     env:
       PUBLICDATA_SPATIAL: ${{ needs.plan.outputs.spatial }}
@@ -239,7 +242,7 @@ jobs:
     # A required check that is skipped counts as passed, so this runs and fails when the build did.
     # The plan skips itself for a fork's pull request, which builds from fixtures here instead.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     env:
       HAS_CF: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_API_TOKEN_ID != '' }}
@@ -384,7 +387,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           BRANCH: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
         run: |
-          npx --yes wrangler@4 pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
+          npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
           grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
       # A dated file is cached at the edge as immutable, so the versions a replace rewrote are
       # purged, or the edge serves the old files for a year.
@@ -410,7 +413,7 @@ jobs:
           # Only a database that has never been loaded may be read as empty; any other error stops.
           # _orders records the row order each version was loaded in, so one loaded in another
           # order than its Parquet's loads again.
-          if ! npx --yes wrangler@4 d1 execute publicdata --remote --json \
+          if ! npx --no-install wrangler d1 execute publicdata --remote --json \
               --command "CREATE TABLE IF NOT EXISTS _orders (slug TEXT NOT NULL, version TEXT NOT NULL, ord TEXT NOT NULL, PRIMARY KEY (slug, version)); SELECT v.slug, v.version, v.fields, (SELECT o.ord FROM _orders o WHERE o.slug = v.slug AND o.version = v.version) AS ord FROM _versions v" > loaded.json 2> list.err; then
             if grep -q "no such table" list.err loaded.json; then echo '[]' > loaded.json; else cat list.err loaded.json; exit 1; fi
           fi
@@ -439,7 +442,7 @@ jobs:
     # A deploy with no changed versions skips its shards; without !cancelled() that skip would
     # pass down and skip the release too.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success' && needs.deploy.outputs.deployed == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     permissions:
       contents: write

@@ -12,6 +12,10 @@ on:
     - cron: "47 19 * * 0,2-6" # 05:47 Brisbane
   workflow_dispatch:
 
+env:
+  UV_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+  UV_BUILD_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+
 permissions:
   contents: write
   pull-requests: write
