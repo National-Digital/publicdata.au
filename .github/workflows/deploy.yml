@@ -106,7 +106,7 @@ jobs:
             git show "$base:pipeline/publicdata/$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
           done
           # The base's copy of each changed register entry, to find the rebuild numbers raised.
-          grep -E '^register/.*\.yaml$' "$RUNNER_TEMP/changed.txt" | while read -r f; do
+          { grep -E '^register/.*\.yaml$' "$RUNNER_TEMP/changed.txt" || true; } | while read -r f; do
             mkdir -p "$before/$(dirname "$f")"
             git show "$base:$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
           done
