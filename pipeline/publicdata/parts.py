@@ -78,13 +78,12 @@ def write(
     columns included, and column types are the same is taken from it unwritten. `revised` is the
     set the change logs since that snapshot name; without one (a release), a finished part whose
     rows outside the volatile columns differ from the snapshot before's is a revision."""
-    ds = tbl.dataset
     day = dt.date.fromisoformat(tbl.manifest.version)
     labels = periods.labels(t.column(per.field), per.grain)
     before = {r["period"]: r for r in prior}
     names = periods.ordered(set(labels.to_pylist()))
     out = []
-    volatile = [c for c in ds.volatile if c in t.column_names]
+    volatile = [c for c in tbl.manifest.volatile if c in t.column_names]
     # Every part follows the layout the version's manifest records, so all have the same types.
     lay = _layout(t, tbl.manifest.parquet)
     flagged = set(revised or ())

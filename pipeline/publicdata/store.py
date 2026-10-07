@@ -56,6 +56,8 @@ class Manifest:
     # The register's update class when this was fetched; empty for a release. It decides how the
     # version flags revisions, so a later change of class leaves the version as it was.
     update: str = ""
+    # The register's volatile columns when this was fetched, which a part's stable hash leaves out.
+    volatile: list[str] = field(default_factory=list)
 
     @property
     def ext(self) -> str:
@@ -79,6 +81,8 @@ class Manifest:
                 del d[k]
         if not d["update"]:
             del d["update"]
+        if not d["volatile"]:
+            del d["volatile"]
         return json.dumps(d, indent=2, ensure_ascii=False) + "\n"
 
     @classmethod

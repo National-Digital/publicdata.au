@@ -710,6 +710,23 @@ def test_each_fetch_records_its_class_and_a_version_keeps_it(fetched, tmp_path):
     )
 
 
+def test_each_fetch_records_its_volatile_columns_and_a_version_keeps_them(fetched, built, tmp_path):
+    st, _ = fetched
+    out, _ = built
+    ms = store.manifests(st, "test-rolling", fetches=True)
+    assert {tuple(m.volatile) for m in ms} == {("updated_at",)}
+    assert {tuple(m.volatile) for m in store.manifests(st, "test-feed", fetches=True)} == {()}
+    # The register dropping the column leaves each part's stable hash as the version recorded it.
+    ds = replace(registered()["test-rolling"], update="release", volatile=())
+    again = tmp_path / "dist"
+    build_dataset(ds, st, again)
+    for m in store.manifests(st, "test-rolling"):
+        assert (
+            manifest(again, "test-rolling", m.version)["parts"]
+            == manifest(out, "test-rolling", m.version)["parts"]
+        )
+
+
 def test_a_feed_s_history_marks_first_and_last_seen_as_observed_here(built, tmp_path):
     from publicdata.site import render_site
 

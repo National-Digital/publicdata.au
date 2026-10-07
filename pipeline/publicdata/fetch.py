@@ -1983,6 +1983,7 @@ def fetch_rolling(
         history=None,
         period=periods.recorded(ds.period),
         update=ds.update,
+        volatile=list(ds.volatile),
         parquet=layout(ds),
         caps=store.CAPS_VERSION,
     )
