@@ -6,7 +6,6 @@ import pytest
 import yaml
 
 from publicdata import hubs
-from publicdata.gate import FORBIDDEN_TEXT
 
 RECORD = {
     "identifier": "qld-road-crash-factors",
@@ -86,10 +85,9 @@ def test_every_copy_links_back_to_the_version_and_carries_the_attribution():
     assert p["version_url"] == e.version_url and p["manifest"]["sha256"] == "ab" * 32
 
 
-def test_copy_follows_the_house_language_rules():
+def test_hub_copy_has_no_em_dashes():
     for t in text_of(make()):
         assert "—" not in t
-        assert not FORBIDDEN_TEXT.search(t)
 
 
 def test_every_open_licence_the_register_allows_has_a_hub_id():

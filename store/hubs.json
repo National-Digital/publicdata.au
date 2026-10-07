@@ -52,7 +52,7 @@
     "act-barbecues": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-barbecues",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/act-barbecues",
-      "zenodo": "10.5281/zenodo.23123598"
+      "zenodo": "10.5281/zenodo.23200064"
     },
     "act-bdm-registrations": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-bdm-registrations",
@@ -62,7 +62,7 @@
     "act-contracts-register-2016-2017": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-contracts-register-2016-2017",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/act-contracts-register-2016-2017",
-      "zenodo": "10.5281/zenodo.23123573"
+      "zenodo": "10.5281/zenodo.23200050"
     },
     "act-engineers-register": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-engineers-register",
@@ -112,7 +112,7 @@
     "act-notifiable-invoices": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-notifiable-invoices",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/act-notifiable-invoices",
-      "zenodo": "10.5281/zenodo.23123577"
+      "zenodo": "10.5281/zenodo.23200058"
     },
     "act-parking-offences": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-parking-offences",
@@ -132,7 +132,7 @@
     "act-recreational-water-quality-2019-20": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-recreational-water-quality-2019-20",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/act-recreational-water-quality-2019-20",
-      "zenodo": "10.5281/zenodo.23123575"
+      "zenodo": "10.5281/zenodo.23200052"
     },
     "act-road-crashes": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-road-crashes",

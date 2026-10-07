@@ -13,18 +13,10 @@ Questions and ideas that are not a fault go in
 
 ## Ground rules
 
-The build enforces these, so a change that breaks one fails its checks. `CLAUDE.md` states them in
-full and `docs/ARCHITECTURE.md` explains the code they shape.
-
-- Nothing derived: data is re-keyed, re-typed and joined on a declared key, and never turned into
-  rates, rankings or estimates.
-- Licence is data. A dataset is published only under an open licence a person has reviewed, with
-  the publisher's own statement as evidence.
-- Versions are immutable and dated by the source's change. A version is never deleted or rewritten.
-- Every file carries its provenance: publisher, licence, attribution, source URL, fetch time and
-  source hash.
-- Two builds of one snapshot are byte-identical.
-- Requesters are recorded by organisation, never by name.
+The build enforces the project's rules, so a change that breaks one fails its checks.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#rules-that-decide-the-code) states them and explains
+the code they shape, and its [Archive](docs/ARCHITECTURE.md#archive) section says what may change
+once a version is published.
 
 ## Set up
 
@@ -77,7 +69,10 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   `feat fix docs chore perf refactor test build ci style revert data`; `data` is for register
   entries and store manifests. The squash merge makes the title the commit subject on `main`, and
   the title decides the release number (see Versioning).
-- Say in the description what changed and why, and what you ran to check it. The template asks.
+- Keep one concern to a pull request. An unrelated fix found on the way gets its own.
+- Say in the description what changed and why, what you ran to check it and what you could not
+  check. The template asks. Name anything a maintainer must do beyond merging, such as a secret, a
+  manual download or the versions a `replace` deploy must rebuild.
 - A pull request merges when a maintainer has approved it and every required check is green:
   tests, the register, the build and gate, the clients, secret scanning, CodeQL, dependency review,
   the DCO and the title. Pull requests are squash-merged.
@@ -86,13 +81,33 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
 
+## Reviewing a pull request
+
+- Read the whole changed file and the code that calls it before judging a line. Comment only on
+  what the change adds or makes worse.
+- Raise only genuine issues. Each one gives its file and line, the input or state that breaks it,
+  and a fix or the existing code to use instead. A doubt you cannot settle is marked as
+  unconfirmed, with what would settle it. When there is nothing to raise, a maintainer approves.
+- A test must be able to fail. Flag a test that restates the implementation, mocks the thing it
+  tests or asserts nothing that matters, and say what it should assert.
+- Ask why any new `noqa`, `type: ignore` or skipped test is needed. Leave formatting and lint to
+  CI.
+- Check the change against the [rules the build enforces](docs/ARCHITECTURE.md#rules-that-decide-the-code),
+  and check that the docs describing the changed behaviour were updated.
+- Read the earlier reviews first, so a point already resolved is not raised again.
+
+## Site copy
+
+Site copy states facts and gives the figure behind any comparison; it makes no absolute or
+superlative claims. [`BRAND.md`](BRAND.md#typography) sets the typography the gate checks.
+
 ## Versioning
 
 publicdata.au has four kinds of version, and each has its own rule.
 
 - **Datasets** are versioned by date, not by number. A version is named for the day the publisher
-  changed the source, it never changes once published, and its URL never moves. An unchanged
-  source makes no version.
+  changed the source, and an unchanged source makes no version. The
+  [Archive](docs/ARCHITECTURE.md#archive) section says what may change once one is published.
 - **The site, API and MCP server** follow [semantic versioning](https://semver.org/) through
   release tags (`v2.21.1`). Each merge to `main` releases one: `feat` raises the minor number,
   any other type the patch number, and a breaking change, marked with `!` after the type
@@ -241,9 +256,9 @@ module the build imports leaves every published version as it was.
 ## Licences that are not Creative Commons
 
 A publisher's own open grant is admitted as a file in `register/licences/` that quotes the publisher
-on reproduction, adaptation, commercial use and attribution. `register validate` refuses a grant
-that is missing any of the four. A written permission is one such file,
-`<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
+on reproduction, adaptation, commercial use and attribution, as the README there describes.
+`register validate` refuses a grant that is missing any of the four. A written permission is one
+such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 
 ## Withdraw a dataset or correct published files
 
@@ -278,6 +293,8 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
 ## Reference
 
 - Comments state constraints the code cannot show, in one or two lines of *why*.
+- Before writing a helper, search for one that already exists. Follow the conventions of the
+  neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
   failing-fixture test does not count.
 - New datasets enter through `register/<slug>.yaml` with licence id, evidence URL,
@@ -312,9 +329,6 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   the WA, SA and Victorian portals and CC BY 3.0 AU on data.gov.au (`PORTAL_LICENCES` in fetch.py). NSW and
   NT name no version for `cc-by`, so an entry there sets `licence.portal_id` and the version from the
   dataset page, and an entry whose id disagrees with the portal's own definition is stopped.
-- A licence that is not Creative Commons is admitted as a file in `register/licences/` that quotes the
-  publisher on reproduction, adaptation, commercial use and attribution (see the README there). A
-  written permission is one such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 - A source that is a live feed of what is current sets `feed: true`. The daily run fetches only feeds
   (`fetch --feeds`), and each day a feed changes is one version dated by that day.
 - Geometry is declared on the entry. Points name their `lon` and `lat` fields and the publisher's `crs`;
