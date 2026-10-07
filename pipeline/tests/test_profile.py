@@ -2,6 +2,7 @@ import json
 import random
 import sqlite3
 from dataclasses import replace
+from pathlib import Path
 
 import duckdb
 import pyarrow as pa
@@ -88,6 +89,35 @@ def test_the_other_formats_keep_the_source_order_and_duckdb_follows_the_parquet(
     assert [r[0] for r in con.execute("SELECT id FROM records ORDER BY rowid")] == SOURCE
     db = duckdb.connect(str(vdir / "data.duckdb"), read_only=True)
     assert [r[0] for r in db.execute("SELECT id FROM records").fetchall()] == SORTED
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_the_duckdb_file_is_written_in_one_insert(tmp_path, monkeypatch, legacy):
+    # DuckDB writes a larger file when the rows arrive in several inserts, so the slices a sort
+    # reads in are streamed into one.
+    from publicdata.serialise.writers import duckdb as writer
+
+    real_chunks, real_connect = profile.chunks, writer.duckdb_connect
+    monkeypatch.setattr(profile, "chunks", lambda t, perm, rows=2: real_chunks(t, perm, rows))
+    inserts = []
+
+    class Counting:
+        def __init__(self, con):
+            self.con = con
+
+        def execute(self, sql, *a):
+            inserts.extend([sql] if sql.startswith("INSERT INTO records") else [])
+            return self.con.execute(sql, *a)
+
+        def __getattr__(self, name):
+            return getattr(self.con, name)
+
+    monkeypatch.setattr(writer, "duckdb_connect", lambda *a: Counting(real_connect(*a)))
+    vdir, _ = _build(tmp_path, _ds(sort=("year", "place")), legacy=legacy)
+    assert len(inserts) == 1
+    db = duckdb.connect(str(vdir / "data.duckdb"), read_only=True)
+    ids = [r[0] for r in db.execute("SELECT id FROM records").fetchall()]
+    assert ids == (SOURCE if legacy else SORTED)
 
 
 def test_the_build_sorts_a_version_once(tmp_path, monkeypatch):
@@ -360,3 +390,93 @@ def test_sort_lookup_and_int32_name_declared_fields(over, match):
         parse(_raw(fields=fields, **over), "x")
     ds = parse(_raw(fields=fields, sort=["a"], lookup=["a"], int32=["n"]), "x")
     assert (ds.sort, ds.lookup, ds.int32) == (("a",), ("a",), ("n",))
+
+
+def test_a_fetch_holds_a_version_that_does_not_fit_an_int32_field(tmp_path, monkeypatch):
+    ds = _ds(int32=("big",), source=Source(adapter="file", url="https://e/f.csv"))
+    lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
+    m = make_manifest(CSV, dataset="t", version="2026-10-01")
+    monkeypatch.setitem(fetch.ADAPTERS, "file", lambda d, s: (CSV, m, lic))
+    with pytest.raises(fetch.FetchError, match="t: big holds 1 to 5000000000, outside 32 bits"):
+        fetch.fetch(ds, tmp_path)
+    assert store.manifests(tmp_path, "t") == []
+
+
+def test_register_validate_checks_int32_against_the_versions_at_hand(tmp_path):
+    from publicdata.validate import int32_misfits
+
+    s = tmp_path / "store"
+    plain = _ds()
+    m = _m(plain)
+    store.write(s, m, CSV)
+    declared = _ds(int32=("id", "big"))
+    assert int32_misfits(declared, m, s, []) == ["big holds 1 to 5000000000, outside 32 bits"]
+    assert int32_misfits(_ds(int32=("id",)), m, s, []) == []
+    # A built Parquet answers from its statistics, before the source.
+    build_version(plain, m, CSV, tmp_path / "dist")
+    (s / "t" / m.version / "source.csv").unlink()
+    assert int32_misfits(declared, m, s, [tmp_path / "dist"]) == [
+        "big holds 1 to 5000000000, outside 32 bits"
+    ]
+    assert int32_misfits(declared, m, s, []) is None
+
+
+def test_validate_reads_every_column_when_a_file_has_no_statistics(tmp_path):
+    from publicdata.validate import _parquet_misfits
+
+    path = tmp_path / "x.parquet"
+    pq.write_table(pa.table({"a": [1, 2], "b": [1, 2**40]}), path, write_statistics=False)
+    assert _parquet_misfits(path, ("a", "b")) == _parquet_misfits(path, ("b",)) != []
+
+
+def test_validate_reports_a_source_that_no_longer_normalises(tmp_path, monkeypatch):
+    from publicdata import normalise
+    from publicdata.validate import int32_misfits
+
+    s = tmp_path / "store"
+    m = _m(_ds())
+    store.write(s, m, CSV)
+
+    def broken(*a, **k):
+        raise ValueError("bad row")
+
+    monkeypatch.setattr(normalise, "normalise", broken)
+    assert int32_misfits(_ds(int32=("id",)), m, s, []) == [
+        "its source no longer normalises (bad row)"
+    ]
+
+
+def test_the_order_file_is_in_the_entry_before_its_record(tmp_path):
+    cache = BuildCache(tmp_path / "cache")
+    seen = []
+    real = Path.write_text
+
+    def spy(self, *a, **k):
+        if self.name == "meta.json":
+            seen.append((self.parent / "order.parquet").is_file())
+        return real(self, *a, **k)
+
+    import unittest.mock
+
+    with unittest.mock.patch.object(Path, "write_text", spy):
+        cache.put("k", {}, extra={"order.parquet": b"x"})
+    assert seen == [True]
+
+
+def test_sort_or_int32_on_a_database_names_the_rule():
+    for name in ("sort", "int32"):
+        with pytest.raises(RegisterError, match=f"{name} is for a table entry"):
+            parse(_raw(kind="database", **{name: ["a"]}), "x")
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_the_sample_note_names_the_order_the_rows_are_in(tmp_path, legacy):
+    from publicdata.site import _sample
+
+    ds = _ds(sort=("year", "place"))
+    vdir, _ = _build(tmp_path, ds, legacy=legacy)
+    note = json.dumps(_sample(ds, vdir / "data.parquet"))
+    if legacy:
+        assert "in the publisher's order" in note and "sorted by" not in note
+    else:
+        assert "sorted by year, then place" in note and "publisher's order" not in note

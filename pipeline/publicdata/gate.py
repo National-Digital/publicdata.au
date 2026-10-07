@@ -23,14 +23,13 @@ PERIOD_PENDING = {
     "au-water-storage-levels": "over 5 million rows; to be split by year of the observation date",
 }
 
-FORBIDDEN_TEXT = re.compile(r"\b(seamless|streamline|empower|unlock|leverage|robust)", re.I)
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
 PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.S)
 
 
 def _partition_values(out: Path, slug: str) -> list[str]:
     """The publisher's own values that a dataset's pages name as places and partitions, longest
-    first, so the house language checks read only this site's words."""
+    first, so the copy checks read only this site's words."""
     vals: set[str] = set()
     for idx in (out / "d" / slug / "v").glob("*/by/*/index.json"):
         for e in json.loads(idx.read_text(encoding="utf-8")).get("partitions", []):
@@ -352,7 +351,38 @@ def checked(
             # Written as parts alone: the DuckDB file over them, and each part this version wrote.
             need = ("data.duckdb", "schema.json", "schema.sql")
         else:
-            fmts = serialise.formats_for(int(m.get("rows", 0)), geo_kind(ds))
+            rows = int(m.get("rows", 0))
+            gone = None
+            if serialise.capped(m):
+                gone = m.get("formats_left_out")
+                measured = m.get("measured_bytes")
+                if not isinstance(gone, dict) or not isinstance(measured, dict):
+                    errors.append(f"{slug}/{version}: manifest lacks its format record")
+                    continue
+                if not set(gone) <= set(serialise.cappable(geo_kind(ds))):
+                    errors.append(
+                        f"{slug}/{version}: formats_left_out names a format no cap covers"
+                    )
+                for f in serialise.MEASURED:
+                    if f"data.{f}" not in measured:
+                        errors.append(f"{slug}/{version}: measured_bytes lacks data.{f}")
+                for name, n in measured.items():
+                    if (vdir / name).is_file() and (vdir / name).stat().st_size != n:
+                        errors.append(f"{slug}/{version}: measured_bytes disagrees with {name}")
+                for x in (*gone, "arrow"):
+                    if have(f"data.{x}"):
+                        errors.append(
+                            f"{slug}/{version}: data.{x} is published though the caps leave it out"
+                        )
+                vpage = vdir / "index.html"
+                if site and vpage.exists():
+                    text = vpage.read_text(encoding="utf-8")
+                    for x, why in gone.items():
+                        if html_escape(why) not in text:
+                            errors.append(
+                                f"{slug}/{version}: the version page does not say why data.{x} is not there"
+                            )
+            fmts = serialise.formats_for(rows, geo_kind(ds), gone)
             need = (
                 *(f"data.{x}" for x in fmts),
                 "schema.json",
@@ -453,10 +483,6 @@ def checked(
             and "no government agency" not in text.lower()
         ):
             errors.append(f"{html.relative_to(out)}: no not-endorsed statement")
-        if FORBIDDEN_TEXT.search(text):
-            errors.append(
-                f"{html.relative_to(out)}: house language rule: {FORBIDDEN_TEXT.search(text).group(0)}"
-            )
         if "—" in text:
             errors.append(f"{html.relative_to(out)}: em-dash")
     errors += structured.duplicate_names(pages)

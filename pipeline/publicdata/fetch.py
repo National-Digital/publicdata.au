@@ -1843,7 +1843,7 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
         return fetch_rolling(ds, store_dir, data, m, licence, dt.datetime.now(TZ).date())
     if data is None:
         return None
-    m.rows_sha256, n = _rows(ds, m, data)
+    m.rows_sha256, n, misfit = _rows(ds, m, data)
     from .serialise.profile import layout
 
     m.parquet = layout(ds)
@@ -1853,6 +1853,7 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
     # Portals sometimes serve an export with its header and nothing else for a while.
     if n == 0 and existing:
         raise FetchError(f"{ds.slug}: the portal served no rows; the newest version has some")
+    _hold_misfits(ds, misfit)
     m.period = periods.recorded(ds.period)
     if ds.source.feed:
         m = feed_version(
@@ -1860,6 +1861,7 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
         )
         if m is None:
             return None
+    m.caps = store.CAPS_VERSION
     store.write(store_dir, m, data)
     return m
 
@@ -1870,16 +1872,27 @@ def rows_digest(ds: Dataset, m: store.Manifest, data: bytes) -> str:
     return _rows(ds, m, data)[0]
 
 
-def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None]:
-    """The rows digest and the row count, which is None when the file does not normalise here."""
+def _hold_misfits(ds: Dataset, misfit: list[str]) -> None:
+    # Held here, so one fetch that outgrows a declared INT32 field never stops a deploy.
+    if misfit:
+        raise FetchError(
+            f"{ds.slug}: {'; '.join(misfit)}; take the field out of int32 before this version "
+            "is stored"
+        )
+
+
+def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None, list[str]]:
+    """The rows digest, the row count, which is None when the file does not normalise here, and
+    the declared INT32 fields the rows do not fit."""
     from .normalise import normalise
+    from .serialise.profile import misfits
 
     if ds.kind != "table":
-        return "", None
+        return "", None, []
     try:
         tbl = normalise(ds, m, data)
     except Exception:  # noqa: BLE001 - any failure falls back to the byte comparison
-        return "", None
+        return "", None, []
     cols = [tbl.table.column(n).to_pylist() for n in tbl.table.column_names]
     if tbl.geometry is not None:
         cols.append(tbl.geometry.to_pylist())
@@ -1887,7 +1900,7 @@ def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None]
     h = hashlib.sha256(repr(tbl.table.schema).encode())
     for r in rows:
         h.update(r)
-    return h.hexdigest(), len(rows)
+    return h.hexdigest(), len(rows), misfits(tbl.table, ds.int32)
 
 
 FEED_NOTE = (
@@ -1942,7 +1955,7 @@ def fetch_rolling(
     updates.cut says so. A feed records every read, changed or not, in read.json."""
     from . import updates
     from .normalise import normalise
-    from .serialise.profile import layout
+    from .serialise.profile import layout, misfits
 
     existing = store.manifests(store_dir, ds.slug, fetches=True)
     prev = existing[-1] if existing else None
@@ -1958,6 +1971,7 @@ def fetch_rolling(
     before = normalise(ds, prev, _held(store_dir, prev)) if prev else None
     if before is not None and updates.digest(before) == updates.digest(tbl):
         return _promote(ds, store_dir, prev, snaps, today)
+    _hold_misfits(ds, misfits(tbl.table, ds.int32))
     log = updates.compare(before, tbl, today)
     why = updates.cut(ds, log, snaps, today)
     m = replace(
@@ -1970,6 +1984,7 @@ def fetch_rolling(
         period=periods.recorded(ds.period),
         update=ds.update,
         parquet=layout(ds),
+        caps=store.CAPS_VERSION,
     )
     m.rows_sha256 = updates.digest(tbl)
     tbl = replace(tbl, manifest=m)

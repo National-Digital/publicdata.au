@@ -13,7 +13,7 @@ from publicdata.gate import check
 from .conftest import ROOT
 
 
-def test_full_fixture_build_passes_gate_and_house_rules(register_dir, tmp_path, site_copy):
+def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     out = site_copy
     assert check(out, register_dir) == []
     home = (out / "index.html").read_text(encoding="utf-8")
@@ -60,8 +60,12 @@ def test_full_fixture_build_passes_gate_and_house_rules(register_dir, tmp_path, 
     assert re.search(r'<script src="/static/site\.js\?v=[0-9a-f]{12}" defer>', home)
     ds = (out / "d" / "qld-road-crash-locations" / "index.html").read_text(encoding="utf-8")
     assert 'data-fmt="parquet"' in ds and 'data-fmt="geojson"' in ds
-    for key in ("xlsx", "gpkg", "arrow", "csv.gz", "duckdb"):
+    for key in ("xlsx", "gpkg", "geo.parquet", "csv.gz", "duckdb"):
         assert f'data-fmt="{key}"' in ds, key
+    # Fetched after the size limits came in, so no Arrow; a version fetched before keeps it.
+    assert 'data-fmt="arrow"' not in ds
+    older = (out / "d" / "qld-road-casualties" / "index.html").read_text(encoding="utf-8")
+    assert 'data-fmt="arrow"' in older
     # Every dataset page shows how to open it from Excel, Power BI, R, Python and DuckDB.
     assert "Use it in Excel, R, Python and more" in ds
     assert "latest/data.csv</code>" in ds
@@ -239,7 +243,7 @@ def test_full_fixture_build_passes_gate_and_house_rules(register_dir, tmp_path, 
     assert "content-encoding" not in fn
     assert "obj.range.suffix !== undefined" in fn
     assert (
-        "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, Arrow"
+        "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, or"
         in ds
     )
     # Every HTML page names a Markdown twin that exists.
@@ -613,7 +617,7 @@ def test_the_gate_refuses_a_page_that_leaves_out_the_licence_condition(
         f.write_text(kept, encoding="utf-8")
 
 
-def test_the_house_language_check_reads_past_a_publishers_own_values(tmp_path):
+def test_the_copy_checks_read_past_a_publishers_own_values(tmp_path):
     import json as _json
 
     from publicdata import gate
@@ -621,16 +625,16 @@ def test_the_house_language_check_reads_past_a_publishers_own_values(tmp_path):
     idx = tmp_path / "d" / "x" / "v" / "2026-01-01" / "by" / "class"
     idx.mkdir(parents=True)
     (idx / "index.json").write_text(
-        _json.dumps({"partitions": [{"value": "Restricted To Seamless Flooring"}]})
+        _json.dumps({"partitions": [{"value": "Flooring — Restricted"}]})
     )
     page = tmp_path / "d" / "x" / "in" / "restricted" / "index.html"
     page.parent.mkdir(parents=True)
-    text = "<h1>Restricted To Seamless Flooring</h1><p>Our words.</p>"
+    text = "<h1>Flooring — Restricted</h1><p>Our words.</p>"
     left = gate._without_publisher_values(text, page, tmp_path, {})
-    assert not gate.FORBIDDEN_TEXT.search(left)
+    assert left == "<h1></h1><p>Our words.</p>"
     # This site's own copy is still read.
-    left = gate._without_publisher_values(text + "<p>A seamless page.</p>", page, tmp_path, {})
-    assert gate.FORBIDDEN_TEXT.search(left)
+    left = gate._without_publisher_values(text + "<p>A page — ours.</p>", page, tmp_path, {})
+    assert left == "<h1></h1><p>Our words.</p><p>A page — ours.</p>"
 
 
 def _console_db(tmp_path, rows):
@@ -840,3 +844,27 @@ def test_a_downloaded_file_is_named_after_its_dataset_and_version(fixture_site):
     assert f'download="{slug}_{version}_source.' in page
     ds = (fixture_site / "d" / slug / "index.html").read_text(encoding="utf-8")
     assert re.search(rf'id="dl" href="[^"]+" download="{slug}_{version}\.\w+"', ds)
+
+
+def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site):
+    out = fixture_site
+    page = (out / "publishers" / "stable-urls" / "index.html").read_text(encoding="utf-8")
+    assert "versions.json" in page and "schema_version" in page
+    assert '<a href="/publishers/" aria-current="page">' in page
+    assert "/publishers/stable-urls/" in (out / "publishers" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "/publishers/stable-urls/" in (out / "government" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "https://publicdata.au/publishers/stable-urls/" in (
+        out / "sitemaps" / "site.xml"
+    ).read_text(encoding="utf-8")
+    assert "https://publicdata.au/publishers/stable-urls/index.md" in (out / "llms.txt").read_text(
+        encoding="utf-8"
+    )
+    md = (out / "publishers" / "stable-urls" / "index.md").read_text(encoding="utf-8")
+    assert (
+        md.startswith("---\ntitle: Publishing a dataset at a stable URL\n")
+        and "## A check list" in md
+    )

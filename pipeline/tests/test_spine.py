@@ -254,6 +254,7 @@ def test_the_places_question_names_only_the_layers_a_dataset_joins():
     class V:
         manifest = store.manifests(FIXTURES, "qld-road-crash-locations")[-1]
         files = {}
+        left_out = {}
         rows = 300
         whole = True
 

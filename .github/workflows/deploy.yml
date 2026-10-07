@@ -17,9 +17,14 @@ on:
         type: string
         default: ""
 
+# A new push to a pull request cancels its running preview, which writes nothing to R2. Main and
+# dispatched runs always finish, because a production deploy cut short leaves R2 half written.
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -31,7 +36,7 @@ jobs:
   # from the cache they filled. A replace dispatch rebuilds every version, so every dataset is
   # planned.
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: ${{ github.repository == 'National-Digital/publicdata.au' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -39,13 +44,24 @@ jobs:
       HAS_CF: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_API_TOKEN_ID != '' }}
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
+      verify: ${{ steps.verify.outputs.slugs }}
+      spatial: ${{ steps.spatial.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the last release tag, which the real-data check compares the code with
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
-      # The same install as the build, since the libraries are part of every cache key.
+      # The same install as the build, since the libraries and the spatial extension are part of
+      # every cache key.
       - run: pip install -e './pipeline[deploy]'
+      - run: python -m publicdata spine install
+      # Each runner fetches the extension, so every later job checks it got the build this plan
+      # keyed on (PUBLICDATA_SPATIAL) and stops when it did not.
+      - name: Record the spatial extension
+        id: spatial
+        run: echo "version=$(python -c 'from publicdata.cache import spatial_version; print(spatial_version())')" >> "$GITHUB_OUTPUT"
       # The build cache lives in R2; a plan reads each entry's record alone. This job has no
       # /mnt/work, which only the build runner creates.
       - name: Pull the build cache's records
@@ -65,15 +81,96 @@ jobs:
             exit 0
           fi
           echo "shards=$(python -m publicdata shards --store store ${CACHE:+--cache "$CACHE"})" >> "$GITHUB_OUTPUT"
+      # A version's key leaves the build code out, so a change to that code is checked against a
+      # sample of real versions before a deploy reuses them. A pull request compares with its
+      # base. A push compares with the last release tag, which only a deploy that passed the
+      # check cuts, so a change whose deploy failed or was cancelled while it waited is checked
+      # again by the next push. The sample's seed is the base and the code diff, so a retry or a
+      # later push draws the same sample until the change is fixed or a tag moves past it.
+      - name: Choose the versions the code change is checked against
+        id: verify
+        if: env.HAS_CF == 'true' && github.event_name != 'workflow_dispatch'
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: |
+          base=HEAD^1
+          if [ "$EVENT" = "push" ]; then
+            tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+            if [ -n "$tag" ]; then
+              base="$tag"
+            elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              base="$BEFORE"
+            fi
+          fi
+          echo "Real-data check: the code is compared with $base ($(git rev-parse --short "$base"))" >> "$GITHUB_STEP_SUMMARY"
+          git diff --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
+          before="$RUNNER_TEMP/before"
+          mkdir -p "$before"
+          for f in register.py cache.py; do
+            git show "$base:pipeline/publicdata/$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
+          done
+          # The base's copy of each changed register entry, to find the rebuild numbers raised.
+          { grep -E '^register/.*\.yaml$' "$RUNNER_TEMP/changed.txt" || true; } | while read -r f; do
+            mkdir -p "$before/$(dirname "$f")"
+            git show "$base:$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
+          done
+          seed="$(git rev-parse "$base")-$(git diff "$base" HEAD -- pipeline/publicdata | sha256sum | cut -c1-16)"
+          slugs=$(python -m publicdata verify plan --store store --seed "$seed" --changed "$RUNNER_TEMP/changed.txt" --before "$before" 2> plan.err) || { cat plan.err >&2; exit 1; }
+          cat plan.err >&2
+          { echo '```'; cat plan.err; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
+
+  # Builds the sample from its sources with this code and compares every version, diff and
+  # history archive a deploy would reuse with its cache entry. A difference fails the deploy and
+  # names the dataset whose rebuild number the change must raise.
+  verify:
+    needs: plan
+    if: ${{ needs.plan.result == 'success' && needs.plan.outputs.verify != '' }}
+    runs-on: ubuntu-24.04
+    # A hung build ends as a failure the deploy stops on, well inside the six-hour job limit.
+    timeout-minutes: 150
+    environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+    env:
+      PUBLICDATA_SPATIAL: ${{ needs.plan.outputs.spatial }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/build-runner
+      - name: Pull the sample's cache entries and sources
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          SLUGS: ${{ needs.plan.outputs.verify }}
+        run: |
+          python -m publicdata cache pull --cache "$BUILD_CACHE" --store "$STORE" --only $SLUGS
+          python -m publicdata store pull --store "$STORE" --only $SLUGS
+      - name: Build the sample and compare it with what a deploy reuses
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          SLUGS: ${{ needs.plan.outputs.verify }}
+        run: |
+          set +e
+          python -m publicdata verify run $SLUGS --store "$STORE" --cache "$BUILD_CACHE" --out "$DIST" --published r2://publicdata-dist > verify.log 2>&1
+          rc=$?
+          cat verify.log
+          { echo '```'; sed 's/^::error:://' verify.log | tail -40; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
 
   # Each shard builds its datasets' versions, pushes their dated files to R2, and hands the deploy
-  # job the cache entries it wrote, with the files a pull request's preview serves.
+  # job the cache entries it wrote, with the files a pull request's preview serves. The shards
+  # wait for the real-data check, since a dated file in R2 is written once and a build with code
+  # the check rejects must never reach it.
   shard:
     name: shard ${{ strategy.job-index }}
-    needs: plan
-    if: ${{ needs.plan.result == 'success' && needs.plan.outputs.shards != '[]' }}
-    runs-on: ubuntu-latest
+    needs: [plan, verify]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') && needs.plan.outputs.shards != '[]' }}
+    runs-on: ubuntu-24.04
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+    env:
+      PUBLICDATA_SPATIAL: ${{ needs.plan.outputs.spatial }}
     strategy:
       matrix:
         slugs: ${{ fromJSON(needs.plan.outputs.shards) }}
@@ -141,22 +238,25 @@ jobs:
           compression-level: 0
 
   deploy:
-    needs: [plan, shard]
+    needs: [plan, shard, verify]
     # A required check that is skipped counts as passed, so this runs and fails when the build did.
     # The plan skips itself for a fork's pull request, which builds from fixtures here instead.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     env:
       HAS_CF: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_API_TOKEN_ID != '' }}
+      PUBLICDATA_SPATIAL: ${{ needs.plan.outputs.spatial }}
     outputs:
       version: ${{ steps.release.outputs.version }}
       deployed: ${{ steps.pages.outcome == 'success' }}
     steps:
       - name: Stop when the build failed
-        if: ${{ needs.plan.result == 'failure' || needs.shard.result == 'failure' }}
+        # A check that did not pass, timed out or cancelled included, stops it, so no tag is cut
+        # past an unchecked change.
+        if: ${{ needs.plan.result == 'failure' || needs.shard.result == 'failure' || (needs.verify.result != 'success' && needs.verify.result != 'skipped') }}
         run: |
-          echo "::error::plan ${{ needs.plan.result }}, shards ${{ needs.shard.result }}"
+          echo "::error::plan ${{ needs.plan.result }}, shards ${{ needs.shard.result }}, real-data check ${{ needs.verify.result }}"
           exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -182,7 +282,7 @@ jobs:
           echo "PUBLICDATA_RELEASE=$V" >> "$GITHUB_ENV"
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Release $V" >> "$GITHUB_STEP_SUMMARY"
-      # Version directories built from unchanged sources with unchanged code are reused, keeping
+      # Version directories built from unchanged inputs and rebuild numbers are reused, keeping
       # only their small files; the rest were pushed to R2 by the job that made them, and the
       # Parquet the pages read comes back from there.
       # Only a push to main writes the cache, once every entry's files are in R2: after the
@@ -287,7 +387,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           BRANCH: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
         run: |
-          npx --yes wrangler@4 pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
+          npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
           grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
       # A dated file is cached at the edge as immutable, so the versions a replace rewrote are
       # purged, or the edge serves the old files for a year.
@@ -313,7 +413,7 @@ jobs:
           # Only a database that has never been loaded may be read as empty; any other error stops.
           # _orders records the row order each version was loaded in, so one loaded in another
           # order than its Parquet's loads again.
-          if ! npx --yes wrangler@4 d1 execute publicdata --remote --json \
+          if ! npx --no-install wrangler d1 execute publicdata --remote --json \
               --command "CREATE TABLE IF NOT EXISTS _orders (slug TEXT NOT NULL, version TEXT NOT NULL, ord TEXT NOT NULL, PRIMARY KEY (slug, version)); SELECT v.slug, v.version, v.fields, (SELECT o.ord FROM _orders o WHERE o.slug = v.slug AND o.version = v.version) AS ord FROM _versions v" > loaded.json 2> list.err; then
             if grep -q "no such table" list.err loaded.json; then echo '[]' > loaded.json; else cat list.err loaded.json; exit 1; fi
           fi
@@ -342,7 +442,7 @@ jobs:
     # A deploy with no changed versions skips its shards; without !cancelled() that skip would
     # pass down and skip the release too.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success' && needs.deploy.outputs.deployed == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     permissions:
       contents: write

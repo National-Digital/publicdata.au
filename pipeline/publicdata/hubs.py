@@ -923,15 +923,42 @@ class Zenodo:
             self._records = out
         return self._records
 
-    def _ours(self, e: Entry) -> list[dict]:
-        def page(rec):
-            return {
-                r.get("identifier")
-                for r in (rec.get("metadata") or {}).get("related_identifiers") or ()
-                if r.get("relation") == "isVersionOf"
-            }
+    @staticmethod
+    def _page(rec: dict) -> set[str]:
+        return {
+            r.get("identifier")
+            for r in (rec.get("metadata") or {}).get("related_identifiers") or ()
+            if r.get("relation") == "isVersionOf"
+        }
 
-        return [r for r in self.records() if e.page in page(r)]
+    def _ours(self, e: Entry) -> list[dict]:
+        # Oldest first, so a dataset Zenodo holds under two concept records keeps growing the
+        # original and is located by it.
+        return sorted(
+            (r for r in self.records() if e.page in self._page(r)), key=lambda r: int(r["id"])
+        )
+
+    def _search(self, e: Entry) -> list[dict]:
+        """The records that name this dataset, asked for directly. The full listing is paged, and a
+        page boundary can lose a record while Zenodo is still indexing the last publish; a query
+        for one dataset has no boundary to lose it at."""
+        return self._call(
+            "GET",
+            "/deposit/depositions",
+            params={
+                "size": 100,
+                "all_versions": "true",
+                "q": f'metadata.related_identifiers.identifier:"{e.page}"',
+            },
+        )
+
+    def _remember(self, *recs: dict, forget: Iterable[int] = ()) -> None:
+        # Publishing is the only change this run makes, so the listing is kept in step by hand
+        # rather than read again while Zenodo's index is still settling.
+        gone = set(forget)
+        kept = [r for r in self.records() if r["id"] not in gone]
+        ids = {r["id"] for r in kept}
+        self._records = kept + [r for r in recs if r["id"] not in ids]
 
     account = None
 
@@ -959,11 +986,18 @@ class Zenodo:
     def publish(self, e: Entry, work: Path, fetch: Callable) -> str:
         paths = self.files(e, work, fetch)
         mine = self._ours(e)
+        if not mine:
+            found = self._search(e)
+            if found:
+                self._remember(*found)
+                mine = self._ours(e)
         # A draft left by a run that failed before publishing is discarded, so it cannot block
         # the new version and never gets a DOI.
+        dropped = []
         for r in mine:
             if not r.get("submitted"):
                 self._call("DELETE", f"/deposit/depositions/{r['id']}")
+                dropped.append(r["id"])
         published = [r for r in mine if r.get("submitted")]
         if published:
             newest = max(published, key=lambda r: (r.get("metadata") or {}).get("version", ""))
@@ -985,15 +1019,17 @@ class Zenodo:
             for p in paths:
                 self._put_file(f"{bucket}/{p.name}", p)
             done = self._call("POST", f"/deposit/depositions/{draft['id']}/actions/publish")
+            if "metadata" not in done:
+                done = self._call("GET", f"/deposit/depositions/{draft['id']}")
         except Exception:
             # The original error is the one worth reporting; a failed cleanup must not replace it.
             try:
                 self._call("DELETE", f"/deposit/depositions/{draft['id']}")
             except Exception:  # noqa: BLE001
                 pass
+            self._remember(forget=dropped)
             raise
-        finally:
-            self._records = None
+        self._remember(done, forget=dropped)
         return done.get("doi_url") or done.get("links", {}).get("html", "")
 
 

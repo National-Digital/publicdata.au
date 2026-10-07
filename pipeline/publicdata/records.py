@@ -100,7 +100,11 @@ class Records:
         c = _q(name)
         if fn in ("sum", "avg") and name in self.floats:
             r = _KBN.format(pairs=_PAIRS.format(c=c))
-            total = f"CASE WHEN count({c}) = 0 THEN NULL ELSE {r}.s + {r}.c END"
+            # SQLite drops the error term once it is NaN, which an infinite value makes it.
+            total = (
+                f"CASE WHEN count({c}) = 0 THEN NULL WHEN isnan({r}.c) THEN {r}.s"
+                f" ELSE {r}.s + {r}.c END"
+            )
             return total if fn == "sum" else f"({total}) / count({c})"
         return f"{fn.upper()}({c})"
 

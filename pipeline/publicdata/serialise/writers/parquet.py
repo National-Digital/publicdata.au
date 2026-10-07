@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -13,7 +12,6 @@ def write_parquet(
     tbl: Table,
     header: dict,
     path: Path,
-    int32: Sequence[str] | None = None,
     lay: dict | None = None,
 ) -> None:
     """The version's Parquet under the layout its manifest records, or `lay` for a query copy.
@@ -25,4 +23,4 @@ def write_parquet(
         pq.write_table(t, path, compression="zstd", write_statistics=True, row_group_size=65_536)
         return
     perm = profile.order_of(tbl, lay["sort"], lay["key"])
-    profile.write(tbl.table, header, path, lay, perm, int32)
+    profile.write(tbl.table, header, path, lay, perm)

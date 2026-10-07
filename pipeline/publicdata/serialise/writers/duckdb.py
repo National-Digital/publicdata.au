@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pyarrow as pa
+
 from ...normalise import Table
 from .. import DUCKDB_TYPES, duckdb_comment, duckdb_connect, duckdb_meta, field_rows, profile
 
@@ -19,10 +21,14 @@ def write_duckdb(tbl: Table, header: dict, path: Path) -> None:
         con.execute(f"CREATE TABLE records ({', '.join(cols)})")
         lay = tbl.manifest.parquet
         perm = profile.order_of(tbl, lay["sort"], lay["key"]) if lay else None
-        for part in profile.chunks(tbl.table, perm):
-            con.register("src", part)
-            con.execute("INSERT INTO records SELECT * FROM src")
-            con.unregister("src")
+        # One insert: DuckDB writes a larger file when the rows arrive in several.
+        src = tbl.table
+        if perm is not None:
+            parts = (b for part in profile.chunks(src, perm) for b in part.to_batches())
+            src = pa.RecordBatchReader.from_batches(src.schema, parts)
+        con.register("src", src)
+        con.execute("INSERT INTO records SELECT * FROM src")
+        con.unregister("src")
         duckdb_comment(con, "records", None, ds.title)
         for f in ds.fields:
             duckdb_comment(con, "records", f.name, f.description or f.source)

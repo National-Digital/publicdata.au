@@ -1,0 +1,24 @@
+#!/bin/sh
+# Runs the fast tests (pytest -m "not slow", the JS tests) on the working tree before a push.
+# Skip once with git push --no-verify.
+
+# Git exports these to the hook from a linked worktree; a test's own scratch repo must not see them.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_CONFIG_PARAMETERS
+
+status=0
+
+if ! command -v pytest >/dev/null 2>&1 || ! python -c 'import publicdata, xdist' >/dev/null 2>&1; then
+  echo "pre-push: pytest or the pipeline's environment not found, Python tests skipped"
+else
+  (cd pipeline && pytest -q -m "not slow" -n auto -p no:cacheprovider) || status=1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-push: node not found, JavaScript tests skipped"
+else
+  set -- functions/*.test.mjs scripts/*.test.mjs
+  [ -e "$1" ] && { node --test --test-reporter=dot "$@" || status=1; }
+fi
+
+[ "$status" -eq 0 ] || echo "pre-push: tests failed; fix them or push with --no-verify"
+exit "$status"

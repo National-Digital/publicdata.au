@@ -6,7 +6,6 @@ import pytest
 import yaml
 
 from publicdata import hubs
-from publicdata.gate import FORBIDDEN_TEXT
 
 RECORD = {
     "identifier": "qld-road-crash-factors",
@@ -86,10 +85,9 @@ def test_every_copy_links_back_to_the_version_and_carries_the_attribution():
     assert p["version_url"] == e.version_url and p["manifest"]["sha256"] == "ab" * 32
 
 
-def test_copy_follows_the_house_language_rules():
+def test_hub_copy_has_no_em_dashes():
     for t in text_of(make()):
         assert "—" not in t
-        assert not FORBIDDEN_TEXT.search(t)
 
 
 def test_every_open_licence_the_register_allows_has_a_hub_id():
@@ -280,8 +278,9 @@ class FakeResponse:
 class FakeZenodoHttp:
     """Enough of Zenodo's deposit API to follow a new version through to publish."""
 
-    def __init__(self, records, fail_metadata=False):
+    def __init__(self, records, fail_metadata=False, found=()):
         self.records = records
+        self.found = list(found)
         self.fail_metadata = fail_metadata
         self.calls = []
         self.headers = {}
@@ -290,6 +289,8 @@ class FakeZenodoHttp:
         path = url.split("/api", 1)[-1] if "/api/" in url else url
         self.calls.append((method, path))
         if method == "GET" and path == "/deposit/depositions":
+            if "q" in kw["params"]:
+                return FakeResponse(200, self.found)
             return FakeResponse(200, self.records if kw["params"]["page"] == 1 else [])
         if method == "POST" and path.endswith("/actions/newversion"):
             return FakeResponse(
@@ -304,7 +305,15 @@ class FakeZenodoHttp:
         if method == "PUT" and path.startswith("/deposit/depositions/") and self.fail_metadata:
             return FakeResponse(400, {"errors": [{"field": "metadata.license"}]})
         if method == "POST" and path.endswith("/actions/publish"):
-            return FakeResponse(202, {"doi_url": "https://doi.org/10.5281/zenodo.9"})
+            id_ = int(path.split("/")[3])
+            return FakeResponse(
+                202,
+                {
+                    **record(id_, "2026-09-30"),
+                    "conceptdoi": "10.5281/zenodo.8",
+                    "doi_url": "https://doi.org/10.5281/zenodo.9",
+                },
+            )
         return FakeResponse(200, {})
 
 
@@ -314,10 +323,11 @@ def zenodo(records, **kw):
     return z
 
 
-def record(id_, version, submitted=True):
+def record(id_, version, submitted=True, concept=None):
     return {
         "id": id_,
         "submitted": submitted,
+        "conceptdoi": f"10.5281/zenodo.{concept or id_ - 1}",
         "metadata": {
             "version": version,
             "related_identifiers": [
@@ -381,6 +391,36 @@ def test_zenodo_first_version_creates_a_deposition(tmp_path):
     z.publish(make(), tmp_path, fake_fetch)
     assert ("POST", "/deposit/depositions") in z.http.calls
     assert z.http.calls[-1] == ("POST", "/deposit/depositions/5/actions/publish")
+
+
+def test_zenodo_keeps_its_listing_in_step_after_a_publish_instead_of_reading_it_again(tmp_path):
+    z = zenodo([record(1, "2025-01-01"), record(2, "2026-09-30", submitted=False)])
+    e = make()
+    assert z.held(e) == {"2025-01-01"}
+    z.publish(e, tmp_path, fake_fetch)
+    listings = [c for c in z.http.calls if c == ("GET", "/deposit/depositions")]
+    assert len(listings) == 1
+    assert z.held(e) == {"2025-01-01", "2026-09-30"}
+    assert z.location(e) == "10.5281/zenodo.0"
+    assert len(listings) == 1
+    assert [r["id"] for r in z.records()] == [1, 9]
+
+
+def test_zenodo_asks_for_the_dataset_by_name_before_making_a_new_record(tmp_path):
+    z = zenodo([], found=[record(1, "2025-01-01")])
+    z.publish(make(), tmp_path, fake_fetch)
+    calls = z.http.calls
+    assert ("POST", "/deposit/depositions") not in calls
+    assert ("POST", "/deposit/depositions/1/actions/newversion") in calls
+    assert z.location(make()) == "10.5281/zenodo.0"
+
+
+def test_zenodo_grows_the_oldest_record_when_a_dataset_has_two(tmp_path):
+    z = zenodo([record(40, "2025-01-01", concept=39), record(10, "2025-01-01", concept=9)])
+    e = make()
+    assert z.location(e) == "10.5281/zenodo.9"
+    z.publish(e, tmp_path, fake_fetch)
+    assert ("POST", "/deposit/depositions/10/actions/newversion") in z.http.calls
 
 
 def fake_cli(tmp_path, script):

@@ -22,7 +22,7 @@ jobs:
     name: Approve the fetch's own data PR
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au' && (startsWith(github.head_ref, 'data/fetch-') || startsWith(github.head_ref, 'data/catalogue-') || startsWith(github.head_ref, 'data/hubs-'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write
