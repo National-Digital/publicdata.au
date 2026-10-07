@@ -430,12 +430,15 @@ class Scan {
     }
     const want = [];
     const cost = { groups: new Set(todo.map((t) => t.i)), bytes: 0, values: 0 };
+    // A chunk's dictionary is fetched once however many of its ranges are read.
+    const dicts = new Set();
     for (const { i, names, from, to } of todo) {
       for (const n of names) {
         const { pages, dict, oi } = this.ix[n][i];
         const hit = pages.filter((p) => p.to > from && p.from < to);
         want.push(dict, { start: hit[0].start, end: hit[hit.length - 1].end }, ...(oi ? [oi] : []));
-        cost.bytes += dict.end - dict.start + hit.reduce((a, p) => a + p.end - p.start, 0);
+        if (!dicts.has(dict)) { dicts.add(dict); cost.bytes += dict.end - dict.start; }
+        cost.bytes += hit.reduce((a, p) => a + p.end - p.start, 0);
         cost.values += hit.reduce((a, p) => a + p.to - p.from, 0) * (this.weight.get(n) || 1);
       }
     }
@@ -711,8 +714,71 @@ function unprofiled(entry, url, sql) {
   );
 }
 
-// The rows of one version, as rowsQuery and answer() would give them from D1.
-export async function parquetRows(env, entry, params, url, budget = BUDGET) {
+// Pages of the first filter column read in the first step of a page whose count is already
+// known. Each step doubles up to the last, so a page whose matches come early reads a page or
+// two and one whose matches are sparse still reaches them in a few rounds of reads.
+const FIRST_STEP = 2;
+const MAX_STEP = 16;
+
+// The rows in the candidate pages of one filter column's own statistics, which sets the order the
+// columns are read in.
+function left(scan, groups, name, specs) {
+  const own = specs.filter((s) => s.name === name);
+  let n = 0;
+  for (const p of groups) for (const pg of scan.ix[name][p.i].pages) if (!own.some((s) => none(s, pg.st))) n += pg.to - pg.from;
+  return n;
+}
+
+// The first matches in file order, skipping offset of them, until there are take of them. Each
+// step is charged before it is read. The filter column whose statistics leave the fewest rows is
+// read first, and each next one only over the rows still matching.
+async function firstMatches(scan, groups, specs, offset, take) {
+  const names = [...new Set(specs.map((s) => s.name))].map((n) => [left(scan, groups, n, specs), n]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+  const segs = groups.flatMap((p) => p.segs.map((seg) => ({ i: p.i, from: seg.from, to: seg.to, all: seg.all })));
+  const picks = [];
+  let skip = offset, k = 0, size = FIRST_STEP;
+  while (k < segs.length && picks.length < take) {
+    // A step ends on a page boundary of the first column read, so no page is read twice.
+    const step = [];
+    for (let n = 0; k < segs.length && n < size;) {
+      const s = segs[k];
+      const pages = names.length ? scan.ix[names[0]][s.i].pages.filter((pg) => pg.to > s.from && pg.from < s.to) : [];
+      const take = pages.slice(0, size - n);
+      const cut = take.length < pages.length ? take[take.length - 1].to : s.to;
+      step.push({ i: s.i, from: s.from, to: cut, all: s.all, rows: null });
+      n += Math.max(1, take.length);
+      if (cut === s.to) k++;
+      else segs[k] = { ...s, from: cut };
+    }
+    size = Math.min(2 * size, MAX_STEP);
+    for (const name of names) {
+      const own = specs.filter((s) => s.name === name);
+      const todo = step.filter((c) => !c.all && (c.rows === null || c.rows.length));
+      const span = (c) => (c.rows === null ? [c.from, c.to] : [c.rows[0], c.rows[c.rows.length - 1] + 1]);
+      await scan.load(todo.map((c) => { const [from, to] = span(c); return { i: c.i, from, to, names: [name] }; }));
+      for (const c of todo) {
+        const col = scan.col(c.i, name);
+        const keep = (r) => own.every((s) => matches(s, col[r]));
+        if (c.rows) c.rows = c.rows.filter(keep);
+        else { c.rows = []; for (let r = c.from; r < c.to; r++) if (keep(r)) c.rows.push(r); }
+      }
+    }
+    // The page's own columns are read again for the picks, so a step's columns are let go.
+    for (const c of step) scan.cols.delete(c.i);
+    for (const c of step) {
+      const n = c.all ? c.to - c.from : c.rows.length;
+      if (skip >= n) { skip -= n; continue; }
+      for (let j = skip; j < n && picks.length < take; j++) picks.push({ i: c.i, r: c.all ? c.from + j : c.rows[j] });
+      skip = 0;
+      if (picks.length === take) break;
+    }
+  }
+  return picks;
+}
+
+// The rows of one version, as rowsQuery and answer() would give them from D1. With known, the
+// count of matches a rollup holds, an unordered page stops reading once it is full.
+export async function parquetRows(env, entry, params, url, budget = BUDGET, known) {
   const m = fieldMap(entry.fields);
   const cols = selectFields(params, entry.fields, m);
   const specs = prepare(filterSpecs(params, m));
@@ -729,6 +795,10 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET) {
   const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget, order), specs);
   const groups = prune(entry, specs, ix);
   const want = offset + limit + 1;
+  if (known !== undefined && !order.length) {
+    const picks = await firstMatches(scan, groups, specs, offset, limit + 1);
+    return pageOf(scan, picks, cols, limit, known, sql);
+  }
   // The heap never holds more rows than can match, and each candidate costs a compare per level
   // of it: one more value for every eight levels, measured against decoding.
   const candidates = groups.reduce((n, p) => n + p.segs.reduce((a, s) => a + s.to - s.from, 0), 0);
@@ -778,14 +848,24 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET) {
       }
     }
   }
+  return pageOf(scan, picks, cols, limit, matched, sql);
+}
+
+// Picks further apart than a profile page's rows are read as two ranges, so a page whose matches
+// are scattered reads the pages around them and not every page between.
+const RUN_GAP = 10_000;
+
+// The selected columns of the picked rows, read over runs of nearby picks.
+async function pageOf(scan, picks, cols, limit, matched, sql) {
   const more = picks.length > limit;
   picks = picks.slice(0, limit);
-  const span = new Map();
-  for (const p of picks) {
-    const s = span.get(p.i);
-    span.set(p.i, s ? { from: Math.min(s.from, p.r), to: Math.max(s.to, p.r + 1) } : { from: p.r, to: p.r + 1 });
+  const runs = [];
+  for (const p of [...picks].sort((a, b) => a.i - b.i || a.r - b.r)) {
+    const last = runs[runs.length - 1];
+    if (last && last.i === p.i && p.r < last.to + RUN_GAP) last.to = Math.max(last.to, p.r + 1);
+    else runs.push({ i: p.i, from: p.r, to: p.r + 1 });
   }
-  await scan.load([...span].map(([i, s]) => ({ i, names: cols, ...s })));
+  await scan.load(runs.map((s) => ({ ...s, names: cols })));
   const rows = picks.map((p) => Object.fromEntries(cols.map((c) => [c, scan.col(p.i, c)[p.r]])));
   return { rows, matched, more, cols, used: scan.used, sql };
 }
