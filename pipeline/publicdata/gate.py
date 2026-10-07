@@ -374,13 +374,23 @@ def checked(
     names = tuple(
         {n for d in datasets.values() for n in (d.publisher.name, d.publisher.short) if n}
     )
+    # A publisher page from the portals' catalogues reads past its own publisher's name too.
+    listed = out / "catalogue" / "publishers.json"
+    page_names = {
+        p["path"].strip("/") + "/index.html": tuple(n for n in (p["name"], p["short"]) if n)
+        for p in (
+            json.loads(listed.read_text(encoding="utf-8"))["publishers"] if listed.is_file() else ()
+        )
+    }
     for html in sorted(out.rglob("*.html")):
         page = html.read_text(encoding="utf-8")
         pages.append((str(html.relative_to(out)), page))
         errors += structured.check_page(page, pages[-1][0])
         errors += _social_card(pages[-1][0], page, out)
         text = _without_publisher_values(PORTAL_TEXT.sub("", page), html, out, cache)
-        errors += abbreviations.check_page(text, pages[-1][0], names)
+        errors += abbreviations.check_page(
+            text, pages[-1][0], names + page_names.get(pages[-1][0], ())
+        )
         if (
             "not endorsed" not in text
             and "has not endorsed" not in text

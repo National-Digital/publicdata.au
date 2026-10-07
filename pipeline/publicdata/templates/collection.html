@@ -7,7 +7,7 @@
 <div class="meta-row"><span>Publisher <b>{{ publisher.name }}</b></span><span>Licence <b><a href="{{ licence.url }}" rel="license">{{ licence.title }}</a></b></span><span>Tables <b>{{ tables|length }}</b></span><span>Latest <b class="mono">{{ version }}</b></span>{% if as_at_long %}<span>As at <b>{{ as_at_long }}</b></span>{% endif %}{% if years %}<span>Covers <b>{{ years }}</b></span>{% endif %}</div>
 {% for para in collection_paras %}<p style="margin-top:14px">{{ para }}</p>{% endfor %}
 <p>{{ publisher.name }} releases these {{ tables|length }} tables as one dataset on <a href="{{ landing }}">its portal</a>, so every table here shares the version date {{ version }}. Each table has its own page with a format picker, a field list, a sample record and its version history.</p>
-{% if also_known_as %}<p class="muted small">Also called: {{ also_known_as|join(', ') }}.</p>{% endif %}
+{% if also_known_as %}<p class="muted small aka">Also called: {{ also_known_as|join(', ') }}.</p>{% endif %}
 <div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger">
 <thead><tr><th>Table</th><th>Download latest</th><th class="n">Rows</th><th class="n">Fields</th></tr></thead>
 <tbody>

@@ -152,7 +152,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     assert '<h2 id="places">By council area</h2>' in ds
     place = out / "d" / "qld-road-crash-locations" / "in" / "gold-coast-city" / "index.html"
     ptext = place.read_text(encoding="utf-8")
-    assert "<h1>Crashes in Gold Coast City</h1>" in ptext and "noindex" not in ptext
+    assert "<h1>Crashes in <span data-quoted>Gold Coast City</span></h1>" in ptext
+    assert "noindex" not in ptext
     assert (
         place.with_name("index.md")
         .read_text(encoding="utf-8")
@@ -352,6 +353,24 @@ def test_linkify_escapes_and_links_only_the_url():
     assert linkify("Open https://a.example/data.csv, then stop.") == (
         'Open <a href="https://a.example/data.csv">https://a.example/data.csv</a>, then stop.'
     )
+    assert linkify("It writes `NULL` & `<5`, see https://a.example/x.") == (
+        'It writes <code>NULL</code> &amp; <code>&lt;5</code>, see <a href="https://a.example/x">https://a.example/x</a>.'
+    )
+
+
+def test_quoting_marks_the_publishers_value_and_escapes_the_rest():
+    from publicdata.site import _faq_jsonld, quoting
+
+    assert quoting("Rows in A & B - EAST", "A & B - EAST") == (
+        "Rows in <span data-quoted>A &amp; B - EAST</span>"
+    )
+    assert quoting("Rows <here>", "") == "Rows &lt;here&gt;"
+    assert quoting("Sites where direction is not BOTH and kind is span", "BOTH", "span") == (
+        "Sites where direction is not <span data-quoted>BOTH</span> and kind is "
+        "<span data-quoted>span</span>"
+    )
+    q = _faq_jsonld([("What is `CNP`?", "The stream `CNP`.")])["mainEntity"][0]
+    assert q["name"] == "What is CNP?" and q["acceptedAnswer"]["text"] == "The stream CNP."
 
 
 def test_harvard_is_author_date_with_the_version_and_no_access_date():
@@ -400,7 +419,9 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_cop
         "group": ["casualty_road_user_type"],
         "metric": "sum.casualty_count",
     }
-    assert "Casualties by road user where severity is Hospitalised: " in page
+    assert (
+        "Casualties by road user where severity is <span data-quoted>Hospitalised</span>: " in page
+    )
     year = next(f for f in c["fields"] if f["name"] == "crash_year")
     region = next(f for f in c["fields"] if f["name"] == "crash_police_region")
     assert region["values"] == sorted(region["values"]) and None not in region["values"]

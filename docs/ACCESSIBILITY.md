@@ -25,9 +25,10 @@ check fires on a page built to fail it, as every gate in this repo must.
 | text spacing | 1.4.12 | with line height 1.5, letter spacing 0.12em, word spacing 0.16em and paragraph spacing 2em forced, nothing is cut off and the page does not scroll sideways |
 
 The Python gate (`python -m publicdata gate`) adds, on every built page including production
-builds, the abbreviation rule below, and `publicdata register validate` applies it to a register
-entry's title, summary, search title and collection copy, so a new abbreviation is caught in the
-pull request that introduces it.
+builds, the abbreviation rule below, and `publicdata register validate` applies it to every part
+of a register entry a page shows as prose (title, summary, description, search title, collection
+copy, questions and answers, sample label and notes), so a new abbreviation is caught in the pull
+request that introduces it.
 
 Every size in the stylesheet is in rem, never px, so a reader's own browser font size is honoured,
 and the root size is `clamp(100%, .75rem + .35vw, 125%)`: the browser default on a phone or laptop,
@@ -74,7 +75,9 @@ touches them is reviewed against this list.
   the glossary on the about page, linked from every footer, and the gate fails a page or a register
   entry that uses one the glossary does not hold and the page does not expand inline. A publisher's
   own words (titles and descriptions quoted from a portal, cell values, codes) are not rewritten and
-  are outside the rule, as are code samples.
+  are outside the rule, as are code samples. A template that sets a publisher's value inside the
+  site's own sentence, such as a place name or a chart's series, marks it `data-quoted` so the
+  gate reads past it.
 - **3.1.5 Reading level.** Copy follows the house language rules: a heading then plain sentences, no
   reversals, fragments or superlatives, and the gate's banned-word list. A dataset's caveats are
   written as questions a reader would ask.

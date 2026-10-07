@@ -138,12 +138,12 @@ def fmt_int(n: int) -> str:
 
 
 URL_RE = re.compile(r"https://[^\s<>\"]+")
+# A code or a publisher's value quoted in copy: register text and the site's own answers.
+CODE_RE = re.compile(r"`([^`\n]+)`")
 
 
-def linkify(text: str) -> str:
-    """Escape the prose and link each bare https URL. Trailing punctuation stays outside the link."""
+def _links(text: str) -> str:
     out, pos = [], 0
-    text = str(text)
     for m in URL_RE.finditer(text):
         url = m.group(0).rstrip(".,;:)")
         out.append(html.escape(text[pos : m.start()]))
@@ -154,6 +154,29 @@ def linkify(text: str) -> str:
     return "".join(out)
 
 
+def linkify(text: str) -> str:
+    """Escape the prose, set each code in backticks as code and link each bare https URL.
+    Trailing punctuation stays outside the link."""
+    out, pos = [], 0
+    text = str(text)
+    for m in CODE_RE.finditer(text):
+        out.append(_links(text[pos : m.start()]))
+        out.append(f"<code>{html.escape(m.group(1))}</code>")
+        pos = m.end()
+    out.append(_links(text[pos:]))
+    return "".join(out)
+
+
+def quoting(text: str, *values) -> str:
+    """Escape text and mark the publisher's values in it as quoted, so the abbreviation check reads
+    past a place name such as BRISBANE - EAST or a filter such as BOTH DIRECTIONS."""
+    out = html.escape(str(text))
+    vs = sorted({html.escape(str(v)) for v in values if str(v)}, key=len, reverse=True)
+    if not vs:
+        return out
+    return re.sub("|".join(map(re.escape, vs)), r"<span data-quoted>\g<0></span>", out)
+
+
 def env() -> Environment:
     e = Environment(
         loader=PackageLoader("publicdata", "templates"),
@@ -162,6 +185,8 @@ def env() -> Environment:
         lstrip_blocks=True,
     )
     e.filters["linkify"] = linkify
+    e.filters["code"] = inline_code
+    e.filters["quoting"] = quoting
     e.globals["cadence_words"] = cadence_words
     e.globals["download_name"] = download_name
     e.globals["brand_fonts"] = brand.has_fonts()
@@ -271,7 +296,7 @@ def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
 
 def inline_code(text: str) -> str:
     """Register copy escaped for HTML, with a publisher's code in backticks set as code."""
-    return re.sub(r"`([^`\n]+)`", r"<code>\1</code>", html.escape(text, quote=False))
+    return CODE_RE.sub(r"<code>\1</code>", html.escape(text, quote=False))
 
 
 def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
@@ -403,9 +428,9 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
         out.append(
             (
                 f"How do I get only the rows for one {pf.replace('_', ' ')}?",
-                f"Every version has one JSON file per value of {pf}, {len(entries)} files in the current version, listed with row counts at {vbase}by/{pf}/index.json."
+                f"Every version has one JSON file per value of `{pf}`, {len(entries)} files in the current version, listed with row counts at {vbase}by/{pf}/index.json."
                 + (
-                    f" For example {vbase}{ex['json']} holds the {fmt_int(ex['rows'])} rows where {pf} is {ex['value']}."
+                    f" For example {vbase}{ex['json']} holds the {fmt_int(ex['rows'])} rows where `{pf}` is `{ex['value']}`."
                     if ex
                     else ""
                 )
@@ -567,7 +592,11 @@ def _faq_jsonld(faq: list[tuple[str, str]]) -> dict:
         "@context": "https://schema.org",
         "@type": "FAQPage",
         "mainEntity": [
-            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}}
+            {
+                "@type": "Question",
+                "name": CODE_RE.sub(r"\1", q),
+                "acceptedAnswer": {"@type": "Answer", "text": CODE_RE.sub(r"\1", a)},
+            }
             for q, a in faq
         ],
     }
@@ -3505,6 +3534,7 @@ def render_site(
             fig=fig,
             example_rows=[(k, figures.fmt(v)) for k, v in example],
             example_words=(_example_title(ds, console) if example else ""),
+            example_values=[f["value"] for f in console["example"]["filters"]] if example else [],
             rows_example=_example_query(ds.slug, console, "rows") if console else "",
             aggregate_example=_example_query(ds.slug, console, "aggregate") if console else "",
             format_count=len(formats) - (1 if fmt_data.get("partition") else 0),

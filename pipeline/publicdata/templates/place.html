@@ -3,11 +3,11 @@
 {% block disclaimer %}Published by {{ ds.publisher.name }} under {{ ds.licence.title }} and republished here without change to the content. {{ ds.publisher.name }} has not endorsed this site.{% endblock %}
 {% block wrap %}
 <div class="site">
-<div class="crumbs"><a href="/">Datasets</a> / {% if jur_path %}<a href="{{ jur_path }}">{{ jur_long }}</a>{% else %}{{ jur_long }}{% endif %} / <a href="{{ base }}">{{ ds.title }}</a> / {{ place.value }}</div>
-<div class="ds-head"><h1>{{ heading }}</h1><span class="chip live">live</span></div>
+<div class="crumbs"><a href="/">Datasets</a> / {% if jur_path %}<a href="{{ jur_path }}">{{ jur_long }}</a>{% else %}{{ jur_long }}{% endif %} / <a href="{{ base }}">{{ ds.title }}</a> / <span data-quoted>{{ place.value }}</span></div>
+<div class="ds-head"><h1>{{ heading|quoting(place.value)|safe }}</h1><span class="chip live">live</span></div>
 <div class="meta-row"><span>Publisher <b>{{ ds.publisher.name }}</b></span><span>Licence <b><a href="{{ ds.licence.url }}" rel="license">{{ ds.licence.title }}</a></b></span><span>Version <b class="mono">{{ latest.version }}</b></span>{% if latest.as_at %}<span>As at <b>{{ latest.as_at_long }}</b></span>{% endif %}<span>Rows <b>{{ place.rows_fmt }}</b></span></div>
-<p class="lede" style="margin-top:14px">{{ intro }}</p>
-<p>{{ ds.summary }} This page holds the rows where {{ place_label|lower }} is {{ place.value }}. The whole table, with every {{ place_label|lower }}, is <a href="{{ base }}">{{ ds.title }}</a>.</p>
+<p class="lede" style="margin-top:14px">{{ intro|quoting(place.value)|safe }}</p>
+<p>{{ ds.summary }} This page holds the rows where {{ place_label|lower }} is <span data-quoted>{{ place.value }}</span>. The whole table, with every {{ place_label|lower }}, is <a href="{{ base }}">{{ ds.title }}</a>.</p>
 </div>
 
 {% if fig.chart or fig.map %}<div class="band figband">
@@ -26,7 +26,7 @@
 <div class="site">
 <div class="ds">
 <div>
-  <h2>Files for {{ place.value }}</h2>
+  <h2>Files for <span data-quoted>{{ place.value }}</span></h2>
   <p>The rows for this {{ place_label|lower }} alone, cut from version {{ latest.version }}. Each file carries the publisher's attribution and names the partition it holds.</p>
   <ul class="files">
     <li><a href="{{ place.json_url }}" class="mono">{{ place.json_name }}</a><span>{{ place.rows_fmt }} rows as JSON</span></li>
@@ -35,7 +35,7 @@
   {% if rows_url %}<p>The query API answers the same rows and counts from a URL{% if console %}, in JSON, CSV or NDJSON{% endif %}: <a href="{{ rows_url }}" class="mono">rows</a>{% if agg_url %} and <a href="{{ agg_url }}" class="mono">aggregate</a>{% endif %}. Every format of the whole table, with a format picker, is on <a href="{{ base }}#get">the dataset page</a>.</p>{% endif %}
 
   <h2>{{ sample_rows.heading }}</h2>
-  <p>{{ sample_rows.note }}</p>
+  <p>{{ sample_rows.note|code|safe }}</p>
   <div class="tbl" tabindex="0" role="region" aria-label="{{ sample_rows.heading }}" data-conformance="aa"><table class="ledger sample">
   <thead><tr>{% for f in sample_rows.fields %}<th>{{ f }}</th>{% endfor %}</tr></thead>
   <!--portal-text--><tbody>{% for r in sample_rows.rows %}<tr>{% for v in r %}<td{% if v is none %} class="nul">null{% else %}>{{ v }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody><!--/portal-text--></table></div>
@@ -43,7 +43,7 @@
 
   {% if ds.faq %}<h2>Before you use it</h2>
   <div class="faq">
-  {% for q, a in ds.faq %}<details{% if loop.first %} open{% endif %}><summary>{{ q }}</summary><p>{{ a|linkify|safe }}</p></details>
+  {% for q, a in ds.faq %}<details{% if loop.first %} open{% endif %}><summary>{{ q|code|safe }}</summary><p>{{ a|linkify|safe }}</p></details>
   {% endfor %}
   </div>{% endif %}
 

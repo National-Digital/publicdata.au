@@ -17,7 +17,7 @@ FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
 
 
 def cmd_register(args) -> int:
-    from .abbreviations import COPY_FIELDS, check_copy
+    from .abbreviations import check_copy, register_copy
     from .register import load
 
     ds = load(REGISTER)
@@ -27,7 +27,8 @@ def cmd_register(args) -> int:
     words = []
     for d in ds:
         if d.status in ("live", "building"):
-            words += check_copy({k: getattr(d, k, "") for k in COPY_FIELDS}, d.slug)
+            names = tuple(n for n in (d.publisher.name, d.publisher.short) if n)
+            words += check_copy(register_copy(d), d.slug, names)
     for w in words:
         print(f"abbreviation: {w}")
     for d in ds:

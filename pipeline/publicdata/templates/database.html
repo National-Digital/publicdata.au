@@ -10,9 +10,9 @@
 <div class="ds-head"><h1>{{ ds.title }}</h1><span class="chip {{ ds.status }}">{{ ds.status }}</span></div>
 <div class="meta-row"><span>Publisher <b>{{ ds.publisher.name }}</b></span>{% if ds.source.cadence %}<span>Updated <b>{{ cadence_words(ds)[0] }}</b></span>{% endif %}<span>Licence <b><a href="{{ ds.licence.url }}" rel="license">{{ ds.licence.title }}</a></b></span><span>Latest <b class="mono">{{ latest.version }}</b></span>{% if latest.as_at %}<span>As at <b>{{ latest.as_at_long }}</b></span>{% endif %}<span>Rows <b>{{ latest.rows_fmt }}</b></span><span>Tables <b>{{ db.tables|length }}</b></span><span>Fields <b>{{ ds.field_count }}</b></span></div>
 {% for para in description_paras %}<p class="{{ 'lede' if loop.first else '' }}" style="margin-top:14px">{{ para|safe }}</p>{% endfor %}
-{% if ds.also_known_as %}<p class="muted small">Also called: {{ ds.also_known_as|join(', ') }}.</p>{% endif %}
+{% if ds.also_known_as %}<p class="muted small aka">Also called: {{ ds.also_known_as|join(', ') }}.</p>{% endif %}
 {% if ds.licence.condition or ds.faq %}<div class="caveats"><span class="k">Before you use it</span>
-<dl>{% if ds.licence.condition %}<dt>The licence has a condition</dt><dd>{{ ds.licence.condition }}</dd>{% endif %}{% for q, a in ds.faq %}<dt>{{ q }}</dt><dd>{{ a|linkify|safe }}</dd>{% endfor %}</dl></div>{% endif %}
+<dl>{% if ds.licence.condition %}<dt>The licence has a condition</dt><dd>{{ ds.licence.condition }}</dd>{% endif %}{% for q, a in ds.faq %}<dt>{{ q|code|safe }}</dt><dd>{{ a|linkify|safe }}</dd>{% endfor %}</dl></div>{% endif %}
 {% if related %}<nav class="related" aria-label="Related datasets"><span class="k">Same subject, other publishers</span>
 <ul>{% for r in related %}<li><a href="/d/{{ r.slug }}/">{{ r.title }}<span class="chip jur">{{ r.jur }}</span></a></li>{% endfor %}</ul></nav>{% endif %}
 </div>
@@ -99,7 +99,7 @@
   {% if faq_auto %}
   <h2 id="questions">Questions</h2>
   <div class="faq">
-  {% for q, a in faq_auto %}<details{% if loop.first %} open{% endif %}><summary>{{ q }}</summary><p>{{ a|linkify|safe }}</p></details>
+  {% for q, a in faq_auto %}<details{% if loop.first %} open{% endif %}><summary>{{ q|code|safe }}</summary><p>{{ a|linkify|safe }}</p></details>
   {% endfor %}
   </div>
   {% endif %}

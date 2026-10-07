@@ -29,7 +29,7 @@
 <p class="xhint" id="x-hint" hidden>Press <b>Edit</b> on any panel to change its chart type and drag fields into Group by, Split by and Filter. Drag a panel by its title to move or dock it, and click a bar in the first chart to filter the rest.</p>
 {% if fig.chart or fig.map %}<div class="xghost" id="x-ghost" aria-hidden="true"><div class="panels">{% if fig.chart %}<div class="panel p1"><div class="ptitle">{{ fig.what }} per year</div>{{ fig.chart|safe }}</div>{% endif %}{% if fig.map %}<div class="panel pmap"><div class="ptitle">Map</div>{{ fig.map|safe }}</div>{% endif %}</div></div>{% endif %}
 <div class="xhost" id="x-host" data-conformance="aa"></div>
-<p class="xattr"><b>Data:</b> {{ attribution }} <a href="{{ ds.licence.url }}" rel="license">Licence terms</a>.</p>
+<p class="xattr"><b>Data:</b> <span data-quoted>{{ attribution }}</span> <a href="{{ ds.licence.url }}" rel="license">Licence terms</a>.</p>
 
 <div class="ds xhelp">
 <div>

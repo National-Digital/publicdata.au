@@ -21,6 +21,7 @@ COPY_FIELDS = (
     "search_title",
     "collection_title",
     "collection_description",
+    "source_withheld",
 )
 
 # Two to seven capitals or digits led by a capital, with hyphenated forms such as G-NAF and SHA-256.
@@ -41,11 +42,14 @@ SKIP_TAGS = frozenset(
         "title",
         "noscript",
         "template",
+        "textarea",
     }
 )
 # aka: the search aliases a dataset is also called; method: an HTTP verb in the query console;
 # attr: the attribution wording the licence asks for, quoted as the publisher wrote it.
 SKIP_CLASSES = frozenset({"mono", "pub", "pname", "chip", "aka", "method", "attr"})
+# A publisher's value set in the site's own sentence, such as a place, a category or a chart series.
+QUOTED = "data-quoted"
 
 
 @lru_cache(maxsize=1)
@@ -70,8 +74,9 @@ def unknown(text: str, known: frozenset[str], names: tuple[str, ...] = ()) -> li
     """The abbreviations in text that the glossary does not hold and the text does not expand
     inline, as "Transport and Main Roads (TMR)" does. names are proper names to read past."""
     for n in sorted(names, key=len, reverse=True):
-        if n:
-            text = text.replace(n, " ")
+        if n and n in text:
+            # Whole words only: a short name such as GA must not split GUNGAHLIN into two tokens.
+            text = re.sub(rf"(?<![\w-]){re.escape(n)}(?![\w-])", " ", text)
     text = re.sub(r"`[^`\n]*`", " ", text)  # a code or identifier quoted in register copy
     expanded = set(re.findall(r"\(([A-Z][A-Z0-9-]+)\)", text))
     seen: list[str] = []
@@ -87,8 +92,8 @@ def unknown(text: str, known: frozenset[str], names: tuple[str, ...] = ()) -> li
 
 
 class _Prose(HTMLParser):
-    """The text of <main>, less the elements SKIP_TAGS and SKIP_CLASSES name and every region marked
-    data-conformance="aa"."""
+    """The text of <main>, less the elements SKIP_TAGS and SKIP_CLASSES name, every element marked
+    data-quoted and every region marked data-conformance="aa"."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -123,7 +128,12 @@ class _Prose(HTMLParser):
         if tag == "main":
             self.in_main = True
         classes = set((a.get("class") or "").split())
-        skip = tag in SKIP_TAGS or bool(classes & SKIP_CLASSES) or a.get("data-conformance") == "aa"
+        skip = (
+            tag in SKIP_TAGS
+            or bool(classes & SKIP_CLASSES)
+            or QUOTED in a
+            or a.get("data-conformance") == "aa"
+        )
         self.stack.append((tag, skip))
         if skip:
             self.skipping += 1
@@ -162,12 +172,24 @@ def check_page(page_html: str, rel: str, names: tuple[str, ...] = ()) -> list[st
     )
 
 
-def check_copy(fields: dict[str, str], ctx: str) -> list[str]:
-    """The register's headline copy, as validate sees it."""
+def register_copy(d) -> dict[str, str]:
+    """Every piece of a register entry's copy that a page shows as prose, by where it sits."""
+    fields = {k: getattr(d, k, "") or "" for k in COPY_FIELDS}
+    for i, (q, a) in enumerate(d.faq):
+        fields[f"faq[{i}].q"] = q
+        fields[f"faq[{i}].a"] = a
+    fields["licence.condition"] = d.licence.condition or ""
+    fields["sample.label"] = (d.sample or {}).get("label") or ""
+    fields["geometry.crs_note"] = (d.geometry or {}).get("crs_note") or ""
+    return fields
+
+
+def check_copy(fields: dict[str, str], ctx: str, names: tuple[str, ...] = ()) -> list[str]:
+    """The register's copy, as validate sees it."""
     errors = []
     known = known_tokens(glossary())
     for k, v in fields.items():
-        bad = unknown(v or "", known)
+        bad = unknown(v or "", known, names)
         if bad:
             errors.append(
                 f"{ctx}: {k} uses {', '.join(bad)}, which the glossary (pipeline/publicdata/glossary.json) does not explain"
