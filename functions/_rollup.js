@@ -290,7 +290,8 @@ export async function rollup(ctx, slug, version, op, qs) {
   if (!live) return null;
   const v = version || live;
   const r = await open(ctx, slug, v);
-  if (!r) return null;
+  // As the Parquet engine refuses a file without provenance, its rollup does not answer either.
+  if (!r || !r.publicdata || !Object.keys(r.publicdata).length) return null;
   const params = new URLSearchParams(qs.join('&'));
   const a = aggregate(r, params);
   if (!a) return null;

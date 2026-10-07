@@ -546,6 +546,6 @@ def test_rollup_lists_field_sets_and_shapes_no_version():
     assert parse(_fielded(), "x").rollup == ()
     # Rollups are built after the build, so the entry the build cache keys on is unchanged.
     assert repr(ds) == repr(parse(_fielded(), "x"))
-    for bad in ([["nope"]], [[]], [["year", "year"]], ["year"], {"year": 1}):
+    for bad in ([["nope"]], [[]], [["year", "year"]], ["year"], {"year": 1}, [[{"a": 1}]]):
         with pytest.raises(RegisterError, match="rollup"):
             parse(_fielded(rollup=bad), "x")

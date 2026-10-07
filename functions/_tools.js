@@ -1,6 +1,6 @@
 import { answer } from './_api.js';
 import { QueryError, aggregateQuery, rowsQuery } from './_query.js';
-import { BUDGET, BudgetError, ENGINE, StaleError, forget, openVersion, parquetAggregate, parquetRows } from './_parquet.js';
+import { BudgetError, ENGINE, StaleError, forget, openVersion, parquetAggregate, parquetRows } from './_parquet.js';
 import { rollup } from './_rollup.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 import { onRequestPost as castVote } from './api/v1/votes/[slug].js';
@@ -142,9 +142,10 @@ async function fromFile(ctx, slug, v, op, qs, path, url, counted) {
   } catch (e) {
     // A page refused for what counting every match would read is read only until it is full
     // when the version's rollup holds the count.
-    const known = e instanceof BudgetError && counted ? await counted(v).catch((x) => { console.error(`rollup ${slug} ${v}: ${x}`); return null; }) : null;
+    const known = e instanceof BudgetError && entry.profiled && counted ? await counted(v).catch((x) => { console.error(`rollup ${slug} ${v}: ${x}`); return null; }) : null;
     if (known === null) throw e;
-    r = await parquetRows(ctx.env, entry, params, url, BUDGET, known);
+    // A page still over the budget is refused with the full query's cost, not the partial read's.
+    r = await parquetRows(ctx.env, entry, params, url, undefined, known).catch((x) => { throw x instanceof BudgetError ? e : x; });
   }
   // The query API answers this path only while D1 holds the version, so the manifest is linked for
   // the licence, source, hash and fetch time.

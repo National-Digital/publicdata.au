@@ -132,6 +132,23 @@ test('the known-count page is the page a full scan gives, at every offset', asyn
   }
 });
 
+test('the known-count path stops at the count and reads only the pages its picks are on', async () => {
+  const entry = await openVersion(env, SLUG, V);
+  const url = `https://publicdata.au/${PUB}`;
+  const run = (qs, known) => parquetRows(env, entry, new URLSearchParams(qs), url, BUDGET, known);
+  const drgd = 'status=eq.DRGD&limit=100&select=acn';
+  const all = await run(drgd, 999), five = await run(drgd, 5);
+  assert.equal(five.rows.length, 5);
+  assert.equal(five.more, false);
+  assert.deepEqual(five.rows, all.rows.slice(0, 5));
+  assert.ok(five.used.values < all.used.values, `${five.used.values} < ${all.used.values}`);
+  // A page past the count needs no read at all.
+  assert.equal((await run(`${drgd}&offset=999`, 999)).used.values, 0);
+  // The 13 rows with no registration date sit on pages of their own, and none between is read.
+  const nulls = await run('registration_date=is.null&limit=20&select=acn,company_name');
+  assert.ok(nulls.used.values <= 3_300, String(nulls.used.values));
+});
+
 test('an ACN lookup reads the profile copy and never the rollup', async () => {
   const q = want.rows[1];
   reads.length = 0;

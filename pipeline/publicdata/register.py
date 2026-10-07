@@ -887,7 +887,13 @@ def _rollup(raw, fields: list[Field], ctx: str) -> tuple[tuple[str, ...], ...]:
         raise RegisterError(f"{ctx} is a list of field lists")
     out = []
     for s in raw:
-        if not isinstance(s, list) or not s or len(set(s)) != len(s) or not set(s) <= names:
+        if (
+            not isinstance(s, list)
+            or not s
+            or not all(isinstance(x, str) for x in s)
+            or len(set(s)) != len(s)
+            or not set(s) <= names
+        ):
             raise RegisterError(f"{ctx}: {s!r} must list distinct declared fields")
         out.append(tuple(str(x) for x in s))
     return tuple(out)

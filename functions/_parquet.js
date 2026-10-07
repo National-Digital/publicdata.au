@@ -430,7 +430,7 @@ class Scan {
     }
     const want = [];
     const cost = { groups: new Set(todo.map((t) => t.i)), bytes: 0, values: 0 };
-    // A chunk's dictionary is fetched once however many of its ranges are read.
+    // A chunk's dictionary is charged once per plan however many of its ranges are read.
     const dicts = new Set();
     for (const { i, names, from, to } of todo) {
       for (const n of names) {
@@ -733,6 +733,7 @@ function left(scan, groups, name, specs) {
 // step is charged before it is read. The filter column whose statistics leave the fewest rows is
 // read first, and each next one only over the rows still matching.
 async function firstMatches(scan, groups, specs, offset, take) {
+  if (take <= 0) return [];
   const names = [...new Set(specs.map((s) => s.name))].map((n) => [left(scan, groups, n, specs), n]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
   const segs = groups.flatMap((p) => p.segs.map((seg) => ({ i: p.i, from: seg.from, to: seg.to, all: seg.all })));
   const picks = [];
@@ -743,10 +744,10 @@ async function firstMatches(scan, groups, specs, offset, take) {
     for (let n = 0; k < segs.length && n < size;) {
       const s = segs[k];
       const pages = names.length ? scan.ix[names[0]][s.i].pages.filter((pg) => pg.to > s.from && pg.from < s.to) : [];
-      const take = pages.slice(0, size - n);
-      const cut = take.length < pages.length ? take[take.length - 1].to : s.to;
+      const used = pages.slice(0, size - n);
+      const cut = used.length < pages.length ? used[used.length - 1].to : s.to;
       step.push({ i: s.i, from: s.from, to: cut, all: s.all, rows: null });
-      n += Math.max(1, take.length);
+      n += Math.max(1, used.length);
       if (cut === s.to) k++;
       else segs[k] = { ...s, from: cut };
     }
@@ -796,7 +797,8 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET, know
   const groups = prune(entry, specs, ix);
   const want = offset + limit + 1;
   if (known !== undefined && !order.length) {
-    const picks = await firstMatches(scan, groups, specs, offset, limit + 1);
+    // The count says when the last match has been read, so a last page stops there too.
+    const picks = await firstMatches(scan, groups, specs, offset, Math.min(limit + 1, known - offset));
     return pageOf(scan, picks, cols, limit, known, sql);
   }
   // The heap never holds more rows than can match, and each candidate costs a compare per level
@@ -851,21 +853,19 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET, know
   return pageOf(scan, picks, cols, limit, matched, sql);
 }
 
-// Picks further apart than a profile page's rows are read as two ranges, so a page whose matches
-// are scattered reads the pages around them and not every page between.
-const RUN_GAP = 10_000;
-
-// The selected columns of the picked rows, read over runs of nearby picks.
+// The selected columns of the picked rows, read over runs of picks in the same or next page of
+// the first selected column, so scattered picks read the pages around them and none between.
 async function pageOf(scan, picks, cols, limit, matched, sql) {
   const more = picks.length > limit;
   picks = picks.slice(0, limit);
+  const pageAt = (i, r) => scan.ix[cols[0]][i].pages.findIndex((pg) => pg.from <= r && r < pg.to);
   const runs = [];
   for (const p of [...picks].sort((a, b) => a.i - b.i || a.r - b.r)) {
-    const last = runs[runs.length - 1];
-    if (last && last.i === p.i && p.r < last.to + RUN_GAP) last.to = Math.max(last.to, p.r + 1);
-    else runs.push({ i: p.i, from: p.r, to: p.r + 1 });
+    const last = runs[runs.length - 1], k = pageAt(p.i, p.r);
+    if (last && last.i === p.i && k <= last.page + 1) { last.to = p.r + 1; last.page = k; }
+    else runs.push({ i: p.i, from: p.r, to: p.r + 1, page: k });
   }
-  await scan.load(runs.map((s) => ({ ...s, names: cols })));
+  await scan.load(runs.map(({ i, from, to }) => ({ i, from, to, names: cols })));
   const rows = picks.map((p) => Object.fromEntries(cols.map((c) => [c, scan.col(p.i, c)[p.r]])));
   return { rows, matched, more, cols, used: scan.used, sql };
 }

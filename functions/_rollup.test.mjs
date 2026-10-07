@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { aggregateQuery } from './_query.js';
 import { aggregate, glob, rollup } from './_rollup.js';
 
@@ -165,6 +165,20 @@ test('a rollup built from other bytes than the published Parquet never answers',
   } finally {
     Date.now = now;
   }
+});
+
+test('a rollup with no provenance never answers, as its file would be refused', async () => {
+  const bare = gzipSync(JSON.stringify({ ...R(), publicdata: {} }));
+  const k = '_rollup/t/2026-05-01.json.gz', pk = 'd/t/v/2026-05-01/data.parquet';
+  const env = {
+    ASSETS: { fetch: async () => new Response('', { status: 404 }) },
+    DIST: {
+      get: async (x) => (x === k ? { customMetadata: { parquet: 'sha256:p' }, body: new Response(bare).body } : null),
+      head: async (x) => (x === k ? { customMetadata: { parquet: 'sha256:p' } } : x === pk ? { customMetadata: { sha256: 'p' }, etag: 'e' } : null),
+    },
+  };
+  // latest.json was read once by the first rollup() test.
+  assert.equal(await rollup({ env }, 't', '2026-05-01', 'aggregate', ['metric=count']), null);
 });
 
 test('LIKE patterns match in linear time and as SQLite matches them', () => {

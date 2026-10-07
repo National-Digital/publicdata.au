@@ -597,11 +597,13 @@ the cache of the one before. Each answer links the version's manifest, since the
 answers only while D1 holds the version. A file with no `publicdata` provenance key is refused.
 
 A page of rows without an order that the budget refuses, because counting every match reads too
-much, takes its count from the version's rollup when a cube holds every filter field. It then reads
-in file order only until the page is full, a few pages of the first filter column at a time and
-doubling, reading the column whose page statistics leave the fewest rows first and each other one
-only over the rows still matching. The picked rows' columns are read over runs of nearby picks, not
-every page between the first and the last.
+much, takes its count from the version's rollup when a cube holds every filter field and the file
+follows the profile. It then reads in file order only until the page is full or the count is
+reached, a few pages of the first filter column at a time and doubling, reading the column whose
+page statistics leave the fewest rows first and each other one only over the rows still matching. A
+page still over the budget is refused with the full query's cost. The picked rows' columns are read
+over runs of picks on the same or the next page, not every page between the first and the last, and
+a column chunk's dictionary is charged once per read however many ranges it serves.
 
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
