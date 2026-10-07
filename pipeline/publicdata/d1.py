@@ -52,8 +52,13 @@ WORKERS = 4
 IMPORT_LOCK = threading.Lock()
 # Rows written one deploy may plan, counting each index entry and the full-text index.
 BUDGET = 10_000_000
-# A version that failed to load in this many deploys waits for a new version or a forced retry.
+# A dataset whose loads failed in this many deploys, whatever the versions, waits for a forced
+# retry; a load that succeeds clears the count.
 MAX_FAILURES = 3
+# A dataset skipped, or waiting longer than this, is listed on every deploy.
+STALE_DAYS = 7
+# A load table's name: the version's table name and a digest. The sweep drops only these.
+OWNED = re.compile(r"v_[a-z0-9_]+_[0-9a-f]{10}")
 # Tries per part within one deploy, and per check against D1.
 TRIES = 2
 ASKS = 3
@@ -270,11 +275,13 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
             f'(SELECT sum({sizes}) FROM "{tbl}" WHERE rowid IN '
             f"({','.join(map(str, wide))})) = {sum(wide.values())}"
         )
-    yield (
-        "register",
-        f"INSERT OR REPLACE INTO _versions SELECT {values} WHERE {' AND '.join(holds)};",
-        0,
-    )
+    register = f"INSERT OR REPLACE INTO _versions SELECT {values} WHERE {' AND '.join(holds)};"
+    if len(register.encode()) > MAX_STATEMENT:
+        # Raised once every row is read and before any part is written.
+        raise TooWide(
+            f"its registration check is {len(register.encode()):,} bytes, over D1's statement limit"
+        )
+    yield "register", register, 0
 
 
 class TooWide(ValueError):
@@ -362,6 +369,15 @@ def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:
                 if str(res.get("path", "")).endswith(want):
                     return res.get("bytes")
     return None
+
+
+def rows_written(text: str) -> int:
+    """A count of rows as a dispatch input gives it: 10000000, 10_000,000, 10M, 500k or 1G."""
+    m = re.fullmatch(r"\s*(\d[\d_,]*)\s*([kKmMgG]?)\s*", text or "")
+    if not m:
+        raise ValueError(f"{text!r} is not a count of rows, such as 10000000 or 10M")
+    n = int(m[1].replace("_", "").replace(",", ""))
+    return n * {"": 1, "k": 10**3, "m": 10**6, "g": 10**9}[m[2].lower()]
 
 
 def load_table(slug: str, version: str, *content) -> str:
@@ -475,6 +491,14 @@ def _write_load(out, slug, version, tbl, stmts, stamp, keep, fts=False, after=()
         updates += kind == "update"
     cum.append(rows)
     finish += after
+    if keep == 1:
+        # Readers take the highest version, and _served's are hashes, so the others go in the same
+        # part, once this one is registered.
+        finish.append(
+            f"DELETE FROM _versions WHERE slug = {literal(slug)} AND version != {literal(version)} "
+            f"AND EXISTS (SELECT 1 FROM _versions WHERE slug = {literal(slug)} AND version = "
+            f"{literal(version)} AND tbl = {literal(tbl)});"
+        )
     key = f"{slug}@{version}"
     paths = []
     for i, part in enumerate([*body, finish], 1):
@@ -769,10 +793,15 @@ class Job:
     since: str = ""
     outcome: str = ""
     note: str = ""
+    first: bool = False
+    charged: int = 0
 
     @property
     def body(self) -> list[Path]:
         return self.parts[:-1]
+
+    def finishing(self) -> int:
+        return self.rows * self.indexes + (FTS_WRITES * self.rows if self.fts else 0)
 
     @property
     def resumable(self) -> bool:
@@ -783,8 +812,7 @@ class Job:
     def planned(self) -> int:
         """Rows written: each row, each index entry, the full-text index and wide-row pieces."""
         done = self.cum[self.start - 1] if self.start else 0
-        fts = FTS_WRITES * self.rows if self.fts else 0
-        return self.rows - done + self.rows * self.indexes + fts + self.updates
+        return self.rows - done + self.finishing() + self.updates
 
 
 def _jobs(folder: Path) -> list[Job]:
@@ -813,14 +841,15 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
     """Orders the loads and splits them into this deploy's and later ones'. A load that got part
     way goes first, then the dataset that has waited longest, then the smaller. Loads are taken
     while they fit the budget, and the first in line is taken whatever its size, so a version
-    larger than the budget loads alone in some deploy and none waits for good. A version that
-    failed in MAX_FAILURES deploys is skipped until it changes or `retry` names its dataset."""
+    larger than the budget loads alone in some deploy and none waits for good. A dataset whose
+    loads failed in MAX_FAILURES deploys, of any versions, is skipped until a load of it succeeds
+    or `retry` names it; a failure also restarts its wait, so it goes behind the others."""
     queue = []
     for j in jobs:
         row = state.get(j.slug)
         j.since = row["since"] if row else now
+        j.attempts = int(row["attempts"]) if row else 0
         if row and row["version"] == j.version:
-            j.attempts = int(row["attempts"])
             part, done = int(row["part"]), int(row["rows"])
             if row["tbl"] == j.tbl and j.resumable and 0 < part <= len(j.cum):
                 if j.cum[part - 1] == done:
@@ -842,13 +871,14 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
     return take, wait
 
 
-def _upsert(rows: list[tuple]) -> str:
+def _upsert(rows: list[tuple], since: bool = False) -> str:
     return (
         "INSERT INTO _loads (slug, version, tbl, part, rows, attempts, error, since, tried) VALUES "
         + ",".join("(" + ", ".join(literal(v) for v in r) + ")" for r in rows)
         + " ON CONFLICT(slug) DO UPDATE SET version = excluded.version, tbl = excluded.tbl, "
         "part = excluded.part, rows = excluded.rows, attempts = excluded.attempts, "
-        "error = excluded.error, tried = excluded.tried;"
+        "error = excluded.error, tried = excluded.tried"
+        + (", since = excluded.since;" if since else ";")
     )
 
 
@@ -868,7 +898,6 @@ def _note_pending(db, jobs: list[Job], state: dict[str, dict], served: set[str],
             continue
         if row and row["tbl"] != j.tbl and row["tbl"] not in served:
             sql += _drops(row["tbl"])
-        same = row and row["version"] == j.version
         rows.append(
             (
                 j.slug,
@@ -876,10 +905,10 @@ def _note_pending(db, jobs: list[Job], state: dict[str, dict], served: set[str],
                 j.tbl,
                 0,
                 0,
-                j.attempts if same else 0,
-                row["error"] if same else None,
+                j.attempts,
+                row["error"] if row else None,
                 j.since,
-                row["tried"] if same else None,
+                row["tried"] if row else None,
             )
         )
     for slug, row in state.items():
@@ -901,13 +930,38 @@ class _Skip(Exception):
     """Nothing was written, and this deploy cannot tell where the load stands."""
 
 
+class _Defer(Exception):
+    """The deploy's budget is spent; nothing of this load was written."""
+
+
+class _Budget:
+    """Rows written so far in this deploy. A load reserves its plan before it writes, and each
+    part run again, or a resume that has to start over, is charged on top. Once retries have
+    used it up, loads not yet started wait for the next deploy; the first in line always runs."""
+
+    def __init__(self, cap: int):
+        self.cap, self.spent, self.lock = cap, 0, threading.Lock()
+
+    def reserve(self, j: Job, need: int) -> None:
+        with self.lock:
+            if not j.first and self.spent + need > self.cap:
+                raise _Defer(f"{self.spent:,} of the {self.cap:,} rows written already spent")
+            self.spent += need
+            j.charged += need
+
+    def charge(self, j: Job, rows: int) -> None:
+        with self.lock:
+            self.spent += rows
+            j.charged += rows
+
+
 class _Failed(Exception):
     def __init__(self, done: int, why: str):
         super().__init__(why)
         self.done = done
 
 
-def _fill(db, j: Job, log) -> None:
+def _fill(db, j: Job, budget: _Budget, log) -> None:
     """Runs the parts that add rows, from where the last load stopped if the table still holds
     exactly the rows that load recorded. Raises _Failed with the parts known to be in place."""
     start = j.start
@@ -923,11 +977,14 @@ def _fill(db, j: Job, log) -> None:
                 f"part {start}; loading it from part 1"
             )
             start = 0
+            budget.reserve(j, j.cum[j.start - 1])
         else:
             log(f"d1 load: {j.key} resumes after part {start} of {len(j.body)}")
     for i in range(start, len(j.body)):
         before = j.cum[i - 1] if i else 0
         for t in range(1, TRIES + 1):
+            if t > 1:
+                budget.charge(j, j.cum[i] - before)
             with IMPORT_LOCK:
                 if db.file(j.body[i]):
                     break
@@ -944,13 +1001,15 @@ def _fill(db, j: Job, log) -> None:
             restamp(j.body[i], t)
 
 
-def _finish(db, j: Job, log) -> None:
+def _finish(db, j: Job, budget: _Budget, log) -> None:
     """Builds the indexes and registers the version, which holds only if the table is whole."""
     with IMPORT_LOCK:
         n = _count(db, j.tbl)
     if n != j.rows:
         raise _Failed(0, f"holds {n} rows before its indexes, not {j.rows}")
     for t in range(1, TRIES + 1):
+        if t > 1:
+            budget.charge(j, j.finishing())
         with IMPORT_LOCK:
             reported = db.file(j.parts[-1])
             try:
@@ -971,6 +1030,32 @@ def _finish(db, j: Job, log) -> None:
             return
         restamp(j.parts[-1], t)
     raise _Failed(len(j.body), "its indexes or registration did not complete")
+
+
+def _sweep(db, keep: set[str], log) -> None:
+    """Drops the load tables, and their full-text indexes, that no registration, pending load
+    or load of this deploy names: what a confirmation D1 did not answer, or a cleanup that
+    failed, left behind. Only names shaped as load_table makes them are touched."""
+    try:
+        names = {
+            r["name"]
+            for r in _ask(
+                db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'v%'"
+            )
+        }
+    except RuntimeError as e:
+        log(f"d1 load: no sweep this deploy: {e}")
+        return
+    for name in sorted(names):
+        base = name.removesuffix("_fts")
+        if not OWNED.fullmatch(base) or base in keep:
+            continue
+        try:
+            _ask(db, f'DROP TABLE IF EXISTS "{name}"')
+            log(f"d1 load: dropped {name}, which nothing names")
+        except RuntimeError as e:
+            log(f"d1 load: could not drop {name}: {e}")
+            return
 
 
 def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> None:
@@ -1010,22 +1095,29 @@ def _record_failure(db, j: Job, done: int, why: str, now: str, log) -> None:
             _ask(
                 db,
                 _upsert(
-                    [(j.slug, j.version, j.tbl, done, rows, j.attempts, why[:500], j.since, now)]
+                    [(j.slug, j.version, j.tbl, done, rows, j.attempts, why[:500], now, now)],
+                    since=True,
                 ),
             )
     except RuntimeError as e:
         log(f"d1 load: {j.key} failure could not be recorded: {e}")
 
 
-def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, log) -> None:
+def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, budget: _Budget, log) -> None:
     try:
         if j.tbl in served:
             # Registered by a deploy that could not confirm it; only the finish part runs again.
             if j.fts:
                 raise _Failed(0, f"{j.tbl} is registered; its full-text index is not rebuilt")
+            budget.reserve(j, j.finishing())
         else:
-            _fill(db, j, log)
-        _finish(db, j, log)
+            budget.reserve(j, j.planned())
+            _fill(db, j, budget, log)
+        _finish(db, j, budget, log)
+    except _Defer as e:
+        log(f"d1 load: {j.key} waits for the next deploy: {e}")
+        j.outcome, j.note = "deferred", str(e)
+        return
     except _Skip as e:
         log(f"d1 load: {j.key} skipped this deploy, D1 did not answer: {e}")
         j.outcome, j.note = "unchecked", str(e)[:300]
@@ -1054,14 +1146,29 @@ def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, log) -> None
         log(f"d1 load: {j.key} is loaded; dropping what it replaced failed: {e}")
 
 
-def _summary(path: Path | None, jobs: list[Job], budget: int, log) -> None:
+def _stale(j: Job, now: str) -> bool:
+    try:
+        since = datetime.datetime.fromisoformat(j.since)
+        at = datetime.datetime.fromisoformat(now)
+    except ValueError:
+        return False
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=datetime.UTC)
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=datetime.UTC)
+    return at - since > datetime.timedelta(days=STALE_DAYS)
+
+
+def _summary(
+    path: Path | None, jobs: list[Job], budget: int, log, spent: int = 0, now: str = ""
+) -> None:
     order = {"loaded": 0, "resumed": 0, "failed": 1, "unchecked": 2, "deferred": 3, "skipped": 4}
     jobs = sorted(jobs, key=lambda j: (order.get(j.outcome, 5), j.key))
     for j in jobs:
         if j.outcome == "skipped":
             log(
-                f"::warning title=D1 load skipped::{j.key} {j.note}. It loads again when its "
-                f"version changes, or dispatch the deploy with d1_retry: {j.slug}"
+                f"::warning title=D1 load skipped::{j.key} {j.note}. It loads again once "
+                f"a deploy is dispatched with d1_retry: {j.slug}"
             )
         elif j.outcome in ("failed", "unchecked"):
             left = MAX_FAILURES - j.attempts
@@ -1069,14 +1176,34 @@ def _summary(path: Path | None, jobs: list[Job], budget: int, log) -> None:
                 f"; skipped from now on after {left} more" if left > 0 else "; skipped from now on"
             )
             log(f"::warning title=D1 load {j.outcome}::{j.key} {j.note[:200]}{more}")
+    stale = [j for j in jobs if j.outcome == "skipped" or (now and _stale(j, now))]
+    for j in stale:
+        if j.outcome != "skipped":
+            log(
+                f"::warning title=D1 load waiting::{j.key} has waited since {j.since[:10]}; "
+                "the API answers from the version before it"
+            )
     if path is None:
         return
-    spent = sum(j.planned() for j in jobs if j.outcome in ("loaded", "resumed", "failed"))
     lines = [
         "## D1 load",
         "",
-        f"Budget {budget:,} rows written; {spent:,} planned by the loads that ran.",
+        f"Budget {budget:,} rows written, a soft cap; {spent:,} charged by the loads that ran.",
         "",
+    ]
+    if stale:
+        lines += [
+            f"Skipped, or waiting over {STALE_DAYS} days; the API answers from the version "
+            "before each:",
+            "",
+            *(
+                f"- {j.key}: {'skipped, ' + j.note if j.outcome == 'skipped' else 'waiting'}"
+                f" since {j.since[:10]}".replace("\n", " ")[:300]
+                for j in stale
+            ),
+            "",
+        ]
+    lines += [
         "| Version | Outcome | Rows | Planned rows written | Waiting since | Note |",
         "| --- | --- | ---: | ---: | --- | --- |",
     ]
@@ -1110,23 +1237,24 @@ def load(
     versions that failed in this deploy."""
     jobs = _jobs(folder)
     now = now or datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
-    if not jobs:
-        _summary(summary, [], budget, log)
-        return 0
     for ddl in (REGISTRY, ORDERS, LOADS):
         _ask(db, ddl)
     reg = _registry(db)
     served = {r["tbl"] for r in reg.values()}
     state = {r["slug"]: r for r in _ask(db, "SELECT * FROM _loads")}
     take, wait = plan(jobs, state, budget, retry or set(), now)
-    _note_pending(db, [*take, *wait], state, served, log)
+    _note_pending(db, jobs, state, served, log)
+    _sweep(db, served | {j.tbl for j in jobs} | {r["tbl"] for r in state.values()}, log)
+    if take:
+        take[0].first = True
+    spent = _Budget(budget)
     log(
         f"d1 load: {len(take)} to load ({sum(j.planned() for j in take):,} rows written), "
         f"{len(wait)} deferred, {sum(j.outcome == 'skipped' for j in jobs)} skipped"
     )
 
     def one(j: Job) -> None:
-        _run(db, j, reg, served, folder, now, log)
+        _run(db, j, reg, served, folder, now, spent, log)
 
     if workers <= 1:
         for j in take:
@@ -1134,5 +1262,5 @@ def load(
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(one, take))
-    _summary(summary, jobs, budget, log)
+    _summary(summary, jobs, budget, log, spent.spent, now)
     return sum(j.outcome == "failed" for j in jobs)

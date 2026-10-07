@@ -455,12 +455,18 @@ place and the rows they hold, how many deploys failed it, and since when the dat
 part that reports an error is checked by count: one that applied is kept, one that did not runs
 again, and anything else fails the version. The next deploy carries on after the last part in
 place when the table still holds exactly the rows recorded, and otherwise starts the version
-again. A version that failed in three deploys is skipped, with a warning on the deploy, until a
-new version arrives or a dispatch names it in `d1_retry`. Each deploy loads up to 10 million rows
-written (`d1.BUDGET`, or `d1_budget` on a dispatch): a load part way through goes first, then the
-dataset that has waited longest, then the smaller, and the first in line always loads, so a
-version larger than the budget loads alone. The rest wait for later deploys, and the step summary
-lists what loaded, waited and was skipped. Only deploys of main load, one at a time.
+again. Failures count per dataset, across its versions, and a failure sends the dataset to the
+back of the queue. After three it is skipped, with a warning on the deploy, until a dispatch names
+it in `d1_retry`; a load that succeeds clears the count. Each deploy plans up to 10 million rows
+written (`d1.BUDGET`, or `d1_budget` on a dispatch, such as `25M`): a load part way through goes
+first, then the dataset that has waited longest, then the smaller, and the first in line always
+loads, so a version larger than the budget loads alone. The budget is a soft cap: parts run again
+and resumes that start over are charged as they happen, and once they have spent it the loads not
+yet started wait, but a load under way finishes. The rest wait for later deploys. The step summary
+lists what loaded, waited and was skipped, and names every dataset skipped or waiting over seven
+days, whose API answers come from the version before. Each deploy also drops the load tables that
+neither `_versions` nor `_loads` names, as a failed cleanup can leave. Only deploys of main load,
+one at a time.
 
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until

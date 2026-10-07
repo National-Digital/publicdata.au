@@ -486,13 +486,13 @@ def test_a_catalogue_row_larger_than_d1_holds_skips_the_index_without_failing(tm
     assert d1.catalogue_loads(path, [], tmp_path / "out") == []
 
 
-def _write_job(folder, slug, version, rows, index=("a",)):
+def _write_job(folder, slug, version, rows, index=("a",), keep=d1.KEEP):
     """A load of `rows` one-column rows: the table's creation in part 1, then a row per part,
     then the part that indexes and registers it. The table is named for the row count, so the
     same arguments give the same load in every deploy."""
     folder.mkdir(parents=True, exist_ok=True)
     tbl = d1.load_table(slug, version, rows)
-    keep = (d1.PART_BYTES, d1.MAX_VALUES)
+    saved = (d1.PART_BYTES, d1.MAX_VALUES)
     d1.MAX_VALUES = 1
     try:
         stmts = list(
@@ -508,9 +508,9 @@ def _write_job(folder, slug, version, rows, index=("a",)):
             )
         )
         d1.PART_BYTES = len(stmts[0][1]) + len(stmts[1][1]) + 2
-        return d1._write_load(folder, slug, version, tbl, stmts, "run", d1.KEEP)
+        return d1._write_load(folder, slug, version, tbl, stmts, "run", keep)
     finally:
-        d1.PART_BYTES, d1.MAX_VALUES = keep
+        d1.PART_BYTES, d1.MAX_VALUES = saved
 
 
 def _deploy(fake, folder, specs, **kw):
@@ -566,12 +566,16 @@ def test_a_version_that_failed_in_three_deploys_waits_for_a_change_or_a_retry(tm
     assert failed == 0 and len(fake.files) == ran  # nothing ran, nothing failed the deploy
     assert any(x.startswith("::warning") and "d1_retry: x" in x for x in lines)
     assert "| x@2026-01-01 | skipped |" in summary.read_text()
+    assert _load_row(fake, "x")["attempts"] == d1.MAX_FAILURES  # the count survives a skip
     # A forced retry runs it again, and the failure still counts.
     assert _deploy(fake, tmp_path / "d4", [("x", "2026-01-01", 2)], retry={"x"})[0] == 1
     assert len(fake.files) > ran
-    # A new version of the dataset is not held back by the old one's failures.
-    fake.broken = ()
+    # A new version does not clear the count; only a load that succeeds does.
+    ran = len(fake.files)
     assert _deploy(fake, tmp_path / "d5", [("x", "2026-02-01", 2)])[0] == 0
+    assert len(fake.files) == ran and d1.registered(fake) == {}
+    fake.broken = ()
+    assert _deploy(fake, tmp_path / "d6", [("x", "2026-02-01", 2)], retry={"all"})[0] == 0
     assert _served(fake, "x") == ("2026-02-01", 2, 2) and _load_row(fake, "x") is None
 
 
@@ -760,3 +764,124 @@ def test_the_load_plan_goes_to_the_step_summary(tmp_path):
     _deploy(fake, tmp_path / "d0", [("a", "2026-01-01", 2)], summary=summary)
     text = summary.read_text()
     assert "## D1 load" in text and "| a@2026-01-01 | loaded | 2 | 4 |" in text
+
+
+def test_a_dataset_failing_on_every_new_version_is_capped_and_never_blocks_the_rest(tmp_path):
+    # a is the oldest waiting and fails at its first row; every deploy brings a new version.
+    fake = FakeD1(broken=tuple(f"a@2026-01-0{k}.part002" for k in range(1, 9)))
+    _deploy(fake, tmp_path / "d0", [("a", "2026-01-01", 5)], now="2026-10-07T00:00:00")
+    for k in range(2, 6):
+        specs = [("a", f"2026-01-0{k}", 5), ("b", "2026-01-01", 5)]
+        _deploy(fake, tmp_path / f"d{k}", specs, budget=1, now=f"2026-10-07T0{k}:00:00")
+    assert ("b", "2026-01-01") in d1.registered(fake)
+    assert _load_row(fake, "a")["attempts"] == d1.MAX_FAILURES
+    ran = len(fake.files)
+    failed, lines = _deploy(fake, tmp_path / "d6", [("a", "2026-01-06", 5)], budget=1)
+    assert failed == 0 and len(fake.files) == ran
+    assert any("D1 load skipped" in x and "a@2026-01-06" in x for x in lines)
+
+
+def test_an_index_kept_alone_unregisters_the_others_with_its_own_registration(tmp_path):
+    fake = FakeD1()
+    _write_job(tmp_path / "d0", "_served", "ffff", 2, keep=1)
+    assert d1.load(tmp_path / "d0", fake, log=lambda *_: None) == 0
+    fake.broken = ("_served@0000.clean",)
+    _write_job(tmp_path / "d1", "_served", "0000", 3, keep=1)
+    assert d1.load(tmp_path / "d1", fake, log=lambda *_: None) == 0
+    # The cleanup failed, yet the old index, whose hash sorts higher, is no longer registered.
+    assert [v for _, v in d1.registered(fake)] == ["0000"]
+    assert _served(fake, "_served") == ("0000", 3, 3)
+
+
+def test_the_sweep_drops_only_load_tables_nothing_names(tmp_path):
+    fake = FakeD1()
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 2)])
+    fake.broken = ("y@2026-01-01.part003",)
+    _deploy(fake, tmp_path / "d1", [("y", "2026-01-01", 3)])
+    served = d1._registry(fake)[("x", "2026-01-01")]["tbl"]
+    pending = _load_row(fake, "y")["tbl"]
+    orphan = d1.load_table("z", "2026-01-01", 1)
+    for t in (
+        orphan,
+        "v_x_20260101",  # an older load's name
+        "v_notes",
+        "_cf_kv",
+        "keep_me_0123456789",
+    ):
+        fake.db.execute(f'CREATE TABLE "{t}" (a)')
+    fake.db.execute(
+        f"CREATE VIRTUAL TABLE \"{orphan}_fts\" USING fts5(a, content='{orphan}', "
+        "content_rowid='rowid')"
+    )
+    fake.broken = ()
+    lines = []
+    d1.load(tmp_path / "d1", fake, log=lines.append, workers=1)
+    left = _tables(fake)
+    assert orphan not in left and f"{orphan}_fts" not in left
+    assert {served, "v_x_20260101", "v_notes", "_cf_kv", "keep_me_0123456789"} <= left
+    assert pending in left or ("y", "2026-01-01") in d1.registered(fake)
+    assert any(f"dropped {orphan}" in x for x in lines)
+
+
+def test_a_resume_that_starts_over_is_charged_in_full_and_holds_back_the_next(tmp_path):
+    fake = FakeD1(broken=("x@2026-01-01.part008",))
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 10)])
+    fake.db.execute(f'DELETE FROM "{_load_row(fake, "x")["tbl"]}" WHERE rowid = 1')
+    fake.broken = ()
+    # Planned as a resume of 4 rows (plus 10 index entries), x has to load all 10 again.
+    summary = tmp_path / "s.md"
+    specs = [("x", "2026-01-01", 10), ("b", "2026-01-01", 1)]
+    _deploy(fake, tmp_path / "d1", specs, budget=17, summary=summary)
+    assert {s for s, _ in d1.registered(fake)} == {"x"}
+    assert "| b@2026-01-01 | deferred |" in summary.read_text()
+    assert "20 charged" in summary.read_text()
+
+
+def test_a_part_run_again_is_charged_again(tmp_path):
+    fake = FakeD1(["ok", "error"])
+    summary = tmp_path / "s.md"
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 3)], summary=summary)
+    assert "7 charged" in summary.read_text()  # 3 rows, 3 index entries, the row run again
+
+
+def test_a_registration_check_too_long_for_d1_keeps_the_version_files_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(d1, "MAX_STATEMENT", 3_000)
+    rows = [(i, "x" * 4_000, None) for i in range(1, 1_200)]
+    with pytest.raises(d1.TooWide, match="registration check"):
+        list(d1.version_sql(_version(tmp_path, rows), "t", "2026-01-01", ()))
+
+
+def test_a_dataset_skipped_or_waiting_a_week_is_listed_on_the_deploy(tmp_path):
+    fake = FakeD1()
+    specs = [("a", "2026-01-01", 1), ("b", "2026-01-01", 30)]
+    _deploy(fake, tmp_path / "d0", specs, budget=1, now="2026-10-01T00:00:00")
+    summary = tmp_path / "s.md"
+    _, lines = _deploy(
+        fake,
+        tmp_path / "d1",
+        [("b", "2026-01-01", 30), ("c", "2026-01-01", 1)],
+        budget=1,
+        now="2026-10-09T00:00:00",
+        summary=summary,
+    )
+    text = summary.read_text()
+    assert "waiting over 7 days" in text and "- b@2026-01-01: waiting since 2026-10-01" in text
+    assert any("D1 load waiting" in x and "b@2026-01-01" in x for x in lines)
+
+
+def test_a_budget_reads_as_a_count_with_a_suffix():
+    assert d1.rows_written("10M") == 10_000_000 and d1.rows_written("500k") == 500_000
+    assert d1.rows_written("12_000,000") == 12_000_000 and d1.rows_written(" 7 ") == 7
+    for bad in ("ten", "10MB", "-1", ""):
+        with pytest.raises(ValueError):
+            d1.rows_written(bad)
+
+
+def test_a_deploy_with_nothing_to_load_still_sweeps(tmp_path):
+    fake = FakeD1()
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 2)])
+    orphan = d1.load_table("x", "2026-01-01", 9)
+    fake.db.execute(f'CREATE TABLE "{orphan}" (a)')
+    (tmp_path / "empty").mkdir()
+    assert d1.load(tmp_path / "empty", fake, log=lambda *_: None) == 0
+    assert orphan not in _tables(fake) and _served(fake, "x") == ("2026-01-01", 2, 2)
