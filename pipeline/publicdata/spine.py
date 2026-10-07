@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -120,14 +121,6 @@ def _pin(path: Path = EXTENSION_PIN) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def footer(path: Path) -> dict:
     """The build, DuckDB release and platform a DuckDB extension file declares in its footer,
     which DuckDB itself reads (and signs) before it loads one."""
@@ -184,7 +177,7 @@ def install() -> None:
         else:
             _download(pin["upstream"], gz)
             print(f"spine: fetched {pin['upstream']}")
-        got = _sha256(gz)
+        got = store.sha256_file(gz)
         if got != pin["sha256"]:
             raise SpineError(
                 f"the spatial extension fetched has SHA-256 {got}, and {EXTENSION_PIN.name} pins "
@@ -204,7 +197,7 @@ def mirror(pin_path: Path = EXTENSION_PIN) -> dict:
     import duckdb
     from botocore.exceptions import ClientError
 
-    from .r2 import _missing, client
+    from .r2 import client
 
     con = duckdb.connect()
     platform = con.execute("PRAGMA platform").fetchone()[0]
@@ -221,18 +214,20 @@ def mirror(pin_path: Path = EXTENSION_PIN) -> dict:
         (installed,) = own.execute(
             "SELECT install_path FROM duckdb_extensions() WHERE extension_name = 'spatial'"
         ).fetchone()
-        if _sha256(ext) != _sha256(Path(installed)):
+        if store.sha256_file(ext) != store.sha256_file(Path(installed)):
             raise SpineError(f"{upstream} is not the build DuckDB's own INSTALL fetched")
         meta = footer(ext)
-        if (meta["duckdb"], meta["platform"]) != (release, platform):
+        if (meta["duckdb"], meta["platform"]) != (release, platform) or not re.fullmatch(
+            r"[0-9a-f]{7,40}", meta["build"]
+        ):
             raise SpineError(f"{upstream} declares {meta}")
-        sha = _sha256(gz)
+        sha = store.sha256_file(gz)
         key = f"_toolchain/duckdb/v{release}/{platform}/{meta['build']}/spatial.duckdb_extension.gz"
         s3 = client()
         try:
-            held = s3.head_object(Bucket=EXTENSION_BUCKET, Key=key)["Metadata"].get("sha256")
+            held = s3.head_object(Bucket=EXTENSION_BUCKET, Key=key)["Metadata"].get("sha256", "")
         except ClientError as e:
-            if not _missing(e):
+            if e.response.get("Error", {}).get("Code") not in ("404", "NoSuchKey"):
                 raise
             held = None
         if held is None:

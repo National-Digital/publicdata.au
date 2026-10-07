@@ -320,7 +320,7 @@ def test_a_polygon_whose_repair_leaves_a_stray_line_still_makes_tiles(tmp_path):
 def test_the_spatial_extension_pin_is_for_the_pinned_duckdb():
     pin = json.loads(spine.EXTENSION_PIN.read_text())
     reqs = (ROOT / "pipeline" / "requirements.txt").read_text().splitlines()
-    assert f"duckdb=={pin['duckdb']}" in reqs
+    assert f"duckdb=={pin['duckdb']}" in reqs, "raise duckdb in spatial-extension.json too"
     path = f"/v{pin['duckdb']}/{pin['platform']}/"
     assert path in pin["upstream"], "run the Spatial extension workflow for the new DuckDB"
     assert pin["url"].endswith(f"{path}{pin['build']}/spatial.duckdb_extension.gz")
@@ -345,14 +345,20 @@ def _pin_for(gz, **over):
         "build": "04270fe",
         "url": "r2://publicdata-raw/_toolchain/x/spatial.duckdb_extension.gz",
         "upstream": "https://extensions.example/spatial.duckdb_extension.gz",
-        "sha256": spine._sha256(gz),
+        "sha256": store.sha256_file(gz),
     } | over
 
 
-def test_the_extension_footer_names_its_build_release_and_platform(tmp_path):
-    gz = _extension(tmp_path / "e.gz", duckdb="1.9.0", platform="osx_arm64", build="abc1234")
-    ext = spine._gunzip(gz, tmp_path / "e")
-    assert spine.footer(ext) == {"platform": "osx_arm64", "duckdb": "1.9.0", "build": "abc1234"}
+def test_the_installed_extension_is_the_pinned_build():
+    import duckdb
+
+    pin = json.loads(spine.EXTENSION_PIN.read_text())
+    (path,) = (
+        duckdb.connect()
+        .execute("SELECT install_path FROM duckdb_extensions() WHERE extension_name = 'spatial'")
+        .fetchone()
+    )
+    assert spine.footer(Path(path)) == {k: pin[k] for k in ("platform", "duckdb", "build")}
 
 
 @pytest.fixture

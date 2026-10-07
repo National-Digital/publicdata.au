@@ -280,7 +280,7 @@ module the build imports leaves every published version as it was.
 ## Toolchain versions
 
 Every tool and library CI, the deploy and the fetch runner use is pinned to an exact version, and
-each version lives in one file that the workflows read:
+each version lives in one file that the workflows or the pipeline read:
 
 | What | File |
 |---|---|
@@ -296,7 +296,7 @@ each version lives in one file that the workflows read:
 | DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
 
 An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
-npm packages and the Actions; raise the others by hand. The Python version and the keyed
+npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed
 libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles) are in the build's cache key, so
 raising one rebuilds every version, about four hours on main. Merge such a pull request on a day
 with no data pull request due.

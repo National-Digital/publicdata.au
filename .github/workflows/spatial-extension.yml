@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: spatial-extension
@@ -26,12 +27,23 @@ jobs:
     # The token that writes the raw store and nothing else, and the app that pushes the pin.
     environment: fetch
     steps:
+      # The pin goes only to an open pull request's branch in this repository, never to main.
+      - name: Check the branch has an open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          prs=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$BRANCH" --base main --state open --json isCrossRepository --jq 'map(select(.isCrossRepository | not)) | length')
+          if [ "$BRANCH" = main ] || [ "$prs" = 0 ]; then
+            echo "::error::$BRANCH is not the branch of an open pull request into main"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.branch }}
+          ref: refs/heads/${{ inputs.branch }}
           path: branch
           persist-credentials: false
       - name: Read the branch's duckdb
@@ -75,13 +87,14 @@ jobs:
           BRANCH: ${{ inputs.branch }}
           VERSION: ${{ steps.duckdb.outputs.version }}
         run: |
-          if git diff --quiet -- pipeline/publicdata/spatial-extension.json; then
+          if [ -z "$(git status --porcelain -- pipeline/publicdata/spatial-extension.json)" ]; then
             echo "$BRANCH already pins this build." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git config --local --replace-all http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git config user.name "publicdata fetch"
           git config user.email "fetch@publicdata.au"
+          git add pipeline/publicdata/spatial-extension.json
           git commit -q -s -m "build: pin DuckDB's spatial extension for duckdb $VERSION" \
             -m "Copied to R2 by the Spatial extension workflow, run ${{ github.run_id }}." \
             -- pipeline/publicdata/spatial-extension.json
