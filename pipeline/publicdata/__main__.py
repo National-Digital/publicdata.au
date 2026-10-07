@@ -591,6 +591,8 @@ def cmd_checksums(args) -> int:
     slugs = slugs_in_bucket(s3) if args.all else slugs_in(Path(r) for r in args.root)
     n, held = update(slugs, replace=tuple(args.replace), download=args.download, s3=s3)
     print(f"checksums: {n} SHA256SUMS written over {len(slugs)} dataset(s)")
+    for prefix in held:
+        print(f"::warning::{prefix}SHA256SUMS not written: a file has no stored SHA-256")
     if held:
         print(
             f"checksums: {len(held)} version(s) left without one; "

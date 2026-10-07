@@ -353,7 +353,7 @@ without it.
 
 Every dated version in R2 carries `SHA256SUMS`, one `sha256sum` line per file under the name the
 site saves it as (`site.download_name`), so `sha256sum -c --ignore-missing SHA256SUMS` checks a
-download. The build never writes it, so the cache key does not cover it and adding it rebuilt
+download (`shasum -a 256 -c` on a Mac). The build never writes it, so the cache key does not cover it and adding it rebuilt
 nothing. A production deploy runs `publicdata checksums` straight after the Pages deploy. It lists
 each dataset's versions in R2 and writes the list for any version that has none or holds a file
 newer than it, which is how a format added to a cached version gains its line. The hashes are the
