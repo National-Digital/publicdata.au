@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs | contribute."""
 
 from __future__ import annotations
 
@@ -277,6 +277,7 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             search=Path(args.search) if args.search else None,
             cache=cache,
             hubs=_hubs_record(store_dir),
+            tasks=_tasks(args.tasks),
         )
     if cache is not None:
         if not args.slug:
@@ -747,6 +748,13 @@ def _hubs_record(store_dir: Path) -> dict:
     return json.loads(path.read_text("utf-8")) if path.exists() else {}
 
 
+def _tasks(path: str | None) -> dict[str, int]:
+    """The open contributor issues by dataset key; a build without the file shows none."""
+    import json
+
+    return json.loads(Path(path).read_text("utf-8")) if path else {}
+
+
 def cmd_hubs(args) -> int:
     from . import hubs
     from .register import load
@@ -785,6 +793,37 @@ def cmd_hubs(args) -> int:
         print(f"hubs: recorded {len(merged['datasets'])} dataset(s) in {path}")
     print(f"hubs: {len(entries)} dataset(s), {len(chosen)} hub(s), {failures} failure(s)")
     return 1 if failures else 0
+
+
+def cmd_contribute(args) -> int:
+    """Keep one issue open for each of the most-wanted datasets, or list the open ones."""
+    import json
+
+    from . import contribute
+    from .register import load
+
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    gh = contribute.GitHub(args.repo, contribute.session(token))
+    if args.sub == "issues":
+        tasks = contribute.open_tasks(gh.issues())
+        Path(args.out).write_text(json.dumps(tasks, indent=0) + "\n", encoding="utf-8")
+        print(f"contribute: {len(tasks)} open task(s) written to {args.out}")
+        return 0
+    if args.votes < 1 or args.cap < 0:
+        sys.exit("contribute: --votes is at least 1 and --cap at least 0")
+    if not token and not args.dry_run:
+        sys.exit("contribute: set GH_TOKEN, or pass --dry-run")
+    acts = contribute.sync(
+        load(REGISTER),
+        gh,
+        contribute.session(),
+        threshold=args.votes,
+        cap=args.cap,
+        dry_run=args.dry_run,
+        site=args.site,
+    )
+    print(f"contribute: {len(acts)} change(s){' planned' if args.dry_run else ''}")
+    return 0
 
 
 def main(argv=None) -> int:
@@ -857,6 +896,11 @@ def main(argv=None) -> int:
         default=[],
         metavar="DIR",
         help="a shard's built tree; a file the cache leaves out is linked in from it when there",
+    )
+    b.add_argument(
+        "--tasks",
+        metavar="FILE",
+        help="the open contributor issues by dataset key, as `contribute issues` writes them",
     )
     b.add_argument(
         "--published",
@@ -989,6 +1033,16 @@ def main(argv=None) -> int:
         help="re-apply cards, page settings and notebooks to versions a hub already holds",
     )
     hb.set_defaults(fn=cmd_hubs)
+
+    co = sub.add_parser("contribute", help="the most-wanted datasets as contributor issues")
+    co.add_argument("sub", choices=["sync", "issues"])
+    co.add_argument("--repo", default="National-Digital/publicdata.au")
+    co.add_argument("--site", default="https://publicdata.au")
+    co.add_argument("--votes", type=int, default=1, help="sync: votes a catalogue record needs")
+    co.add_argument("--cap", type=int, default=10, help="sync: the most issues open at once")
+    co.add_argument("--dry-run", action="store_true", help="sync: print the changes, make none")
+    co.add_argument("--out", default="contribute.json", help="issues: where the open ones go")
+    co.set_defaults(fn=cmd_contribute)
     args = ap.parse_args(argv)
     return args.fn(args)
 

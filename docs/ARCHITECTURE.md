@@ -532,6 +532,12 @@ it does not hold is not stored; the answer points to National Digital's contact 
 (`functions/_limit.js`), as the MCP server does, because the zone's rule covers
 `/api/v1/datasets/*` only.
 
+The most-wanted datasets become issues a contributor can start on (`contribute.py`,
+CONTRIBUTING.md "Pick up a dataset task"). A daily workflow reads the votes and the catalogue
+records they name from the public API and writes issues from those records and the register
+alone, so text from a vote never reaches one. The deploy reads the open issues before the build
+(`contribute issues`, `build --tasks`) and the backlog and publisher pages link each one.
+
 ## Site-wide files
 
 A file that lists every dataset grows with the register, so the large ones are kept to a fixed
