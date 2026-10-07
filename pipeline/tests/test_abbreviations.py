@@ -22,6 +22,7 @@ def test_codes_dates_single_letters_and_quoted_identifiers_are_not_abbreviations
         "Version 2026-04-24, column FILRSBVRT, grade A, SA2, PM10 and G-NAF.", KNOWN
     ) == ["G-NAF"]
     assert ab.unknown("The publisher's `PRSEC` table, and the ABS.", KNOWN) == ["ABS"]
+    assert ab.unknown("See BRAND.md and README.md for the ABS.", KNOWN) == ["ABS"]
 
 
 def test_prose_reads_main_and_skips_code_tables_captions_and_data_regions():

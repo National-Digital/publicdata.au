@@ -25,7 +25,8 @@ COPY_FIELDS = (
 
 # Two to seven capitals or digits led by a capital, with hyphenated forms such as G-NAF and SHA-256.
 # Longer runs are a publisher's codes, not words a reader is expected to know.
-TOKEN = re.compile(r"(?<![\w-])([A-Z][A-Z0-9]{0,6}(?:-[A-Z0-9]{1,6})*)(?![\w-])")
+# A token followed by a dot and letters is a file name (BRAND.md, README.md), not an abbreviation.
+TOKEN = re.compile(r"(?<![\w-])([A-Z][A-Z0-9]{0,6}(?:-[A-Z0-9]{1,6})*)(?![\w-]|\.\w)")
 # Elements whose text is not the site's prose: code, data cells, charts, and dense data regions.
 SKIP_TAGS = frozenset(
     {
