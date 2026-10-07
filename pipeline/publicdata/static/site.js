@@ -200,7 +200,7 @@
 
     var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0' });
     var runB = el('button', { type: 'button', class: 'btn', text: 'Run' });
-    var openA = el('a', { class: 'btn ghost', text: 'Open', rel: 'nofollow' });
+    var openA = el('a', { class: 'btn ghost', text: 'Open the result', rel: 'nofollow' });
     var copyB = el('button', { type: 'button', class: 'copy', text: 'Copy URL' });
     copyB.addEventListener('click', function () { var t = urlBox.textContent; if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { say('Copied'); }, function () { say('Select and copy'); }); else say('Select and copy'); });
     var tabs = el('div', { class: 'tools', role: 'tablist', 'aria-label': 'Query code' });

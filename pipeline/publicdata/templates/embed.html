@@ -17,7 +17,7 @@
 </head>
 <body class="embed">
 <p class="xstatus" id="x-status" role="status" data-state="busy">This dashboard needs JavaScript. <a href="{{ base }}" target="_blank" rel="noopener">Open {{ ds.title }} on {{ site_host }}</a>.</p>
-<div class="xhost" id="x-host"></div>
+<div class="xhost" id="x-host" data-conformance="aa"></div>
 <p class="xattr"><b>Data:</b> {{ attribution }} <a href="{{ ds.licence.url }}" rel="license" target="_blank">Licence terms</a>. {{ ds.publisher.name }} has not endorsed {{ site_host }}. <a href="{{ explore_url }}" target="_blank" rel="noopener" id="x-open">Open in the explorer</a></p>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script type="application/json" id="ex-data">{{ ex_data|safe }}</script>

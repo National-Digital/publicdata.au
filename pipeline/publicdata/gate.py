@@ -11,7 +11,7 @@ from html import escape as html_escape
 from html import unescape as html_unescape
 from pathlib import Path
 
-from . import SITE, explorer, serialise, structured
+from . import SITE, abbreviations, explorer, serialise, structured
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
 from .serialise.profile import query_key
@@ -370,12 +370,17 @@ def checked(
     errors += _manifest(out)
     pages = []
     cache: dict[str, list[str]] = {}
+    # Publishers' names are proper names, not abbreviations the site owes a reader (SC 3.1.4).
+    names = tuple(
+        {n for d in datasets.values() for n in (d.publisher.name, d.publisher.short) if n}
+    )
     for html in sorted(out.rglob("*.html")):
         page = html.read_text(encoding="utf-8")
         pages.append((str(html.relative_to(out)), page))
         errors += structured.check_page(page, pages[-1][0])
         errors += _social_card(pages[-1][0], page, out)
         text = _without_publisher_values(PORTAL_TEXT.sub("", page), html, out, cache)
+        errors += abbreviations.check_page(text, pages[-1][0], names)
         if (
             "not endorsed" not in text
             and "has not endorsed" not in text

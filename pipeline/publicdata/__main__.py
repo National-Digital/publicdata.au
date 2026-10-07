@@ -17,12 +17,19 @@ FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
 
 
 def cmd_register(args) -> int:
+    from .abbreviations import COPY_FIELDS, check_copy
     from .register import load
 
     ds = load(REGISTER)
     for d in ds:
         print(f"{d.status:9s} {d.slug:40s} {d.licence.id:14s} {d.publisher.short}")
     print(f"{len(ds)} entries valid")
+    words = []
+    for d in ds:
+        if d.status in ("live", "building"):
+            words += check_copy({k: getattr(d, k, "") for k in COPY_FIELDS}, d.slug)
+    for w in words:
+        print(f"abbreviation: {w}")
     for d in ds:
         bare = [f.name for f in d.fields if not f.label]
         if d.status == "live" and bare:
@@ -48,7 +55,7 @@ def cmd_register(args) -> int:
         print(
             f"int32: {unchecked} stored version(s) not checked, since neither their Parquet nor their source is here"
         )
-    return 1 if bad else 0
+    return 1 if bad or words else 0
 
 
 def cmd_labels(args) -> int:

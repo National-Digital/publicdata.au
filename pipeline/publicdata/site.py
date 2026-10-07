@@ -269,6 +269,11 @@ def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
     return [gone[f] for f in SITE_ORDER if f in gone]
 
 
+def inline_code(text: str) -> str:
+    """Register copy escaped for HTML, with a publisher's code in backticks set as code."""
+    return re.sub(r"`([^`\n]+)`", r"<code>\1</code>", html.escape(text, quote=False))
+
+
 def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
     return [FORMAT_LABEL[f] for f in _fmts(ds, v) if f != "csv.gz"]
 
@@ -1304,7 +1309,7 @@ def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict]:
             "label": "DuckDB",
             "kind": "command",
             "value": f"INSTALL httpfs; LOAD httpfs;\nATTACH '{vb}data.duckdb' AS {name} (READ_ONLY);\nSELECT {key}, count(*) FROM {name}.records GROUP BY 1 ORDER BY 2 DESC;",
-            "note": "The DuckDB file attaches read-only over HTTPS and only the blocks a query touches are read. Parquet works the same way: FROM read_parquet(url).",
+            "note": "The DuckDB file attaches read-only over HTTPS and only the blocks a query touches are read. Parquet works the same way: <code>FROM read_parquet(url)</code>.",
         },
         *script,
     ]
@@ -1338,7 +1343,7 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
         (
             f"How do I get one table of {short}?",
             f"Every table is a Parquet file under {vbase}tables/, for example {vbase}tables/{ds.tables[0].name}.parquet, which pandas, R, Polars, Spark and DuckDB read directly. "
-            f"{vbase}schema.sql has the CREATE TABLE statements with the keys and references, and {vbase}schema.json the same as Table Schema.",
+            f"{vbase}schema.sql has the SQL that creates every table, with the keys and references, and {vbase}schema.json the same as Table Schema.",
         ),
     ]
     if ds.source.cadence:
@@ -1792,7 +1797,7 @@ PROSE = {
 <h2>Per dataset</h2>
 <ul>
 <li><code>/d/&lt;slug&gt;/datapackage.json</code> is a Frictionless data package pointing at the latest version.</li>
-<li><code>/d/&lt;slug&gt;/schema.json</code> is a Table Schema. Types are string, integer, number, boolean, date and datetime. Beside each version, <code>schema.sql</code> is the same as a CREATE TABLE and <code>data.csv-metadata.json</code> is W3C CSV on the Web metadata.</li>
+<li><code>/d/&lt;slug&gt;/schema.json</code> is a Table Schema. Types are string, integer, number, boolean, date and datetime. Beside each version, <code>schema.sql</code> is the same as a <code>CREATE TABLE</code> and <code>data.csv-metadata.json</code> is W3C CSV on the Web metadata.</li>
 <li><code>/d/&lt;slug&gt;/fields.json</code> lists each queryable field with its type, the publisher's description, its range and the values it holds when it has few. The MCP server offers it as a resource.</li>
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
@@ -1834,6 +1839,9 @@ PROSE = {
 <p>The site sets no cookies. Page views are counted by Cloudflare Web Analytics, which is served from this site's own provider, stores nothing in the browser and does not follow anyone across sites. There is no other tracking. Votes in the backlog are counted once per browser per day using a salted hash that changes every day. Nobody is asked who they are. The <a href="/privacy/">privacy page</a> sets out everything the site records.</p>
 <h2>Security</h2>
 <p>The disclosure policy is at <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+<h2 id="abbreviations">Abbreviations</h2>
+<p>Every abbreviation this site uses in its own words, with its expansion. Publishers' own titles, codes and cell values are quoted as published.</p>
+{glossary}
 """,
     ),
     "contribute": (
@@ -1857,7 +1865,7 @@ PROSE = {
 <p>Sign off each commit with <code>git commit -s</code>, which certifies under the <a href="https://developercertificate.org/">Developer Certificate of Origin</a> that you may submit it. Title the pull request as a Conventional Commit, such as <code>data(register): add &lt;what it is&gt;</code>. The checks build and test the site and need no credentials, so they run on a pull request from a fork. A maintainer then reviews it and squash-merges it, and the release notes on GitHub name the people whose changes each release carries.</p>
 <p>The rules every change is held to are in <a href="{repo}/blob/main/CONTRIBUTING.md#ground-rules">the guide</a>. The site publishes what the publisher published and derives nothing from it, and a version never changes once it is out. By taking part you agree to the <a href="{repo}/blob/main/CODE_OF_CONDUCT.md">code of conduct</a>. Report a security issue privately, as the <a href="{repo}/blob/main/SECURITY.md">security policy</a> describes.</p>
 <h2>Licences</h2>
-<p>Each dataset stays under its publisher's licence. The code is under the AGPL and the register's own text is under CC BY 4.0. The name publicdata.au and its mark are outside both licences, and <a href="{repo}/blob/main/BRAND.md">BRAND.md</a> says what a copy of the site may use.</p>
+<p>Each dataset stays under its publisher's licence. The code is under the AGPL and the register's own text is under CC BY 4.0. The name publicdata.au and its mark are outside both licences, and <a href="{repo}/blob/main/BRAND.md"><code>BRAND.md</code></a> says what a copy of the site may use.</p>
 """,
     ),
     "privacy": (
@@ -1887,7 +1895,7 @@ PROSE = {
 <p>Each dataset belongs to its publisher and is republished under the licence the publisher chose, which is named on the dataset page and inside every file. That licence governs what you may do with the data, and these terms do not narrow it.</p>
 <p>Most datasets are under a Creative Commons Attribution licence. When you share the data, or something made from it, the licence requires you to credit the publisher in a reasonable way, and the attribution string in every file does this in the publisher's words. We also ask you to say the data came from publicdata.au and link to the version you used. The licence does not require this, and you are free to decline. The <code>cite</code> string in every file does both.</p>
 <h2>The site's code and text</h2>
-<p>The code that builds and runs the site is open source under the <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU Affero General Public License v3.0 or later</a>, and its source is <a href="{repo}">on GitHub</a>. If you run a modified copy as a service, the licence requires you to offer its users the source of your changes. The text we write for each dataset's register entry is under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. The names publicdata.au and National Digital, and their marks, are outside both licences, and <a href="{repo}/blob/main/BRAND.md">BRAND.md</a> says what a copy of the site must change. The rest of the site's own text belongs to National Digital.</p>
+<p>The code that builds and runs the site is open source under the <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU Affero General Public License v3.0 or later</a>, and its source is <a href="{repo}">on GitHub</a>. If you run a modified copy as a service, the licence requires you to offer its users the source of your changes. The text we write for each dataset's register entry is under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. The names publicdata.au and National Digital, and their marks, are outside both licences, and <a href="{repo}/blob/main/BRAND.md"><code>BRAND.md</code></a> says what a copy of the site must change. The rest of the site's own text belongs to National Digital.</p>
 <h2>No endorsement</h2>
 <p>publicdata.au is a private website with no connection to any government agency. No publisher has endorsed it, and nothing on it speaks for a publisher.</p>
 <h2>Accuracy</h2>
@@ -3286,7 +3294,9 @@ def render_site(
                 use_tabs=_use_tabs(ds, latest),
                 mcp_add=at.spec()["mcp"]["add_command"],
                 jur_long=JUR_LONG[ds.publisher.jurisdiction],
-                description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
+                description_paras=[
+                    inline_code(p) for p in ds.description.split("\n\n") if p.strip()
+                ],
                 history_size=fmt_size((out / "d" / ds.slug / "history.tar.zst").stat().st_size),
                 attribution=attribution(ds, m),
                 portal_host=(m.source.get("url") or "").split("/")[2]
@@ -3458,7 +3468,7 @@ def render_site(
             partitions=partitions,
             siblings=siblings,
             jur_long=JUR_LONG[ds.publisher.jurisdiction],
-            description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
+            description_paras=[inline_code(p) for p in ds.description.split("\n\n") if p.strip()],
             has_suppressed=bool(ds.suppression),
             history_size=fmt_size((out / "d" / ds.slug / "history.tar.zst").stat().st_size),
             attribution=attr,

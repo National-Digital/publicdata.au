@@ -40,7 +40,7 @@ summary: Every liquor licence in South Australia in September 2018 with its prem
   the gaming machine licence and number of machines where the premises held one. Closed snapshot.
 description: The Liquor and Gaming Licences list from Consumer and Business Services, published by the
   Attorney-General's Department, as at September 2018. Each row is one licence with its identifier and number, the
-  premises' name, address, town and postcode, the liquor licence status and date issued, the publisher's EN, ET, EX
+  premises' name, address, town and postcode, the liquor licence status and date issued, the publisher's `EN`, `ET`, `EX`
   and C flags, and the gaming licence status, date issued and number of gaming machines. The premises' phone and fax
   numbers are left out.
 publisher:

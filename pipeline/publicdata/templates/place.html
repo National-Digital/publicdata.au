@@ -17,7 +17,7 @@
       <div class="fright">
         <div class="stats"><div class="stat"><b>{{ place.rows_fmt }}</b><span>{{ (ds.row_label or "rows")|lower }}</span></div>{% if fig.years %}<div class="stat"><b>{{ fig.years }}</b><span>years drawn</span></div>{% endif %}<div class="stat"><b>{{ total_fmt }}</b><span>in the whole table</span></div></div>
         {% if fig.chart %}<figure class="fchart">{{ fig.chart|safe }}<figcaption>{{ fig.chart_caption }} {{ fig.basis[0]|upper }}{{ fig.basis[1:] }} from version {{ latest.version }}, worked out in the build. Nothing else is added.</figcaption></figure>{% endif %}
-        <div class="ctas"><a class="btn" href="{{ place.json_url }}">Download these rows as JSON</a>{% if place.geojson_url %}<a class="btn ghost" href="{{ place.geojson_url }}">GeoJSON</a>{% endif %}{% if rows_url %}<a class="btn ghost" href="{{ rows_url }}">Query API</a>{% endif %}</div>
+        <div class="ctas"><a class="btn" href="{{ place.json_url }}">Download these rows as JSON</a>{% if place.geojson_url %}<a class="btn ghost" href="{{ place.geojson_url }}">GeoJSON for these rows</a>{% endif %}{% if rows_url %}<a class="btn ghost" href="{{ rows_url }}">Query API</a>{% endif %}</div>
       </div>
     </div>
   </div>
@@ -36,10 +36,10 @@
 
   <h2>{{ sample_rows.heading }}</h2>
   <p>{{ sample_rows.note }}</p>
-  <div class="tbl" tabindex="0" role="region" aria-label="{{ sample_rows.heading }}"><table class="ledger sample">
+  <div class="tbl" tabindex="0" role="region" aria-label="{{ sample_rows.heading }}" data-conformance="aa"><table class="ledger sample">
   <thead><tr>{% for f in sample_rows.fields %}<th>{{ f }}</th>{% endfor %}</tr></thead>
   <!--portal-text--><tbody>{% for r in sample_rows.rows %}<tr>{% for v in r %}<td{% if v is none %} class="nul">null{% else %}>{{ v }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody><!--/portal-text--></table></div>
-  <p class="muted" style="font-size:14px">The {{ ds.fields|length }} fields are described on <a href="{{ base }}#get">the dataset page</a>, and <a href="{{ base }}schema.xlsx">schema.xlsx</a> is the data dictionary.</p>
+  <p class="muted small">The {{ ds.fields|length }} fields are described on <a href="{{ base }}#get">the dataset page</a>, and <a href="{{ base }}schema.xlsx">schema.xlsx</a> is the data dictionary.</p>
 
   {% if ds.faq %}<h2>Before you use it</h2>
   <div class="faq">
@@ -48,7 +48,7 @@
   </div>{% endif %}
 
   <h2>Other {{ place_plural|lower }}</h2>
-  <ul class="places">{% for p in others %}<li><a href="{{ p.href }}">{{ p.value }}</a><span>{{ p.rows_fmt }}</span></li>{% endfor %}</ul>
+  <ul class="places" data-conformance="aa">{% for p in others %}<li><a href="{{ p.href }}">{{ p.value }}</a><span>{{ p.rows_fmt }}</span></li>{% endfor %}</ul>
 </div>
 
 <aside class="side">

@@ -43,6 +43,7 @@ says where to ask for a dataset or for help, and a vulnerability is reported pri
   `publicdata-au` on PyPI and `clients/r` is `publicdataau` for CRAN. They take any slug, so a new
   dataset needs no release.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) the rules that decide the code.
+- [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) the WCAG 2.2 AAA target, what CI enforces and the exceptions.
 
 ## Run it
 

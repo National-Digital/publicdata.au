@@ -281,6 +281,11 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
   failing-fixture test does not count.
+- Every page meets WCAG 2.2 AAA, with dense data regions held to AA; [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md)
+  states the target, what `scripts/a11y.mjs` enforces and the regions excepted. Sizes are in rem,
+  never px. An abbreviation the site's own prose uses goes in `pipeline/publicdata/glossary.json`,
+  which the about page renders; a publisher's code or value quoted in register copy goes in
+  backticks, and `register validate` fails an entry that uses an abbreviation the glossary lacks.
 - New datasets enter through `register/<slug>.yaml` with licence id, evidence URL,
   attribution and column allow-list declared, or `register validate` stops the build.
   `publicdata register draft <portal dataset url>` writes a first entry from a CKAN portal: the

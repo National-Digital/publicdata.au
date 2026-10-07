@@ -1,15 +1,18 @@
-// Runs axe-core over built pages in both colour schemes and fails on any WCAG 2.2 AA
-// violation. Usage: node scripts/a11y.mjs <dist> [path ...]. With no paths, a fixed set of
-// representative pages is checked. Chrome is found on PATH or at CHROME_PATH.
+// Holds built pages to WCAG 2.2 AAA: axe-core's rules through the AAA tags in both colour
+// schemes, then the house checks in a11y-checks.mjs at 1280px, 2560px (the type must grow) and
+// 320px (reflow), and with the text-spacing override. docs/ACCESSIBILITY.md states the target and
+// the regions held to AA. Usage: node scripts/a11y.mjs <dist> [path ...]. With no paths, a fixed
+// set of representative pages is checked. Chrome is found at CHROME_PATH or /usr/bin/google-chrome.
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { extname, join, normalize } from "node:path";
 import puppeteer from "puppeteer-core";
+import { HOUSE, TEXT_SPACING, house } from "./a11y-checks.mjs";
 
 const require = createRequire(import.meta.url);
 const AXE = require.resolve("axe-core/axe.min.js");
-const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"];
+const TAGS = ["wcag2a", "wcag2aa", "wcag2aaa", "wcag21a", "wcag21aa", "wcag21aaa", "wcag22aa", "best-practice"];
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css",
@@ -39,6 +42,7 @@ const DEFAULT = [
   "/c/qld-road-crashes/",
   "/qld/",
 ];
+const WORK = { width: 1280, height: 900 };
 
 const [dist, ...paths] = process.argv.slice(2);
 if (!dist) {
@@ -73,39 +77,69 @@ const browser = await puppeteer.launch({
   args: ["--no-sandbox", "--disable-gpu"],
 });
 const axe = await readFile(AXE, "utf8");
+const settle = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 let failed = 0;
+const report = (path, scheme, problems) => {
+  if (!problems.length) {
+    console.log(`✓ ${path} (${scheme})`);
+    return;
+  }
+  failed++;
+  console.log(`✗ ${path} (${scheme}): ${problems.length} problem(s)`);
+  for (const p of problems) console.log(`  ${p}`);
+};
 try {
   for (const scheme of ["light", "dark"]) {
     for (const path of pages) {
       const page = await browser.newPage();
-      await page.setViewport({ width: 1280, height: 900 });
+      await page.setViewport(WORK);
       await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: scheme }]);
       const resp = await page.goto(base + path, { waitUntil: "networkidle0", timeout: 60000 });
       if (!resp || resp.status() !== 200) {
-        console.log(`✗ ${path} (${scheme}): HTTP ${resp ? resp.status() : "none"}`);
-        failed++;
+        report(path, scheme, [`HTTP ${resp ? resp.status() : "none"}`]);
         await page.close();
         continue;
       }
+      const problems = [];
       await page.evaluate(axe);
       const result = await page.evaluate(
         (tags) => window.axe.run(document, { runOnly: { type: "tag", values: tags } }),
         TAGS,
       );
-      const bad = result.violations.filter((v) => ["serious", "critical"].includes(v.impact) || v.tags.some((t) => t.startsWith("wcag")));
-      if (bad.length) {
-        failed++;
-        console.log(`✗ ${path} (${scheme}): ${bad.length} rule(s)`);
-        for (const v of bad) {
-          console.log(`  ${v.id} [${v.impact}] ${v.help}`);
-          for (const n of v.nodes.slice(0, 5)) {
-            console.log(`    ${n.target.join(" ")}`);
-            console.log(`      ${n.failureSummary.split("\n").join(" ").slice(0, 300)}`);
-          }
+      for (const v of result.violations) {
+        problems.push(`axe ${v.id} [${v.impact}] ${v.help}`);
+        for (const n of v.nodes.slice(0, 5)) {
+          problems.push(`    ${n.target.join(" ")}`);
+          problems.push(`      ${n.failureSummary.split("\n").join(" ").slice(0, 300)}`);
         }
-      } else {
-        console.log(`✓ ${path} (${scheme})`);
+        if (v.nodes.length > 5) problems.push(`    … and ${v.nodes.length - 5} more`);
       }
+      // The house checks depend on layout and type, not colour, so one scheme is enough.
+      if (scheme === "light") {
+        const runs = [];
+        runs.push(await page.evaluate(house, HOUSE, "all"));
+        await page.setViewport({ width: HOUSE.wideWidth, height: 1440 });
+        await settle(page);
+        runs.push(await page.evaluate(house, HOUSE, "type"));
+        await page.setViewport({ width: HOUSE.reflowWidth, height: 900 });
+        await settle(page);
+        runs.push(await page.evaluate(house, HOUSE, "reflow"));
+        await page.setViewport(WORK);
+        await page.addStyleTag({ content: TEXT_SPACING });
+        await settle(page);
+        runs.push(await page.evaluate(house, HOUSE, "spacing"));
+        const byRule = new Map();
+        for (const f of runs.flat()) {
+          if (!byRule.has(f.rule)) byRule.set(f.rule, []);
+          byRule.get(f.rule).push(f);
+        }
+        for (const [rule, fs] of byRule) {
+          problems.push(`house ${rule}: ${fs.length} node(s)`);
+          for (const f of fs.slice(0, 8)) problems.push(`    ${f.target}: ${f.detail}`);
+          if (fs.length > 8) problems.push(`    … and ${fs.length - 8} more`);
+        }
+      }
+      report(path, scheme, problems);
       await page.close();
     }
   }

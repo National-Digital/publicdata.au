@@ -24,9 +24,9 @@
   <ul class="files">
   {% for f in files %}<li><a href="{{ f.url }}" download="{{ f.download }}" class="mono">{{ f.name }}</a><span>{{ f.size }}</span></li>{% endfor %}
   </ul>
-  {% if left_out %}<p class="muted" style="font-size:14.5px">{{ left_out|join(' ') }}</p>{% endif %}
-  {% if v.tables %}<p class="muted" style="font-size:14.5px">One Parquet file per table under <span class="mono">tables/</span>: {% for t, n in v.tables.items() %}<a href="{{ base }}v/{{ v.version }}/tables/{{ t }}.parquet" class="mono">{{ t }}</a> ({{ '{:,}'.format(n) }}){% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
-  {% if partition_dirs %}<p class="muted" style="font-size:14.5px">Smaller files by field: {% for p in partition_dirs %}<a href="{{ base }}v/{{ v.version }}/by/{{ p }}/index.json" class="mono">by/{{ p }}/</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+  {% if left_out %}<p class="muted small">{{ left_out|join(' ') }}</p>{% endif %}
+  {% if v.tables %}<p class="muted small">One Parquet file per table under <span class="mono">tables/</span>: {% for t, n in v.tables.items() %}<a href="{{ base }}v/{{ v.version }}/tables/{{ t }}.parquet" class="mono">{{ t }}</a> ({{ '{:,}'.format(n) }}){% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+  {% if partition_dirs %}<p class="muted small">Smaller files by field: {% for p in partition_dirs %}<a href="{{ base }}v/{{ v.version }}/by/{{ p }}/index.json" class="mono">by/{{ p }}/</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
   {% if change %}
   <h2>Change from {{ change.from }}</h2>
   {% if change.added is defined %}<p>{{ change.added }} rows added, {{ change.removed }} removed and {{ change.changed }} changed by the key <span class="mono">{{ ds.key|join(', ') }}</span>. The full list is in <a href="{{ change.url }}" class="mono">diff/{{ change.from }}..{{ change.to }}.json</a>.</p>
