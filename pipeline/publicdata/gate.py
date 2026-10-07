@@ -19,10 +19,7 @@ from .serialise.profile import query_key
 
 # Dated tables over the period threshold that were published whole before periods existed. Each
 # is split by a change of its own, which rewrites how its new versions are laid out.
-PERIOD_PENDING = {
-    "au-eucalypt-records": "Parquet over 100 MB; to be split by year of the record's event date",
-    "au-water-storage-levels": "over 5 million rows; to be split by year of the observation date",
-}
+PERIOD_PENDING: dict[str, str] = {}
 
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
 PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.S)

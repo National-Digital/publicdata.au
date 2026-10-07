@@ -159,3 +159,15 @@ class Records:
 
 def connect(parquet: Path | list[Path], names: list[str] | None = None) -> Records:
     return Records(parquet, names)
+
+
+def joined(parts: list[Path], dest: Path) -> Path:
+    """A version written as parts alone, its parts' rows in one Parquet file at dest, in the
+    order given, for the queries its pages draw from. One part is read at a time."""
+    if not parts:
+        return dest
+    schema = pq.read_schema(parts[0]).remove_metadata()
+    with pq.ParquetWriter(dest, schema, compression="zstd") as w:
+        for p in parts:
+            w.write_table(pq.read_table(p).replace_schema_metadata(None).cast(schema))
+    return dest
