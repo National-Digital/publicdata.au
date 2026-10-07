@@ -52,6 +52,16 @@ jobs:
       verify: ${{ steps.verify.outputs.slugs }}
       spatial: ${{ steps.spatial.outputs.version }}
     steps:
+      # A budget D1 cannot read would fail the load after the site is out, so it stops here.
+      - name: Check the D1 budget input
+        if: github.event.inputs.d1_budget != ''
+        env:
+          D1_BUDGET: ${{ github.event.inputs.d1_budget }}
+        run: |
+          if ! [[ "$D1_BUDGET" =~ ^[[:space:]]*[0-9][0-9_,]*[[:space:]]*[kKmMgG]?[[:space:]]*$ ]]; then
+            echo "::error::d1_budget '$D1_BUDGET' is not a count of rows, such as 10000000 or 10M"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the last release tag, which the real-data check compares the code with

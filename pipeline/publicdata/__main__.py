@@ -444,6 +444,17 @@ def cmd_d1(args) -> int:
     return 0
 
 
+def _rows_written(text: str) -> int:
+    import argparse
+
+    from .d1 import rows_written
+
+    try:
+        return rows_written(text or "0")
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
 def cmd_d1_load(args) -> int:
     from .d1 import BUDGET, Wrangler, load
 
@@ -951,7 +962,10 @@ def main(argv=None) -> int:
     d1l = d1.add_parser("load", help="run the load files against D1, verify and retry")
     d1l.add_argument("--dir", required=True)
     d1l.add_argument(
-        "--budget", type=int, default=0, help="rows written this deploy may plan (0: the default)"
+        "--budget",
+        type=_rows_written,
+        default=0,
+        help="rows written this deploy may plan, such as 10M (0: the default)",
     )
     d1l.add_argument(
         "--retry", default="", help="dataset slugs, or all, to load again past their failures"
