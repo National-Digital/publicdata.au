@@ -9,12 +9,15 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/base/pipeline/requirements.txt
+
 permissions: {}
 
 jobs:
   cost:
     name: Storage cost
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Only this job is cancelled by a newer event, so the revoke job always runs to the end.
     concurrency:
       group: cost-${{ github.event.pull_request.number }}
@@ -62,7 +65,7 @@ jobs:
       && contains(github.event.pull_request.labels.*.name, 'cost-approved')
       && (contains(fromJSON('["synchronize", "reopened"]'), github.event.action)
       || (github.event.action == 'edited' && github.event.changes.base))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     env:
