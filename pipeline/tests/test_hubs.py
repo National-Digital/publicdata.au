@@ -175,6 +175,11 @@ def test_a_version_published_in_parts_is_not_copied_and_fails_no_run():
     with pytest.raises(hubs.Excluded, match="published in parts"):
         hubs.entry(RECORD, VERSIONS, SCHEMA, split)
     assert hubs.entry(RECORD, VERSIONS, SCHEMA, {**split, "whole": True}).version
+    with pytest.raises(hubs.Excluded) as e:
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    lines = []
+    assert hubs.run({"h": FakeHub()}, [("x", e.value)], fake_fetch, None, lines.append) == 0
+    assert lines == [f"h x: not copied, {e.value}"]
 
 
 def test_kaggle_limits():

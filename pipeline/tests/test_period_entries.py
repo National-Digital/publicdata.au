@@ -258,3 +258,30 @@ def test_a_cached_build_pulls_a_parts_only_version_s_parts_back_for_its_pages(eu
         published.current = None
     assert hero_total(out) == len(EUC_ROWS)
     assert all(p.exists() for p in gone)
+
+
+def test_the_gate_checks_the_grain_of_a_split_version_and_passes_it(euc):
+    out = euc["split"]
+    assert built_manifest(out, EUC, "2026-10-13")["period"]["grain"] == "year"
+    assert gate.periods_needed(out, entries()) == []
+
+
+def test_a_parts_only_dam_levels_version_keeps_the_explorer_and_names_the_hubs_version(tmp_path):
+    from publicdata.site import render_site
+
+    st = tmp_path / "store"
+    ds = entries()[WATER]
+    put(st, ds, "2026-10-01", water_rows([]))
+    put(st, ds, "2026-10-08", water_rows(["143036A,Wivenhoe,QLD,2026-10-07,1101000.0,90"]))
+    out = tmp_path / "dist"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(parts, "WHOLE_ROWS", 4)
+        o = build_dataset(ds, st, out)
+    assert [v.whole for v in o.versions] == [True, False]
+    render_site([o], out, hubs={"datasets": {WATER: {"zenodo": "10.5281/zenodo.1"}}})
+    explore = (out / "d" / WATER / "explore" / "index.html").read_text("utf-8")
+    assert "version 2026-10-01, the newest published as one file" in explore
+    assert "(latest)" not in explore
+    assert (out / "d" / WATER / "embed" / "index.html").exists()
+    page = (out / "d" / WATER / "index.html").read_text("utf-8")
+    assert '<span class="mono">2026-10-01</span>, the newest published as one file' in page

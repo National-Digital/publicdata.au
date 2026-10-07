@@ -3687,7 +3687,8 @@ def render_site(
             for v, view in reversed(list(zip(o.versions, views, strict=True)))
             if 0 < v.files.get("data.parquet", 0) <= explorer.MAX_PARQUET
         ]
-        if hints and ex_versions and ex_versions[0]["version"] == m.version:
+        # A version in parts has no one file to load, so the explorer stays on the newest whole one.
+        if hints and ex_versions and (ex_versions[0]["version"] == m.version or not latest.whole):
             explore = {
                 "slug": ds.slug,
                 "title": ds.title,
@@ -3767,6 +3768,9 @@ def render_site(
             licence_record=licence_record(ds, latest.manifest),
             spine_attribution=SPINE_ATTRIBUTION,
             copies=copies,
+            copies_hold=""
+            if latest.whole
+            else next((v.manifest.version for v in reversed(o.versions) if v.whole), ""),
             collection_href=collection_url(ds.collection) if ds.collection else "",
             entry_path=register_path(ds),
             problem_url=f"{REPO}/issues/new?{problem}",
@@ -3854,6 +3858,7 @@ def render_site(
                 ],
                 ex_data=_script_json({**explore, "embed": False}),
                 explore_versions=ex_versions,
+                explore_newest=ex_versions[0]["version"] == m.version,
                 explore_master="masters" in explore["defaults"],
                 engine_size=engine_size,
                 parquet_url=ex_versions[0]["parquet"],

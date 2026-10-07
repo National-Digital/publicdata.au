@@ -213,7 +213,7 @@
       {% for c in copies %}<li><a href="{{ c.url }}" rel="noopener">{{ c.hub }}</a><span>{{ c.note }}</span></li>
       {% endfor %}
     </ul>
-    <p class="small">Each copy carries the same attribution and links back to this page.</p>
+    <p class="small">Each copy carries the same attribution and links back to this page.{% if copies_hold %} The hubs take one table, so they hold version <span class="mono">{{ copies_hold }}</span>, the newest published as one file.{% endif %}</p>
   </div>
   {% endif %}
   <div class="card">
