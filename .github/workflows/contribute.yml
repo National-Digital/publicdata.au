@@ -50,5 +50,8 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
         run: |
           set -o pipefail
+          # DRY_RUN is one flag or nothing, so it is left unquoted.
+          # shellcheck disable=SC2086
           python -m publicdata contribute sync ${VOTES:+--votes "$VOTES"} ${CAP:+--cap "$CAP"} $DRY_RUN | tee contribute.log
-          { echo '```'; cat contribute.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # Only the action lines: a dry run's issue bodies hold fences of their own.
+          { echo '```'; grep '^contribute: ' contribute.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

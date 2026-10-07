@@ -150,21 +150,26 @@ The pipeline package in `pipeline/` is not published, so it makes no versioning 
 
 ## Pick up a dataset task
 
-Each of the most-wanted datasets has an issue labelled `good first issue` and `dataset`, with the
+Some of the most-wanted datasets have an issue labelled `good first issue` and `dataset`, with the
 portal page, the licence and its evidence, the vote count and a starting register entry. Say on the
 issue that you are taking it, follow Add a dataset below, and write `Closes #<issue>` in the pull
 request.
 
 `.github/workflows/contribute.yml` keeps these issues each day with `python -m publicdata
-contribute sync`. It opens one for every backlog entry whose licence is open and for every
-catalogue record with an open licence, a file and at least `CONTRIBUTE_VOTES` votes (1 when unset),
-most voted first, and never leaves more than `CONTRIBUTE_CAP` (10 when unset) open. Both are
-repository variables. An issue is written only from the register and the catalogue's own record;
-a vote adds only its count. The sync changes only issues it opened, finds them again by the key in
-a hidden marker, updates their text, and closes one when its dataset is live, when its licence or
-status takes it off the list, or when it falls outside the cap. A dataset whose issue was closed
-does not get another; a maintainer reopens the old one instead. `--dry-run` prints what a run
-would do and changes nothing. While an issue is open, the backlog and the publisher's page link it.
+contribute sync`. It opens them, most voted first, for backlog entries whose licence is open and
+for catalogue records with an open licence, a file and at least `CONTRIBUTE_VOTES` votes (1 when
+unset), and never leaves more than `CONTRIBUTE_CAP` (10 when unset) open. Both are repository
+variables. An open issue keeps its place when another dataset gains votes; when the cap is
+lowered, the least wanted close first and an entry already `building` closes last.
+
+An issue is written only from the register and the catalogue's own record; a vote adds only its
+count. The sync changes only issues it opened, finds them again by the key in a hidden marker,
+updates their text, and closes one when its dataset is live, when its licence or status takes it
+off the list, or when it falls outside the cap. A dataset whose issue was closed does not get
+another; a maintainer reopens the old one instead. `--dry-run` prints what a run would do and
+changes nothing. Only the workflow runs it without, because the next run reads only the issues the
+workflow's own account opened. The backlog and the publisher's page link an open issue from the
+deploy after the sync opens it until the deploy after it closes; the catalogue search does not.
 
 ## Add a dataset
 

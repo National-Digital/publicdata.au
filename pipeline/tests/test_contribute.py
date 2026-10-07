@@ -115,13 +115,15 @@ def test_a_voted_open_record_and_a_backlog_entry_each_get_one_issue():
 
 def test_the_github_client_labels_new_issues_and_reads_only_its_own_marked_issues():
     sent = []
+    applied = 2
 
     class Http:
         headers = {}
 
         def request(self, method, url, timeout=None, json=None):
             sent.append((method, url, json))
-            return Response({"number": 9})
+            labels = [{"name": n} for n in (json or {}).get("labels", [])[:applied]]
+            return Response({"number": 9, "labels": labels})
 
         def get(self, url, params=None, timeout=None):
             sent.append(("GET", url, params))
@@ -157,8 +159,15 @@ def test_the_github_client_labels_new_issues_and_reads_only_its_own_marked_issue
         "https://api.github.com/repos/o/r/issues",
         {"title": "Add x", "body": "body", "labels": ["good first issue", "dataset"]},
     )
+    # A label GitHub dropped fails the change, so the run goes red.
+    applied = 1
+    with pytest.raises(contribute.LabelMissing, match="dataset"):
+        gh.create("Add x", "body")
     gh.close(1, "done", "completed")
-    assert sent[-1][2] == {"state": "closed", "state_reason": "completed"}
+    assert [x[2] for x in sent[-2:]] == [
+        {"state": "closed", "state_reason": "completed"},
+        {"body": "done"},
+    ]
 
 
 def test_a_second_run_leaves_the_same_issues_and_creates_nothing():
@@ -217,26 +226,71 @@ def test_a_vote_key_the_catalogue_does_not_hold_never_reaches_an_issue():
 def test_portal_text_is_shown_as_text():
     evil = row(
         "qld-a",
-        title="Bins @octocat see #1 [click](https://evil.example) <img src=x> ```",
-        publisher="Org\n## Heading",
+        title="Bins @octocat see #1 [click](https://evil.example) www.evil.example <img src=x> ```",
+        publisher="Org\n## Heading | x",
     )
     gh = FakeGitHub()
     run([], FakeSite({"qld-a": 2}, [evil]), gh)
     (issue,) = gh.store.values()
     body = issue["body"]
-    # Inside a code block nothing is a mention or a link; outside it everything is escaped.
+    # GitHub links, mentions and marks up nothing inside a code block or a code span.
     fence = re.search(r"^(`{3,})yaml$", body, re.M).group(1)
     assert len(fence) > 3
-    body = re.sub(rf"^{fence}yaml$.*?^{fence}$", "", body, flags=re.M | re.S)
-    assert "@octocat" not in body.replace("\\@octocat", "")
-    assert "](https://evil.example)" not in body and "<img" not in body.replace("\\<img", "")
-    assert "#1" not in body.replace("\\#1", "")
-    assert "\n## Heading" not in body and "javascript:" not in body
+    prose = re.sub(rf"^{fence}yaml$.*?^{fence}$", "", body, flags=re.M | re.S)
+    prose = re.sub(r"(`+) .*? \1", "", prose)
+    for bad in ("@octocat", "evil.example", "<img", "#1", "## Heading", "Org"):
+        assert bad not in prose
+    assert "| Publisher | ` Org ## Heading \\| x ` |" in body
     assert issue["title"].startswith("Add Bins @octocat") and "\n" not in issue["title"]
     # A record whose portal link is not a web address gets no issue.
     gh = FakeGitHub()
     run([], FakeSite({"qld-a": 2}, [{**evil, "url": "javascript:alert(1)"}]), gh)
     assert gh.store == {}
+
+
+def test_a_marker_saved_with_windows_line_ends_is_still_found():
+    assert contribute.key_of(contribute.marker("qld-a") + "\r\nedited\r\n") == "qld-a"
+    gh = FakeGitHub()
+    run([backlog("nsw-fuel")], FakeSite({}, []), gh)
+    gh.store[1]["body"] = gh.store[1]["body"].replace("\n", "\r\n")
+    gh.writes.clear()
+    run([backlog("nsw-fuel")], FakeSite({}, []), gh)
+    assert gh.writes == []
+
+
+def test_an_entry_whose_licence_is_no_longer_open_loses_its_issue():
+    gh = FakeGitHub()
+    run([backlog("nsw-fuel")], FakeSite({}, []), gh)
+    run([backlog("nsw-fuel", licence="other-closed")], FakeSite({}, []), gh)
+    assert gh.store[1]["state"] == "closed" and gh.store[1]["reason"] == "not_planned"
+
+
+def test_an_entry_merged_before_the_catalogue_catches_up_takes_over_the_records_issue():
+    url = "https://data.gov.au/data/dataset/qld-entry"
+    site = FakeSite({"gov-a": 2}, [row("gov-a", url=url)])
+    gh = FakeGitHub()
+    run([], site, gh)
+    # The register has the entry; the deployed catalogue still lists the record as votable.
+    run([backlog("qld-entry")], site, gh)
+    assert list(gh.store) == [1] and gh.open() == ["qld-entry"]
+    # With no issue yet, the record and the entry make one issue, not two.
+    gh = FakeGitHub()
+    run([backlog("qld-entry")], site, gh)
+    assert gh.open() == ["qld-entry"]
+
+
+def test_one_refused_change_does_not_stop_the_others():
+    import requests
+
+    class Refusing(FakeGitHub):
+        def update(self, number, title, body):
+            raise requests.HTTPError("403 locked")
+
+    gh = Refusing()
+    run([backlog("a-entry")], FakeSite({}, []), gh)
+    with pytest.raises(contribute.SyncError, match="a-entry"):
+        run([backlog("a-entry", planned="Changed."), backlog("b-entry")], FakeSite({}, []), gh)
+    assert gh.open() == ["a-entry", "b-entry"]
 
 
 def test_no_run_leaves_more_issues_open_than_the_cap():

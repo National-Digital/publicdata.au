@@ -9,6 +9,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from . import REPO, SITE
+
 ROOT = Path(__file__).resolve().parents[2]
 REGISTER = ROOT / "register"
 PUBLISHERS = REGISTER / "publishers"
@@ -805,23 +807,28 @@ def cmd_contribute(args) -> int:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     gh = contribute.GitHub(args.repo, contribute.session(token))
     if args.sub == "issues":
-        tasks = contribute.open_tasks(gh.issues())
-        Path(args.out).write_text(json.dumps(tasks, indent=0) + "\n", encoding="utf-8")
+        tasks = contribute.open_tasks(gh.issues("open"))
+        Path(args.out).write_text(json.dumps(tasks, indent=1) + "\n", encoding="utf-8")
         print(f"contribute: {len(tasks)} open task(s) written to {args.out}")
         return 0
     if args.votes < 1 or args.cap < 0:
         sys.exit("contribute: --votes is at least 1 and --cap at least 0")
-    if not token and not args.dry_run:
-        sys.exit("contribute: set GH_TOKEN, or pass --dry-run")
-    acts = contribute.sync(
-        load(REGISTER),
-        gh,
-        contribute.session(),
-        threshold=args.votes,
-        cap=args.cap,
-        dry_run=args.dry_run,
-        site=args.site,
-    )
+    # Issues opened under any other account are invisible to the next scheduled run.
+    if not args.dry_run and os.environ.get("GITHUB_ACTIONS") != "true":
+        sys.exit("contribute: only the Contribute workflow changes issues; pass --dry-run")
+    try:
+        acts = contribute.sync(
+            load(REGISTER),
+            gh,
+            contribute.session(),
+            threshold=args.votes,
+            cap=args.cap,
+            dry_run=args.dry_run,
+            site=args.site,
+        )
+    except contribute.SyncError as e:
+        print(f"contribute: {e}", file=sys.stderr)
+        return 1
     print(f"contribute: {len(acts)} change(s){' planned' if args.dry_run else ''}")
     return 0
 
@@ -1036,8 +1043,8 @@ def main(argv=None) -> int:
 
     co = sub.add_parser("contribute", help="the most-wanted datasets as contributor issues")
     co.add_argument("sub", choices=["sync", "issues"])
-    co.add_argument("--repo", default="National-Digital/publicdata.au")
-    co.add_argument("--site", default="https://publicdata.au")
+    co.add_argument("--repo", default=REPO.removeprefix("https://github.com/"))
+    co.add_argument("--site", default=SITE)
     co.add_argument("--votes", type=int, default=1, help="sync: votes a catalogue record needs")
     co.add_argument("--cap", type=int, default=10, help="sync: the most issues open at once")
     co.add_argument("--dry-run", action="store_true", help="sync: print the changes, make none")

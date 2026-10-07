@@ -14,7 +14,8 @@ import requests
 import yaml
 
 from . import REPO, SITE
-from .register import CLOSED_LICENCES, OPEN_LICENCES, Dataset
+from .directory import _bare
+from .register import Dataset
 
 UA = "publicdata-contribute (+https://publicdata.au/)"
 LABELS = ("good first issue", "dataset")
@@ -26,6 +27,14 @@ GUIDE = f"{REPO}/blob/main/CONTRIBUTING.md#add-a-dataset"
 # cannot reach the cap anyway.
 IDS_PER_CALL = 50
 MOST_VOTED = 200
+
+
+class SyncError(RuntimeError):
+    pass
+
+
+class LabelMissing(requests.RequestException):
+    pass
 
 
 @dataclass(frozen=True)
@@ -58,17 +67,14 @@ def marker(key: str) -> str:
 
 
 def key_of(body: str | None) -> str:
-    m = MARK_RE.search(body or "")
+    # GitHub's editor saves CRLF line ends.
+    m = MARK_RE.search((body or "").replace("\r\n", "\n"))
     return m.group(1) if m else ""
 
 
 def eligible(d: Dataset) -> bool:
     """A backlog entry whose licence the register already holds to be open."""
-    return (
-        d.status == "backlog"
-        and d.licence.id in OPEN_LICENCES
-        and d.licence.id not in CLOSED_LICENCES
-    )
+    return d.status == "backlog" and d.licence.open
 
 
 def from_register(d: Dataset, votes: int) -> Candidate:
@@ -103,16 +109,29 @@ def candidates(
     """Every backlog entry with an open licence, and every catalogue record with at least
     `threshold` votes that is open, downloadable and not yet in the register, most voted first."""
     out = [from_register(d, votes.get(d.slug, 0)) for d in datasets if eligible(d)]
-    slugs = {d.slug for d in datasets}
+    register = {d.slug: d for d in datasets}
     out += [
         from_record(r, votes[k])
         for k, r in rows.items()
-        if k not in slugs
+        if k not in register
+        and not _claimed(r, register)
         and r.get("id") == k
         and r.get("state") == "votable"
         and votes.get(k, 0) >= threshold
     ]
     return sorted(out, key=lambda c: (-c.votes, c.key))
+
+
+def _claimed(row: dict, register: dict[str, Dataset]) -> str:
+    """The register entry whose source is this record's page. An entry merged since the last
+    deploy claims its record before the catalogue says so."""
+    url = _bare(row.get("url") or "")
+    if not url:
+        return ""
+    return next(
+        (d.slug for d in register.values() if url in {_bare(d.source.url), _bare(d.source.portal)}),
+        "",
+    )
 
 
 def resolve(key: str, register: dict[str, Dataset], rows: dict[str, dict]) -> tuple[str, str, str]:
@@ -122,12 +141,15 @@ def resolve(key: str, register: dict[str, Dataset], rows: dict[str, dict]) -> tu
         d = register[key]
         if d.status == "live":
             return key, "live", f"{SITE}/d/{key}/"
-        if d.status in ("backlog", "building") and d.licence.id not in CLOSED_LICENCES:
+        if d.status in ("backlog", "building") and d.licence.open:
             return key, "open", ""
         return key, "gone", f"its register entry is now {d.status}"
     r = rows.get(key)
     if r is None:
         return key, "gone", "the portals' catalogue no longer lists it"
+    claim = _claimed(r, register)
+    if claim:
+        return resolve(claim, register, rows)
     if r.get("state") == "chosen":
         if r.get("vote") in register:
             return resolve(r["vote"], register, rows)
@@ -171,7 +193,11 @@ def plan(
             keep[key] = i
     by_key = {c.key: c for c in cands}
     rank = {c.key: n for n, c in enumerate(cands)}
-    order = sorted(keep, key=lambda k: (rank.get(k, len(rank)), keep[k]["number"]))
+    # An entry already building is someone's work in progress, so it is the last to go.
+    building = {k for k in keep if k in register and register[k].status == "building"}
+    order = sorted(
+        keep, key=lambda k: (k not in building, rank.get(k, len(rank)), keep[k]["number"])
+    )
     for k in order[cap:]:
         acts.append(
             _close(
@@ -187,7 +213,10 @@ def plan(
         if c is None:
             continue
         title, body = render(c)
-        if (i["title"], i["body"]) != (title, body):
+        if (i["title"].strip(), i["body"].replace("\r\n", "\n").rstrip()) != (
+            title,
+            body.rstrip(),
+        ):
             acts.append(Action("update", k, number=i["number"], title=title, body=body))
     room = cap - len(keep)
     for c in cands:
@@ -215,15 +244,16 @@ def _current(key, register, rows, votes) -> Candidate | None:
     return None
 
 
-# Text from a portal or the register is shown as text: no markup, link, mention or reference.
-_MD = re.compile(r"([\\`*_{}\[\]()<>#@|!~&])")
-
-
+# Text from a portal or the register goes in a code span, where GitHub makes no markup, link,
+# autolink, mention or reference; a table cell still needs its pipes escaped.
 def _text(s: str, limit: int = 300) -> str:
     s = re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", s or "")).strip()
     if len(s) > limit:
         s = s[:limit].rsplit(" ", 1)[0] + "..."
-    return _MD.sub(r"\\\1", s)
+    if not s:
+        return ""
+    tick = "`" * (max([0, *(len(m) for m in re.findall(r"`+", s))]) + 1)
+    return f"{tick} {s.replace('|', chr(92) + '|')} {tick}"
 
 
 def _url(u: str) -> str:
@@ -250,7 +280,7 @@ def render(c: Candidate) -> tuple[str, str]:
     lines = [
         marker(c.key),
         "",
-        f"**{_text(c.title, 200)}**, from {_text(c.publisher, 120)}, is on the publicdata.au "
+        f"{_text(c.title, 200)}, from {_text(c.publisher, 120)}, is on the publicdata.au "
         f"[backlog]({SITE}/backlog/) with {votes}.",
         "",
         "| | |",
@@ -372,11 +402,11 @@ class GitHub:
         r.raise_for_status()
         return r
 
-    def issues(self) -> list[dict]:
+    def issues(self, state: str = "all") -> list[dict]:
         out, url = [], f"{self.base}/issues"
         # Every issue is read and filtered here: a server-side filter that matched nothing would
         # make every dataset look new.
-        params = {"state": "all", "per_page": 100}
+        params = {"state": state, "per_page": 100}
         while url:
             r = self.http.get(url, params=params, timeout=60)
             r.raise_for_status()
@@ -402,15 +432,20 @@ class GitHub:
     def create(self, title: str, body: str) -> int:
         r = self._call(
             "POST", "/issues", json={"title": title, "body": body, "labels": list(LABELS)}
-        )
-        return r.json()["number"]
+        ).json()
+        # GitHub drops a label it cannot apply without saying so.
+        missing = set(LABELS) - {lb["name"] for lb in r.get("labels") or []}
+        if missing:
+            raise LabelMissing(f"#{r['number']} was opened without {sorted(missing)}")
+        return r["number"]
 
     def update(self, number: int, title: str, body: str) -> None:
         self._call("PATCH", f"/issues/{number}", json={"title": title, "body": body})
 
     def close(self, number: int, comment: str, reason: str) -> None:
-        self._call("POST", f"/issues/{number}/comments", json={"body": comment})
+        # Closed first, so a failure here never leaves a comment that the next run repeats.
         self._call("PATCH", f"/issues/{number}", json={"state": "closed", "state_reason": reason})
+        self._call("POST", f"/issues/{number}/comments", json={"body": comment})
 
 
 def gather(
@@ -438,6 +473,7 @@ def sync(
     votes, rows, issues = gather(datasets, gh, http, site)
     register = {d.slug: d for d in datasets}
     acts = plan(candidates(datasets, votes, rows, threshold), issues, register, rows, votes, cap)
+    failed = []
     for a in acts:
         what = f"#{a.number}" if a.number else repr(a.title)
         log(f"contribute: {'would ' if dry_run else ''}{a.kind} {what} ({a.key})")
@@ -445,12 +481,19 @@ def sync(
             if a.kind != "close":
                 log(a.body)
             continue
-        if a.kind == "create":
-            log(f"contribute: opened #{gh.create(a.title, a.body)}")
-        elif a.kind == "update":
-            gh.update(a.number, a.title, a.body)
-        else:
-            gh.close(a.number, a.comment, a.reason)
+        # One issue GitHub refuses, such as a locked one, does not hold up the others.
+        try:
+            if a.kind == "create":
+                log(f"contribute: opened #{gh.create(a.title, a.body)}")
+            elif a.kind == "update":
+                gh.update(a.number, a.title, a.body)
+            else:
+                gh.close(a.number, a.comment, a.reason)
+        except requests.RequestException as e:
+            log(f"contribute: FAILED {a.kind} {what} ({a.key}): {e}")
+            failed.append(a.key)
+    if failed:
+        raise SyncError(f"{len(failed)} change(s) failed: {', '.join(failed)}")
     return acts
 
 
