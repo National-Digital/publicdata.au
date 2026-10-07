@@ -56,7 +56,7 @@ faq:
     change over one and ten years; those columns are derived or not final and are not republished. Earlier
     versions here keep the earlier windows.
 - q: What do the null medians mean?
-  a: The publisher writes NA or a dash where too few sales were recorded in a locality to give a median.
+  a: The publisher writes `NA` or a dash where too few sales were recorded in a locality to give a median.
     Both are kept as null.
 summary: The median sale price of houses in every Victorian suburb and town for each of the last eleven calendar
   years, from the Valuer-General's sales record. About 800 localities, updated yearly.

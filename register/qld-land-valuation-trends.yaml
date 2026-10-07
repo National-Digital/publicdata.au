@@ -32,7 +32,7 @@ faq:
 - q: What does each figure mean?
   a: Each figure is the overall percentage change in statutory land values in a local government area at that
     year's annual valuation, compared with its previous valuation. A council area is not valued every year,
-    and the publisher writes NV for a year it was not valued. NV is kept as a null value here.
+    and the publisher writes `NV` for a year it was not valued. `NV` is kept as a null value here.
 - q: What are the total rows?
   a: The publisher puts rows counting the local government areas, and those valued, at the top of the table.
     They are kept as published.

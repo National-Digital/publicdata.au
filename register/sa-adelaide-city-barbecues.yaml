@@ -22,7 +22,7 @@ faq:
   a: One public barbecue in the City of Adelaide council area, with the park or road it is in and its identifier,
     the asset identifier, the barbecue type and its location.
 - q: Which coordinates are these?
-  a: The publisher gives easting and northing in GDA94 MGA zone 54 (EPSG:28354), which are kept as published. The
+  a: The publisher gives easting and northing in GDA94 Map Grid of Australia (MGA) zone 54 (EPSG:28354), which are kept as published. The
     publisher's web mercator geometry column is left out. The site serves no map for this table, since it holds no longitude and latitude.
 summary: The location and type of each public barbecue the City of Adelaide manages in the Park Lands and city
   streets.

@@ -42,8 +42,8 @@ faq:
   a: One dog on the City of Greater Dandenong's register when the file was published, with its suburb,
     postcode, breed, colour and sex. Owners and addresses are not in the file.
 - q: What do the breed and colour codes mean?
-  a: The council writes breeds and colours as short codes from its register, such as MALTX for a Maltese
-    cross and BLAWHI for black and white. They are kept as published, since the file gives no key.
+  a: The council writes breeds and colours as short codes from its register, such as `MALTX` for a Maltese
+    cross and `BLAWHI` for black and white. They are kept as published, since the file gives no key.
 - q: Is it current?
   a: The portal dates the file January 2021. It is a single snapshot of the register and has not been updated since.
 summary: Each of about 7,500 dogs on the City of Greater Dandenong's register, with suburb, postcode, breed
