@@ -438,10 +438,10 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   fit 32 bits, such as a year, a count or a short identifier. A new version holding a larger
   value is held at its fetch, so leave out anything that can grow past 2,147,483,647.
 - A version keeps the `sort`, `lookup` and `int32` its fetch found, so an edit to them changes
-  the files of later versions and the query copies not yet written. A query copy already in R2
-  keeps the order it was written in, since its key names only the profile version; each copy
-  records its own order in its footer (`sorting_columns`), so a reader takes the order from the
-  file. None of the three applies to a `kind: database` entry.
+  the files of later versions and never a published one. The query copy of every version
+  follows the edit from the next deploy, which writes each copy again in R2. Each copy records
+  its own order in its footer (`sorting_columns`), so a reader takes the order from the file.
+  None of the three applies to a `kind: database` entry.
 - The fetch checks every `int32` field against a new version before it stores it, and holds the
   dataset with an error naming the field when a value does not fit. Before declaring `int32` on
   a field, run `python -m publicdata register validate`, which checks the stored versions whose
