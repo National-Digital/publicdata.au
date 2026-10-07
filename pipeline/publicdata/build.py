@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 import zstandard
 
 from . import OPERATOR, SITE, published, store
-from .cache import BuildCache, _link_or_copy
+from .cache import BuildCache, _link_or_copy, digest, digests, entry_key, shape_layer
 from .diff import diff
 from .normalise import Table, normalise
 from .provenance import OPERATOR_URL
@@ -332,7 +332,8 @@ def _history(dout: DatasetOut, out: Path, cache: BuildCache | None, keys: list[s
         )
         for v in dout.versions:
             for name in kept:
-                p = published.path(out, f"d/{dout.dataset.slug}/v/{v.manifest.version}/{name}")
+                rel = f"d/{dout.dataset.slug}/v/{v.manifest.version}/{name}"
+                p, _ = published.served(out, rel)
                 ti = tarfile.TarInfo(f"{dout.dataset.slug}/{v.manifest.version}/{name}")
                 ti.size = p.stat().st_size
                 ti.mtime = 0
@@ -465,15 +466,23 @@ def _datapackage(dout: DatasetOut) -> dict:
 def version_key(
     cache: BuildCache, ds: Dataset, m: store.Manifest, store_dir: Path | None = None
 ) -> str:
-    """A version's cache entry: its register entry and manifest, and for a dataset joined to the
-    place spine, the spine layers it reads."""
+    """A version's cache entry: its register entry, its rebuild number among them, and manifest,
+    the spatial extension when its build loads it, the modules only its kind runs, and for a
+    dataset joined to the place spine, the spine layers it reads and their register entries.
+    The rest of the build code is not in it, so an edit to that code reuses every version until
+    a rebuild number is raised."""
+    from .cache import kind_key, spatial, spatial_version
+
+    extra = [f"spatial={spatial_version()}"] if spatial(ds) else []
+    extra += [k] if (k := kind_key(ds.kind)) else []
     if ds.enrich:
         from .spine import spine_versions
 
         if store_dir is None:
             raise ValueError(f"{ds.slug}: a spine-joined version's key needs the store")
-        return cache.key(repr(ds), m.to_json(), spine_versions(ds.enrich, store_dir), "version")
-    return cache.key(repr(ds), m.to_json(), "version")
+        layers = spine_versions(ds.enrich, store_dir, REGISTER_DIR)
+        return cache.key(entry_key(ds), m.to_json(), layers, *extra, "version")
+    return cache.key(entry_key(ds), m.to_json(), *extra, "version")
 
 
 def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
@@ -503,8 +512,11 @@ def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> Versio
     )
 
 
-def _meta(vout: VersionOut, writers: dict[str, str]) -> dict:
+def _meta(ds: Dataset, vout: VersionOut, writers: dict[str, str], vdir: Path) -> dict:
+    query = vdir.parents[3] / vout.query if vout.query else None
     return {
+        "sha256": digests(vdir, databases=ds.kind != "database"),
+        **({"query_sha256": digest(query)} if query is not None and query.is_file() else {}),
         "rows": vout.rows,
         "files": vout.files,
         "unknown_columns": vout.unknown_columns,
@@ -544,7 +556,7 @@ def pending(
 
     if not ds.publishable:
         return 0
-    now = now or writer_keys()
+    now = now or writer_keys(shape_layer(ds))
     n = 0
     for m in store.manifests(store_dir, ds.slug):
         meta = cache.root / version_key(cache, ds, m, store_dir) / "meta.json"
@@ -587,7 +599,7 @@ def grow_cached(
     if ds.kind == "database":
         return hit
     want = _want(ds, hit["rows"], hit.get("left_out"))
-    now = writer_keys()
+    now = writer_keys(shape_layer(ds))
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
     stale = list(changed)
@@ -597,16 +609,19 @@ def grow_cached(
     # version.
     out = vdir.parents[3]
     rel = vdir.relative_to(out).as_posix()
-    if "parquet" in stale or not published.path(out, f"{rel}/data.parquet").exists():
+    if "parquet" in stale:
+        return None
+    parquet, _ = published.served(out, f"{rel}/data.parquet")
+    if not parquet.exists():
         return None
     base = version_url(ds.slug, m.version)
 
     def hdr(rows: int, rel: str) -> dict:
         return prov_header(ds, m, rows, base + rel)
 
-    tbl = _built_table(ds, m, out)
+    tbl = _built_table(ds, m, out, parquet)
     if m.parquet.get("sort"):
-        tbl = _source_order(tbl, cache, key, vdir / "data.parquet")
+        tbl = _source_order(tbl, cache, key, parquet)
         if tbl is None:
             return None
     if "csv.gz" in stale and "csv" not in stale and not (vdir / "data.csv").exists():
@@ -621,7 +636,7 @@ def grow_cached(
     resized = {
         k: _size(vdir / k)
         for k in man.get("measured_bytes", {})
-        if k[5:] in stale and (vdir / k).exists()
+        if k[5:] in changed and (vdir / k).exists()
     }
     if resized and any(man["measured_bytes"][k] != n for k, n in resized.items()):
         man["measured_bytes"] = {**man["measured_bytes"], **resized}
@@ -641,7 +656,7 @@ def grow_cached(
         or k[5:] in want
         or serialise.LIMIT is not None
     }
-    for f in stale:
+    for f in changed:
         files[f"data.{f}"] = _size(vdir / f"data.{f}")
     if resized:
         files["manifest.json"] = _size(vdir / "manifest.json")
@@ -650,10 +665,23 @@ def grow_cached(
     writers = {f: now[f] for f in want}
     if serialise.LIMIT is not None:
         writers = {**seen, **writers}  # a limited build forgets no writer it did not run
-    meta = {**hit, "files": dict(sorted(files.items())), "writers": writers}
+    written = [f"data.{f}" for f in stale if (vdir / f"data.{f}").exists()]
+    written += ["manifest.json"] if resized else []
+    sums = {k: v for k, v in hit.get("sha256", {}).items() if k in files}
+    sums |= digests(vdir, written)
+    # The Parquet each rewritten file was made from, which the check reads to make it again.
+    grown = {k: v for k, v in hit.get("grown", {}).items() if k in files}
+    grown |= dict.fromkeys(written, digest(parquet))
+    meta = {
+        **hit,
+        "files": dict(sorted(files.items())),
+        "writers": writers,
+        "sha256": sums,
+        "grown": grown,
+    }
     if "ndjson" in stale:
         meta["first"] = _first_row(vdir)  # the dataset page shows it
-    cache.put(key, meta, vdir, kept, _order_file(tbl, vdir / "data.parquet"))
+    cache.put(key, meta, vdir, kept, _order_file(tbl, parquet))
     cache.grown += len(stale)
     return meta
 
@@ -680,14 +708,14 @@ def _cached_version(
     if cache is not None:
         from .cache import writer_keys
 
-        now = writer_keys()
+        now = writer_keys(shape_layer(ds))
         writers = (
             {}
             if ds.kind == "database"
             else {f: now[f] for f in _want(ds, vout.rows, vout.left_out)}
         )
         order = _order_file(tbl, vdir / "data.parquet") if tbl is not None else {}
-        cache.put(key, _meta(vout, writers), vdir, kept, order)
+        cache.put(key, _meta(ds, vout, writers, vdir), vdir, kept, order)
     return tbl, vout
 
 
@@ -759,9 +787,9 @@ def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:
     }
 
 
-def _built_table(ds: Dataset, m: store.Manifest, out: Path) -> Table:
+def _built_table(ds: Dataset, m: store.Manifest, out: Path, parquet: Path | None = None) -> Table:
     """A built version's rows read back from its Parquet, which holds exactly what normalise made."""
-    t = pq.read_table(published.path(out, f"d/{ds.slug}/v/{m.version}/data.parquet"))
+    t = pq.read_table(parquet or published.path(out, f"d/{ds.slug}/v/{m.version}/data.parquet"))
     geometry = None
     if geo_kind(ds) in ("polygon", "line"):
         # A layer's Parquet carries its shapes after the fields.
@@ -779,15 +807,31 @@ def _built_table(ds: Dataset, m: store.Manifest, out: Path) -> Table:
     )
 
 
+def _served_table(ds: Dataset, m: store.Manifest, tbl: Table | None, out: Path) -> Table:
+    """A version's rows as the site serves them: its published Parquet when there is one, which
+    a version built again without a replace leaves in place, else what this build made."""
+    p, published_copy = published.served(out, f"d/{ds.slug}/v/{m.version}/data.parquet")
+    if tbl is not None and not published_copy:
+        return tbl
+    return _built_table(ds, m, out, p)
+
+
 def build_dataset(
-    ds: Dataset, store_dir: Path, out: Path, cache: BuildCache | None = None
+    ds: Dataset,
+    store_dir: Path,
+    out: Path,
+    cache: BuildCache | None = None,
+    newest: int | None = None,
 ) -> DatasetOut:
+    """Every version of a dataset, or with newest only that many of the latest, as the real-data
+    check builds a large dataset."""
     dout = DatasetOut(ds)
     if not ds.publishable:
         return dout
     prev = None  # (manifest, table or None, cache key)
     keys = []
-    for m in store.manifests(store_dir, ds.slug):
+    ms = store.manifests(store_dir, ds.slug)
+    for m in ms[-newest:] if newest else ms:
         key = version_key(cache, ds, m, store_dir) if cache else ""
         keys.append(key)
         tbl, vout = _cached_version(ds, m, store_dir, out, cache, key)
@@ -801,9 +845,7 @@ def build_dataset(
                 if ds.kind == "database":
                     d = diff_database(ds, dout.versions[-2], vout)
                 else:
-                    ptbl = ptbl if ptbl is not None else _built_table(ds, pm, out)
-                    tbl = tbl if tbl is not None else _built_table(ds, m, out)
-                    d = diff(ptbl, tbl)
+                    d = diff(_served_table(ds, pm, ptbl, out), _served_table(ds, m, tbl, out))
                 if cache:
                     cache.put(dkey, d)
             path.parent.mkdir(parents=True, exist_ok=True)

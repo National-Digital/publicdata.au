@@ -27,6 +27,9 @@ on:
         default: false
 
 # Writes only to open the pull request that records where the copies are.
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+
 permissions:
   contents: write
   pull-requests: write
@@ -39,7 +42,7 @@ jobs:
   publish:
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     # A first publish of every dataset runs for hours; the publish step stops first, so the
     # record of what was done still goes up and the next run carries on from there.

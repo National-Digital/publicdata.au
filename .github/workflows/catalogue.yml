@@ -9,6 +9,10 @@ on:
     - cron: "47 20 * * 1" # Tuesday 06:47 Brisbane, after the dataset fetch
   workflow_dispatch:
 
+env:
+  UV_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+  UV_BUILD_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+
 permissions:
   contents: write
   pull-requests: write

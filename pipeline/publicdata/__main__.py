@@ -681,6 +681,84 @@ def cmd_cache(args) -> int:
     return 0
 
 
+def cmd_verify(args) -> int:
+    """plan prints the datasets the real-data check builds, or nothing when no changed path
+    shapes versions outside their key; run builds them and compares."""
+    from . import verify
+    from .register import load
+
+    datasets = load(REGISTER)
+    store_dir = Path(args.store)
+    mb = 1_000_000
+    cap = args.cap_mb * mb if args.cap_mb is not None else verify.CAP
+    if args.sub == "plan":
+        changed = []
+        if args.changed:
+            changed = Path(args.changed).read_text(encoding="utf-8").splitlines()
+        if args.before and (moved := verify.changed_defaults(Path(args.before))):
+            for k in moved:
+                print(
+                    f"::error::the default of {k} changed. A version's key leaves out every "
+                    "field at its default, so raise REBUILD in pipeline/publicdata/cache.py "
+                    "in the same change.",
+                    file=sys.stderr,
+                )
+            return 1
+        mods = verify.unkeyed(changed)
+        raised = verify.bumped(Path(args.before), datasets) if args.before else []
+        if not mods and not raised:
+            print("verify: no change to the build code outside the keys", file=sys.stderr)
+            return 0
+        budget = args.budget_mb * mb if args.budget_mb is not None else verify.BUDGET
+        if raised:
+            print(f"verify: rebuild raised for {' '.join(raised)}", file=sys.stderr)
+        if mods:
+            print(f"verify: {', '.join(mods)} changed", file=sys.stderr)
+        else:
+            budget = 0  # only the raised entries are checked
+        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap, raised)
+        if mods:
+            for line in verify.uncovered(datasets, store_dir, slugs):
+                print(f"verify: no dataset in the sample is built as {line}", file=sys.stderr)
+        if not slugs and not mods:
+            return 0
+        if not slugs:
+            print(
+                "verify: no stored dataset fits the budget, so nothing can be checked",
+                file=sys.stderr,
+            )
+            return 1
+        print(" ".join(slugs))
+        return 0
+    if not args.cache:
+        print("verify run: --cache is the build cache a deploy would reuse")
+        return 2
+    chosen = [d for d in datasets if d.publishable and (not args.slug or d.slug in args.slug)]
+    unknown = set(args.slug) - {d.slug for d in chosen}
+    if unknown:
+        print(f"verify run: not a publishable dataset: {sorted(unknown)}")
+        return 2
+    from . import published, serialise
+
+    serialise.LIMIT = None
+    import tempfile
+
+    out = Path(args.out or tempfile.mkdtemp(prefix="publicdata-verify-"))
+    out.mkdir(parents=True, exist_ok=True)
+    download = None
+    if args.published.startswith(R2):
+        from .r2 import downloader
+
+        download = downloader(args.published[len(R2) :])
+    source = Path(args.published) if args.published and not download else None
+    # A capped version keeps the format set its published manifest records.
+    published.current = published.Published(out, [], source, download)
+    try:
+        return verify.run(chosen, store_dir, Path(args.cache), out, cap)
+    finally:
+        published.current = None
+
+
 def cmd_shards(args) -> int:
     """Prints a JSON list of build jobs, each a space-separated list of dataset slugs."""
     import json
@@ -857,6 +935,27 @@ def main(argv=None) -> int:
     sh.add_argument("--cache", help="the build cache; without it every version is built")
     sh.add_argument("--count", type=int, default=4)
     sh.set_defaults(fn=cmd_shards)
+    vf = sub.add_parser(
+        "verify", help="build stored versions with this code and compare what a deploy reuses"
+    )
+    vf.add_argument("sub", choices=["plan", "run"])
+    vf.add_argument("slug", nargs="*", help="run: the datasets to check; every one without")
+    vf.add_argument("--store", default=str(STORE))
+    vf.add_argument("--cache", help="run: the build cache a deploy would reuse")
+    vf.add_argument("--out", default="", help="run: where each build goes; a temporary folder")
+    vf.add_argument("--published", default="", help="run: the published tree, or r2://<bucket>")
+    vf.add_argument("--changed", help="plan: a file listing the changed paths, one per line")
+    vf.add_argument("--seed", default="", help="plan: picks the datasets beyond one per stratum")
+    vf.add_argument(
+        "--before",
+        help="plan: a folder with the base's register.py and cache.py, and its copy of each "
+        "changed register entry at its path, to compare",
+    )
+    vf.add_argument("--budget-mb", type=int, help="plan: source megabytes to build (300)")
+    vf.add_argument(
+        "--cap-mb", type=int, help="the source MB of a dataset's newest versions checked (60)"
+    )
+    vf.set_defaults(fn=cmd_verify)
     cc = sub.add_parser("cache", help="copy the build cache between this disk and R2")
     cc.add_argument("sub", choices=["pull", "push"])
     cc.add_argument("--cache", required=True)
