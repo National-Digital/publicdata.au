@@ -24,7 +24,8 @@
   "backfilled": false,
   "tombstone": null,
   "notes": [
-    "The publisher's server states no change date, so this version is dated by the fetch."
+    "The publisher's server states no change date, so this version is dated by the fetch.",
+    "On 6 October 2026 the attribution's link to the ABS dataflow moved from explore.data.abs.gov.au, a host that no longer resolves, to the same dataflow on dataexplorer.abs.gov.au, and this version's files are replaced with ones that carry the working link. The rows are unchanged."
   ],
   "rows_sha256": "81fe7fd99cc2b888d985fe7597e6421f23bf97e64e96b57b09ee2d03b5d8f5bc"
 }
