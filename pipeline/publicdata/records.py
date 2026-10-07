@@ -163,10 +163,13 @@ def connect(parquet: Path | list[Path], names: list[str] | None = None) -> Recor
 
 def joined(parts: list[Path], dest: Path) -> Path:
     """A version written as parts alone, its parts' rows in one Parquet file at dest, in the
-    order given, for the queries its pages draw from. One part is read at a time."""
+    order given, for the queries its pages draw from. One part is read at a time, and a part
+    written before a type narrowed is widened to meet the rest, as the build reads parts back."""
     if not parts:
         return dest
-    schema = pq.read_schema(parts[0]).remove_metadata()
+    schema = pa.unify_schemas(
+        [pq.read_schema(p).remove_metadata() for p in parts], promote_options="permissive"
+    )
     with pq.ParquetWriter(dest, schema, compression="zstd") as w:
         for p in parts:
             w.write_table(pq.read_table(p).replace_schema_metadata(None).cast(schema))

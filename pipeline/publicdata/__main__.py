@@ -297,6 +297,8 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             if not v.whole
             for r in v.parts
         ]
+        # A finished part is shared by the versions that reuse it, and is pulled once.
+        want = list(dict.fromkeys(want))
         missing = [
             r for r, p in zip(want, published.current.paths(want), strict=True) if not p.exists()
         ]

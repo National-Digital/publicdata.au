@@ -283,6 +283,7 @@ def _parts_view(ds: Dataset, out: Path, version: str) -> dict | None:
                 "finished": r["finished"],
                 "revised": r["revised"],
                 "tree": r["tree"],
+                "tree_long": long_date(r["tree"]) if r["tree"] != version else "",
                 "files": [
                     {
                         "label": FORMAT_LABEL[f],
@@ -3461,11 +3462,14 @@ def render_site(
     def version_pages(o, ds, views, fig, hints, card, base, latest) -> None:
         """One page per dated version: its files, its change from the version before and its figure."""
         for v, view in zip(o.versions, views, strict=True):
-            vfig = (
-                fig
-                if v is latest
-                else figures.dataset_figures(ds, v.manifest, hints, rows_of(ds, v), out)
-            )
+            if v is latest:
+                vfig = fig
+            else:
+                rows = rows_of(ds, v)
+                vfig = figures.dataset_figures(ds, v.manifest, hints, rows, out)
+                # An older version's joined parts are read once, so they do not stay on disk.
+                if not v.whole:
+                    rows.unlink(missing_ok=True)
             files = [
                 {
                     "name": k,

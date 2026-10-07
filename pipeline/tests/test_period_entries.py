@@ -171,6 +171,12 @@ def test_a_finished_dam_levels_year_is_reused_by_the_next_fetch(tmp_path):
     assert sum(p["rows"] for p in first["parts"]) == first["rows"] == 4
     assert not any(p["revised"] for p in second["parts"])
     assert o.latest.manifest.version == "2026-10-08"
+    from publicdata.site import render_site
+
+    render_site([o], out)
+    page = (out / "d" / WATER / "index.html").read_text("utf-8")
+    assert "1905 (unchanged since 1 October 2026)" in page
+    assert "2025 (unchanged since" not in page and "2026 (unchanged since" not in page
 
 
 def test_the_gate_passes_both_entries_over_the_threshold(tmp_path):

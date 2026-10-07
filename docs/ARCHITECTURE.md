@@ -369,8 +369,8 @@ dataset page says so, and says when the query API serves it from its parts, and 
 dataset's page that has no query console and gives no reason. A diff or the history archive
 reads the parts back, and so do the pages: their figures, sample rows and the home page map
 read the parts joined into one Parquet file outside the built tree. The hubs take one table, so
-such a version is not copied and each hub keeps the newest whole version. Either way there is one dataset page, and it lists the newest snapshot's
-parts.
+such a version is not copied and each hub keeps the newest whole version. Either way there is one
+dataset page, and it lists the newest snapshot's parts.
 
 ## Explorer
 
