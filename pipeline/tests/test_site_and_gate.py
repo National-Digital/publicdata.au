@@ -844,3 +844,27 @@ def test_a_downloaded_file_is_named_after_its_dataset_and_version(fixture_site):
     assert f'download="{slug}_{version}_source.' in page
     ds = (fixture_site / "d" / slug / "index.html").read_text(encoding="utf-8")
     assert re.search(rf'id="dl" href="[^"]+" download="{slug}_{version}\.\w+"', ds)
+
+
+def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site):
+    out = fixture_site
+    page = (out / "publishers" / "stable-urls" / "index.html").read_text(encoding="utf-8")
+    assert "versions.json" in page and "schema_version" in page
+    assert '<a href="/publishers/" aria-current="page">' in page
+    assert "/publishers/stable-urls/" in (out / "publishers" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "/publishers/stable-urls/" in (out / "government" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "https://publicdata.au/publishers/stable-urls/" in (
+        out / "sitemaps" / "site.xml"
+    ).read_text(encoding="utf-8")
+    assert "https://publicdata.au/publishers/stable-urls/index.md" in (out / "llms.txt").read_text(
+        encoding="utf-8"
+    )
+    md = (out / "publishers" / "stable-urls" / "index.md").read_text(encoding="utf-8")
+    assert (
+        md.startswith("---\ntitle: Publishing a dataset at a stable URL\n")
+        and "## A check list" in md
+    )

@@ -1616,6 +1616,7 @@ def html_to_md(body: str) -> str:
     s = body
     s = re.sub(r"<h2[^>]*>(.*?)</h2>", r"\n## \1\n", s, flags=re.S)
     s = re.sub(r"<h3[^>]*>(.*?)</h3>", r"\n### \1\n", s, flags=re.S)
+    s = re.sub(r"<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n", s, flags=re.S)
     s = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1", s, flags=re.S)
     s = re.sub(r"<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>", r"- \1: \2\n", s, flags=re.S)
     s = re.sub(
@@ -1658,7 +1659,7 @@ PROSE = {
 </ul>
 <h2>What we would like from you</h2>
 <ul>
-<li>A download URL that does not change between releases. Portals that rename the file each quarter still work, but a stable URL means we never need a browser to fetch it.</li>
+<li>A download URL that does not change between releases. Portals that rename the file each quarter still work, but a stable URL means we never need a browser to fetch it. <a href="/publishers/stable-urls/">Publishing a dataset at a stable URL</a> sets out a layout that gives this and keeps the history.</li>
 <li>A licence stated on the dataset page. A dataset with no licence stated waits in the backlog until you confirm one in writing.</li>
 <li>A contact for corrections. If a reader finds a problem in the content, we send it to you.</li>
 </ul>
@@ -1667,6 +1668,80 @@ PROSE = {
 <h2>If you would like more</h2>
 <p>The <a href="/backlog/">backlog</a> shows which of your datasets people have asked for and how many votes each has. We build in vote order. If you want one built sooner, or want the same treatment for data you have not published yet, <a href="https://nationaldigital.com.au/contact/">talk to National Digital</a>, the company that runs this site.</p>
 <p class="muted">Publishers with datasets here: {publishers}.</p>
+""",
+    ),
+    "publishers/stable-urls": (
+        "Publishing a dataset at a stable URL",
+        "A layout for releasing a data file so that every link keeps working, a program can fetch each release on its own, and a change to the columns breaks nothing it need not.",
+        """
+<p>This page is for the team inside an agency that publishes a data file and replaces it at each release. It sets out a layout for the files and their URLs that keeps every link working, lets a program fetch the newest release without a person, and survives a change to the columns. It is the layout this site uses for every dataset it serves, and it comes from what breaks across the government sources the site reads. Nothing here needs a portal, a database or an API. A folder on an ordinary web server is enough.</p>
+<h2>Two URLs for every file</h2>
+<p>A dataset that changes needs two kinds of URL. A dated URL names one release and returns the same bytes for as long as the site exists. A current URL always returns the newest release and never changes. Each does a job the other cannot. A report cites the dated URL, so a reader years later opens the file the author used. A program reads the current URL, so it picks up each release without anyone editing it.</p>
+<p>Most sites publish one or the other. A file that is overwritten in place gives a current URL and loses the history. A file with the release date in its name, such as <code>enrolments_26052026.xlsx</code>, gives a dated URL and breaks every link at the next release, because the new file has a new name and the old one is usually taken down.</p>
+<p>The layout below gives both.</p>
+<pre>/data/senior-enrolments/
+  index.html                        the dataset page
+  latest/senior-enrolments.csv      the current URL, a redirect to the newest dated file
+  latest/senior-enrolments.xlsx
+  v/2026-05-26/senior-enrolments.csv
+  v/2026-05-26/senior-enrolments.xlsx
+  v/2026-05-26/schema.json
+  v/2025-06-20/senior-enrolments.csv
+  v/2025-06-20/senior-enrolments.xlsx
+  v/2025-06-20/schema.json
+  versions.json                     every release, newest first
+  schema.json                       the current column list
+  changes.md                        what changed at each release</pre>
+<p>The date goes in the path and the file name stays the same, so a saved file has the same name whichever release it came from, and the folder it sits in says when it was made. The date is the day of the release as <code>YYYY-MM-DD</code>, which sorts into order in any file listing.</p>
+<h2>The current URL</h2>
+<p>The current URL should redirect to the newest dated file with status 302 or 307, so that a program which follows it can see from the final address which release it received. If the web server cannot redirect, overwrite the file at the current URL with a copy of the newest release instead. The bytes change and the address does not, and a program can tell releases apart by the <code>Last-Modified</code> and <code>ETag</code> headers, so send both.</p>
+<p>Publish <code>versions.json</code> beside it. It lists each release with its date, its dated URL, its SHA-256 hash, its row count and the schema version it follows. A program that reads this file can tell whether there is a new release without downloading one, and can fetch an older release when it needs it.</p>
+<pre>{
+  "dataset": "senior-enrolments",
+  "schema_version": "1.3",
+  "versions": [
+    {"date": "2026-05-26", "schema_version": "1.3", "rows": 48213,
+     "sha256": "9f2c…", "url": "/data/senior-enrolments/v/2026-05-26/senior-enrolments.csv"},
+    {"date": "2025-06-20", "schema_version": "1.2", "rows": 46990,
+     "sha256": "41b0…", "url": "/data/senior-enrolments/v/2025-06-20/senior-enrolments.csv"}
+  ]
+}</pre>
+<h2>The dated URL</h2>
+<p>A dated file is never edited and never removed. If a release turns out to be wrong, publish a corrected release under a new date and say in the change log which release it replaces and why. The wrong file stays where it is, because reports already cite it. Send <code>Cache-Control: public, max-age=31536000, immutable</code> on a dated file, so that browsers and proxies keep it, and a short <code>max-age</code> on the current URL, so that a new release is seen within minutes.</p>
+<h2>Headers and access</h2>
+<p>Serve each file with its correct <code>Content-Type</code> (<code>text/csv; charset=utf-8</code> for CSV), a <code>Content-Disposition</code> header carrying the file name, <code>Last-Modified</code>, <code>ETag</code>, and support for <code>HEAD</code> and range requests, so a program can check for a new release cheaply. Nothing on the data path should need a login or JavaScript.</p>
+<p>If the site runs a bot challenge, exempt the data paths from it. A challenge exists to stop programs, and the programs it stops include every one the data is published for. A program cannot pass a challenge and should not try, so a dataset behind one is read by hand or left alone. A rate limit on the data paths protects the server and still lets the readers through.</p>
+<h2>When the columns change</h2>
+<p>A dataset's schema is the list of its columns, with the name, the type and the meaning of each. Rows change at every release, and that is expected. The schema should change rarely, and when it does the change is either compatible or breaking, and each kind has its own rule.</p>
+<p>A compatible change adds a column, or widens what a column can hold without changing what it means. A program that reads the file by column name keeps working. Make the change at the current URL, add the column at the end, raise the minor part of the schema version (1.2 to 1.3) and note it in the change log.</p>
+<p>A breaking change renames a column, removes one, changes its type, its unit, its code list or the population it counts, or changes what a column means while keeping its name. That last one does harm because nothing fails and the numbers are quietly wrong. Every program that reads the file is affected, so a breaking change gets a new major version at a new path. Publish the new series under <code>/data/senior-enrolments/v2/</code>, keep the old series where it is, and say on the page which old column maps to which new one. If the old series can be produced for one more release, do that, so readers have a release to compare.</p>
+<p>A few habits avoid most breaking changes. Keep column names plain, with ASCII letters, digits and underscores, and keep units and years out of them. Put a value that varies into a row: a column per year, such as <code>2024</code> and <code>2025</code>, is a schema change every year, where a <code>year</code> column is a row change. Never put text in a numeric column. A suppressed count is a blank cell with a second column that says it was suppressed, or a documented token such as <code>&lt;5</code> that is used the same way in every release.</p>
+<p>The schema version is a number on the dataset page and in <code>schema.json</code>, separate from the release date. Two releases a year apart with the same columns share a schema version, and a reader can tell from the number alone whether the file they wrote code for still reads.</p>
+<h2>Describing the columns</h2>
+<p>Publish the column list as a file a program can read as well as a table a person can. The format this site uses and recommends is <a href="https://specs.frictionlessdata.io/table-schema/">Table Schema</a>, a short JSON document naming each column with its type, a one-line description, the list of codes it holds where that applies, and the column that identifies a row. A workbook can carry the same information on a sheet of its own, one row per column, and some Australian publishers already do this well.</p>
+<p>Identify a row by a code that does not change, and publish the lookup from code to name beside the data. Schools, councils, stations and hospitals are renamed and merged, and a name that was unique in one release is ambiguous in the next. A dataset keyed on a stable code can be joined to its own earlier releases and to other datasets. The name belongs in the file as well, for the reader, and the code is the key.</p>
+<h2>The dataset page</h2>
+<p>One page per dataset, at a URL that does not change, holds the description, the licence with the attribution wording the agency wants, a contact for corrections, the known caveats such as a preliminary period or a change of method, the current and dated download links, the schema version and the change log. Give the page schema.org <code>Dataset</code> markup, and give the portal record the same facts pointing at the current URL, so catalogues and search engines find it. On a CKAN portal, update the existing resource at each release instead of adding a new one, so that the resource id and its URL hold.</p>
+<h2>A check list</h2>
+<ol>
+<li>Every release has a dated URL that never changes and is never removed.</li>
+<li>A current URL redirects to, or holds a copy of, the newest release, and the file name is the same at both.</li>
+<li><code>versions.json</code> lists every release with its date, URL, hash, row count and schema version.</li>
+<li>Files are served with a content type, <code>Last-Modified</code>, <code>ETag</code> and range support, and need no login or challenge.</li>
+<li>Column names are plain and stable, values that vary are rows, and numeric columns hold only numbers.</li>
+<li><code>schema.json</code> describes every column, and a schema version separate from the release date says when the columns changed.</li>
+<li>A compatible change adds a column at the end. A breaking change starts a new major version at a new path and keeps the old one.</li>
+<li>Rows carry a stable code, and the lookup from code to name is published.</li>
+<li>The dataset page states the licence, the attribution and a contact, and carries the change log.</li>
+</ol>
+<h2>What this site does with it</h2>
+<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. <a href="https://nationaldigital.com.au/contact/">National Digital</a>, which runs this site, will talk through a layout with any agency that asks. No government agency has endorsed this site.</p>
+<h2>Further reading</h2>
+<ul>
+<li><a href="https://www.w3.org/TR/dwbp/">Data on the Web Best Practices</a> from the W3C, in particular the practices on persistent URIs, version indicators and version history.</li>
+<li><a href="https://specs.frictionlessdata.io/table-schema/">Table Schema</a>, the column description format.</li>
+<li><a href="https://www.w3.org/TR/vocab-dcat-3/">DCAT 3</a>, the catalogue vocabulary the portals use, which has a field for the current download URL and one for the licence.</li>
+</ul>
 """,
     ),
     "government": (
@@ -1694,7 +1769,7 @@ PROSE = {
 <h2>Asking for a dataset</h2>
 <p>Every dataset listed on an Australian government open-data portal can be searched from the box at the top of any page, and one with an open licence and a download can be voted for. Votes set the build order. Nobody is asked who they are. If your agency would like a dataset built sooner, or wants the same treatment for data it has not published yet, the <a href="/publishers/">publishers page</a> says how that works.</p>
 <h2>If your agency publishes</h2>
-<p>A dataset listed on your portal with an open licence can be served here without a request, and you can ask for it to be removed at any time. Your attribution travels inside every file, your original file sits beside every version, and every page states that you have not endorsed the site. The <a href="/publishers/">publishers page</a> has the detail.</p>
+<p>A dataset listed on your portal with an open licence can be served here without a request, and you can ask for it to be removed at any time. Your attribution travels inside every file, your original file sits beside every version, and every page states that you have not endorsed the site. The <a href="/publishers/">publishers page</a> has the detail. If your team is working out how to release a file at a URL that holds, or how to change its columns without breaking the people who read it, <a href="/publishers/stable-urls/">publishing a dataset at a stable URL</a> sets out the layout this site recommends.</p>
 """,
     ),
     "agents": (
@@ -4124,7 +4199,7 @@ def render_site(
             md,
             title=f"{heading} | {HOST}",
             description=desc,
-            nav=slug,
+            nav=slug.split("/")[0],
             heading=heading,
             body=body,
             extra_jsonld=(
@@ -4373,6 +4448,7 @@ def render_site(
             "",
             f"- {SITE}/backlog/index.md",
             f"- {SITE}/publishers/index.md",
+            f"- {SITE}/publishers/stable-urls/index.md",
             f"- {SITE}/government/index.md",
             f"- {SITE}/agents/index.md",
             f"- {SITE}/about/index.md",
@@ -4527,6 +4603,7 @@ def render_site(
         SITE + "/",
         f"{SITE}/backlog/",
         f"{SITE}/publishers/",
+        f"{SITE}/publishers/stable-urls/",
         f"{SITE}/government/",
         f"{SITE}/agents/",
         f"{SITE}/about/",
