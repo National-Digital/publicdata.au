@@ -76,6 +76,8 @@ source:
   delimiter: tab
 partition_by:
 - status
+sort:
+- acn
 query: false
 row_label: Company names
 fields:

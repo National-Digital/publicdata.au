@@ -7,6 +7,12 @@ pages_build_output_dir = "dist"
 binding = "DIST"
 bucket_name = "publicdata-dist"
 
+# The publishers' files, byte for byte. functions/d/[[path]].js serves a version's source.<ext>
+# from here. Wrangler has no read-only R2 binding, so the function reads it through get and head.
+[[r2_buckets]]
+binding = "RAW"
+bucket_name = "publicdata-raw"
+
 # Votes: one object per browser per day per dataset, and a rollup of the counts.
 [[r2_buckets]]
 binding = "VOTES"

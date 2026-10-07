@@ -467,6 +467,11 @@ def test_a_reordered_export_with_the_same_rows_is_no_new_version(tmp_path, monke
     monkeypatch.setitem(f.ADAPTERS, "file", adapter(changed, "2026-10-02"))
     assert f.fetch(ds, tmp_path).version == "2026-10-02"
     assert [m.version for m in store.manifests(tmp_path, "t")] == ["2026-10-01", "2026-10-02"]
+    # Every manifest the fetch writes carries the caps stamp the build keys the formats on; one
+    # written without it keeps the old set, and its bytes, since the field is left out at 0.
+    assert {m.caps for m in store.manifests(tmp_path, "t")} == {store.CAPS_VERSION}
+    assert '"caps": 1' in (tmp_path / "t" / "2026-10-02" / "manifest.json").read_text()
+    assert '"caps"' not in make_manifest(b"x", dataset="t").to_json()
 
 
 def test_an_export_with_no_rows_never_replaces_one_that_had_some(tmp_path, monkeypatch):

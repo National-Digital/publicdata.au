@@ -1,3 +1,18 @@
+# publicdataau 0.5.0
+
+* `pd_read()` reads the version's gzipped CSV, typed from its fields, when
+  'arrow' is not installed or was built without zstd, instead of stopping. A
+  table of a database is served only as Parquet and still needs 'arrow'.
+* `pd_download()` documents the formats every version carries. Excel, JSON,
+  GeoJSON and SQLite are left out of a version whose table is over their size
+  limits, and Arrow files are only on versions fetched before the format
+  change, whose manifest has no `caps` field.
+* In the CSV fallback the `suppressed` column is a list of field names, as
+  it is in the Parquet file, and whole numbers past 32 bits come back as
+  'bit64' integer64, as 'arrow' gives them, when 'bit64' is installed.
+* `pd_download()` explains a 404 on a format a version does not have, with
+  the class `publicdataau_not_offered`.
+
 # publicdataau 0.4.1
 
 * `pd_read()` stops with a clear error when 'arrow' was built without zstd,

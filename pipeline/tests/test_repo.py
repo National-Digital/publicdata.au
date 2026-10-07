@@ -1,3 +1,5 @@
+import re
+
 import yaml
 
 from .conftest import ROOT
@@ -69,3 +71,12 @@ def test_every_pull_request_check_reports_on_each_new_head():
         if isinstance(pr, dict) and "types" in pr and "synchronize" not in pr["types"]:
             skipped.append(f.name)
     assert skipped == []
+
+
+def test_the_readme_links_every_document():
+    """AGENTS.md sends agents to the README and every document it links, so none may go unlinked."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    linked = {m.split("#")[0] for m in re.findall(r"\]\(([^)\s]+)\)", readme)}
+    docs = [*ROOT.glob("*.md"), *(ROOT / "docs").glob("*.md")]
+    names = sorted(str(p.relative_to(ROOT)) for p in docs if p.name != "README.md")
+    assert [n for n in names if n not in linked] == []

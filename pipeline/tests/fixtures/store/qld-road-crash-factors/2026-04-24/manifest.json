@@ -30,5 +30,6 @@
   "tombstone": null,
   "notes": [
     "fixture: first 300 rows of the release"
-  ]
+  ],
+  "caps": 1
 }

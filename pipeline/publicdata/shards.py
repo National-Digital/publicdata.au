@@ -41,7 +41,7 @@ def weights(datasets: list[Dataset], store_dir: Path, cache_dir: Path | None) ->
     cache cannot serve as they are."""
     from . import store
     from .build import pending
-    from .cache import BuildCache, writer_keys
+    from .cache import BuildCache, shape_layer, writer_keys
 
     if cache_dir is None:
         return {
@@ -50,5 +50,5 @@ def weights(datasets: list[Dataset], store_dir: Path, cache_dir: Path | None) ->
             if d.publishable
         }
     cache = BuildCache(cache_dir)
-    now = writer_keys()
-    return {d.slug: pending(cache, d, store_dir, now) for d in datasets}
+    now = {shape: writer_keys(shape) for shape in (False, True)}
+    return {d.slug: pending(cache, d, store_dir, now[shape_layer(d)]) for d in datasets}
