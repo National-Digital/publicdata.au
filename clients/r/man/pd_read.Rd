@@ -28,10 +28,11 @@ A tibble, each column labelled with its field's description.
 }
 \description{
 Downloads one version's Parquet file, or one table of a database, and reads
-it with 'arrow'.
+it with 'arrow'. Without 'arrow' built with zstd, a table is read from the
+version's gzipped CSV instead and typed from its fields.
 }
 \examples{
-\dontshow{if (pd_available() && requireNamespace("arrow", quietly = TRUE) && arrow::codec_is_available("zstd")) withAutoprint(\{ # examplesIf}
+\dontshow{if (pd_available()) withAutoprint(\{ # examplesIf}
 crashes <- pd_read("qld-road-crash-factors")
 \dontshow{\}) # examplesIf}
 }

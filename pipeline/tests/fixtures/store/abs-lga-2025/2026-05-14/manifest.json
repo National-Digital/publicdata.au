@@ -25,5 +25,6 @@
   "tombstone": null,
   "notes": [
     "fixture: the 37 areas that hold a fixture crash point, simplified to 0.01 degrees"
-  ]
+  ],
+  "caps": 1
 }

@@ -57,6 +57,7 @@ def _matches_except_absent(full, slim, vouts, slug="t"):
     """slim holds exactly full's files less each version's absent ones, byte for byte. A file
     read back after the cache left it out is in slim, as the build's absent list counts it."""
     absent = {f"d/{slug}/v/{v.manifest.version}/{rel}" for v in vouts for rel in v.absent}
+    absent |= {v.query for v in vouts if v.query}  # a query copy is published once
     absent = {a for a in absent if not (slim / a).exists()}
     assert _tree(slim) == sorted(set(_tree(full)) - absent)
     _, mismatch, errors = filecmp.cmpfiles(full, slim, _tree(slim), shallow=False)
@@ -107,7 +108,7 @@ def test_a_new_version_diffs_against_the_cached_one_without_its_source(tmp_path,
     # The diff and the history read the cached version's Parquet back, so that is in the tree.
     absent = _matches_except_absent(tmp_path / "plain", tmp_path / "warm", out.versions)
     assert (tmp_path / "warm" / "d/t/v/2026-01-01/data.parquet").exists()
-    assert all("/2026-01-01/" in a for a in absent)
+    assert all("/2026-01-01/" in a or a == "_q/t/2026-01-01.parquet" for a in absent)
 
 
 def test_a_register_change_rebuilds_and_prune_drops_the_old_entry(two_versions, tmp_path):
@@ -129,10 +130,12 @@ def test_cached_files_are_read_only(two_versions, tmp_path):
         (tmp_path / "a" / "d" / "t" / "v" / "2026-01-01" / "manifest.json").write_bytes(b"x")
 
 
-def test_the_key_covers_every_module_the_version_build_imports():
+def test_the_check_covers_every_module_the_version_build_imports():
     names = {str(p.relative_to(PACKAGE)) for p in code_files()}
     assert {"build.py", "normalise.py", "serialise/__init__.py", "provenance.py"} <= names
     assert "site.py" not in names
+    # Fetching and harvesting shape no built file, so an edit to them needs no check.
+    assert not {"fetch.py", "catalogue.py", "browser.py"} & names
 
 
 def test_absolute_package_imports_are_followed(tmp_path, monkeypatch):
@@ -192,7 +195,7 @@ def test_the_push_refuses_when_a_left_out_file_is_not_in_r2():
         )
 
 
-def test_a_code_change_prunes_the_old_entries_before_it_builds(two_versions, tmp_path):
+def test_a_rebuild_prunes_the_old_entries_before_it_builds(two_versions, tmp_path):
     from publicdata.build import cache_keys
 
     ds = make_dataset(F, key=("id",))
@@ -200,7 +203,7 @@ def test_a_code_change_prunes_the_old_entries_before_it_builds(two_versions, tmp
     build_dataset(ds, two_versions, tmp_path / "a", BuildCache(root))
     cache = BuildCache(root)
     assert cache_keys(cache, ds, two_versions) == {p.name for p in root.iterdir()}
-    cache.env = "other code"
+    cache.env = "a raised rebuild number"
     assert cache.prune(cache_keys(cache, ds, two_versions)) == 4
     assert not list(root.iterdir())
 
@@ -234,7 +237,7 @@ def test_a_cached_version_grows_into_new_formats_from_its_parquet(
     from .conftest import ROOT
 
     plain, _cold, cache, _ = _plain_and_cached(
-        fixture_store, fixture_builds, tmp_path, "ndjson,csv,parquet,sqlite,arrow,geojson"
+        fixture_store, fixture_builds, tmp_path, "ndjson,csv,parquet,sqlite,geojson"
     )
     assert serialise.LIMIT is not None  # until the next build resets it
     # The source bytes are never read again: the missing files come from the cached Parquet.
@@ -246,7 +249,7 @@ def test_a_cached_version_grows_into_new_formats_from_its_parquet(
     out = re.split(r"built \d+ files", capsys.readouterr().out, maxsplit=1)[
         1
     ]  # the grown build's lines
-    assert "40 reused, 0 built, 74 file(s) written into reused versions" in out
+    assert "40 reused, 0 built, 83 file(s) written into reused versions" in out
     absent = set(json.loads((tmp_path / "grown.json").read_text()))
     # The grown tree is the plain tree, less the files the cache had already published.
     for rel in _tree(plain):
@@ -283,7 +286,9 @@ def test_a_changed_writer_rewrites_only_its_own_file(
     monkeypatch.setattr(
         cache_mod,
         "writer_key",
-        lambda fmt: "changed" if fmt in ("csv", "csv.gz", "ndjson") else real(fmt),
+        lambda fmt, shape=False: (
+            "changed" if fmt in ("csv", "csv.gz", "ndjson") else real(fmt, shape)
+        ),
     )
     monkeypatch.setattr(
         build, "normalise", lambda *a, **k: (_ for _ in ()).throw(AssertionError("rebuilt"))
@@ -316,7 +321,9 @@ def test_a_changed_parquet_writer_rebuilds_the_version(
     _plain, _cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     real = cache_mod.writer_key
     monkeypatch.setattr(
-        cache_mod, "writer_key", lambda fmt: "changed" if fmt == "parquet" else real(fmt)
+        cache_mod,
+        "writer_key",
+        lambda fmt, shape=False: "changed" if fmt == "parquet" else real(fmt, shape),
     )
     # The summary counts a hit before the entry is found stale, so the rebuilds are counted here.
     rebuilt, real_build = [], build.build_version

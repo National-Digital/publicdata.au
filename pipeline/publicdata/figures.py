@@ -749,7 +749,7 @@ def sample_rows(
     spread: str = "",
 ) -> dict:
     """Some rows of some fields, for a preview table, kept to the rows the conditions match: in
-    the publisher's order, or by the (field, descending) order terms first, with the spread
+    the Parquet's order, or by the (field, descending) order terms first, with the spread
     field's values taking turns. A condition on newest stands for the field's newest value. A
     null cell is "" unless nulls asks for None, which a page shows as null."""
     if not db.exists() or not fields:

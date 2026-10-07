@@ -2,6 +2,7 @@ import filecmp
 import json
 import shutil
 import sqlite3
+from pathlib import Path
 
 import pyarrow.parquet as pq
 
@@ -60,13 +61,11 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     shutil.rmtree(a)
 
 
-def test_geometry_fixture_writes_valid_excel_geopackage_and_arrow(
+def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
     register_dir, fixture_store, tmp_path
 ):
     import gzip
     import zipfile
-
-    import pyarrow.feather as pf
 
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
     outs = []
@@ -82,12 +81,19 @@ def test_geometry_fixture_writes_valid_excel_geopackage_and_arrow(
     for f in (
         "data.xlsx",
         "data.gpkg",
-        "data.arrow",
+        "data.geo.parquet",
         "data.csv.gz",
         "schema.sql",
         "data.csv-metadata.json",
     ):
         assert (vdir / f).exists(), f
+    # Fetched after the caps came in: no Arrow, and the sizes that picked the formats are recorded.
+    assert not (vdir / "data.arrow").exists()
+    man = read_json(vdir / "manifest.json")
+    assert man["measured_bytes"] == {
+        f: (vdir / f).stat().st_size for f in ("data.ndjson", "data.csv", "data.geojson")
+    }
+    assert man["formats_left_out"] == {}
     with zipfile.ZipFile(vdir / "data.xlsx") as z:
         names = z.namelist()
         assert "xl/worksheets/sheet1.xml" in names and "xl/worksheets/sheet3.xml" in names
@@ -104,8 +110,6 @@ def test_geometry_fixture_writes_valid_excel_geopackage_and_arrow(
     blob = con.execute("select geom from records where geom is not null limit 1").fetchone()[0]
     assert blob[:2] == b"GP" and len(blob) == 61
     con.close()
-    t = pf.read_table(vdir / "data.arrow")
-    assert t.num_rows == 300 and json.loads(t.schema.metadata[b"publicdata"])["dataset"] == ds.slug
     with gzip.open(vdir / "data.csv.gz", "rb") as gz:
         assert gz.read() == (vdir / "data.csv").read_bytes()
     sql = (vdir / "schema.sql").read_text(encoding="utf-8")
@@ -116,14 +120,25 @@ def test_geometry_fixture_writes_valid_excel_geopackage_and_arrow(
     csvw = read_json(vdir / "data.csv-metadata.json")
     assert csvw["url"] == "data.csv" and csvw["tableSchema"]["primaryKey"] == ["crash_ref_number"]
     dp = read_json(a / "d" / ds.slug / "datapackage.json")
-    assert {r["name"] for r in dp["resources"]} >= {
-        "xlsx",
-        "gpkg",
-        "arrow",
-        "csv.gz",
-        "schema-sql",
-        "csvw",
-    }
+    names = {r["name"] for r in dp["resources"]}
+    assert names >= {"xlsx", "gpkg", "geo.parquet", "csv.gz", "schema-sql", "csvw"}
+    assert "arrow" not in names
+
+
+def test_a_version_fetched_before_the_caps_keeps_its_arrow_file(
+    register_dir, fixture_store, tmp_path
+):
+    import pyarrow.feather as pf
+
+    ds = {d.slug: d for d in load(register_dir)}["qld-road-casualties"]
+    build_dataset(ds, fixture_store, tmp_path)
+    vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
+    t = pf.read_table(vdir / "data.arrow")
+    assert t.num_rows == 300 and json.loads(t.schema.metadata[b"publicdata"])["dataset"] == ds.slug
+    man = read_json(vdir / "manifest.json")
+    assert "measured_bytes" not in man and "formats_left_out" not in man
+    dp = read_json(tmp_path / "d" / ds.slug / "datapackage.json")
+    assert "arrow" in {r["name"] for r in dp["resources"]}
 
 
 def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_path, monkeypatch):
@@ -142,17 +157,118 @@ def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_p
     assert not [e for e in check(tmp_path, register_dir) if "xlsx" in e]
 
 
-def test_json_and_geojson_are_skipped_above_their_row_limit(
+def test_json_and_geojson_skip_the_row_limit_before_the_caps(monkeypatch):
+    from publicdata import serialise
+    from publicdata.serialise import formats_for, legacy_left_out
+
+    monkeypatch.setattr(serialise, "JSON_MAX_ROWS", 100)
+    assert {"json", "geojson"} & set(formats_for(300, True)) == set()
+    assert {"json", "geojson", "gpkg", "arrow"} <= set(formats_for(100, True))
+    assert set(legacy_left_out(300, True)) == {"json", "geojson"}
+    assert set(legacy_left_out(300, False)) == {"json"}
+
+
+def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
+    from publicdata.serialise import CAPS, EXCEL_MAX_ROWS, cappable, formats_for, over_cap
+
+    assert cappable(False) == ["sqlite", "xlsx", "json"]
+    assert cappable(True) == ["sqlite", "geojson", "xlsx", "json"]
+    assert cappable("polygon") == ["sqlite", "geojson", "xlsx", "json"]
+    for f, (_on, limit) in CAPS.items():
+        assert over_cap(f, 10, limit) is None
+        assert over_cap(f, 10, limit + 1)
+    # Just over a limit reads in bytes, so the size never looks equal to the limit.
+    assert over_cap("xlsx", 10, CAPS["xlsx"][1] + 1).startswith(
+        "Excel is not offered because the table is 50,000,001 bytes as CSV, over the 50 MB limit"
+    )
+    assert over_cap("xlsx", 10, 60_000_000).startswith(
+        "Excel is not offered because the table is 60.0 MB as CSV, over the 50 MB limit"
+    )
+    assert over_cap("geojson", 10, 7_800_000_000) == (
+        "GeoJSON is not offered because the file would be 7,800.0 MB, over the 100 MB limit "
+        "for GeoJSON."
+    )
+    assert over_cap("xlsx", EXCEL_MAX_ROWS + 1, 1) == (
+        "Excel is not offered because the table is over 1,048,575 rows, which is as "
+        "many as a worksheet holds below its header row."
+    )
+    assert formats_for(10, True, {}) == [
+        "json", "ndjson", "csv", "parquet", "sqlite", "duckdb", "xlsx", "csv.gz",
+        "geojson", "gpkg", "geo.parquet",
+    ]  # fmt: skip
+    # The recorded set is the set, whatever the rows: no rule is applied again.
+    assert "xlsx" in formats_for(EXCEL_MAX_ROWS + 1, False, {})
+    gone = {"json": "x", "sqlite": "y"}
+    assert {"json", "sqlite", "arrow"} & set(formats_for(10, "polygon", gone)) == set()
+    assert {"ndjson", "csv", "csv.gz", "parquet", "duckdb", "pmtiles"} <= set(
+        formats_for(10, "polygon", gone)
+    )
+
+
+def test_a_layers_geojson_is_measured_on_its_own_bytes(
+    register_dir, fixture_store, tmp_path, monkeypatch
+):
+    from publicdata import serialise
+
+    ds = {d.slug: d for d in load(register_dir)}["abs-lga-2025"]
+    build_dataset(ds, fixture_store, tmp_path)
+    vdir = tmp_path / "d" / ds.slug / "v" / "2026-05-14"
+    man = read_json(vdir / "manifest.json")
+    gj = (vdir / "data.geojson").stat().st_size
+    nd = (vdir / "data.ndjson").stat().st_size
+    assert man["measured_bytes"]["data.geojson"] == gj and gj > 10 * nd  # the shapes
+    assert man["formats_left_out"] == {} and not (vdir / "data.arrow").exists()
+    # Under a cap the NDJSON would pass, the file itself is over, so it is dropped.
+    monkeypatch.setitem(serialise.CAPS, "geojson", ("geojson", nd + 1))
+    out = tmp_path / "capped"
+    build_dataset(ds, fixture_store, out)
+    vdir = out / "d" / ds.slug / "v" / "2026-05-14"
+    man = read_json(vdir / "manifest.json")
+    assert not (vdir / "data.geojson").exists() and (vdir / "data.pmtiles").exists()
+    assert set(man["formats_left_out"]) == {"geojson"}
+    assert man["measured_bytes"]["data.geojson"] == gj
+
+
+def test_a_published_versions_format_set_never_moves(
+    register_dir, fixture_store, tmp_path, monkeypatch
+):
+    from publicdata import serialise
+    from publicdata.gate import check
+
+    ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
+    vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
+    build_dataset(ds, fixture_store, tmp_path)
+    first = read_json(vdir / "manifest.json")
+    assert first["formats_left_out"] == {} and first["caps"] == 1
+    # A tighter cap later leaves a rebuilt published version as it was.
+    monkeypatch.setitem(serialise.CAPS, "json", ("ndjson", 1_000))
+    out = build_dataset(ds, fixture_store, tmp_path)
+    assert (vdir / "data.json").exists() and out.latest.left_out == {}
+    assert read_json(vdir / "manifest.json") == first
+    # A new version, with nothing published, takes the cap.
+    fresh = tmp_path / "fresh"
+    out = build_dataset(ds, fixture_store, fresh)
+    assert set(out.latest.left_out) == {"json"}
+    assert not (fresh / "d" / ds.slug / "v" / "2026-04-24" / "data.json").exists()
+    # The gate holds the record to the files beside it.
+    man = read_json(vdir / "manifest.json")
+    man["measured_bytes"]["data.csv"] += 1
+    (vdir / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    assert any(
+        "measured_bytes disagrees with data.csv" in e
+        for e in check(tmp_path, register_dir, site=False)
+    )
+
+
+def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
     register_dir, fixture_store, tmp_path, monkeypatch
 ):
     from publicdata import serialise
     from publicdata.__main__ import main
     from publicdata.gate import check
-    from publicdata.serialise import formats_for
 
-    monkeypatch.setattr(serialise, "JSON_MAX_ROWS", 100)
-    assert {"json", "geojson"} & set(formats_for(300, True)) == set()
-    assert {"json", "geojson", "gpkg"} <= set(formats_for(100, True))
+    monkeypatch.setitem(serialise.CAPS, "json", ("ndjson", 1_000))
+    monkeypatch.setitem(serialise.CAPS, "geojson", ("geojson", 1_000))
     out = tmp_path / "dist"
     assert main(["build", "--store", str(fixture_store), "--out", str(out)]) == 0
     slug = "qld-road-crash-locations"
@@ -162,6 +278,12 @@ def test_json_and_geojson_are_skipped_above_their_row_limit(
     assert not (vdir / "data.json").exists() and not (vdir / "data.geojson").exists()
     assert (vdir / "data.ndjson").exists() and (vdir / "data.gpkg").exists()
     assert list((vdir / "by").glob("*/*.geojson"))  # partition files are slices and stay
+    gone = read_json(vdir / "manifest.json")["formats_left_out"]
+    assert set(gone) == {"json", "geojson"}
+    assert gone["json"].startswith("JSON is not offered because the table is ")
+    vpage = (vdir / "index.html").read_text(encoding="utf-8")
+    assert gone["json"] in vpage and gone["geojson"] in vpage
+    assert gone["json"] in (vdir / "index.md").read_text(encoding="utf-8")
     dp = read_json(out / "d" / slug / "datapackage.json")
     assert {"json", "geojson"} & {r["name"] for r in dp["resources"]} == set()
     page = (out / "d" / slug / "index.html").read_text(encoding="utf-8")
@@ -172,7 +294,25 @@ def test_json_and_geojson_are_skipped_above_their_row_limit(
         "data.json"
         not in [ln for ln in (out / "llms.txt").read_text().splitlines() if slug in ln][0]
     )
+    assert gone["geojson"] in page
     assert check(out, register_dir) == []
+    # The gate refuses a file past its cap, on disk or claimed as already published.
+    rel = vdir.relative_to(out).as_posix()
+    assert any("data.json is published though the caps leave it out" in e for e in check(out, register_dir, [f"{rel}/data.json"]))  # fmt: skip
+    (vdir / "data.geojson").write_text("{}", encoding="utf-8")
+    assert any(
+        "data.geojson is published though the caps leave it out" in e
+        for e in check(out, register_dir)
+    )
+    (vdir / "data.geojson").unlink()
+    (vdir / "data.arrow").write_bytes(b"")
+    assert any(
+        "data.arrow is published though the caps leave it out" in e
+        for e in check(out, register_dir)
+    )
+    (vdir / "data.arrow").unlink()
+    (vdir / "index.html").write_text(vpage.replace(gone["json"], ""), encoding="utf-8")
+    assert any("does not say why data.json" in e for e in check(out, register_dir))
 
 
 def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
@@ -352,3 +492,31 @@ def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_pat
         == 262144
     )
     con.close()
+
+
+def test_a_manifest_with_a_field_this_code_does_not_know_still_reads(tmp_path):
+    from publicdata.store import Manifest
+
+    src = Path(__file__).parent / "fixtures" / "store" / "qld-road-crash-factors" / "2026-04-24"
+    d = read_json(src / "manifest.json")
+    (tmp_path / "manifest.json").write_text(json.dumps({**d, "later": 2}), encoding="utf-8")
+    m = Manifest.read(tmp_path / "manifest.json")
+    assert m.caps == 1 and not hasattr(m, "later")
+
+
+def test_a_limited_build_measures_what_it_does_not_keep(register_dir, fixture_store, tmp_path):
+    from publicdata import serialise
+
+    ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
+    serialise.LIMIT = {"ndjson", "parquet"}
+    try:
+        build_dataset(ds, fixture_store, tmp_path)
+    finally:
+        serialise.LIMIT = None
+    vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
+    assert not (vdir / "data.csv").exists() and not (vdir / "data.geojson").exists()
+    man = read_json(vdir / "manifest.json")
+    assert set(man["measured_bytes"]) == {"data.ndjson", "data.csv", "data.geojson"}
+    full = tmp_path / "full"
+    build_dataset(ds, fixture_store, full)
+    assert read_json(full / "d" / ds.slug / "v" / "2026-04-24" / "manifest.json") == man

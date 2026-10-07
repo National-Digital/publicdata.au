@@ -76,8 +76,18 @@ async function rawSource(env, url, key, read) {
 
 const WITHHELD = 'This file is withheld while its licence is reviewed. See https://publicdata.au/backlog/\n';
 
+// Every published key is plain, so a path with escapes is sent to its plain form, where the
+// withheld checks below read it as R2 and Pages would.
+const PLAIN = /^[A-Za-z0-9._~/-]*$/;
+
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
+  if (url.pathname.includes('%')) {
+    let plain = null;
+    try { plain = decodeURIComponent(url.pathname); } catch { /* a malformed escape names nothing */ }
+    if (!plain || !PLAIN.test(plain)) return new Response('Not found', { status: 404 });
+    return new Response(null, { status: 308, headers: { location: plain + url.search, 'cache-control': 'public, max-age=86400' } });
+  }
   const slug = (url.pathname.match(/^\/d\/([a-z0-9-]+)\//) || [])[1];
   const latest = slug ? await liveOf(env, url) : {};
   const r = await serve(request, env, url, latest);

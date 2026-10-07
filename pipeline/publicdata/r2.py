@@ -143,7 +143,10 @@ def versioned(key: str) -> bool:
 
 
 def dated_file(key: str) -> bool:
-    """A dated version's file, which never changes. Its page says whether it is the newest."""
+    """A dated version's file, which never changes, or a version's query copy, written once
+    under a key that names its profile. A dated page says whether it is the newest, so it may."""
+    if key.startswith("_q/"):
+        return True
     return versioned(key) and not key.endswith(("/index.html", "/index.md"))
 
 

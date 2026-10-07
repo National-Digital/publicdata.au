@@ -1,9 +1,9 @@
 ## Resubmission
 
-This resubmits 0.4.0, which failed the incoming pre-test on Debian: the
-`pd_read()` example read a zstd-compressed Parquet file with an 'arrow' built
-without zstd. The example now also requires `arrow::codec_is_available("zstd")`,
-and `pd_read()` stops with an explanatory error when the codec is missing.
+0.4.0 failed the incoming pre-test on Debian: the `pd_read()` example read a
+zstd-compressed Parquet file with an 'arrow' built without zstd. In 0.5.0
+`pd_read()` reads the gzipped CSV instead wherever 'arrow' or its zstd codec is
+missing, so the example runs on every check machine.
 
 ## R CMD check results
 

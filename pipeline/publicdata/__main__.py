@@ -29,7 +29,26 @@ def cmd_register(args) -> int:
             print(
                 f"note: {d.slug} has {len(bare)} fields without a label; `publicdata register labels {d.slug}` drafts them"
             )
-    return 0
+    from .store import manifests
+    from .validate import int32_misfits
+
+    store_dir = Path(getattr(args, "store", STORE))
+    bad, unchecked = [], 0
+    for d in ds:
+        if not d.int32 or not d.publishable:
+            continue
+        for m in manifests(store_dir, d.slug):
+            found = int32_misfits(d, m, store_dir, [Path(b) for b in getattr(args, "built", [])])
+            if found is None:
+                unchecked += 1
+            bad += [f"{d.slug}/{m.version}: {x}" for x in found or []]
+    for b in bad:
+        print(f"int32: {b}")
+    if unchecked:
+        print(
+            f"int32: {unchecked} stored version(s) not checked, since neither their Parquet nor their source is here"
+        )
+    return 1 if bad else 0
 
 
 def cmd_labels(args) -> int:
@@ -275,6 +294,11 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             for rel in v.absent
             if not (out / (r := f"d/{o.dataset.slug}/v/{v.manifest.version}/{rel}")).exists()
         )
+        # A cached version's query copy was pushed by the build that made it.
+        absent += sorted(
+            v.query for o in outs for v in o.versions if v.query and not (out / v.query).exists()
+        )
+        absent.sort()
         Path(args.absent).write_text(json.dumps(absent, indent=0) + "\n", encoding="utf-8")
         print(f"cache: {len(absent)} published file(s) left out, listed in {args.absent}")
     print(f"built {sum(1 for p in out.rglob('*') if p.is_file())} files into {out}")
@@ -300,6 +324,7 @@ def cmd_split(args) -> int:
     """Move files that R2 serves into a sibling tree: anything over the Pages per-file limit
     and, with --versioned, every file of a dated version, its page included. A file moved to R2
     is only reachable where _routes.json runs the function that reads it."""
+    from .serialise.profile import QUERY_DIR
     from .site import ROUTES
 
     routed = [
@@ -312,6 +337,13 @@ def cmd_split(args) -> int:
         if not p.is_file():
             continue
         rel = p.relative_to(out).as_posix()
+        if rel.startswith(f"{QUERY_DIR}/"):
+            # A query copy lives in R2 alone, where only the query engine reads it.
+            dest = large / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(p), dest)
+            moved += 1
+            continue
         versioned = args.versioned and VERSIONED_FILE.match(rel)
         if versioned or p.stat().st_size > limit:
             if not any(r.match("/" + rel) for r in routed):
@@ -376,6 +408,7 @@ def cmd_d1(args) -> int:
 
     loaded: dict[str, list[str]] = {}
     loaded_fields: dict[tuple[str, str], str] = {}
+    loaded_orders: dict[tuple[str, str], str] = {}
     if args.loaded and Path(args.loaded).exists():
         raw = json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")
         rows = (
@@ -387,9 +420,17 @@ def cmd_d1(args) -> int:
             loaded.setdefault(r["slug"], []).append(r["version"])
             if "fields" in r:
                 loaded_fields[(r["slug"], r["version"])] = r["fields"]
+            if r.get("ord") is not None:
+                loaded_orders[(r["slug"], r["version"])] = r["ord"]
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
     parts = write_loads(
-        [Path(r) for r in args.root], live, loaded, Path(args.out), args.stamp, loaded_fields
+        [Path(r) for r in args.root],
+        live,
+        loaded,
+        Path(args.out),
+        args.stamp,
+        loaded_fields,
+        loaded_orders,
     )
     if args.catalogue and Path(args.catalogue).exists():
         parts += catalogue_loads(
@@ -616,6 +657,84 @@ def cmd_cache(args) -> int:
     return 0
 
 
+def cmd_verify(args) -> int:
+    """plan prints the datasets the real-data check builds, or nothing when no changed path
+    shapes versions outside their key; run builds them and compares."""
+    from . import verify
+    from .register import load
+
+    datasets = load(REGISTER)
+    store_dir = Path(args.store)
+    mb = 1_000_000
+    cap = args.cap_mb * mb if args.cap_mb is not None else verify.CAP
+    if args.sub == "plan":
+        changed = []
+        if args.changed:
+            changed = Path(args.changed).read_text(encoding="utf-8").splitlines()
+        if args.before and (moved := verify.changed_defaults(Path(args.before))):
+            for k in moved:
+                print(
+                    f"::error::the default of {k} changed. A version's key leaves out every "
+                    "field at its default, so raise REBUILD in pipeline/publicdata/cache.py "
+                    "in the same change.",
+                    file=sys.stderr,
+                )
+            return 1
+        mods = verify.unkeyed(changed)
+        raised = verify.bumped(Path(args.before), datasets) if args.before else []
+        if not mods and not raised:
+            print("verify: no change to the build code outside the keys", file=sys.stderr)
+            return 0
+        budget = args.budget_mb * mb if args.budget_mb is not None else verify.BUDGET
+        if raised:
+            print(f"verify: rebuild raised for {' '.join(raised)}", file=sys.stderr)
+        if mods:
+            print(f"verify: {', '.join(mods)} changed", file=sys.stderr)
+        else:
+            budget = 0  # only the raised entries are checked
+        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap, raised)
+        if mods:
+            for line in verify.uncovered(datasets, store_dir, slugs):
+                print(f"verify: no dataset in the sample is built as {line}", file=sys.stderr)
+        if not slugs and not mods:
+            return 0
+        if not slugs:
+            print(
+                "verify: no stored dataset fits the budget, so nothing can be checked",
+                file=sys.stderr,
+            )
+            return 1
+        print(" ".join(slugs))
+        return 0
+    if not args.cache:
+        print("verify run: --cache is the build cache a deploy would reuse")
+        return 2
+    chosen = [d for d in datasets if d.publishable and (not args.slug or d.slug in args.slug)]
+    unknown = set(args.slug) - {d.slug for d in chosen}
+    if unknown:
+        print(f"verify run: not a publishable dataset: {sorted(unknown)}")
+        return 2
+    from . import published, serialise
+
+    serialise.LIMIT = None
+    import tempfile
+
+    out = Path(args.out or tempfile.mkdtemp(prefix="publicdata-verify-"))
+    out.mkdir(parents=True, exist_ok=True)
+    download = None
+    if args.published.startswith(R2):
+        from .r2 import downloader
+
+        download = downloader(args.published[len(R2) :])
+    source = Path(args.published) if args.published and not download else None
+    # A capped version keeps the format set its published manifest records.
+    published.current = published.Published(out, [], source, download)
+    try:
+        return verify.run(chosen, store_dir, Path(args.cache), out, cap)
+    finally:
+        published.current = None
+
+
 def cmd_shards(args) -> int:
     """Prints a JSON list of build jobs, each a space-separated list of dataset slugs."""
     import json
@@ -684,7 +803,17 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("register").add_subparsers(dest="sub", required=True)
-    r.add_parser("validate").set_defaults(fn=cmd_register)
+    rv = r.add_parser("validate")
+    rv.add_argument(
+        "--store", default=str(STORE), help="the store whose versions int32 is checked against"
+    )
+    rv.add_argument(
+        "--built",
+        action="append",
+        default=[],
+        help="a built tree whose Parquet int32 is checked against, before the store's sources",
+    )
+    rv.set_defaults(fn=cmd_register)
     lb = r.add_parser("labels", help="draft labels for fields that have none")
     lb.add_argument("slug", nargs="*")
     lb.add_argument("--write", action="store_true", help="write the drafts into the register YAML")
@@ -756,6 +885,27 @@ def main(argv=None) -> int:
     sh.add_argument("--cache", help="the build cache; without it every version is built")
     sh.add_argument("--count", type=int, default=4)
     sh.set_defaults(fn=cmd_shards)
+    vf = sub.add_parser(
+        "verify", help="build stored versions with this code and compare what a deploy reuses"
+    )
+    vf.add_argument("sub", choices=["plan", "run"])
+    vf.add_argument("slug", nargs="*", help="run: the datasets to check; every one without")
+    vf.add_argument("--store", default=str(STORE))
+    vf.add_argument("--cache", help="run: the build cache a deploy would reuse")
+    vf.add_argument("--out", default="", help="run: where each build goes; a temporary folder")
+    vf.add_argument("--published", default="", help="run: the published tree, or r2://<bucket>")
+    vf.add_argument("--changed", help="plan: a file listing the changed paths, one per line")
+    vf.add_argument("--seed", default="", help="plan: picks the datasets beyond one per stratum")
+    vf.add_argument(
+        "--before",
+        help="plan: a folder with the base's register.py and cache.py, and its copy of each "
+        "changed register entry at its path, to compare",
+    )
+    vf.add_argument("--budget-mb", type=int, help="plan: source megabytes to build (300)")
+    vf.add_argument(
+        "--cap-mb", type=int, help="the source MB of a dataset's newest versions checked (60)"
+    )
+    vf.set_defaults(fn=cmd_verify)
     cc = sub.add_parser("cache", help="copy the build cache between this disk and R2")
     cc.add_argument("sub", choices=["pull", "push"])
     cc.add_argument("--cache", required=True)

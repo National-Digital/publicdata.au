@@ -74,3 +74,19 @@ def test_text_that_is_not_a_number_is_refused_against_a_number_column(pair):
     con, _ = pair
     with pytest.raises(ValueError, match="holds numbers"):
         con.param("n", "abc")
+
+
+def test_an_infinite_value_sums_to_infinity_as_it_does_in_sqlite(tmp_path):
+    parquet = tmp_path / "data.parquet"
+    pq.write_table(pa.table({"x": pa.array([1.0, math.inf, 2.0], pa.float64())}), parquet)
+    db = sqlite3.connect(":memory:")
+    db.execute('CREATE TABLE records ("x" REAL)')
+    db.executemany("INSERT INTO records VALUES (?)", [(1.0,), (math.inf,), (2.0,)])
+    with connect(parquet) as con:
+        for fn in ("sum", "avg"):
+            got = con.execute(f"SELECT {con.agg(fn, 'x')} FROM records").fetchone()[0]
+            assert (
+                got
+                == db.execute(f'SELECT {fn.upper()}("x") FROM records').fetchone()[0]
+                == math.inf
+            )
