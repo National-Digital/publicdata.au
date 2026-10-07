@@ -69,7 +69,7 @@ def install() -> None:
     import duckdb
 
     pin = _pin()
-    if pin["duckdb"] != duckdb.__version__:
+    if pin["duckdb"] != duckdb.__version__ or f"/v{pin['duckdb']}/" not in pin["upstream"]:
         raise ExtensionError(
             f"{PIN.name} pins the spatial extension for DuckDB {pin['duckdb']}, and "
             f"DuckDB {duckdb.__version__} is installed; run the Spatial extension workflow"

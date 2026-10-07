@@ -36,7 +36,7 @@ def _pin_for(gz, **over):
         "platform": "linux_amd64",
         "build": "04270fe",
         "url": "r2://publicdata-raw/_toolchain/x/spatial.duckdb_extension.gz",
-        "upstream": "https://extensions.example/spatial.duckdb_extension.gz",
+        "upstream": f"https://extensions.example/v{duckdb.__version__}/linux_amd64/spatial.duckdb_extension.gz",
         "sha256": sha256_file(gz),
     } | over
 
@@ -132,6 +132,16 @@ def test_install_refuses_a_pin_for_another_duckdb_before_fetching(fetch, monkeyp
     seen, src = fetch
     src["gz"] = _extension(tmp_path / "x.gz")
     monkeypatch.setattr(extension, "_pin", lambda: _pin_for(src["gz"], duckdb="0.0.1"))
+    with pytest.raises(extension.ExtensionError, match="Spatial extension workflow"):
+        extension.install()
+    assert seen["urls"] == []
+
+
+def test_install_sends_a_half_raised_pin_to_the_workflow(fetch, monkeypatch, tmp_path):
+    seen, src = fetch
+    src["gz"] = _extension(tmp_path / "x.gz")
+    pin = _pin_for(src["gz"], upstream="https://extensions.example/v0.0.1/linux_amd64/x.gz")
+    monkeypatch.setattr(extension, "_pin", lambda: pin)
     with pytest.raises(extension.ExtensionError, match="Spatial extension workflow"):
         extension.install()
     assert seen["urls"] == []
