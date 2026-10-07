@@ -13,7 +13,7 @@ permissions:
 jobs:
   dco:
     name: Check sign-off
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verify Signed-off-by on every commit
         env:
