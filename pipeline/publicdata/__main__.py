@@ -543,7 +543,7 @@ VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
 def cmd_spine_install(args) -> int:
-    from .spine import install
+    from .extension import install
 
     install()
     print("spine: DuckDB spatial extension installed")
@@ -551,7 +551,7 @@ def cmd_spine_install(args) -> int:
 
 
 def cmd_spine_mirror(args) -> int:
-    from .spine import mirror
+    from .extension import mirror
 
     pin = mirror(Path(args.pin))
     print(f"spine: pinned {pin['url']} ({pin['sha256']})")
