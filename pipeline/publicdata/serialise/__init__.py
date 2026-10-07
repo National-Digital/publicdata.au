@@ -20,16 +20,28 @@ import xlsxwriter
 
 from ..normalise import Table
 
-# Every whole-table format, in the order the site lists them. Excel is skipped above its row limit.
-FORMATS = ("json", "ndjson", "csv", "parquet", "sqlite", "duckdb", "xlsx", "arrow", "csv.gz")
+# Every whole-table format, in the order the site lists them. A version whose store manifest has
+# no `caps` stamp keeps the set it was built with, Arrow included.
+FORMATS = ("json", "ndjson", "csv", "parquet", "sqlite", "duckdb", "xlsx", "csv.gz")
+LEGACY_FORMATS = ("json", "ndjson", "csv", "parquet", "sqlite", "duckdb", "xlsx", "arrow", "csv.gz")
 GEO_FORMATS = ("geojson", "gpkg", "geo.parquet")
 # A polygon or line layer keeps its shapes in data.parquet itself, which is GeoParquet, and adds
 # vector tiles for maps.
 SHAPE_FORMATS = ("geojson", "gpkg", "pmtiles")
 EXCEL_MAX_ROWS = 1_048_575
-# Above this a JSON document that holds the whole table is too big for a reader to parse at once,
-# so JSON and GeoJSON are left to NDJSON, the partition files and the query API.
+# Before the caps, a JSON document that holds the whole table stopped here.
 JSON_MAX_ROWS = 2_000_000
+# The files every capped version writes first, whose sizes decide the formats measured on them.
+MEASURED = ("ndjson", "csv")
+# Each capped format: the file it is measured on, and the most bytes that file may hold. JSON
+# follows the NDJSON, and SQLite and Excel the CSV. GeoJSON is measured on itself, since a layer's
+# shapes are in no other text file.
+CAPS = {
+    "sqlite": ("csv", 500_000_000),
+    "geojson": ("geojson", 100_000_000),
+    "xlsx": ("csv", 50_000_000),
+    "json": ("ndjson", 50_000_000),
+}
 MEDIA = {
     "json": "application/json",
     "ndjson": "application/x-ndjson",
@@ -70,15 +82,86 @@ FORMAT_LABEL = {
 LIMIT: set[str] | None = None
 
 
-def formats_for(rows: int, geometry: bool | str) -> list[str]:
-    """The formats a version carries. `geometry` is the dataset's geometry kind, or True for
-    points."""
-    kind = "point" if geometry is True else (geometry or "")
+def capped(manifest) -> bool:
+    """Whether a version takes the capped format set: its store manifest, or the built manifest's
+    dict, carries the fetch's caps stamp."""
+    caps = manifest.get("caps") if isinstance(manifest, dict) else getattr(manifest, "caps", 0)
+    return bool(caps)
+
+
+def _kind(geometry: bool | str) -> str:
+    return "point" if geometry is True else (geometry or "")
+
+
+def _geo_formats(kind: str) -> tuple[str, ...]:
+    return () if not kind else GEO_FORMATS if kind == "point" else SHAPE_FORMATS
+
+
+def cappable(geometry: bool | str) -> list[str]:
+    """The formats the caps can leave out of a version of this kind, in CAPS order."""
+    have = set(FORMATS) | set(_geo_formats(_kind(geometry)))
+    return [f for f in CAPS if f in have]
+
+
+def over_cap(fmt: str, rows: int, size: int) -> str | None:
+    """Why a new version leaves fmt out, given the size of the file it is measured on, or None."""
+    on, limit = CAPS[fmt]
+    if fmt == "xlsx" and rows > EXCEL_MAX_ROWS:
+        return _row_reason(fmt)
+    if size <= limit:
+        return None
+    label, size_text = FORMAT_LABEL[fmt], _over(size, limit)
+    if on == fmt:
+        return (
+            f"{label} is not offered because the file would be {size_text}, over the "
+            f"{limit / 1e6:,.0f} MB limit for {label}."
+        )
+    return (
+        f"{label} is not offered because the table is {size_text} as "
+        f"{FORMAT_LABEL[on]}, over the {limit / 1e6:,.0f} MB limit for {label}."
+    )
+
+
+def _over(size: int, limit: int) -> str:
+    """A size past a limit, in MB, or in bytes when MB to one place would not show it is over."""
+    mb = f"{size / 1e6:,.1f}"
+    return f"{mb} MB" if float(mb.replace(",", "")) > limit / 1e6 else f"{size:,} bytes"
+
+
+def legacy_left_out(rows: int, geometry: bool | str) -> dict[str, str]:
+    """The formats a version without the caps stamp lacks, by the row limits it was built under."""
     over = {"xlsx"} if rows > EXCEL_MAX_ROWS else set()
     if rows > JSON_MAX_ROWS:
-        over |= {"json", "geojson"}
-    geo = () if not kind else GEO_FORMATS if kind == "point" else SHAPE_FORMATS
-    out = [f for f in (*FORMATS, *geo) if f not in over]
+        over |= {"json", "geojson"} if _kind(geometry) else {"json"}
+    return {f: _row_reason(f) for f in sorted(over)}
+
+
+def _row_reason(fmt: str) -> str:
+    if fmt == "xlsx":
+        return (
+            f"Excel is not offered because the table is over {EXCEL_MAX_ROWS:,} rows, "
+            "which is as many as a worksheet holds below its header row."
+        )
+    return (
+        f"{FORMAT_LABEL[fmt]} is not offered because the table is over {JSON_MAX_ROWS:,} rows, "
+        "too many for one document a reader parses at once."
+    )
+
+
+def reasons(rows: int, geometry: bool | str, gone: dict[str, str] | None) -> dict[str, str]:
+    """Each format a version lacks, with the reason: a capped version's recorded
+    formats_left_out, or the row limits of a version without the caps stamp."""
+    return dict(gone) if gone is not None else legacy_left_out(rows, geometry)
+
+
+def formats_for(rows: int, geometry: bool | str, gone: dict[str, str] | None = None) -> list[str]:
+    """The formats a version carries. `geometry` is the dataset's geometry kind, or True for
+    points. `gone` is a capped version's formats_left_out, as its manifest records it; None gives
+    the set of a version without the caps stamp."""
+    kind = _kind(geometry)
+    base = LEGACY_FORMATS if gone is None else FORMATS
+    over = reasons(rows, kind, gone)
+    out = [f for f in (*base, *_geo_formats(kind)) if f not in over]
     return out if LIMIT is None else [f for f in out if f in LIMIT]
 
 
@@ -557,7 +640,7 @@ WRITERS = {
     "geo.parquet": lambda tbl, header, path, vdir: write_geo_parquet(tbl, header, path),
     "pmtiles": lambda tbl, header, path, vdir: write_pmtiles(tbl, header, path),
 }
-assert set(WRITERS) == {*FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}
+assert set(WRITERS) == {*LEGACY_FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}
 # The module that writes each format, for the cache's writer keys, and the formats a writer
 # derives its file from, whose modules its key takes in too.
 WRITER_MODULES = {fmt: fmt.replace(".", "_") for fmt in WRITERS}

@@ -132,9 +132,13 @@ def test_load_files_rebuild_the_latest_version_and_register_it(tmp_path, fixture
         db.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()
         == src.execute("SELECT COUNT(*) FROM records").fetchone()
     )
+    # D1 holds the rows in the Parquet's order, which the register sorts for this dataset.
     assert (
-        db.execute(f'SELECT * FROM "{tbl}" ORDER BY rowid LIMIT 3').fetchall()
-        == src.execute("SELECT * FROM records ORDER BY rowid LIMIT 3").fetchall()
+        db.execute(f'SELECT * FROM "{tbl}" ORDER BY crash_ref_number LIMIT 3').fetchall()
+        == src.execute("SELECT * FROM records ORDER BY crash_ref_number LIMIT 3").fetchall()
+    )
+    assert [r[0] for r in db.execute(f'SELECT crash_year FROM "{tbl}" ORDER BY rowid')] == sorted(
+        r[0] for r in src.execute("SELECT crash_year FROM records")
     )
     slug, version, t, fields, rows, attribution, header = db.execute(
         "SELECT * FROM _versions WHERE slug = 'qld-road-crash-locations'"
@@ -157,6 +161,7 @@ def test_only_the_newest_versions_are_kept():
     assert stmts == [
         'DROP TABLE IF EXISTS "v_x_20260101";',
         "DELETE FROM _versions WHERE slug = 'x' AND version = '2026-01-01';",
+        "DELETE FROM _orders WHERE slug = 'x' AND version = '2026-01-01';",
     ]
 
 
@@ -354,9 +359,9 @@ def test_a_version_too_large_for_d1_is_files_only_everywhere(tmp_path, monkeypat
 
     out = tmp_path / "dist"
     big = out / "d" / "qld-road-crash-locations"
-    monkeypatch.setattr(d1, "MAX_SQLITE", 100_000)
+    monkeypatch.setattr(d1, "MAX_CSV", 100_000)
     assert main(["build", "--fixtures", "--out", str(out)]) == 0
-    assert (big / "v" / "2026-04-24" / "data.sqlite").stat().st_size > d1.MAX_SQLITE
+    assert (big / "v" / "2026-04-24" / "data.csv").stat().st_size > d1.MAX_CSV
     page = (big / "index.html").read_text(encoding="utf-8")
     assert 'id="console"' not in page and not (big / "fields.json").exists()
     assert not (big / "openapi.json").exists() and (big / "explore" / "index.html").exists()
@@ -457,19 +462,19 @@ def test_a_loaded_version_whose_fields_changed_is_loaded_again(tmp_path):
     v = root / "d" / "x-y" / "v" / "2026-01-02"
     v.mkdir(parents=True)
     (root / "latest.json").write_text(json.dumps({"x-y": "2026-01-02"}))
-    db = sqlite3.connect(v / "data.sqlite")
-    db.executescript(
-        """CREATE TABLE records (a INTEGER, sal_2021_name TEXT);
-        CREATE TABLE fields (name TEXT, type TEXT);
-        INSERT INTO fields VALUES ('a', 'integer'), ('sal_2021_name', 'string');
-        CREATE TABLE publicdata (key TEXT, value TEXT);
-        INSERT INTO records VALUES (1, 'Kingaroy');"""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    t = pa.table({"a": pa.array([1], pa.int64()), "sal_2021_name": ["Kingaroy"]})
+    pq.write_table(t.replace_schema_metadata({"publicdata": "{}"}), v / "data.parquet")
+    # The loader sizes the version's data.csv from its dataset's data package.
+    (root / "d" / "x-y" / "datapackage.json").write_text(
+        json.dumps({"resources": [{"path": "/d/x-y/v/2026-01-02/data.csv", "bytes": 8192}]})
     )
-    db.commit()
-    db.close()
-    ds = SimpleNamespace(slug="x-y", key=(), partition_by=(), query=True)
+    fields = (SimpleNamespace(name="a", type="integer"), SimpleNamespace(name="sal_2021_name", type="string"))  # fmt: skip
+    ds = SimpleNamespace(slug="x-y", key=(), partition_by=(), query=True, fields=fields)
     loaded = {"x-y": ["2026-01-02"]}
-    same = json.dumps(d1.built_fields(v / "data.sqlite"))
+    same = json.dumps(d1.built_fields(ds, v / "data.parquet"))
     assert (
         d1.write_loads([root], [ds], loaded, tmp_path / "a", "", {("x-y", "2026-01-02"): same})
         == []

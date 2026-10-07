@@ -1,102 +1,207 @@
 import copy
-import json
+import io
+import socket
+from contextlib import redirect_stderr, redirect_stdout
+
+import pytest
 
 from publicdata import tdqs
 
 
-def test_scores_round_half_up_in_integers_as_the_rubric_does():
-    dims = dict(zip(tdqs.WEIGHTS, (4, 2, 2, 3, 4, 2), strict=True))
-    assert tdqs.tool_score(dims) == 2.9
-    assert tdqs.round1(345, 100) == 3.5
-    coh = dict.fromkeys(tdqs.COHERENCE, 5) | {"completeness": 4}
-    s = tdqs.server_scores([4.9, 4.8, 4.4], coh)
-    # 0.6 x 4.7 + 0.4 x 4.4 = 4.58; the coherence mean 4.75 rounds up.
-    assert s == {"description_quality": 4.6, "coherence": 4.8, "overall": 4.7}
+def _tools():
+    return copy.deepcopy(tdqs.tools())
 
 
-def test_the_hash_moves_with_the_definition_and_nothing_else():
-    t = tdqs.tools()[0]
-    h = tdqs.definition_hash(t)
-    assert h == tdqs.definition_hash(json.loads(json.dumps(t)))
-    assert h != tdqs.definition_hash({**t, "description": t["description"] + " More."})
-    assert len(h) == 16
+def _by_name(ts, name):
+    return next(t for t in ts if t["name"] == name)
 
 
-def test_invocation_cost_follows_the_worked_example():
-    leaf = {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
-    union = {
-        "oneOf": [leaf, {"type": "object", "properties": {}}, {"type": "object", "properties": {}}]
-    }
-    inner = {
-        "type": "object",
-        "properties": {"a": {}, "b": {}, "u": union},
-        "required": ["a", "b", "u"],
-    }
-    tool = {"inputSchema": {"type": "object", "properties": {"q": inner}, "required": ["q"]}}
-    assert tdqs.invocation_cost(tool) == (13, 5, 3, 2)
-    flat = {"inputSchema": {"type": "object", "properties": {"a": {}, "b": {}}, "required": ["a"]}}
-    assert tdqs.invocation_cost(flat) == (1, 1, 1, 0)
-    nullable = {"anyOf": [{"type": "string"}, {"type": "null"}]}
-    assert tdqs._union(nullable) is None
+def _drop(t, sentence):
+    t["description"] = " ".join(s for s in tdqs.sentences(t["description"]) if s != sentence)
 
 
-def _store(ts, tool=5, coherence=5):
-    dims = dict.fromkeys(tdqs.WEIGHTS, tool)
-    run = {"scores": dims, "why": {}, "summary": "", "contradiction": False}
-    cdims = dict.fromkeys(tdqs.COHERENCE, coherence)
-    return {
-        "rubric": tdqs.rubric_id(),
-        "tools": {
-            tdqs.definition_hash(t): {
-                "name": t["name"],
-                "tdqs": tdqs.tool_score(dims),
-                "median": dims,
-                "runs": [run] * 3,
-            }
-            for t in ts
-        },
-        "server": {
-            "hash": tdqs.set_hash(ts),
-            "median": cdims,
-            "runs": [{"scores": cdims, "why": {}, "summary": ""}] * 3,
-        },
-    }
+def _run(ts):
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        rc = tdqs.check(ts)
+    return rc, out.getvalue(), err.getvalue()
 
 
-def test_check_passes_a_scored_set_and_fails_a_changed_tool_a_low_score_a_contradiction_or_another_rubric():
-    ts = tdqs.tools()
-    store = _store(ts)
-    errors, report = tdqs.problems(ts, store)
-    assert errors == [] and report[-1].startswith("server             5.0")
+def test_the_current_tool_definitions_pass_offline(monkeypatch):
+    def refuse(*a, **k):
+        raise AssertionError("the check opened a connection")
 
-    changed = [{**ts[0], "description": "Search."}, *ts[1:]]
-    errors = tdqs.problems(changed, store)[0]
-    assert any("definition changed" in e for e in errors)
-    assert any("tool set changed" in e for e in errors)
-
-    low = copy.deepcopy(store)
-    s = low["tools"][tdqs.definition_hash(ts[0])]
-    s["tdqs"] = 4.6
-    s["runs"][0] = {**s["runs"][0], "contradiction": True}
-    errors = tdqs.problems(ts, low)[0]
-    assert any(f"{ts[0]['name']}: TDQS 4.6 is under" in e for e in errors)
-    assert any("contradicts the annotations" in e for e in errors)
-
-    assert any("server: overall" in e for e in tdqs.problems(ts, _store(ts, coherence=3))[0])
-    other = {**store, "rubric": "0/other/3"}
-    assert "was scored under 0/other/3" in tdqs.problems(ts, other)[0][0]
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert tdqs.problems(tdqs.tools())[0] == []
+    assert tdqs.main(["check"]) == 0
 
 
-def test_the_judge_is_sent_the_rubric_message_shape():
-    t = tdqs.tools()[0]
-    m = tdqs.tool_message(t, ["b", "c"])
-    assert m.startswith(f'TOOL NAME: {t["name"]}\nTITLE: {t["title"]}\n\nDESCRIPTION:\n"')
+def test_two_runs_print_the_same_bytes(monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    ts = _tools()
+    _by_name(ts, "query_rows")["inputSchema"]["properties"]["limit"]["description"] = ""
+    assert _run(ts) == _run(copy.deepcopy(ts))
+    assert _run(_tools()) == _run(_tools())
+
+
+def test_a_parameter_without_a_description_names_the_tool_and_parameter(monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    ts = _tools()
+    del _by_name(ts, "query_rows")["inputSchema"]["properties"]["limit"]["description"]
+    rc, _, err = _run(ts)
+    assert rc == 1
+    assert "query_rows: parameters: parameter limit needs a description" in err
+
+
+@pytest.mark.parametrize(
+    "quality,sentence",
+    [
+        ("limits", "Each call costs one of the 60 queries each address may make in 10 seconds."),
+        ("returns", "Up to 50 matches come back in one answer, with no paging."),
+        ("usage", "If nothing matches, try fewer or broader words, then search_catalogue."),
+    ],
+)
+def test_removing_the_sentence_for_a_quality_fails_that_quality(quality, sentence):
+    ts = _tools()
+    t = _by_name(ts, "search_datasets")
+    assert sentence in tdqs.sentences(t["description"])
+    _drop(t, sentence)
+    errors = tdqs.problems(ts)[0]
+    assert [e.split(":")[:2] for e in errors] == [["search_datasets", f" {quality}"]]
+
+
+RETURN_SENTENCES = {
+    "search_datasets": ["Up to 50 matches come back in one answer, with no paging."],
+    "get_dataset": ["The whole history comes back in one answer, with no paging."],
+    "list_fields": ["The answer describes the newest version, in one page."],
+    "list_partitions": ["Every value comes back in one answer, with no paging."],
+    "query_rows": [
+        "One page holds up to limit rows, and offset steps through the rest until next_offset "
+        "is null."
+    ],
+    "count_rows": [
+        "Groups come back largest first, and truncated means raise limit or narrow where."
+    ],
+    "diff_versions": [
+        "One answer holds the counts of rows added, removed, changed and unchanged, the keys of "
+        "the rows added, removed and changed, and up to ten changed rows with their old and new "
+        "values."
+    ],
+    "search_catalogue": ["A page holds 20 records, those that can take a vote first."],
+    "list_backlog": [
+        "Votes on catalogue records that no entry has claimed yet come back apart, under the vote "
+        "key search_catalogue uses.",
+        "The whole backlog comes back in one answer, with no paging, and the call costs nothing "
+        "against the rate limit.",
+    ],
+    "upvote_dataset": ["The answer gives the dataset's vote total after this call."],
+}
+
+
+def test_every_tool_has_its_return_sentence_listed():
+    assert set(RETURN_SENTENCES) == {t["name"] for t in tdqs.tools()}
+
+
+@pytest.mark.parametrize("name", sorted(RETURN_SENTENCES))
+def test_removing_the_return_sentence_fails_returns_for_every_tool(name):
+    ts = _tools()
+    t = _by_name(ts, name)
+    for sentence in RETURN_SENTENCES[name]:
+        assert sentence in tdqs.sentences(t["description"])
+        _drop(t, sentence)
+    assert any(e.startswith(f"{name}: returns:") for e in tdqs.problems(ts)[0])
+
+
+def test_removing_the_purpose_sentence_fails_purpose():
+    ts = _tools()
+    t = _by_name(ts, "get_dataset")
+    _drop(t, tdqs.sentences(t["description"])[0])
+    assert any(e.startswith("get_dataset: purpose:") for e in tdqs.problems(ts)[0])
+
+
+@pytest.mark.parametrize(
+    "quality,change",
+    [
+        (
+            "purpose",
+            lambda t: t.update(title="query rows.") or t["annotations"].update(title="query rows."),
+        ),
+        ("parameters", lambda t: t["inputSchema"].pop("additionalProperties")),
+        ("parameters", lambda t: t["inputSchema"]["properties"]["offset"].pop("minimum")),
+        ("parameters", lambda t: t["inputSchema"]["required"].append("missing")),
+        ("returns", lambda t: t.update(outputSchema={})),
+        ("annotations", lambda t: t["annotations"].pop("idempotentHint")),
+        ("annotations", lambda t: t["annotations"].update(destructiveHint=True)),
+        ("annotations", lambda t: t["annotations"].update(title="Something else")),
+        ("length", lambda t: t.update(description=t["description"] + " More." * 100)),
+        ("length", lambda t: t.update(description=t["description"] + " And" + " it" * 40 + ".")),
+    ],
+)
+def test_each_quality_fails_on_its_own(quality, change):
+    ts = _tools()
+    change(_by_name(ts, "query_rows"))
+    errors = tdqs.problems(ts)[0]
+    assert errors and all(e.startswith(f"query_rows: {quality}:") for e in errors), errors
+
+
+def test_a_read_only_tool_that_says_it_writes_fails():
+    ts = _tools()
+    t = _by_name(ts, "upvote_dataset")
+    t["annotations"]["readOnlyHint"] = True
+    assert any(
+        e.startswith("upvote_dataset: annotations:") and "opens with 'Add'" in e
+        for e in tdqs.problems(ts)[0]
+    )
+
+
+def test_an_inconsistent_name_fails_for_the_tool_and_a_duplicate_fails_the_set():
+    ts = _tools()
+    t = _by_name(ts, "diff_versions")
+    t["name"] = "diffVersions"
+    errors = tdqs.problems(ts)[0]
+    assert "diffVersions: naming: name 'diffVersions' should be lowercase" in errors[0]
+
+    ts = _tools()
+    ts.append(copy.deepcopy(_by_name(ts, "count_rows")))
+    errors = tdqs.problems(ts)[0]
+    assert "tool set: naming: count_rows is used by 2 tools" in errors
     assert (
-        "- Schema description coverage: 100%" in m
-        and "<sibling-tools>\nb\nc\n</sibling-tools>" in m
+        "tool set: disambiguation: count_rows and count_rows open with near the same purpose"
+        in errors
     )
-    assert m.endswith("Respond with JSON only.")
-    s = tdqs.server_message("publicdata-au", tdqs.tools())
-    assert s.startswith(
-        f"SERVER NAME: publicdata-au\nTOOL COUNT: {len(tdqs.tools())}\n\n<tools>\n- "
-    )
+
+
+def test_similar_tools_must_name_each_other():
+    ts = _tools()
+    q, c = _by_name(ts, "query_rows"), _by_name(ts, "count_rows")
+    for t, other in ((q, "count_rows"), (c, "query_rows")):
+        t["description"] = " ".join(s for s in tdqs.sentences(t["description"]) if other not in s)
+    errors = tdqs.problems(ts)[0]
+    assert (
+        "tool set: disambiguation: query_rows and count_rows have similar purposes and neither "
+        "names the other; say when to use each"
+    ) in errors
+
+
+def test_too_many_tools_fails_the_set():
+    ts = _tools()
+    base = _by_name(ts, "list_backlog")
+    for i in range(tdqs.MAX_TOOLS):
+        extra = copy.deepcopy(base)
+        extra["name"] = f"list_backlog_{'x' * (i + 1)}"
+        extra["title"] = f"Backlog {i}"
+        extra["annotations"]["title"] = extra["title"]
+        extra["description"] = (
+            f"Return entry number {i} of a long list of things. "
+            + base["description"].split(". ", 1)[1]
+        )
+        ts.append(extra)
+    assert any(e.startswith("tool set: tool count:") for e in tdqs.problems(ts)[0])
+
+
+def test_the_step_summary_carries_the_report(tmp_path, monkeypatch):
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert _run(_tools())[0] == 0
+    assert summary.read_text().startswith("### Tool definitions\n\n```\nsearch_datasets    pass\n")

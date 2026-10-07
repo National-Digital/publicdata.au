@@ -266,6 +266,10 @@ class Dataset:
     collection_title: str = ""
     key: tuple[str, ...] = ()
     partition_by: tuple[str, ...] = ()
+    # The Parquet's row order, its bloom-filtered fields and its INT32 fields (docs/adr/0008).
+    sort: tuple[str, ...] = ()
+    lookup: tuple[str, ...] = ()
+    int32: tuple[str, ...] = ()
     unpivot: str = ""
     wide: dict | None = None
     geometry: dict | None = None
@@ -484,6 +488,7 @@ def parse(raw: dict, ctx: str) -> Dataset:
         collection_title=str(raw.get("collection_title", "")),
         key=key,
         partition_by=partition_by,
+        **_profile(raw, fields, kind, ctx),
         unpivot=unpivot,
         wide=wide,
         geometry=geometry,
@@ -518,7 +523,18 @@ def parse(raw: dict, ctx: str) -> Dataset:
         **(_database(raw, ctx) if kind == "database" else {}),
     )
     if kind == "database":
-        for k in ("fields", "key", "partition_by", "geometry", "wide", "unpivot", "omit"):
+        for k in (
+            "fields",
+            "key",
+            "partition_by",
+            "sort",
+            "lookup",
+            "int32",
+            "geometry",
+            "wide",
+            "unpivot",
+            "omit",
+        ):
             if raw.get(k):
                 raise RegisterError(f"{ctx}: a database has no top-level {k}; it goes on a table")
         # A database's cells are typed by DuckDB with no suppressed flag, so a release that
@@ -621,6 +637,34 @@ def parse(raw: dict, ctx: str) -> Dataset:
     if ds.status == "blocked" and not ds.blocked_reason:
         raise RegisterError(f"{ctx}: blocked needs blocked_reason")
     return ds
+
+
+def _profile(raw: dict, fields: list[Field], kind: str, ctx: str) -> dict:
+    """`sort`, `lookup` and `int32`: declared fields, each named once. A boolean has two values,
+    which a bloom filter cannot tell apart, and only an integer field can be INT32."""
+    by = {f.name: f for f in fields}
+    out = {}
+    for name in ("sort", "lookup", "int32"):
+        val = raw.get(name) or []
+        if val and kind == "database":
+            # A database's tables keep the publisher's order and DuckDB's types.
+            raise RegisterError(
+                f"{ctx}: {name} is for a table entry; a kind: database entry takes none"
+            )
+        if not isinstance(val, list):
+            raise RegisterError(f"{ctx}: {name} is a list of fields")
+        names = tuple(str(v) for v in val)
+        if len(set(names)) < len(names):
+            raise RegisterError(f"{ctx}: {name} names a field twice")
+        for n in names:
+            if n not in by:
+                raise RegisterError(f"{ctx}: {name} field '{n}' is not a declared field")
+            if name == "lookup" and by[n].type == "boolean":
+                raise RegisterError(f"{ctx}: lookup field '{n}' is a boolean")
+            if name == "int32" and by[n].type != "integer":
+                raise RegisterError(f"{ctx}: int32 field '{n}' is not an integer")
+        out[name] = names
+    return out
 
 
 def _fields(raw: list, ctx: str) -> list[Field]:

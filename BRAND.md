@@ -16,6 +16,11 @@ Act 2010 (Cth), Schedule 2). Nothing here claims a registration.
 - The statement that the site is run by **National Digital**, and National Digital's own name and
   identity.
 
+## Typography
+
+Site copy, and the text copied to the data hubs, uses no em-dashes. The gate fails a page that has
+one, leaving out text quoted from the publisher, and the hub tests check the hub text.
+
 ## Running your own copy
 
 You may run a copy of this code under its licence. If you do, it must not look like publicdata.au

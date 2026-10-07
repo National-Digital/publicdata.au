@@ -13,25 +13,17 @@ Questions and ideas that are not a fault go in
 
 ## Ground rules
 
-The build enforces these, so a change that breaks one fails its checks. `CLAUDE.md` states them in
-full and `docs/ARCHITECTURE.md` explains the code they shape.
-
-- Nothing derived: data is re-keyed, re-typed and joined on a declared key, and never turned into
-  rates, rankings or estimates.
-- Licence is data. A dataset is published only under an open licence a person has reviewed, with
-  the publisher's own statement as evidence.
-- Versions are immutable and dated by the source's change. A version is never deleted or rewritten.
-- Every file carries its provenance: publisher, licence, attribution, source URL, fetch time and
-  source hash.
-- Two builds of one snapshot are byte-identical.
-- Requesters are recorded by organisation, never by name.
+The build enforces the project's rules, so a change that breaks one fails its checks.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#rules-that-decide-the-code) states them and explains
+the code they shape, and its [Archive](docs/ARCHITECTURE.md#archive) section says what may change
+once a version is published.
 
 ## Set up
 
 You need Python 3.14, Node 24 and `uv`. No credentials are needed to build, test or fetch.
 
 ```
-git config core.hooksPath .githooks   # signs off every commit for the DCO
+git config core.hooksPath .githooks   # sign-off, lint and test hooks (see Git hooks)
 uv venv .venv && . .venv/bin/activate
 uv pip install -e './pipeline[dev]'
 npm ci --ignore-scripts
@@ -59,6 +51,30 @@ The site's typeface is licensed to National Digital and is not in the repository
 pages use system fonts and the social cards use Pillow's bundled Aileron; nothing else changes.
 `store pull` fetches it from the same private bucket for the deploy.
 
+## Git hooks
+
+The `core.hooksPath` line in Set up switches on three hooks in `.githooks/`. They catch on your
+machine what CI would fail a few minutes later, and they replace no CI check.
+
+- `prepare-commit-msg` adds the DCO `Signed-off-by` trailer to every commit, once.
+- `pre-commit` runs `ruff check` and `ruff format --check` on the staged content of each staged
+  Python file under `pipeline/` or `clients/python/`. It runs from that file's directory, so each
+  takes the settings CI uses for it. It names each file and rule that fails and stops the commit. A
+  commit with no staged Python file in either directory runs no check. It takes well under a
+  second.
+- `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
+  and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
+  It should take under a minute on a laptop.
+
+The fast tests are every test that is not marked `slow`. `pipeline/tests/conftest.py` decides
+which tests are slow: those that use the fixture store or a fixture site build (`SLOW_FIXTURES`)
+and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI runs every test.
+
+A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
+through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
+tests, and `node` for the JavaScript tests. To skip the hooks once, pass `--no-verify` to
+`git commit` or `git push`.
+
 ## Private copies
 
 Workflows with side effects (deploy, fetch, catalogue, hubs, publishing the clients, approving
@@ -77,7 +93,10 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   `feat fix docs chore perf refactor test build ci style revert data`; `data` is for register
   entries and store manifests. The squash merge makes the title the commit subject on `main`, and
   the title decides the release number (see Versioning).
-- Say in the description what changed and why, and what you ran to check it. The template asks.
+- Keep one concern to a pull request. An unrelated fix found on the way gets its own.
+- Say in the description what changed and why, what you ran to check it and what you could not
+  check. The template asks. Name anything a maintainer must do beyond merging, such as a secret, a
+  manual download or the versions a `replace` deploy must rebuild.
 - A pull request merges when a maintainer has approved it and every required check is green:
   tests, the register, the build and gate, the clients, secret scanning, CodeQL, dependency review,
   the DCO and the title. Pull requests are squash-merged.
@@ -86,13 +105,33 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
 
+## Reviewing a pull request
+
+- Read the whole changed file and the code that calls it before judging a line. Comment only on
+  what the change adds or makes worse.
+- Raise only genuine issues. Each one gives its file and line, the input or state that breaks it,
+  and a fix or the existing code to use instead. A doubt you cannot settle is marked as
+  unconfirmed, with what would settle it. When there is nothing to raise, a maintainer approves.
+- A test must be able to fail. Flag a test that restates the implementation, mocks the thing it
+  tests or asserts nothing that matters, and say what it should assert.
+- Ask why any new `noqa`, `type: ignore` or skipped test is needed. Leave formatting and lint to
+  CI.
+- Check the change against the [rules the build enforces](docs/ARCHITECTURE.md#rules-that-decide-the-code),
+  and check that the docs describing the changed behaviour were updated.
+- Read the earlier reviews first, so a point already resolved is not raised again.
+
+## Site copy
+
+Site copy states facts and gives the figure behind any comparison; it makes no absolute or
+superlative claims. [`BRAND.md`](BRAND.md#typography) sets the typography the gate checks.
+
 ## Versioning
 
 publicdata.au has four kinds of version, and each has its own rule.
 
 - **Datasets** are versioned by date, not by number. A version is named for the day the publisher
-  changed the source, it never changes once published, and its URL never moves. An unchanged
-  source makes no version.
+  changed the source, and an unchanged source makes no version. The
+  [Archive](docs/ARCHITECTURE.md#archive) section says what may change once one is published.
 - **The site, API and MCP server** follow [semantic versioning](https://semver.org/) through
   release tags (`v2.21.1`). Each merge to `main` releases one: `feat` raises the minor number,
   any other type the patch number, and a breaking change, marked with `!` after the type
@@ -118,8 +157,8 @@ The pipeline package in `pipeline/` is not published, so it makes no versioning 
    `register/<slug>.yaml` with the publisher, licence and attribution from the portal and every
    field typed from a sample of the file, at status `building`.
 3. Finish the entry by hand. Write the title, `search_title`, description and the TODOs the draft
-   left. Keep only the fields that should be published (the allow-list), set `key` and
-   `partition_by` where they apply, and give geometry as Reference below describes. Set
+   left. Keep only the fields that should be published (the allow-list), set `key`,
+   `partition_by` and `sort` where they apply, and give geometry as Reference below describes. Set
    `licence.reviewed` to the day you read the licence.
 4. Label the fields: `python -m publicdata register labels <slug> --write`, then read the drafts.
 5. Fetch and build it locally as Set up shows, and run the gate. The gate prints the page's
@@ -185,6 +224,10 @@ deterministic bytes out, with no network, clock or randomness.
 1. Add the writer to `pipeline/publicdata/serialise/writers/` and register it in `WRITERS` in
    `serialise/__init__.py`, with its place in `FORMATS` (or the geo lists), its media type in
    `MEDIA` and its name in `FORMAT_LABEL`. The order of `FORMATS` is the order the site lists them.
+   `LEGACY_FORMATS` is the set of versions whose store manifest has no `caps` stamp; add it there too
+   only if those versions should carry it. A format whose file grows past what people can open
+   takes a limit in `CAPS`, measured on the NDJSON, the CSV or its own file, and the version pages then say
+   why it is missing.
 2. Carry the provenance header into the file in whatever way the format allows, as the other
    writers do.
 3. Describe the format in `pipeline/publicdata/api.json`, which the pages, the API and the MCP
@@ -198,9 +241,9 @@ deterministic bytes out, with no network, clock or randomness.
 ## Licences that are not Creative Commons
 
 A publisher's own open grant is admitted as a file in `register/licences/` that quotes the publisher
-on reproduction, adaptation, commercial use and attribution. `register validate` refuses a grant
-that is missing any of the four. A written permission is one such file,
-`<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
+on reproduction, adaptation, commercial use and attribution, as the README there describes.
+`register validate` refuses a grant that is missing any of the four. A written permission is one
+such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 
 ## Withdraw a dataset or correct published files
 
@@ -234,6 +277,8 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
 ## Reference
 
 - Comments state constraints the code cannot show, in one or two lines of *why*.
+- Before writing a helper, search for one that already exists. Follow the conventions of the
+  neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
   failing-fixture test does not count.
 - New datasets enter through `register/<slug>.yaml` with licence id, evidence URL,
@@ -268,9 +313,6 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   the WA, SA and Victorian portals and CC BY 3.0 AU on data.gov.au (`PORTAL_LICENCES` in fetch.py). NSW and
   NT name no version for `cc-by`, so an entry there sets `licence.portal_id` and the version from the
   dataset page, and an entry whose id disagrees with the portal's own definition is stopped.
-- A licence that is not Creative Commons is admitted as a file in `register/licences/` that quotes the
-  publisher on reproduction, adaptation, commercial use and attribution (see the README there). A
-  written permission is one such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 - A source that is a live feed of what is current sets `feed: true`. The daily run fetches only feeds
   (`fetch --feeds`), and each day a feed changes is one version dated by that day.
 - Geometry is declared on the entry. Points name their `lon` and `lat` fields and the publisher's `crs`;
@@ -292,11 +334,14 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   page into one GeoJSON file.
 - An XML file is read one row per element named in `source.record`: its attributes as `@name`, each
   child's text by the child's name, and a child that repeats joined by ` | `.
-- The MCP tool definitions are held to a Tool Definition Quality Score of 4.8 per tool and for
-  the server, judged with the rubric the directories publish. After changing a tool's text in
-  `pipeline/publicdata/api.json`, a maintainer runs `python -m publicdata.tdqs score` (it needs a
-  signed-in `claude` CLI, and asks only about tools whose definition changed) and commits
-  `tdqs.json`. CI reads the committed scores and fails a tool that is unscored or under the bar.
+- The MCP tool definitions in `pipeline/publicdata/api.json` must pass a static check. Each tool
+  opens with a sentence saying what it does, names another tool to say when to use it, describes
+  every parameter, states what a call costs against the rate limit and what comes back, carries
+  annotations that agree with its description, and keeps its description between 200 and 1,000
+  characters. Tool names are lowercase verb_object snake case, and two tools with similar
+  purposes must name each other. Run `python -m publicdata.tdqs check` in `pipeline/` after
+  changing a tool's text. It works offline, prints the same result every time, and names the
+  tool and the quality a failure lacks. CI runs the same command.
 - `example` sets the dataset page's first query, the one the query tile answers and the console
   starts from: `where` (`field: value` for an exact match, `field: {gte: 1, lt: 9}` for the API's
   other operators, `newest` for the field's newest value), `group`, `metric` (`count`, or `sum`,
@@ -310,6 +355,27 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,
   and the build writes a page per value under `/d/<slug>/in/<value>/`.
+- `sort` lists the fields data.parquet is ordered by, for an entry whose queries mostly filter on
+  fields the publisher's order does not group. The build breaks ties by the `key`, then by the
+  row's place in the source, and writes a page index for the sorted file. Without `sort` the rows
+  keep the publisher's order and the file has no page index, so set `sort` to the field the
+  source is already ordered by when that order serves the main filter. Only data.parquet and the
+  files made from it are sorted. A sort that suits one filter slows another, so give the
+  benchmark or the queries that justify it in the PR. Changing `sort` never cuts a new version.
+- `lookup` lists fields that get a bloom filter in data.parquet, for an equality lookup, such as
+  an identifier, on an entry sorted for another filter. A boolean field cannot be a lookup.
+- `int32` lists integer fields written as INT32 in data.parquet, for a field whose values always
+  fit 32 bits, such as a year, a count or a short identifier. A new version holding a larger
+  value is held at its fetch, so leave out anything that can grow past 2,147,483,647.
+- A version keeps the `sort`, `lookup` and `int32` its fetch found, so an edit to them changes
+  the files of later versions and the query copies not yet written. A query copy already in R2
+  keeps the order it was written in, since its key names only the profile version; each copy
+  records its own order in its footer (`sorting_columns`), so a reader takes the order from the
+  file. None of the three applies to a `kind: database` entry.
+- The fetch checks every `int32` field against a new version before it stores it, and holds the
+  dataset with an error naming the field when a value does not fit. Before declaring `int32` on
+  a field, run `python -m publicdata register validate`, which checks the stored versions whose
+  source or built Parquet (`--built <tree>`) is at hand.
 - Each field carries a `label`, the name a reader sees in the explorer. `publicdata register
   labels <slug> --write` fills in any that are missing, reusing the label another entry gives a
   field of the same name and drafting the rest from the name. Review the drafts in the PR.

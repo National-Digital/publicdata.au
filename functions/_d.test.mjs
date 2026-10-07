@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { onRequestGet } from './d/[[path]].js';
+import { disposition } from './_download.js';
 
 const R2 = {
   'd/x/v/2026-04-24/index.html': '<html>v</html>',
@@ -127,4 +128,47 @@ test('a version checksum list is served with a short cache and no file name', as
   assert.doesNotMatch(r.headers.get('cache-control'), /immutable/);
   assert.equal(r.headers.get('content-disposition'), null);
   assert.equal((await get('/d/x/latest/SHA256SUMS')).headers.get('location'), '/d/x/v/2026-04-24/SHA256SUMS');
+});
+
+test("a version's source is the raw store's copy, and only for a version that was published", async () => {
+  const RAW = {
+    'x/2026-04-24/source.csv': 'withheld',
+    'x/2026-03-01/source.csv': 'a,b\n1,2\n',
+    'x/2026-05-01/source.csv': 'never published',
+    'x/2026-06-01/source.csv': 'preview',
+  };
+  const raw = {
+    get: async (k) => (k in RAW ? obj(k, RAW[k]) : null),
+    head: async (k) => (k in RAW ? obj(k, RAW[k]) : null),
+  };
+  const published = ['d/x/v/2026-04-24/manifest.json', 'd/x/v/2026-03-01/manifest.json'];
+  const dist = { ...env.DIST, head: async (k) => (published.includes(k) ? obj(k, '') : env.DIST.head(k)) };
+  // A preview holds its new version's manifest on Pages.
+  const pages = { fetch: async (r) => (new URL(r.url || r).pathname === '/d/x/v/2026-06-01/manifest.json' ? new Response('{}') : env.ASSETS.fetch(r)) };
+  const e = { ...env, ASSETS: pages, DIST: dist, RAW: raw };
+  const at = (path, method = 'GET') => onRequestGet({ request: new Request('https://publicdata.au' + path, { method }), env: e });
+  const r = await at('/d/x/v/2026-03-01/source.csv');
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), 'a,b\n1,2\n');
+  assert.match(r.headers.get('cache-control'), /immutable/);
+  assert.equal(r.headers.get('content-disposition'), disposition('d/x/v/2026-03-01/source.csv'));
+  assert.equal((await at('/d/x/v/2026-03-01/source.csv', 'HEAD')).headers.get('content-length'), '8');
+  assert.equal(await (await at('/d/x/v/2026-06-01/source.csv')).text(), 'preview');
+  assert.equal((await at('/d/x/v/2026-05-01/source.csv')).status, 404);
+  assert.equal((await at('/d/x/v/2026-03-01/source.zip')).status, 404);
+  // A register entry that withholds its source still refuses the raw store's copy.
+  assert.equal((await at('/d/x/v/2026-04-24/source.csv')).status, 410);
+});
+
+test('a path with escapes is sent to its plain form, where a withheld file is still refused', async () => {
+  for (const path of ['/d/x/v/2026-04-24/sourc%65.csv', '/d/x/v/2026-04-24/source%2Ecsv', '/d/%78/v/2026-04-24/source.csv']) {
+    const r = await get(path);
+    assert.equal(r.status, 308, path);
+    assert.equal(r.headers.get('location'), '/d/x/v/2026-04-24/source.csv');
+    assert.equal((await get(r.headers.get('location'))).status, 410);
+  }
+  assert.equal((await get('/d/%67one/v/2026-04-24/data.csv')).headers.get('location'), '/d/gone/v/2026-04-24/data.csv');
+  assert.equal((await get('/d/x/v/2026-04-24/data.csv%3Fa')).status, 404);
+  assert.equal((await get('/d/x/v/2026-04-24/%E0%A4%A')).status, 404);
+  assert.equal((await get('/d/x/v/2026-04-24/data.csv')).status, 200);
 });

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from publicdata import figures
 
-from .conftest import make_dataset
+from .conftest import as_parquet, make_dataset
 
 
 def _db(tmp_path, rows):
@@ -14,7 +14,7 @@ def _db(tmp_path, rows):
     con.executemany("INSERT INTO records VALUES (?, ?, ?, ?)", rows)
     con.commit()
     con.close()
-    return db
+    return as_parquet(db)
 
 
 def _ds():
@@ -164,7 +164,7 @@ def _counts(tmp_path):
     )
     con.commit()
     con.close()
-    return db
+    return as_parquet(db)
 
 
 def _counts_ds(**kw):

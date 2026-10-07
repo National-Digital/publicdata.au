@@ -104,7 +104,12 @@ key:
 - date
 partition_by:
 - state
+sort:
+- station_no
+int32:
+- quality_code
 row_label: Storage days
+query: false
 fields:
 - name: station_no
   label: Station number

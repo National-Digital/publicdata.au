@@ -26,9 +26,11 @@ def test_more_jobs_than_allowed_fall_back_to_the_lightest_job():
     assert sorted(sum(w[s] for s in j) for j in jobs) == [14, 16]
 
 
-def _build(store, out, cache, *slugs, built=()):
+def _build(store, out, cache, *slugs, built=(), published=None):
     args = ["build", *slugs, *(["--no-site"] if slugs else []), "--store", str(store)]
     args += ["--out", str(out)]
+    if published:
+        args += ["--published", str(published)]
     args += ["--cache", str(cache), "--absent", str(out) + ".absent.json"]
     for b in built:
         args += ["--built", str(b)]
@@ -54,8 +56,12 @@ def test_shards_fill_the_cache_the_deploy_builds_from(fixture_store, tmp_path, r
     shutil.copytree(tmp_path / "cb", cache, dirs_exist_ok=True)
     w = shards.weights(load(register_dir), fixture_store, cache)
     assert not any(w.values())
-    # Without the shard trees the deploy leaves their files out; with them a preview has them all.
-    assert _build(fixture_store, tmp_path / "o1", cache)
+    # Without the shard trees the deploy leaves their files out, reading back from R2 only the
+    # SQLite its pages draw from; with them a preview has them all.
+    r2 = tmp_path / "r2"
+    shutil.copytree(tmp_path / "a", r2)
+    shutil.copytree(tmp_path / "b", r2, dirs_exist_ok=True)
+    assert _build(fixture_store, tmp_path / "o1", cache, published=r2)
     assert (
         _build(fixture_store, tmp_path / "o2", cache, built=(tmp_path / "a", tmp_path / "b")) == []
     )

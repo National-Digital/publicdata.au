@@ -1,0 +1,33 @@
+#!/bin/sh
+# Runs CI's ruff lint and format check on the staged Python files under pipeline/ and
+# clients/python/, each from its own directory so its own settings apply, reading the staged
+# content so an unstaged fix cannot hide a fault. Skip once with git commit --no-verify.
+
+files=$(git diff --cached --name-only --diff-filter=ACMR -- 'pipeline/*.py' 'clients/python/*.py')
+[ -n "$files" ] || exit 0
+
+if ! command -v ruff >/dev/null 2>&1; then
+  echo "pre-commit: ruff not found, lint skipped"
+  exit 0
+fi
+
+top=$(pwd)
+failed=0
+IFS='
+'
+for f in $files; do
+  case $f in
+    clients/python/*) dir=clients/python ;;
+    *) dir=pipeline ;;
+  esac
+  rel=${f#"$dir"/}
+  cd "$top/$dir" || exit 1
+  git show ":$f" | ruff check --quiet --stdin-filename "$rel" - || failed=1
+  if ! git show ":$f" | ruff format --check --quiet --stdin-filename "$rel" - >/dev/null 2>&1; then
+    echo "$f: not formatted as ruff format would (run: cd $dir && ruff format $rel)"
+    failed=1
+  fi
+done
+
+[ "$failed" -eq 0 ] || echo "pre-commit: ruff found problems; fix them or commit with --no-verify"
+exit "$failed"

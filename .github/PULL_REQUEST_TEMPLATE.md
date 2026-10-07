@@ -16,6 +16,6 @@
 ## Checklist
 
 - [ ] Every commit is signed off (`git commit -s`)
-- [ ] A new or changed dataset's licence is open and its evidence is the publisher's own statement
-- [ ] Nothing derived: no rates, rankings, estimates or moved coordinates
+- [ ] A new or changed dataset meets "Licence is data" in `docs/ARCHITECTURE.md`
+- [ ] Nothing derived, as `docs/ARCHITECTURE.md` defines it
 - [ ] A change a v1 API caller would notice is marked breaking (`!`)
