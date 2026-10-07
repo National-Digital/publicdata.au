@@ -1017,7 +1017,7 @@ def cmd_measure(args) -> int:
 
     def measure():
         if not account or not token:
-            raise RuntimeError("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not set")
+            raise cost.Unmeasured("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not set")
         return cost.measure_r2(account, token, dt.datetime.now(dt.UTC))
 
     m = cost.stamp_health(Path(args.health), measure)

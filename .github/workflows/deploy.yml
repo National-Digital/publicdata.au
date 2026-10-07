@@ -460,6 +460,7 @@ jobs:
       - name: Measure stored bytes for health.json
         if: env.HAS_CF == 'true' && github.event_name != 'pull_request'
         continue-on-error: true
+        timeout-minutes: 3
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

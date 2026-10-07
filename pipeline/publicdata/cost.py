@@ -11,6 +11,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -511,16 +512,18 @@ MEASURED_COVERS = (
 )
 MEASURED_BUCKETS = ("publicdata-dist", "publicdata-raw")
 GRAPHQL = "https://api.cloudflare.com/client/v4/graphql"
-R2_STORAGE = """query ($account: string!, $since: Time!) {
-  viewer {
-    accounts(filter: {accountTag: $account}) {
-      r2StorageAdaptiveGroups(limit: 10000, filter: {datetime_geq: $since}) {
-        max { payloadSize metadataSize objectCount }
-        dimensions { datetime bucketName }
-      }
-    }
-  }
-}"""
+# One newest reading per bucket, so the account's other buckets and the sampling rate never crowd
+# it out.
+_R2_BUCKET = (
+    "b{i}: r2StorageAdaptiveGroups(limit: 1, orderBy: [datetime_DESC], filter: "
+    '{{bucketName: "{b}", datetime_geq: $since}}) '
+    "{{ max {{ payloadSize metadataSize objectCount }} dimensions {{ datetime }} }}"
+)
+R2_STORAGE = (
+    "query ($account: string!, $since: Time!) { viewer { accounts(filter: {accountTag: $account}) { "
+    + " ".join(_R2_BUCKET.format(i=i, b=b) for i, b in enumerate(MEASURED_BUCKETS))
+    + " } } }"
+)
 
 
 @dataclass(frozen=True)
@@ -563,10 +566,14 @@ def unmeasured(reason: str) -> dict:
     return {"available": False, "reason": reason}
 
 
+class Unmeasured(Exception):
+    """A reason the measurement is unavailable, worded to be published."""
+
+
 def measure_r2(account: str, token: str, now: dt.datetime) -> dict:
     """The newest stored bytes Cloudflare reports for each archive bucket. The token needs Account
     Analytics Read."""
-    since = (now - dt.timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = (now - dt.timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     body = json.dumps({"query": R2_STORAGE, "variables": {"account": account, "since": since}})
     req = urllib.request.Request(
         GRAPHQL,
@@ -583,44 +590,50 @@ def measure_r2(account: str, token: str, now: dt.datetime) -> dict:
         with _open(req, 30) as r:
             return json.load(r)
 
-    doc = retry(post)
+    try:
+        doc = retry(post)
+    except urllib.error.HTTPError as e:
+        raise Unmeasured(f"the GraphQL Analytics API answered HTTP {e.code}") from e
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        raise Unmeasured("the GraphQL Analytics API could not be read") from e
     if doc.get("errors"):
-        raise ValueError("; ".join(str(e.get("message", e)) for e in doc["errors"]))
+        raise Unmeasured("the GraphQL Analytics API refused the query")
     accounts = ((doc.get("data") or {}).get("viewer") or {}).get("accounts") or []
     if not accounts:
-        raise ValueError("the token cannot read this account's analytics")
-    newest: dict[str, dict] = {}
-    for g in sorted(
-        accounts[0].get("r2StorageAdaptiveGroups") or [], key=lambda g: g["dimensions"]["datetime"]
-    ):
-        if g["dimensions"]["bucketName"] in MEASURED_BUCKETS:
-            newest[g["dimensions"]["bucketName"]] = g
-    if missing := [b for b in MEASURED_BUCKETS if b not in newest]:
-        raise ValueError(f"no storage measurement for {', '.join(missing)} since {since}")
+        raise Unmeasured("the token cannot read the account's analytics")
+    newest = {b: (accounts[0].get(f"b{i}") or [None])[0] for i, b in enumerate(MEASURED_BUCKETS)}
+    if missing := [b for b, g in newest.items() if not g]:
+        raise Unmeasured(f"no storage reading for {', '.join(missing)} since {since}")
     buckets = {
-        b: int(newest[b]["max"]["payloadSize"]) + int(newest[b]["max"]["metadataSize"])
-        for b in MEASURED_BUCKETS
+        b: int(g["max"]["payloadSize"]) + int(g["max"]["metadataSize"]) for b, g in newest.items()
     }
     return {
         "available": True,
         "covers": MEASURED_COVERS,
-        "measured_at": min(newest[b]["dimensions"]["datetime"] for b in MEASURED_BUCKETS),
+        "measured_at": min(g["dimensions"]["datetime"] for g in newest.values()),
         "stored_bytes": sum(buckets.values()),
-        "objects": sum(int(newest[b]["max"]["objectCount"]) for b in MEASURED_BUCKETS),
+        "objects": sum(int(g["max"]["objectCount"]) for g in newest.values()),
         "buckets": buckets,
     }
 
 
 def stamp_health(path: Path, measure) -> dict:
-    """Writes the measured figure into a built health.json. Any failure is recorded as the reason
-    the figure is unavailable, so it never stops a deploy."""
+    """Writes the measured figure into a built health.json. Only an Unmeasured reason is published;
+    any other failure is logged and published as unreadable, so it never stops a deploy."""
     try:
         measured = measure()
+    except Unmeasured as e:
+        measured = unmeasured(str(e))
     except Exception as e:  # noqa: BLE001
-        measured = unmeasured(f"{type(e).__name__}: {e}"[:300])
+        print(f"measure: {type(e).__name__}: {e}", file=sys.stderr)
+        measured = unmeasured("the measurement could not be read")
     health = json.loads(path.read_text(encoding="utf-8"))
-    health.setdefault("storage", {})["measured"] = measured
-    path.write_text(pretty(health), encoding="utf-8")
+    if not isinstance(health.get("storage"), dict):
+        health["storage"] = {}
+    health["storage"]["measured"] = measured
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(pretty(health), encoding="utf-8")
+    os.replace(tmp, path)
     return measured
 
 
