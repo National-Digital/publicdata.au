@@ -26,6 +26,7 @@ from . import SITE, store
 from .cadence import FEED_MAX, per_year
 from .d1 import MAX_CSV, queryable
 from .register import Dataset
+from .serialise import pretty
 
 GB = 10**9
 BUDGET_GB_YEAR = 5.0
@@ -498,6 +499,30 @@ def project(
     return out
 
 
+# What /health.json's storage figures cover, so a reader can tell the estimate from the measurement.
+PROJECTED_COVERS = (
+    "An estimate from the build: every version's files in publicdata-dist and its publisher's file "
+    "once in publicdata-raw, with a year's growth at each entry's newest version times the versions "
+    "its cadence and history give a year. It leaves out the build cache and the query copies."
+)
+MEASURED_COVERS = (
+    "Cloudflare's own measurement of every object in publicdata-dist and publicdata-raw, the build "
+    "cache and the query copies included."
+)
+MEASURED_BUCKETS = ("publicdata-dist", "publicdata-raw")
+GRAPHQL = "https://api.cloudflare.com/client/v4/graphql"
+R2_STORAGE = """query ($account: string!, $since: Time!) {
+  viewer {
+    accounts(filter: {accountTag: $account}) {
+      r2StorageAdaptiveGroups(limit: 10000, filter: {datetime_geq: $since}) {
+        max { payloadSize metadataSize objectCount }
+        dimensions { datetime bucketName }
+      }
+    }
+  }
+}"""
+
+
 @dataclass(frozen=True)
 class Fleet:
     stored_bytes: int
@@ -514,9 +539,14 @@ class Fleet:
 
     def as_json(self) -> dict:
         return {
-            "stored_bytes": self.stored_bytes,
-            "growth_bytes_per_year": self.bytes_per_year,
-            "d1_rows_written_per_year": self.d1_rows_per_year,
+            "projected": {
+                "covers": PROJECTED_COVERS,
+                "stored_bytes": self.stored_bytes,
+                "stored_bytes_in_a_year": self.stored_bytes + self.bytes_per_year,
+                "growth_bytes_per_year": self.bytes_per_year,
+                "d1_rows_written_per_year": self.d1_rows_per_year,
+            },
+            "measured": unmeasured("measured only by a deploy to production"),
         }
 
 
@@ -527,6 +557,71 @@ def fleet(projections: list[Projection]) -> Fleet:
         round(sum((p.bytes_per_version or 0) * p.per_year + p.rebuild_bytes for p in projections)),
         round(sum(p.d1_rows_per_year or 0 for p in projections)),
     )
+
+
+def unmeasured(reason: str) -> dict:
+    return {"available": False, "reason": reason}
+
+
+def measure_r2(account: str, token: str, now: dt.datetime) -> dict:
+    """The newest stored bytes Cloudflare reports for each archive bucket. The token needs Account
+    Analytics Read."""
+    since = (now - dt.timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = json.dumps({"query": R2_STORAGE, "variables": {"account": account, "since": since}})
+    req = urllib.request.Request(
+        GRAPHQL,
+        data=body.encode(),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": UA,
+        },
+    )
+
+    def post():
+        with _open(req, 30) as r:
+            return json.load(r)
+
+    doc = retry(post)
+    if doc.get("errors"):
+        raise ValueError("; ".join(str(e.get("message", e)) for e in doc["errors"]))
+    accounts = ((doc.get("data") or {}).get("viewer") or {}).get("accounts") or []
+    if not accounts:
+        raise ValueError("the token cannot read this account's analytics")
+    newest: dict[str, dict] = {}
+    for g in sorted(
+        accounts[0].get("r2StorageAdaptiveGroups") or [], key=lambda g: g["dimensions"]["datetime"]
+    ):
+        if g["dimensions"]["bucketName"] in MEASURED_BUCKETS:
+            newest[g["dimensions"]["bucketName"]] = g
+    if missing := [b for b in MEASURED_BUCKETS if b not in newest]:
+        raise ValueError(f"no storage measurement for {', '.join(missing)} since {since}")
+    buckets = {
+        b: int(newest[b]["max"]["payloadSize"]) + int(newest[b]["max"]["metadataSize"])
+        for b in MEASURED_BUCKETS
+    }
+    return {
+        "available": True,
+        "covers": MEASURED_COVERS,
+        "measured_at": min(newest[b]["dimensions"]["datetime"] for b in MEASURED_BUCKETS),
+        "stored_bytes": sum(buckets.values()),
+        "objects": sum(int(newest[b]["max"]["objectCount"]) for b in MEASURED_BUCKETS),
+        "buckets": buckets,
+    }
+
+
+def stamp_health(path: Path, measure) -> dict:
+    """Writes the measured figure into a built health.json. Any failure is recorded as the reason
+    the figure is unavailable, so it never stops a deploy."""
+    try:
+        measured = measure()
+    except Exception as e:  # noqa: BLE001
+        measured = unmeasured(f"{type(e).__name__}: {e}"[:300])
+    health = json.loads(path.read_text(encoding="utf-8"))
+    health.setdefault("storage", {})["measured"] = measured
+    path.write_text(pretty(health), encoding="utf-8")
+    return measured
 
 
 def build_version_bytes(ds: Dataset, v) -> int:
@@ -942,7 +1037,8 @@ def run(
     f = fleet(projections)
     print(
         f"cost: {f.gb_per_year:,.1f} GB a year projected over {len(projections)} entries; "
-        f"{f.stored_gb:,.1f} GB stored (estimated); {f.d1_rows_per_year:,} D1 rows written a year"
+        f"{f.stored_gb:,.1f} GB stored (estimated), {f.stored_gb + f.gb_per_year:,.1f} GB in a "
+        f"year; {f.d1_rows_per_year:,} D1 rows written a year"
     )
     for p in projections:
         if p.slug in changed:

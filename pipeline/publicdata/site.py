@@ -619,6 +619,52 @@ def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict:
     }
 
 
+def _health_schema() -> dict:
+    n = {"type": "integer", "minimum": 0}
+    return {
+        "type": "object",
+        "properties": {
+            "storage": {
+                "type": "object",
+                "description": "What the archive holds in R2. `projected` is the build's "
+                "estimate and `measured` is Cloudflare's own figure, read at deploy.",
+                "properties": {
+                    "projected": {
+                        "type": "object",
+                        "properties": {
+                            "covers": {"type": "string"},
+                            "stored_bytes": n | {"description": "Stored now"},
+                            "stored_bytes_in_a_year": n | {"description": "Stored a year on"},
+                            "growth_bytes_per_year": n,
+                            "d1_rows_written_per_year": n,
+                        },
+                    },
+                    "measured": {
+                        "type": "object",
+                        "required": ["available"],
+                        "properties": {
+                            "available": {"type": "boolean"},
+                            "reason": {
+                                "type": "string",
+                                "description": "Why there is no measurement, when available is false",
+                            },
+                            "covers": {"type": "string"},
+                            "measured_at": {
+                                "type": "string",
+                                "format": "date-time",
+                                "description": "When Cloudflare measured the oldest bucket figure",
+                            },
+                            "stored_bytes": n,
+                            "objects": n,
+                            "buckets": {"type": "object", "additionalProperties": n},
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+
 def _files_of(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
     """(file, format) for every data file of a version: the whole-table formats, or a database's
     DuckDB file and the Parquet file of each table."""
@@ -2596,7 +2642,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
                     "tags": ["catalogue"],
                     "summary": "Build health",
                     "operationId": "getHealth",
-                    "responses": {"200": j("ok")},
+                    "responses": {"200": j("ok", _health_schema())},
                 }
             },
             "/d/{slug}/datapackage.json": {

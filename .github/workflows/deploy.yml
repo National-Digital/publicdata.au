@@ -455,6 +455,15 @@ jobs:
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m publicdata cache push --cache "$BUILD_CACHE" --prune
+      # Live account data, so it goes in after the build; a figure that cannot be read is marked
+      # unavailable and never stops the deploy. The token needs Account Analytics Read.
+      - name: Measure stored bytes for health.json
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m publicdata measure "$DIST/health.json"
       - name: Deploy to Cloudflare Pages
         id: pages
         if: env.HAS_CF == 'true'

@@ -504,6 +504,32 @@ serves and old bytes in R2 are no difference. When the sampled datasets that dif
 one, the message asks for `REBUILD`, since the check passes once the sampled entries are raised
 and the unsampled ones would be reused unchanged.
 
+## Storage cost
+
+R2 bills storage, and the archive only grows. `/health.json` carries two figures under `storage`,
+each saying what it covers. `projected` is the build's estimate, from the same model as
+`python -m publicdata cost`: the bytes every built version holds in `publicdata-dist` with its
+publisher's file once in `publicdata-raw`, the same a year on, the growth a year from each entry's
+newest version and the versions its cadence and history give, and the D1 rows written a year.
+Both take the same versions a year; `cost` sizes a version from the live catalogue and counts every
+stored version at its newest one's size, where the build counts each version's own files. `measured` is Cloudflare's own figure for every object in those two
+buckets, build cache and query copies included, with the time Cloudflare measured it. The deploy to
+production writes it into the built `health.json` before pushing the pages (`publicdata measure`),
+so the build stays the same from the same inputs; when it cannot be read, `available` is false with
+the reason, and the deploy goes on. Reading it needs the deploy token to have Account Analytics
+Read.
+
+The account also holds a Cloudflare budget alert (Manage Account > Billing > Billable Usage >
+Create budget alert), which only the account owner can set up:
+
+- Threshold: USD 10 of usage-based spend in a billing period. R2 Standard is $0.015 per GB-month
+  after 10 GB free, so this is about 680 GB stored with nothing else billed. The alert counts the
+  whole account's usage-based spend, not R2 alone.
+- Recipients: the maintainers at National Digital who hold the Cloudflare account. The alert's own
+  recipient list is the record, and a maintainer who leaves is taken off it.
+
+Change the threshold here and in the dashboard together.
+
 ## Query API
 
 Everything the site answers dynamically is under `/api/v1/`. `/api/v1/datasets/<slug>/rows` and

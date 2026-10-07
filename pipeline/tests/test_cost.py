@@ -606,7 +606,8 @@ def test_the_fleet_counts_storage_cumulatively_and_d1_rows():
                         d1_indexes=2)  # fmt: skip
     f = cost.fleet([p])
     assert (f.stored_gb, f.gb_per_year, f.d1_rows_per_year) == (20, 20, 15)
-    assert set(f.as_json()) == {"stored_bytes", "growth_bytes_per_year", "d1_rows_written_per_year"}
+    proj = f.as_json()["projected"]
+    assert proj["stored_bytes_in_a_year"] == proj["stored_bytes"] + proj["growth_bytes_per_year"]
 
 
 def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
@@ -615,8 +616,14 @@ def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
     from publicdata.register import load
 
     health = json.loads((fixture_site / "health.json").read_text("utf-8"))
-    s = health["storage"]
+    assert health["storage"]["measured"] == {
+        "available": False,
+        "reason": "measured only by a deploy to production",
+    }
+    s = health["storage"]["projected"]
+    assert s["covers"] == cost.PROJECTED_COVERS
     assert not any("usd" in k for k in s)
+    assert s["stored_bytes_in_a_year"] == s["stored_bytes"] + s["growth_bytes_per_year"]
     stored = 0
     latest = {}
     for vdir in sorted(fixture_site.glob("d/*/v/*")):
@@ -647,7 +654,90 @@ def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
 
 
 def test_the_cost_module_stays_out_of_the_build_cache_key():
-    assert {"cost.py", "cadence.py"}.isdisjoint(p.name for p in cache.code_files())
+    assert {"cost.py", "cadence.py", "__main__.py", "site.py"}.isdisjoint(
+        p.name for p in cache.code_files()
+    )
+
+
+def test_the_health_openapi_entry_names_the_storage_fields(fixture_site):
+    doc = json.loads((fixture_site / "openapi.json").read_text("utf-8"))
+    schema = doc["paths"]["/health.json"]["get"]["responses"]["200"]["content"]
+    storage = schema["application/json"]["schema"]["properties"]["storage"]["properties"]
+    health = json.loads((fixture_site / "health.json").read_text("utf-8"))["storage"]
+    assert set(health["projected"]) == set(storage["projected"]["properties"])
+    assert set(storage["measured"]["properties"]) >= {"available", "reason", "measured_at",
+                                                      "stored_bytes", "covers"}  # fmt: skip
+
+
+def _graphql(groups, errors=None):
+    def fake(req, timeout):
+        assert req.full_url == cost.GRAPHQL and req.get_method() == "POST"
+        body = json.loads(req.data)
+        assert body["variables"] == {"account": "acct", "since": "2026-10-06T12:00:00Z"}
+        doc = {"data": {"viewer": {"accounts": [{"r2StorageAdaptiveGroups": groups}]}}}
+        if errors:
+            doc = {"data": None, "errors": errors}
+        return _Resp(200, {}, json.dumps(doc).encode())
+
+    return fake
+
+
+def _group(bucket, when, payload, meta=0, objects=1):
+    return {
+        "max": {"payloadSize": payload, "metadataSize": meta, "objectCount": objects},
+        "dimensions": {"datetime": when, "bucketName": bucket},
+    }
+
+
+NOW = dt.datetime(2026, 10, 8, 12, tzinfo=dt.UTC)
+
+
+def test_the_measured_figure_is_each_bucket_at_its_newest_reading(monkeypatch, no_sleep):
+    groups = [
+        _group("publicdata-dist", "2026-10-07T10:00:00Z", 900, 10, 5),
+        _group("publicdata-dist", "2026-10-08T10:00:00Z", 1000, 20, 6),
+        _group("publicdata-raw", "2026-10-08T09:00:00Z", 300, 0, 2),
+        _group("another-bucket", "2026-10-08T11:00:00Z", 10**12),
+    ]
+    monkeypatch.setattr(cost, "_open", _graphql(groups))
+    m = cost.measure_r2("acct", "tok", NOW)
+    assert m == {
+        "available": True,
+        "covers": cost.MEASURED_COVERS,
+        "measured_at": "2026-10-08T09:00:00Z",
+        "stored_bytes": 1320,
+        "objects": 8,
+        "buckets": {"publicdata-dist": 1020, "publicdata-raw": 300},
+    }
+
+
+@pytest.mark.parametrize(
+    "groups, errors, why",
+    [
+        ([_group("publicdata-dist", "2026-10-08T10:00:00Z", 1)], None, "publicdata-raw"),
+        ([], [{"message": "not authorized for that account"}], "not authorized"),
+    ],
+)
+def test_an_unreadable_measurement_is_marked_unavailable_and_keeps_the_build(
+    tmp_path, monkeypatch, no_sleep, groups, errors, why
+):
+    monkeypatch.setattr(cost, "_open", _graphql(groups, errors))
+    health = tmp_path / "health.json"
+    built = {"status": "ok", "storage": {"projected": {"stored_bytes": 5}, "measured": {}}}
+    health.write_text(json.dumps(built), "utf-8")
+    m = cost.stamp_health(health, lambda: cost.measure_r2("acct", "tok", NOW))
+    out = json.loads(health.read_text("utf-8"))
+    assert m["available"] is False and why in m["reason"]
+    assert out == built | {"storage": {"projected": {"stored_bytes": 5}, "measured": m}}
+
+
+def test_the_measure_command_never_fails_a_deploy(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    health = tmp_path / "health.json"
+    health.write_text(json.dumps({"storage": {}}), "utf-8")
+    assert main(["measure", str(health)]) == 0
+    m = json.loads(health.read_text("utf-8"))["storage"]["measured"]
+    assert m["available"] is False and "CLOUDFLARE_API_TOKEN" in m["reason"]
 
 
 class Host:
