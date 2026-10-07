@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip | hubs | contribute | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip|shared-report | hubs | contribute | cost."""
 
 from __future__ import annotations
 
@@ -698,6 +698,21 @@ def cmd_checksums(args) -> int:
             f"checksums: {len(held)} version(s) left without one; "
             "run the Checksums workflow to hash their files from R2 and sign the lists"
         )
+
+
+def cmd_r2_shared_report(args) -> int:
+    from .r2 import shared_report
+
+    t = shared_report(prefix=args.prefix)
+    for ext, (n, size) in sorted(t["by_ext"].items(), key=lambda e: -e[1][1]):
+        print(f"shared: .{ext}: {n:,} extra {'copy' if n == 1 else 'copies'}, {size:,} bytes")
+    pct = 100 * t["saved"] / t["bytes"] if t["bytes"] else 0
+    print(
+        f"shared: {t['copies']:,} of {t['objects']:,} dated files repeat another's stored bytes; "
+        f"storing each once would save {t['saved']:,} of {t['bytes']:,} bytes ({pct:.2g}%), "
+        f"{t['across']:,} of them across datasets. {t['heads']:,} HEAD request(s) sent"
+        + (f", {t['gone']:,} key(s) deleted while the report ran" if t["gone"] else "")
+    )
     return 0
 
 
@@ -1263,6 +1278,12 @@ def main(argv=None) -> int:
         help="delete a version's data.csv.gz once the gzipped data.csv beside it holds its bytes",
     )
     rg.set_defaults(fn=cmd_r2_restore_gzip)
+    rs = rr.add_parser(
+        "shared-report",
+        help="count the bytes publicdata-dist would save by storing dated files with identical bytes once",
+    )
+    rs.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
+    rs.set_defaults(fn=cmd_r2_shared_report)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"

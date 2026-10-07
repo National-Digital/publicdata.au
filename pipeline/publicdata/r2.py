@@ -873,3 +873,64 @@ def _restore_one(s3, bucket: str, key: str, head: dict, work: Path, kept: Path):
             ) from e
         raise
     return "done", size, gz.stat().st_size, etag, _sha256(gz)
+
+
+def shared_report(bucket: str = "publicdata-dist", prefix: str = "d/", workers: int = 8) -> dict:
+    """What storing each distinct dated file once would save, by extension, read without changing
+    the bucket. Identity is the stored bytes: two objects of one size are the same when their
+    ETags match or the SHA-256 stored with them does. A single-part ETag is an MD5, so two that
+    differ settle it; a HEAD is sent only in a group holding a multipart ETag, whose value depends
+    on how the file was uploaded. A key deleted while the report runs is left out."""
+    from collections import defaultdict
+    from concurrent.futures import ThreadPoolExecutor
+
+    from botocore.exceptions import ClientError
+
+    s3 = client()
+    listing = {k: v for k, v in _listing(s3, bucket, prefix).items() if dated_file(k) and v[0]}
+    by_size: dict[int, list[str]] = defaultdict(list)
+    for k, (n, _) in listing.items():
+        by_size[n].append(k)
+    groups = [ks for ks in by_size.values() if len(ks) > 1]
+    ask = [
+        k
+        for ks in groups
+        if len({listing[k][1] for k in ks}) > 1 and any(not _single_md5(listing[k][1]) for k in ks)
+        for k in ks
+    ]
+
+    def sha(k: str) -> str | None:
+        try:
+            return s3.head_object(Bucket=bucket, Key=k).get("Metadata", {}).get("sha256", "")
+        except ClientError as e:
+            if _missing(e):
+                return None
+            raise
+
+    with ThreadPoolExecutor(workers) as pool:
+        shas = dict(zip(ask, pool.map(sha, ask), strict=True))
+    gone = {k for k, v in shas.items() if v is None}
+
+    totals = {"objects": len(listing) - len(gone), "heads": len(ask), "gone": len(gone)}
+    totals |= {"bytes": sum(n for k, (n, _) in listing.items() if k not in gone)}
+    totals |= {"copies": 0, "saved": 0, "across": 0, "by_ext": {}}
+    for ks in groups:
+        ks = sorted(k for k in ks if k not in gone)
+        first: dict[str, str] = {}
+        for k in ks:
+            ids = [f"etag:{listing[k][1]}", *([f"sha256:{shas[k]}"] if shas.get(k) else [])]
+            seen = next((first[i] for i in ids if i in first), None)
+            for i in ids:
+                first.setdefault(i, seen or k)
+            if seen is None:
+                continue
+            name = k.rsplit("/", 1)[-1]
+            ext = "csv.gz" if name.endswith(".csv.gz") else name.rsplit(".", 1)[-1]
+            e = totals["by_ext"].setdefault(ext, [0, 0])
+            e[0] += 1
+            e[1] += listing[k][0]
+            totals["copies"] += 1
+            totals["saved"] += listing[k][0]
+            if seen.split("/")[1] != k.split("/")[1]:
+                totals["across"] += listing[k][0]
+    return totals

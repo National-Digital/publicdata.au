@@ -995,3 +995,50 @@ def test_a_query_copy_the_build_wrote_otherwise_stops_the_push(tmp_path, monkeyp
     with pytest.raises(SystemExit, match=Q):
         r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": _lay(sort=["year"])})
     assert fake.ops == []
+
+
+def test_the_shared_report_counts_identical_dated_files_and_changes_nothing(monkeypatch):
+    from botocore.exceptions import ClientError
+
+    class Multipart(ByteBucket):
+        def etag(self, key):
+            if key.endswith("2026-05-01/data.parquet"):
+                return '"0123456789abcdef0123456789abcdef-2"'
+            return super().etag(key)
+
+        def head_object(self, Bucket, Key):
+            if Key.endswith("2026-07-01/data.parquet"):
+                raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+            return super().head_object(Bucket, Key)
+
+    same, other = b"x" * 100, b"y" * 100
+    bucket = Multipart(
+        {
+            "d/x/v/2026-04-24/data.csv": b"c" * 50,
+            "d/x/v/2026-05-01/data.csv": b"c" * 50,
+            "d/y/v/2026-05-01/data.csv": b"d" * 50,
+            "d/x/v/2026-04-24/data.parquet": other,
+            "d/x/v/2026-05-01/data.parquet": other,
+            "d/x/v/2026-06-01/data.parquet": same,
+            "d/y/v/2026-06-01/schema.json": same,
+            "d/x/v/2026-07-01/data.parquet": other,
+            "d/x/v/2026-04-24/index.html": same,
+            "d/x/history.tar.zst": same,
+            "_q/x/2026-04-24/data.parquet": same,
+        }
+    )
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    t = r2.shared_report()
+    assert t["objects"] == 7 and t["bytes"] == 550 and t["gone"] == 1
+    assert t["copies"] == 3 and t["saved"] == 250 and t["across"] == 100
+    assert t["by_ext"] == {"csv": [1, 50], "json": [1, 100], "parquet": [1, 100]}
+    assert sorted(bucket.heads) == sorted(
+        f"d/{k}"
+        for k in (
+            "x/v/2026-04-24/data.parquet",
+            "x/v/2026-05-01/data.parquet",
+            "x/v/2026-06-01/data.parquet",
+            "y/v/2026-06-01/schema.json",
+        )
+    )
+    assert bucket.puts == [] and bucket.deleted == []
