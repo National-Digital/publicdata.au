@@ -108,7 +108,7 @@ pipeline/publicdata/
 /d/<slug>/schema.json                Table Schema
 /d/<slug>/schema.xlsx                the same field list as an Excel data dictionary
 /d/<slug>/in/<value>/                one page per value of place_field: its rows counted,
-                                     drawn and linked; a WebPage about the dataset
+                                     drawn and linked; a WebPage about the dataset, from R2
 /d/<slug>/versions.json              every version: date, as-at, rows, fields, hash
 /d/<slug>/changes.json               consecutive diffs: row deltas and schema diffs
 /d/<slug>/diff/<a>..<b>.json         diff between two consecutive versions
@@ -437,7 +437,7 @@ split --versioned` moves every file of a dated version, its page included, and a
 Pages per-file limit, into a tree that is pushed to the R2 bucket `publicdata-dist` at the same
 key as its URL path. Dated keys are written once; a mutable key such as `history.tar.zst` is
 rewritten when its SHA-256 changes. `_routes.json` runs the function only on `latest/`, dated
-version and fetch trees, diffs, change logs and the history archive, so a dataset page and its
+version and fetch trees, diffs, change logs, the history archive and place pages, so a dataset page and its
 JSON are served as Pages files; split refuses a large file no route reaches. Each data file it
 serves saves under a name it gives in `content-disposition`, and no page, folder, diff or index of
 versions gets one. The name is `<slug>_<version>` and the file: `data.csv` is
@@ -514,6 +514,26 @@ the edge's behaviour. A version's page comes from R2 as well,
 with the site's security headers from `/static/page-headers.json` and a five-minute cache,
 because it says whether it is the newest. Pull-request previews skip
 `--versioned`, because they never write to R2.
+
+The pages made once per place (`/d/<slug>/in/<value>/` and its `index.md`) are served from R2
+too, so they add no files to the Pages deployment. A deployment may hold 20,000 files, and
+`split` fails the deploy before anything is published when what it leaves for Pages is over
+that; the count goes in the deploy's summary either way. A preview keeps the version files and
+place pages on Pages, so its count runs ahead of production's. With `--versioned`, split moves
+the place pages into the R2 tree. They are never gzipped. The push before the Pages deploy
+(`dist-push --pages new`) writes only the place pages R2 lacks, because a page R2 already holds
+shows a map image that only the new deployment has; once that deployment is live,
+`dist-push --pages only` rewrites the pages whose bytes changed and `publicdata r2 prune-pages
+--apply` deletes those the build no longer made, so a place that is gone answers 404. The prune
+looks only at the datasets the site's `latest.json` lists, considers only keys of the form
+`d/<slug>/in/<value>/index.{html,md}` outside a dated version, and deletes nothing when the tree
+holds no page or R2 lacks one the tree holds. A withheld dataset's pages stay in R2 and answer
+410. The function serves the pages with the site's security headers and a five-minute cache
+that lets the edge compress them, and asks Pages first, so a preview shows the copy its own build
+made. A rewritten page is not purged; the five-minute cache bounds how long the old one
+is served. Each view costs one function invocation, a Pages lookup that misses and one R2 read,
+where a Pages file costs none of them. The map image a place page of a point dataset shows stays
+a Pages file under `/maps/`, so those datasets still add one file per place.
 
 A version built once is not built again while its inputs are unchanged: its source, its register
 entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps a build cache in R2, under `_build/` in

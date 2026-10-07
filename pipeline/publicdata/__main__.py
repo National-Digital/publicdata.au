@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip|shared-report | hubs | contribute | cost | measure."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip|shared-report|prune-pages | hubs | contribute | cost | measure."""
 
 from __future__ import annotations
 
@@ -359,12 +359,15 @@ def _absent(path: str | None) -> list[str]:
 
 
 VERSIONED_FILE = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/")
+PAGES_FILES = 20_000
 
 
 def cmd_split(args) -> int:
     """Move files that R2 serves into a sibling tree: anything over the Pages per-file limit
-    and, with --versioned, every file of a dated version, its page included. A file moved to R2
-    is only reachable where _routes.json runs the function that reads it."""
+    and, with --versioned, every file of a dated version, its page included, and every page
+    made per place. A file moved to R2 is only reachable where _routes.json runs the function
+    that reads it. Fails when what is left would not fit one Pages deployment."""
+    from .r2 import r2_page
     from .serialise.profile import QUERY_DIR
     from .site import ROUTES
 
@@ -385,7 +388,7 @@ def cmd_split(args) -> int:
             shutil.move(str(p), dest)
             moved += 1
             continue
-        versioned = args.versioned and VERSIONED_FILE.match(rel)
+        versioned = args.versioned and (VERSIONED_FILE.match(rel) or r2_page(rel))
         if versioned or p.stat().st_size > limit:
             if not any(r.match("/" + rel) for r in routed):
                 stranded.append(rel)
@@ -394,12 +397,25 @@ def cmd_split(args) -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(p), dest)
             moved += 1
+    left = sum(1 for p in out.rglob("*") if p.is_file())
     print(f"split: {moved} file(s) moved to {large}")
+    print(f"split: {left} file(s) left for Pages, of the {PAGES_FILES} one deployment may hold")
     for rel in stranded:
         print(
             f"split: {rel} is over the Pages limit and no route reaches R2 for it", file=sys.stderr
         )
-    return 1 if stranded else 0
+    if left > PAGES_FILES:
+        fix = (
+            "serve another family of pages from R2 before deploying"
+            if args.versioned
+            else "a preview keeps on Pages the version files and place pages production serves from R2"
+        )
+        print(
+            f"split: {left} files would go to Pages, over the {PAGES_FILES} one deployment may "
+            f"hold; {fix}",
+            file=sys.stderr,
+        )
+    return 1 if stranded or left > PAGES_FILES else 0
 
 
 def cmd_catalogue(args) -> int:
@@ -677,7 +693,7 @@ def cmd_spine_mirror(args) -> int:
 
 
 def cmd_dist_push(args) -> int:
-    from .r2 import dated_file, push
+    from .r2 import dated_file, push, r2_page
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
@@ -691,13 +707,16 @@ def cmd_dist_push(args) -> int:
     found = check_sources([Path(args.large)])
     expect = _absent(args.expect)
     queries = (Path(args.large) / "_q").is_dir() or any(k.startswith("_q/") for k in expect)
+    include = r2_page if args.pages == "only" else lambda key: True
+    # A place page already in R2 shows map images only the new deployment holds.
+    kept = r2_page if args.pages == "new" else lambda key: False
     n = push(
         Path(args.large),
         "publicdata-dist",
         replace=tuple(args.replace),
-        immutable=dated_file,
+        immutable=lambda key: dated_file(key) or kept(key),
         expect=expect,
-        include=dated_file if args.dated_only else lambda key: True,
+        include=dated_file if args.dated_only else include,
         layouts={ds.slug: layout(ds) for ds in load(REGISTER)} if queries else None,
     )
     print(
@@ -784,6 +803,16 @@ def cmd_r2_shared_report(args) -> int:
             else ""
         )
     )
+    return 0
+
+
+def cmd_r2_prune_pages(args) -> int:
+    from .r2 import prune_pages
+
+    retired = prune_pages(Path(args.large), Path(args.out), apply=args.apply)
+    for k in retired:
+        print(f"{'delete' if args.apply else 'would delete'} publicdata-dist/{k}")
+    print(f"prune pages: {len(retired)} page(s) the build no longer makes")
     return 0
 
 
@@ -1295,7 +1324,11 @@ def main(argv=None) -> int:
     s.add_argument("--out", default=str(ROOT / "dist"))
     s.add_argument("--large", default=str(ROOT / "dist-large"))
     s.add_argument("--limit-mib", type=float, default=24)
-    s.add_argument("--versioned", action="store_true", help="also move every dated version file")
+    s.add_argument(
+        "--versioned",
+        action="store_true",
+        help="also move every dated version file and every page made per place",
+    )
     s.set_defaults(fn=cmd_split)
     ca = sub.add_parser("catalogue").add_subparsers(dest="sub", required=True)
     cf = ca.add_parser("fetch", help="harvest every portal's dataset list into the store")
@@ -1374,6 +1407,12 @@ def main(argv=None) -> int:
         action="store_true",
         help="push only dated version files, leaving pages to the deploy that builds them all",
     )
+    dp.add_argument(
+        "--pages",
+        choices=["with", "new", "only"],
+        default="with",
+        help="push the place pages, only those R2 lacks, or only the place pages",
+    )
     dp.set_defaults(fn=cmd_dist_push)
     rr = sub.add_parser("r2").add_subparsers(dest="sub", required=True)
     rg = rr.add_parser(
@@ -1395,6 +1434,14 @@ def main(argv=None) -> int:
     )
     rs.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
     rs.set_defaults(fn=cmd_r2_shared_report)
+    rp = rr.add_parser(
+        "prune-pages",
+        help="delete the place pages in publicdata-dist that the build no longer makes",
+    )
+    rp.add_argument("--large", default=str(ROOT / "dist-large"))
+    rp.add_argument("--out", default=str(ROOT / "dist"), help="the built site, for its latest.json")
+    rp.add_argument("--apply", action="store_true", help="delete what it lists")
+    rp.set_defaults(fn=cmd_r2_prune_pages)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"

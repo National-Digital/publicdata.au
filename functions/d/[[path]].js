@@ -20,6 +20,9 @@ const EDGE_MAX = 500 * 1024 * 1024;
 const BYPASS = 'bypass';
 // A version's page says whether it is the newest, so it changes and is cached briefly.
 const PAGE = /\/v\/\d{4}-\d{2}-\d{2}\/(index\.(html|md))?$/;
+// A page made per place lives in R2, except in a preview, which never writes R2 and keeps it on
+// Pages, so Pages is asked first: R2 holds production's copy. r2_page() in r2.py names the keys.
+const PLACE = /^\/d\/[a-z0-9][a-z0-9-]*\/in\/[^/]+\/(index\.(html|md))?$/;
 
 // Pages applies _headers to its own files only, so a page read from R2 takes the site's
 // security headers from the build, read once per isolate.
@@ -161,6 +164,11 @@ async function serve(request, env, url, latest, inPlace) {
   if (asset.status !== 404) {
     if (asset.status !== 200 && asset.status !== 206) return asset;
     // Pages _headers rules allow one splat, so the versioned tree gets its cache policy here.
+    if (PLACE.test(url.pathname) && asset.status === 200) {
+      const r = new Response(asset.body, asset);
+      await setPageHeaders(r.headers, env);
+      return r;
+    }
     const dated = DATED.test(url.pathname) && !PAGE.test(url.pathname);
     const cd = disposition(decodeURIComponent(url.pathname.slice(1)), latest);
     if (!dated && !cd) return asset;
@@ -169,11 +177,15 @@ async function serve(request, env, url, latest, inPlace) {
     if (cd) r.headers.set('content-disposition', cd);
     return r;
   }
-  return (!page && (await fromR2(request, env, url, latest))) || asset;
+  const r = !page && (await fromR2(request, env, url, latest));
+  if (!r) return asset;
+  if (asset.body) await asset.body.cancel();
+  return r;
 }
 
 async function fromR2(request, env, url, latest) {
-  const path = decodeURIComponent(url.pathname.replace(/^\//, ''));
+  let path;
+  try { path = decodeURIComponent(url.pathname.replace(/^\//, '')); } catch { return null; }
   const key = path.endsWith('/') ? path + 'index.html' : path;
   const head = request.method === 'HEAD';
   const read = (bucket, k) => (head ? bucket.head(k) : bucket.get(k, { range: request.headers, onlyIf: request.headers }));
@@ -193,7 +205,8 @@ async function fromR2(request, env, url, latest) {
   }
   if (!obj) {
     // A version page asked for without its trailing slash, as Pages would redirect it.
-    if (DATED.test(url.pathname + '/') && !/\.[a-z0-9]+$/i.test(key) && (await env.DIST.head(key + '/index.html'))) {
+    const dir = DATED.test(url.pathname + '/') || PLACE.test(url.pathname + '/');
+    if (dir && !/\.[a-z0-9]+$/i.test(key) && (await env.DIST.head(key + '/index.html'))) {
       return new Response(null, { status: 308, headers: { location: url.pathname + '/' + url.search } });
     }
     return null;
@@ -228,10 +241,11 @@ async function answer(request, url, key, obj, head, env, latest, decoded = gzipp
   // no-transform keeps the edge from compressing the body, which would drop the byte range. A
   // gzipped text file has no range to keep, and the edge must be free to decode it for a client
   // that cannot, since it caches whichever encoding it was sent first.
-  const page = PAGE.test('/' + key);
-  headers.set('cache-control', DATED.test(key) && !page ? 'public, max-age=31536000, immutable, no-transform' : 'public, max-age=300, no-transform');
+  const page = PAGE.test('/' + key) || PLACE.test('/' + key);
+  // A page is never ranged, so the edge may compress it.
+  headers.set('cache-control', page ? 'public, max-age=300' : DATED.test(key) ? 'public, max-age=31536000, immutable, no-transform' : 'public, max-age=300, no-transform');
   if (decoded) headers.set('cache-control', headers.get('cache-control').replace(', no-transform', ''));
-  if (page) for (const [k, v] of Object.entries(await headersFor(env))) headers.set(k, v);
+  if (page) await setPageHeaders(headers, env);
   const cd = disposition(key, latest);
   if (cd) headers.set('content-disposition', cd);
   if (decoded) return textResponse(request, obj, headers, head);
@@ -253,6 +267,10 @@ async function answer(request, url, key, obj, head, env, latest, decoded = gzipp
     return new Response(obj.body, { status, headers });
   }
   return new Response(null, { status: 304, headers });
+}
+
+async function setPageHeaders(headers, env) {
+  for (const [k, v] of Object.entries(await headersFor(env))) headers.set(k, v);
 }
 
 // The Workers runtime always asks for gzip itself; what the client asked for is on cf.

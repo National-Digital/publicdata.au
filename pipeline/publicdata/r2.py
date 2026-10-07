@@ -217,6 +217,14 @@ def _record(s3, bucket: str, key: str, lay: dict) -> None:
     )
 
 
+# Place pages R2 serves, so they never count against the Pages file limit.
+R2_PAGE = re.compile(r"^d/[a-z0-9][a-z0-9-]*/in/[^/]+/index\.(html|md)$")
+
+
+def r2_page(key: str) -> bool:
+    return bool(R2_PAGE.match(key)) and not versioned(key)
+
+
 def push(
     root: Path,
     bucket: str,
@@ -583,16 +591,16 @@ def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = N
     return got
 
 
-def _delete(s3, keys: list[str]) -> None:
+def _delete(s3, keys: list[str], bucket: str = CACHE_BUCKET, what: str = "cache push") -> None:
     for i in range(0, len(keys), 1000):
         r = s3.delete_objects(
-            Bucket=CACHE_BUCKET,
+            Bucket=bucket,
             Delete={"Objects": [{"Key": k} for k in keys[i : i + 1000]], "Quiet": True},
         )
         if r.get("Errors"):
             e = r["Errors"]
             sys.exit(
-                f"cache push: {len(e)} key(s) were not deleted, e.g. "
+                f"{what}: {len(e)} key(s) were not deleted, e.g. "
                 + ", ".join(f"{x.get('Key')} ({x.get('Code')})" for x in e[:5])
             )
 
@@ -975,3 +983,38 @@ def shared_report(bucket: str = "publicdata-dist", prefix: str = "d/", workers: 
             if seen.split("/")[1] != k.split("/")[1]:
                 totals["across"] += listing[k][0]
     return totals
+
+
+def prune_pages(
+    root: Path, site: Path, bucket: str = "publicdata-dist", apply: bool = False
+) -> list[str]:
+    """The place pages R2 holds that the build under root no longer makes, deleted with apply.
+    Only datasets the site's latest.json lists are looked at, so a build of a few datasets leaves
+    the others alone, and a withheld dataset's pages answer 410 until it is live again. Refuses
+    when root holds no page or R2 lacks one root holds."""
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    live = sorted(json.loads((site / "latest.json").read_text(encoding="utf-8")))
+    built = {
+        k for p in root.rglob("*") if p.is_file() and r2_page(k := p.relative_to(root).as_posix())
+    }
+    s3 = client()
+    with ThreadPoolExecutor(WORKERS) as pool:
+        listed = pool.map(lambda slug: _etags(s3, bucket, f"d/{slug}/in/"), live)
+        stored = {k for keys in listed for k in keys if r2_page(k)}
+    retired = sorted(stored - built)
+    if retired and not built:
+        sys.exit(
+            f"prune pages: {root} holds no page, so the {len(retired)} pages R2 holds were kept; "
+            "split moves them there with --versioned"
+        )
+    unpushed = sorted(built - stored)
+    if unpushed:
+        sys.exit(
+            f"prune pages: {len(unpushed)} page(s) under {root} are not in {bucket}, e.g. "
+            f"{unpushed[0]}; push them before deleting the ones the build retired"
+        )
+    if apply and retired:
+        _delete(s3, retired, bucket, "prune pages")
+    return retired

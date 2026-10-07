@@ -354,3 +354,55 @@ test('a part, a change log, the history archive and a fetch save under names tha
   const log = await onRequestGet({ request: new Request('https://publicdata.au/d/r/changes/index.json'), env: e });
   assert.equal(log.headers.get('cache-control'), 'public, max-age=300');
 });
+
+test('a place page is served from R2 with the site headers and a short cache', async () => {
+  R2['d/x/in/brisbane/index.html'] = '<html>brisbane</html>';
+  R2['d/x/in/brisbane/index.md'] = '# Brisbane';
+  const r = await get('/d/x/in/brisbane/');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'text/html; charset=utf-8');
+  assert.equal(r.headers.get('content-security-policy'), "default-src 'self'");
+  assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(r.headers.get('cache-control'), 'public, max-age=300');
+  assert.equal(r.headers.get('content-disposition'), null);
+  assert.equal(await r.text(), '<html>brisbane</html>');
+  const md = await get('/d/x/in/brisbane/index.md');
+  assert.equal(md.status, 200);
+  assert.equal(md.headers.get('content-type'), 'text/markdown; charset=utf-8');
+  assert.equal(md.headers.get('content-security-policy'), "default-src 'self'");
+  const bare = await get('/d/x/in/brisbane');
+  assert.equal(bare.status, 308);
+  assert.equal(bare.headers.get('location'), '/d/x/in/brisbane/');
+});
+
+test('a rewritten place page is served with its new content, and a retired one is a 404', async () => {
+  R2['d/x/in/cairns/index.html'] = '<html>old</html>';
+  assert.equal(await (await get('/d/x/in/cairns/')).text(), '<html>old</html>');
+  R2['d/x/in/cairns/index.html'] = '<html>new</html>';
+  assert.equal(await (await get('/d/x/in/cairns/')).text(), '<html>new</html>');
+  delete R2['d/x/in/cairns/index.html'];
+  const gone = await get('/d/x/in/cairns/');
+  assert.equal(gone.status, 404);
+  assert.equal(gone.headers.get('cache-control'), null);
+  assert.equal((await get('/d/x/in/%E0/')).status, 404);
+  assert.equal((await get('/d/x/in/cairns')).status, 404);
+  assert.equal((await get('/d/x/in/nowhere/index.md')).status, 404);
+});
+
+test('a preview serves the place page its own build put on Pages', async () => {
+  const preview = {
+    ...env,
+    ASSETS: { fetch: async (r) => (new URL(r.url || r).pathname === '/d/x/in/mackay/' ? new Response('<html>preview</html>', { headers: { 'content-type': 'text/html; charset=utf-8' } }) : env.ASSETS.fetch(r)) },
+  };
+  R2['d/x/in/mackay/index.html'] = '<html>production</html>';
+  const r = await onRequestGet({ request: new Request('https://pr-1.publicdata-au.pages.dev/d/x/in/mackay/'), env: preview });
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), '<html>preview</html>');
+  assert.equal(r.headers.get('content-security-policy'), "default-src 'self'");
+  delete R2['d/x/in/mackay/index.html'];
+});
+
+test('a place page of a dataset that is not live is refused', async () => {
+  R2['d/gone/in/brisbane/index.html'] = '<html>gone</html>';
+  assert.equal((await get('/d/gone/in/brisbane/')).status, 410);
+});

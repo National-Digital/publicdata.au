@@ -1346,6 +1346,7 @@ ROUTES = (
     "/d/*/diff/*",
     "/d/*/history.tar.zst",
     "/d/*/changes/*",
+    "/d/*/in/*",
 )
 
 

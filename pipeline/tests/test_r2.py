@@ -1204,3 +1204,200 @@ def test_the_shared_report_joins_a_file_that_matches_two_copies(monkeypatch, cap
     assert t["copies"] == 2 and t["saved"] == 200 and t["by_ext"] == {"": [2, 200]}
     assert cmd_r2_shared_report(SimpleNamespace(prefix="d/")) == 0
     assert "shared: no extension: 2 extra copies, 200 bytes" in capsys.readouterr().out
+
+
+def test_split_moves_place_pages_and_refuses_a_deploy_over_the_pages_limit(
+    tmp_path, capsys, monkeypatch
+):
+    from publicdata import __main__ as cli
+
+    out, large = tmp_path / "dist", tmp_path / "large"
+    place = out / "d" / "x" / "in" / "brisbane"
+    place.mkdir(parents=True)
+    (place / "index.html").write_text("x")
+    (place / "index.md").write_text("x")
+    (out / "d" / "x" / "index.html").write_text("x")
+    assert cli.main(["split", "--out", str(out), "--large", str(large)]) == 0
+    assert (place / "index.html").exists()
+    assert "split: 3 file(s) left for Pages" in capsys.readouterr().out
+    assert cli.main(["split", "--out", str(out), "--large", str(large), "--versioned"]) == 0
+    moved = sorted(p.relative_to(large).as_posix() for p in large.rglob("*") if p.is_file())
+    assert moved == ["d/x/in/brisbane/index.html", "d/x/in/brisbane/index.md"]
+    assert "split: 1 file(s) left for Pages" in capsys.readouterr().out
+    monkeypatch.setattr(cli, "PAGES_FILES", 2)
+    for n in range(2):
+        (out / f"{n}.txt").write_text("x")
+    assert cli.main(["split", "--out", str(out), "--large", str(large), "--versioned"]) == 1
+    assert "3 files would go to Pages, over the 2" in capsys.readouterr().err
+
+
+def test_a_place_page_is_never_gzipped_and_is_rewritten_when_it_changes(tmp_path, monkeypatch):
+    page = tmp_path / "d" / "x" / "in" / "brisbane" / "index.html"
+    page.parent.mkdir(parents=True)
+    page.write_bytes(b"<p>" + b"new " * 1000 + b"</p>")
+    key = "d/x/in/brisbane/index.html"
+    assert r2.r2_page(key) and not r2.dated_file(key)
+    assert not r2.stored_gzipped(key, 10**6)
+    bucket = ByteBucket({key: b"<p>old</p>"})
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    assert r2.push(tmp_path, "b", immutable=r2.dated_file) == 1
+    assert bucket.objects[key]["body"] == page.read_bytes()
+    assert "ContentEncoding" not in bucket.objects[key]
+    assert r2.push(tmp_path, "b", immutable=r2.dated_file) == 0
+    assert r2.push(tmp_path, "b", include=r2.dated_file) == 0
+
+
+def test_which_keys_are_pages_r2_serves():
+    assert r2.r2_page("d/x/in/brisbane/index.html")
+    assert r2.r2_page("d/x/in/brisbane/index.md")
+    for key in (
+        "d/x/index.html",
+        "d/x/in/brisbane/data.json",
+        "d/x/in/index.html",
+        "d/x/in/a/b/index.html",
+        "d/x/v/2026-04-24/index.html",
+        "d/x/v/2026-04-24/in/a/index.html",
+        "x/d/y/in/a/index.html",
+    ):
+        assert not r2.r2_page(key), key
+
+
+def test_the_function_and_the_pipeline_name_the_same_place_pages():
+    import re
+
+    js = (Path(__file__).resolve().parents[2] / "functions" / "d" / "[[path]].js").read_text()
+    place = re.compile(re.search(r"const PLACE = /(.+)/;", js).group(1).replace("\\/", "/"))
+    for key in (
+        "d/x/in/brisbane/index.html",
+        "d/x/in/brisbane/index.md",
+        "d/x/in/a/b/index.html",
+        "d/x/index.html",
+        "d/x/in/brisbane/data.json",
+        "d/x/in/_blank/index.html",
+        "d/-x/in/a/index.html",
+        "d/x/v/2026-04-24/in/a/index.html",
+    ):
+        assert bool(place.match("/" + key)) == r2.r2_page(key), key
+
+
+def _pages_bucket():
+    return ByteBucket(
+        {
+            "d/x/in/brisbane/index.html": b"a",
+            "d/x/in/brisbane/index.md": b"a",
+            "d/x/in/cairns/index.html": b"b",
+            "d/x/in/cairns/index.md": b"b",
+            "d/y/in/darwin/index.html": b"c",
+            "d/x/v/2026-04-24/index.html": b"v",
+            "d/x/v/2026-04-24/data.csv": b"v",
+            "d/x/v/2026-04-24/in/cairns/index.html": b"v",
+            "d/x/history.tar.zst": b"h",
+        }
+    )
+
+
+class PrunableBucket(ByteBucket):
+    def delete_objects(self, Bucket, Delete):
+        for o in Delete["Objects"]:
+            self.delete_object(Bucket, o["Key"])
+        return {}
+
+
+def _built(tmp_path, *keys):
+    for k in keys:
+        (tmp_path / k).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / k).write_text("x")
+    return tmp_path
+
+
+def _site(tmp_path, *slugs):
+    site = tmp_path / "site"
+    site.mkdir(exist_ok=True)
+    (site / "latest.json").write_text(json.dumps({s: "2026-04-24" for s in slugs}))
+    return site
+
+
+def test_prune_deletes_only_the_place_pages_the_build_stopped_making(tmp_path, monkeypatch):
+    bucket = PrunableBucket()
+    bucket.objects = _pages_bucket().objects
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    root = _built(tmp_path / "large", "d/x/in/brisbane/index.html", "d/x/in/brisbane/index.md")
+    site = _site(tmp_path, "x", "y")
+    retired = [
+        "d/x/in/cairns/index.html",
+        "d/x/in/cairns/index.md",
+        "d/y/in/darwin/index.html",
+    ]
+    assert r2.prune_pages(root, site) == retired
+    assert bucket.deleted == []
+    assert r2.prune_pages(root, site, apply=True) == retired
+    assert sorted(bucket.deleted) == retired
+    assert "d/x/v/2026-04-24/in/cairns/index.html" in bucket.objects
+    assert "d/x/v/2026-04-24/data.csv" in bucket.objects
+    assert r2.prune_pages(root, site, apply=True) == []
+
+
+def test_prune_leaves_the_datasets_the_site_does_not_list(tmp_path, monkeypatch):
+    bucket = PrunableBucket()
+    bucket.objects = _pages_bucket().objects
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    root = _built(tmp_path / "large", "d/x/in/brisbane/index.html", "d/x/in/brisbane/index.md")
+    assert r2.prune_pages(root, _site(tmp_path, "x"), apply=True) == [
+        "d/x/in/cairns/index.html",
+        "d/x/in/cairns/index.md",
+    ]
+    assert "d/y/in/darwin/index.html" in bucket.objects
+
+
+def test_prune_deletes_nothing_when_the_build_moved_no_page_or_its_push_did_not_finish(
+    tmp_path, monkeypatch
+):
+    bucket = PrunableBucket()
+    bucket.objects = _pages_bucket().objects
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    site = _site(tmp_path, "x", "y")
+    empty = _built(tmp_path / "empty", "d/x/v/2026-04-24/data.csv")
+    with pytest.raises(SystemExit, match="holds no page"):
+        r2.prune_pages(empty, site, apply=True)
+    unpushed = _built(
+        tmp_path / "unpushed", "d/x/in/brisbane/index.html", "d/x/in/mackay/index.html"
+    )
+    with pytest.raises(SystemExit, match="d/x/in/mackay/index.html"):
+        r2.prune_pages(unpushed, site, apply=True)
+    assert bucket.deleted == []
+
+
+def test_the_prune_command_lists_unless_applied(tmp_path, monkeypatch, capsys):
+    from publicdata.__main__ import main
+
+    bucket = PrunableBucket()
+    bucket.objects = _pages_bucket().objects
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    root = _built(tmp_path / "large", "d/x/in/brisbane/index.html", "d/x/in/brisbane/index.md")
+    args = ["r2", "prune-pages", "--large", str(root), "--out", str(_site(tmp_path, "x", "y"))]
+    assert main(args) == 0
+    assert "would delete publicdata-dist/d/x/in/cairns/index.html" in capsys.readouterr().out
+    assert bucket.deleted == []
+    assert main([*args, "--apply"]) == 0
+    assert "prune pages: 3 page(s)" in capsys.readouterr().out
+    assert len(bucket.deleted) == 3
+
+
+def test_a_deploy_writes_new_place_pages_first_and_changed_ones_after_pages(tmp_path, monkeypatch):
+    from publicdata.__main__ import main
+
+    root = _built(
+        tmp_path,
+        "d/x/in/brisbane/index.html",
+        "d/x/in/mackay/index.html",
+        "d/x/v/2026-04-24/data.parquet",
+    )
+    bucket = ByteBucket({"d/x/in/brisbane/index.html": b"old"})
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    monkeypatch.setattr(r2, "check_sources", lambda roots: 0)
+    assert main(["dist-push", "--large", str(root), "--pages", "new"]) == 0
+    assert sorted(bucket.puts) == ["d/x/in/mackay/index.html", "d/x/v/2026-04-24/data.parquet"]
+    assert bucket.objects["d/x/in/brisbane/index.html"]["body"] == b"old"
+    bucket.puts.clear()
+    assert main(["dist-push", "--large", str(root), "--pages", "only"]) == 0
+    assert bucket.puts == ["d/x/in/brisbane/index.html"]

@@ -436,7 +436,9 @@ jobs:
           fi
           [ -f absent.json ] || echo '[]' > absent.json
           python -m publicdata gate "$DIST" --absent absent.json
-          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 ${VERSIONED:+"$VERSIONED"}
+          set -o pipefail
+          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 ${VERSIONED:+"$VERSIONED"} | tee split.log
+          grep 'left for Pages' split.log >> "$GITHUB_STEP_SUMMARY"
           df -h / | tail -1
       - name: Push version files to R2
         if: env.HAS_CF == 'true' && github.event_name != 'pull_request'
@@ -446,8 +448,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         # The shards pushed every dated file, replaced ones included, so this push is the pages and
         # dataset files, and a check that every file the build left out is in R2 and every
-        # version's publisher's file is in the raw store.
-        run: python -m publicdata dist-push --large "$DIST_LARGE" --expect absent.json
+        # version's publisher's file is in the raw store. A place page R2 already holds is
+        # rewritten after the Pages deploy, since it shows map images only that deployment holds.
+        run: python -m publicdata dist-push --large "$DIST_LARGE" --expect absent.json --pages new
       - name: Save built versions
         if: env.HAS_CF == 'true' && github.event_name != 'pull_request'
         env:
@@ -473,8 +476,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           BRANCH: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
         run: |
+          set -o pipefail
           npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
           grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
+      # Place pages are served from R2. A changed one is rewritten once the deployment holding its
+      # map image is live, and one the build stopped making is deleted. A dated file never is.
+      - name: Rewrite place pages in R2 and delete retired ones
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && steps.pages.outcome == 'success'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python -m publicdata dist-push --large "$DIST_LARGE" --pages only
+          python -m publicdata r2 prune-pages --large "$DIST_LARGE" --out "$DIST" --apply
       # Made from the hashes R2 stored with each file, so the build and its cache key never see it.
       # Straight after the site goes live, which links each list. A failure leaves the lists for the
       # next deploy to catch up, so it never fails the deploy or holds back D1 and the release.
