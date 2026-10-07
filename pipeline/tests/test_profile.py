@@ -343,7 +343,7 @@ def test_d1_loads_a_version_again_when_its_rows_were_taken_in_another_order(fixt
     same = {(slug, version): profile.signature(src)}
     assert not d1.write_loads([fixture_site], [ds], loaded, tmp_path / "b", "", fields, same)
     text = "".join(p.read_text() for p in stale)
-    assert "INSERT OR REPLACE INTO _orders VALUES ('qld-road-crash-locations'" in text
+    assert "INSERT OR REPLACE INTO _orders SELECT 'qld-road-crash-locations'" in text
 
 
 def test_the_gate_wants_every_table_version_to_have_its_query_copy(site_copy):

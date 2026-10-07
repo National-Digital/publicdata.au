@@ -445,9 +445,15 @@ def cmd_d1(args) -> int:
 
 
 def cmd_d1_load(args) -> int:
-    from .d1 import Wrangler, load
+    from .d1 import BUDGET, Wrangler, load
 
-    failed = load(Path(args.dir), Wrangler())
+    failed = load(
+        Path(args.dir),
+        Wrangler(),
+        budget=args.budget or BUDGET,
+        retry=set(args.retry.split()),
+        summary=Path(args.summary) if args.summary else None,
+    )
     print(f"d1 load: {failed} version(s) did not load")
     return 1 if failed else 0
 
@@ -944,6 +950,13 @@ def main(argv=None) -> int:
     d1s.set_defaults(fn=cmd_d1)
     d1l = d1.add_parser("load", help="run the load files against D1, verify and retry")
     d1l.add_argument("--dir", required=True)
+    d1l.add_argument(
+        "--budget", type=int, default=0, help="rows written this deploy may plan (0: the default)"
+    )
+    d1l.add_argument(
+        "--retry", default="", help="dataset slugs, or all, to load again past their failures"
+    )
+    d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])

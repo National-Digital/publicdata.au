@@ -445,6 +445,23 @@ headers. Dated answers are cached at the edge for good, the newest for five minu
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
 `RateLimit-Policy` and a JSON body; every API answer carries the same policy header.
 
+D1 bills rows written, and each index entry is a row, so a load is planned before it runs. Each
+load fills a table named for the version and a digest of its rows, which no `_versions` row
+names yet; the last part builds the indexes and registers the table in one statement that holds
+only when the table has every row and every index. The version it replaces keeps answering until
+then and is dropped after, so the API never reads a partial table and always names the version
+it answers from. `_loads` records, per dataset, the version waiting, how many parts of it are in
+place and the rows they hold, how many deploys failed it, and since when the dataset has waited. A
+part that reports an error is checked by count: one that applied is kept, one that did not runs
+again, and anything else fails the version. The next deploy carries on after the last part in
+place when the table still holds exactly the rows recorded, and otherwise starts the version
+again. A version that failed in three deploys is skipped, with a warning on the deploy, until a
+new version arrives or a dispatch names it in `d1_retry`. Each deploy loads up to 10 million rows
+written (`d1.BUDGET`, or `d1_budget` on a dispatch): a load part way through goes first, then the
+dataset that has waited longest, then the smaller, and the first in line always loads, so a
+version larger than the budget loads alone. The rest wait for later deploys, and the step summary
+lists what loaded, waited and was skipped. Only deploys of main load, one at a time.
+
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
 then the endpoints answer 503 and point to the files. The query builder is tested against
