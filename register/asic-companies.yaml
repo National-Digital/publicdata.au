@@ -79,6 +79,9 @@ partition_by:
 sort:
 - acn
 query: false
+# The Parquet engine cannot afford a count by type and registration date over a file in ACN order.
+rollup:
+- [type, registration_date, current_name_indicator]
 row_label: Company names
 fields:
 - name: company_name

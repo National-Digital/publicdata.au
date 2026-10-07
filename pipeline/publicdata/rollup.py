@@ -74,8 +74,8 @@ def _q(name: str) -> str:
 
 
 def hints(ds) -> list[tuple[str, ...]]:
-    """The field sets the register's example and chart ask about."""
-    out = []
+    """The field sets the register's rollup, example and chart ask about."""
+    out = list(ds.rollup)
     if ds.example:
         out.append(
             (*ds.example.get("group", ()), *(w["field"] for w in ds.example.get("filters") or ()))
@@ -120,6 +120,11 @@ def _metrics(ds, max_metrics: int) -> list[str]:
 
 def estimate(groups: int, dims: int, metrics: int) -> float:
     return groups * (BYTES_PER_GROUP + BYTES_PER_DIM * dims + BYTES_PER_METRIC * metrics)
+
+
+def cube_estimate(groups: int, cube: Sequence[str], metrics: Sequence[str]) -> float:
+    """A cube's estimated bytes. A cube never totals a field it groups on."""
+    return estimate(groups, len(cube), sum(m not in cube for m in metrics))
 
 
 def candidates(ds, fields: list[str]) -> dict[tuple[str, ...], dict[frozenset, int]]:
@@ -169,21 +174,24 @@ def plan(
     answered: set[frozenset] = set()
     spent = 0.0
     left = {c for c in cands if sizes[c] <= rows * MAX_GROUP_SHARE}
+
+    def cost(c: tuple[str, ...]) -> float:
+        return cube_estimate(sizes[c], c, metrics)
+
     while left:
         best, score = None, 0.0
         for c in left:
             gain = sum(w for q, w in cands[c].items() if q not in answered)
-            s = gain / estimate(sizes[c], len(c), len(metrics)) if gain else 0.0
+            s = gain / cost(c) if gain else 0.0
             if s > score or (s == score and s and best is not None and c < best):
                 best, score = c, s
         if best is None:
             break
         left.discard(best)
-        cost = estimate(sizes[best], len(best), len(metrics))
-        if spent + cost > cap:
+        if spent + cost(best) > cap:
             continue
         chosen.append(best)
-        spent += cost
+        spent += cost(best)
         answered |= set(cands[best])
     if not chosen:
         return None
@@ -368,6 +376,26 @@ def held(rows: Iterable[dict]) -> dict[str, dict[str, int]]:
     return out
 
 
+def served(datasets, roots: Sequence[Path], log=print) -> dict[str, dict[str, int]]:
+    """Every published version of each entry with `query: false` and its row count, from the
+    built tree's versions.json. D1 holds none of them, so the Parquet engine answers them all,
+    and a count it cannot afford to scan is answered only from a rollup."""
+    out: dict[str, dict[str, int]] = {}
+    for ds in datasets:
+        if ds.kind != "table" or ds.query:
+            continue
+        found = [r / "d" / ds.slug / "versions.json" for r in roots]
+        found = [p for p in found if p.exists()]
+        if not found:
+            log(f"rollup: {ds.slug} has no versions.json in the built tree, so it gets no rollups")
+            continue
+        listed = json.loads(found[0].read_text(encoding="utf-8")).get("versions") or []
+        out[ds.slug] = {
+            v["version"]: int(v.get("rows") or 0) for v in listed if not v.get("tombstone")
+        }
+    return out
+
+
 def held_fields(rows: Iterable[dict]) -> dict[tuple[str, str], list[dict]]:
     """The field list D1 validates each version's queries against, from its `_versions` rows."""
     out = {}
@@ -421,7 +449,9 @@ def version_fields(stated: Iterable, columns: dict[str, str]) -> tuple[VField, .
 
 
 def _as_version(ds, fields: tuple[VField, ...]):
-    return SimpleNamespace(slug=ds.slug, example=ds.example, chart=ds.chart, fields=fields)
+    return SimpleNamespace(
+        slug=ds.slug, example=ds.example, chart=ds.chart, rollup=ds.rollup, fields=fields
+    )
 
 
 def parquet_columns(run: Run) -> dict[str, str]:
@@ -453,7 +483,7 @@ def write(
     log=print,
     fields: dict[tuple[str, str], list[dict]] | None = None,
 ) -> tuple[list[Written], set[str]]:
-    """A rollup for every version D1 holds whose stored rollup was not built from the Parquet R2
+    """A rollup for every version in `loaded` whose stored rollup was not built from the Parquet R2
     now publishes, or which a replace names. Returns what was written and every rollup key that
     should stay, so the caller can delete the rest. A version's Parquet comes from a built tree
     when one holds the same bytes, and otherwise from R2, which backfills a version this deploy
@@ -461,7 +491,7 @@ def write(
     written: list[Written] = []
     keep: set[str] = set()
     for ds in datasets:
-        if ds.kind != "table" or not ds.query:
+        if ds.kind != "table":
             continue
         for version, rows in sorted(loaded.get(ds.slug, {}).items()):
             if rows < MIN_ROWS:
