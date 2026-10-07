@@ -1797,7 +1797,7 @@
     "wa-public-libraries": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/wa-public-libraries",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/wa-public-libraries",
-      "zenodo": "10.5281/zenodo.23123610"
+      "zenodo": "10.5281/zenodo.23202910"
     },
     "wa-slwa-obituaries-index": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/wa-slwa-obituaries-index",
