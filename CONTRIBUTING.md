@@ -417,7 +417,9 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   marked `register` or `rules`, so the picks can be read and the poor ones replaced. A register
   example that answers no rows fails the gate. `chart` sets what the yearly chart and the card's
   sparkline draw: `where` (the same form), `split` (a field, or `none`), `metric` and `label`,
-  each falling back to the example's.
+  each falling back to the example's, and `year`, the field that dates a row. A text `year` is
+  a financial year written `2018-19`, and the chart names its bars that way. `chart: none`
+  draws no chart, for a table with no year worth drawing.
 - `search_title` is the phrase a dataset's title tag targets and no two entries may share one;
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,
