@@ -305,6 +305,9 @@ class Dataset:
     collection_search_title: str = ""
     # A partition field whose values are places. Each value gets a page of its own rows.
     place_field: str = ""
+    # Raised in a reviewed change whose code edit alters this dataset's built files: every
+    # version, diff and history archive of it is built again (CONTRIBUTING.md).
+    rebuild: int = 0
     # False keeps a dataset out of the query API; its files are served as usual. Neither field
     # shapes a version's bytes, so both stay out of the repr the build cache keys on.
     query: bool = field(default=True, repr=False)
@@ -340,6 +343,12 @@ class Dataset:
 def _bool(v, ctx: str) -> bool:
     if not isinstance(v, bool):
         raise RegisterError(f"{ctx}: must be true or false")
+    return v
+
+
+def _rebuild(v, ctx: str) -> int:
+    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+        raise RegisterError(f"{ctx}: rebuild is a whole number, 0 or more")
     return v
 
 
@@ -516,6 +525,7 @@ def parse(raw: dict, ctx: str) -> Dataset:
         sample=_sample(raw.get("sample"), fields, ctx),
         collection_search_title=str(raw.get("collection_search_title", "")).strip(),
         place_field=str(raw.get("place_field", "")).strip(),
+        rebuild=_rebuild(raw.get("rebuild", 0), ctx),
         query=_bool(raw.get("query", True), f"{ctx}.query") and kind == "table",
         omit=_omit(raw.get("omit"), fields, ctx),
         source_withheld=str(raw.get("source_withheld", "")).strip(),
