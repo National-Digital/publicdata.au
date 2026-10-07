@@ -163,7 +163,7 @@
 
   <h2 id="changes">What changed</h2>
   {% if update_note %}
-  <p>{{ update_note }} The newest read is at <a href="{{ base }}latest/" class="mono">latest/</a> and every read's changes are listed in <a href="{{ base }}changes/index.json" class="mono">changes/index.json</a>.</p>
+  <p>{{ update_note }} The newest read is at <a href="{{ base }}latest/" class="mono">latest/</a> and every read's changes are listed in <a href="{{ base }}changes/index.json" download="{{ download_name(ds.slug, '', 'changes/index.json') }}" class="mono">changes/index.json</a>.</p>
   {% else %}
   <p>One version for every release the publisher has made since this site started following the dataset. The date is the day the file changed on the portal.{% if latest.as_at %} The "as at" date is the publisher's own.{% endif %}</p>
   {% endif %}
@@ -175,7 +175,7 @@
       {% if v.cut %}<div class="note">Kept as a dated version because {{ v.cut }}.</div>{% endif %}{% for n in v.notes %}<div class="note">{{ n }}</div>{% endfor %}</li>
     {% endfor %}
   </ul>
-  <p class="muted" style="font-size:14px"><a href="{{ base }}versions.json" class="mono">versions.json</a> · <a href="{{ base }}changes.json" class="mono">changes.json</a> · <a href="{{ base }}history.tar.zst" class="mono">history.tar.zst</a> ({{ history_size }}, every version's Parquet and manifest)</p>
+  <p class="muted" style="font-size:14px"><a href="{{ base }}versions.json" class="mono">versions.json</a> · <a href="{{ base }}changes.json" class="mono">changes.json</a> · <a href="{{ base }}history.tar.zst" download="{{ download_name(ds.slug, latest.version, 'history.tar.zst') }}" class="mono">history.tar.zst</a> ({{ history_size }}, every version's Parquet and manifest)</p>
 
   {% if faq_auto %}
   <h2 id="questions">Questions</h2>

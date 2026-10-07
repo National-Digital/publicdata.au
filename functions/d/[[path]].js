@@ -137,7 +137,7 @@ async function serve(request, env, url, latest, inPlace) {
     const out = new Response(r.body, r);
     out.headers.set('cache-control', 'public, max-age=300, no-transform');
     out.headers.set('access-control-allow-origin', '*');
-    const cd = disposition(key);
+    const cd = disposition(key, latest);
     if (cd) out.headers.set('content-disposition', cd);
     return out;
   }

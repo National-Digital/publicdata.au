@@ -670,10 +670,14 @@ def test_a_part_and_latest_save_under_the_names_the_server_gives(fetched, tmp_pa
     links += re.findall(r'<a href="https://publicdata\.au/(d/[^"]+)" download="([^"]+)"', feed)
     history = [(u, n) for u, n in links if "/history/" in u]
     assert history and parts
-    for u, n in links:
+    for u, n in parts + history:
         _, slug, _, version, rel = u.split("/", 4)
         assert n == download_name(slug, version, rel), u
     assert any(n.endswith("_history_2026.parquet") for _, n in history)
+    assert ("d/test-feed/changes/index.json", "test-feed_changes_index.json") in links
+    newest = data["latest"]
+    archive = ("d/test-rolling/history.tar.zst", f"test-rolling_{newest}_history.tar.zst")
+    assert archive in links
 
 
 def test_every_part_of_a_version_has_the_same_column_types(built):

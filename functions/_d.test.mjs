@@ -195,6 +195,7 @@ test("a rolling source's latest/ is its newest fetch, served in place with a fiv
   const src = await onRequestGet({ request: new Request('https://publicdata.au/d/r/latest/source.csv'), env: { ...env, RAW: raw } });
   assert.equal(src.status, 200);
   assert.equal(await src.text(), 'src');
+  assert.equal(src.headers.get('content-disposition'), 'inline; filename="r_2026-10-06_source.csv"');
   // A release still redirects to its newest dated version.
   const rel = await get('/d/x/latest/data.csv');
   assert.equal(rel.status, 302);
