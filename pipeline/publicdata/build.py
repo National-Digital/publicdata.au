@@ -18,7 +18,7 @@ import pyarrow.parquet as pq
 import zstandard
 
 from . import OPERATOR, SITE, published, store
-from .cache import BuildCache, _link_or_copy, digest, digests, entry_key
+from .cache import BuildCache, _link_or_copy, digest, digests, entry_key, shape_layer
 from .diff import diff
 from .normalise import Table, normalise
 from .provenance import OPERATOR_URL
@@ -467,17 +467,22 @@ def version_key(
     cache: BuildCache, ds: Dataset, m: store.Manifest, store_dir: Path | None = None
 ) -> str:
     """A version's cache entry: its register entry, its rebuild number among them, and manifest,
-    and for a dataset joined to the place spine, the spine layers it reads and their register
-    entries. The build code is not
-    in it, so an edit to the code reuses every version until a rebuild number is raised."""
+    the spatial extension when its build loads it, the modules only its kind runs, and for a
+    dataset joined to the place spine, the spine layers it reads and their register entries.
+    The rest of the build code is not in it, so an edit to that code reuses every version until
+    a rebuild number is raised."""
+    from .cache import kind_key, spatial, spatial_version
+
+    extra = [f"spatial={spatial_version()}"] if spatial(ds) else []
+    extra += [k] if (k := kind_key(ds.kind)) else []
     if ds.enrich:
         from .spine import spine_versions
 
         if store_dir is None:
             raise ValueError(f"{ds.slug}: a spine-joined version's key needs the store")
         layers = spine_versions(ds.enrich, store_dir, REGISTER_DIR)
-        return cache.key(entry_key(ds), m.to_json(), layers, "version")
-    return cache.key(entry_key(ds), m.to_json(), "version")
+        return cache.key(entry_key(ds), m.to_json(), layers, *extra, "version")
+    return cache.key(entry_key(ds), m.to_json(), *extra, "version")
 
 
 def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
@@ -551,7 +556,7 @@ def pending(
 
     if not ds.publishable:
         return 0
-    now = now or writer_keys()
+    now = now or writer_keys(shape_layer(ds))
     n = 0
     for m in store.manifests(store_dir, ds.slug):
         meta = cache.root / version_key(cache, ds, m, store_dir) / "meta.json"
@@ -594,7 +599,7 @@ def grow_cached(
     if ds.kind == "database":
         return hit
     want = _want(ds, hit["rows"], hit.get("left_out"))
-    now = writer_keys()
+    now = writer_keys(shape_layer(ds))
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
     stale = list(changed)
@@ -703,7 +708,7 @@ def _cached_version(
     if cache is not None:
         from .cache import writer_keys
 
-        now = writer_keys()
+        now = writer_keys(shape_layer(ds))
         writers = (
             {}
             if ds.kind == "database"
@@ -812,14 +817,21 @@ def _served_table(ds: Dataset, m: store.Manifest, tbl: Table | None, out: Path) 
 
 
 def build_dataset(
-    ds: Dataset, store_dir: Path, out: Path, cache: BuildCache | None = None
+    ds: Dataset,
+    store_dir: Path,
+    out: Path,
+    cache: BuildCache | None = None,
+    newest: int | None = None,
 ) -> DatasetOut:
+    """Every version of a dataset, or with newest only that many of the latest, as the real-data
+    check builds a large dataset."""
     dout = DatasetOut(ds)
     if not ds.publishable:
         return dout
     prev = None  # (manifest, table or None, cache key)
     keys = []
-    for m in store.manifests(store_dir, ds.slug):
+    ms = store.manifests(store_dir, ds.slug)
+    for m in ms[-newest:] if newest else ms:
         key = version_key(cache, ds, m, store_dir) if cache else ""
         keys.append(key)
         tbl, vout = _cached_version(ds, m, store_dir, out, cache, key)

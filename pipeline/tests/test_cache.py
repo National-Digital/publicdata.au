@@ -286,7 +286,9 @@ def test_a_changed_writer_rewrites_only_its_own_file(
     monkeypatch.setattr(
         cache_mod,
         "writer_key",
-        lambda fmt: "changed" if fmt in ("csv", "csv.gz", "ndjson") else real(fmt),
+        lambda fmt, shape=False: (
+            "changed" if fmt in ("csv", "csv.gz", "ndjson") else real(fmt, shape)
+        ),
     )
     monkeypatch.setattr(
         build, "normalise", lambda *a, **k: (_ for _ in ()).throw(AssertionError("rebuilt"))
@@ -319,7 +321,9 @@ def test_a_changed_parquet_writer_rebuilds_the_version(
     _plain, _cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     real = cache_mod.writer_key
     monkeypatch.setattr(
-        cache_mod, "writer_key", lambda fmt: "changed" if fmt == "parquet" else real(fmt)
+        cache_mod,
+        "writer_key",
+        lambda fmt, shape=False: "changed" if fmt == "parquet" else real(fmt, shape),
     )
     # The summary counts a hit before the entry is found stale, so the rebuilds are counted here.
     rebuilt, real_build = [], build.build_version

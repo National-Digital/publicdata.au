@@ -315,9 +315,13 @@ the sorted one, and a float total can differ from data.sqlite's in its last digi
 the register entry as `cache.entry_key` reads it, which is the fields in its repr that differ from
 their defaults, so a field added to the register changes no key; the manifest; for a joined
 dataset, the newest source of each spine layer it reads and that layer's register entry, its
-rebuild number among it; and `cache.environment_key`, which holds the global rebuild number
-`cache.REBUILD`, the JSON and GeoJSON writers that also make the partition files, and the Python,
-SQLite, library and DuckDB spatial extension versions. Because a field at its default is left out,
+rebuild number among it; for a dataset with geometry or a spine join, the installed DuckDB spatial
+extension, which the deploy's plan records and every later job checks it also has
+(`PUBLICDATA_SPATIAL`); for a database, `database.py`, which only G-NAF runs and which no sample
+can afford to build (`cache.KIND_MODULES`); and `cache.environment_key`, which holds the global
+rebuild number `cache.REBUILD`, the JSON and GeoJSON writers that also make the partition files,
+and the Python, SQLite and library versions. The register entry includes its licence's title, URL
+and condition, which come from the grant files in `register/licences/` and go into every header. Because a field at its default is left out,
 changing the default of an existing field needs `REBUILD`, and the plan job fails a change that
 edits one without it (`verify plan --before`). The rest of the build code is left out, so an edit to it reuses every
 version. An edit that changes a version's bytes raises `rebuild` in the register entry of each
@@ -326,7 +330,8 @@ the keys of their diffs and history archive, which are named by the keys of the 
 come from. Each writer under
 `serialise/writers/` has a key of its own (`cache.writer_key`), recorded in the entry per format.
 A format's key reads every writer module its entry in `WRITERS` calls and the writer modules those
-import (`cache.writer_files`), so a shape layer's Parquet is keyed on the GeoParquet writer too.
+import (`cache.writer_files`). The Parquet writer of a table and of a shape layer are keyed apart
+(`serialise.WRITER_VARIANTS`), so an edit to the GeoParquet writer rewrites only the shape layers.
 A writer added or changed does not invalidate an entry: the build reads the version's rows back
 from the cached Parquet, the way the diff does, writes only the files whose writer the entry has
 not seen, and records them. A sorted version's Parquet no longer holds the source order, so its
@@ -370,18 +375,30 @@ is checked again by the next push. When one of the files is a module the build i
 keyed format writers (`cache.code_files`), it picks a sample of datasets
 (`publicdata verify plan`). The cheapest dataset of each stratum comes first, where a stratum is a
 combination of kind, adapter, file format, geometry, spine join, sort, partitions, wide or unpivoted
-reading and suppression; others follow in an order the commit's hash picks, up to 300 MB of source
-and none over 60 MB. The spine layers a joined dataset reads are pulled beside it and not counted,
-so the join is checked whenever a joined dataset is drawn. A verify job builds every version of each from its source with the new code
+reading and suppression; others follow in an order a seed picks, up to 300 MB of source. The seed is
+the base's commit and a hash of the code diff, so a retry or a later push draws the same sample
+until the code changes or a release moves past it. Of each dataset the check builds the newest
+versions whose source fits in 60 MB, and always the newest. One dataset whose newest version alone
+is over 60 MB is added by the same seed, so the largest are checked in turn. Every dataset whose
+`rebuild` the change raises is added too: two changes that raise the same number merge without a
+conflict, and the later one is then compared with the entries the earlier one built. The plan
+prints the strata no sampled dataset covers. The spine layers a joined dataset reads are pulled
+beside it and not counted, so the join is checked whenever a joined dataset is drawn. A verify job
+builds those versions of each from its source with the new code
 and compares it with the cache entry a deploy would reuse, file by file through the SHA-256 the
-entry records, its query copy among them and data.duckdb through a digest of its tables, rows and
-comments, and compares the diffs and the history archive with theirs (`publicdata verify
-run`). A version whose key the change moved, by a raised number or a new input, is built again
+entry records, its query copy among them and data.duckdb through a digest of its tables, rows in
+their stored order, constraints, comments, block size and storage version, and compares the diffs
+between them and, when every version was built, the history archive with theirs (`publicdata verify
+run`). When a format's writer changed, the manifest is compared without the sizes it measures,
+since the deploy measures the rewritten file again. A version whose key the change moved, by a raised number or a new input, is built again
 anyway and is not compared. A format whose writer changed is left to the deploy, which writes it
 again, and so is one the code no longer makes, which the deploy drops from the record. A format
 the deploy grew into a reused version from a published Parquet other than the one the entry
 records is made again from that Parquet and compared. A difference fails the deploy job, on a pull request and again on the push to main, and
-names the dataset, the version and the file. The reference is the cache entry because it records
+names the dataset, the version and the file. The shard jobs wait for the check, so no version built
+with code it rejects reaches R2, where a dated file is written once. A check that times out or is
+cancelled stops the deploy too. A fork's pull request has no access to the store, so its change is
+first checked on the push to main, and a failure there stops every deploy until it is fixed. The reference is the cache entry because it records
 what the build made when the version was last built, which is what a reuse stands for. A dated
 file in R2 is never overwritten outside a replace dispatch, so it keeps the bytes of the version's
 first build, and a raised number alone does not change it. The diffs and the history archive are

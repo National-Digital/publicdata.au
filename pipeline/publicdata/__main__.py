@@ -653,6 +653,8 @@ def cmd_verify(args) -> int:
 
     datasets = load(REGISTER)
     store_dir = Path(args.store)
+    mb = 1_000_000
+    cap = args.cap_mb * mb if args.cap_mb is not None else verify.CAP
     if args.sub == "plan":
         changed = []
         if args.changed:
@@ -667,14 +669,23 @@ def cmd_verify(args) -> int:
                 )
             return 1
         mods = verify.unkeyed(changed)
-        if not mods:
+        raised = verify.bumped(Path(args.before), datasets) if args.before else []
+        if not mods and not raised:
             print("verify: no change to the build code outside the keys", file=sys.stderr)
             return 0
-        print(f"verify: {', '.join(mods)} changed", file=sys.stderr)
-        mb = 1_000_000
         budget = args.budget_mb * mb if args.budget_mb is not None else verify.BUDGET
-        cap = args.cap_mb * mb if args.cap_mb is not None else verify.CAP
-        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap)
+        if raised:
+            print(f"verify: rebuild raised for {' '.join(raised)}", file=sys.stderr)
+        if mods:
+            print(f"verify: {', '.join(mods)} changed", file=sys.stderr)
+        else:
+            budget = 0  # only the raised entries are checked
+        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap, raised)
+        if mods:
+            for line in verify.uncovered(datasets, store_dir, slugs):
+                print(f"verify: no dataset in the sample is built as {line}", file=sys.stderr)
+        if not slugs and not mods:
+            return 0
         if not slugs:
             print(
                 "verify: no stored dataset fits the budget, so nothing can be checked",
@@ -707,7 +718,7 @@ def cmd_verify(args) -> int:
     # A capped version keeps the format set its published manifest records.
     published.current = published.Published(out, [], source, download)
     try:
-        return verify.run(chosen, store_dir, Path(args.cache), out)
+        return verify.run(chosen, store_dir, Path(args.cache), out, cap)
     finally:
         published.current = None
 
@@ -874,10 +885,14 @@ def main(argv=None) -> int:
     vf.add_argument("--changed", help="plan: a file listing the changed paths, one per line")
     vf.add_argument("--seed", default="", help="plan: picks the datasets beyond one per stratum")
     vf.add_argument(
-        "--before", help="plan: a folder with the base's register.py and cache.py, to compare"
+        "--before",
+        help="plan: a folder with the base's register.py and cache.py, and its copy of each "
+        "changed register entry at its path, to compare",
     )
     vf.add_argument("--budget-mb", type=int, help="plan: source megabytes to build (300)")
-    vf.add_argument("--cap-mb", type=int, help="plan: the largest dataset taken, in MB (60)")
+    vf.add_argument(
+        "--cap-mb", type=int, help="the source MB of a dataset's newest versions checked (60)"
+    )
     vf.set_defaults(fn=cmd_verify)
     cc = sub.add_parser("cache", help="copy the build cache between this disk and R2")
     cc.add_argument("sub", choices=["pull", "push"])

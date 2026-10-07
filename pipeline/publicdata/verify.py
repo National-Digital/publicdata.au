@@ -18,6 +18,7 @@ from pathlib import Path
 
 from . import published, store
 from .cache import (
+    KIND_MODULES,
     PACKAGE,
     BuildCache,
     _is_writer,
@@ -25,14 +26,15 @@ from .cache import (
     code_files,
     digest,
     digests,
+    shape_layer,
     writer_files,
     writer_keys,
 )
 from .register import Dataset
 
 REPO = PACKAGE.parents[1]
-# A pull request's check builds about this many source bytes, and leaves out any dataset larger
-# than CAP, so it runs in minutes on one runner.
+# A pull request's check builds about this many source bytes, and of each dataset only the newest
+# versions that fit in CAP, so it runs in minutes on one runner.
 BUDGET = 300_000_000
 CAP = 60_000_000
 
@@ -44,8 +46,10 @@ def unkeyed(changed: list[str]) -> list[str]:
     from .serialise import WRITERS
 
     keyed = {p for f in WRITERS for p in writer_files(f)}
+    keyed |= {PACKAGE / n for names in KIND_MODULES.values() for n in names}
     writers = {p for p in _writers_dir().glob("*.py") if _is_writer(p)}
-    mods = {p for p in code_files() if not _is_writer(p)} | (writers - keyed)
+    mods = {p for p in code_files() if not _is_writer(p) and p not in keyed}
+    mods |= writers - keyed
     rel = {p.relative_to(REPO).as_posix() for p in mods}
     return sorted(c for c in changed if c in rel)
 
@@ -97,12 +101,42 @@ def changed_defaults(before: Path) -> list[str]:
     return sorted(k for k in old.keys() & new.keys() if old[k] != new[k])
 
 
-def source_bytes(ds: Dataset, store_dir: Path) -> int:
-    """The source bytes of every version of a dataset. The spine layers a joined dataset reads
-    are left out: every joined dataset shares them, and a sample without one never checks the
-    join."""
+def bumped(before: Path, datasets: list[Dataset]) -> list[str]:
+    """The datasets whose rebuild number the change moves. before holds the base's copy of each
+    changed register entry at its path in the repository. Two changes that raise the same number
+    merge without a conflict, so the later one is checked against the entries the earlier built."""
+    import yaml
+
+    out = []
+    for ds in datasets:
+        if not ds.path or not Path(ds.path).is_relative_to(REPO):
+            continue
+        old = before / Path(ds.path).relative_to(REPO)
+        if not old.is_file():
+            continue
+        raw = yaml.safe_load(old.read_text(encoding="utf-8")) or {}
+        if raw.get("rebuild", 0) != ds.rebuild:
+            out.append(ds.slug)
+    return sorted(out)
+
+
+def checked_versions(ds: Dataset, store_dir: Path, cap: int = CAP) -> list:
+    """The versions the check builds: the newest ones whose source bytes fit in cap, and always
+    the newest. The spine layers a joined dataset reads are left out: every joined dataset shares
+    them, and a sample without one never checks the join."""
     ms = store.manifests(store_dir, ds.slug) if ds.publishable else []
-    return sum(max(m.bytes, 1) for m in ms)
+    out, total = [], 0
+    for m in reversed(ms):
+        total += max(m.bytes, 1)
+        if out and total > cap:
+            break
+        out.append(m)
+    return out[::-1]
+
+
+def source_bytes(ds: Dataset, store_dir: Path, cap: int = CAP) -> int:
+    """The source bytes of the versions the check builds."""
+    return sum(max(m.bytes, 1) for m in checked_versions(ds, store_dir, cap))
 
 
 def _stratum(ds: Dataset) -> tuple:
@@ -129,16 +163,25 @@ def sample(
     seed: str,
     budget: int = BUDGET,
     cap: int = CAP,
+    forced: list[str] | tuple[str, ...] = (),
 ) -> list[str]:
-    """The datasets the check builds: the cheapest of each stratum first, so every adapter and
-    shape that fits is covered, then others in an order the seed picks, while the budget lasts.
-    Every version of a chosen dataset is built, so its diffs and history are checked too."""
-    cost = {d.slug: c for d in datasets if (c := source_bytes(d, store_dir))}
+    """The datasets the check builds: those in forced, the cheapest of each stratum, so every
+    adapter and shape that fits is covered, then others in an order the seed picks, while the
+    budget lasts. Of each, the newest versions that fit in cap are built, with the diffs between
+    them. One dataset whose newest version alone is over cap is added, also picked by the seed
+    and from a stratum nothing else covers when there is one, so the largest datasets are
+    checked in turn. A database is left out, since the module only it runs is in its key."""
+    cost = {
+        d.slug: c
+        for d in datasets
+        if d.kind != "database" and (c := source_bytes(d, store_dir, cap))
+    }
     by = {d.slug: d for d in datasets if d.slug in cost}
     strata: dict[tuple, list[str]] = {}
     for s in sorted(by):
         strata.setdefault(_stratum(by[s]), []).append(s)
-    chosen, total = [], 0
+    chosen = [s for s in sorted(set(forced)) if s in cost]
+    total = sum(cost[s] for s in chosen)
 
     def take(s: str) -> None:
         nonlocal total
@@ -149,10 +192,30 @@ def sample(
     for key in sorted(strata, key=repr):
         take(min(strata[key], key=lambda s: (cost[s], s)))
     rest = sorted(set(by) - set(chosen))
-    random.Random(seed).shuffle(rest)
+    rng = random.Random(seed)
+    rng.shuffle(rest)
     for s in rest:
         take(s)
+    large = sorted(s for s in by if cost[s] > cap)
+    # A stratum no other pick covers comes first, so each is checked within a few runs.
+    alone = [s for s in large if not set(strata[_stratum(by[s])]) & set(chosen)]
+    if budget > 0 and large and not set(large) & set(chosen):
+        chosen.append(rng.choice(alone or large))
     return sorted(chosen)
+
+
+def uncovered(datasets: list[Dataset], store_dir: Path, chosen: list[str]) -> list[str]:
+    """The strata with a stored dataset and none in the sample, each with its datasets."""
+    by: dict[tuple, list[str]] = {}
+    for d in datasets:
+        if d.kind != "database" and source_bytes(d, store_dir):
+            by.setdefault(_stratum(d), []).append(d.slug)
+    picked = set(chosen)
+    return [
+        f"{', '.join(str(x) for x in key)}: {' '.join(sorted(slugs))}"
+        for key, slugs in sorted(by.items(), key=lambda kv: repr(kv[0]))
+        if not picked & set(slugs)
+    ]
 
 
 def _entry(cache: BuildCache, key: str) -> dict | None:
@@ -188,6 +251,12 @@ def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, rels: list[
         return digests(vdir, rels)
 
 
+def _unmeasured(p: Path) -> dict:
+    man = json.loads(p.read_text(encoding="utf-8"))
+    man.pop("measured_bytes", None)
+    return man
+
+
 def _version(
     ds: Dataset, meta: dict, vout, out: Path, entry: Path, cache: BuildCache, key: str
 ) -> list[str]:
@@ -196,7 +265,7 @@ def _version(
     from .serialise import WRITERS
 
     vdir = out / "d" / ds.slug / "v" / vout.manifest.version
-    now = writer_keys()
+    now = writer_keys(shape_layer(ds))
     seen = meta.get("writers", {})
     want = set() if ds.kind == "database" else set(_want(ds, meta["rows"], meta.get("left_out")))
     # A format whose writer changed is written again into the reused version, so it is not
@@ -205,8 +274,9 @@ def _version(
     if "parquet" in stale:
         return []
     skip = {f"data.{f}" for f in stale}
-    if stale and meta.get("left_out") is not None:
-        skip.add("manifest.json")  # a rewritten file it was measured on is measured again
+    # A rewritten or grown file the manifest measured is measured again, so its sizes are left
+    # out of the comparison and the rest of it is compared.
+    masked = bool(stale and meta.get("left_out") is not None)
     if ds.kind != "database":
         # A format the code no longer makes is dropped from the reused record by the deploy.
         skip |= {
@@ -225,9 +295,10 @@ def _version(
         if h != sums.get("data.parquet") and r not in skip and r in sums
     }
     if "manifest.json" in regrow:
-        # It records the sizes of the grown files, which are compared themselves.
-        skip.add("manifest.json")
+        masked = True
         regrow.discard("manifest.json")
+    if masked:
+        skip.add("manifest.json")
     out_lines = []
     for name in ("rows", "unknown_columns", "suppressed_cells", "partitions", "tables"):
         old, new = meta.get(name), _plain(getattr(vout, name))
@@ -263,6 +334,10 @@ def _version(
     for rel, h in sorted(now_sums.items()):
         if sums[rel] != h and not any(line.startswith(f"{rel} ") for line in out_lines):
             out_lines.append(f"{rel} differs")
+    if masked and (old_man := entry / "files" / "manifest.json").is_file():
+        new_man = vdir / "manifest.json"
+        if not new_man.is_file() or _unmeasured(old_man) != _unmeasured(new_man):
+            out_lines.append("manifest.json differs beyond the sizes it measures")
     if vout.query and "query_sha256" in meta:
         q = out / vout.query
         if not q.is_file() or digest(q) != meta["query_sha256"]:
@@ -270,13 +345,18 @@ def _version(
     return out_lines
 
 
-def check(ds: Dataset, store_dir: Path, cache: BuildCache, out: Path) -> tuple[list[str], int, int]:
-    """One dataset built from its sources and compared with the entries a deploy would reuse.
-    Returns the differences, each naming its file, and how many versions were compared and how
-    many a deploy would build again anyway."""
+def check(
+    ds: Dataset, store_dir: Path, cache: BuildCache, out: Path, cap: int = CAP
+) -> tuple[list[str], int, int]:
+    """One dataset's newest versions that fit in cap built from their sources and compared with
+    the entries a deploy would reuse, with the diffs between them, and the history archive when
+    every version was built. Returns the differences, each naming its file, and how many
+    versions were compared and how many a deploy would build again anyway."""
     from .build import build_dataset, version_key
 
-    fresh = build_dataset(ds, store_dir, out)
+    ms = checked_versions(ds, store_dir, cap)
+    whole = len(ms) == len(store.manifests(store_dir, ds.slug))
+    fresh = build_dataset(ds, store_dir, out, newest=len(ms))
     problems: list[str] = []
     compared = rebuilt = 0
     keys = []
@@ -298,7 +378,7 @@ def check(ds: Dataset, store_dir: Path, cache: BuildCache, out: Path) -> tuple[l
         meta = _entry(cache, cache.key(ka, kb, "diff"))
         if meta is not None and meta != json.loads((out / rel).read_text(encoding="utf-8")):
             problems.append(f"{rel}: differs")
-    if keys:
+    if keys and whole:
         hkey = cache.key(*keys, "history")
         rel = f"d/{ds.slug}/history.tar.zst"
         old = cache.root / hkey / "files" / "history.tar.zst"
@@ -307,14 +387,16 @@ def check(ds: Dataset, store_dir: Path, cache: BuildCache, out: Path) -> tuple[l
     return problems, compared, rebuilt
 
 
-def run(datasets: list[Dataset], store_dir: Path, cache_dir: Path, out: Path) -> int:
+def run(
+    datasets: list[Dataset], store_dir: Path, cache_dir: Path, out: Path, cap: int = CAP
+) -> int:
     from .serialise.profile import QUERY_DIR
 
     cache = BuildCache(cache_dir)
     problems, failed, compared, rebuilt = [], [], 0, 0
     for ds in datasets:
         try:
-            p, c, r = check(ds, store_dir, cache, out)
+            p, c, r = check(ds, store_dir, cache, out, cap)
         # Each dataset the new code cannot build is named, and the rest are still checked.
         except Exception as e:
             failed.append(f"d/{ds.slug}/: the build failed: {type(e).__name__}: {e}")

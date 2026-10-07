@@ -34,6 +34,9 @@ LIBRARIES = (
 # writers also make the partition files, so they shape the version and stay in the rows key.
 WRITERS_DIR_PARTS = ("serialise", "writers")
 ROW_WRITERS = ("json", "geojson")
+# Modules only one kind of dataset runs. They are in the keys of that kind's versions, since the
+# sample cannot afford to build such a dataset (G-NAF is the only database).
+KIND_MODULES = {"database": ("database.py",)}
 
 
 def _writers_dir() -> Path:
@@ -114,7 +117,37 @@ def spatial_version() -> str:
         ).fetchone()
     finally:
         con.close()
-    return row[0] if row and row[0] else "none"
+    got = row[0] if row and row[0] else "none"
+    # The extension is fetched per runner, so every job of a deploy must key on the same build.
+    want = os.environ.get("PUBLICDATA_SPATIAL", "")
+    if want and want != got:
+        raise RuntimeError(
+            f"DuckDB spatial extension {got} is installed, and the plan keyed on {want}"
+        )
+    return got
+
+
+def spatial(ds) -> bool:
+    """Whether a dataset's build loads the spatial extension: a layer with geometry, or a dataset
+    joined to the place spine."""
+    return bool(ds.geometry or ds.enrich)
+
+
+def shape_layer(ds) -> bool:
+    """Whether a dataset's Parquet is written by the shape layer writer."""
+    from .serialise.geo import geo_kind
+
+    return geo_kind(ds) in ("polygon", "line")
+
+
+def kind_key(kind: str) -> str:
+    """The modules only this kind of dataset runs, or "" for a kind that has none."""
+    h = hashlib.sha256()
+    names = KIND_MODULES.get(kind, ())
+    for name in names:
+        p = PACKAGE / name
+        h.update(name.encode() + b"\0" + p.read_bytes() + b"\0")
+    return h.hexdigest() if names else ""
 
 
 def _runtime(h) -> None:
@@ -125,8 +158,8 @@ def _runtime(h) -> None:
 
 def environment_key() -> str:
     """What every version's key shares: the global rebuild number, the writers that also make
-    the partition files, and the runtime, libraries and spatial extension."""
-    h = hashlib.sha256(f"rebuild={REBUILD}\0spatial={spatial_version()}\0".encode())
+    the partition files, and the runtime and libraries."""
+    h = hashlib.sha256(f"rebuild={REBUILD}\0".encode())
     for w in ROW_WRITERS:
         p = _writers_dir() / f"{w}.py"
         h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
@@ -146,6 +179,11 @@ def _plain(v):
             if f.default_factory is not dataclasses.MISSING and x == f.default_factory():
                 continue
             out[f.name] = _plain(x)
+        from .register import Licence
+
+        if isinstance(v, Licence):
+            # Read from the grant files, and written into every format's header.
+            out |= {"title": v.title, "url": v.url, "condition": v.condition}
         return out
     if isinstance(v, (list, tuple)):
         return [_plain(x) for x in v]
@@ -191,17 +229,21 @@ def digests(root: Path, only=None, databases: bool = True) -> dict[str, str]:
     return out
 
 
-def writer_files(fmt: str) -> list[Path]:
-    """The writer modules one format's file comes from: those its entry in WRITERS calls, as a
-    shape layer's Parquet calls the GeoParquet writer, those of the formats it derives its file
-    from, and the writer modules each of them imports."""
-    from .serialise import WRITER_DEPENDS, WRITERS
+def writer_files(fmt: str, shape: bool | None = None) -> list[Path]:
+    """The writer modules one format's file comes from: those its entry in WRITERS calls, those
+    of the formats it derives its file from, and the writer modules each of them imports. A
+    format with a writer for shape layers (WRITER_VARIANTS) reads only the one a dataset runs
+    when shape says which; None reads both."""
+    from .serialise import WRITER_DEPENDS, WRITER_VARIANTS, WRITERS
 
     todo = set()
     for f in (fmt, *WRITER_DEPENDS.get(fmt, ())):
-        fn = WRITERS[f]
-        for name in fn.__code__.co_names:
-            obj = fn.__globals__.get(name)
+        if shape is not None and f in WRITER_VARIANTS:
+            objs = [WRITER_VARIANTS[f][shape]]
+        else:
+            fn = WRITERS[f]
+            objs = [fn.__globals__.get(name) for name in fn.__code__.co_names]
+        for obj in objs:
             mod = sys.modules.get(getattr(obj, "__module__", "") or "")
             if mod is not None and getattr(mod, "__file__", None):
                 p = Path(mod.__file__).resolve()
@@ -215,19 +257,20 @@ def writer_files(fmt: str) -> list[Path]:
     return sorted(seen)
 
 
-def writer_key(fmt: str) -> str:
+def writer_key(fmt: str, shape: bool = False) -> str:
     """What shapes one format's file beyond the rows: its writer modules and the libraries."""
     h = hashlib.sha256()
-    for p in writer_files(fmt):
+    for p in writer_files(fmt, shape):
         h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
     _runtime(h)
     return h.hexdigest()
 
 
-def writer_keys() -> dict[str, str]:
+def writer_keys(shape: bool = False) -> dict[str, str]:
+    """Each format's writer key for a table, or for a shape layer when shape is True."""
     from .serialise import WRITER_MODULES
 
-    return {fmt: writer_key(fmt) for fmt in WRITER_MODULES}
+    return {fmt: writer_key(fmt, shape) for fmt in WRITER_MODULES}
 
 
 def _link_or_copy(src: str, dst: str) -> None:
