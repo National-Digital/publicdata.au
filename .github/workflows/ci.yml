@@ -6,6 +6,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,7 +19,7 @@ permissions:
 jobs:
   pipeline:
     name: Pipeline checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Workflows land before the package does; skip until it exists.
@@ -34,7 +37,7 @@ jobs:
       - if: steps.check.outputs.exists == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version-file: .node-version
       # The explorer's browser libraries, copied into the build from the lockfile.
       - if: steps.check.outputs.exists == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
@@ -48,7 +51,7 @@ jobs:
 
   tdqs:
     name: Tool definition quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -61,7 +64,7 @@ jobs:
 
   register:
     name: Register validates
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: check
@@ -78,7 +81,7 @@ jobs:
 
   determinism:
     name: Determinism
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: check
@@ -95,7 +98,7 @@ jobs:
       - if: steps.check.outputs.exists == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version-file: .node-version
       # The explorer's browser libraries, copied into the build from the lockfile.
       - if: steps.check.outputs.exists == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
@@ -138,7 +141,7 @@ jobs:
 
   accessibility:
     name: Accessibility
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -149,8 +152,15 @@ jobs:
       - run: python -m publicdata spine install
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version-file: .node-version
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      # The Chrome build the locked puppeteer-core names, so a runner image update moves nothing.
+      - name: Install the pinned Chrome
+        run: |
+          v=$(sed -n "s/^ *chrome: '\(.*\)',$/\1/p" node_modules/puppeteer-core/lib/puppeteer/revisions.js)
+          test -n "$v"
+          path=$(npx --no-install @puppeteer/browsers install "chrome@$v" --path "$RUNNER_TEMP/chrome" --format '{{path}}')
+          echo "CHROME_PATH=$path" >> "$GITHUB_ENV"
       # Every representative page must pass WCAG 2.2 AAA: axe's rules in light and in dark, and the
       # house checks on type size, line length, target size, link names, reflow and text spacing
       # (docs/ACCESSIBILITY.md). The checks are first proven to fire on pages built to fail them.
@@ -158,16 +168,14 @@ jobs:
           node --test scripts/a11y.test.mjs
           python -m publicdata build --fixtures --out dist
           node scripts/a11y.mjs dist
-        env:
-          CHROME_PATH: /usr/bin/google-chrome
 
   functions:
     name: Functions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version-file: .node-version
       # The query builder's SQL runs against node:sqlite, the same engine D1 uses.
       - run: node --test functions/*.test.mjs scripts/*.test.mjs

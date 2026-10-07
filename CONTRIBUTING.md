@@ -238,6 +238,72 @@ deterministic bytes out, with no network, clock or randomness.
 5. A new format is added to every version at the next deploy, and the old versions' other files
    are left as they are. Open the pull request as `feat(serialise): ...`.
 
+## Change the build code
+
+A deploy reuses every version it has built before while the version's inputs are the same: its
+source, its register entry with the wording of its licence grant, its manifest, the register
+entries of the spine layers it joins, the JSON and GeoJSON writers, the Python and library
+versions, and two rebuild numbers. A dataset with geometry or a spine join is also keyed on the
+DuckDB spatial extension, and a database on `database.py`. The rest of the build code under
+`pipeline/publicdata/` is not in that key, so an edit to `normalise.py`, `build.py` or any other
+module the build imports leaves every published version as it was.
+
+- When your change alters what a version's files hold, raise a rebuild number in the same pull
+  request. Add or raise `rebuild:` in the register entry of each dataset it affects, which starts
+  at 0, or raise `REBUILD` in `pipeline/publicdata/cache.py` when the change reaches datasets you
+  cannot list. Say in the pull request which number you raised and why.
+- A change to a format writer under `serialise/writers/` needs no number. Each writer has a key of
+  its own, and the deploy writes that format again into every version.
+- Changing the default of an existing register field needs `REBUILD`, since a version's key leaves
+  out every field at its default. The deploy's plan fails such a change without it. Adding a new
+  field with a default needs no number.
+- The deploy checks every change to the build code against real data (`publicdata verify`). It
+  builds a sample of stored datasets from their sources, at least one of each adapter and shape
+  that fits its budget, every dataset whose `rebuild` the change raises, and one of the largest
+  datasets in turn. Of a large dataset it builds the newest versions that fit in 60 MB of source.
+  It compares each version, its query copy, diff and history archive a deploy would reuse with
+  what was built before. A difference fails the deploy and names the dataset, the version and the
+  file. When more than one sampled dataset differs, raise `REBUILD`: the sample is a part of the
+  store, and raising only the entries it names leaves the rest reused with their old files. A
+  push to main is checked against the last release, and the sample stays the same until the code
+  changes or a release moves past it, so a change is checked again until a deploy passes. No
+  version is built or pushed to R2 until the check passes.
+- A pull request from a fork has no access to the store, so its change is first checked on the
+  push to main. A failure there stops every deploy, the daily data updates included, until a
+  maintainer raises the number or reverts the change. To check datasets beyond the sample,
+  pull their sources and cache entries from R2 and run
+  `python -m publicdata verify run <slug>... --cache <cache> --published r2://publicdata-dist`.
+- A raised number builds the dataset's versions, diffs and history again, so the pages and the
+  cache follow the new code. A dated file already in R2 is still never overwritten; replacing the
+  published files is the `replace` dispatch under Withdraw a dataset or correct published files.
+
+## Toolchain versions
+
+Every tool and library CI, the deploy and the fetch runner use is pinned to an exact version, and
+each version lives in one file that the workflows read:
+
+| What | File |
+|---|---|
+| Python | `.python-version` |
+| Node | `.node-version` |
+| uv | `uv.toml` |
+| The pipeline's Python packages | `pipeline/requirements.txt` (a constraint on every install) |
+| The Python client's CI packages | `clients/python/requirements.txt` |
+| npm packages, wrangler, and the Chrome build the accessibility check runs (from `puppeteer-core`) | `package-lock.json` |
+| GitHub Actions | the commit SHA in each `uses:` |
+| Runner image | `ubuntu-24.04` in each `runs-on:` |
+| R and its CRAN snapshot date | `.github/workflows/clients.yml` |
+
+An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
+npm packages and the Actions; raise the others by hand. The Python version and the keyed
+libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles) are in the build's cache key, so
+raising one rebuilds every version, about four hours on main. Merge such a pull request on a day
+with no data pull request due.
+
+DuckDB's spatial extension is the one exception: DuckDB serves it for each release and can replace
+it within one. The datasets that load it are keyed on the build installed, and every job of a
+deploy checks that it has the same build as the plan.
+
 ## Licences that are not Creative Commons
 
 A publisher's own open grant is admitted as a file in `register/licences/` that quotes the publisher
@@ -256,7 +322,8 @@ such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
   as a tombstone that keeps the manifest and hash.
 - To rebuild files a bug wrote wrongly, a maintainer runs the Deploy workflow with `replace` set
   to the version prefixes, which also purges them from the edge cache. The pull request that fixed
-  the bug says which versions it affects.
+  the bug says which versions it affects and raises their rebuild number (see Change the build
+  code).
 
 ## Change the API or the MCP tools
 
@@ -360,6 +427,9 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,
   and the build writes a page per value under `/d/<slug>/in/<value>/`.
+- `rebuild` is a whole number, 0 when left out, that a pull request raises when its change to the
+  build code alters this dataset's published files. Raising it builds every version, diff and
+  history archive of the dataset again (see Change the build code).
 - `sort` lists the fields data.parquet is ordered by, for an entry whose queries mostly filter on
   fields the publisher's order does not group. The build breaks ties by the `key`, then by the
   row's place in the source, and writes a page index for the sorted file. Without `sort` the rows

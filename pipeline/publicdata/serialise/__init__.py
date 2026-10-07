@@ -350,10 +350,10 @@ def duckdb_comment(con, table: str, column: str | None, text: str) -> None:
 
 
 def duckdb_digest(path: Path) -> str:
-    """A digest of what a DuckDB file holds: every table's columns and rows, every view's text
-    and every comment, in an order that does not depend on how the file was written. The bytes
-    of two files written from the same rows differ, since the storage compresses by sampling, so
-    the determinism check compares this instead."""
+    """A digest of what a DuckDB file holds: every table's columns and rows in their stored
+    order, every view's text, constraint, index and comment, the block size and the storage
+    version. The bytes of two files written from the same rows differ, since the storage
+    compresses by sampling, so the determinism check compares this instead."""
     import duckdb
 
     con = duckdb.connect()
@@ -372,13 +372,22 @@ def duckdb_digest(path: Path) -> str:
         ).fetchall()
         for (t,) in tables:
             names = ", ".join(f'"{c}"' for tn, c, _ in cols if tn == t)
+            # The row id is each row's place, so rows written in another order differ.
             n, h = con.execute(
-                f'SELECT count(*), coalesce(bit_xor(hash({names})), 0) FROM d."{t}"'
+                f'SELECT count(*), coalesce(bit_xor(hash(rowid, {names})), 0) FROM d."{t}"'
             ).fetchone()
             s = con.execute(
-                f'SELECT coalesce(sum(hash({names}) % 1000003), 0) FROM d."{t}"'
+                f'SELECT coalesce(sum(hash(rowid, {names}) % 1000003), 0) FROM d."{t}"'
             ).fetchone()[0]
             parts.append(f"{t}:{n}:{h}:{s}")
+        for q in (
+            "SELECT block_size FROM pragma_database_size() WHERE database_name = 'd'",
+            "SELECT tags FROM duckdb_databases() WHERE database_name = 'd'",
+            "SELECT table_name, constraint_type, constraint_text FROM duckdb_constraints() "
+            "WHERE database_name = 'd' ORDER BY ALL",
+            "SELECT index_name, sql FROM duckdb_indexes() WHERE database_name = 'd' ORDER BY ALL",
+        ):
+            parts.append(dumps(con.execute(q).fetchall()))
         parts.append(
             dumps(
                 con.execute(
@@ -645,3 +654,5 @@ assert set(WRITERS) == {*LEGACY_FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}
 # derives its file from, whose modules its key takes in too.
 WRITER_MODULES = {fmt: fmt.replace(".", "_") for fmt in WRITERS}
 WRITER_DEPENDS = {"csv.gz": ("csv",)}
+# The writer a format runs for a table and for a shape layer, so each is keyed on its own.
+WRITER_VARIANTS = {"parquet": {False: write_parquet, True: write_shape_parquet}}

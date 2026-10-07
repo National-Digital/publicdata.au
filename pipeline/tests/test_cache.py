@@ -130,11 +130,11 @@ def test_cached_files_are_read_only(two_versions, tmp_path):
         (tmp_path / "a" / "d" / "t" / "v" / "2026-01-01" / "manifest.json").write_bytes(b"x")
 
 
-def test_the_key_covers_every_module_the_version_build_imports():
+def test_the_check_covers_every_module_the_version_build_imports():
     names = {str(p.relative_to(PACKAGE)) for p in code_files()}
     assert {"build.py", "normalise.py", "serialise/__init__.py", "provenance.py"} <= names
     assert "site.py" not in names
-    # Fetching and harvesting shape no built file, so an edit to them rebuilds nothing.
+    # Fetching and harvesting shape no built file, so an edit to them needs no check.
     assert not {"fetch.py", "catalogue.py", "browser.py"} & names
 
 
@@ -195,7 +195,7 @@ def test_the_push_refuses_when_a_left_out_file_is_not_in_r2():
         )
 
 
-def test_a_code_change_prunes_the_old_entries_before_it_builds(two_versions, tmp_path):
+def test_a_rebuild_prunes_the_old_entries_before_it_builds(two_versions, tmp_path):
     from publicdata.build import cache_keys
 
     ds = make_dataset(F, key=("id",))
@@ -203,7 +203,7 @@ def test_a_code_change_prunes_the_old_entries_before_it_builds(two_versions, tmp
     build_dataset(ds, two_versions, tmp_path / "a", BuildCache(root))
     cache = BuildCache(root)
     assert cache_keys(cache, ds, two_versions) == {p.name for p in root.iterdir()}
-    cache.env = "other code"
+    cache.env = "a raised rebuild number"
     assert cache.prune(cache_keys(cache, ds, two_versions)) == 4
     assert not list(root.iterdir())
 
@@ -286,7 +286,9 @@ def test_a_changed_writer_rewrites_only_its_own_file(
     monkeypatch.setattr(
         cache_mod,
         "writer_key",
-        lambda fmt: "changed" if fmt in ("csv", "csv.gz", "ndjson") else real(fmt),
+        lambda fmt, shape=False: (
+            "changed" if fmt in ("csv", "csv.gz", "ndjson") else real(fmt, shape)
+        ),
     )
     monkeypatch.setattr(
         build, "normalise", lambda *a, **k: (_ for _ in ()).throw(AssertionError("rebuilt"))
@@ -319,7 +321,9 @@ def test_a_changed_parquet_writer_rebuilds_the_version(
     _plain, _cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     real = cache_mod.writer_key
     monkeypatch.setattr(
-        cache_mod, "writer_key", lambda fmt: "changed" if fmt == "parquet" else real(fmt)
+        cache_mod,
+        "writer_key",
+        lambda fmt, shape=False: "changed" if fmt == "parquet" else real(fmt, shape),
     )
     # The summary counts a hit before the entry is found stale, so the rebuilds are counted here.
     rebuilt, real_build = [], build.build_version
