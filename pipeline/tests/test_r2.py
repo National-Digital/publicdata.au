@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 from datetime import UTC, datetime, timedelta
 
 from publicdata import r2
@@ -212,8 +213,25 @@ class Bucket(FakeS3):
         self.bytes = {}
         self.deleted = []
         self.batches = []
+        self.buckets = set()
+
+    def get_paginator(self, name):
+        pages = super().get_paginator(name)
+        fake = self
+
+        class P:
+            def paginate(self, Bucket, Prefix):
+                fake.buckets.add(Bucket)
+                return pages.paginate(Bucket=Bucket, Prefix=Prefix)
+
+        return P()
+
+    def head_object(self, Bucket, Key):
+        self.buckets.add(Bucket)
+        return super().head_object(Bucket, Key)
 
     def upload_file(self, path, bucket, key, ExtraArgs):
+        self.buckets.add(bucket)
         super().upload_file(path, bucket, key, ExtraArgs)
         data = open(path, "rb").read()
         self.bytes[key] = data
@@ -221,6 +239,7 @@ class Bucket(FakeS3):
         self.etags[key] = hashlib.md5(data).hexdigest()
 
     def download_file(self, bucket, key, dest):
+        self.buckets.add(bucket)
         if key not in self.bytes:
             raise _missing()
         open(dest, "wb").write(self.bytes[key])
@@ -228,15 +247,18 @@ class Bucket(FakeS3):
     def get_object(self, Bucket, Key):
         import io
 
+        self.buckets.add(Bucket)
         if Key not in self.bytes:
             raise _missing()
         return {"Body": io.BytesIO(self.bytes[Key])}
 
     def put_object(self, Bucket, Key, Body, ContentType):
+        self.buckets.add(Bucket)
         self.bytes[Key] = Body
         self.existing.add(Key)
 
     def delete_objects(self, Bucket, Delete):
+        self.buckets.add(Bucket)
         self.batches.append([o["Key"] for o in Delete["Objects"]])
         for o in Delete["Objects"]:
             self.deleted.append(o["Key"])
@@ -270,7 +292,7 @@ def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_droppe
     assert r2.cache_push(up) == (3, 0)
     # meta.json goes last, so an interrupted push never leaves a record without its files.
     puts = [k for k, _ in bucket.puts]
-    assert sorted(puts[-2:]) == [f"_build/{'a' * 64}/meta.json", f"_build/{'b' * 64}/meta.json"]
+    assert sorted(puts[-2:]) == [f"{'a' * 64}/meta.json", f"{'b' * 64}/meta.json"]
     assert r2.cache_push(up) == (0, 0)
     (up / ("a" * 64) / "meta.json").write_text('{"grown": 1}')
     assert r2.cache_push(up) == (1, 0)
@@ -293,8 +315,54 @@ def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_droppe
     assert r2.cache_pull(tmp_path / "again") == 2
     assert r2.cache_push(up, prune=True, now=t0 + timedelta(hours=23)) == (0, 0)
     assert r2.cache_push(up, prune=True, now=t0 + timedelta(hours=24)) == (0, 1)
-    assert bucket.deleted == [f"_build/{'b' * 64}/meta.json"]
+    assert bucket.deleted == [f"{'b' * 64}/meta.json"]
     assert json.loads(bucket.bytes[r2.UNUSED]) == {}
+
+
+def test_the_cache_lives_in_its_own_bucket_unless_another_is_named(tmp_path, monkeypatch):
+    up = tmp_path / "up"
+    _entry(up, "a" * 64, files=("x",))
+    _entry(up, "b" * 64)
+    t0 = datetime(2026, 10, 6, tzinfo=UTC)
+
+    def run(**name):
+        bucket = Bucket()
+        monkeypatch.setattr(r2, "client", lambda: bucket)
+        r2.cache_push(up, **name)
+        r2.cache_pull(tmp_path / "down", meta_only=True, **name)
+        shutil.rmtree(up / ("b" * 64), ignore_errors=True)
+        r2.cache_push(up, prune=True, now=t0, **name)
+        r2.cache_push(up, prune=True, now=t0 + timedelta(days=2), **name)
+        assert bucket.deleted, "the prune reached no delete"
+        _entry(up, "b" * 64)
+        return bucket.buckets
+
+    assert run() == {"publicdata-build-cache"}
+    assert run(bucket="elsewhere") == {"elsewhere"}
+
+
+def test_the_cache_reads_and_prunes_only_entry_keys(tmp_path, monkeypatch):
+    bucket = Bucket()
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    stray = [
+        f"_build/{'c' * 64}/meta.json",
+        "d/x/v/2026-04-24/data.csv",
+        f"{'c' * 64}/../../escape/meta.json",
+    ]
+    for k in stray:
+        bucket.put_object(Bucket="b", Key=k, Body=b"{}", ContentType="application/json")
+    up = tmp_path / "up"
+    _entry(up, "card-" + "a" * 64)
+    r2.cache_push(up)
+    down = tmp_path / "down"
+    assert r2.cache_pull(down) == 1
+    assert sorted(p.name for p in down.iterdir()) == ["card-" + "a" * 64]
+    assert not (tmp_path / "escape").exists()
+    shutil.rmtree(up / ("card-" + "a" * 64))
+    t0 = datetime(2026, 10, 6, tzinfo=UTC)
+    r2.cache_push(up, prune=True, now=t0)
+    assert r2.cache_push(up, prune=True, now=t0 + timedelta(days=2)) == (0, 1)
+    assert all(k in bucket.existing for k in stray)
 
 
 def test_an_entry_used_again_is_no_longer_due_and_pruning_takes_its_record_first(
@@ -320,8 +388,8 @@ def test_an_entry_used_again_is_no_longer_due_and_pruning_takes_its_record_first
     r2.cache_push(up, prune=True, now=t0 + timedelta(hours=2))
     assert r2.cache_push(up, prune=True, now=t0 + timedelta(hours=27)) == (0, 1)
     assert bucket.batches == [
-        [f"_build/{a}/meta.json"],
-        [f"_build/{a}/files/x", f"_build/{a}/files/y"],
+        [f"{a}/meta.json"],
+        [f"{a}/files/x", f"{a}/files/y"],
     ]
 
 
@@ -358,8 +426,8 @@ def test_a_pull_leaves_out_an_entry_deleted_under_it_and_can_keep_to_some(tmp_pa
 
     class Racing(Bucket):
         def download_file(self, bucket_, key, dest):
-            if key == f"_build/{a}/files/x":
-                bucket.bytes.pop(f"_build/{a}/meta.json")
+            if key == f"{a}/files/x":
+                bucket.bytes.pop(f"{a}/meta.json")
                 raise _missing()
             Bucket.download_file(bucket, bucket_, key, dest)
 

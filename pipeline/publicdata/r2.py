@@ -236,11 +236,11 @@ def downloader(bucket: str) -> Callable[[str, Path], bool]:
     return download
 
 
-CACHE_BUCKET = "publicdata-raw"
-CACHE_PREFIX = "_build/"
+# Apart from the raw store, so the fetch runner's credential cannot plant an entry a deploy reuses.
+CACHE_BUCKET = "publicdata-build-cache"
 # When each entry the last pruning push found unused was first found so; it is deleted only once
 # it has stayed unused this long, so a preview that listed it beforehand still finds it whole.
-UNUSED = CACHE_PREFIX + ".unused.json"
+UNUSED = ".unused.json"
 GRACE_HOURS = 24
 WORKERS = 16
 
@@ -249,7 +249,27 @@ def _missing(e) -> bool:
     return e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey")
 
 
-def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = None) -> int:
+# A cache key (BuildCache.key), or a social card's; any other object in the bucket is left alone.
+ENTRY = re.compile(r"(card-)?[0-9a-f]{64}")
+
+
+def _entry(key: str) -> str:
+    return key.split("/", 1)[0]
+
+
+def _cached(key: str) -> bool:
+    parts = key.split("/")
+    return (
+        len(parts) > 1 and bool(ENTRY.fullmatch(parts[0])) and ".." not in parts and "" not in parts
+    )
+
+
+def cache_pull(
+    root: Path,
+    meta_only: bool = False,
+    entries: set[str] | None = None,
+    bucket: str = CACHE_BUCKET,
+) -> int:
     """Copy the build cache down from R2 into root, each entry's meta.json last, so an entry whose
     files did not all arrive is never taken for whole; an entry deleted while it was copied is
     left out. With meta_only, the records alone, which is all a plan needs. With entries, only
@@ -259,13 +279,9 @@ def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = N
     from botocore.exceptions import ClientError
 
     s3 = client()
-    keys = [
-        k
-        for k in _etags(s3, CACHE_BUCKET, CACHE_PREFIX)
-        if not k.endswith("/") and not k[len(CACHE_PREFIX) :].startswith(".")
-    ]
+    keys = [k for k in _etags(s3, bucket, "") if _cached(k)]
     if entries is not None:
-        keys = [k for k in keys if k.split("/")[1] in entries]
+        keys = [k for k in keys if _entry(k) in entries]
     if meta_only:
         keys = [k for k in keys if k.endswith("/meta.json")]
     files = [k for k in keys if not k.endswith("/meta.json")]
@@ -273,13 +289,13 @@ def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = N
     gone: set[str] = set()
 
     def get(key: str) -> bool:
-        entry = key.split("/")[1]
+        entry = _entry(key)
         if entry in gone:
             return False
-        dest = root / key[len(CACHE_PREFIX) :]
+        dest = root / key
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
-            s3.download_file(CACHE_BUCKET, key, str(dest))
+            s3.download_file(bucket, key, str(dest))
         except ClientError as e:
             if not _missing(e):
                 raise
@@ -290,14 +306,14 @@ def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = N
 
     with ThreadPoolExecutor(WORKERS) as pool:
         list(pool.map(get, files))
-        got = sum(pool.map(get, [k for k in metas if k.split("/")[1] not in gone]))
+        got = sum(pool.map(get, [k for k in metas if _entry(k) not in gone]))
     return got
 
 
-def _delete(s3, keys: list[str]) -> None:
+def _delete(s3, bucket: str, keys: list[str]) -> None:
     for i in range(0, len(keys), 1000):
         r = s3.delete_objects(
-            Bucket=CACHE_BUCKET,
+            Bucket=bucket,
             Delete={"Objects": [{"Key": k} for k in keys[i : i + 1000]], "Quiet": True},
         )
         if r.get("Errors"):
@@ -308,13 +324,13 @@ def _delete(s3, keys: list[str]) -> None:
             )
 
 
-def _unused(s3) -> dict[str, str]:
+def _unused(s3, bucket: str) -> dict[str, str]:
     import json
 
     from botocore.exceptions import ClientError
 
     try:
-        body = s3.get_object(Bucket=CACHE_BUCKET, Key=UNUSED)["Body"].read()
+        body = s3.get_object(Bucket=bucket, Key=UNUSED)["Body"].read()
     except ClientError as e:
         if _missing(e):
             return {}
@@ -322,7 +338,9 @@ def _unused(s3) -> dict[str, str]:
     return json.loads(body)
 
 
-def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
+def cache_push(
+    root: Path, prune: bool = False, now=None, bucket: str = CACHE_BUCKET
+) -> tuple[int, int]:
     """Upload the entries under root that R2 lacks or holds in another form, files before each
     meta.json. With prune, R2's entries that root no longer holds are noted as unused, and those
     a push noted GRACE_HOURS or more ago are deleted, meta.json first; so run it only from a build
@@ -332,9 +350,9 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
     from datetime import UTC, datetime, timedelta
 
     s3 = client()
-    remote = {k: v for k, v in _etags(s3, CACHE_BUCKET, CACHE_PREFIX).items() if k != UNUSED}
+    remote = {k: v for k, v in _etags(s3, bucket, "").items() if _cached(k)}
     local = {
-        CACHE_PREFIX + p.relative_to(root).as_posix(): p
+        p.relative_to(root).as_posix(): p
         for p in sorted(root.rglob("*"))
         if p.is_file() and not p.relative_to(root).parts[0].startswith(".")
     }
@@ -345,7 +363,7 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
             return True
         if len(tag) == 32 and "-" not in tag:
             return tag != _md5(local[key])
-        meta = s3.head_object(Bucket=CACHE_BUCKET, Key=key).get("Metadata", {})
+        meta = s3.head_object(Bucket=bucket, Key=key).get("Metadata", {})
         return meta.get("sha256") != _sha256(local[key])
 
     def put(key: str) -> None:
@@ -353,7 +371,7 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
         ctype = TYPES.get(p.suffix) or "application/octet-stream"
         s3.upload_file(
             str(p),
-            CACHE_BUCKET,
+            bucket,
             key,
             ExtraArgs={"ContentType": ctype, "Metadata": {"sha256": _sha256(p)}},
         )
@@ -365,22 +383,20 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
     if not prune:
         return len(todo), 0
     now = now or datetime.now(UTC)
-    held = {k.split("/")[1] for k in local}
-    seen = _unused(s3)
-    unused = {
-        e: seen.get(e, now.isoformat()) for e in sorted({k.split("/")[1] for k in remote} - held)
-    }
+    held = {_entry(k) for k in local}
+    seen = _unused(s3, bucket)
+    unused = {e: seen.get(e, now.isoformat()) for e in sorted({_entry(k) for k in remote} - held)}
     due = {
         e
         for e, t in unused.items()
         if now - datetime.fromisoformat(t) >= timedelta(hours=GRACE_HOURS)
     }
-    gone = sorted(k for k in remote if k.split("/")[1] in due)
+    gone = sorted(k for k in remote if _entry(k) in due)
     # Without its meta.json an entry is a miss, so one that is half deleted is never read as whole.
-    _delete(s3, [k for k in gone if k.endswith("/meta.json")])
-    _delete(s3, [k for k in gone if not k.endswith("/meta.json")])
+    _delete(s3, bucket, [k for k in gone if k.endswith("/meta.json")])
+    _delete(s3, bucket, [k for k in gone if not k.endswith("/meta.json")])
     s3.put_object(
-        Bucket=CACHE_BUCKET,
+        Bucket=bucket,
         Key=UNUSED,
         Body=json.dumps({e: t for e, t in unused.items() if e not in due}, indent=0).encode(),
         ContentType="application/json",
