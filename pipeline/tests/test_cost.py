@@ -270,16 +270,19 @@ def test_a_ckan_entry_is_probed_at_the_resource_it_resolves_to(monkeypatch):
 
     ds = make_dataset([Field("a", "string")], source=Source(adapter="ckan-resource",
         url="https://example.gov.au/dataset/p", portal="https://example.gov.au", package="p", resource="r1"))  # fmt: skip
-    resources = [{"id": "r0", "size": 1, "url": "x"}, {"id": "r1", "size": 4321, "url": "y"}]
+    resources = [
+        {"id": "r0", "size": 1, "url": "https://x/"},
+        {"id": "r1", "size": 4321, "url": "https://y/"},
+    ]
     monkeypatch.setattr(fetch, "_package", lambda ds, s, api: {"resources": resources})
     assert cost.probe(ds) == cost.Sized(4321)
-    resources[1] = {"id": "r1", "size": "2 MiB", "url": "y"}
+    resources[1] = {"id": "r1", "size": "2 MiB", "url": "https://y/"}
     monkeypatch.setattr(
-        cost, "_size", lambda url, timeout: (2_251_010 if url == "y" else None, "", url)
+        cost, "_size", lambda url, timeout: (2_251_010 if url == "https://y/" else None, "", url)
     )
     assert cost.probe(ds) == cost.Sized(2_251_010)
     # A portal's size for a zip is its packed size, so the host is asked for the members.
-    resources[1] = {"id": "r1", "size": "5000", "url": "y", "format": "ZIP"}
+    resources[1] = {"id": "r1", "size": "5000", "url": "https://y/", "format": "ZIP"}
     monkeypatch.setattr(cost, "unpacked_bytes", lambda url, n, kind, timeout: 9 * n)
     assert cost.probe(ds) == cost.Sized(2_251_010, "zip", 9 * 2_251_010)
 
