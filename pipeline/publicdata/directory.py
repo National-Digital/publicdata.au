@@ -12,7 +12,7 @@ import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 from urllib.parse import parse_qs, urlparse
 
 from . import REPO, SITE
@@ -267,7 +267,7 @@ def plan(
     records: list[Record],
     curated: list[Publisher],
     as_at: str,
-    stats: Mapping[str, object] | None = None,
+    stats: Mapping[str, PortalStats] | None = None,
 ) -> Directory:
     portal_jur = {p.code: p.jurisdiction for p in BY_CODE.values()}
     pubs, by_org = resolve(records, curated, portal_jur)
@@ -277,12 +277,7 @@ def plan(
         pubs=pubs,
         ds_pub={},
         as_at=as_at,
-        # The stats come from the catalogue manifest's JSON, as the harvest wrote them.
-        unread={
-            k: cast("PortalStats", v)
-            for k, v in (stats or {}).items()
-            if isinstance(v, dict) and v.get("error")
-        },
+        unread={k: v for k, v in (stats or {}).items() if isinstance(v, dict) and v.get("error")},
     )
     by_id = {r["id"]: r for r in records}
     by_url = {_bare(r["url"]): r for r in records if r.get("url")}

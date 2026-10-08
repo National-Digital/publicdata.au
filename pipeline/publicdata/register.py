@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 
 import yaml
 
@@ -119,7 +119,7 @@ if TYPE_CHECKING:
         chart_where: object
         kind: object
         fields: list[RawField]
-        geometry: object
+        geometry: Geometry | None
         enrich: list[object]
         key: list[str]
         partition_by: list[str]
@@ -556,6 +556,13 @@ class Dataset:
             if t.name == name:
                 return t
         raise KeyError(name)
+
+    def wide_spec(self) -> Wide:
+        """The wide table's layout, for code that runs only for an entry that declares one."""
+        if self.wide is None:
+            msg = f"{self.slug}: the entry declares no wide table"
+            raise RegisterError(msg)
+        return self.wide
 
     def geometry_spec(self) -> Geometry:
         """The geometry, for code that runs only for a layer that declares one."""
@@ -1144,7 +1151,7 @@ def _wide(raw: RawWide, fields: list[Field], ctx: str) -> Wide:  # noqa: C901 - 
 GEOMETRY_KINDS = ("point", "polygon", "line")
 
 
-def _geometry(raw: object, seen: set[str], ctx: str) -> Geometry | None:
+def _geometry(raw: Geometry | None, seen: set[str], ctx: str) -> Geometry | None:
     """The geometry an entry declares.
 
     Points name their longitude and latitude fields; polygons and lines are read whole from a
@@ -1153,8 +1160,8 @@ def _geometry(raw: object, seen: set[str], ctx: str) -> Geometry | None:
     """
     if not raw:
         return None
-    # A mapping from the YAML, checked below; keys the build does not read pass through.
-    g = cast("Geometry", dict(cast("Mapping[str, object]", raw)))
+    # A copy of the YAML's mapping, checked below; keys the build does not read pass through.
+    g: Geometry = {**raw}
     g["kind"] = str(g.get("kind", "point"))
     if g["kind"] not in GEOMETRY_KINDS:
         msg = f"{ctx}: geometry.kind '{g['kind']}' not one of {GEOMETRY_KINDS}"

@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from .records import Records
     from .register import Condition, Example, Field
     from .serialise import PartitionEntry
-    from .store import Manifest
+    from .store import Manifest, PortalStats
 
     class QuickLink(TypedDict):
         name: str
@@ -3363,7 +3363,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     curated: list[Publisher] | None = None,
     catalogue_as_at: str = "",
     *,
-    catalogue_stats: Mapping[str, object] | None = None,
+    catalogue_stats: Mapping[str, PortalStats] | None = None,
     search: Path | None = None,
     cache: BuildCache | None = None,
     hubs: dict | None = None,

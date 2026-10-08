@@ -18,12 +18,13 @@ import random
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import yaml
 
 from . import build, published, store
 from .build import (
+    CacheMeta,
     _built_table,
     _source_order,
     _want,
@@ -44,6 +45,7 @@ from .cache import (
     writer_files,
     writer_keys,
 )
+from .jsontypes import JSON
 from .provenance import header as prov_header
 from .serialise import WRITERS
 from .serialise.geo import geo_kind
@@ -52,8 +54,8 @@ from .serialise.profile import QUERY_DIR
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .build import CacheMeta, VersionOut
-    from .jsontypes import JSON, JSONObject
+    from .build import VersionOut
+    from .jsontypes import JSONObject
     from .register import Dataset
 
 # What picks the code paths a dataset's build runs through (_stratum).
@@ -254,9 +256,9 @@ def uncovered(datasets: list[Dataset], store_dir: Path, chosen: list[str]) -> li
     ]
 
 
-def _entry(cache: BuildCache, key: str) -> JSON:
+def _entry[T](cache: BuildCache, key: str, _shape: type[T]) -> T | None:
     p = cache.root / key / "meta.json"
-    meta: JSON = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
+    meta: T | None = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
     return meta
 
 
@@ -411,8 +413,7 @@ def check(
         key = version_key(cache, ds, m, store_dir)
         keys.append(key)
         where = f"d/{ds.slug}/v/{m.version}/"
-        # A version's entry holds the meta.json the build wrote for it.
-        meta = cast("CacheMeta | None", _entry(cache, key))
+        meta = _entry(cache, key, CacheMeta)
         if meta is None:
             rebuilt += 1
             continue
@@ -422,7 +423,7 @@ def check(
     pairs = list(zip(fresh.versions, keys, strict=True))
     for (a, ka), (b, kb) in itertools.pairwise(pairs):
         rel = f"d/{ds.slug}/diff/{a.manifest.version}..{b.manifest.version}.json"
-        diff = _entry(cache, cache.key(ka, kb, "diff"))
+        diff = _entry(cache, cache.key(ka, kb, "diff"), dict[str, JSON])
         if diff is not None and diff != json.loads((out / rel).read_text(encoding="utf-8")):
             problems.append(f"{rel}: differs")
     if keys and whole:

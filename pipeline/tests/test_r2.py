@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -19,13 +19,14 @@ from publicdata.cache import BuildCache
 from publicdata.register import load
 from publicdata.serialise import profile
 
+from .conftest import make_header
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
     from typing import Unpack
 
     from botocore.exceptions import ClientError
 
-    from publicdata.provenance import Header
     from publicdata.serialise.profile import Layout
 
 
@@ -555,7 +556,7 @@ def _lay(**kw: Unpack[Layout]) -> Layout:
 def _copy(path: Path, lay: Layout) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     t = pa.table({"id": [3, 1, 2], "year": [2024, 2023, 2024], "place": ["b", "a", "c"]})
-    profile.write(t, cast("Header", {}), path, lay)
+    profile.write(t, make_header(t.num_rows, "data.parquet"), path, lay)
     return path
 
 

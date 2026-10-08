@@ -13,6 +13,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from publicdata.__main__ import main
+from publicdata.provenance import header
 from publicdata.register import Dataset, Field, Licence, Publisher, Source
 from publicdata.store import Manifest
 
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from typing import TypedDict, Unpack
 
     from publicdata.jsontypes import JSON, JSONObject
+    from publicdata.provenance import Header
     from publicdata.register import (
         Chart,
         Database,
@@ -228,6 +230,11 @@ def make_manifest(data: bytes, **kw: Unpack[ManifestFields]) -> Manifest:
         licence={"id": "CC-BY-4.0", "title": "Creative Commons Attribution 4.0"},
     )
     return replace(base, **kw)
+
+
+def make_header(rows: int = 0, rel: str = "data.json") -> Header:
+    """The provenance header a writer gets, for the test dataset and manifest."""
+    return header(make_dataset([]), make_manifest(b""), rows, f"https://example.org/{rel}")
 
 
 def present[T](x: T | None) -> T:

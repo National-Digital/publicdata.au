@@ -21,7 +21,7 @@ import urllib.parse
 import zoneinfo
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict
 
 import openpyxl
 import requests
@@ -46,147 +46,175 @@ if TYPE_CHECKING:
     type Adapter = Callable[[Dataset, Path], FetchResult]
     type Download = Fetched | requests.Response
 
-    class CkanOrganization(TypedDict, total=False):
-        name: str | None
-        title: str | None
 
-    class CkanResource(TypedDict, total=False):
-        id: str
-        url: str
-        name: str | None
-        format: str | None
-        description: str | None
-        created: str | None
-        last_modified: str | None
-        metadata_modified: str | None
+class CkanOrganization(TypedDict, total=False):
+    name: str | None
+    title: str | None
 
-    class CkanPackage(TypedDict, total=False):
-        id: str
-        name: str
-        title: str | None
-        version: str | None
-        notes: str | None
-        organization: CkanOrganization | None
-        metadata_created: str | None
-        metadata_modified: str
-        license_id: str
-        license_title: str
-        license_url: str
-        resources: list[CkanResource]
 
-    class _CkanResult(TypedDict):
-        results: list[CkanPackage]
+class CkanResource(TypedDict, total=False):
+    id: str
+    url: str
+    name: str | None
+    format: str | None
+    description: str | None
+    created: str | None
+    last_modified: str | None
+    metadata_modified: str | None
 
-    class CkanSearch(TypedDict, total=False):
-        success: bool
-        error: JSON
-        result: _CkanResult
 
-    class _SocrataLicence(TypedDict, total=False):
-        name: str | None
-        termsLink: str
+class CkanPackage(TypedDict, total=False):
+    id: str
+    name: str
+    title: str | None
+    version: str | None
+    notes: str | None
+    organization: CkanOrganization | None
+    metadata_created: str | None
+    metadata_modified: str
+    license_id: str
+    license_title: str
+    license_url: str
+    resources: list[CkanResource]
 
-    class _SocrataView(TypedDict, total=False):
-        name: str
-        license: _SocrataLicence | None
-        licenseId: str | None
-        rowsUpdatedAt: int | None
-        viewLastModified: int | None
 
-    class _OdsMeta(TypedDict, total=False):
-        title: str
-        license: str | None
-        license_url: str | None
-        data_processed: str | None
-        modified: str | None
+class _CkanResult(TypedDict):
+    results: list[CkanPackage]
 
-    class _OdsMetas(TypedDict, total=False):
-        default: _OdsMeta | None
 
-    class _OdsDataset(TypedDict, total=False):
-        metas: _OdsMetas | None
+class CkanSearch(TypedDict, total=False):
+    success: bool
+    error: JSON
+    result: _CkanResult
 
-    class _HubProps(catalogue.HubItem, total=False):
-        url: str | None
 
-    # A Hub item answers with its properties at the top or under properties.
-    class _HubAnswer(_HubProps, total=False):
-        properties: _HubProps | None
+class _SocrataLicence(TypedDict, total=False):
+    name: str | None
+    termsLink: str
 
-    class _EditingInfo(TypedDict, total=False):
-        lastEditDate: int | None
 
-    class _EsriField(TypedDict):
-        name: str
-        type: str
+class _SocrataView(TypedDict, total=False):
+    name: str
+    license: _SocrataLicence | None
+    licenseId: str | None
+    rowsUpdatedAt: int | None
+    viewLastModified: int | None
 
-    class _LayerInfo(TypedDict, total=False):
-        name: str
-        fields: list[_EsriField]
-        objectIdField: str | None
-        maxRecordCount: int | None
-        editingInfo: _EditingInfo | None
 
-    class GeoFeature(TypedDict, total=False):
-        type: str
-        geometry: JSON
-        properties: dict[str, str | float | None] | None
+class _OdsMeta(TypedDict, total=False):
+    title: str
+    license: str | None
+    license_url: str | None
+    data_processed: str | None
+    modified: str | None
 
-    class _FeaturePage(TypedDict, total=False):
-        features: list[GeoFeature]
 
-    class AlaOccurrence(TypedDict, total=False):
-        uuid: str
-        id: str
-        license: str
-        firstLoadedDate: str
-        otherProperties: JSONObject | None
+class _OdsMetas(TypedDict, total=False):
+    default: _OdsMeta | None
 
-    class _AlaCount(TypedDict, total=False):
-        totalRecords: int
 
-    class _AlaPage(TypedDict, total=False):
-        occurrences: list[AlaOccurrence] | None
+class _OdsDataset(TypedDict, total=False):
+    metas: _OdsMetas | None
 
-    # KiWIS answers a list query as a header row and then one row of text per item.
-    type KiwisTable = list[list[str]]
 
-    class KiwisSeries(TypedDict, total=False):
-        station_no: str
-        ts_id: str
-        # Each value as its timestamp, value and quality code.
-        data: list[tuple[str, float | None, int | None]]
+class _HubProps(catalogue.HubItem, total=False):
+    url: str | None
 
-    class _ZenodoLinks(TypedDict, total=False):
-        self: str
-        self_html: str
 
-    class _ZenodoFile(TypedDict, total=False):
-        key: str
-        checksum: str
-        links: _ZenodoLinks
+# A Hub item answers with its properties at the top or under properties.
+class _HubAnswer(_HubProps, total=False):
+    properties: _HubProps | None
 
-    class _ZenodoLicence(TypedDict, total=False):
-        id: str | None
-        url: str
 
-    class _ZenodoMeta(TypedDict, total=False):
-        license: _ZenodoLicence | None
-        publication_date: str | None
+class _EditingInfo(TypedDict, total=False):
+    lastEditDate: int | None
 
-    class _ZenodoRecord(TypedDict, total=False):
-        id: int | str
-        doi: str
-        updated: str | None
-        links: _ZenodoLinks | None
-        metadata: _ZenodoMeta | None
-        files: list[_ZenodoFile] | None
 
-    class _ZenodoHits(TypedDict, total=False):
-        hits: list[_ZenodoRecord] | None
+class _EsriField(TypedDict):
+    name: str
+    type: str
 
-    class _ZenodoSearch(TypedDict, total=False):
-        hits: _ZenodoHits | None
+
+class _LayerInfo(TypedDict, total=False):
+    name: str
+    fields: list[_EsriField]
+    objectIdField: str | None
+    maxRecordCount: int | None
+    editingInfo: _EditingInfo | None
+
+
+class GeoFeature(TypedDict, total=False):
+    type: str
+    geometry: JSON
+    properties: dict[str, str | float | None] | None
+
+
+class _FeaturePage(TypedDict, total=False):
+    features: list[GeoFeature]
+
+
+class AlaOccurrence(TypedDict, total=False):
+    uuid: str
+    id: str
+    license: str
+    firstLoadedDate: str
+    otherProperties: JSONObject | None
+
+
+class _AlaCount(TypedDict, total=False):
+    totalRecords: int
+
+
+class _AlaPage(TypedDict, total=False):
+    occurrences: list[AlaOccurrence] | None
+
+
+# KiWIS answers a list query as a header row and then one row of text per item.
+
+
+class KiwisSeries(TypedDict, total=False):
+    station_no: str
+    ts_id: str
+    # Each value as its timestamp, value and quality code.
+    data: list[tuple[str, float | None, int | None]]
+
+
+class _ZenodoLinks(TypedDict, total=False):
+    self: str
+    self_html: str
+
+
+class _ZenodoFile(TypedDict, total=False):
+    key: str
+    checksum: str
+    links: _ZenodoLinks
+
+
+class _ZenodoLicence(TypedDict, total=False):
+    id: str | None
+    url: str
+
+
+class _ZenodoMeta(TypedDict, total=False):
+    license: _ZenodoLicence | None
+    publication_date: str | None
+
+
+class _ZenodoRecord(TypedDict, total=False):
+    id: int | str
+    doi: str
+    updated: str | None
+    links: _ZenodoLinks | None
+    metadata: _ZenodoMeta | None
+    files: list[_ZenodoFile] | None
+
+
+class _ZenodoHits(TypedDict, total=False):
+    hits: list[_ZenodoRecord] | None
+
+
+class _ZenodoSearch(TypedDict, total=False):
+    hits: _ZenodoHits | None
 
 
 TZ = zoneinfo.ZoneInfo("Australia/Brisbane")
@@ -597,7 +625,7 @@ def socrata_view(
     """A Socrata dataset, such as the ACT's, exported whole as CSV. package is its four-by-four."""
     s = _session(session)
     base = ds.source.portal.rstrip("/")
-    view = cast("_SocrataView", catalogue.get_json(s, f"{base}/api/views/{ds.source.package}.json"))
+    view = catalogue.get_json_as(_SocrataView, s, f"{base}/api/views/{ds.source.package}.json")
     lic = view.get("license") or {}
     title = lic.get("name") or ""
     return _portal_version(
@@ -629,7 +657,7 @@ def opendatasoft(
     """An Opendatasoft dataset exported whole as comma-separated CSV. package is its dataset id."""
     s = _session(session)
     base = f"{ds.source.portal.rstrip('/')}/api/explore/v2.1/catalog/datasets/{ds.source.package}"
-    found = cast("_OdsDataset", catalogue.get_json(s, base))
+    found = catalogue.get_json_as(_OdsDataset, s, base)
     meta = (found.get("metas") or {}).get("default") or {}
     title = meta.get("license") or ""
     return _portal_version(
@@ -664,21 +692,15 @@ def arcgis_hub(
     """
     s = _session(session)
     base = ds.source.portal.rstrip("/")
-    item = cast(
-        "_HubAnswer",
-        catalogue.get_json(
-            s, f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}"
-        ),
+    item = catalogue.get_json_as(
+        _HubAnswer, s, f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}"
     )
     props = item.get("properties") or item
     lic_id, lic_title = catalogue.hub_licence(props)
     layer = ds.source.resource or "0"
     changed = props.get("modified")
     if url := props.get("url"):
-        info = cast(
-            "_LayerInfo",
-            catalogue.get_json(s, f"{url.rstrip('/')}/{layer}", {"f": "json"}),
-        )
+        info = catalogue.get_json_as(_LayerInfo, s, f"{url.rstrip('/')}/{layer}", {"f": "json"})
         changed = (info.get("editingInfo") or {}).get("lastEditDate") or changed
     return _portal_version(
         ds,
@@ -724,7 +746,7 @@ def arcgis_feature(
         read_from=f"{ds.source.portal.rstrip('/')}/api/3/action/package_show?id={p['name']}",
     )
     layer = ds.source.url.rstrip("/")
-    info = cast("_LayerInfo", catalogue.get_json(s, layer, {"f": "pjson"}))
+    info = catalogue.get_json_as(_LayerInfo, s, layer, {"f": "pjson"})
     if "fields" not in info:
         msg = f"{ds.slug}: {layer} is not a feature layer: {str(info)[:200]}"
         raise FetchError(msg)
@@ -735,22 +757,20 @@ def arcgis_feature(
     feats: list[GeoFeature] = []
     offset = 0
     while True:
-        got = cast(
-            "_FeaturePage",
-            catalogue.get_json(
-                s,
-                f"{layer}/query",
-                {
-                    "where": "1=1",
-                    "outFields": "*",
-                    "orderByFields": oid,
-                    "resultOffset": offset,
-                    "resultRecordCount": page,
-                    "outSR": 4326,
-                    "f": "geojson",
-                },
-                timeout=300,
-            ),
+        got = catalogue.get_json_as(
+            _FeaturePage,
+            s,
+            f"{layer}/query",
+            {
+                "where": "1=1",
+                "outFields": "*",
+                "orderByFields": oid,
+                "resultOffset": offset,
+                "resultRecordCount": page,
+                "outSR": 4326,
+                "f": "geojson",
+            },
+            timeout=300,
         )
         if "features" not in got:
             msg = f"{ds.slug}: page at {offset} is not GeoJSON: {str(got)[:200]}"
@@ -867,9 +887,7 @@ ALA_NOTE = (
 
 
 def _ala_count(s: requests.Session, base: str, q: str, fq: list[str]) -> int:
-    got = cast(
-        "_AlaCount", catalogue.get_json(s, base, {"q": q, "fq": fq, "pageSize": 0}, timeout=120)
-    )
+    got = catalogue.get_json_as(_AlaCount, s, base, {"q": q, "fq": fq, "pageSize": 0}, timeout=120)
     if "totalRecords" not in got:
         msg = f"ALA count failed: {str(got)[:200]}"
         raise FetchError(msg)
@@ -880,24 +898,22 @@ def _ala_pages(
     s: requests.Session, base: str, q: str, fq: list[str], n: int
 ) -> Iterator[AlaOccurrence]:
     for start in range(0, n, ALA_PAGE):
-        got = cast(
-            "_AlaPage",
-            catalogue.get_json(
-                s,
-                base,
-                {
-                    "q": q,
-                    "fq": fq,
-                    "pageSize": ALA_PAGE,
-                    "startIndex": start,
-                    "fl": ALA_REQUEST,
-                    # Sorting by load date drops rows: whole slices share one second and the
-                    # API's page order is not stable across ties. The record id is unique.
-                    "sort": "id",
-                    "dir": "asc",
-                },
-                timeout=120,
-            ),
+        got = catalogue.get_json_as(
+            _AlaPage,
+            s,
+            base,
+            {
+                "q": q,
+                "fq": fq,
+                "pageSize": ALA_PAGE,
+                "startIndex": start,
+                "fl": ALA_REQUEST,
+                # Sorting by load date drops rows: whole slices share one second and the
+                # API's page order is not stable across ties. The record id is unique.
+                "sort": "id",
+                "dir": "asc",
+            },
+            timeout=120,
         )
         rows = got.get("occurrences")
         if rows is None:
@@ -994,11 +1010,7 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -
         "license:(" + " OR ".join(f'"{x}"' for x in ALA_LICENCES) + ")",
     ]
     existing = store.manifests(store_dir, ds.slug)
-    before = (
-        cast("dict[str, dict[str, int]]", existing[-1].source.get("providers") or {})
-        if existing
-        else {}
-    )
+    before = existing[-1].source.get("providers") or {} if existing else {}
     rows: dict[str, AlaOccurrence] = {}
     counts: dict[str, dict[str, int]] = {}
     now = dt.datetime.now(dt.UTC).timestamp()
@@ -1249,7 +1261,9 @@ KIWIS_STATIONS_NOTE = (
 )
 
 
-def _kiwis_query(s: requests.Session, base: str, request: str, **params: str) -> list[JSON]:
+def _kiwis_query[T](
+    _shape: type[T], s: requests.Session, base: str, request: str, **params: str
+) -> T:
     """One KiWIS query.
 
     The service answers 500 to a space sent as "+", so the query is percent-encoded, and a refusal
@@ -1265,7 +1279,7 @@ def _kiwis_query(s: requests.Session, base: str, request: str, **params: str) ->
     }
     encoded = urllib.parse.urlencode(query, quote_via=urllib.parse.quote)
     try:
-        got = catalogue.get_json(s, f"{base}?{encoded}", timeout=600)
+        got: T | JSONObject = catalogue.get_json_as(_shape, s, f"{base}?{encoded}", timeout=600)
     except requests.HTTPError as e:
         try:
             said = e.response.json() if e.response is not None else None
@@ -1278,7 +1292,7 @@ def _kiwis_query(s: requests.Session, base: str, request: str, **params: str) ->
     if isinstance(got, dict):
         msg = f"KiWIS {request} failed: {str(got)[:200]}"
         raise FetchError(msg)
-    return cast("list[JSON]", got)
+    return got
 
 
 def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[KiwisSeries]:
@@ -1288,18 +1302,16 @@ def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[Kiwi
     answers.
     """
     try:
-        return cast(
-            "list[KiwisSeries]",
-            _kiwis_query(
-                s,
-                base,
-                "getTimeseriesValues",
-                ts_id=",".join(batch),
-                period="complete",
-                returnfields="Timestamp,Value,Quality Code",
-                metadata="true",
-                md_returnfields="station_no,ts_id",
-            ),
+        return _kiwis_query(
+            list[KiwisSeries],
+            s,
+            base,
+            "getTimeseriesValues",
+            ts_id=",".join(batch),
+            period="complete",
+            returnfields="Timestamp,Value,Quality Code",
+            metadata="true",
+            md_returnfields="station_no,ts_id",
         )
     except FetchError as e:
         if "TooManyResults" not in str(e) or len(batch) <= 1:
@@ -1329,15 +1341,13 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
         raise FetchError(msg)
     licence = statement_licence(ds, s)
     base = ds.source.url
-    raw = cast(
-        "KiwisTable",
-        _kiwis_query(
-            s,
-            base,
-            "getStationList",
-            parametertype_name=ds.source.search,
-            returnfields=",".join(KIWIS_STATION_FIELDS),
-        ),
+    raw = _kiwis_query(
+        list[list[str]],
+        s,
+        base,
+        "getStationList",
+        parametertype_name=ds.source.search,
+        returnfields=",".join(KIWIS_STATION_FIELDS),
     )
     header, rows = raw[0], raw[1:]
     stations = {r[0]: dict(zip(header, r, strict=True)) for r in rows}
@@ -1356,17 +1366,15 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
             )
         changed, notes = dt.datetime.now(dt.UTC).isoformat(), [KIWIS_STATIONS_NOTE]
     else:
-        series = cast(
-            "KiwisTable",
-            _kiwis_query(
-                s,
-                base,
-                "getTimeseriesList",
-                parametertype_name=ds.source.search,
-                ts_name=ds.source.package,
-                # coverage answers as the from and to columns; naming those two is refused.
-                returnfields="station_no,ts_id,ts_name,coverage",
-            ),
+        series = _kiwis_query(
+            list[list[str]],
+            s,
+            base,
+            "getTimeseriesList",
+            parametertype_name=ds.source.search,
+            ts_name=ds.source.package,
+            # coverage answers as the from and to columns; naming those two is refused.
+            returnfields="station_no,ts_id,ts_name,coverage",
         )
         dated = [dict(zip(series[0], r, strict=True)) for r in series[1:] if r[3] and r[4]]
         if not dated:
@@ -1573,14 +1581,12 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
     record.
     """
     s = _session(session)
-    got = cast(
-        "_ZenodoSearch",
-        catalogue.get_json(
-            s,
-            ds.source.url,
-            {"q": f"conceptrecid:{ds.source.package}", "sort": "mostrecent", "size": 1},
-            timeout=120,
-        ),
+    got = catalogue.get_json_as(
+        _ZenodoSearch,
+        s,
+        ds.source.url,
+        {"q": f"conceptrecid:{ds.source.package}", "sort": "mostrecent", "size": 1},
+        timeout=120,
     )
     hits = (got.get("hits") or {}).get("hits") or []
     if not hits:
@@ -1859,11 +1865,8 @@ def ckan_stack(  # noqa: C901 - the adapter's steps, read in order
     """
     s = _session(session)
     api = f"{ds.source.portal.rstrip('/')}/api/3/action"
-    found = cast(
-        "CkanSearch",
-        catalogue.get_json(
-            s, f"{api}/package_search", {"q": ds.source.package, "rows": 1000}, timeout=120
-        ),
+    found = catalogue.get_json_as(
+        CkanSearch, s, f"{api}/package_search", {"q": ds.source.package, "rows": 1000}, timeout=120
     )
     if not found.get("success"):
         msg = f"{ds.slug}: package_search failed: {found.get('error')}"

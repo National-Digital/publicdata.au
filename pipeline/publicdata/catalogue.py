@@ -34,163 +34,188 @@ if TYPE_CHECKING:
     type Log = Callable[[str], object]
     type Params = Mapping[str, str | int | float | Sequence[str]]
 
-    class _Fields(TypedDict):
-        """The fields of a record each harvester gives _record."""
 
-        name: str
-        title: str
-        org: str
-        org_title: str
-        kind: str
-        licence_title: str
-        created: str
-        modified: str
-        url: str
-        summary: str
-        harvested_from: str
+class _Fields(TypedDict):
+    """The fields of a record each harvester gives _record."""
 
-    class _CouncilFields(TypedDict):
-        """The fields a council portal's harvester gives _council_record."""
+    name: str
+    title: str
+    org: str
+    org_title: str
+    kind: str
+    licence_title: str
+    created: str
+    modified: str
+    url: str
+    summary: str
+    harvested_from: str
 
-        source_id: str
-        name: str
-        title: str
-        licence: str
-        licence_title: str
-        formats: list[str]
-        modified: str
-        url: str
-        summary: str
 
-    class Record(_Fields):
-        """A catalogue record, keyed as _record writes it and as the snapshot reads back."""
+class _CouncilFields(TypedDict):
+    """The fields a council portal's harvester gives _council_record."""
 
-        id: str
-        portal: str
-        licence: str
-        open: bool | None
-        formats: list[str]
-        downloadable: bool
-        source_host: NotRequired[str]
+    source_id: str
+    name: str
+    title: str
+    licence: str
+    licence_title: str
+    formats: list[str]
+    modified: str
+    url: str
+    summary: str
 
-    # The parts of each portal's API answers that the harvesters read.
-    class _Named(TypedDict, total=False):
-        id: str
-        name: str
-        title: str | None
 
-    class _NamedList(TypedDict):
-        result: list[_Named]
+class Record(_Fields):
+    """A catalogue record, keyed as _record writes it and as the snapshot reads back."""
 
-    class _Harvest(TypedDict, total=False):
-        site_url: str | None
+    id: str
+    portal: str
+    licence: str
+    open: bool | None
+    formats: list[str]
+    downloadable: bool
+    source_host: NotRequired[str]
 
-    class _CkanOrg(TypedDict, total=False):
-        name: str | None
 
-    class _CkanPackage(TypedDict, total=False):
-        id: str
-        name: str | None
-        title: str | None
-        original_harvest_source: str | _Harvest | None
-        extras_original_harvest_source: str | _Harvest | None
-        license_id: str | None
-        organization: str | _CkanOrg | None
-        dataset_type: str | None
-        type: str | None
-        res_format: list[object] | None
-        metadata_created: str | None
-        metadata_modified: str | None
-        url: str | None
-        notes: str | None
+# The parts of each portal's API answers that the harvesters read.
+class _Named(TypedDict, total=False):
+    id: str
+    name: str
+    title: str | None
 
-    class _CkanResult(TypedDict):
-        results: list[_CkanPackage]
-        count: int
 
-    class _CkanSearch(TypedDict):
-        result: _CkanResult
+class _NamedList(TypedDict):
+    result: list[_Named]
 
-    class _SocrataResource(TypedDict, total=False):
-        id: str
-        type: str | None
-        attribution: str | None
-        name: str | None
-        createdAt: str | None
-        data_updated_at: str | None
-        updatedAt: str | None
-        description: str | None
 
-    class _SocrataMeta(TypedDict, total=False):
-        license: str | None
+class _Harvest(TypedDict, total=False):
+    site_url: str | None
 
-    class _SocrataResult(TypedDict, total=False):
-        resource: _SocrataResource
-        metadata: _SocrataMeta | None
-        permalink: str | None
-        link: str | None
 
-    class _SocrataPage(TypedDict):
-        results: list[_SocrataResult]
-        resultSetSize: int
+class _CkanOrg(TypedDict, total=False):
+    name: str | None
 
-    class _Dataflow(TypedDict, total=False):
-        id: str
-        version: str | None
-        name: str | None
-        description: str | None
 
-    class _Dataflows(TypedDict):
-        dataflows: list[_Dataflow]
+class _CkanPackage(TypedDict, total=False):
+    id: str
+    name: str | None
+    title: str | None
+    original_harvest_source: str | _Harvest | None
+    extras_original_harvest_source: str | _Harvest | None
+    license_id: str | None
+    organization: str | _CkanOrg | None
+    dataset_type: str | None
+    type: str | None
+    res_format: list[object] | None
+    metadata_created: str | None
+    metadata_modified: str | None
+    url: str | None
+    notes: str | None
 
-    class _SdmxAnswer(TypedDict):
-        data: _Dataflows
 
-    class _OdsMeta(TypedDict, total=False):
-        license: str | None
-        license_url: str | None
-        title: str | None
-        modified: str | None
-        description: str | None
+class _CkanResult(TypedDict):
+    results: list[_CkanPackage]
+    count: int
 
-    class _OdsMetas(TypedDict, total=False):
-        default: _OdsMeta | None
 
-    class _OdsDataset(TypedDict, total=False):
-        dataset_id: str
-        dataset_uid: str | None
-        metas: _OdsMetas | None
-        has_records: bool | None
-        features: list[str] | None
+class _CkanSearch(TypedDict):
+    result: _CkanResult
 
-    class _OdsPage(TypedDict):
-        total_count: int
-        results: list[_OdsDataset]
 
-    class HubItem(TypedDict, total=False):
-        """An ArcGIS Hub dataset's properties, as its search and item APIs state them."""
+class _SocrataResource(TypedDict, total=False):
+    id: str
+    type: str | None
+    attribution: str | None
+    name: str | None
+    createdAt: str | None
+    data_updated_at: str | None
+    updatedAt: str | None
+    description: str | None
 
-        id: str
-        type: str | None
-        title: str | None
-        license: str | None
-        licenseInfo: str | None
-        created: object
-        modified: object
-        description: str | None
-        snippet: str | None
 
-    class _HubFeature(TypedDict, total=False):
-        properties: HubItem | None
+class _SocrataMeta(TypedDict, total=False):
+    license: str | None
 
-    class _HubLink(TypedDict, total=False):
-        href: str
-        rel: str
 
-    class _HubPage(TypedDict, total=False):
-        features: list[_HubFeature] | None
-        numberMatched: int
-        links: list[_HubLink] | None
+class _SocrataResult(TypedDict, total=False):
+    resource: _SocrataResource
+    metadata: _SocrataMeta | None
+    permalink: str | None
+    link: str | None
+
+
+class _SocrataPage(TypedDict):
+    results: list[_SocrataResult]
+    resultSetSize: int
+
+
+class _Dataflow(TypedDict, total=False):
+    id: str
+    version: str | None
+    name: str | None
+    description: str | None
+
+
+class _Dataflows(TypedDict):
+    dataflows: list[_Dataflow]
+
+
+class _SdmxAnswer(TypedDict):
+    data: _Dataflows
+
+
+class _OdsMeta(TypedDict, total=False):
+    license: str | None
+    license_url: str | None
+    title: str | None
+    modified: str | None
+    description: str | None
+
+
+class _OdsMetas(TypedDict, total=False):
+    default: _OdsMeta | None
+
+
+class _OdsDataset(TypedDict, total=False):
+    dataset_id: str
+    dataset_uid: str | None
+    metas: _OdsMetas | None
+    has_records: bool | None
+    features: list[str] | None
+
+
+class _OdsPage(TypedDict):
+    total_count: int
+    results: list[_OdsDataset]
+
+
+class HubItem(TypedDict, total=False):
+    """An ArcGIS Hub dataset's properties, as its search and item APIs state them."""
+
+    id: str
+    type: str | None
+    title: str | None
+    license: str | None
+    licenseInfo: str | None
+    created: object
+    modified: object
+    description: str | None
+    snippet: str | None
+
+
+class _HubFeature(TypedDict, total=False):
+    properties: HubItem | None
+
+
+class _HubLink(TypedDict, total=False):
+    href: str
+    rel: str
+
+
+class _HubPage(TypedDict, total=False):
+    features: list[_HubFeature] | None
+    numberMatched: int
+    links: list[_HubLink] | None
 
 
 class _Headers(TypedDict, total=False):
@@ -351,12 +376,31 @@ def get_json(
     try:
         got: JSON = r.json()
     except ValueError:
-        msg = (
-            f"{url}: HTTP {r.status_code}, {r.headers.get('Content-Type') or 'no content type'}, "
-            f"{len(r.content)} bytes, not JSON: {r.content[:120]!r}"
-        )
-        raise PortalError(msg) from None
+        raise PortalError(_not_json(url, r)) from None
     return got
+
+
+def get_json_as[T](
+    _shape: type[T],
+    s: requests.Session,
+    url: str,
+    params: Params | None = None,
+    **kw: Unpack[_GetOptions],
+) -> T:
+    """get_json for an answer the caller reads as _shape, which types the result and is not checked."""
+    r = _get(s, url, params, **kw)
+    try:
+        got: T = r.json()
+    except ValueError:
+        raise PortalError(_not_json(url, r)) from None
+    return got
+
+
+def _not_json(url: str, r: requests.Response) -> str:
+    return (
+        f"{url}: HTTP {r.status_code}, {r.headers.get('Content-Type') or 'no content type'}, "
+        f"{len(r.content)} bytes, not JSON: {r.content[:120]!r}"
+    )
 
 
 # CKAN's default licence register, by title. Checked before any pattern so a title such as
@@ -504,18 +548,16 @@ def _record(
 
 
 def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
-    licences = cast("_NamedList", get_json(s, f"{portal.api}/license_list"))
+    licences = get_json_as(_NamedList, s, f"{portal.api}/license_list")
     lic_titles = {x["id"]: x.get("title") or x["id"] for x in licences["result"]}
     orgs: dict[str, str] = {}
     off = 0
     while True:
-        page = cast(
-            "_NamedList",
-            get_json(
-                s,
-                f"{portal.api}/organization_list",
-                {"all_fields": "true", "limit": 25, "offset": off},
-            ),
+        page = get_json_as(
+            _NamedList,
+            s,
+            f"{portal.api}/organization_list",
+            {"all_fields": "true", "limit": 25, "offset": off},
         )["result"]
         new = [o for o in page if o["name"] not in orgs]
         if not new:
@@ -525,19 +567,17 @@ def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
     out: list[Record] = []
     dropped, start, rows = 0, 0, 1000
     while True:
-        res = cast(
-            "_CkanSearch",
-            get_json(
-                s,
-                f"{portal.api}/package_search",
-                {
-                    "rows": rows,
-                    "start": start,
-                    "sort": "id asc",
-                    "fl": CKAN_FIELDS,
-                    "include_private": "false",
-                },
-            ),
+        res = get_json_as(
+            _CkanSearch,
+            s,
+            f"{portal.api}/package_search",
+            {
+                "rows": rows,
+                "start": start,
+                "sort": "id asc",
+                "fl": CKAN_FIELDS,
+                "include_private": "false",
+            },
         )["result"]
         batch = res["results"]
         for p in batch:
@@ -595,7 +635,7 @@ def socrata(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list
         # scroll_id pages in id order, starting from an empty one, and stays stable while the
         # catalogue changes. Offsets over the default relevance order repeat and skip rows.
         params: Params = {"domains": portal.host, "limit": 100, "scroll_id": after}
-        res = cast("_SocrataPage", get_json(s, portal.api, params))
+        res = get_json_as(_SocrataPage, s, portal.api, params)
         for r in res["results"]:
             x, meta = r["resource"], r.get("metadata") or {}
             kind = x.get("type") or ""
@@ -630,14 +670,12 @@ def socrata(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list
 
 def sdmx(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """ABS dataflows. The ABS states CC BY 4.0 for its statistics unless a release says otherwise."""
-    flows = cast(
-        "_SdmxAnswer",
-        get_json(
-            s,
-            f"{portal.api}/dataflow/ABS",
-            {"detail": "allstubs"},
-            headers={"Accept": "application/vnd.sdmx.structure+json"},
-        ),
+    flows = get_json_as(
+        _SdmxAnswer,
+        s,
+        f"{portal.api}/dataflow/ABS",
+        {"detail": "allstubs"},
+        headers={"Accept": "application/vnd.sdmx.structure+json"},
     )["data"]["dataflows"]
     out: list[Record] = []
     for f in flows:
@@ -690,11 +728,11 @@ def ods(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
     out: list[Record] = []
     off, total = 0, 0
     while True:
-        res = cast(
-            "_OdsPage",
-            get_json(
-                s, f"{portal.api}/api/explore/v2.1/catalog/datasets", {"limit": 100, "offset": off}
-            ),
+        res = get_json_as(
+            _OdsPage,
+            s,
+            f"{portal.api}/api/explore/v2.1/catalog/datasets",
+            {"limit": 100, "offset": off},
         )
         total = res["total_count"]
         if total > ODS_PAGING_LIMIT:
@@ -789,7 +827,7 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
     url = f"{portal.api}/api/search/v1/collections/dataset/items"
     params: Params | None = {"limit": 100}
     while True:
-        res = cast("_HubPage", get_json(s, url, params))
+        res = get_json_as(_HubPage, s, url, params)
         feats = res.get("features") or []
         for f in feats:
             x = f.get("properties") or {}

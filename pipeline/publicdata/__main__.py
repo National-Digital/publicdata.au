@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from .build import DatasetOut
     from .cache import BuildCache
-    from .cost import RawEntry
+    from .cost import EntryYaml
     from .hubs import HubRecord
     from .register import Dataset
 
@@ -941,7 +941,7 @@ def cmd_cost(args) -> int:
     register = root / "register"
     changed: set[str] = set(args.slug)
     fresh: set[str] = set()
-    reshaped: dict[str, RawEntry] = {}
+    reshaped: dict[str, EntryYaml] = {}
     if args.base:
         if links := cost.symlinks(root):
             print(f"cost: the register may not hold symbolic links: {', '.join(links)}")
@@ -956,7 +956,11 @@ def cmd_cost(args) -> int:
     approve = None
     if args.github_pr:
         repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
-        approve = lambda: cost.approval(repo, args.github_pr, lambda p: cost._github(p, token))  # noqa: E731, SLF001
+
+        def github[T](shape: type[T], path: str, /) -> T:
+            return cost._github(shape, path, token)  # noqa: SLF001
+
+        approve = lambda: cost.approval(repo, args.github_pr, github)  # noqa: E731
     today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()  # noqa: DTZ011 - the runner's day
     return cost.run(
         load(register),

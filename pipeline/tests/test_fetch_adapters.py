@@ -804,7 +804,9 @@ def test_kiwis_splits_a_batch_the_service_refuses_as_too_large(
 ) -> None:
     calls: list[list[str]] = []
 
-    def fake_query(s: requests.Session, base: str, request: str, **params: str) -> list[JSON]:
+    def fake_query(
+        _shape: object, s: requests.Session, base: str, request: str, **params: str
+    ) -> list[JSON]:
         ids = params["ts_id"].split(",")
         calls.append(ids)
         if len(ids) > 1:

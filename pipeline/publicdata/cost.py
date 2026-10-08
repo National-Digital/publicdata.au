@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, TypedDict
 
 import requests
 import yaml
@@ -38,8 +38,16 @@ if TYPE_CHECKING:
     from .jsontypes import JSON, JSONObject
     from .register import Dataset, Geometry
 
-    # A register entry as its YAML reads, before the register parses it.
-    type RawEntry = JSONObject
+    class EntryYaml(TypedDict, total=False):
+        """A register entry as its YAML reads, before the register parses it.
+
+        Only the keys this module reads by name are typed; the rest pass through.
+        """
+
+        source: JSONObject
+        fields: list[JSON]
+        partition_by: list[str]
+        geometry: Geometry | None
 
     class CatalogDistribution(TypedDict, total=False):
         format: str
@@ -62,45 +70,59 @@ if TYPE_CHECKING:
         latest: str
         versions: list[VersionRows]
 
-    class GhLogin(TypedDict, total=False):
-        login: str
 
-    class GhLabel(TypedDict, total=False):
-        name: str
+# The parts of GitHub's answers that the approval check reads.
+class GhLogin(TypedDict, total=False):
+    login: str
 
-    class GhRepo(TypedDict, total=False):
-        full_name: str
 
-    class GhHead(TypedDict):
-        sha: str
-        ref: str
-        repo: NotRequired[GhRepo | None]
+class GhLabel(TypedDict, total=False):
+    name: str
 
-    class GhPull(TypedDict):
-        user: GhLogin
-        head: GhHead
-        labels: NotRequired[list[GhLabel]]
 
-    class GhEvent(TypedDict):
-        created_at: str
-        event: str
-        label: NotRequired[GhLabel | None]
-        actor: NotRequired[GhLogin | None]
+class GhRepo(TypedDict, total=False):
+    full_name: str
 
-    class GhPermission(TypedDict, total=False):
-        role_name: str
-        permission: str
 
-    class GhRun(TypedDict):
-        head_sha: str
-        created_at: str
-        head_repository: NotRequired[GhRepo | None]
+class GhHead(TypedDict):
+    sha: str
+    ref: str
+    repo: NotRequired[GhRepo | None]
+
+
+class GhPull(TypedDict):
+    user: GhLogin
+    head: GhHead
+    labels: NotRequired[list[GhLabel]]
+
+
+class GhEvent(TypedDict):
+    created_at: str
+    event: str
+    label: NotRequired[GhLabel | None]
+    actor: NotRequired[GhLogin | None]
+
+
+class GhPermission(TypedDict, total=False):
+    role_name: str
+    permission: str
+
+
+class GhRun(TypedDict):
+    head_sha: str
+    created_at: str
+    head_repository: NotRequired[GhRepo | None]
 
 
 type Kind = Literal["plain", "zip", "gzip", "spreadsheet"]
 type Basis = Literal["measured", "estimate", "unknown"]
-# Reads a GitHub API path and gives back its JSON, an object or a list as the path decides.
-type Getter = Callable[[str], object]
+
+
+class Getter(Protocol):
+    """Reads a GitHub API path, giving back its JSON as the shape the caller names."""
+
+    def __call__[T](self, shape: type[T], path: str, /) -> T: ...
+
 
 GB = 10**9
 BUDGET_GB_YEAR = 5.0
@@ -525,7 +547,7 @@ def project(  # noqa: C901, PLR0913 - one projection, read in order
     fresh: frozenset[str] = frozenset(),
     prober: Callable[[Dataset], Sized] = probe,
     probing: bool = False,
-    reshaped: dict[str, RawEntry] | None = None,
+    reshaped: dict[str, EntryYaml] | None = None,
     rows: dict[str, int] | None = None,
 ) -> list[Projection]:
     """The projected growth of each entry.
@@ -571,8 +593,8 @@ def project(  # noqa: C901, PLR0913 - one projection, read in order
             old = reshaped[ds.slug]
             before = replace(
                 ds,
-                partition_by=tuple(cast("list[str]", old.get("partition_by") or ())),
-                geometry=cast("Geometry | None", old.get("geometry") or None),
+                partition_by=tuple(old.get("partition_by") or ()),
+                geometry=old.get("geometry") or None,
             )
             was = (
                 measured_bytes(before, files, newest.bytes)
@@ -725,8 +747,8 @@ QUIET_SOURCE_KEYS = ("cadence", "encoding", "as_at_regex")
 SHAPE_KEYS = ("unpivot", "wide", "enrich", "geometry", "kind", "database", "tables")
 
 
-def _source(raw: RawEntry) -> JSONObject:
-    src = dict(cast("JSONObject", raw.get("source") or {}))
+def _source(raw: EntryYaml) -> JSONObject:
+    src = dict(raw.get("source") or {})
     for k in QUIET_SOURCE_KEYS:
         src.pop(k, None)
     # A CKAN entry's url is the landing page; the fetch reads the portal, package and resource.
@@ -735,12 +757,12 @@ def _source(raw: RawEntry) -> JSONObject:
     return src
 
 
-def _shape(raw: RawEntry) -> dict[str, object]:
+def _shape(raw: EntryYaml) -> dict[str, object]:
     out: dict[str, object] = {k: raw.get(k) for k in SHAPE_KEYS}
     # A field's description or label leaves the bytes alone; its name, source and type do not.
     out["fields"] = [
         (f.get("name"), f.get("source"), f.get("type")) if isinstance(f, dict) else f
-        for f in cast("list[JSON]", raw.get("fields") or ())
+        for f in raw.get("fields") or ()
     ]
     return out
 
@@ -757,21 +779,21 @@ def _base_paths(root: Path, base: str) -> dict[str, str]:
 
 def entry_changes(
     root: Path, base: str, entries: dict[str, str]
-) -> tuple[set[str], dict[str, RawEntry]]:
+) -> tuple[set[str], dict[str, EntryYaml]]:
     """Changed entries whose source or output shape differs from the base's.
 
     For these the stored file no longer says how big a version will be. The base copy of each
     entry whose output shape changed comes back too. An entry with no base copy counts as moved.
     """
     fresh: set[str] = set()
-    reshaped: dict[str, RawEntry] = {}
+    reshaped: dict[str, EntryYaml] = {}
     base_paths = _base_paths(root, base)
     for slug, path in entries.items():
-        new: RawEntry = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
+        new: EntryYaml = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
         if slug not in base_paths:
             fresh.add(slug)
             continue
-        old: RawEntry = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
+        old: EntryYaml = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
         shaped = _shape(old) != _shape(new)
         if shaped or _source(old) != _source(new):
             fresh.add(slug)
@@ -785,8 +807,8 @@ def entry_changes(
 COST_KEYS = ("partition_by", "key", "query", "status", "licence")
 
 
-def _costs(raw: RawEntry) -> tuple[object, ...]:
-    src = cast("JSONObject", raw.get("source") or {})
+def _costs(raw: EntryYaml) -> tuple[object, ...]:
+    src = raw.get("source") or {}
     return (
         _source(raw),
         _shape(raw),
@@ -809,8 +831,8 @@ def costed(root: Path, base: str, entries: dict[str, str]) -> set[str]:
         if slug not in base_paths:
             out.add(slug)
             continue
-        new: RawEntry = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
-        old: RawEntry = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
+        new: EntryYaml = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
+        old: EntryYaml = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
         if _costs(old) != _costs(new):
             out.add(slug)
     return out
@@ -830,7 +852,7 @@ def load_catalog(where: str) -> Catalog:
     return doc
 
 
-def _github(path: str, token: str) -> JSON:
+def _github[T](_shape: type[T], path: str, token: str) -> T:
     req = urllib.request.Request(
         f"{GITHUB_API}/{path}",
         headers={
@@ -841,9 +863,9 @@ def _github(path: str, token: str) -> JSON:
         },
     )
 
-    def get() -> JSON:
+    def get() -> T:
         with _open(req, 30) as r:
-            doc: JSON = json.load(r)
+            doc: T = json.load(r)
             return doc
 
     return retry(get)
@@ -853,13 +875,15 @@ def _github(path: str, token: str) -> JSON:
 PER_PAGE = 100
 
 
-def _pages(get: Getter, path: str, key: str | None = None, limit: int = 30) -> list[JSON]:
-    out: list[JSON] = []
+def _pages[T](
+    get: Getter, _shape: type[T], path: str, key: str | None = None, limit: int = 30
+) -> list[T]:
+    out: list[T] = []
     sep = "&" if "?" in path else "?"
     for page in range(1, limit + 1):
-        doc = get(f"{path}{sep}per_page={PER_PAGE}&page={page}")
+        url = f"{path}{sep}per_page={PER_PAGE}&page={page}"
         # A paged path answers a list, or an object that holds the list under key.
-        items = cast("dict[str, list[JSON]]", doc)[key] if key else cast("list[JSON]", doc)
+        items = get(dict[str, list[T]], url)[key] if key else get(list[T], url)
         out += items
         if len(items) < PER_PAGE:
             break
@@ -876,13 +900,13 @@ def approval(repo: str, pr: int, get: Getter) -> tuple[bool, str]:  # noqa: C901
     request, after the head commit arrived and after any change of base. `get` reads a GitHub API
     path.
     """
-    pull = cast("GhPull", get(f"repos/{repo}/pulls/{pr}"))
+    pull = get(GhPull, f"repos/{repo}/pulls/{pr}")
     if APPROVAL_LABEL not in {lb["name"] for lb in pull.get("labels", [])}:
         return False, "the label is not on the pull request"
     author, head = pull["user"]["login"], pull["head"]["sha"]
     last: GhEvent | None = None
     rebased = ""
-    for e in cast("list[GhEvent]", _pages(get, f"repos/{repo}/issues/{pr}/events")):
+    for e in _pages(get, GhEvent, f"repos/{repo}/issues/{pr}/events"):
         if (
             e.get("event") in ("labeled", "unlabeled")
             and (e.get("label") or {}).get("name") == APPROVAL_LABEL
@@ -896,9 +920,8 @@ def approval(repo: str, pr: int, get: Getter) -> tuple[bool, str]:  # noqa: C901
     if not actor or actor == author:
         return False, "the label was added by the pull request's author"
     try:
-        perm = cast(
-            "GhPermission",
-            get(f"repos/{repo}/collaborators/{urllib.parse.quote(actor)}/permission"),
+        perm = get(
+            GhPermission, f"repos/{repo}/collaborators/{urllib.parse.quote(actor)}/permission"
         )
     except urllib.error.HTTPError:
         perm = {}
@@ -922,7 +945,7 @@ def head_since(repo: str, pull: GhPull, get: Getter, workflow: str = "cost.yml")
     branch = urllib.parse.quote(head["ref"], safe="")
     path = f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request_target&branch={branch}"  # fmt: skip
     since = None
-    for r in cast("list[GhRun]", _pages(get, path, "workflow_runs", limit=10)):
+    for r in _pages(get, GhRun, path, "workflow_runs", limit=10):
         if (r.get("head_repository") or {}).get("full_name") != (head.get("repo") or {}).get(
             "full_name"
         ):
@@ -1047,7 +1070,7 @@ def run(  # noqa: PLR0913 - the options are keyword-only and named at each call
     probing: bool = False,
     fresh: AbstractSet[str] = frozenset(),
     summary: str | None = None,
-    reshaped: dict[str, RawEntry] | None = None,
+    reshaped: dict[str, EntryYaml] | None = None,
     approve: Callable[[], tuple[bool, str]] | None = None,
     rows: dict[str, int] | None = None,
     prober: Callable[[Dataset], Sized] = probe,

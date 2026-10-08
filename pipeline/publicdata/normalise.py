@@ -16,7 +16,7 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import openpyxl
 import pyarrow as pa
@@ -40,7 +40,6 @@ from .register import (
 from .spine import is_spine, read_points, read_shapes
 
 if TYPE_CHECKING:
-    from .register import Wide
     from .store import Manifest
 
 # A column of any Arrow type. pyarrow-stubs types each compute function for the Arrow types it
@@ -278,8 +277,7 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:  # noqa: 
     in fill_down. A row with no data is a note and is skipped. Values of the last header row that
     no field names are returned as held.
     """
-    # normalise reads a wide table only for an entry that declares one.
-    w = cast("Wide", ds.wide)
+    w = ds.wide_spec()
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
     sheets = w["sheets"] or [ds.source.sheet or wb.sheetnames[0]]
     if w.get("sheet_match"):

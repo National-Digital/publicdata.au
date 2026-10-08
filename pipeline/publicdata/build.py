@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -79,22 +79,6 @@ if TYPE_CHECKING:
 
     type HeaderFor = Callable[[int, str], Header]
 
-    class CacheMeta(TypedDict):
-        """A cached version's meta.json, as _meta writes it and grow_cached extends it."""
-
-        sha256: dict[str, str]
-        query_sha256: NotRequired[str]
-        rows: int
-        files: dict[str, int]
-        unknown_columns: list[str]
-        suppressed_cells: int
-        partitions: dict[str, list[PartitionEntry]]
-        first: str
-        tables: NotRequired[dict[str, int]]
-        writers: NotRequired[dict[str, str]]
-        left_out: NotRequired[dict[str, str] | None]
-        grown: NotRequired[dict[str, str]]
-
     class _Sums(TypedDict, total=False):
         """The digests a new entry may carry beside its files' own."""
 
@@ -104,6 +88,23 @@ if TYPE_CHECKING:
     class _Record(TypedDict):
         left_out: dict[str, str]
         measured: dict[str, int]
+
+
+class CacheMeta(TypedDict):
+    """A cached version's meta.json, as _meta writes it and grow_cached extends it."""
+
+    sha256: dict[str, str]
+    query_sha256: NotRequired[str]
+    rows: int
+    files: dict[str, int]
+    unknown_columns: list[str]
+    suppressed_cells: int
+    partitions: dict[str, list[PartitionEntry]]
+    first: str
+    tables: NotRequired[dict[str, int]]
+    writers: NotRequired[dict[str, str]]
+    left_out: NotRequired[dict[str, str] | None]
+    grown: NotRequired[dict[str, str]]
 
 
 REGISTER_DIR = Path(__file__).resolve().parents[2] / "register"
@@ -772,8 +773,7 @@ def _cached_version(  # noqa: PLR0913 - the options are keyword-only and named a
     """
     vdir = out / "d" / ds.slug / "v" / m.version
     if cache is not None:
-        # The entry's meta.json is the CacheMeta that _meta or grow_cached wrote.
-        hit = cast("CacheMeta | None", cache.get(key, vdir))
+        hit = cache.get(key, vdir, CacheMeta)
         if hit is not None:
             hit = grow_cached(ds, m, hit, vdir, cache, key=key)
         if hit is not None:

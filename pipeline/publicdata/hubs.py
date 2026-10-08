@@ -22,21 +22,22 @@ from dataclasses import dataclass, field
 from html import escape
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, cast
 
 import requests
 from PIL import Image
 from urllib3.util.retry import Retry
 
 from .cadence import kaggle_frequency
+from .jsontypes import JSON
 from .provenance import NOT_ENDORSED
 from .register import GRANTS, LICENCE_CONDITIONS, OPEN_LICENCES, draft_label
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping
-    from typing import BinaryIO, NotRequired, TypedDict, Unpack
+    from typing import BinaryIO, Unpack
 
-    from .jsontypes import JSON, JSONObject
+    from .jsontypes import JSONObject
 
     type Fetch = Callable[[str, Path], object]
     type Log = Callable[[str], object]
@@ -45,187 +46,213 @@ if TYPE_CHECKING:
     type AnyHub = Hub | Kaggle
 
 
-if TYPE_CHECKING:
-    # The shapes of what the site serves and the hubs are sent. Each is read as the site or the
-    # hub writes it, at the one place the JSON is parsed.
+# The shapes of what the site serves and the hubs are sent. Each is read as the site or the
+# hub writes it, at the one place the JSON is parsed.
 
-    class HubField(TypedDict, total=False):
-        """A field as the version's schema.json gives it; other keys pass through to the hubs."""
 
-        name: str
-        type: str
-        title: str
-        description: str
+class HubField(TypedDict, total=False):
+    """A field as the version's schema.json gives it; other keys pass through to the hubs."""
 
-    class Schema(TypedDict, total=False):
-        fields: list[HubField]
+    name: str
+    type: str
+    title: str
+    description: str
 
-    class VersionRow(TypedDict, total=False):
-        version: str
-        rows: int
 
-    class Versions(TypedDict, total=False):
-        versions: list[VersionRow]
+class Schema(TypedDict, total=False):
+    fields: list[HubField]
 
-    class Publisher(TypedDict, total=False):
-        name: str
-        homepage: str
 
-    class Distribution(TypedDict, total=False):
-        format: str
-        downloadURL: str
-        byteSize: int
+class VersionRow(TypedDict, total=False):
+    version: str
+    rows: int
 
-    # A dataset in the site's catalog.json; two keys are not identifiers, so the functional form.
-    CatalogueRecord = TypedDict(
-        "CatalogueRecord",
-        {
-            "identifier": str,
-            "title": str,
-            "description": str,
-            "license": str,
-            "versionInfo": str,
-            "publisher": Publisher,
-            "distribution": list[Distribution],
-            "keyword": list[str],
-            "accrualPeriodicity": str,
-            "publicdata:attribution": str,
-            "publicdata:cite": str,
-        },
-        total=False,
-    )
 
-    class Catalogue(TypedDict):
-        dataset: list[CatalogueRecord]
+class Versions(TypedDict, total=False):
+    versions: list[VersionRow]
 
-    class Related(TypedDict, total=False):
-        identifier: str
-        relation: str
-        resource_type: str
 
-    class DepositionMetadata(TypedDict, total=False):
-        version: str
-        related_identifiers: list[Related]
+class Publisher(TypedDict, total=False):
+    name: str
+    homepage: str
 
-    class DepositionLinks(TypedDict, total=False):
-        latest_draft: str
-        bucket: str
-        html: str
 
-    class DepositionFile(TypedDict, total=False):
-        id: str
+class Distribution(TypedDict, total=False):
+    format: str
+    downloadURL: str
+    byteSize: int
 
-    class Deposition(TypedDict, total=False):
-        """A Zenodo deposition, as far as this module reads one."""
 
-        id: int
-        submitted: bool
-        conceptdoi: str
-        doi_url: str
-        metadata: DepositionMetadata
-        links: DepositionLinks
-        files: list[DepositionFile]
+# A dataset in the site's catalog.json; two keys are not identifiers, so the functional form.
+CatalogueRecord = TypedDict(
+    "CatalogueRecord",
+    {
+        "identifier": str,
+        "title": str,
+        "description": str,
+        "license": str,
+        "versionInfo": str,
+        "publisher": Publisher,
+        "distribution": list[Distribution],
+        "keyword": list[str],
+        "accrualPeriodicity": str,
+        "publicdata:attribution": str,
+        "publicdata:cite": str,
+    },
+    total=False,
+)
 
-    class ZenodoRequest(TypedDict, total=False):
-        params: Mapping[str, str | int]
-        data: BinaryIO
-        headers: Mapping[str, str]
-        json: object
 
-    class Named(TypedDict):
-        name: str
+class Catalogue(TypedDict):
+    dataset: list[CatalogueRecord]
 
-    class Contributor(TypedDict):
-        name: str
-        type: str
 
-    class Community(TypedDict):
-        identifier: str
+class Related(TypedDict, total=False):
+    identifier: str
+    relation: str
+    resource_type: str
 
-    class ZenodoMetadata(TypedDict):
-        upload_type: str
-        title: str
-        publication_date: str
-        version: str
-        creators: list[Named]
-        contributors: list[Contributor]
-        description: str
-        access_right: str
-        license: str
-        keywords: list[str]
-        related_identifiers: list[Related]
-        language: str
-        notes: str
-        communities: NotRequired[list[Community]]
 
-    class KaggleColumn(TypedDict):
-        name: str
-        description: str
-        type: str
+class DepositionMetadata(TypedDict, total=False):
+    version: str
+    related_identifiers: list[Related]
 
-    class KaggleSchema(TypedDict):
-        fields: list[KaggleColumn]
 
-    class KaggleResource(TypedDict):
-        path: str
-        description: str
-        schema: NotRequired[KaggleSchema]
+class DepositionLinks(TypedDict, total=False):
+    latest_draft: str
+    bucket: str
+    html: str
 
-    class KaggleMetadata(TypedDict):
-        title: str
-        id: str
-        subtitle: str
-        description: str
-        isPrivate: bool
-        licenses: list[Named]
-        keywords: list[str]
-        expectedUpdateFrequency: str
-        userSpecifiedSources: str
-        resources: list[KaggleResource]
 
-    class KernelMetadata(TypedDict):
-        id: str
-        title: str
-        code_file: str
-        language: str
-        kernel_type: str
-        is_private: str
-        enable_gpu: str
-        enable_internet: str
-        dataset_sources: list[str]
-        competition_sources: list[str]
-        kernel_sources: list[str]
-        model_sources: list[str]
+class DepositionFile(TypedDict, total=False):
+    id: str
 
-    class Link(TypedDict):
-        name: str
-        url: str
 
-    class LicenceLink(TypedDict):
-        id: str
-        title: str
-        url: str
+class Deposition(TypedDict, total=False):
+    """A Zenodo deposition, as far as this module reads one."""
 
-    class Provenance(TypedDict):
-        """publicdata.json, as every copy carries it."""
+    id: int
+    submitted: bool
+    conceptdoi: str
+    doi_url: str
+    metadata: DepositionMetadata
+    links: DepositionLinks
+    files: list[DepositionFile]
 
-        dataset: str
-        title: str
-        version: str
-        version_url: str
-        dataset_page: str
-        publisher: Link
-        licence: LicenceLink
-        attribution: str
-        cite: str
-        not_endorsed: str
-        manifest: JSONObject
 
-    class HubRecord(TypedDict, total=False):
-        """Where each hub holds each dataset, and each hub's account page."""
+class ZenodoRequest(TypedDict, total=False):
+    params: Mapping[str, str | int]
+    data: BinaryIO
+    headers: Mapping[str, str]
+    json: object
 
-        accounts: dict[str, str]
-        datasets: dict[str, dict[str, str]]
+
+class Named(TypedDict):
+    name: str
+
+
+class Contributor(TypedDict):
+    name: str
+    type: str
+
+
+class Community(TypedDict):
+    identifier: str
+
+
+class ZenodoMetadata(TypedDict):
+    upload_type: str
+    title: str
+    publication_date: str
+    version: str
+    creators: list[Named]
+    contributors: list[Contributor]
+    description: str
+    access_right: str
+    license: str
+    keywords: list[str]
+    related_identifiers: list[Related]
+    language: str
+    notes: str
+    communities: NotRequired[list[Community]]
+
+
+class KaggleColumn(TypedDict):
+    name: str
+    description: str
+    type: str
+
+
+class KaggleSchema(TypedDict):
+    fields: list[KaggleColumn]
+
+
+class KaggleResource(TypedDict):
+    path: str
+    description: str
+    schema: NotRequired[KaggleSchema]
+
+
+class KaggleMetadata(TypedDict):
+    title: str
+    id: str
+    subtitle: str
+    description: str
+    isPrivate: bool
+    licenses: list[Named]
+    keywords: list[str]
+    expectedUpdateFrequency: str
+    userSpecifiedSources: str
+    resources: list[KaggleResource]
+
+
+class KernelMetadata(TypedDict):
+    id: str
+    title: str
+    code_file: str
+    language: str
+    kernel_type: str
+    is_private: str
+    enable_gpu: str
+    enable_internet: str
+    dataset_sources: list[str]
+    competition_sources: list[str]
+    kernel_sources: list[str]
+    model_sources: list[str]
+
+
+class Link(TypedDict):
+    name: str
+    url: str
+
+
+class LicenceLink(TypedDict):
+    id: str
+    title: str
+    url: str
+
+
+class Provenance(TypedDict):
+    """publicdata.json, as every copy carries it."""
+
+    dataset: str
+    title: str
+    version: str
+    version_url: str
+    dataset_page: str
+    publisher: Link
+    licence: LicenceLink
+    attribution: str
+    cite: str
+    not_endorsed: str
+    manifest: JSONObject
+
+
+class HubRecord(TypedDict, total=False):
+    """Where each hub holds each dataset, and each hub's account page."""
+
+    accounts: dict[str, str]
+    datasets: dict[str, dict[str, str]]
 
 
 class _LicenceId(Protocol):
@@ -1054,17 +1081,17 @@ def read_site(
     checked = register is not None
     register = register or {}
 
-    def get(url: str) -> object:
+    def get[T](_shape: type[T], url: str) -> T:
         r = http.get(url, timeout=60)
         r.raise_for_status()
-        return r.json()
+        # Each document is the site's own, read as the shape the site writes.
+        return cast("T", r.json())
 
     def served(slug: str) -> bool:
         r = http.get(f"{site}/api/v1/datasets/{slug}/versions", timeout=60)
         return r.status_code == HTTPStatus.OK
 
-    # Each document is the site's own; it is read as the shape the site writes.
-    for rec in cast("Catalogue", get(f"{site}/catalog.json"))["dataset"]:
+    for rec in get(Catalogue, f"{site}/catalog.json")["dataset"]:
         slug = rec["identifier"]
         if only and slug not in only:
             continue
@@ -1077,9 +1104,9 @@ def read_site(
                 slug,
                 entry(
                     rec,
-                    cast("Versions", get(f"{base}versions.json")),
-                    cast("Schema", get(f"{base}v/{v}/schema.json")),
-                    cast("JSONObject", get(f"{base}v/{v}/manifest.json")),
+                    get(Versions, f"{base}versions.json"),
+                    get(Schema, f"{base}v/{v}/schema.json"),
+                    get(dict[str, JSON], f"{base}v/{v}/manifest.json"),
                     queryable=served(slug),
                     site=site,
                     registered=register.get(slug),

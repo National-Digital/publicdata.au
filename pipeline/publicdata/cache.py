@@ -326,8 +326,13 @@ class BuildCache:
     def has(self, key: str) -> bool:
         return (self.root / key / "meta.json").is_file()
 
-    def get(self, key: str, dest: Path | None = None) -> JSONObject | None:
-        """The entry's metadata, with its files linked into dest when one is given."""
+    def get[T = JSONObject](
+        self, key: str, dest: Path | None = None, _shape: type[T] | None = None
+    ) -> T | None:
+        """The entry's metadata, with its files linked into dest when one is given.
+
+        A caller that knows what wrote the entry names its shape, which types the result.
+        """
         entry = self.root / key
         meta = entry / "meta.json"
         if not meta.is_file():
@@ -339,7 +344,7 @@ class BuildCache:
             shutil.copytree(entry / "files", dest, copy_function=_link_or_copy)
         self.used.add(key)
         self.hits += 1
-        got: JSONObject = json.loads(meta.read_text(encoding="utf-8"))
+        got: T = json.loads(meta.read_text(encoding="utf-8"))
         return got
 
     def put(

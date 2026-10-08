@@ -22,14 +22,13 @@ from publicdata.serialise.geo import _connect
 from publicdata.serialise.writers.pmtiles import write_pmtiles
 from publicdata.site import _faq
 
-from .conftest import make_dataset, make_manifest, present
+from .conftest import make_dataset, make_header, make_manifest, present
 
 if TYPE_CHECKING:
     from typing import Unpack
 
     from publicdata.build import VersionOut
-    from publicdata.provenance import Header
-    from publicdata.register import Dataset, RawEntry
+    from publicdata.register import Dataset, Geometry, RawEntry
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
@@ -94,14 +93,18 @@ def test_enrich_is_refused_without_points_an_unknown_layer_or_a_clash() -> None:
 def test_a_polygon_layer_declares_its_kind_and_datum_and_no_coordinates() -> None:
     text = (REGISTER / "abs-lga-2025.yaml").read_text()
     raw: RawEntry = yaml.safe_load(text)
-    geometry: dict[str, object] = yaml.safe_load(text)["geometry"]
+    geometry: Geometry = yaml.safe_load(text)["geometry"]
     assert present(parse(raw, "lga").geometry)["kind"] == "polygon"
+    with_lon: Geometry = {**geometry, "lon": "x"}
     with pytest.raises(RegisterError, match="carries its geometry"):
-        parse(raw | {"geometry": geometry | {"lon": "x"}}, "lga")
+        parse(raw | {"geometry": with_lon}, "lga")
+    raster: Geometry = {**geometry, "kind": "raster"}
     with pytest.raises(RegisterError, match=re.escape("geometry.kind")):
-        parse(raw | {"geometry": geometry | {"kind": "raster"}}, "lga")
+        parse(raw | {"geometry": raster}, "lga")
+    # An entry that leaves out the datum, which the register refuses.
+    no_datum = cast("Geometry", {"kind": "polygon"})
     with pytest.raises(RegisterError, match="datum"):
-        parse(raw | {"geometry": {"kind": "polygon"}}, "lga")
+        parse(raw | {"geometry": no_datum}, "lga")
 
 
 def test_shapes_get_geoparquet_and_vector_tiles_and_points_get_geoparquet(
@@ -321,5 +324,5 @@ def test_a_polygon_whose_repair_leaves_a_stray_line_still_makes_tiles(tmp_path: 
         geometry=pa.array([wkb], pa.binary()),
     )
     path = tmp_path / "data.pmtiles"
-    write_pmtiles(tbl, cast("Header", {"attribution": "A"}), path)
+    write_pmtiles(tbl, make_header(1, "data.pmtiles"), path)
     assert path.stat().st_size > 0

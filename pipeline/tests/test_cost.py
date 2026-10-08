@@ -9,7 +9,7 @@ import urllib.request
 import zipfile
 from dataclasses import replace
 from email.message import Message
-from typing import TYPE_CHECKING, Literal, Protocol, Self, TypedDict, Unpack
+from typing import TYPE_CHECKING, Literal, Protocol, Self, TypedDict, Unpack, cast
 
 import pytest
 
@@ -905,7 +905,7 @@ def _api(  # noqa: PLR0913 - the options are keyword-only and named at each call
 ) -> cost.Getter:
     perms = perms or {"maint": "maintain", "alice": "admin", "reader": "read"}
 
-    def get(path: str) -> object:
+    def answer(path: str) -> object:
         if path.startswith("repos/o/r/pulls/"):
             return {
                 "labels": [{"name": n} for n in labels],
@@ -922,6 +922,10 @@ def _api(  # noqa: PLR0913 - the options are keyword-only and named at each call
         if "/runs" in path:
             return {"workflow_runs": list(runs) if "page=1" in path else []}
         raise AssertionError(path)
+
+    def get[T](shape: type[T], path: str, /) -> T:
+        # The stand-in answers each path in the shape GitHub gives it.
+        return cast("T", answer(path))
 
     return get
 

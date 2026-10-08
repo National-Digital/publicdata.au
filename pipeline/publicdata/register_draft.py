@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import re
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict
 
 import pyarrow as pa
 import requests
@@ -28,10 +28,6 @@ if TYPE_CHECKING:
     from .fetch import CkanPackage
     from .normalise import ArrowChunked
     from .register import FieldType
-
-    class _PackageShow(TypedDict, total=False):
-        success: bool
-        result: CkanPackage
 
     class DraftLicence(TypedDict, total=False):
         id: str
@@ -74,6 +70,11 @@ if TYPE_CHECKING:
         faq: list[str]
         fields: list[DraftField]
         blocked_reason: str
+
+
+class _PackageShow(TypedDict, total=False):
+    success: bool
+    result: CkanPackage
 
 
 SAMPLE_BYTES = 20_000_000
@@ -269,7 +270,7 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
     s = session or requests.Session()
     s.headers["User-Agent"] = UA
     portal, name, in_url = portal_for(url)
-    pkg = cast("_PackageShow", catalogue.get_json(s, f"{portal.api}/package_show", {"id": name}))
+    pkg = catalogue.get_json_as(_PackageShow, s, f"{portal.api}/package_show", {"id": name})
     if not pkg.get("success"):
         msg = f"{portal.host}: package_show found no dataset {name}"
         raise DraftError(msg)
