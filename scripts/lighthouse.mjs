@@ -9,7 +9,7 @@ import { join } from "node:path";
 import lighthouse from "lighthouse";
 import desktopConfig from "lighthouse/core/config/desktop-config.js";
 import puppeteer from "puppeteer-core";
-import { NOINDEX, PAGES, PREVIEW_SKIPS, TARGETS, ardManifest, assess, isPreview, medianRun } from "./lighthouse-checks.mjs";
+import { NOINDEX, PAGES, PREVIEW_HEADER, PREVIEW_SKIPS, TARGETS, ardManifest, assess, isPreview, medianRun } from "./lighthouse-checks.mjs";
 
 const RUNS = Number(process.env.LIGHTHOUSE_RUNS || 3);
 const FORMS = { mobile: undefined, desktop: desktopConfig };
@@ -22,7 +22,7 @@ if (!base) {
 const out = process.env.LIGHTHOUSE_OUT || "lighthouse-reports";
 await mkdir(out, { recursive: true });
 const preview = isPreview(base);
-if (preview) console.log(`${new URL(base).hostname} is a preview, served noindex, so ${PREVIEW_SKIPS.join(", ")} is not held here; production is.`);
+if (preview) console.log(`${new URL(base).hostname} is a preview, served ${PREVIEW_HEADER}, so ${PREVIEW_SKIPS.join(", ")} is waived for that header alone and the category scored without it; production holds it.`);
 
 // ard-schema audits the manifest the page points to. When that is on another host, as when the
 // build names production in absolute URLs, the audit is not about this deploy, so it is left to the
@@ -64,10 +64,11 @@ for (const path of paths.length ? paths : PAGES) {
     summary.lighthouse = lhr.lighthouseVersion;
     const name = `${form}${path.replace(/[^a-z0-9]+/gi, "_")}`.replace(/_$/, "");
     await writeFile(join(out, `${name}.html`), html);
-    const { scores, failures } = assess(lhr, { preview, noindex: NOINDEX.has(path), skip });
+    const { scores, served, failures } = assess(lhr, { preview, noindex: NOINDEX.has(path), skip });
     const perfRuns = runs.map((r) => r.lhr.categories.performance?.score);
-    summary.pages.push({ path, form, scores, performanceRuns: perfRuns, failures, ardManifest: manifest, notHeld: skip, report: `${name}.html` });
-    const line = Object.entries(scores).map(([k, v]) => `${k} ${v === null ? "none" : Math.round(v * 100)}`).join(", ");
+    summary.pages.push({ path, form, scores, served, performanceRuns: perfRuns, failures, ardManifest: manifest, notHeld: skip, report: `${name}.html` });
+    const pct = (v) => (v === null ? "none" : Math.round(v * 100));
+    const line = Object.entries(scores).map(([k, v]) => `${k} ${pct(v)}${v === served[k] ? "" : ` (${pct(served[k])} as served)`}`).join(", ");
     if (failures.length) failed++;
     console.log(`${failures.length ? "✗" : "✓"} ${path} (${form}): ${line}; performance runs ${perfRuns.map((s) => Math.round(s * 100)).join("/")}`);
     for (const f of failures) console.log(`    ${f.category}${f.audit ? ` ${f.audit}` : ""}: ${f.detail}`);

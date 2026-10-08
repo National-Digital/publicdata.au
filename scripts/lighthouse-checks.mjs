@@ -20,22 +20,49 @@ export const TARGETS = {
   "agentic-browsing": 1,
 };
 
-// A Cloudflare Pages preview is served with x-robots-tag: noindex, so it can never pass this audit.
-// Production is held to it, except on a page the site marks noindex on purpose. That page is
-// named here, so an accidental noindex anywhere else still fails.
+// A Cloudflare Pages preview is served with x-robots-tag: noindex, so is-crawlable fails there on
+// every page. Production is held to it, except on a page the site marks noindex on purpose with
+// its own meta tag. Each is waived only when it is the audit's sole blocking directive, so a robots
+// meta tag on any other page, or a robots.txt block, still fails.
 export const PREVIEW_SKIPS = ["is-crawlable"];
 export const NOINDEX = new Set(["/d/qld-road-crash-locations/explore/"]);
+export const PREVIEW_HEADER = "x-robots-tag: noindex";
+export const NOINDEX_META = /^<meta name="robots" content="noindex, follow"\s*\/?>$/;
+
+// Whether every directive is-crawlable found is one this page is expected to carry.
+function expectedNoindex(a, { preview, noindex }) {
+  const items = a.details?.items || [];
+  if (!items.length) return false;
+  return items.every((i) =>
+    (preview && i.source === PREVIEW_HEADER) || (noindex && NOINDEX_META.test(i.source?.snippet || "")),
+  );
+}
+
+// The category's score with the waived audits counted as passed, as Lighthouse weighs them, so
+// the noindex penalty is taken out exactly and every other audit still counts.
+function held(lhr, cat, waived) {
+  let sum = 0;
+  let weight = 0;
+  for (const ref of cat.auditRefs) {
+    const a = lhr.audits[ref.id];
+    if (!a || !(ref.weight > 0) || UNSCORED.has(a.scoreDisplayMode) || a.score === null) continue;
+    sum += ref.weight * (waived.has(ref.id) ? 1 : a.score);
+    weight += ref.weight;
+  }
+  return weight ? sum / weight : cat.score;
+}
 
 export const isPreview = (url) => new URL(url).hostname.endsWith(".pages.dev");
 
 const UNSCORED = new Set(["notApplicable", "manual", "informative", "error"]);
 
 // `skip` names further audits not to hold, such as one that read another host's file.
-// Returns { scores, failures, skipped }. Performance is held to its category score. Every other
-// category is held audit by audit, so a skipped audit cannot drag its category down and a category
-// missing from the result fails rather than passing unseen.
+// Returns { scores, served, failures, skipped }. Performance is held to its category score. Every
+// other category is held audit by audit and by its score with the waived audits taken out, which
+// `scores` reports beside the score as served; a category missing from the result fails.
 export function assess(lhr, { preview = isPreview(lhr.finalDisplayedUrl || lhr.requestedUrl), noindex = NOINDEX.has(new URL(lhr.requestedUrl).pathname), skip = [] } = {}) {
   const scores = {};
+  const served = {};
   const failures = [];
   const skipped = [];
   for (const [id, target] of Object.entries(TARGETS)) {
@@ -44,7 +71,7 @@ export function assess(lhr, { preview = isPreview(lhr.finalDisplayedUrl || lhr.r
       failures.push({ category: id, detail: "category missing from the result" });
       continue;
     }
-    scores[id] = cat.score;
+    scores[id] = served[id] = cat.score;
     if (id === "performance") {
       if (cat.score === null || cat.score < target) {
         failures.push({ category: id, detail: `score ${fmt(cat.score)}, needs ${fmt(target)}` });
@@ -57,6 +84,8 @@ export function assess(lhr, { preview = isPreview(lhr.finalDisplayedUrl || lhr.r
       }
       continue;
     }
+    const waived = new Set();
+    const before = failures.length;
     for (const ref of cat.auditRefs) {
       const a = lhr.audits[ref.id];
       if (!a || !(ref.weight > 0)) continue;
@@ -65,14 +94,19 @@ export function assess(lhr, { preview = isPreview(lhr.finalDisplayedUrl || lhr.r
         continue;
       }
       if (UNSCORED.has(a.scoreDisplayMode) || a.score === null || a.score >= 1) continue;
-      if (((preview || noindex) && PREVIEW_SKIPS.includes(ref.id)) || skip.includes(ref.id)) {
+      if ((PREVIEW_SKIPS.includes(ref.id) && expectedNoindex(a, { preview, noindex })) || skip.includes(ref.id)) {
         skipped.push(ref.id);
+        waived.add(ref.id);
         continue;
       }
       failures.push({ category: id, audit: ref.id, detail: `${fmt(a.score)} ${a.title}${items(a)}` });
     }
+    if (waived.size) scores[id] = held(lhr, cat, waived);
+    if (failures.length === before && scores[id] !== null && scores[id] < target - 1e-9) {
+      failures.push({ category: id, detail: `score ${fmt(scores[id])} with ${[...waived].join(", ")} taken out, needs ${fmt(target)}` });
+    }
   }
-  return { scores, failures, skipped: [...new Set(skipped)] };
+  return { scores, served, failures, skipped: [...new Set(skipped)] };
 }
 
 const fmt = (s) => (s === null || s === undefined ? "none" : String(Math.round(s * 100)));

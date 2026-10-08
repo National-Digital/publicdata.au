@@ -58,14 +58,43 @@ test("an audit that errored fails rather than passing unseen", () => {
   assert.deepEqual(failed(r), ["link-text"]);
 });
 
-test("is-crawlable is skipped on a preview host only", () => {
-  const noindex = { audits: { "is-crawlable": { id: "is-crawlable", title: "crawlable", score: 0, scoreDisplayMode: "binary" } } };
+const crawlable = (...sources) => ({ id: "is-crawlable", title: "crawlable", score: 0, scoreDisplayMode: "binary", details: { type: "table", items: sources.map((source) => ({ source })) } });
+const HEADER = "x-robots-tag: noindex";
+const META = { type: "node", snippet: '<meta name="robots" content="noindex, follow" />' };
+
+test("is-crawlable is waived on a preview only for the preview's own noindex header", () => {
+  const noindex = { audits: { "is-crawlable": crawlable(HEADER) } };
   const pre = assess(lhr(PREVIEW, noindex));
   assert.deepEqual(pre.failures, []);
   assert.deepEqual(pre.skipped, ["is-crawlable"]);
   assert.deepEqual(failed(assess(lhr(PROD, noindex))), ["is-crawlable"]);
   const linkText = { audits: { ...noindex.audits, "link-text": { id: "link-text", title: "t", score: 0, scoreDisplayMode: "binary" } } };
   assert.deepEqual(failed(assess(lhr(PREVIEW, linkText))), ["link-text"]);
+});
+
+test("a robots meta tag on a preview page that should be indexed still fails", () => {
+  const both = { audits: { "is-crawlable": crawlable(META, HEADER) } };
+  assert.deepEqual(failed(assess(lhr(`${PREVIEW}d/qld-road-crash-locations/`, both))), ["is-crawlable"]);
+  assert.deepEqual(assess(lhr(`${PREVIEW}d/qld-road-crash-locations/explore/`, both)).failures, []);
+  const unexplained = { audits: { "is-crawlable": { ...crawlable(HEADER), details: undefined } } };
+  assert.deepEqual(failed(assess(lhr(PREVIEW, unexplained))), ["is-crawlable"]);
+});
+
+test("the preview's noindex penalty is taken out at its Lighthouse weight, and nothing else is", () => {
+  // Lighthouse 13.5's SEO weights on the home page: is-crawlable 4.043 and nine scored audits at 1,
+  // so the header alone costs 31 points (69 as served) and one more failure costs 8 of the rest.
+  const ids = Array.from({ length: 9 }, (_, i) => `seo-${i}`);
+  const x = lhr(PREVIEW, { audits: { "is-crawlable": crawlable(HEADER), ...Object.fromEntries(ids.map((id) => [id, { id, title: id, score: 1, scoreDisplayMode: "binary" }])) } });
+  x.categories.seo = { id: "seo", score: 0.69, auditRefs: [{ id: "is-crawlable", weight: 4.043478260869565 }, ...ids.map((id) => ({ id, weight: 1 }))] };
+  const ok = assess(x);
+  assert.deepEqual(ok.failures, []);
+  assert.equal(ok.scores.seo, 1);
+  assert.equal(ok.served.seo, 0.69);
+  x.audits["seo-0"].score = 0;
+  x.categories.seo.score = 0.61;
+  const bad = assess(x);
+  assert.deepEqual(failed(bad), ["seo-0"]);
+  assert.equal(Math.round(bad.scores.seo * 100), 92);
 });
 
 test("a preview is a pages.dev host", () => {
@@ -78,10 +107,12 @@ test("the median run is the middle performance score", () => {
   assert.equal(medianRun(runs).categories.performance.score, 0.95);
 });
 
-test("is-crawlable is skipped on production only for a page named noindex on purpose", () => {
-  const noindex = { audits: { "is-crawlable": { id: "is-crawlable", title: "crawlable", score: 0, scoreDisplayMode: "binary" } } };
-  assert.deepEqual(assess(lhr(`${PROD}d/qld-road-crash-locations/explore/`, noindex)).failures, []);
-  assert.deepEqual(failed(assess(lhr(`${PROD}d/qld-road-crash-locations/`, noindex))), ["is-crawlable"]);
+test("is-crawlable is waived on production only for the meta tag of a page named noindex on purpose", () => {
+  const meta = { audits: { "is-crawlable": crawlable(META) } };
+  assert.deepEqual(assess(lhr(`${PROD}d/qld-road-crash-locations/explore/`, meta)).failures, []);
+  assert.deepEqual(failed(assess(lhr(`${PROD}d/qld-road-crash-locations/`, meta))), ["is-crawlable"]);
+  const header = { audits: { "is-crawlable": crawlable(HEADER) } };
+  assert.deepEqual(failed(assess(lhr(`${PROD}d/qld-road-crash-locations/explore/`, header))), ["is-crawlable"]);
 });
 
 test("the ARD manifest is found in the gatherer's order and resolved against the page", () => {
