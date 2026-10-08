@@ -7,8 +7,8 @@ files=$(git diff --cached --name-only --diff-filter=ACMR -- 'pipeline/*.py' 'cli
 [ -n "$files" ] || exit 0
 
 if ! command -v ruff >/dev/null 2>&1; then
-  echo "pre-commit: ruff not found, lint skipped"
-  exit 0
+  echo "pre-commit: ruff not found; install it with uv pip install -e './pipeline[dev]' (or commit with --no-verify)"
+  exit 1
 fi
 
 top=$(pwd)

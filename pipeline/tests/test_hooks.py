@@ -53,6 +53,9 @@ def repo(tmp_path: Path) -> Path:
     client = r / "clients" / "python" / "src" / "publicdata_au"
     client.mkdir(parents=True)
     (client / "__init__.py").write_text('"""Client."""\n')
+    # The client's mypy settings name a tests folder, as the repository has.
+    (r / "clients" / "python" / "tests").mkdir()
+    (r / "clients" / "python" / "tests" / "test_x.py").write_text('"""Tests."""\n')
     path = [_bin(tmp_path)]
     for args in (
         ["init", "-q", "-b", "main"],
@@ -155,10 +158,10 @@ def test_pre_commit_runs_no_python_check_without_staged_python(repo: Path, tmp_p
     assert not (tmp_path / "ran").exists()
 
 
-def test_pre_commit_skips_when_ruff_is_missing(repo: Path, tmp_path: Path) -> None:
+def test_pre_commit_fails_when_ruff_is_missing(repo: Path, tmp_path: Path) -> None:
     out = _commit(repo, {"pipeline/publicdata/bad.py": "import os\n"}, [_bin(tmp_path)])
-    assert out.returncode == 0, out.stdout + out.stderr
-    assert "ruff not found, lint skipped" in out.stdout + out.stderr
+    assert out.returncode != 0
+    assert "ruff not found; install it with" in out.stdout + out.stderr
 
 
 def _push(
@@ -174,11 +177,13 @@ def _push(
     return _run([GIT, "push", str(remote), "HEAD:main"], repo, path)
 
 
-SLOW_FAILURE = "import pytest\n\n\n@pytest.mark.slow\ndef test_slow():\n    assert False\n"
+SLOW_FAILURE = "import pytest\n\n\n@pytest.mark.slow\ndef test_slow() -> None:\n    assert False\n"
+FAILING = "def test_breaks() -> None:\n    assert False\n"
+PASSING = "def test_holds() -> None:\n    assert True\n"
 
 
 def test_pre_push_stops_a_failing_fast_test_and_names_it(repo: Path, tmp_path: Path) -> None:
-    files = {"pipeline/tests/test_x.py": "def test_breaks():\n    assert False\n"}
+    files = {"pipeline/tests/test_x.py": FAILING}
     out = _push(repo, tmp_path, files, [_bin(tmp_path), VENV_BIN])
     assert out.returncode != 0
     assert "test_breaks" in out.stdout + out.stderr
@@ -188,7 +193,7 @@ def test_pre_push_passes_when_the_fast_tests_pass_and_leaves_slow_ones_out(
     repo: Path, tmp_path: Path
 ) -> None:
     files = {
-        "pipeline/tests/test_x.py": "def test_holds():\n    assert True\n",
+        "pipeline/tests/test_x.py": PASSING,
         "pipeline/tests/test_y.py": SLOW_FAILURE,
     }
     out = _push(repo, tmp_path, files, [_bin(tmp_path), VENV_BIN])
@@ -202,16 +207,61 @@ def test_pre_push_from_a_worktree_hides_the_repository_from_the_tests(
     path = [_bin(tmp_path), VENV_BIN]
     tree = tmp_path / "tree"
     _run([GIT, "worktree", "add", "-q", "-b", "side", str(tree)], repo, path, check=True)
-    files = {"pipeline/tests/test_x.py": "import os\n\n\ndef test_env():\n    assert 'GIT_DIR' not in os.environ\n"}  # fmt: skip
+    files = {"pipeline/tests/test_x.py": "import os\n\n\ndef test_env() -> None:\n    assert 'GIT_DIR' not in os.environ\n"}  # fmt: skip
     out = _push(tree, tmp_path, files, path)
     assert out.returncode == 0, out.stdout + out.stderr
 
 
-def test_pre_push_skips_when_pytest_is_missing(repo: Path, tmp_path: Path) -> None:
-    files = {"pipeline/tests/test_x.py": "def test_breaks():\n    assert False\n"}
-    out = _push(repo, tmp_path, files, [_bin(tmp_path)])
+def test_pre_push_fails_when_pytest_is_missing(repo: Path, tmp_path: Path) -> None:
+    files = {"pipeline/tests/test_x.py": PASSING}
+    out = _push(repo, tmp_path, files, [_bin(tmp_path, mypy=VENV_BIN / "mypy")])
+    assert out.returncode != 0
+    assert (
+        "pytest or the pipeline's environment not found; install it with" in out.stdout + out.stderr
+    )
+
+
+def test_pre_push_stops_a_type_error_and_names_the_file(repo: Path, tmp_path: Path) -> None:
+    files = {"pipeline/publicdata/bad.py": 'X: int = "no"\n', "pipeline/tests/test_x.py": PASSING}
+    out = _push(repo, tmp_path, files, [_bin(tmp_path), VENV_BIN])
+    assert out.returncode != 0
+    assert "publicdata/bad.py:1: error" in out.stdout
+    assert "[assignment]" in out.stdout
+
+
+def test_pre_push_passes_code_that_type_checks(repo: Path, tmp_path: Path) -> None:
+    files = {
+        "pipeline/publicdata/ok.py": '"""OK."""\n\nX: int = 1\n',
+        "pipeline/tests/test_x.py": PASSING,
+    }
+    out = _push(repo, tmp_path, files, [_bin(tmp_path), VENV_BIN])
     assert out.returncode == 0, out.stdout + out.stderr
-    assert "Python tests skipped" in out.stdout + out.stderr
+    assert "Success: no issues found" in out.stdout
+
+
+def test_pre_push_runs_no_python_check_when_no_python_changed(repo: Path, tmp_path: Path) -> None:
+    ran = tmp_path / "ran"
+    fake = tmp_path / "fake"
+    fake.write_text(f"#!/bin/sh\ntouch {ran}\nexit 1\n", encoding="utf-8")
+    fake.chmod(0o755)
+    remote = tmp_path / "remote.git"
+    path = [_bin(tmp_path, mypy=fake, pytest=fake)]
+    _run([GIT, "init", "-q", "--bare", str(remote)], tmp_path, path, check=True)
+    _run([GIT, "push", "-q", "--no-verify", str(remote), "HEAD:main"], repo, path, check=True)
+    (repo / "docs").mkdir()
+    (repo / "docs" / "x.md").write_text("# X\n", encoding="utf-8")
+    _run([GIT, "add", "."], repo, path, check=True)
+    _run([GIT, "commit", "-q", "--no-verify", "-m", "docs: x"], repo, path, check=True)
+    out = _run([GIT, "push", str(remote), "HEAD:main"], repo, path)
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert not ran.exists()
+
+
+def test_pre_push_fails_when_mypy_is_missing(repo: Path, tmp_path: Path) -> None:
+    files = {"pipeline/publicdata/ok.py": "X: int = 1\n", "pipeline/tests/test_x.py": PASSING}
+    out = _push(repo, tmp_path, files, [_bin(tmp_path)])
+    assert out.returncode != 0
+    assert "mypy not found; install it with" in out.stdout + out.stderr
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
@@ -219,7 +269,7 @@ def test_pre_push_stops_a_failing_javascript_test(repo: Path, tmp_path: Path) ->
     files = {"functions/x.test.mjs": "import { test } from 'node:test';\ntest('x', () => { throw new Error('no'); });\n"}  # fmt: skip
     out = _push(repo, tmp_path, files, [_bin(tmp_path, node=NODE)])
     assert out.returncode != 0
-    assert "tests failed" in out.stdout + out.stderr
+    assert "a check failed" in out.stdout + out.stderr
 
 
 def test_every_test_named_slow_exists() -> None:

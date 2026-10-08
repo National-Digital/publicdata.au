@@ -56,7 +56,7 @@ licence, not the AGPL. Only styles from its free package may be added there; see
 ## Git hooks
 
 The `core.hooksPath` line in Set up switches on three hooks in `.githooks/`. They catch on your
-machine what CI would fail a few minutes later, and they replace no CI check.
+machine what CI would fail a few minutes later.
 
 - `prepare-commit-msg` adds the DCO `Signed-off-by` trailer to every commit, once.
 - `pre-commit` runs `ruff check` and `ruff format --check` on the staged content of each staged
@@ -64,18 +64,25 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   takes the settings CI uses for it. It names each file and rule that fails and stops the commit. A
   commit with no staged Python file in either directory runs no check. It takes well under a
   second.
-- `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
-  and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
-  It should take under a minute on a laptop.
+- `pre-push` checks what the push changes, comparing each branch with what the remote holds, or
+  a new branch with where it leaves the remote's main. When the push changes `pipeline/`, it runs
+  `mypy` there, then the fast tests in the working tree, `pytest -m "not slow" -n auto`. When it
+  changes `clients/python/`, it runs the client's two mypy runs, `mypy` and
+  `mypy --python-version 3.14`. It runs `node --test functions/*.test.mjs scripts/*.test.mjs` on
+  every push. mypy keeps its cache between runs, so a later push checks only what changed. The
+  hook stops the push when a check fails, and should take under a minute on a laptop.
 
 The fast tests are every test that is not marked `slow`. `pipeline/tests/conftest.py` decides
 which tests are slow: those that use the fixture store or a fixture site build (`SLOW_FIXTURES`)
-and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI runs every test.
+and those named in `SLOW_TESTS`. Move a test in or out of the fast run there.
 
-A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
-through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
-tests, and `node` for the JavaScript tests. To skip the hooks once, pass `--no-verify` to
+A hook with Python to check that cannot find `ruff`, `mypy`, `pytest` or the pipeline's
+environment stops the commit or push with one line saying what to install. A missing `node` skips
+the JavaScript tests with a line saying so. To skip the hooks once, pass `--no-verify` to
 `git commit` or `git push`.
+
+CI runs every check again, every test included, whatever the hooks did. The hooks catch a failure
+before the push, and they replace none of CI's checks.
 
 ## Private copies
 
