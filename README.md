@@ -79,4 +79,4 @@ The data is not ours to license. Each dataset is published under its publisher's
 its register entry, its manifest and every file name, with the attribution that licence asks for.
 The text we write for the register is under CC BY 4.0 ([`LICENSE-DATA.md`](LICENSE-DATA.md)). Test extracts, the
 brand typeface and the explorer's libraries are listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md); the typeface
-is licensed to us and is not in the repository.
+is RandomMaerks' free package, redistributed under its own licence.

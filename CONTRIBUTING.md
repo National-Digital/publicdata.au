@@ -47,9 +47,9 @@ python -m publicdata gate /tmp/pd
 The raw bytes of every published version are kept in a private bucket that only the deploy reads.
 The manifests in `store/` record each one's URL, hash and fetch time.
 
-The site's typeface is licensed to National Digital and is not in the repository. Without it,
-pages use system fonts and the social cards use Pillow's bundled Aileron; nothing else changes.
-`store pull` fetches it from the same private bucket for the deploy.
+The site's typeface, Random Grotesque, is in `pipeline/publicdata/static/fonts/` under its own
+licence, not the AGPL. Only styles from its free package may be added there; see
+`THIRD-PARTY-NOTICES.md`.
 
 ## Git hooks
 

@@ -470,17 +470,13 @@ def cmd_d1_load(args) -> int:
 
 
 def cmd_store(args) -> int:
-    from .brand import FONTS
-    from .r2 import pull_fonts, pull_store, push
+    from .r2 import pull_store, push
 
     store_dir = Path(args.store)
     if args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
-        fonts = pull_fonts(FONTS)
-        print(
-            f"store pull: {n} file(s), {fonts} font(s), {len(cached)} version(s) already built in the cache"
-        )
+        print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
     else:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)

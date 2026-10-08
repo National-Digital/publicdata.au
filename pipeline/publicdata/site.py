@@ -165,7 +165,6 @@ def env() -> Environment:
     e.filters["linkify"] = linkify
     e.globals["cadence_words"] = cadence_words
     e.globals["download_name"] = download_name
-    e.globals["brand_fonts"] = brand.has_fonts()
     return e
 
 
@@ -3095,12 +3094,6 @@ def render_site(
         return crumbs, {"jur_path": jp, "publisher_path": pub.path}
 
     css = (static_src / "site.css").read_text(encoding="utf-8").strip()
-    if not brand.has_fonts():
-        css = "\n".join(
-            ln
-            for ln in css.splitlines()
-            if not ln.startswith('@font-face{font-family:"Random Grotesque"')
-        )
     js = (static_src / "site.js").read_text(encoding="utf-8")
     assert js.count(API_SLOT) == 1
     js = js.replace(API_SLOT, json.dumps(at.browser_spec(), ensure_ascii=False, sort_keys=True))
