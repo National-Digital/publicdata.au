@@ -12,6 +12,7 @@ from html import unescape as html_unescape
 from pathlib import Path
 
 from . import SITE, explorer, serialise, structured
+from .ard import problems as ard_problems
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
 from .serialise.profile import query_key
@@ -188,6 +189,24 @@ def check(out: Path, register_dir: Path, absent: list[str] = (), site: bool = Tr
     return checked(out, register_dir, absent, site)[0]
 
 
+def ard_errors(out: Path) -> list[str]:
+    """The discovery manifest and every catalogue it links on this site must pass the ARD rules
+    Lighthouse audits, and each linked catalogue must exist."""
+    doc = json.loads((out / ".well-known/ard.json").read_text(encoding="utf-8"))
+    errors = [f"ard: {p}" for p in ard_problems(doc)]
+    for e in doc.get("entries", []):
+        url = e.get("url", "")
+        if e.get("type") != "application/ai-catalog+json" or not url.startswith(SITE + "/"):
+            continue
+        f = out / url.removeprefix(SITE + "/")
+        if not f.exists():
+            errors.append(f"ard: {e['identifier']} links {url}, which the build did not write")
+            continue
+        nested = json.loads(f.read_text(encoding="utf-8"))
+        errors += [f"ard: {p}" for p in ard_problems(nested, top=False, where=url)]
+    return errors
+
+
 def checked(
     out: Path, register_dir: Path, absent: list[str] = (), site: bool = True
 ) -> tuple[list[str], list[str]]:
@@ -212,6 +231,8 @@ def checked(
             "sitemap.xml",
             ".well-known/ard.json",
             ".well-known/ai-catalog.json",
+            ".well-known/api-catalog",
+            "skills/publicdata-au/SKILL.md",
             ".well-known/security.txt",
             "_headers",
             "_routes.json",
@@ -230,6 +251,8 @@ def checked(
     ):
         if not (out / req).exists():
             errors.append(f"missing {req}")
+    if site and (out / ".well-known/ard.json").exists():
+        errors += ard_errors(out)
     ddir = out / "d"
     for vman in sorted(ddir.glob("*/v/*/manifest.json")) if ddir.exists() else []:
         slug = vman.parts[-4]
