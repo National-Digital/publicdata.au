@@ -628,25 +628,25 @@
     var vbase = function (slug) { return latest(slug).then(function (v) { return '/d/' + encodeURIComponent(slug) + '/v/' + v + '/'; }); };
     var partitionIndex = function (slug, field) { return vbase(slug).then(function (b) { return getJSON(b + 'by/' + encodeURIComponent(field) + '/index.json').then(function (ix) { ix.base = b; return ix; }); }); };
     var API = '/api/v1/datasets/';
-    var enc = function (v) { return encodeURIComponent(String(v)); };
+    var encValue = function (v) { return encodeURIComponent(String(v)); };
     var filters = function (where) {
       var out = [];
       Object.keys(where || {}).forEach(function (k) {
-        var w = where[k], f = enc(k);
+        var w = where[k], f = encValue(k);
         if (w === null) out.push(f + '=is.null');
         else if (Array.isArray(w)) {
           if (w.some(function (x) { return String(x).indexOf(',') >= 0; })) throw new Error('a list value cannot contain a comma; filter ' + k + ' on one value at a time');
-          out.push(f + '=in.' + enc('(' + w.join(',') + ')'));
+          out.push(f + '=in.' + encValue('(' + w.join(',') + ')'));
         } else if (typeof w === 'object') {
-          if (w.min !== undefined) out.push(f + '=gte.' + enc(w.min));
-          if (w.max !== undefined) out.push(f + '=lte.' + enc(w.max));
-          if (w.like !== undefined) out.push(f + '=ilike.' + enc(w.like));
-        } else out.push(f + '=eq.' + enc(w));
+          if (w.min !== undefined) out.push(f + '=gte.' + encValue(w.min));
+          if (w.max !== undefined) out.push(f + '=lte.' + encValue(w.max));
+          if (w.like !== undefined) out.push(f + '=ilike.' + encValue(w.like));
+        } else out.push(f + '=eq.' + encValue(w));
       });
       return out;
     };
     var api = function (slug, op, version, qs) {
-      var u = API + enc(slug) + '/' + (version ? 'versions/' + enc(version) + '/' : '') + op + (qs.length ? '?' + qs.join('&') : '');
+      var u = API + encValue(slug) + '/' + (version ? 'versions/' + encValue(version) + '/' : '') + op + (qs.length ? '?' + qs.join('&') : '');
       return fetch(u).then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (b) {
           if (r.status === 429) throw new Error('rate limited; wait ' + (r.headers.get('retry-after') || '10') + ' seconds and call again');
@@ -717,8 +717,8 @@
       return Promise.resolve().then(function () {
         slug = slugOf(input);
         var qs = filters(input.where).concat(['limit=' + limit, 'offset=' + offset]);
-        if (input.select && input.select.length) qs.push('select=' + input.select.map(enc).join(','));
-        if (input.order) qs.push('order=' + enc(input.order));
+        if (input.select && input.select.length) qs.push('select=' + input.select.map(encValue).join(','));
+        if (input.order) qs.push('order=' + encValue(input.order));
         return api(slug, 'rows', input.version, qs);
       }).then(function (b) {
         return total(slug, b.version, input.where).then(function (n) {
@@ -731,8 +731,8 @@
       var alias = metric === 'count' ? 'count' : metric.replace('.', '_');
       return Promise.resolve().then(function () {
         slug = slugOf(input);
-        var qs = filters(input.where).concat(['metric=' + enc(metric), 'order=' + enc(alias + '.desc'), 'limit=' + limit]);
-        if (group.length) qs.push('group=' + group.map(enc).join(','));
+        var qs = filters(input.where).concat(['metric=' + encValue(metric), 'order=' + encValue(alias + '.desc'), 'limit=' + limit]);
+        if (group.length) qs.push('group=' + group.map(encValue).join(','));
         return api(slug, 'aggregate', input.version, qs);
       }).then(function (b) {
         return total(slug, b.version, input.where).then(function (n) {

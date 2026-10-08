@@ -8,7 +8,11 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: read # lists the pull request's commits
+
+concurrency:
+  group: dco-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   dco:

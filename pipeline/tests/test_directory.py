@@ -64,9 +64,15 @@ def test_curated_publishers_are_validated(tmp_path):
         load_curated(tmp_path)
 
 
+# Open contributor issues: a backlog entry's, and a catalogue record's on the TMR page.
+TASKS = {"abn-bulk-extract": 5, "qld-0a000000-0000-0000-0000-000000000002": 6}
+
+
 @pytest.fixture(scope="module")
 def site(tmp_path_factory):
     out = tmp_path_factory.mktemp("site") / "dist"
+    tasks = out.parent / "contribute.json"
+    tasks.write_text(json.dumps(TASKS), encoding="utf-8")
     subprocess.run(
         [
             sys.executable,
@@ -78,6 +84,8 @@ def site(tmp_path_factory):
             str(out),
             "--search",
             str(out.parent / "search.sqlite"),
+            "--tasks",
+            str(tasks),
         ],
         check=True,
     )
@@ -392,3 +400,28 @@ def test_the_operator_names_its_hub_accounts_on_the_home_page(site):
         "https://huggingface.co/National-Digital",
         "https://www.kaggle.com/NationalDigitalAU",
     ]
+
+
+def test_a_dataset_with_an_open_contributor_issue_links_it(site):
+    issue = "https://github.com/National-Digital/publicdata.au/issues/"
+    backlog = (site / "backlog" / "index.html").read_text(encoding="utf-8")
+    assert (
+        f'Open as a contributor task: <a href="{issue}5" rel="noopener">GitHub issue 5</a>'
+        in backlog
+    )
+    assert backlog.count(issue) == 1
+    tmr = (site / "qld" / "transport-and-main-roads" / "index.html").read_text(encoding="utf-8")
+    assert f'<a href="{issue}6" rel="noopener">GitHub issue 6</a>' in tmr
+    assert tmr.count(issue) == 1
+
+
+def test_a_record_claimed_by_an_entry_shows_the_issue_under_either_key():
+    from publicdata.directory import Directory
+
+    d = Directory(pubs={}, ds_pub={}, chosen={"gov-1": "abn-bulk-extract"})
+    d.tasks = {"gov-1": 4}
+    assert d.task_url("abn-bulk-extract").endswith("/issues/4")
+    assert d.task_url("gov-1").endswith("/issues/4")
+    d.tasks = {"abn-bulk-extract": 7}
+    assert d.task_url("gov-1").endswith("/issues/7")
+    assert d.task_url("gov-2") == ""

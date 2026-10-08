@@ -1,4 +1,4 @@
-JUR_CODES <- c(
+jur_codes <- c(
   cth = "cth", commonwealth = "cth", "australian government" = "cth", federal = "cth",
   nsw = "nsw", "new south wales" = "nsw", vic = "vic", victoria = "vic",
   qld = "qld", queensland = "qld", wa = "wa", "western australia" = "wa",
@@ -30,21 +30,24 @@ JUR_CODES <- c(
 #' @examplesIf pd_available()
 #' pd_catalogue("water quality", jurisdiction = "Queensland", limit = 5)
 #' @export
+# nolint next: implicit_integer_linter. The usage users read shows the plain numbers they pass.
 pd_catalogue <- function(q = NULL, jurisdiction = NULL, status = NULL, limit = 20, offset = 0) {
   jur <- NULL
   if (!is.null(jurisdiction)) {
-    jur <- unname(JUR_CODES[one_text(jurisdiction, "jurisdiction")])
-    if (is.na(jur)) pd_abort("jurisdiction is one of ", paste(unique(JUR_CODES), collapse = ", "))
+    jur <- unname(jur_codes[one_text(jurisdiction, "jurisdiction")])
+    if (is.na(jur)) pd_abort("jurisdiction is one of ", toString(unique(jur_codes)))
   }
-  body <- pd_get("/api/v1/catalogue", list(q = q, jur = jur, state = joined(status), limit = limit, offset = offset),
-                 simplify = FALSE)
-  rows <- body$rows
-  text <- function(r, k) if (is.null(r[[k]])) NA_character_ else as.character(r[[k]])
-  cols <- c(id = "id", title = "title", summary = "summary", publisher = "publisher", jurisdiction = "jur",
-            url = "url", licence = "licence", formats = "formats", modified = "modified", status = "state",
-            page = "page", reason = "reason")
-  out <- tibble::as_tibble(lapply(cols, function(k) vapply(rows, text, character(1), k = k)))
-  attr(out, "total") <- body$total
-  attr(out, "next_offset") <- body$next_offset
+  query <- list(q = q, jur = jur, state = joined(status), limit = limit, offset = offset)
+  reply <- pd_get("/api/v1/catalogue", query, simplify = FALSE)
+  rows <- reply$rows
+  field <- function(r, k) if (is.null(r[[k]])) NA_character_ else as.character(r[[k]])
+  cols <- c(
+    id = "id", title = "title", summary = "summary", publisher = "publisher", jurisdiction = "jur",
+    url = "url", licence = "licence", formats = "formats", modified = "modified", status = "state",
+    page = "page", reason = "reason"
+  )
+  out <- tibble::as_tibble(lapply(cols, function(k) vapply(rows, field, character(1L), k = k)))
+  attr(out, "total") <- reply$total
+  attr(out, "next_offset") <- reply$next_offset
   out
 }

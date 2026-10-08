@@ -1,4 +1,4 @@
-@font-face{font-family:"Random Grotesque";font-weight:300;font-display:optional;src:url(/static/fonts/RG-StandardBook.woff2) format("woff2")}
+@font-face{font-family:"Random Grotesque";font-weight:300;font-display:optional;src:url(/static/fonts/RG-StandardRegular.woff2) format("woff2")}
 @font-face{font-family:"Random Grotesque";font-weight:500;font-display:optional;src:url(/static/fonts/RG-StandardMedium.woff2) format("woff2")}
 @font-face{font-family:"Random Grotesque";font-weight:800;font-display:optional;src:url(/static/fonts/RG-StandardBold.woff2) format("woff2")}
 @font-face{font-family:"RG Fallback";font-weight:300;src:local("Arial"),local("Liberation Sans"),local("Helvetica");size-adjust:87.6%;ascent-override:91.3%;descent-override:22.8%;line-gap-override:10.3%}
