@@ -1,6 +1,7 @@
 import copy
 import re
 import shutil
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -15,10 +16,13 @@ from publicdata.register import (
     parse,
 )
 
-from .conftest import ROOT
+from .conftest import ROOT, present
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-def test_real_register_loads(register_dir):
+def test_real_register_loads(register_dir: Path) -> None:
     ds = load(register_dir)
     assert {d.slug for d in ds} >= {"qld-road-crash-locations", "qld-road-casualties"}
     live = [d for d in ds if d.status == "live"]
@@ -26,8 +30,8 @@ def test_real_register_loads(register_dir):
     assert all((d.fields or d.tables) and d.licence.open for d in live)
 
 
-def _raw(**over):
-    raw = {
+def _raw(**over: object) -> dict[str, Any]:
+    raw: dict[str, Any] = {
         "slug": "x-y",
         "title": "X",
         "status": "backlog",
@@ -39,14 +43,14 @@ def _raw(**over):
     return raw
 
 
-def test_nd_licence_must_be_blocked():
+def test_nd_licence_must_be_blocked() -> None:
     with pytest.raises(RegisterError, match="blocked"):
         parse(_raw(licence={"id": "CC-BY-ND-4.0"}), "x")
     ds = parse(_raw(status="blocked", licence={"id": "CC-BY-ND-4.0"}, blocked_reason="ND"), "x")
     assert not ds.publishable
 
 
-def test_live_needs_open_licence_evidence_and_fields():
+def test_live_needs_open_licence_evidence_and_fields() -> None:
     with pytest.raises(RegisterError, match="open licence"):
         parse(_raw(status="live", licence={"id": "not-specified"}), "x")
     with pytest.raises(RegisterError, match="evidence"):
@@ -67,12 +71,12 @@ def test_live_needs_open_licence_evidence_and_fields():
         )
 
 
-def test_key_must_be_declared_field():
+def test_key_must_be_declared_field() -> None:
     with pytest.raises(RegisterError, match="not a declared field"):
         parse(_raw(fields=[{"name": "a", "source": "A"}], key=["b"]), "x")
 
 
-def test_live_needs_the_search_fields(tmp_path):
+def test_live_needs_the_search_fields(tmp_path: Path) -> None:
     live = _raw(
         status="live",
         licence={
@@ -119,7 +123,9 @@ def test_live_needs_the_search_fields(tmp_path):
     assert load(tmp_path)[0].collection_description == "About C."
 
 
-def test_label_drafts_reuse_the_register_then_read_the_name(tmp_path, monkeypatch):
+def test_label_drafts_reuse_the_register_then_read_the_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     names = [
         "crash_year",
         "crash_severity",
@@ -147,7 +153,7 @@ def test_label_drafts_reuse_the_register_then_read_the_name(tmp_path, monkeypatc
     assert all(f.label for f in ds.fields)
 
 
-def test_entries_load_from_folders_but_not_publishers(tmp_path):
+def test_entries_load_from_folders_but_not_publishers(tmp_path: Path) -> None:
     (tmp_path / "qld").mkdir()
     (tmp_path / "publishers").mkdir()
     (tmp_path / "qld" / "x-y.yaml").write_text(yaml.safe_dump(_raw()))
@@ -161,14 +167,14 @@ def test_entries_load_from_folders_but_not_publishers(tmp_path):
         load(tmp_path)
 
 
-def test_query_takes_true_or_false():
+def test_query_takes_true_or_false() -> None:
     assert parse(_raw(), "x").query is True
     assert parse(_raw(query=False), "x").query is False
     with pytest.raises(RegisterError, match="true or false"):
         parse(_raw(query="no"), "x")
 
 
-def test_a_ckan_source_names_its_package_and_its_resource_or_a_pattern():
+def test_a_ckan_source_names_its_package_and_its_resource_or_a_pattern() -> None:
     base = yaml.safe_load((ROOT / "register" / "nsw-recorded-crime-by-lga.yaml").read_text())
     parse(base, "ok")
     raw = copy.deepcopy(base)
@@ -188,7 +194,7 @@ def test_a_ckan_source_names_its_package_and_its_resource_or_a_pattern():
         parse(raw, "x")
 
 
-def test_an_ala_source_needs_a_search_and_providers():
+def test_an_ala_source_needs_a_search_and_providers() -> None:
     with pytest.raises(RegisterError, match="search and providers"):
         parse(_raw(source={"adapter": "ala", "url": "https://api.example.org/"}), "x")
     ds = parse(
@@ -206,7 +212,7 @@ def test_an_ala_source_needs_a_search_and_providers():
     assert ds.source.providers == ("dr1",)
 
 
-def test_a_delimiter_is_tab_or_one_character():
+def test_a_delimiter_is_tab_or_one_character() -> None:
     parse(
         _raw(
             source={
@@ -246,8 +252,8 @@ def test_a_delimiter_is_tab_or_one_character():
         )
 
 
-def test_a_live_file_source_quotes_the_licence_pages_words():
-    live = {
+def test_a_live_file_source_quotes_the_licence_pages_words() -> None:
+    live: dict[str, Any] = {
         "status": "live",
         "licence": {
             "id": "CC-BY-4.0",
@@ -269,7 +275,7 @@ def test_a_live_file_source_quotes_the_licence_pages_words():
     assert parse(_raw(**live), "x").licence.statement == "licensed under CC BY 4.0"
 
 
-def test_two_entries_cannot_target_one_search_phrase(tmp_path):
+def test_two_entries_cannot_target_one_search_phrase(tmp_path: Path) -> None:
     src = ROOT / "register"
     for name in ("qld-road-crash-locations.yaml", "qld-road-casualties.yaml"):
         shutil.copy(src / name, tmp_path / name)
@@ -287,7 +293,7 @@ def test_two_entries_cannot_target_one_search_phrase(tmp_path):
         load(tmp_path)
 
 
-def test_place_field_must_be_a_partition_field(tmp_path):
+def test_place_field_must_be_a_partition_field(tmp_path: Path) -> None:
     text = (ROOT / "register" / "qld-road-crash-locations.yaml").read_text(encoding="utf-8")
     text = text.replace("place_field: loc_local_government_area", "place_field: crash_severity")
     (tmp_path / "qld-road-crash-locations.yaml").write_text(text, encoding="utf-8")
@@ -297,7 +303,7 @@ def test_place_field_must_be_a_partition_field(tmp_path):
         load(tmp_path)
 
 
-def test_omit_needs_a_reason_and_cannot_name_a_read_column():
+def test_omit_needs_a_reason_and_cannot_name_a_read_column() -> None:
     ok = parse(_raw(omit={"Vendor": "third party"}), "x")
     assert ok.omit == {"Vendor": "third party"}
     with pytest.raises(RegisterError, match="reason"):
@@ -306,7 +312,7 @@ def test_omit_needs_a_reason_and_cannot_name_a_read_column():
         parse(_raw(fields=[{"name": "a", "source": "Vendor"}], omit={"Vendor": "x"}), "x")
 
 
-def _database(**over):
+def _database(**over: object) -> dict[str, Any]:
     raw = _raw(
         kind="database",
         status="live",
@@ -352,7 +358,7 @@ def _database(**over):
     return raw
 
 
-def test_a_database_entry_names_its_tables_keys_references_and_views():
+def test_a_database_entry_names_its_tables_keys_references_and_views() -> None:
     ds = parse(_database(), "x")
     assert ds.kind == "database"
     assert ds.fields == ()
@@ -361,12 +367,12 @@ def test_a_database_entry_names_its_tables_keys_references_and_views():
     assert ds.table("thing").key == ("thing_pid",)
     assert ds.table("thing").field("kind_code").references == "kind_aut.code"
     assert ds.views[0].example == "kind_code"
-    assert ds.database.delimiter == "|"
+    assert present(ds.database).delimiter == "|"
     # A database never goes to the query API.
     assert ds.query is False
 
 
-def test_a_database_entry_is_checked_for_its_pattern_references_and_shape():
+def test_a_database_entry_is_checked_for_its_pattern_references_and_shape() -> None:
     for over, why in (
         ({"database": {"member_match": "x"}}, "table"),
         ({"database": {"member_match": "("}}, "valid pattern"),
@@ -395,7 +401,7 @@ def test_a_database_entry_is_checked_for_its_pattern_references_and_shape():
         parse(bad, "x")
 
 
-def test_a_licence_with_a_condition_is_open_and_states_it():
+def test_a_licence_with_a_condition_is_open_and_states_it() -> None:
     assert set(LICENCE_CONDITIONS) <= set(OPEN_LICENCES)
     ds = parse(_raw(licence={"id": "OPEN-GNAF-EULA"}), "x")
     assert ds.licence.open
@@ -403,7 +409,7 @@ def test_a_licence_with_a_condition_is_open_and_states_it():
     assert parse(_raw(), "x").licence.condition == ""
 
 
-def _fielded(**over):
+def _fielded(**over: object) -> dict[str, Any]:
     return _raw(
         fields=[
             {"name": "year", "source": "Year", "type": "integer"},
@@ -416,7 +422,7 @@ def _fielded(**over):
     )
 
 
-def test_an_example_reads_exact_matches_operators_and_newest():
+def test_an_example_reads_exact_matches_operators_and_newest() -> None:
     ds = parse(
         _fielded(
             example={
@@ -445,7 +451,7 @@ def test_an_example_reads_exact_matches_operators_and_newest():
         "metric": "sum.value",
         "label": "Victims",
     }
-    assert parse(_fielded(example={"group": "state"}), "x").example["metric"] == "count"
+    assert present(parse(_fielded(example={"group": "state"}), "x").example)["metric"] == "count"
 
 
 @pytest.mark.parametrize(
@@ -460,12 +466,12 @@ def test_an_example_reads_exact_matches_operators_and_newest():
         ({"group": "state", "order": "desc"}, "takes where, group"),
     ],
 )
-def test_an_example_is_checked_against_the_fields(example, message):
+def test_an_example_is_checked_against_the_fields(example: dict[str, object], message: str) -> None:
     with pytest.raises(RegisterError, match=message):
         parse(_fielded(example=example), "x")
 
 
-def test_a_chart_keeps_its_rows_and_names_its_split_and_measure():
+def test_a_chart_keeps_its_rows_and_names_its_split_and_measure() -> None:
     ds = parse(
         _fielded(
             chart={
@@ -503,7 +509,7 @@ def test_a_chart_keeps_its_rows_and_names_its_split_and_measure():
         parse(_fielded(chart_where={"field": "unit", "op": "=", "value": "Number"}), "x")
 
 
-def test_a_sample_reads_its_order_and_spread_and_needs_words_for_a_pick():
+def test_a_sample_reads_its_order_and_spread_and_needs_words_for_a_pick() -> None:
     ds = parse(
         _fielded(
             sample={
@@ -524,7 +530,7 @@ def test_a_sample_reads_its_order_and_spread_and_needs_words_for_a_pick():
         "spread": "unit",
         "label": "The largest values in the newest year.",
     }
-    assert parse(_fielded(sample={"spread": "none"}), "x").sample["spread"] == ""
+    assert present(parse(_fielded(sample={"spread": "none"}), "x").sample)["spread"] == ""
     assert parse(_fielded(), "x").sample is None
     with pytest.raises(RegisterError, match="needs a label"):
         parse(_fielded(sample={"order": ["value"]}), "x")

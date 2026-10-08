@@ -1,17 +1,22 @@
 import json
 import shutil
+from typing import TYPE_CHECKING
 
 from publicdata import shards
 from publicdata.__main__ import main
 from publicdata.register import load
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
 
-def test_small_changes_build_in_one_job():
+
+def test_small_changes_build_in_one_job() -> None:
     assert shards.plan({"a": 30, "b": 20, "c": 0}, 4, floor=100) == [["a", "b"]]
     assert shards.plan({"a": 0}, 4) == []
 
 
-def test_large_changes_spread_and_a_dataset_larger_than_a_share_builds_alone():
+def test_large_changes_spread_and_a_dataset_larger_than_a_share_builds_alone() -> None:
     w = {"gnaf": 1850, "eucalypts": 580, "water": 360, "tas": 240, "qld": 210, "abs": 100}
     jobs = shards.plan(w, 4, floor=0)
     assert ["gnaf"] in jobs
@@ -19,7 +24,7 @@ def test_large_changes_spread_and_a_dataset_larger_than_a_share_builds_alone():
     assert len(jobs) <= 4
 
 
-def test_more_jobs_than_allowed_fall_back_to_the_lightest_job():
+def test_more_jobs_than_allowed_fall_back_to_the_lightest_job() -> None:
     w = {"a": 7, "b": 7, "c": 7, "d": 3, "e": 3, "f": 3}
     # Two jobs of 15 cannot hold them (7+7, 7+3+3, 3), so each goes to the lighter job.
     jobs = shards.plan(w, 2, floor=0)
@@ -28,7 +33,14 @@ def test_more_jobs_than_allowed_fall_back_to_the_lightest_job():
     assert sorted(sum(w[s] for s in j) for j in jobs) == [14, 16]
 
 
-def _build(store, out, cache, *slugs, built=(), published=None):
+def _build(
+    store: Path,
+    out: Path,
+    cache: Path,
+    *slugs: str,
+    built: Iterable[Path] = (),
+    published: Path | None = None,
+) -> list[str]:
     args = ["build", *slugs, *(["--no-site"] if slugs else []), "--store", str(store)]
     args += ["--out", str(out)]
     if published:
@@ -37,10 +49,13 @@ def _build(store, out, cache, *slugs, built=(), published=None):
     for b in built:
         args += ["--built", str(b)]
     assert main(args) == 0
-    return json.loads((out.parent / (out.name + ".absent.json")).read_text())
+    absent: list[str] = json.loads((out.parent / (out.name + ".absent.json")).read_text())
+    return absent
 
 
-def test_shards_fill_the_cache_the_deploy_builds_from(fixture_store, tmp_path, register_dir):
+def test_shards_fill_the_cache_the_deploy_builds_from(
+    fixture_store: Path, tmp_path: Path, register_dir: Path
+) -> None:
     every = [d.slug for d in load(register_dir) if d.publishable]
     assert sorted(shards.weights(load(register_dir), fixture_store, tmp_path / "none")) == sorted(
         d.slug for d in load(register_dir)
@@ -68,7 +83,9 @@ def test_shards_fill_the_cache_the_deploy_builds_from(fixture_store, tmp_path, r
     assert main(["gate", str(tmp_path / "o2")]) == 0
 
 
-def test_a_version_whose_writer_changed_is_still_to_build(fixture_store, tmp_path, register_dir):
+def test_a_version_whose_writer_changed_is_still_to_build(
+    fixture_store: Path, tmp_path: Path, register_dir: Path
+) -> None:
     cache = tmp_path / "cache"
     _build(fixture_store, tmp_path / "o", cache)
     metas = [p for p in cache.glob("*/meta.json") if "writers" in json.loads(p.read_text())]

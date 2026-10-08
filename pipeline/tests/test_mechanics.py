@@ -4,10 +4,12 @@ import io
 import json
 import json as _json
 import re
+from typing import TYPE_CHECKING, Any
 
 import openpyxl
 import pytest
 import yaml
+from openpyxl.worksheet.worksheet import Worksheet
 
 from publicdata import fetch as f
 from publicdata import store
@@ -25,10 +27,16 @@ from publicdata.register import (
     parse_grant,
 )
 
-from .conftest import make_dataset, make_manifest
+from .conftest import make_dataset, make_manifest, present
 from .test_fetch_adapters import Portal, Resp
 
-GRANT = {
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
+
+    from publicdata.fetch import Adapter
+
+GRANT: dict[str, Any] = {
     "id": "TEST-NOTICE",
     "title": "Test notice",
     "url": "https://example.gov.au/copyright",
@@ -43,7 +51,7 @@ GRANT = {
 }
 
 
-def test_a_grant_is_admitted_only_when_it_quotes_all_four_tests(tmp_path):
+def test_a_grant_is_admitted_only_when_it_quotes_all_four_tests(tmp_path: Path) -> None:
     assert parse_grant(GRANT, "g", tmp_path).grants["commercial"] == "silent"
     for test in ("reproduce", "adapt", "commercial", "attribution"):
         words = {k: v for k, v in GRANT["grants"].items() if k != test}
@@ -55,7 +63,7 @@ def test_a_grant_is_admitted_only_when_it_quotes_all_four_tests(tmp_path):
         parse_grant(GRANT | {"read": "October 2026"}, "g", tmp_path)
 
 
-def test_a_permission_names_its_agency_year_and_stored_letter(tmp_path):
+def test_a_permission_names_its_agency_year_and_stored_letter(tmp_path: Path) -> None:
     perm = GRANT | {"id": "WAPOL-PERMISSION-2026", "kind": "permission"}
     with pytest.raises(RegisterError, match="letter"):
         parse_grant(perm, "g", tmp_path)
@@ -66,13 +74,13 @@ def test_a_permission_names_its_agency_year_and_stored_letter(tmp_path):
         parse_grant(perm | {"id": "WAPOL-2026", "letter": "letters/wapol.pdf"}, "g", tmp_path)
 
 
-def test_a_grant_file_is_named_by_its_id(tmp_path):
+def test_a_grant_file_is_named_by_its_id(tmp_path: Path) -> None:
     (tmp_path / "OTHER.yaml").write_text(yaml.safe_dump(GRANT))
     with pytest.raises(RegisterError, match="filename"):
         load_grants(tmp_path)
 
 
-def test_the_committed_grants_pass_and_join_the_open_licences():
+def test_the_committed_grants_pass_and_join_the_open_licences() -> None:
     assert {"RBA-COPYRIGHT-NOTICE", "OPEN-GNAF-EULA"} <= set(GRANTS)
     assert OPEN_LICENCES["RBA-COPYRIGHT-NOTICE"] == (
         "RBA copyright notice",
@@ -81,7 +89,7 @@ def test_the_committed_grants_pass_and_join_the_open_licences():
     assert LICENCE_CONDITIONS["OPEN-GNAF-EULA"].startswith("You must not use the data")
 
 
-def _live(**licence):
+def _live(**licence: str) -> dict[str, Any]:
     return {
         "slug": "x-y",
         "title": "X",
@@ -98,7 +106,7 @@ def _live(**licence):
     }
 
 
-def test_a_live_entry_records_when_a_person_reviewed_its_licence():
+def test_a_live_entry_records_when_a_person_reviewed_its_licence() -> None:
     with pytest.raises(RegisterError, match=re.escape("licence.reviewed")):
         parse(_live(), "x")
     with pytest.raises(RegisterError, match="YYYY-MM-DD"):
@@ -106,7 +114,7 @@ def test_a_live_entry_records_when_a_person_reviewed_its_licence():
     assert parse(_live(reviewed="2026-10-01"), "x").licence.reviewed == "2026-10-01"
 
 
-def test_an_entry_that_misreads_a_portals_version_is_stopped():
+def test_an_entry_that_misreads_a_portals_version_is_stopped() -> None:
     # data.sa.gov.au defines cc-by as CC BY 4.0; an entry that says 3.0 AU is wrong however the
     # portal answers.
     ds = make_dataset(
@@ -126,7 +134,7 @@ def test_an_entry_that_misreads_a_portals_version_is_stopped():
     f.check_licence(ok, {"id": "cc-by"})
 
 
-def test_an_unversioned_code_without_portal_id_is_refused():
+def test_an_unversioned_code_without_portal_id_is_refused() -> None:
     ds = make_dataset(
         [Field("a", "a")],
         licence=Licence("CC-BY-4.0", "https://e", "a"),
@@ -138,7 +146,9 @@ def test_an_unversioned_code_without_portal_id_is_refused():
         f.check_licence(ds, {"id": "cc-by", "title": "Creative Commons Attribution"})
 
 
-def test_a_fetch_refuses_a_licence_read_with_no_place_or_time(tmp_path, monkeypatch):
+def test_a_fetch_refuses_a_licence_read_with_no_place_or_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset([Field("a", "a")], source=Source(adapter="file", url="https://e/f.csv"))
     m = make_manifest(b"a\n1\n", dataset="t")
     monkeypatch.setitem(f.ADAPTERS, "file", lambda d, s: (b"a\n1\n", m, {"id": "CC-BY-4.0"}))
@@ -146,27 +156,27 @@ def test_a_fetch_refuses_a_licence_read_with_no_place_or_time(tmp_path, monkeypa
         f.fetch(ds, tmp_path)
     lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
     monkeypatch.setitem(f.ADAPTERS, "file", lambda d, s: (b"a\n1\n", m, lic))
-    assert f.fetch(ds, tmp_path).version == m.version
+    assert present(f.fetch(ds, tmp_path)).version == m.version
 
 
-def test_every_adapter_records_where_it_read_the_licence():
+def test_every_adapter_records_where_it_read_the_licence() -> None:
     for name, fn in f.ADAPTERS.items():
         src = inspect.getsource(fn)
         assert any(k in src for k in ("_licence(", "statement_licence(", "read_from")), name
 
 
-def test_a_feed_is_one_version_per_day_and_a_day_is_never_rewritten():
+def test_a_feed_is_one_version_per_day_and_a_day_is_never_rewritten() -> None:
     day = dt.date(2026, 10, 1)
     m = make_manifest(b"x", version="2024-01-01")
-    got = f.feed_version(m, [], day)
+    got = present(f.feed_version(m, [], day))
     assert got.version == "2026-10-01"
     assert got.notes == [f.FEED_NOTE]
     again = make_manifest(b"y", version="2024-01-01")
     assert f.feed_version(again, [got], day) is None
-    assert f.feed_version(again, [got], day + dt.timedelta(days=1)).version == "2026-10-02"
+    assert present(f.feed_version(again, [got], day + dt.timedelta(days=1))).version == "2026-10-02"
 
 
-def test_the_feeds_flag_parses_and_must_be_a_boolean():
+def test_the_feeds_flag_parses_and_must_be_a_boolean() -> None:
     raw = _live(reviewed="2026-10-01")
     raw["source"]["feed"] = True
     assert parse(raw, "x").source.feed
@@ -180,7 +190,7 @@ PAGE = b"""<html><a href="/files/fuel-2025-01.xlsx">Jan</a> <a href='fuel-2025-0
 <a href="https://other.example/fuel%202025-03.csv">Mar</a></html>"""
 
 
-def test_page_links_are_absolute_once_each_and_matched_decoded():
+def test_page_links_are_absolute_once_each_and_matched_decoded() -> None:
     got = f.page_links(PAGE, "https://pub.example/data/", r"fuel[- ]2025-\d\d\.(xlsx|csv)$")
     assert got == [
         "https://pub.example/files/fuel-2025-01.xlsx",
@@ -189,16 +199,20 @@ def test_page_links_are_absolute_once_each_and_matched_decoded():
     ]
 
 
-def _xlsx(rows):
+def _xlsx(rows: Iterable[list[object]]) -> bytes:
     wb = openpyxl.Workbook()
+    ws = wb.active
+    assert isinstance(ws, Worksheet)
     for r in rows:
-        wb.active.append(r)
+        ws.append(r)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
-def test_a_file_stack_reads_every_listed_file_as_one_table(tmp_path, monkeypatch):
+def test_a_file_stack_reads_every_listed_file_as_one_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset(
         [Field("site", "Site"), Field("price", "Price", "number")],
         licence=Licence(
@@ -214,39 +228,41 @@ def test_a_file_stack_reads_every_listed_file_as_one_table(tmp_path, monkeypatch
     jan = _xlsx([["Fuel prices, January"], [], ["Site", "Price"], ["A", 1.9], ["B", 2.05]])
     feb = b"Site,Price\nB,2.05\nC,2.1\n"
     lm = {"Last-Modified": "Mon, 03 Mar 2025 00:00:00 GMT"}
-    s = Portal(
-        {
-            "https://pub.example/copyright": Resp(
-                b"<p>This is licensed under CC BY 4.0.</p>", ctype="text/html"
-            ),
-            "https://pub.example/data/": Resp(
-                b'<a href="/f/fuel-2025-01.xlsx">J</a><a href="/f/fuel-2025-02.csv">F</a>',
-                ctype="text/html",
-            ),
-            "https://pub.example/f/fuel-2025-01.xlsx": Resp(jan, ctype="application/vnd.ms-excel"),
-            "https://pub.example/f/fuel-2025-02.csv": Resp(feb, headers=lm),
-        }
-    )
-    s.head = lambda url, **kw: type(
+    routes: dict[str, Resp | list[Resp]] = {
+        "https://pub.example/copyright": Resp(
+            b"<p>This is licensed under CC BY 4.0.</p>", ctype="text/html"
+        ),
+        "https://pub.example/data/": Resp(
+            b'<a href="/f/fuel-2025-01.xlsx">J</a><a href="/f/fuel-2025-02.csv">F</a>',
+            ctype="text/html",
+        ),
+        "https://pub.example/f/fuel-2025-01.xlsx": Resp(jan, ctype="application/vnd.ms-excel"),
+        "https://pub.example/f/fuel-2025-02.csv": Resp(feb, headers=lm),
+    }
+    s = Portal(routes)
+    head = lambda url, **kw: type(  # noqa: E731
         "H", (), {"ok": True, "headers": lm if url.endswith(".csv") else {}}
     )()
+    monkeypatch.setattr(s, "head", head, raising=False)
     monkeypatch.setattr(f, "_session", lambda session: s)
     data, m, lic = f.file_stack(ds, tmp_path)
-    assert data.decode().splitlines() == ["Site,Price", "A,1.9", "B,2.05", "C,2.1"]
+    assert present(data).decode().splitlines() == ["Site,Price", "A,1.9", "B,2.05", "C,2.1"]
     assert m.version == "2025-03-03"
     assert m.source["rows_repeated"] == 1
     assert [x["rows"] for x in m.source["files"]] == [2, 2]
     assert lic["read_from"] == "https://pub.example/copyright"
     assert lic["read_at"]
     assert f.FILE_NOTE not in m.notes
-    s.routes["https://pub.example/copyright"] = Resp(
+    routes["https://pub.example/copyright"] = Resp(
         b"<p>All rights reserved.</p>", ctype="text/html"
     )
     with pytest.raises(f.LicenceDrift):
         f.file_stack(ds, tmp_path)
 
 
-def test_a_file_stack_with_no_dated_file_says_it_is_dated_by_the_fetch(tmp_path, monkeypatch):
+def test_a_file_stack_with_no_dated_file_says_it_is_dated_by_the_fetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset(
         [Field("site", "Site")],
         licence=Licence("CC-BY-4.0", "https://p/c", "a", statement="CC BY 4.0"),
@@ -267,7 +283,7 @@ def test_a_file_stack_with_no_dated_file_says_it_is_dated_by_the_fetch(tmp_path,
     assert m.source["newest_file"] is None
 
 
-def test_a_file_stack_entry_names_its_link_pattern_and_header():
+def test_a_file_stack_entry_names_its_link_pattern_and_header() -> None:
     raw = _live(reviewed="2026-10-01", statement="words")
     raw["source"] = {"adapter": "file-stack", "url": "https://e", "header_match": "Site"}
     with pytest.raises(RegisterError, match="resource_match"):
@@ -284,7 +300,7 @@ XML = """﻿<?xml version="1.0" encoding="utf-8"?>
 </places>"""
 
 
-def test_an_xml_record_becomes_one_row_with_attributes_and_repeats_joined():
+def test_an_xml_record_becomes_one_row_with_attributes_and_repeats_joined() -> None:
     t = read_xml(XML.encode("utf-8"), "place")
     assert t.column_names == [
         "@type",
@@ -308,13 +324,15 @@ def test_an_xml_record_becomes_one_row_with_attributes_and_repeats_joined():
         read_xml(nested.encode("utf-8"), "place")
 
 
-def test_stored_manifests_are_read_with_their_licence_record(tmp_path):
+def test_stored_manifests_are_read_with_their_licence_record(tmp_path: Path) -> None:
     m = make_manifest(b"a\n", licence={"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "t"})
     store.write(tmp_path, m, b"a\n")
     assert store.manifests(tmp_path, "t")[-1].licence["read_from"] == "https://e"
 
 
-def test_a_file_url_with_no_extension_is_named_by_its_declared_format(tmp_path, monkeypatch):
+def test_a_file_url_with_no_extension_is_named_by_its_declared_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset(
         [Field("a", "a")],
         licence=Licence("CC-BY-4.0", "https://p/c", "a", statement="CC BY 4.0"),
@@ -336,7 +354,9 @@ def test_a_file_url_with_no_extension_is_named_by_its_declared_format(tmp_path, 
     assert m.ext == "geojson"
 
 
-def test_a_capped_wfs_is_read_page_by_page_into_one_file(tmp_path, monkeypatch):
+def test_a_capped_wfs_is_read_page_by_page_into_one_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset(
         [Field("a", "a")],
         licence=Licence("CC-BY-4.0", "https://p/c", "a", statement="CC BY 4.0"),
@@ -348,7 +368,7 @@ def test_a_capped_wfs_is_read_page_by_page_into_one_file(tmp_path, monkeypatch):
         ),
     )
 
-    def page(ids):
+    def page(ids: Iterable[int]) -> Resp:
         feats = [{"type": "Feature", "properties": {"a": i}, "geometry": None} for i in ids]
         return Resp(_json.dumps({"features": feats}).encode(), ctype="application/json")
 
@@ -362,11 +382,11 @@ def test_a_capped_wfs_is_read_page_by_page_into_one_file(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(f, "_session", lambda session: s)
     data, m, _ = f.http_file(ds, tmp_path)
-    assert [x["properties"]["a"] for x in _json.loads(data)["features"]] == [1, 2, 3, 4, 5]
+    assert [x["properties"]["a"] for x in _json.loads(present(data))["features"]] == [1, 2, 3, 4, 5]
     assert m.filename == "t.geojson"
 
 
-def test_a_resource_served_through_a_page_script_is_named_by_its_file():
+def test_a_resource_served_through_a_page_script_is_named_by_its_file() -> None:
     assert (
         f.resource_filename({"url": "https://x/a/CFA-times.xlsx.aspx", "format": "XLSX"})
         == "CFA-times.xlsx"
@@ -378,8 +398,8 @@ def test_a_resource_served_through_a_page_script_is_named_by_its_file():
 
 
 def test_a_stack_can_name_each_rows_file_and_a_repeated_header_stays_distinct(
-    tmp_path, monkeypatch
-):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     t = read_xlsx(_xlsx([["Rank", "Name", "Rank", "Name"], [1, "Ava", 1, "Leo"]]), "", 1)
     assert t.column_names == ["Rank", "Name", "Rank (2)", "Name (2)"]
     ds = make_dataset(
@@ -401,14 +421,18 @@ def test_a_stack_can_name_each_rows_file_and_a_repeated_header_stays_distinct(
     )
     monkeypatch.setattr(f, "_session", lambda session: s)
     data, _, _ = f.file_stack(ds, tmp_path)
-    assert data.decode().splitlines() == ["Site,(file)", "A,names-2023.csv", "A,names-2024.csv"]
+    assert present(data).decode().splitlines() == [
+        "Site,(file)",
+        "A,names-2023.csv",
+        "A,names-2024.csv",
+    ]
 
 
-def test_dates_in_the_ways_publishers_write_them():
+def test_dates_in_the_ways_publishers_write_them() -> None:
     assert f.parse_as_at("Current as at 23/09/2026", r"as at (\S+)") == "2026-09-23"
 
 
-def test_a_tie_on_creation_date_goes_to_the_newest_file():
+def test_a_tie_on_creation_date_goes_to_the_newest_file() -> None:
     ds = make_dataset(
         [Field("a", "a")],
         source=Source(adapter="ckan-resource", url="u", resource_match="Elective"),
@@ -426,7 +450,9 @@ def test_a_tie_on_creation_date_goes_to_the_newest_file():
     assert f.pick_resource(ds, [new, old]) is new
 
 
-def test_a_stack_keeps_a_repeated_header_as_two_columns(tmp_path, monkeypatch):
+def test_a_stack_keeps_a_repeated_header_as_two_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset(
         [Field("rank", "Rank"), Field("girl", "Name"), Field("boy", "Name (2)")],
         licence=Licence("CC-BY-4.0", "https://p/c", "a", statement="CC BY 4.0"),
@@ -446,26 +472,28 @@ def test_a_stack_keeps_a_repeated_header_as_two_columns(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(f, "_session", lambda session: s)
     data, _, _ = f.file_stack(ds, tmp_path)
-    assert data.decode().splitlines() == ["Rank,Name,Name (2)", "1,Ava,Leo"]
+    assert present(data).decode().splitlines() == ["Rank,Name,Name (2)", "1,Ava,Leo"]
 
 
-def test_a_reordered_export_with_the_same_rows_is_no_new_version(tmp_path, monkeypatch):
+def test_a_reordered_export_with_the_same_rows_is_no_new_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset(
         [Field("a", "a"), Field("b", "b")], source=Source(adapter="file", url="https://e/f.csv")
     )
     lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
     first, reordered, changed = b"a,b\n1,x\n2,y\n", b"a,b\n2,y\n1,x\n", b"a,b\n2,y\n1,z\n"
 
-    def adapter(data, version):
+    def adapter(data: bytes, version: str) -> Adapter:
         m = make_manifest(data, dataset="t", version=version, encoding="utf-8")
         return lambda d, s: (data, m, lic)
 
     monkeypatch.setitem(f.ADAPTERS, "file", adapter(first, "2026-10-01"))
-    assert f.fetch(ds, tmp_path).rows_sha256
+    assert present(f.fetch(ds, tmp_path)).rows_sha256
     monkeypatch.setitem(f.ADAPTERS, "file", adapter(reordered, "2026-10-02"))
     assert f.fetch(ds, tmp_path) is None
     monkeypatch.setitem(f.ADAPTERS, "file", adapter(changed, "2026-10-02"))
-    assert f.fetch(ds, tmp_path).version == "2026-10-02"
+    assert present(f.fetch(ds, tmp_path)).version == "2026-10-02"
     assert [m.version for m in store.manifests(tmp_path, "t")] == ["2026-10-01", "2026-10-02"]
     # Every manifest the fetch writes carries the caps stamp the build keys the formats on; one
     # written without it keeps the old set, and its bytes, since the field is left out at 0.
@@ -474,40 +502,42 @@ def test_a_reordered_export_with_the_same_rows_is_no_new_version(tmp_path, monke
     assert '"caps"' not in make_manifest(b"x", dataset="t").to_json()
 
 
-def test_an_export_with_no_rows_never_replaces_one_that_had_some(tmp_path, monkeypatch):
+def test_an_export_with_no_rows_never_replaces_one_that_had_some(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset(
         [Field("a", "a"), Field("b", "b")], source=Source(adapter="file", url="https://e/f.csv")
     )
     lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
 
-    def adapter(data, version):
+    def adapter(data: bytes, version: str) -> Adapter:
         m = make_manifest(data, dataset="t", version=version, encoding="utf-8")
         return lambda d, s: (data, m, lic)
 
     monkeypatch.setitem(f.ADAPTERS, "file", adapter(b"a,b\n", "2026-10-01"))
-    assert f.fetch(ds, tmp_path).version == "2026-10-01"  # a first version may be empty
+    assert present(f.fetch(ds, tmp_path)).version == "2026-10-01"  # a first version may be empty
     monkeypatch.setitem(f.ADAPTERS, "file", adapter(b"a,b\n1,x\n", "2026-10-02"))
-    assert f.fetch(ds, tmp_path).version == "2026-10-02"
+    assert present(f.fetch(ds, tmp_path)).version == "2026-10-02"
     monkeypatch.setitem(f.ADAPTERS, "file", adapter(b"a,b\n", "2026-10-03"))
     with pytest.raises(f.FetchError, match="no rows"):
         f.fetch(ds, tmp_path)
     assert [m.version for m in store.manifests(tmp_path, "t")] == ["2026-10-01", "2026-10-02"]
 
 
-def test_a_manifest_without_a_rows_digest_keeps_its_bytes():
+def test_a_manifest_without_a_rows_digest_keeps_its_bytes() -> None:
     m = make_manifest(b"a\n1\n")
     assert "rows_sha256" not in m.to_json()
     m.rows_sha256 = "ab"
     assert '"rows_sha256": "ab"' in m.to_json()
 
 
-def test_a_polygon_layers_row_digest_follows_each_rows_own_shape():
+def test_a_polygon_layers_row_digest_follows_each_rows_own_shape() -> None:
     ds = make_dataset(
         [Field("code", "CODE"), Field("name", "NAME")],
         geometry={"kind": "polygon", "crs": "EPSG:7844"},
     )
 
-    def layer(*features):
+    def layer(*features: tuple[str, str, list[list[int]]]) -> bytes:
         fc = {
             "type": "FeatureCollection",
             "features": [
@@ -532,7 +562,7 @@ def test_a_polygon_layers_row_digest_follows_each_rows_own_shape():
     assert f.rows_digest(ds, m, layer(*swapped)) != first
 
 
-def test_a_stack_reads_each_titled_table_in_a_file_as_one_row_per_cell():
+def test_a_stack_reads_each_titled_table_in_a_file_as_one_row_per_cell() -> None:
     data = (
         b"Wait Times as at 30 June 2020,,,\n"
         b"Region,1 bedroom,2 bedroom,\n"
@@ -554,7 +584,7 @@ def test_a_stack_reads_each_titled_table_in_a_file_as_one_row_per_cell():
     ]
 
 
-def test_a_stack_reads_a_two_row_header_groups_and_footnote_numbers():
+def test_a_stack_reads_a_two_row_header_groups_and_footnote_numbers() -> None:
     data = (
         b"2019 Mining Production,,,\n"
         b"Commodity ,Unit,2018-19,\n"

@@ -1,15 +1,22 @@
 import re
 import sqlite3
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 from publicdata import figures
-from publicdata.register import Publisher
+from publicdata.register import Field, Publisher
 from publicdata.site import RELATED_MAX, _related, _sample
 
-from .conftest import as_parquet, make_dataset
+from .conftest import as_parquet, make_dataset, make_manifest, present
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
+
+    from publicdata.register import Dataset
 
 
-def _db(tmp_path, rows):
+def _db(tmp_path: Path, rows: Iterable[tuple[object, ...]]) -> Path:
     db = tmp_path / "data.sqlite"
     con = sqlite3.connect(db)
     con.execute("CREATE TABLE records (crash_year INTEGER, severity TEXT, lon REAL, lat REAL)")
@@ -19,24 +26,24 @@ def _db(tmp_path, rows):
     return as_parquet(db)
 
 
-def _ds():
+def _ds() -> Dataset:
     return make_dataset(
         [
             figures.__class__  # placeholder replaced below
         ]
         if False
         else [
-            SimpleNamespace(name="crash_year", type="integer", display="Year"),
-            SimpleNamespace(name="severity", type="string", display="Severity"),
-            SimpleNamespace(name="lon", type="number", display="Longitude"),
-            SimpleNamespace(name="lat", type="number", display="Latitude"),
+            Field("crash_year", "crash_year", "integer", label="Year"),
+            Field("severity", "severity", "string", label="Severity"),
+            Field("lon", "lon", "number", label="Longitude"),
+            Field("lat", "lat", "number", label="Latitude"),
         ],
         geometry={"lon": "lon", "lat": "lat", "crs": "EPSG:7844"},
         row_label="Crashes",
     )
 
 
-def test_a_part_year_is_left_out_and_named(tmp_path):
+def test_a_part_year_is_left_out_and_named(tmp_path: Path) -> None:
     db = _db(
         tmp_path,
         [
@@ -58,8 +65,8 @@ def test_a_part_year_is_left_out_and_named(tmp_path):
         2024,
         2025,
     ]
-    m = SimpleNamespace(as_at="2025-06-30", fetched_at="2026-01-01T00:00:00+00:00")
-    console = {
+    m = make_manifest(b"", as_at="2025-06-30", fetched_at="2026-01-01T00:00:00+00:00")
+    console: dict[str, Any] = {
         "fields": [{"name": "severity", "type": "string", "values": ["Fatal", "Minor", "Serious"]}],
         "example": {"metric": "count", "group": [], "filters": []},
     }
@@ -144,20 +151,20 @@ def test_a_financial_year_is_read_however_the_publisher_writes_it():
 def test_the_year_comes_from_an_integer_year_field_before_a_date():
     ds = make_dataset(
         [
-            SimpleNamespace(name="reporting_year", type="integer"),
-            SimpleNamespace(name="year_of_crash", type="integer"),
-            SimpleNamespace(name="date", type="date"),
+            Field("reporting_year", "reporting_year", "integer"),
+            Field("year_of_crash", "year_of_crash", "integer"),
+            Field("date", "date", "date"),
         ]
     )
     assert figures.year_field(ds) == ("year_of_crash", "integer")
-    assert figures.year_field(make_dataset([SimpleNamespace(name="date", type="date")])) == (
+    assert figures.year_field(make_dataset([Field("date", "date", "date")])) == (
         "date",
         "date",
     )
-    assert figures.year_field(make_dataset([SimpleNamespace(name="n", type="integer")])) is None
+    assert figures.year_field(make_dataset([Field("n", "n", "integer")])) is None
 
 
-def test_cells_count_rows_and_the_national_map_hatches_states_without_data(tmp_path):
+def test_cells_count_rows_and_the_national_map_hatches_states_without_data(tmp_path: Path) -> None:
     db = _db(
         tmp_path,
         [
@@ -182,7 +189,7 @@ def test_cells_count_rows_and_the_national_map_hatches_states_without_data(tmp_p
     assert "data:" not in svg
     assert "Brisbane" not in svg
     assert 'class="state"' not in svg
-    src = re.search(r'src="(/maps/[0-9a-f]{16}\.png)"', svg).group(1)
+    src = present(re.search(r'src="(/maps/[0-9a-f]{16}\.png)"', svg)).group(1)
     assert (tmp_path / src.lstrip("/")).stat().st_size > 0
     assert 'alt="2 crashes drawn in 1 cells of 0.05 degrees, the fullest with 2. ' in svg
     assert "Brisbane" in figures.map_html(c, "Crashes", tmp_path, box=(0, 50, 941, 661))
@@ -197,7 +204,7 @@ def test_cells_count_rows_and_the_national_map_hatches_states_without_data(tmp_p
     assert "<svg" in own
 
 
-def test_the_chart_condition_keeps_to_the_rows_it_names_and_says_so(tmp_path):
+def test_the_chart_condition_keeps_to_the_rows_it_names_and_says_so(tmp_path: Path) -> None:
     db = _db(
         tmp_path,
         [
@@ -218,13 +225,13 @@ def test_the_chart_condition_keeps_to_the_rows_it_names_and_says_so(tmp_path):
     assert figures.where_words(ds) == (
         " Rows where severity is not Property damage only are drawn."
     )
-    m = SimpleNamespace(as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
+    m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
     fig = figures.dataset_figures(ds, m, None, db, tmp_path)
     assert "is not Property damage only" in fig["chart_caption"]
     assert figures.where_words(_ds()) == ""
 
 
-def _counts(tmp_path):
+def _counts(tmp_path: Path) -> Path:
     db = tmp_path / "counts.sqlite"
     con = sqlite3.connect(db)
     con.execute(
@@ -244,14 +251,14 @@ def _counts(tmp_path):
     return as_parquet(db)
 
 
-def _counts_ds(**kw):
+def _counts_ds(**kw: object) -> Dataset:
     return make_dataset(
         [
-            SimpleNamespace(name="crash_year", type="integer", display="Year"),
-            SimpleNamespace(name="severity", type="string", display="Severity"),
-            SimpleNamespace(name="drink", type="boolean", display="Drink driving involved"),
-            SimpleNamespace(name="killed", type="integer", display="Fatalities"),
-            SimpleNamespace(name="rate", type="number", display="Rate per 100,000"),
+            Field("crash_year", "crash_year", "integer", label="Year"),
+            Field("severity", "severity", "string", label="Severity"),
+            Field("drink", "drink", "boolean", label="Drink driving involved"),
+            Field("killed", "killed", "integer", label="Fatalities"),
+            Field("rate", "rate", "number", label="Rate per 100,000"),
         ],
         row_label="Crashes",
         **kw,
@@ -267,9 +274,9 @@ CONSOLE_FIELDS = [
 ]
 
 
-def test_the_example_answers_with_every_operator_and_a_boolean(tmp_path):
+def test_the_example_answers_with_every_operator_and_a_boolean(tmp_path: Path) -> None:
     db = _counts(tmp_path)
-    console = {
+    console: dict[str, Any] = {
         "fields": CONSOLE_FIELDS,
         "example": {
             "filters": [
@@ -287,7 +294,7 @@ def test_the_example_answers_with_every_operator_and_a_boolean(tmp_path):
     assert figures.example_rows(db, console) == [("Fatal", 4)]
 
 
-def test_a_measure_reads_as_its_label_and_the_caption_names_how_it_is_worked_out():
+def test_a_measure_reads_as_its_label_and_the_caption_names_how_it_is_worked_out() -> None:
     ds = _counts_ds()
     assert figures.measure(ds, "count") == "Crashes"
     assert figures.measure(ds, "sum.killed") == "Fatalities"
@@ -298,10 +305,10 @@ def test_a_measure_reads_as_its_label_and_the_caption_names_how_it_is_worked_out
     assert figures.basis(ds, "max.rate") == "the highest of the rate per 100,000 column"
 
 
-def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_path):
+def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_path: Path) -> None:
     db = _counts(tmp_path)
-    m = SimpleNamespace(as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
-    console = {
+    m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
+    console: dict[str, Any] = {
         "fields": CONSOLE_FIELDS,
         "example": {"filters": [], "group": ["severity"], "metric": "sum.killed"},
     }
@@ -313,7 +320,7 @@ def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_p
         2023: {"Fatal": 3, "Injury": 0},
         2024: {"Fatal": 2, "Injury": 0},
     }
-    chart = {"where": (), "split": None, "metric": "avg.rate", "label": ""}
+    chart: dict[str, Any] = {"where": (), "split": None, "metric": "avg.rate", "label": ""}
     fig = figures.dataset_figures(_counts_ds(chart=chart), m, console, db, tmp_path)
     assert fig["chart_caption"].startswith("Average rate per 100,000 per year, 2023 to 2024.")
     assert fig["series"]["values"] == {2023: {"": 3}, 2024: {"": 7.5}}
@@ -330,10 +337,10 @@ def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_p
     assert fig["series"]["values"] == {2023: {"": 3}, 2024: {"": 2}}
 
 
-def test_a_version_without_a_column_the_chart_names_draws_no_chart(tmp_path):
+def test_a_version_without_a_column_the_chart_names_draws_no_chart(tmp_path: Path) -> None:
     db = _counts(tmp_path)
-    m = SimpleNamespace(as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
-    console = {
+    m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
+    console: dict[str, Any] = {
         "fields": CONSOLE_FIELDS,
         "example": {"filters": [], "group": ["severity"], "metric": "count"},
     }
@@ -344,14 +351,14 @@ def test_a_version_without_a_column_the_chart_names_draws_no_chart(tmp_path):
             **ds.__dict__,
             "fields": (
                 *ds.fields,
-                SimpleNamespace(name="added_later", type="number", display="Added later"),
+                Field("added_later", "added_later", "number", label="Added later"),
             ),
         }
     )
     assert figures.dataset_figures(ds, m, console, db, tmp_path)["chart"] == ""
 
 
-def test_a_figure_keeps_its_fraction_and_an_average_is_never_added_up(tmp_path):
+def test_a_figure_keeps_its_fraction_and_an_average_is_never_added_up(tmp_path: Path) -> None:
     assert [figures.fmt(n) for n in (4.0, 1750.0, 4.35, 0.5, 19.25, 2112.6)] == [
         "4",
         "1,750",
@@ -362,8 +369,8 @@ def test_a_figure_keeps_its_fraction_and_an_average_is_never_added_up(tmp_path):
     ]
     assert ">4.35<" in figures.hbars_svg([("Lending", 4.35), ("Deposit", 1.2)], "Rates")
     db = _counts(tmp_path)
-    m = SimpleNamespace(as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
-    console = {
+    m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
+    console: dict[str, Any] = {
         "fields": CONSOLE_FIELDS,
         "example": {"filters": [], "group": ["severity"], "metric": "sum.killed"},
     }
@@ -377,7 +384,7 @@ def test_a_figure_keeps_its_fraction_and_an_average_is_never_added_up(tmp_path):
     assert ", 5 in all, the highest 3 in 2023." in fig["chart"]
 
 
-def test_the_sample_shows_the_newest_rows_with_each_partition_value_in_turn(tmp_path):
+def test_the_sample_shows_the_newest_rows_with_each_partition_value_in_turn(tmp_path: Path) -> None:
     db = _counts(tmp_path)
     ds = _counts_ds(partition_by=("severity",))
     s = _sample(ds, db)
@@ -408,16 +415,22 @@ def test_the_sample_shows_the_newest_rows_with_each_partition_value_in_turn(tmp_
     )
 
 
-def test_a_table_with_no_year_or_partition_shows_its_first_rows(tmp_path):
+def test_a_table_with_no_year_or_partition_shows_its_first_rows(tmp_path: Path) -> None:
     db = _counts(tmp_path)
-    ds = make_dataset([SimpleNamespace(name="severity", type="string", display="Severity")])
+    ds = make_dataset([Field("severity", "severity", "string", label="Severity")])
     s = _sample(ds, db)
     assert s["heading"] == "The first 4 rows"
     assert s["rows"] == [["Fatal"], ["Injury"], ["Fatal"], ["Injury"]]
 
 
-def test_related_datasets_share_subject_words_and_the_list_is_capped():
-    def out(slug, title, publisher, rows=1, topics=("water",)):
+def test_related_datasets_share_subject_words_and_the_list_is_capped() -> None:
+    def out(
+        slug: str,
+        title: str,
+        publisher: str,
+        rows: int = 1,
+        topics: tuple[str, ...] = ("water",),
+    ) -> SimpleNamespace:
         ds = make_dataset(
             [],
             slug=slug,
@@ -436,6 +449,7 @@ def test_related_datasets_share_subject_words_and_the_list_is_capped():
         out("own", "Water storage stations", "Bureau"),
         out("other-topic", "Dam safety storage incidents", "X", topics=("safety",)),
     ]
-    assert {r["slug"] for r in _related(mine.dataset, live)} == {"melb", "vic-storages"}
+    got = _related(mine.dataset, live)  # type: ignore[arg-type]  # a DatasetOut stand-in
+    assert {r["slug"] for r in got} == {"melb", "vic-storages"}
     many = [mine, *(out(f"s{i}", f"Water storage {i}", f"P{i}") for i in range(30))]
-    assert len(_related(mine.dataset, many)) == RELATED_MAX
+    assert len(_related(mine.dataset, many)) == RELATED_MAX  # type: ignore[arg-type]  # a DatasetOut stand-in

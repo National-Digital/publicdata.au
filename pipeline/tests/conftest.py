@@ -5,14 +5,18 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 from publicdata.__main__ import main
-from publicdata.register import Dataset, Licence, Publisher, Source
+from publicdata.register import Dataset, Field, Licence, Publisher, Source
 from publicdata.store import Manifest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -57,10 +61,11 @@ SLOW_TESTS = {
 }
 
 
-def pytest_collection_modifyitems(items):
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         name = item.nodeid.split("[")[0].removeprefix("tests/")
-        if SLOW_FIXTURES & set(item.fixturenames) or name in SLOW_TESTS:
+        fixtures = set(item.fixturenames)  # type: ignore[attr-defined]  # every item here is a pytest.Function
+        if SLOW_FIXTURES & fixtures or name in SLOW_TESTS:
             item.add_marker(pytest.mark.slow)
 
 
@@ -75,7 +80,7 @@ def fixture_store() -> Path:
 
 
 @pytest.fixture(scope="session")
-def fixture_site(tmp_path_factory) -> Path:
+def fixture_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One `build --fixtures` per session, read only; a test that edits it takes site_copy."""
     out = tmp_path_factory.mktemp("fixture-site") / "dist"
     subprocess.run(
@@ -85,12 +90,14 @@ def fixture_site(tmp_path_factory) -> Path:
 
 
 @pytest.fixture
-def site_copy(fixture_site, tmp_path) -> Path:
+def site_copy(fixture_site: Path, tmp_path: Path) -> Path:
     return Path(shutil.copytree(fixture_site, tmp_path / "dist"))
 
 
 @pytest.fixture(scope="session")
-def fixture_builds(tmp_path_factory, fixture_site):
+def fixture_builds(
+    tmp_path_factory: pytest.TempPathFactory, fixture_site: Path
+) -> tuple[Path, Path, Path]:
     """The plain build (the shared fixture site) and a cold cached build of the same store."""
     root = tmp_path_factory.mktemp("fixture-builds")
     store = Path(__file__).parent / "fixtures" / "store"
@@ -99,8 +106,8 @@ def fixture_builds(tmp_path_factory, fixture_site):
     return plain, cold, cache
 
 
-def make_dataset(fields, **kw) -> Dataset:
-    base = {
+def make_dataset(fields: Iterable[Field], **kw: object) -> Dataset:
+    base: dict[str, Any] = {
         "slug": "t",
         "title": "Test",
         "status": "live",
@@ -117,8 +124,8 @@ def make_dataset(fields, **kw) -> Dataset:
     return Dataset(**base)
 
 
-def make_manifest(data: bytes, **kw) -> Manifest:
-    base = {
+def make_manifest(data: bytes, **kw: object) -> Manifest:
+    base: dict[str, Any] = {
         "dataset": "t",
         "version": "2026-01-02",
         "as_at": "2025-12-31",
@@ -134,7 +141,13 @@ def make_manifest(data: bytes, **kw) -> Manifest:
     return Manifest(**base)
 
 
-def read_json(p: Path):
+def present[T](x: T | None) -> T:
+    """x, which the test expects to be there."""
+    assert x is not None
+    return x
+
+
+def read_json(p: Path) -> Any:  # noqa: ANN401 - parsed JSON, read by the keys each test expects
     return json.loads(p.read_text(encoding="utf-8"))
 
 

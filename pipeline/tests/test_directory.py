@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -13,11 +14,11 @@ from publicdata.publishers import Publisher, clean_title, load_curated, resolve,
 from publicdata.register import RegisterError, load
 
 
-def rec(portal, org, title, **kw):
+def rec(portal: str, org: str, title: str, **kw: object) -> dict[str, object]:
     return {"portal": portal, "org": org, "org_title": title, **kw}
 
 
-def test_organisations_resolve_to_publishers_by_curation_then_portal():
+def test_organisations_resolve_to_publishers_by_curation_then_portal() -> None:
     tmr = Publisher(
         "transport-and-main-roads",
         "Department of Transport and Main Roads",
@@ -53,7 +54,7 @@ def test_organisations_resolve_to_publishers_by_curation_then_portal():
     assert slugify("Attorney-General’s Department") == "attorney-generals-department"  # noqa: RUF001 - a curly apostrophe on purpose
 
 
-def test_curated_publishers_are_validated(tmp_path):
+def test_curated_publishers_are_validated(tmp_path: Path) -> None:
     (tmp_path / "qld.yaml").write_text(
         "- {slug: tmr, name: TMR, jurisdiction: Qld, orgs: [qld:tmr]}\n"
     )
@@ -76,7 +77,7 @@ TASKS = {"abn-bulk-extract": 5, "qld-0a000000-0000-0000-0000-000000000002": 6}
 
 
 @pytest.fixture(scope="module")
-def site(tmp_path_factory):
+def site(tmp_path_factory: pytest.TempPathFactory) -> Path:
     out = tmp_path_factory.mktemp("site") / "dist"
     tasks = out.parent / "contribute.json"
     tasks.write_text(json.dumps(TASKS), encoding="utf-8")
@@ -99,7 +100,7 @@ def site(tmp_path_factory):
     return out
 
 
-def test_every_crumb_tier_is_a_page(site):
+def test_every_crumb_tier_is_a_page(site: Path) -> None:
     ds = (site / "d" / "qld-road-casualties" / "index.html").read_text(encoding="utf-8")
     assert '<a href="/qld/">Queensland</a> / <a href="/qld/transport-and-main-roads/">' in ds
     crumbs = [
@@ -130,7 +131,7 @@ def test_every_crumb_tier_is_a_page(site):
     assert 'name="robots"' not in tmr
 
 
-def test_thin_publisher_pages_stay_out_of_the_index(site):
+def test_thin_publisher_pages_stay_out_of_the_index(site: Path) -> None:
     hobart = (site / "tas" / "city-of-hobart" / "index.html").read_text(encoding="utf-8")
     assert '<meta name="robots" content="noindex, follow">' in hobart
     sitemap = "".join(p.read_text(encoding="utf-8") for p in (site / "sitemaps").glob("*.xml"))
@@ -140,7 +141,7 @@ def test_thin_publisher_pages_stay_out_of_the_index(site):
     assert "/tas/" in sitemap
 
 
-def test_only_votable_records_are_in_the_vote_shards(site):
+def test_only_votable_records_are_in_the_vote_shards(site: Path) -> None:
     shards = {
         p.stem: json.loads(p.read_text()) for p in (site / "catalogue" / "votable").glob("*.json")
     }
@@ -156,7 +157,7 @@ def test_only_votable_records_are_in_the_vote_shards(site):
     assert served[0]["served_at"].endswith("/c/qld-road-crashes/")
 
 
-def test_other_organisations_and_unread_portals_are_shown_on_government_pages(site):
+def test_other_organisations_and_unread_portals_are_shown_on_government_pages(site: Path) -> None:
     cth = (site / "cth" / "index.md").read_text(encoding="utf-8")
     assert "## Universities, research bodies and other organisations" in cth
     assert "[James Cook University]" in cth
@@ -170,8 +171,8 @@ def test_other_organisations_and_unread_portals_are_shown_on_government_pages(si
 
 
 def test_before_the_first_harvest_the_directory_claims_nothing_about_the_portals(
-    tmp_path, fixture_store
-):
+    tmp_path: Path, fixture_store: Path
+) -> None:
     store = tmp_path / "store"
     store.mkdir()
     for d in fixture_store.iterdir():
@@ -193,19 +194,19 @@ def test_before_the_first_harvest_the_directory_claims_nothing_about_the_portals
     assert "catalogue.json" not in tmr.split("---", 2)[2]
 
 
-def test_template_copy_has_no_stray_escapes(site):
+def test_template_copy_has_no_stray_escapes(site: Path) -> None:
     for page in ("qld/index.html", "browse/index.html", "qld/transport-and-main-roads/index.html"):
         assert "\\'" not in (site / page).read_text(encoding="utf-8")
 
 
-def test_a_pasted_url_is_read_the_way_functions_catalogue_reads_it():
+def test_a_pasted_url_is_read_the_way_functions_catalogue_reads_it() -> None:
     cases = json.loads((Path(__file__).parent / "fixtures" / "locate.json").read_text())
     for c in cases:
         hit = locate(c["url"])
         assert (list(hit) if hit else None) == c["expect"], c["url"]
 
 
-def test_a_live_entry_marks_the_record_its_source_url_names_as_served():
+def test_a_live_entry_marks_the_record_its_source_url_names_as_served() -> None:
     reg = {d.slug: d for d in load(__import__("publicdata.__main__").__main__.REGISTER)}
     rec = {
         "kind": "dataflow",
@@ -228,7 +229,7 @@ def test_a_live_entry_marks_the_record_its_source_url_names_as_served():
     assert search_rows(d)[0]["state"] == "served"
 
 
-def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
+def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record() -> None:
     reg = {d.slug: d for d in load(__import__("publicdata.__main__").__main__.REGISTER)}
     base = {
         "kind": "dataset",
@@ -277,7 +278,7 @@ def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
     assert rows["gov-1"]["jur"] == "cth"
     assert rows["gov-1"]["host"] == "data.gov.au"
     assert d.votable == 2
-    written = {}
+    written: dict[str, str] = {}
     render(d, lambda *a, **k: None, written.__setitem__, {}, lambda c: {})
     shards = {
         k
@@ -298,7 +299,9 @@ def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
     assert votes == {"gov-1": "abn-bulk-extract", "gov-2": "gov-2", "gov-3": None}
 
 
-def test_the_search_index_holds_every_listed_record_and_loads_once_per_harvest(site, tmp_path):
+def test_the_search_index_holds_every_listed_record_and_loads_once_per_harvest(
+    site: Path, tmp_path: Path
+) -> None:
     path = site.parent / "search.sqlite"
     db = sqlite3.connect(path)
     states = dict(db.execute("SELECT state, COUNT(*) FROM records GROUP BY state").fetchall())
@@ -325,7 +328,9 @@ def test_the_search_index_holds_every_listed_record_and_loads_once_per_harvest(s
     assert '<option value="qld">Queensland</option>' in home
 
 
-def test_the_served_index_loads_when_the_register_changes_and_answers_a_search(site, tmp_path):
+def test_the_served_index_loads_when_the_register_changes_and_answers_a_search(
+    site: Path, tmp_path: Path
+) -> None:
     path = site.parent / "search.sqlite"
     src = sqlite3.connect(path)
     (version,) = src.execute("SELECT value FROM publicdata WHERE key = 'served_version'").fetchone()
@@ -349,7 +354,7 @@ def test_the_served_index_loads_when_the_register_changes_and_answers_a_search(s
     )
 
 
-def test_the_sitemap_is_an_index_of_one_sitemap_per_government(site):
+def test_the_sitemap_is_an_index_of_one_sitemap_per_government(site: Path) -> None:
     index = (site / "sitemap.xml").read_text(encoding="utf-8")
     assert "<sitemapindex" in index
     assert "https://publicdata.au/sitemaps/site.xml" in index
@@ -359,7 +364,7 @@ def test_the_sitemap_is_an_index_of_one_sitemap_per_government(site):
     assert "/d/qld-road-casualties/" not in (site / "sitemaps" / "site.xml").read_text("utf-8")
 
 
-def _ld(page, kind):
+def _ld(page: Path, kind: str) -> dict[str, Any]:
     html = page.read_text("utf-8")
     nodes = [
         json.loads(b)
@@ -368,7 +373,7 @@ def _ld(page, kind):
     return next(n for n in nodes if n.get("@type") == kind)
 
 
-def test_a_dataset_with_copies_names_them_in_its_json_ld_and_on_the_page(site):
+def test_a_dataset_with_copies_names_them_in_its_json_ld_and_on_the_page(site: Path) -> None:
     page = site / "d" / "qld-road-crash-factors" / "index.html"
     node = _ld(page, "Dataset")
     assert node["identifier"][1] == {
@@ -387,7 +392,7 @@ def test_a_dataset_with_copies_names_them_in_its_json_ld_and_on_the_page(site):
         assert f'href="{url}"' in html
 
 
-def test_a_dataset_without_copies_keeps_its_plain_identifier(site):
+def test_a_dataset_without_copies_keeps_its_plain_identifier(site: Path) -> None:
     node = _ld(site / "d" / "qld-road-casualties" / "index.html", "Dataset")
     assert node["identifier"] == "qld-road-casualties"
     assert isinstance(node["sameAs"], str)
@@ -396,7 +401,7 @@ def test_a_dataset_without_copies_keeps_its_plain_identifier(site):
     )
 
 
-def test_the_operator_names_its_hub_accounts_on_the_home_page(site):
+def test_the_operator_names_its_hub_accounts_on_the_home_page(site: Path) -> None:
     provider = _ld(site / "index.html", "DataCatalog")["provider"]
     assert provider["sameAs"] == [
         "https://github.com/National-Digital",

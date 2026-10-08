@@ -7,7 +7,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -30,10 +30,17 @@ from publicdata.site import (
 )
 from publicdata.store import Manifest
 
-from .conftest import ROOT, as_parquet, make_dataset, make_manifest
+from .conftest import ROOT, as_parquet, make_dataset, make_manifest, present
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
+    from publicdata.register import Dataset
 
 
-def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):  # noqa: PLR0915 - one fixture build, checked page by page
+def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, checked page by page
+    register_dir: Path, tmp_path: Path, site_copy: Path
+) -> None:
     out = site_copy
     assert check(out, register_dir) == []
     home = (out / "index.html").read_text(encoding="utf-8")
@@ -302,8 +309,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):  # n
 
 
 def test_the_gate_refuses_a_licence_that_is_not_open_or_differs_from_the_register(
-    register_dir, tmp_path, site_copy
-):
+    register_dir: Path, tmp_path: Path, site_copy: Path
+) -> None:
     out = site_copy
     slug = "qld-road-crash-factors"
     (manifest,) = sorted((out / "d" / slug / "v").glob("*/manifest.json"))
@@ -326,7 +333,9 @@ def test_the_gate_refuses_a_licence_that_is_not_open_or_differs_from_the_registe
     assert any(f"{slug}: status blocked but versions are published" in e for e in errors)
 
 
-def test_home_links_to_the_dataset_when_its_table_has_no_explorer(tmp_path, monkeypatch):
+def test_home_links_to_the_dataset_when_its_table_has_no_explorer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # No fixture Parquet fits under one byte, so no dataset gets an explorer page.
     monkeypatch.setattr(explorer, "MAX_PARQUET", 1)
     out = tmp_path / "dist"
@@ -343,7 +352,7 @@ def test_home_links_to_the_dataset_when_its_table_has_no_explorer(tmp_path, monk
         assert target.exists() or (target / "index.html").exists(), href
 
 
-def test_temporal_coverage_is_only_what_the_publisher_states():
+def test_temporal_coverage_is_only_what_the_publisher_states() -> None:
     m = make_manifest(b"x", as_at="2025-06-30")
     assert (
         _temporal(make_dataset([Field("a", "A")], temporal_start="2001-01-01"), m)
@@ -359,7 +368,9 @@ def test_temporal_coverage_is_only_what_the_publisher_states():
     )
 
 
-def test_openapi_document_names_every_live_slug(register_dir, tmp_path, site_copy):
+def test_openapi_document_names_every_live_slug(
+    register_dir: Path, tmp_path: Path, site_copy: Path
+) -> None:
     out = site_copy
     doc = json.loads((out / "openapi.json").read_text(encoding="utf-8"))
     assert doc["openapi"] == "3.1.0"
@@ -370,7 +381,7 @@ def test_openapi_document_names_every_live_slug(register_dir, tmp_path, site_cop
     assert "post" in doc["paths"]["/api/v1/votes/{slug}"]
 
 
-def test_linkify_escapes_and_links_only_the_url():
+def test_linkify_escapes_and_links_only_the_url() -> None:
     assert (
         linkify('See https://publicdata.au/d/x/ and <b>"quoted"</b>.')
         == 'See <a href="https://publicdata.au/d/x/">https://publicdata.au/d/x/</a> and &lt;b&gt;&quot;quoted&quot;&lt;/b&gt;.'
@@ -387,7 +398,7 @@ def test_linkify_escapes_and_links_only_the_url():
     )
 
 
-def test_harvard_is_author_date_with_the_version_and_no_access_date():
+def test_harvard_is_author_date_with_the_version_and_no_access_date() -> None:
     ds = make_dataset([], title="Road crashes, Test")
     m = make_manifest(b"x", version="2026-04-24", fetched_at="2026-09-24T00:00:00+00:00")
     h = cite(ds, m, "https://publicdata.au/d/t/v/2026-04-24/")["harvard"]
@@ -396,7 +407,7 @@ def test_harvard_is_author_date_with_the_version_and_no_access_date():
     assert "Accessed" not in h
 
 
-def test_bibtex_protects_the_institutional_author_and_the_title():
+def test_bibtex_protects_the_institutional_author_and_the_title() -> None:
     ds = {d.slug: d for d in load(ROOT / "register")}["qld-road-crash-locations"]
     m = Manifest.read(ROOT / "store" / ds.slug / "2026-04-24" / "manifest.json")
     bib = cite(ds, m, "https://publicdata.au/d/qld-road-crash-locations/v/2026-04-24/")["bibtex"]
@@ -406,16 +417,18 @@ def test_bibtex_protects_the_institutional_author_and_the_title():
     assert bib.startswith("@misc{publicdata_qld_road_crash_locations_2026_04_24,")
 
 
-def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_copy):
+def test_dataset_page_carries_a_query_console_and_its_openapi(
+    tmp_path: Path, site_copy: Path
+) -> None:
     out = site_copy
 
-    def console(slug):
+    def console(slug: str) -> tuple[str, dict[str, Any]]:
         page = (out / "d" / slug / "index.html").read_text(encoding="utf-8")
-        data = re.search(r'id="ds-data">(.*?)</script>', page, re.DOTALL).group(1)
+        data = present(re.search(r'id="ds-data">(.*?)</script>', page, re.DOTALL)).group(1)
         return page, json.loads(data)["console"]
 
     page, c = console("qld-road-casualties")
-    block = re.search(r'id="ds-data">(.*?)</script>', page, re.DOTALL).group(1)
+    block = present(re.search(r'id="ds-data">(.*?)</script>', page, re.DOTALL)).group(1)
     assert "<" not in block
     assert ">" not in block
     assert 'id="query"' in page
@@ -444,12 +457,14 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_cop
     assert "/api/v1/datasets/qld-road-casualties/aggregate?group=" in md
 
 
-def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp_path, site_copy):  # noqa: PLR0915 - one check per explorer panel
+def test_every_dataset_gets_an_explorer_with_a_first_dashboard(  # noqa: PLR0915 - one check per explorer panel
+    register_dir: Path, tmp_path: Path, site_copy: Path
+) -> None:
     out = site_copy
 
-    def ex(slug, page="explore"):
+    def ex(slug: str, page: str = "explore") -> tuple[str, dict[str, Any]]:
         text = (out / "d" / slug / page / "index.html").read_text(encoding="utf-8")
-        block = re.search(r'id="ex-data">(.*?)</script>', text, re.DOTALL).group(1)
+        block = present(re.search(r'id="ex-data">(.*?)</script>', text, re.DOTALL)).group(1)
         assert "<" not in block
         assert ">" not in block
         return text, json.loads(block)
@@ -536,18 +551,18 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp
     assert any("vendor lacks duckdb.js" in e for e in check(out, register_dir))
 
 
-def test_a_first_dashboard_without_a_category_or_a_year_is_the_rows():
+def test_a_first_dashboard_without_a_category_or_a_year_is_the_rows() -> None:
     console = {
         "fields": [{"name": "id", "type": "integer"}, {"name": "note", "type": "string"}],
         "example": {"filters": [], "group": [], "metric": "count"},
     }
-    ws = explorer.defaults(SimpleNamespace(geometry=None, fields=(), row_label=""), console)
+    ws = explorer.defaults(make_dataset([], row_label=""), console)
     assert list(ws["panels"]) == ["rows"]
     assert ws["layout"] == {"type": "tab-layout", "tabs": ["rows"]}
     assert "masters" not in ws
 
 
-def test_labels_are_words_unique_and_never_a_field_name(register_dir):
+def test_labels_are_words_unique_and_never_a_field_name(register_dir: Path) -> None:
     for ds in load(register_dir):
         shown = [f.display for f in ds.fields]
         assert len(set(shown)) == len(shown)
@@ -563,11 +578,11 @@ def test_labels_are_words_unique_and_never_a_field_name(register_dir):
         parse(raw, "qld-road-casualties")
 
 
-def test_every_operator_node_resolves_to_one_organisation(tmp_path, site_copy):
+def test_every_operator_node_resolves_to_one_organisation(tmp_path: Path, site_copy: Path) -> None:
     out = site_copy
     ld = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
 
-    def nodes(v):
+    def nodes(v: object) -> Iterator[dict[str, Any]]:
         if isinstance(v, dict):
             yield v
             for x in v.values():
@@ -588,7 +603,7 @@ def test_every_operator_node_resolves_to_one_organisation(tmp_path, site_copy):
     assert catalog["publisher"]["@id"] == "https://nationaldigital.com.au/#organization"
 
 
-def test_catalog_modified_moves_with_the_newest_release(tmp_path):
+def test_catalog_modified_moves_with_the_newest_release(tmp_path: Path) -> None:
     store = tmp_path / "store"
     shutil.copytree(ROOT / "pipeline" / "tests" / "fixtures" / "store", store)
     old = store / "qld-road-casualties" / "2026-04-24"
@@ -609,8 +624,8 @@ def test_catalog_modified_moves_with_the_newest_release(tmp_path):
 
 
 def test_the_gate_refuses_a_page_that_leaves_out_the_licence_condition(
-    register_dir, fixture_store, tmp_path
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path
+) -> None:
     out = tmp_path / "dist"
     out.mkdir()
     ds = {d.slug: d for d in load(register_dir)}["gnaf"]
@@ -640,7 +655,7 @@ def test_the_gate_refuses_a_page_that_leaves_out_the_licence_condition(
         f.write_text(kept, encoding="utf-8")
 
 
-def test_the_copy_checks_read_past_a_publishers_own_values(tmp_path):
+def test_the_copy_checks_read_past_a_publishers_own_values(tmp_path: Path) -> None:
     idx = tmp_path / "d" / "x" / "v" / "2026-01-01" / "by" / "class"
     idx.mkdir(parents=True)
     (idx / "index.json").write_text(
@@ -656,7 +671,7 @@ def test_the_copy_checks_read_past_a_publishers_own_values(tmp_path):
     assert left == "<h1></h1><p>Our words.</p><p>A page — ours.</p>"
 
 
-def _console_db(tmp_path, rows):
+def _console_db(tmp_path: Path, rows: Iterable[tuple[object, ...]]) -> Path:
     db = tmp_path / "data.sqlite"
     con = sqlite3.connect(db)
     con.execute(
@@ -670,7 +685,7 @@ def _console_db(tmp_path, rows):
     return as_parquet(db)
 
 
-def _console_ds(**kw):
+def _console_ds(**kw: object) -> Dataset:
     return make_dataset(
         [
             Field("row_id", "Row", type="integer"),
@@ -684,7 +699,9 @@ def _console_ds(**kw):
     )
 
 
-def test_the_picked_example_skips_a_group_the_filter_fixes_and_an_identifier(tmp_path):
+def test_the_picked_example_skips_a_group_the_filter_fixes_and_an_identifier(
+    tmp_path: Path,
+) -> None:
     rows = [
         (i, 2020 + i % 2, str(i % 2), ("NSW", "Vic")[i % 2], ("a", "b", "c")[i % 3], i)
         for i in range(60)
@@ -702,7 +719,7 @@ def test_the_picked_example_skips_a_group_the_filter_fixes_and_an_identifier(tmp
     assert _console(_console_ds(), small)["example"]["filters"] == []
 
 
-def test_the_register_example_resolves_newest_and_must_name_present_fields(tmp_path):
+def test_the_register_example_resolves_newest_and_must_name_present_fields(tmp_path: Path) -> None:
     db = _console_db(tmp_path, [(i, 2020 + i % 3, "1", "NSW", "a", i) for i in range(9)])
     example = {
         "filters": ({"field": "year", "op": "eq", "value": "newest"},),
@@ -725,8 +742,10 @@ def test_the_register_example_resolves_newest_and_must_name_present_fields(tmp_p
         _console(_console_ds(example=gone), db)
 
 
-def test_the_gate_lists_every_example_and_fails_a_register_example_with_no_answer(tmp_path):
-    def page(slug, answer):
+def test_the_gate_lists_every_example_and_fails_a_register_example_with_no_answer(
+    tmp_path: Path,
+) -> None:
+    def page(slug: str, answer: str) -> None:
         d = tmp_path / "d" / slug
         d.mkdir(parents=True)
         tile = f"<p>{answer}</p>" if answer else ""
@@ -750,14 +769,16 @@ def test_the_gate_lists_every_example_and_fails_a_register_example_with_no_answe
     assert errors == ["chosen: the register's example query answers no rows"]
 
 
-def test_a_change_without_a_key_is_told_by_its_row_counts():
+def test_a_change_without_a_key_is_told_by_its_row_counts() -> None:
     assert _change_words(None) == ""
     assert _change_words({"rows_from": 12, "rows_to": 15, "note": "No key."}) == " (12 rows before)"
     keyed = {"rows_from": 2, "rows_to": 2, "added": 1, "removed": 1, "changed": 1}
     assert _change_words(keyed) == " (1 added, 1 removed, 1 changed)"
 
 
-def test_a_withheld_source_is_left_out_listed_and_not_expected(register_dir, tmp_path, monkeypatch):
+def test_a_withheld_source_is_left_out_listed_and_not_expected(
+    register_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     slug = "qld-road-crash-factors"
     reg = tmp_path / "register"
     shutil.copytree(register_dir, reg)
@@ -785,14 +806,14 @@ def test_a_withheld_source_is_left_out_listed_and_not_expected(register_dir, tmp
     assert check(out, reg) == []
 
 
-def test_pages_invite_contributions_and_link_the_repository(fixture_site):
+def test_pages_invite_contributions_and_link_the_repository(fixture_site: Path) -> None:
     out = fixture_site
     for rel in ("index.html", "about/index.html", "backlog/index.html", "terms/index.html"):
         h = (out / rel).read_text(encoding="utf-8")
         assert f'href="{REPO}"' in h, rel
         assert 'href="/contribute/"' in h, rel
     page = (out / "d" / "qld-road-crash-locations" / "index.html").read_text(encoding="utf-8")
-    entry = re.search(rf'href="{REPO}/blob/main/([^"]+)"', page).group(1)
+    entry = present(re.search(rf'href="{REPO}/blob/main/([^"]+)"', page)).group(1)
     assert entry == "register/qld-road-crash-locations.yaml"
     assert (ROOT / entry).is_file()
     assert "template=data-problem.yml&amp;dataset=https%3A%2F%2Fpublicdata.au%2Fd%2F" in page
@@ -822,13 +843,13 @@ def test_pages_invite_contributions_and_link_the_repository(fixture_site):
     assert "https://publicdata.au/contribute/" in (out / "sitemaps" / "site.xml").read_text("utf-8")
 
 
-def test_the_entry_link_keeps_the_folder_an_entry_sits_in():
+def test_the_entry_link_keeps_the_folder_an_entry_sits_in() -> None:
     ds = make_dataset([], slug="x")
     assert register_path(ds) == "register/x.yaml"
     assert register_path(replace(ds, path="/w/register/qld/x.yaml")) == "register/qld/x.yaml"
 
 
-def test_a_downloaded_file_is_named_after_its_dataset_and_version(fixture_site):
+def test_a_downloaded_file_is_named_after_its_dataset_and_version(fixture_site: Path) -> None:
     cases = json.loads((Path(__file__).parent / "fixtures" / "download_names.json").read_text())
     for c in cases:
         assert download_name(c["slug"], c["version"], c["rel"]) == c["name"], c["rel"]
@@ -840,7 +861,7 @@ def test_a_downloaded_file_is_named_after_its_dataset_and_version(fixture_site):
     assert re.search(rf'id="dl" href="[^"]+" download="{slug}_{version}\.\w+"', ds)
 
 
-def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site):
+def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site: Path) -> None:
     out = fixture_site
     page = (out / "publishers" / "stable-urls" / "index.html").read_text(encoding="utf-8")
     assert "versions.json" in page

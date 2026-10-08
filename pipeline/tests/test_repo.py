@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 import yaml
 
@@ -18,7 +19,7 @@ CHECKS = {
 }
 
 
-def _guarded(jobs: dict, name: str) -> bool:
+def _guarded(jobs: dict[str, Any], name: str) -> bool:
     """The job's own condition names the repo, or a job it needs does."""
     job = jobs[name]
     if GUARD in str(job.get("if", "")):
@@ -27,7 +28,7 @@ def _guarded(jobs: dict, name: str) -> bool:
     return any(_guarded(jobs, n) for n in ([needs] if isinstance(needs, str) else needs))
 
 
-def test_every_job_with_side_effects_runs_only_in_the_public_repo():
+def test_every_job_with_side_effects_runs_only_in_the_public_repo() -> None:
     unguarded = []
     for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
         jobs = yaml.safe_load(f.read_text(encoding="utf-8"))["jobs"]
@@ -40,7 +41,7 @@ def test_every_job_with_side_effects_runs_only_in_the_public_repo():
     assert unguarded == []
 
 
-def test_every_fixture_dataset_is_in_the_third_party_notices():
+def test_every_fixture_dataset_is_in_the_third_party_notices() -> None:
     notices = (ROOT / "THIRD-PARTY-NOTICES.md").read_text(encoding="utf-8")
     store = ROOT / "pipeline" / "tests" / "fixtures" / "store"
     missing = [
@@ -49,7 +50,7 @@ def test_every_fixture_dataset_is_in_the_third_party_notices():
     assert missing == []
 
 
-def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential():
+def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential() -> None:
     """Checkout keeps its token in an included config, so git would send two Authorization headers."""
     wrong = []
     for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
@@ -64,7 +65,7 @@ def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential():
     assert wrong == []
 
 
-def test_every_pull_request_check_reports_on_each_new_head():
+def test_every_pull_request_check_reports_on_each_new_head() -> None:
     # A required check that skips a push leaves the PR waiting on a result that never comes.
     skipped = []
     for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
@@ -75,7 +76,7 @@ def test_every_pull_request_check_reports_on_each_new_head():
     assert skipped == []
 
 
-def test_the_readme_links_every_document():
+def test_the_readme_links_every_document() -> None:
     """AGENTS.md sends agents to the README and every document it links, so none may go unlinked."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     linked = {m.split("#")[0] for m in re.findall(r"\]\(([^)\s]+)\)", readme)}

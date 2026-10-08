@@ -10,7 +10,7 @@ import pytest
 from publicdata.normalise import NormaliseError, normalise, read_csv, read_xlsx, xls_to_xlsx
 from publicdata.register import LAT_SOURCE, LON_SOURCE, Field, Source
 
-from .conftest import make_dataset, make_manifest
+from .conftest import make_dataset, make_manifest, present
 
 CSV = b"\xef\xbb\xbfId,Name,Count,Flag,When,Extra\n1, Alpha ,5,Yes,03/02/2024,zzz\n2,,<5,No,,zzz\n3,Gamma,,Yes,31/12/2025,\n"
 FIELDS = [
@@ -22,7 +22,7 @@ FIELDS = [
 ]
 
 
-def test_types_blanks_suppression_and_allow_list():
+def test_types_blanks_suppression_and_allow_list() -> None:
     ds = make_dataset(FIELDS, suppression=("<5",), key=("id",))
     t = normalise(ds, make_manifest(CSV, encoding="utf-8-sig"), CSV)
     rows = t.table.to_pylist()
@@ -42,13 +42,13 @@ def test_types_blanks_suppression_and_allow_list():
     assert "Extra" not in t.table.column_names
 
 
-def test_missing_register_column_stops_the_build():
+def test_missing_register_column_stops_the_build() -> None:
     ds = make_dataset([*FIELDS, Field("gone", "Gone")])
     with pytest.raises(NormaliseError, match="absent upstream"):
         normalise(ds, make_manifest(CSV, encoding="utf-8-sig"), CSV)
 
 
-def test_untypable_value_stops_the_build():
+def test_untypable_value_stops_the_build() -> None:
     bad = b"Id,Name,Count,Flag,When,Extra\n1,A,many,Yes,01/01/2024,\n"
     ds = make_dataset(FIELDS)
     with pytest.raises(NormaliseError, match="count"):
@@ -58,14 +58,14 @@ def test_untypable_value_stops_the_build():
         normalise(ds, make_manifest(bad2), bad2)
 
 
-def test_cp1252_source_becomes_utf8():
+def test_cp1252_source_becomes_utf8() -> None:
     data = "Id,Name,Count,Flag,When,Extra\n1,Caf\xe9,1,Yes,01/01/2024,\n".encode("cp1252")
     ds = make_dataset(FIELDS)
     t = normalise(ds, make_manifest(data, encoding="cp1252"), data)
     assert t.table.to_pylist()[0]["name"] == "Café"
 
 
-def test_geojson_source_becomes_rows_with_the_point_as_two_fields():
+def test_geojson_source_becomes_rows_with_the_point_as_two_fields() -> None:
     fc = {
         "type": "FeatureCollection",
         "features": [
@@ -104,7 +104,7 @@ def test_geojson_source_becomes_rows_with_the_point_as_two_fields():
     assert rows[0]["speed_zone"] == "060"
 
 
-def test_zip_source_reads_the_named_member():
+def test_zip_source_reads_the_named_member() -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("License.txt", "CC BY")
@@ -123,7 +123,7 @@ def test_zip_source_reads_the_named_member():
         normalise(make_dataset(fields), make_manifest(data, filename="x.zip", encoding="zip"), data)
 
 
-def test_tab_delimited_source_reads_by_the_declared_delimiter():
+def test_tab_delimited_source_reads_by_the_declared_delimiter() -> None:
     data = b"\xef\xbb\xbfId\tName, Ltd\tWhen\r\n1\t  Alpha, Beta Ltd\t03/02/2024\r\n"
     fields = [
         Field("id", "Id", "integer"),
@@ -141,7 +141,7 @@ def test_tab_delimited_source_reads_by_the_declared_delimiter():
         normalise(make_dataset(fields), make_manifest(data, encoding="utf-8-sig"), data)
 
 
-def test_a_csv_with_a_preamble_starts_at_the_header_row_and_drops_separator_only_rows():
+def test_a_csv_with_a_preamble_starts_at_the_header_row_and_drops_separator_only_rows() -> None:
     data = (
         b"\xef\xbb\xbfTABLE A2\nTitle,Rate,Other\n\n\nSeries ID,ARBAX,ARBAY\n23-Jan-1990,17.00 to 17.50\n"
         b"15-Feb-1990,16.50,1\n,,\n,,\n"
@@ -162,7 +162,7 @@ def test_a_csv_with_a_preamble_starts_at_the_header_row_and_drops_separator_only
     assert t.short_rows == 1
 
 
-def test_thousands_separators_are_read_as_the_figure_they_write():
+def test_thousands_separators_are_read_as_the_figure_they_write() -> None:
     data = b'Id,Count,Amount,Code\n1,"19,918","1,234.5","1,2"\n2,7,8.5,x\n'
     fields = [
         Field("id", "Id", "integer"),
@@ -178,7 +178,7 @@ def test_thousands_separators_are_read_as_the_figure_they_write():
     assert [r["code"] for r in rows] == ["1,2", "x"]
 
 
-def test_a_date_may_come_in_any_of_several_declared_formats():
+def test_a_date_may_come_in_any_of_several_declared_formats() -> None:
     data = b"Id,When\n1,2023-07-01\n2,1/07/2023 12:00:00 AM\n3,\n"
     fields = [
         Field("id", "Id", "integer"),
@@ -191,7 +191,7 @@ def test_a_date_may_come_in_any_of_several_declared_formats():
         normalise(make_dataset(fields), make_manifest(bad), bad)
 
 
-def test_a_column_the_register_omits_on_purpose_is_recorded_and_not_held():
+def test_a_column_the_register_omits_on_purpose_is_recorded_and_not_held() -> None:
     ds = make_dataset(
         FIELDS, suppression=("<5",), omit={"Extra": "A vendor's series, not the publisher's."}
     )
@@ -200,15 +200,15 @@ def test_a_column_the_register_omits_on_purpose_is_recorded_and_not_held():
     assert t.omitted_columns == ["Extra"]
 
 
-def test_a_header_with_trailing_or_non_breaking_spaces_is_still_read_as_text():
+def test_a_header_with_trailing_or_non_breaking_spaces_is_still_read_as_text() -> None:
     t = read_csv("Supplier \u00a0,Value \n001,2\n,\n".encode(), "utf-8")
     assert [c.type for c in t.columns] == [pa.string(), pa.string()]
     assert t.column(0).to_pylist() == ["001"]
 
 
-def test_a_legacy_xls_workbook_reads_like_an_xlsx_one():
+def test_a_legacy_xls_workbook_reads_like_an_xlsx_one() -> None:
     data = (Path(__file__).parent / "fixtures" / "legacy.xls").read_bytes()
     t = read_xlsx(xls_to_xlsx(data), "", 1)
     assert t.column_names == ["Name", "Count", "When"]
     assert t.column("Count").to_pylist() == ["3", "4"]
-    assert t.column("When").to_pylist()[0].startswith(dt.date(2024, 7, 1).isoformat())
+    assert present(t.column("When").to_pylist()[0]).startswith(dt.date(2024, 7, 1).isoformat())

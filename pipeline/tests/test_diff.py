@@ -2,6 +2,7 @@ import datetime as dt
 import hashlib
 import json
 import random
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -14,15 +15,18 @@ from publicdata.serialise import iter_rows, json_view
 
 from .conftest import make_dataset, make_manifest
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
 F = [Field("id", "Id", "integer"), Field("v", "V")]
 
 
-def _tbl(csv: bytes, version: str):
+def _tbl(csv: bytes, version: str) -> Table:
     ds = make_dataset(F, key=("id",))
     return normalise(ds, make_manifest(csv, version=version), csv)
 
 
-def test_diff_by_key():
+def test_diff_by_key() -> None:
     a = _tbl(b"Id,V\n1,a\n2,b\n3,c\n", "2026-01-01")
     b = _tbl(b"Id,V\n2,b\n3,C\n4,d\n", "2026-02-01")
     d = diff(a, b)
@@ -33,7 +37,7 @@ def test_diff_by_key():
     assert d["examples"][0]["fields"] == {"v": {"from": "c", "to": "C"}}
 
 
-def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys():
+def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys() -> None:
     fields = [Field("id", "Id", "integer"), Field("n", "N", "integer")]
     ds = make_dataset(fields, key=("id",), suppression=("<5",))
     a_csv, b_csv = b"Id,N\n1,<5\n2,7\n", b"Id,N\n1,<5\n2,8\n"
@@ -48,9 +52,9 @@ def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys():
 
 
 # The per-row implementation this module replaced, kept as the oracle for the Arrow join.
-def _reference(a, b):
-    def keyed(t, key):
-        out = {}
+def _reference(a: Table, b: Table) -> dict[str, Any]:
+    def keyed(t: pa.Table, key: Sequence[str]) -> dict[tuple[Any, ...], str]:
+        out: dict[tuple[Any, ...], str] = {}
         for row in iter_rows(json_view(t)):
             k = tuple(row[c] for c in key)
             if k in out:
@@ -61,7 +65,9 @@ def _reference(a, b):
             ).hexdigest()
         return out
 
-    def rows_for(t, key, wanted):
+    def rows_for(
+        t: pa.Table, key: Sequence[str], wanted: set[tuple[Any, ...]]
+    ) -> dict[tuple[Any, ...], dict[str, Any]]:
         return {k: r for r in iter_rows(json_view(t)) if (k := tuple(r[c] for c in key)) in wanted}
 
     key = a.dataset.key
@@ -82,7 +88,7 @@ def _reference(a, b):
         }
         for k in changed[:10]
     ]
-    fmt = (lambda k: k[0]) if len(key) == 1 else list
+    fmt: Callable[[tuple[Any, ...]], object] = (lambda k: k[0]) if len(key) == 1 else list
     return {
         "added": len(added),
         "removed": len(removed),
@@ -95,10 +101,12 @@ def _reference(a, b):
     }
 
 
-def _random_table(rng, key_type, extra, retype, rows):
+def _random_table(
+    rng: random.Random, key_type: str, extra: object, retype: object, rows: int
+) -> pa.Table:
     ids = rng.sample(range(rows * 2), rows)
     region = [rng.choice("NS") for _ in ids]
-    cols = {
+    cols: dict[str, pa.Array[Any]] = {
         "id": pa.array([str(i) if key_type == "string" else i for i in ids]),
         "region": pa.array(region),
         "n": pa.array(
@@ -126,7 +134,7 @@ def _random_table(rng, key_type, extra, retype, rows):
     return pa.table(cols)
 
 
-def _next_release(rng, ta, tnew):
+def _next_release(rng: random.Random, ta: pa.Table, tnew: pa.Table) -> pa.Table:
     """The table `ta` with some rows dropped, some edited and rows of `tnew` added under new ids."""
     kept = ta.filter(pa.array([rng.random() < 0.8 for _ in range(ta.num_rows)], pa.bool_()))
     n = [v if rng.random() < 0.7 else (v or 0) + 1 for v in kept["n"].to_pylist()]
@@ -135,7 +143,7 @@ def _next_release(rng, ta, tnew):
     return pa.concat_tables([kept, fresh])
 
 
-def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions():
+def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions() -> None:
     rng = random.Random(7)  # noqa: S311 - a seeded sample, repeatable on purpose
     for trial in range(60):
         key = ("id",) if trial % 3 else ("region", "id")
@@ -157,11 +165,11 @@ def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions():
         got = diff(a, b)
         want = _reference(a, b)
         # Compared as the JSON the diff file holds, since NaN never equals itself.
-        dump = lambda d: json.dumps(d, sort_keys=True)  # noqa: E731
+        dump: Callable[[object], str] = lambda d: json.dumps(d, sort_keys=True)  # noqa: E731
         assert dump({k: got[k] for k in want}) == dump(want), trial
 
 
-def test_a_blank_key_part_matches_itself_across_versions():
+def test_a_blank_key_part_matches_itself_across_versions() -> None:
     fields = [Field("offence", "Offence"), Field("sub", "Sub"), Field("n", "N", "integer")]
     ds = make_dataset(fields, key=("offence", "sub"))
     a_csv = b"Offence,Sub,N\nAssault,,5\nTheft,Shop,3\nArson,,1\n"

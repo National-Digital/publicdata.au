@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,15 +13,18 @@ from publicdata.__main__ import main
 from publicdata.cache import BuildCache
 from publicdata.gate import _png_size
 
-from .conftest import ROOT
+from .conftest import ROOT, present
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-def test_the_site_fonts_load_from_woff2():
+def test_the_site_fonts_load_from_woff2() -> None:
     for name in (brand.REGULAR, brand.MEDIUM, brand.BOLD):
-        assert brand._font(name, 20).getname()[0].startswith("Random Grotesque")
+        assert present(brand._font(name, 20).getname()[0]).startswith("Random Grotesque")
 
 
-def test_the_repository_carries_only_the_free_fonts_with_their_attribution():
+def test_the_repository_carries_only_the_free_fonts_with_their_attribution() -> None:
     # RM-EULA Type-C 4.3 covers the free package only; a paid style must never be committed.
     tracked = subprocess.run(
         ["git", "ls-files", "*.woff2", "*.woff", "*.ttf", "*.otf"],
@@ -34,7 +38,7 @@ def test_the_repository_carries_only_the_free_fonts_with_their_attribution():
     assert (brand.FONTS / "RandomGrotesque-EULA.txt").is_file()
 
 
-def test_cards_are_the_same_bytes_every_time(tmp_path):
+def test_cards_are_the_same_bytes_every_time(tmp_path: Path) -> None:
     a = brand.dataset_card(
         tmp_path / "a", "og/d/s.png", "A title", "Queensland · Agency", ["3 rows"], publisher="A"
     )
@@ -46,7 +50,7 @@ def test_cards_are_the_same_bytes_every_time(tmp_path):
     assert _png_size(tmp_path / "a" / a.path) == (brand.CARD_W, brand.CARD_H)
 
 
-def test_a_title_too_long_for_three_lines_is_cut_at_a_word(tmp_path):
+def test_a_title_too_long_for_three_lines_is_cut_at_a_word(tmp_path: Path) -> None:
     long = " ".join(["Consultancies and contractors engaged by the Commissioner"] * 6)
     c = brand.dataset_card(
         tmp_path, "og/d/s.png", long, "Commonwealth · " + "Office " * 40, [], publisher="O"
@@ -58,7 +62,7 @@ def test_a_title_too_long_for_three_lines_is_cut_at_a_word(tmp_path):
     assert " …" not in lines[-1]
 
 
-def test_every_page_names_its_card_and_the_manifest_its_icons(fixture_site):
+def test_every_page_names_its_card_and_the_manifest_its_icons(fixture_site: Path) -> None:
     out = fixture_site
     slug = min(p.name for p in (out / "d").iterdir() if (p / "index.html").exists())
     ds = (out / "d" / slug / "index.html").read_text(encoding="utf-8")
@@ -84,7 +88,7 @@ def test_every_page_names_its_card_and_the_manifest_its_icons(fixture_site):
     ).read_text(encoding="utf-8")
 
 
-def test_an_older_version_page_carries_its_own_card(fixture_store, tmp_path):
+def test_an_older_version_page_carries_its_own_card(fixture_store: Path, tmp_path: Path) -> None:
     s = tmp_path / "store"
     shutil.copytree(fixture_store, s)
     slug = "qld-road-casualties"
@@ -103,7 +107,9 @@ def test_an_older_version_page_carries_its_own_card(fixture_store, tmp_path):
 
     def card(rel: str) -> str:
         page = (out / rel).read_text(encoding="utf-8")
-        return re.search(r'og:image" content="https://publicdata.au/([^"?]+)', page).group(1)
+        return present(re.search(r'og:image" content="https://publicdata.au/([^"?]+)', page)).group(
+            1
+        )
 
     assert card(f"d/{slug}/index.html") == f"og/d/{slug}.png"
     assert card(f"d/{slug}/v/2026-05-24/index.html") == f"og/d/{slug}.png"
@@ -112,10 +118,17 @@ def test_an_older_version_page_carries_its_own_card(fixture_store, tmp_path):
     assert (out / old).read_bytes() != (out / f"og/d/{slug}.png").read_bytes()
 
 
-def test_a_card_is_drawn_once_and_again_only_when_its_words_change(tmp_path, monkeypatch):
-    drawn = []
+def test_a_card_is_drawn_once_and_again_only_when_its_words_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drawn: list[tuple[str, str, str, list[str], int]] = []
     real = brand._card
-    monkeypatch.setattr(brand, "_card", lambda *a: drawn.append(a) or real(*a))
+
+    def card(*a: *tuple[str, str, str, list[str], int]) -> bytes:
+        drawn.append(a)
+        return real(*a)
+
+    monkeypatch.setattr(brand, "_card", card)
     cache = BuildCache(tmp_path / "cache")
     args = ("og/d/s.png", "A title", "Queensland · Agency", ["3 rows"])
     first = brand.dataset_card(tmp_path / "a", *args, publisher="A", cache=cache)
@@ -131,8 +144,8 @@ def test_a_card_is_drawn_once_and_again_only_when_its_words_change(tmp_path, mon
 
 
 def test_card_entries_outlast_the_first_prune_and_the_last_drops_the_unused(
-    fixture_store, tmp_path
-):
+    fixture_store: Path, tmp_path: Path
+) -> None:
     cache = tmp_path / "cache"
     run = ["build", "--store", str(fixture_store), "--cache", str(cache)]
     assert main([*run, "--out", str(tmp_path / "a"), "--absent", str(tmp_path / "a.json")]) == 0
