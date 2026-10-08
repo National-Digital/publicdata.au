@@ -99,6 +99,7 @@
   <div class="tbl" tabindex="0" role="region" aria-label="{{ sample_rows.heading }}"><table class="ledger sample">
   <thead><tr>{% for f in sample_rows.fields %}<th>{{ f }}</th>{% endfor %}</tr></thead>
   <!--portal-text--><tbody>{% for r in sample_rows.rows %}<tr>{% for v in r %}<td{% if v is none %} class="nul">null{% else %}>{{ v }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody><!--/portal-text--></table></div>
+  {% if formats|selectattr('key', 'equalto', 'ndjson')|list %}
   {% set sample_file = 'data.json' if formats|selectattr('key', 'equalto', 'json')|list else 'data.ndjson' %}
   <details class="faq qref"><summary>The first row as JSON</summary>
   <p>As it appears in <span class="mono">{{ sample_file }}</span>.</p>
@@ -106,7 +107,11 @@
 {{ sample|e }}<button class="copy abs" type="button" data-copy-target="sample-code">Copy</button></pre>
 <textarea id="sample-code" hidden>{{ sample|e }}</textarea>
   </details>
+  {% endif %}
 
+  {% if no_query %}
+  <p class="muted" id="no-query" data-no-query>{{ no_query }}</p>
+  {% endif %}
   {% if console %}
   <h2 id="query">Query it without downloading</h2>
   <p>{{ api_doc.summary|safe }} Build a query here and run it, then copy the URL or the code into your own work.</p>
@@ -141,6 +146,15 @@
   {% endfor %}
   {% endif %}
 
+  {% if parts %}
+  <h2 id="parts">By {{ parts.grain }}</h2>
+  <p>The table is split by the {{ parts.grain }} of its {{ parts.field }}, one part per {{ parts.grain }}, with rows that have no {{ parts.field }} in the undated part.{% if not parts.whole %} It is too large to be one file, so this version is its parts and a DuckDB file whose <span class="mono">records()</span> reads every part.{% endif %} A finished part is written once and kept by later versions while its rows stay the same; one that changes later is marked revised.</p>
+  <ul class="places">{% for p in parts.parts %}<li><span>{{ p.period }}{% if p.revised %} (revised){% elif p.finished %} (finished){% endif %}</span><span>{{ p.rows_fmt }} rows · {% for f in p.files %}<a href="{{ f.url }}">{{ f.label }}</a> {{ f.size }}{% if not loop.last %} · {% endif %}{% endfor %}</span></li>{% endfor %}</ul>
+  {% if parts.history %}
+  <p>Every state a row has held in the feed, split the same way. Its first_seen and last_seen columns are added by this site: the dates it first and last read the row in that state, marked as computed in <span class="mono">history/schema.json</span>.</p>
+  <ul class="places">{% for p in parts.history %}<li><span>{{ p.period }}</span><span>{{ p.rows_fmt }} rows · {% for f in p.files %}<a href="{{ f.url }}">{{ f.label }}</a> {{ f.size }}{% if not loop.last %} · {% endif %}{% endfor %}</span></li>{% endfor %}</ul>
+  {% endif %}
+  {% endif %}
   {% if places %}
   <h2 id="places">By {{ place_label|lower }}</h2>
   <p>One page for each {{ place_label|lower }}, with its own count, chart and files. The rows are the same rows as this table.</p>
@@ -148,13 +162,17 @@
   {% endif %}
 
   <h2 id="changes">What changed</h2>
+  {% if update_note %}
+  <p>{{ update_note }} The newest read is at <a href="{{ base }}latest/" class="mono">latest/</a> and every read's changes are listed in <a href="{{ base }}changes/index.json" class="mono">changes/index.json</a>.</p>
+  {% else %}
   <p>One version for every release the publisher has made since this site started following the dataset. The date is the day the file changed on the portal.{% if latest.as_at %} The "as at" date is the publisher's own.{% endif %}</p>
+  {% endif %}
   <ul class="rail">
     {% for v in versions|reverse %}
     <li{% if loop.first %} class="latest"{% endif %}><span class="vd"><a href="{{ base }}v/{{ v.version }}/">{{ v.version }}</a></span>{% if v.as_at %}<span class="asat">as at {{ v.as_at_long }}</span>{% endif %}
       <div class="row2"><span>{{ v.rows_fmt }} rows</span>{% if v.change.added is defined %}<span class="delta"><span class="add">+{{ v.change.added }} added</span> <span class="rem">−{{ v.change.removed }} removed</span> <span class="chg">{{ v.change.changed }} changed</span></span>{% endif %}<span>{{ v.fields }} fields</span><span>{{ v.encoding }}</span><span class="mono">{{ v.sha256[:12] }}</span></div>
       {% if v.backfilled %}<div class="note">Backfilled from the portal's own release history.</div>{% endif %}
-      {% for n in v.notes %}<div class="note">{{ n }}</div>{% endfor %}</li>
+      {% if v.cut %}<div class="note">Kept as a dated version because {{ v.cut }}.</div>{% endif %}{% for n in v.notes %}<div class="note">{{ n }}</div>{% endfor %}</li>
     {% endfor %}
   </ul>
   <p class="muted" style="font-size:14px"><a href="{{ base }}versions.json" class="mono">versions.json</a> · <a href="{{ base }}changes.json" class="mono">changes.json</a> · <a href="{{ base }}history.tar.zst" class="mono">history.tar.zst</a> ({{ history_size }}, every version's Parquet and manifest)</p>

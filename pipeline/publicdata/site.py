@@ -17,7 +17,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 from . import OPERATOR, REPO, SITE, brand, explorer, figures
 from . import api_text as at
 from . import ard as ardspec
-from .build import DatasetOut, VersionOut, dataset_url, version_url
+from .build import DatasetOut, VersionOut, dataset_url, source_name, version_url
 from .cache import BuildCache
 from .cost import fleet_from_build
 from .d1 import KEEP, queryable
@@ -184,7 +184,96 @@ def _change_words(c: dict | None) -> str:
     return f" ({c['added']} added, {c['removed']} removed, {c['changed']} changed)"
 
 
+def checks_words(ds: Dataset, what: str = "file") -> str:
+    """How this site follows the source, by its update class."""
+    from .updates import CHURN
+
+    if ds.update == "release":
+        return f"This site checks the portal every week and adds a dated version when the {what} changes."
+    how = (
+        "reads the whole table every week" if ds.update == "rolling" else "reads the feed every day"
+    )
+    when = (
+        f"on the first change of each month, when a period closes, when more than {CHURN:.0%} of "
+        "rows change and when a finished period is revised"
+        if ds.period
+        else f"on the first change of each month and when more than {CHURN:.0%} of rows change"
+    )
+    return (
+        f"This site {how}, writes a change log by key for each read that changed it and serves "
+        f"the newest read at latest/. It keeps a dated version {when}."
+    )
+
+
+def _no_query(ds: Dataset, v: VersionOut) -> str:
+    """Why the query API does not serve a dataset, which its page says so it never drops out
+    unexplained."""
+    from .d1 import MAX_CSV
+
+    if not v.whole:
+        grain = _grain_words(v.manifest.period["grain"])
+        return (
+            f"This version is split by {grain} and is too large to be one file. The query API, "
+            "the explorer and the pages by place each read one whole file, so they are not "
+            "offered for it. Its DuckDB file reads every part."
+        )
+    if not ds.query:
+        return "The register keeps this dataset out of the query API. Every file is still served."
+    if (v.files.get("data.csv") or 0) > MAX_CSV:
+        return (
+            f"Its CSV file is over {MAX_CSV // 1_000_000} MB, more than the query API "
+            "loads, so the files serve it."
+        )
+    return "The query API is not loaded for this version. Every file is still served."
+
+
+def _grain_words(grain: str) -> str:
+    return "financial year" if grain == "fiscal" else grain
+
+
+def _parts_view(ds: Dataset, out: Path, version: str) -> dict | None:
+    """A period table's parts as its dataset page lists them, with a feed's history parts."""
+    from .parts import FORMATS, url
+
+    man = json.loads(
+        (out / "d" / ds.slug / "v" / version / "manifest.json").read_text(encoding="utf-8")
+    )
+    if not man.get("period"):
+        return None
+    grain = man["period"]["grain"]
+
+    def rows(recs: list[dict]) -> list[dict]:
+        return [
+            {
+                "period": r["period"],
+                "rows_fmt": fmt_int(r["rows"]),
+                "finished": r["finished"],
+                "revised": r["revised"],
+                "tree": r["tree"],
+                "files": [
+                    {
+                        "label": FORMAT_LABEL[f],
+                        "url": url(ds.slug, r, f),
+                        "size": fmt_size(r["files"][f]["bytes"]),
+                    }
+                    for f in FORMATS
+                ],
+            }
+            for r in recs
+        ]
+
+    return {
+        "field": ds.field(man["period"]["field"]).display.lower(),
+        "grain": _grain_words(grain),
+        "whole": man.get("whole", True),
+        "parts": rows(man.get("parts", [])),
+        "history": rows((man.get("history") or {}).get("parts", [])),
+    }
+
+
 def _version_view(ds: Dataset, v, change: dict | None) -> dict:
+    from .updates import CUT_WORDS
+
     m = v.manifest
     return {
         "version": m.version,
@@ -203,6 +292,7 @@ def _version_view(ds: Dataset, v, change: dict | None) -> dict:
         "ext": m.ext,
         "source_url": m.source.get("url", ""),
         "portal_licence": (m.licence or {}).get("title") or (m.licence or {}).get("id", ""),
+        "cut": CUT_WORDS.get(m.cut, ""),
     }
 
 
@@ -258,13 +348,14 @@ def _file_formats_text() -> str:
 
 
 def _fmts(ds: Dataset, v: VersionOut) -> list[str]:
-    have = set(formats_for(v.rows, geo_kind(ds), v.left_out))
+    # A version written as parts alone has one whole file, the DuckDB file over its parts.
+    have = set(formats_for(v.rows, geo_kind(ds), v.left_out) if v.whole else ["duckdb"])
     return [f for f in SITE_ORDER if f in have]
 
 
 def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
     """Why each format a table version lacks is not there, one sentence each, in site order."""
-    if ds.kind == "database":
+    if ds.kind == "database" or not v.whole:
         return []
     gone = reasons(v.rows, geo_kind(ds), v.left_out)
     return [gone[f] for f in SITE_ORDER if f in gone]
@@ -335,24 +426,47 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
     vbase = version_url(ds.slug, m.version)
     fmts = _format_names(ds, v)
     short = _short_title(ds)
-    out = [
-        (
-            f"How do I download {short} as a CSV file?",
-            f"Open {base}latest/data.csv. It redirects to the newest dated version, which is {vbase}data.csv today. "
-            f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
-        )
-    ]
+    if not v.whole:
+        grain = _grain_words(m.period["grain"])
+        out = [
+            (
+                f"How do I download {short} as a CSV file?",
+                f"The table is too large to be one file, so it is one gzipped CSV and one Parquet file per {grain}, listed on this page. "
+                f"{vbase}data.duckdb attaches over HTTPS and its records() reads every {grain} at once. A dated URL never changes.",
+            ),
+            (
+                f"Can I open {short} in Excel?",
+                f"Not as one workbook. Each {grain}'s CSV opens in Excel, or load the Parquet files with Power Query.",
+            ),
+        ]
+    elif ds.update != "release":
+        out = [
+            (
+                f"How do I download {short} as a CSV file?",
+                f"Open {base}latest/data.csv for the newest read, which changes when the source does and is cached for five minutes. "
+                f"The newest dated version is {vbase}data.csv. The same paths serve {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
+            )
+        ]
+    else:
+        out = [
+            (
+                f"How do I download {short} as a CSV file?",
+                f"Open {base}latest/data.csv. It redirects to the newest dated version, which is {vbase}data.csv today. "
+                f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
+            )
+        ]
     why = reasons(v.rows, geo_kind(ds), v.left_out).get("xlsx")
     if not why:
         excel = f"Yes. {vbase}data.xlsx is a workbook with the {fmt_int(v.rows)} rows on a records sheet, the field list on a second sheet and the provenance on a third. The CSV also opens in Excel."
     else:
         excel = f"Not as a workbook. {why} Load the CSV or the Parquet file with Power Query, or take one partition file at a time."
-    out.append(
-        (
-            f"Can I open {short} in Excel?",
-            excel + f" {vbase}data.csv.gz is the CSV at about a tenth of the size.",
+    if v.whole:
+        out.append(
+            (
+                f"Can I open {short} in Excel?",
+                excel + f" {vbase}data.csv.gz is the CSV at about a tenth of the size.",
+            )
         )
-    )
     years = _years(ds, m, span)
     if years:
         out.append(
@@ -367,7 +481,7 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
         out.append(
             (
                 f"How often is {short} updated?",
-                f"{cadence_words(ds)[1]} This site checks the portal every week and adds a dated version when the file changes.",
+                f"{cadence_words(ds)[1]} {checks_words(ds)}",
             )
         )
     lic = ds.licence
@@ -1112,6 +1226,7 @@ ROUTES = (
     "/api/*",
     "/mcp",
     "/d/*/latest/*",
+    "/d/*/fetch/*",
     "/d/*/v/*",
     "/d/*/diff/*",
     "/d/*/history.tar.zst",
@@ -1285,6 +1400,24 @@ def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict]:
     version."""
     vb = version_url(ds.slug, v.manifest.version)
     name = ds.slug.replace("-", "_")
+    if not v.whole:
+        from .parts import url
+
+        newest = next(r for r in reversed(v.parts) if r["period"] != "undated")
+        return [
+            {
+                "label": "DuckDB",
+                "kind": "command",
+                "value": f"INSTALL httpfs; LOAD httpfs;\nATTACH '{vb}data.duckdb' AS {name} (READ_ONLY);\nSELECT count(*) FROM {name}.records();",
+                "note": f"records() reads every {_grain_words(v.manifest.period['grain'])}'s Parquet over HTTPS; records(files := [...]) reads the ones you name.",
+            },
+            {
+                "label": "Parquet",
+                "kind": "command",
+                "value": f"import pandas as pd\ndf = pd.read_parquet('{url(ds.slug, newest, 'parquet')}')",
+                "note": f"One Parquet file per {_grain_words(v.manifest.period['grain'])}, for pandas, Polars, Arrow, Spark and R's arrow package.",
+            },
+        ]
     if ds.kind == "database":
         start = ds.views[0].name if ds.views else ds.tables[0].name
         first = ds.tables[0]
@@ -1407,7 +1540,7 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
         out.append(
             (
                 f"How often is {short} updated?",
-                f"{cadence_words(ds)[1]} This site checks the portal every week and adds a dated version when the release changes.",
+                f"{cadence_words(ds)[1]} {checks_words(ds, 'release')}",
             )
         )
     lic = ds.licence
@@ -1560,7 +1693,11 @@ def _md_twin_dataset(
         *([f"Also called: {', '.join(ds.also_known_as)}.", ""] if ds.also_known_as else []),
         "## Download",
         "",
-        f"Latest version, redirects to `{vbase}`:",
+        (
+            f"Latest version, redirects to `{vbase}`:"
+            if ds.update == "release"
+            else "Newest read, served in place and cached for five minutes:"
+        ),
         "",
     ]
     for fmt in _fmts(ds, v):
@@ -1859,7 +1996,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/fields.json</code> lists each queryable field with its type, the publisher's description, its range and the values it holds when it has few. The MCP server offers it as a resource.</li>
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
-<li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
+<li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects. A table the publisher resends whole, or a feed of what is current, serves its newest read at the same path with a five-minute cache instead, and lists every read's changes in <code>/d/&lt;slug&gt;/changes/index.json</code>.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there. Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles, csv.gz and the publisher's file. CSV, NDJSON, JSON and GeoJSON are sent whole, gzipped when the client accepts it, so a reader that scans lazily or seeks, such as polars <code>scan_csv</code> or fsspec, should read data.parquet or data.csv.gz.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/SHA256SUMS</code> lists the SHA-256 of every file in the version, each under the name it downloads as, such as <code>&lt;slug&gt;_&lt;date&gt;.csv</code>. Run <code>sha256sum -c --ignore-missing SHA256SUMS</code> beside the files (<code>shasum -a 256 -c --ignore-missing SHA256SUMS</code> on a Mac), or save them with <code>curl -OJ</code> so the names match. Each list carries a GitHub artifact attestation from the deploy that wrote it, which <code>gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au --source-ref refs/heads/main</code> checks.</li>
@@ -3535,6 +3672,9 @@ def render_site(
             jur_long=JUR_LONG[ds.publisher.jurisdiction],
             description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
             has_suppressed=bool(ds.suppression),
+            update_note=checks_words(ds) if ds.update != "release" else "",
+            no_query="" if console else _no_query(ds, latest),
+            parts=_parts_view(ds, out, m.version),
             history_size=fmt_size((out / "d" / ds.slug / "history.tar.zst").stat().st_size),
             attribution=attr,
             portal_host=(m.source.get("url") or "").split("/")[2] if m.source.get("url") else "",
@@ -4431,6 +4571,21 @@ def render_site(
         ),
     )
     _write(out, "latest.json", pretty({o.dataset.slug: o.latest.manifest.version for o in live}))
+    # The rolling sources and feeds, whose latest/ is their newest fetch served in place.
+    _write(
+        out,
+        "current.json",
+        pretty(
+            {
+                o.dataset.slug: {
+                    "fetch": o.current.manifest.version,
+                    "source": source_name(o.dataset, o.current.manifest) or None,
+                }
+                for o in live
+                if o.current
+            }
+        ),
+    )
     # The publisher's files a register entry no longer republishes. R2 still holds the copies
     # made before, so the /d/ function refuses each path listed here.
     _write(
@@ -4514,6 +4669,12 @@ def render_site(
             )
             if ds.licence.condition:
                 full.append(f"  Licence condition: {ds.licence.condition}")
+            continue
+        if not o.latest.whole:
+            grain = m.period["grain"]
+            line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(o.latest.rows)} rows, {len(ds.fields)} fields, in {len(o.latest.parts)} parts by {grain}. DuckDB {vb}data.duckdb (records() reads every part over HTTPS) · Parquet and gzipped CSV per part, listed in {vb}manifest.json · Markdown {dataset_url(ds.slug)}index.md"
+            llms.append(line)
+            full += [line, "  Fields: " + ", ".join(f"{f.name} ({f.type})" for f in ds.fields)]
             continue
         files = " · ".join(
             f"{FORMAT_LABEL[f]} {vb}data.{f}"
