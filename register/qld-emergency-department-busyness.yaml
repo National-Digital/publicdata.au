@@ -98,3 +98,4 @@ fields:
   date_format: '%Y-%m-%dT%H:%M:%S'
   description: In Queensland time.
 note: Cells were typed and headers were made snake_case. Rows were left alone.
+rebuild: 1

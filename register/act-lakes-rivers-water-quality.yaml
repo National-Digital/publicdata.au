@@ -113,3 +113,4 @@ fields:
   type: string
 note: Cells were typed and headers were made snake_case. The publisher's header is kept beside every field
   in schema.json. Rows were left alone.
+rebuild: 1

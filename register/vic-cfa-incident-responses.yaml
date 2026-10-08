@@ -111,3 +111,4 @@ fields:
   label: Incident type
   source: '(cell: incident_type)'
   type: string
+rebuild: 1
