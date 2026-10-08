@@ -709,6 +709,9 @@ def _profile(raw: dict, fields: list[Field], kind: str, ctx: str) -> dict:
     return out
 
 
+LABEL_MAX = 60
+
+
 def _fields(raw: list, ctx: str) -> list[Field]:
     fields = []
     seen = set()
@@ -743,7 +746,7 @@ def _fields(raw: list, ctx: str) -> list[Field]:
         )
     labels = [f.display for f in fields]
     for f in fields:
-        if len(f.label) > 60:
+        if len(f.label) > LABEL_MAX:
             msg = f"{ctx}: label for '{f.name}' is over 60 characters"
             raise RegisterError(msg)
         # The explorer names its columns by label, so a label must not be another field's name.

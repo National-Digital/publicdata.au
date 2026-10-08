@@ -168,6 +168,10 @@ def _record(s3, bucket: str, key: str, lay: dict) -> None:
     )
 
 
+# A single-part upload's ETag is its MD5 in hex; a multipart one carries a dash.
+MD5_HEX = 32
+
+
 def push(
     root: Path,
     bucket: str,
@@ -242,7 +246,7 @@ def push(
             # A single-part upload's ETag is the MD5 of its bytes, so the listing settles most
             # mutable keys without a HEAD each; a multipart one is checked by its stored SHA-256.
             tag = etags[key]
-            if len(tag) == 32 and "-" not in tag:
+            if len(tag) == MD5_HEX and "-" not in tag:
                 if tag == _md5(p):
                     continue
             else:
@@ -474,7 +478,7 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
         tag = remote.get(key)
         if tag is None:
             return True
-        if len(tag) == 32 and "-" not in tag:
+        if len(tag) == MD5_HEX and "-" not in tag:
             return tag != _md5(local[key])
         meta = s3.head_object(Bucket=CACHE_BUCKET, Key=key).get("Metadata", {})
         return meta.get("sha256") != _sha256(local[key])

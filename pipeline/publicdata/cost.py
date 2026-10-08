@@ -19,6 +19,7 @@ import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,6 +45,8 @@ COMPRESSED_MULTIPLIER = 150
 SPREADSHEET_MULTIPLIER = 90
 # A gzip trailer holds the unpacked size modulo 4 GiB, which is ambiguous past this.
 GZIP_TRAILER_MAX = 20 * 10**6
+# A gzip file ends in its uncompressed size, four bytes little-endian.
+GZIP_ISIZE = 4
 # Central directories larger than this are not read; the compressed multiplier applies.
 ZIP_DIRECTORY_MAX = 64 * 10**6
 # The fewest published bytes per row of any table in the fleet is about 205.
@@ -71,7 +74,7 @@ def retry(fn, attempts: int | None = None, wait: float = 1.0):
         try:
             return fn()
         except urllib.error.HTTPError as e:
-            if e.code < 500 and e.code != 429:
+            if e.code < HTTPStatus.INTERNAL_SERVER_ERROR and e.code != HTTPStatus.TOO_MANY_REQUESTS:
                 raise
             last: Exception = e
         except (OSError, http.client.HTTPException) as e:
@@ -203,7 +206,7 @@ def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple
 
 def _upper(path: str, n: int) -> int:
     """A DuckDB file's size is published to one significant figure; count its upper bound."""
-    if path.endswith(".duckdb") and n >= 10:
+    if path.endswith(".duckdb") and n >= 10:  # noqa: PLR2004 - one digit is one significant figure
         return n + 10 ** (len(str(n)) - 1) // 2
     return n
 
@@ -300,7 +303,7 @@ def _range(url: str, start: int, end: int, timeout: float) -> bytes:
 
     def get():
         with _open(req, timeout) as r:
-            if getattr(r, "status", 206) != 206:
+            if getattr(r, "status", HTTPStatus.PARTIAL_CONTENT) != HTTPStatus.PARTIAL_CONTENT:
                 msg = "the host does not serve byte ranges"
                 raise Unsized(msg)
             body = r.read(end - start + 1)
@@ -358,8 +361,8 @@ def unpacked_bytes(url: str, size: int, kind: str, timeout: float = 30) -> int |
                     else:
                         total += i.file_size
                 return total
-        if kind == "gzip" and 4 <= size <= GZIP_TRAILER_MAX:
-            n = int.from_bytes(_range(url, size - 4, size - 1, timeout), "little")
+        if kind == "gzip" and GZIP_ISIZE <= size <= GZIP_TRAILER_MAX:
+            n = int.from_bytes(_range(url, size - GZIP_ISIZE, size - 1, timeout), "little")
             while n < size:
                 n += 2**32
             return n
@@ -762,14 +765,18 @@ def _github(path: str, token: str):
     return retry(get)
 
 
+# GitHub's largest page.
+PER_PAGE = 100
+
+
 def _pages(get, path: str, key: str | None = None, limit: int = 30) -> list:
     out = []
     sep = "&" if "?" in path else "?"
     for page in range(1, limit + 1):
-        doc = get(f"{path}{sep}per_page=100&page={page}")
+        doc = get(f"{path}{sep}per_page={PER_PAGE}&page={page}")
         items = doc[key] if key else doc
         out += items
-        if len(items) < 100:
+        if len(items) < PER_PAGE:
             break
     return out
 

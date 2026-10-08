@@ -61,9 +61,9 @@ def fmt(n: float) -> str:
     """
     if float(n).is_integer():
         return f"{int(n):,}"
-    if abs(n) < 10:
+    if abs(n) < 10:  # noqa: PLR2004 - the places shown shrink as the number grows
         return f"{n:.2f}".rstrip("0").rstrip(".")
-    return f"{n:,.1f}" if abs(n) < 1000 else f"{n:,.0f}"
+    return f"{n:,.1f}" if abs(n) < 1000 else f"{n:,.0f}"  # noqa: PLR2004
 
 
 def _q(name: str) -> str:
@@ -282,9 +282,9 @@ def _nice(top: float, lines: int = 5) -> tuple[float, float]:
 
 
 def _tick(v: float) -> str:
-    if v >= 1_000_000:
+    if v >= 1_000_000:  # noqa: PLR2004 - the suffix names the power
         return f"{v / 1_000_000:g}M"
-    if v >= 1000:
+    if v >= 1000:  # noqa: PLR2004 - the suffix names the power
         return f"{v / 1000:g}k"
     return f"{v:g}"
 
@@ -329,7 +329,7 @@ def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
         )
         g += step
     every = max(1, math.ceil(len(years) / 8))
-    gap = 3 if cw > 8 else 1
+    gap = 3 if cw > 8 else 1  # noqa: PLR2004 - pixels
     for i, y in enumerate(years):
         x = pl + i * cw + gap / 2
         acc = 0.0
@@ -368,7 +368,7 @@ def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
 def spark_svg(s: dict, w: int = 220, h: int = 56) -> str:
     """A small line of the yearly totals for a card."""
     years = s["years"]
-    if len(years) < 2:
+    if len(years) <= 1:
         return ""
     vals = [sum(s["values"][y].values()) for y in years]
     mn, mx = min(vals), max(vals)
@@ -400,6 +400,9 @@ def spark_svg(s: dict, w: int = 220, h: int = 56) -> str:
     )
 
 
+BAR_LABEL_CHARS = 22
+
+
 def hbars_svg(rows: list[tuple[str, float]], label: str, w: int = 420) -> str:
     """Horizontal bars for a short list of category totals."""
     if not rows:
@@ -411,7 +414,7 @@ def hbars_svg(rows: list[tuple[str, float]], label: str, w: int = 420) -> str:
     for i, (k, v) in enumerate(rows):
         y = 4 + i * rh
         bw = (w - 200) * v / mx
-        name = k if len(k) <= 22 else k[:21] + "…"
+        name = k if len(k) <= BAR_LABEL_CHARS else k[: BAR_LABEL_CHARS - 1] + "…"
         out.append(
             f'<text x="118" y="{y + rh * 0.68:.1f}" text-anchor="end" class="tick">{_esc(name)}</text>'
             f'<rect x="124" y="{y + 2:.1f}" width="{bw:.1f}" height="{rh - 6:.1f}" fill="var(--primary)"><title>{_esc(k)}: {fmt(v)}</title></rect>'
@@ -583,7 +586,7 @@ def map_html(
         )
     out.append("</g></svg>")
     # An overlay with nothing but its empty label group is left out.
-    svg = "".join(out) if len(out) > 3 else ""
+    svg = "".join(out) if len(out) > 3 else ""  # noqa: PLR2004 - the three wrapping parts
     return f'<div class="mapbox" style="--ar:{w}/{h}">{img}{svg}</div>'
 
 
@@ -689,7 +692,7 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=Non
         conds = [*chart.get("where", ()), *([within] if within else [])]
         s = series(db, yf[0], yf[1], split, metric, until, conds)
         # One bar is no trend, so a table of one year draws no chart.
-        if len(s["years"]) >= 2:
+        if len(s["years"]) > 1:
             by = f" by {ds.field(split).display.lower()}" if split else ""
             per = "per financial year" if yf[1] == "financial" else "per year"
             span = year_span(s)

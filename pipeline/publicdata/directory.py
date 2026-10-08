@@ -344,7 +344,8 @@ def _row(r: dict, served: dict[str, str], chosen: dict[str, str], task: str = ""
         "title": r["title"],
         "url": r["url"],
         "summary": r["summary"] if r["summary"] != "No notes provided" else "",
-        "formats": ", ".join(fmts[:4]) + (f" +{len(fmts) - 4}" if len(fmts) > 4 else ""),
+        "formats": ", ".join(fmts[:SHOWN_FORMATS])
+        + (f" +{len(fmts) - SHOWN_FORMATS}" if len(fmts) > SHOWN_FORMATS else ""),
         "licence": licence_name(r["licence"]),
         "modified": r["modified"],
         "served": served.get(r["id"], ""),

@@ -31,7 +31,7 @@ def compare(a: Path, b: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
+    if len(argv) != 2:  # noqa: PLR2004 - the two trees
         print("usage: python -m publicdata.dbcheck <tree-a> <tree-b>", file=sys.stderr)
         return 2
     a, b = Path(argv[0]), Path(argv[1])

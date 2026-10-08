@@ -399,7 +399,9 @@ def cmd_catalogue_publishers(args) -> int:
         zip("12345678", ("NSW", "Vic", "Qld", "SA", "WA", "Tas", "NT", "ACT"), strict=True)
     )
     lgas = {
-        c["name"]: state[c["id"][0]] for c in codes if len(c["id"]) == 5 and c["id"][0] in state
+        c["name"]: state[c["id"][0]]
+        for c in codes
+        if len(c["id"]) == LGA_CODE_DIGITS and c["id"][0] in state
     }
     rows = suggest(load(Path(args.store)), load_curated(PUBLISHERS), lgas)
     print(yaml.safe_dump(rows, sort_keys=False, allow_unicode=True, width=100))
@@ -559,6 +561,9 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
             cached.discard((LAYERS[k].slug, ms[-1].version))
     return cached
 
+
+# An LGA code is its state's digit and four more.
+LGA_CODE_DIGITS = 5
 
 VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 

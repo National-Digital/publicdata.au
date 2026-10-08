@@ -129,12 +129,16 @@ def _url(v) -> bool:
     return isinstance(v, str) and v.startswith("https://")
 
 
+# Google's Dataset rules: a description of 50 to 5,000 characters.
+DESCRIPTION_MIN, DESCRIPTION_MAX = 50, 5000
+
+
 def _dataset(n: dict, at: str) -> list[str]:
     e: list[str] = []
     if not _text(n.get("name")):
         e.append(f"{at}: Dataset needs a name")
     desc = n.get("description")
-    if not _text(desc) or not 50 <= len(desc) <= 5000:
+    if not _text(desc) or not DESCRIPTION_MIN <= len(desc) <= DESCRIPTION_MAX:
         e.append(f"{at}: Dataset description must be 50 to 5000 characters")
     for role in ("creator", "publisher", "funder"):
         for v in _values(n.get(role)):

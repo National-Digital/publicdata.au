@@ -96,11 +96,14 @@ COUNCIL_WORDS = re.compile(
 )
 
 
+SLUG_MAX = 80
+
+
 def slugify(text: str) -> str:
     s = re.sub(r"[’']", "", text.lower())
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
-    if len(s) > 80:
-        s = s[:81].rsplit("-", 1)[0]
+    if len(s) > SLUG_MAX:
+        s = s[: SLUG_MAX + 1].rsplit("-", 1)[0]
     return s or "unnamed"
 
 

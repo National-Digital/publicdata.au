@@ -36,6 +36,7 @@ import urllib.parse
 import urllib.request
 import warnings
 from collections.abc import Mapping
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -379,7 +380,7 @@ class Client:
                 return urllib.request.urlopen(req, timeout=self.timeout)
             except urllib.error.HTTPError as err:
                 # The API allows a burst per address, then answers 429 with how long to wait.
-                if err.code == 429 and attempt < self.retries:
+                if err.code == HTTPStatus.TOO_MANY_REQUESTS and attempt < self.retries:
                     attempt += 1
                     wait = err.headers.get("Retry-After") or "10"
                     time.sleep(min(float(wait) if wait.isdigit() else 10.0, 60.0))
@@ -688,7 +689,7 @@ class Client:
             try:
                 return self._json(f"/d/{_slug(slug)}/fields.json")["fields"]
             except PublicDataError as err:
-                if err.status != 404:
+                if err.status != HTTPStatus.NOT_FOUND:
                     raise
         s = self.schema(slug, version)
         if s.get("kind") == "database":
@@ -754,7 +755,7 @@ class Client:
         try:
             resp = self._open(self.file_url(slug, format, version, table))
         except PublicDataError as err:
-            if err.status == 404 and table is None and format not in ALWAYS:
+            if err.status == HTTPStatus.NOT_FOUND and table is None and format not in ALWAYS:
                 raise PublicDataError(404, _absent_why(slug, format), err.body, err.url) from None
             raise
         with resp as r:
@@ -891,7 +892,7 @@ class Client:
             try:
                 p, _ = self._fetch(slug, "gpkg", version, None, cache, Path(d))
             except PublicDataError as err:
-                if err.status == 404:
+                if err.status == HTTPStatus.NOT_FOUND:
                     raise PublicDataError(
                         404,
                         f"{slug!r} has no map layer: only datasets with a location or a shape have one",
@@ -1416,7 +1417,12 @@ def _table(table: str) -> str:
 
 def _date(version: str) -> str:
     v = str(version)
-    if len(v) != 10 or v[4] != "-" or v[7] != "-" or not (v[:4] + v[5:7] + v[8:]).isdigit():
+    if (
+        len(v) != len("YYYY-MM-DD")
+        or v[4] != "-"
+        or v[7] != "-"
+        or not (v[:4] + v[5:7] + v[8:]).isdigit()
+    ):
         msg = f"a version is a date such as 2026-08-07, not {version!r}"
         raise ValueError(msg)
     return v

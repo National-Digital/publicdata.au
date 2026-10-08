@@ -24,6 +24,7 @@ MAX_SENTENCE_WORDS = 35
 MIN_PARAM_WORDS, MAX_PARAM_CHARS = 3, 500
 MAX_TITLE_CHARS = 40
 MAX_TOOLS = 20
+MIN_PURPOSE_WORDS = 6
 # Purpose sentences this alike must point at each other; this alike they are the same tool.
 OVERLAP_NAMED, OVERLAP_DUPLICATE = 0.3, 0.7
 NOT_A_PURPOSE = {"a", "an", "the", "this", "it", "use", "used", "tool"}
@@ -76,7 +77,11 @@ def _purpose(t: dict) -> list[str]:
         out.append("has no description; open with a sentence saying what the tool does")
         return out
     lead = first[0].split()
-    if len(lead) < 6 or lead[0].lower() in NOT_A_PURPOSE or not lead[0][0].isupper():
+    if (
+        len(lead) < MIN_PURPOSE_WORDS
+        or lead[0].lower() in NOT_A_PURPOSE
+        or not lead[0][0].isupper()
+    ):
         out.append(
             "the description should open with a sentence of six words or more that starts "
             "with the verb for what the tool does"

@@ -19,6 +19,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from html import escape
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -347,11 +348,16 @@ def _tag(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
 
+# A Hugging Face card keeps keywords of up to three words as tags, fourteen tags in all.
+HF_TAG_WORDS = 3
+HF_TAGS = 14
+
+
 def hf_card(e: Entry, repo: str) -> str:
     tags = ["australia", "government", "open-data", "publicdata-au"]
     for k in e.keywords:
         t = _tag(k)
-        if t and t.count("-") < 3 and t not in tags and len(tags) < 14:
+        if t and t.count("-") < HF_TAG_WORDS and t not in tags and len(tags) < HF_TAGS:
             tags.append(t)
     meta = {
         "license": e.licence.huggingface,
@@ -458,12 +464,18 @@ def kaggle_formats(e: Entry) -> list[str]:
     return carried(e, KAGGLE_FILES)
 
 
+# Kaggle's limits on a dataset's slug, title and subtitle.
+KAGGLE_SLUG_MIN, KAGGLE_SLUG_MAX = 3, 50
+KAGGLE_TITLE_MIN, KAGGLE_TITLE_MAX = 6, 50
+KAGGLE_SUBTITLE_MIN = 20
+
+
 def kaggle_metadata(e: Entry, owner: str) -> dict:
-    if not 3 <= len(e.slug) <= 50:
+    if not KAGGLE_SLUG_MIN <= len(e.slug) <= KAGGLE_SLUG_MAX:
         msg = f"slug {e.slug!r} is outside Kaggle's 3 to 50 characters"
         raise Refused(msg)
     subtitle = _clip(f"{e.publisher}, republished by publicdata.au", 80)
-    if len(subtitle) < 20:
+    if len(subtitle) < KAGGLE_SUBTITLE_MIN:
         subtitle = _clip(f"{subtitle}, Australian government open data", 80)
     schema = {
         "fields": [
@@ -478,7 +490,11 @@ def kaggle_metadata(e: Entry, owner: str) -> dict:
     return {
         # The register's search title is written for search, so it leads when Kaggle's 50
         # characters hold it whole.
-        "title": e.search_title if 6 <= len(e.search_title) <= 50 else _clip(e.title, 50),
+        "title": (
+            e.search_title
+            if KAGGLE_TITLE_MIN <= len(e.search_title) <= KAGGLE_TITLE_MAX
+            else _clip(e.title, KAGGLE_TITLE_MAX)
+        ),
         "id": f"{owner}/{e.slug}",
         "subtitle": subtitle,
         "description": readme(e, "kaggle"),
@@ -540,13 +556,17 @@ def kaggle_settings_licence(e: Entry) -> str:
     return name
 
 
+# A keyword of one or two words becomes a Kaggle tag.
+KAGGLE_TAG_WORDS = 2
+
+
 def kaggle_tags(e: Entry) -> list[str]:
     tags = ["australia", "government", "tabular", "public data"]
     if located(e):
         tags.append("geospatial analysis")
     for t in e.topics:
         tags += TOPIC_TAGS.get(t, [t])
-    tags += [k.lower() for k in e.keywords if len(k.split()) <= 2]
+    tags += [k.lower() for k in e.keywords if len(k.split()) <= KAGGLE_TAG_WORDS]
     seen: list[str] = []
     for t in tags:
         if t not in seen:
@@ -574,11 +594,14 @@ def kaggle_sources(e: Entry) -> str:
     return "\n\n".join(parts)
 
 
+NOTEBOOK_SLUG_MAX = KAGGLE_TITLE_MAX - len(" quick start")
+
+
 def _notebook_title(e: Entry) -> str:
     # Kaggle derives a notebook's slug from its title, so the title is the dataset's slug, which
     # is unique, and the notebook's slug is known before the first push. Titles stop at 50
     # characters, so a long slug is cut and keeps a short hash of the whole slug.
-    if len(e.slug) <= 38:
+    if len(e.slug) <= NOTEBOOK_SLUG_MAX:
         return f"{e.slug} quick start"
     digest = hashlib.sha256(e.slug.encode()).hexdigest()[:4]
     return f"{e.slug[:33].rstrip('-')} {digest} quick start"
@@ -670,6 +693,10 @@ def _code(text: str) -> dict:
     }
 
 
+# Kaggle shows a cover at 2:1.
+COVER_ASPECT = 2
+
+
 def cover_image(card: Path, dest: Path) -> Path:
     """The site's social card cut to 2:1 about its centre and sized for Kaggle.
 
@@ -681,7 +708,7 @@ def cover_image(card: Path, dest: Path) -> Path:
     with Image.open(card) as im:
         im = im.convert("RGB")
         w, h = im.size
-        if w / h > 2:
+        if w / h > COVER_ASPECT:
             nw = h * 2
             im = im.crop(((w - nw) // 2, 0, (w - nw) // 2 + nw, h))
         else:
@@ -785,7 +812,7 @@ def read_site(
 
     def served(slug):
         r = http.get(f"{site}/api/v1/datasets/{slug}/versions", timeout=60)
-        return r.status_code == 200
+        return r.status_code == HTTPStatus.OK
 
     for rec in get(f"{site}/catalog.json")["dataset"]:
         slug = rec["identifier"]
@@ -891,6 +918,9 @@ class HuggingFace:
         return f"https://huggingface.co/datasets/{self.repo(e)}"
 
 
+ZENODO_PAGE = 100
+
+
 class Zenodo:
     name = "zenodo"
 
@@ -905,7 +935,7 @@ class Zenodo:
     def _call(self, method: str, path: str, **kw):
         url = path if path.startswith("http") else f"{self.base}/api{path}"
         r = self.http.request(method, url, timeout=kw.pop("timeout", 120), **kw)
-        if r.status_code >= 400:
+        if r.status_code >= HTTPStatus.BAD_REQUEST:
             msg = f"Zenodo {method} {url} answered {r.status_code}: {r.text[:500]}"
             raise RuntimeError(msg)
         return r.json() if r.content else {}
@@ -935,10 +965,10 @@ class Zenodo:
                 batch = self._call(
                     "GET",
                     "/deposit/depositions",
-                    params={"size": 100, "page": page, "all_versions": "true"},
+                    params={"size": ZENODO_PAGE, "page": page, "all_versions": "true"},
                 )
                 out += batch
-                if len(batch) < 100:
+                if len(batch) < ZENODO_PAGE:
                     break
                 page += 1
             self._records = out
@@ -1056,6 +1086,12 @@ class Zenodo:
         return done.get("doi_url") or done.get("links", {}).get("html", "")
 
 
+KAGGLE_PAGE = 200
+KAGGLE_TRIES = 4
+# At 15 seconds a wait, a new dataset has five minutes to be registered.
+KAGGLE_UNREGISTERED_WAITS = 20
+
+
 class Kaggle:
     name = "kaggle"
 
@@ -1091,7 +1127,14 @@ class Kaggle:
             found, page = set(), 1
             while True:
                 r = self._run(
-                    "datasets", "list", "--mine", "--csv", "--page-size", "200", "-p", str(page)
+                    "datasets",
+                    "list",
+                    "--mine",
+                    "--csv",
+                    "--page-size",
+                    str(KAGGLE_PAGE),
+                    "-p",
+                    str(page),
                 )
                 out = (r.stdout + r.stderr).strip()
                 if self._throttled(r):
@@ -1108,7 +1151,7 @@ class Kaggle:
                     if row.get("ref", "").count("/") == 1
                 ]
                 found |= {ref.split("/")[1].lower() for ref in refs}
-                if len(refs) < 200:
+                if len(refs) < KAGGLE_PAGE:
                     break
                 page += 1
             self._mine = found
@@ -1267,14 +1310,14 @@ class Kaggle:
         then raised, so a failed check never spends Kaggle's limit on saving notebooks.
         """
         ref = kaggle_notebook(e, self.owner)[0]["id"]
-        for attempt in range(4):
+        for attempt in range(KAGGLE_TRIES):
             r = self._run("kernels", "status", ref, tries=1)
             out = r.stdout + r.stderr
             if r.returncode == 0:
                 return True
             if re.search(r"\b(403|404)\b|Permission 'kernels\.get' was denied", out):
                 return False
-            if attempt < 3:
+            if attempt < KAGGLE_TRIES - 1:
                 time.sleep(self.pause * (attempt + 1))
         msg = f"Kaggle could not say whether {ref} exists: {out.strip()[:300]}"
         raise RuntimeError(msg)
@@ -1307,7 +1350,7 @@ class Kaggle:
         kmeta, nb = kaggle_notebook(e, self.owner)
         _write_json(nb_dir / "kernel-metadata.json", kmeta)
         _write_json(nb_dir / "notebook.ipynb", nb)
-        for attempt in range(4):
+        for attempt in range(KAGGLE_TRIES):
             r = self._run("kernels", "push", "-p", str(nb_dir), tries=1)
             out = r.stdout + r.stderr
             if re.search(r"\b429\b|Too Many Requests", out):
@@ -1315,7 +1358,7 @@ class Kaggle:
                 return False
             # Each pushed notebook runs, and Kaggle runs only a few at once per account.
             if re.search(r"Maximum batch CPU session count", out):
-                if attempt == 3:
+                if attempt == KAGGLE_TRIES - 1:
                     self._notebooks_limited = True
                     return False
                 time.sleep(self.pause * 3 * (attempt + 1))
@@ -1342,7 +1385,7 @@ class Kaggle:
             out = (r.stdout + r.stderr).strip().lower()
             if r.returncode == 0 and out.endswith("ready"):
                 return
-            if re.search(r"\b403\b|\b404\b", out) and n < 20:
+            if re.search(r"\b403\b|\b404\b", out) and n < KAGGLE_UNREGISTERED_WAITS:
                 time.sleep(pause)
                 continue
             if r.returncode != 0 or "error" in out or "failed" in out:

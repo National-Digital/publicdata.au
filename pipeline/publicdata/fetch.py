@@ -19,6 +19,7 @@ import re
 import time
 import urllib.parse
 import zoneinfo
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -383,12 +384,12 @@ def _portal_version(
     r = s.get(url, timeout=600, allow_redirects=True)
     # A portal that builds its export on request answers 202 until the file is ready.
     for _ in range(EXPORT_WAITS):
-        if r.status_code != 202:
+        if r.status_code != HTTPStatus.ACCEPTED:
             break
         time.sleep(EXPORT_WAIT_SECONDS)
         r = s.get(url, timeout=600, allow_redirects=True)
     r.raise_for_status()
-    if r.status_code != 200:
+    if r.status_code != HTTPStatus.OK:
         msg = f"{ds.slug}: {url} answered HTTP {r.status_code} without the file"
         raise FetchError(msg)
     data = r.content
@@ -713,6 +714,10 @@ def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
             break
 
 
+# A slice of the map this narrow is not split again.
+ALA_MIN_SPAN = 0.0001
+
+
 def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: float, dim: int):
     """Rows of a query too large for the API's paging, read in slices.
 
@@ -749,7 +754,7 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: floa
         mid = int(lo + (hi - lo) / 2)
         halves = [(f"year:[{int(lo)} TO {mid}}}", lo, mid), (f"year:[{mid} TO {int(hi)}]", mid, hi)]
     else:
-        if hi - lo <= 0.0001:
+        if hi - lo <= ALA_MIN_SPAN:
             yield from _ala_slices(
                 s, base, q, fq, n, -180 if dim == 1 else 0, 180 if dim == 1 else 2200, dim + 1
             )
@@ -1084,7 +1089,7 @@ def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[dict
             md_returnfields="station_no,ts_id",
         )
     except FetchError as e:
-        if "TooManyResults" not in str(e) or len(batch) < 2:
+        if "TooManyResults" not in str(e) or len(batch) <= 1:
             raise
         half = len(batch) // 2
         return [*_kiwis_values(s, base, batch[:half]), *_kiwis_values(s, base, batch[half:])]

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from http import HTTPStatus
 from urllib.parse import quote
 
 import requests
@@ -131,7 +132,7 @@ def main(argv=None) -> int:
         # An outage there is not a fault here and the next release tries again. A 4xx is a
         # fault here, such as a lapsed key or a changed endpoint, so it fails the job.
         status = getattr(getattr(e, "response", None), "status_code", None)
-        if status is not None and status < 500:
+        if status is not None and status < HTTPStatus.INTERNAL_SERVER_ERROR:
             print(f"Smithery: {e}", file=sys.stderr)
             _summary(f"The Smithery listing could not be checked: {e}")
             return 1

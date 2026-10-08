@@ -128,7 +128,7 @@ def _size(p: Path) -> int:
     agree.
     """
     n = p.stat().st_size
-    if p.name != "data.duckdb" or n < 10:
+    if p.name != "data.duckdb" or n < 10:  # noqa: PLR2004 - one digit is one significant figure
         return n
     scale = 10 ** (len(str(n)) - 1)
     return round(n / scale) * scale

@@ -136,7 +136,7 @@ def fmt_size(n: int | None) -> str:
     for unit, div in (("GB", 1e9), ("MB", 1e6), ("KB", 1e3)):
         if n >= div:
             v = n / div
-            return f"{v:.1f} {unit}" if v < 10 else f"{v:.0f} {unit}"
+            return f"{v:.1f} {unit}" if v < 10 else f"{v:.0f} {unit}"  # noqa: PLR2004 - one place under ten
     return f"{n} B"
 
 
@@ -282,6 +282,10 @@ def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
     return [FORMAT_LABEL[f] for f in _fmts(ds, v) if f != "csv.gz"]
 
 
+# A trailing part this short names a place or years.
+PLACE_WORDS = 4
+
+
 def _short_title(ds: Dataset) -> str:
     """The title without its trailing place or years, for a question.
 
@@ -289,7 +293,7 @@ def _short_title(ds: Dataset) -> str:
     that ends ", Victoria".
     """
     head, _, tail = ds.title.rpartition(", ")
-    return head if head and len(tail.split()) <= 4 else ds.title
+    return head if head and len(tail.split()) <= PLACE_WORDS else ds.title
 
 
 def cadence_words(ds: Dataset) -> tuple[str, str]:
@@ -858,10 +862,13 @@ RELATED_STOP = set(
 RELATED_MAX = 12
 
 
+RELATED_MIN_CHARS = 3
+
+
 def _subject_words(d: Dataset) -> set[str]:
     text = " ".join([d.title, *d.keywords, *d.also_known_as]).lower()
     words = {w.removesuffix("s") for w in re.findall(r"[a-z][a-z']+", text)}
-    return {w for w in words if len(w) > 2 and w not in RELATED_STOP}
+    return {w for w in words if len(w) >= RELATED_MIN_CHARS and w not in RELATED_STOP}
 
 
 def _related(ds: Dataset, live: list[DatasetOut]) -> list[dict]:
@@ -1083,7 +1090,7 @@ def licence_record(ds: Dataset, m) -> dict:
         "reviewed": long_date(ds.licence.reviewed) if ds.licence.reviewed else "",
         "read_at": long_date(lic["read_at"]) if lic.get("read_at") else "",
         "read_from": read_from,
-        "read_from_host": read_from.split("/")[2] if read_from.count("/") >= 2 else "",
+        "read_from_host": read_from.split("/")[2] if read_from.count("/") > 1 else "",
         "version": m.version,
     }
 
@@ -2057,6 +2064,10 @@ def _agents_tools() -> str:
     return f'<dl class="tools-list">{items}</dl>'
 
 
+# A field with this few values lists them in its parameter's description.
+PATH_HINT_VALUES = 20
+
+
 def _query_paths(
     live: list[DatasetOut], slug_p: dict, hints: dict | None = None, generic: bool = False
 ) -> dict:
@@ -2065,7 +2076,7 @@ def _query_paths(
 
     def hint(name: str) -> str:
         e = hints.get(name) or {}
-        if e.get("values") and len(e["values"]) <= 20:
+        if e.get("values") and len(e["values"]) <= PATH_HINT_VALUES:
             return " Values: " + ", ".join(str(v) for v in e["values"]) + "."
         if "min" in e:
             return f" From {e['min']} to {e['max']}."
@@ -2337,6 +2348,9 @@ def _register_example(ds: Dataset, con, by: dict) -> dict:
 ID_NAME = re.compile(r"(^|_)(id|no|number|code)$")
 
 
+EXAMPLE_GROUP_MIN, EXAMPLE_GROUP_MAX = 2, 30
+
+
 def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
     """A first query from the field statistics, for an entry whose register names none.
 
@@ -2374,7 +2388,7 @@ def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
         # answers with a single bar.
         return (
             con.execute(f"SELECT COUNT(DISTINCT {q(n)}) FROM records{cond}", params).fetchone()[0]
-            >= 2
+            > 1
         )
 
     # A field with a value per row, such as a name or an identifier, splits into ones.
@@ -2388,7 +2402,12 @@ def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
         and not ID_NAME.search(e["name"])
     ]
     group = next(
-        (e["name"] for e in strings if 2 <= e["distinct"] <= 30 and splits(e["name"])), None
+        (
+            e["name"]
+            for e in strings
+            if EXAMPLE_GROUP_MIN <= e["distinct"] <= EXAMPLE_GROUP_MAX and splits(e["name"])
+        ),
+        None,
     ) or next((e["name"] for e in strings if e.get("values") and splits(e["name"])), None)
     # A table of counts, keyed by several dimensions, is summed; a table of events is counted.
     measures = [
@@ -3086,6 +3105,11 @@ def _dataset_card(out: Path, ds: Dataset, v, rel: str, cache: BuildCache | None)
         ds.publisher.name,
         cache,
     )
+
+
+# The home page shows six tables, and an agent example names a dataset's first eight fields.
+SHOWCASE_TABLES = 6
+SAMPLE_FIELDS = 8
 
 
 def render_site(
@@ -4017,11 +4041,11 @@ def render_site(
             key=lambda o: o.latest.rows,
             default=None,
         )
-        if best and len(showcase) < 6:
+        if best and len(showcase) < SHOWCASE_TABLES:
             showcase.append(best)
             used.add(best.dataset.slug)
     for o in sorted(live, key=lambda o: -o.latest.rows):
-        if len(showcase) >= 6:
+        if len(showcase) >= SHOWCASE_TABLES:
             break
         if o.dataset.slug not in used:
             showcase.append(o)
@@ -4070,7 +4094,7 @@ def render_site(
             {
                 "tool": "list_fields",
                 "args": f'slug="{sd.slug}"',
-                "result": f"{len(sd.fields)} fields · {', '.join(f.name for f in sd.fields[:8])}{' …' if len(sd.fields) > 8 else ''}",
+                "result": f"{len(sd.fields)} fields · {', '.join(f.name for f in sd.fields[:SAMPLE_FIELDS])}{' …' if len(sd.fields) > SAMPLE_FIELDS else ''}",
             },
             {
                 "tool": "count_rows",

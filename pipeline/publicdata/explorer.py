@@ -204,13 +204,18 @@ def yes_no_fields(console: dict) -> list[str]:
     return [e["name"] for e in console["fields"] if e["type"] == "boolean"]
 
 
+# A chart groups by a text field with this many values, and colours by one with fewer.
+CATEGORY_MIN, CATEGORY_MAX = 2, 30
+SPLIT_MIN, SPLIT_MAX = 3, 8
+
+
 def categories(console: dict) -> list[str]:
     """Text fields with a short list of values, which a chart can group by."""
     return [
         e["name"]
         for e in console["fields"]
         if e["type"] == "string"
-        and 2 <= len(e.get("values") or ()) <= 30
+        and CATEGORY_MIN <= len(e.get("values") or ()) <= CATEGORY_MAX
         and not CALENDAR.search(e["name"])
     ]
 
@@ -220,8 +225,8 @@ def split_field(console: dict) -> str | None:
     fields = {e["name"]: e for e in console["fields"]}
     cats = categories(console)
     return next(
-        (n for n in cats if "severity" in n and len(fields[n]["values"]) <= 8), None
-    ) or next((n for n in cats if 3 <= len(fields[n]["values"]) <= 8), None)
+        (n for n in cats if "severity" in n and len(fields[n]["values"]) <= SPLIT_MAX), None
+    ) or next((n for n in cats if SPLIT_MIN <= len(fields[n]["values"]) <= SPLIT_MAX), None)
 
 
 # The query API's aggregates as Perspective names them.

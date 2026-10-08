@@ -16,6 +16,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urlparse
 
@@ -134,18 +135,22 @@ SUMMARY_CHARS = 280
 
 
 RETRYABLE = (requests.ConnectionError, requests.Timeout)
+GET_ATTEMPTS = 5
 
 
 def _get(s: requests.Session, url: str, params: dict | None = None, **kw) -> requests.Response:
     timeout = kw.pop("timeout", 180)
-    for attempt in range(5):
+    for attempt in range(GET_ATTEMPTS):
         try:
             r = s.get(url, params=params, timeout=timeout, **kw)
-            if r.status_code < 500 and r.status_code != 429:
+            if (
+                r.status_code < HTTPStatus.INTERNAL_SERVER_ERROR
+                and r.status_code != HTTPStatus.TOO_MANY_REQUESTS
+            ):
                 r.raise_for_status()
                 return r
         except RETRYABLE:
-            if attempt == 4:
+            if attempt == GET_ATTEMPTS - 1:
                 raise
         time.sleep(5 * (attempt + 1))
     r.raise_for_status()
@@ -467,6 +472,10 @@ def _council_record(portal: Portal, **kw) -> dict:
     )
 
 
+# Opendatasoft's catalogue API pages no further than this many datasets.
+ODS_PAGING_LIMIT = 10_000
+
+
 def ods(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
     """An Opendatasoft portal.
 
@@ -479,7 +488,7 @@ def ods(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int
             s, f"{portal.api}/api/explore/v2.1/catalog/datasets", {"limit": 100, "offset": off}
         )
         total = res["total_count"]
-        if total > 10_000:
+        if total > ODS_PAGING_LIMIT:
             msg = f"{portal.host}: {total} datasets is past the paging limit"
             raise PortalError(msg)
         for x in res["results"]:

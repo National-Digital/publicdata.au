@@ -190,6 +190,10 @@ def publisher_for(portal: catalogue.Portal, pkg: dict, curated: list[Publisher])
     }
 
 
+# A draft with more fields than this is flagged for a person to trim.
+MANY_FIELDS = 50
+
+
 def draft(
     url: str,
     curated: list[Publisher],
@@ -316,11 +320,11 @@ def draft(
     if not open_:
         notes.append(f"the portal states the licence as {p.get('license_title') or lic!r}")
     geo = [f.name for f in fields if re.search(r"(^|_)(lat|latitude|lon|lng|longitude)$", f.name)]
-    if len(geo) >= 2:
+    if len(geo) > 1:
         notes.append(
             f"{' and '.join(geo)} look like coordinates; add geometry with the publisher's CRS"
         )
-    if len(fields) > 50:
+    if len(fields) > MANY_FIELDS:
         notes.append(
             f"{len(fields)} columns: if they are dates or periods, the table may need unpivot"
         )

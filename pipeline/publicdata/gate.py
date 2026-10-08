@@ -39,7 +39,7 @@ def _partition_values(out: Path, slug: str) -> list[str]:
 
 def _without_publisher_values(text: str, page: Path, out: Path, cache: dict) -> str:
     parts = page.relative_to(out).parts
-    if len(parts) < 2 or parts[0] != "d":
+    if len(parts) <= 1 or parts[0] != "d":
         return text
     if parts[1] not in cache:
         cache[parts[1]] = _partition_values(out, parts[1])
@@ -80,6 +80,11 @@ def _mcp_resources(out: Path) -> list[str]:
 LISTING_LIMITS = {"name": 100, "one_liner": 200, "description": 2000}
 
 
+# The directory listing allows one to five categories and one to three use cases.
+LISTING_CATEGORIES = 5
+LISTING_USE_CASES = 3
+
+
 def _mcp_listing(out: Path) -> list[str]:
     f = out / "mcp" / "listing.json"
     if not f.exists():
@@ -91,9 +96,9 @@ def _mcp_listing(out: Path) -> list[str]:
         for k, n in LISTING_LIMITS.items()
         if got.get(k) and len(got[k]) > n
     ]
-    if not 1 <= len(got.get("categories") or []) <= 5:
+    if not 1 <= len(got.get("categories") or []) <= LISTING_CATEGORIES:
         errors.append("mcp/listing.json: one to five categories")
-    if not 1 <= len(got.get("use_cases") or []) <= 3:
+    if not 1 <= len(got.get("use_cases") or []) <= LISTING_USE_CASES:
         errors.append("mcp/listing.json: one to three use cases")
     if not got.get("prerequisites"):
         errors.append("mcp/listing.json: prerequisites is missing")
