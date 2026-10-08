@@ -4732,7 +4732,7 @@ def render_site(
     _write(
         out,
         "robots.txt",
-        f"User-Agent: *\nAllow: /\nDisallow: /api/\n\nHost: {SITE}\nSitemap: {SITE}/sitemap.xml\nAgentmap: {SITE}/.well-known/ai-catalog.json\n",
+        f"User-Agent: *\nAllow: /\nDisallow: /api/\n\nHost: {SITE}\nSitemap: {SITE}/sitemap.xml\n",
     )
     urls = [
         SITE + "/",
