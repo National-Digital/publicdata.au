@@ -483,7 +483,7 @@ def _dataset_jsonld(ds: Dataset, o: DatasetOut, copies: list[dict] | None = None
                 "@type": "DataDownload",
                 "encodingFormat": MEDIA[fmt],
                 "contentUrl": f"{vbase}{name}",
-                "contentSize": str(v.files.get(name, "")),
+                **({"contentSize": str(n)} if (n := v.size(name)) is not None else {}),
             }
         )
     return {
@@ -610,7 +610,7 @@ def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict:
                 "mediaType": MEDIA[fmt],
                 "accessURL": f"{base}latest/{name}",
                 "downloadURL": f"{vbase}{name}",
-                "byteSize": v.files.get(name),
+                **({"byteSize": n} if (n := v.size(name)) is not None else {}),
                 "conformsTo": f"{base}schema.json",
                 **({"title": name.split("/")[-1].rsplit(".", 1)[0]} if "/" in name else {}),
             }
@@ -719,7 +719,7 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
     order = sorted(_fmts(ds, latest), key=lambda f: f != first)
     formats = [{"key": f, "label": FORMAT_LABEL[f], "file": f"data.{f}"} for f in order]
     for f in formats:
-        f["size"] = fmt_size(latest.files.get(f["file"]))
+        f["size"] = fmt_size(latest.size(f["file"]))
     fmt_data = {
         f["key"]: {
             "file": f["file"],
@@ -1257,7 +1257,7 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict:
                 ],
                 "refs": sorted({f.references.split(".", 1)[0] for f in t.fields if f.references}),
                 "parquet": vb + name,
-                "size": fmt_size(v.files.get(name)),
+                "size": fmt_size(v.size(name)),
             }
         )
     largest = max(tables, key=lambda t: t["rows"]) if tables else None
@@ -1265,7 +1265,6 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict:
         "tables": tables,
         "views": [{"name": x.name, "description": x.description, "sql": x.sql} for x in ds.views],
         "duckdb": vb + "data.duckdb",
-        "duckdb_size": "about " + fmt_size(v.files.get("data.duckdb")),
         "parquet_size": fmt_size(
             sum(v.files.get(f"tables/{t.name}.parquet", 0) for t in ds.tables)
         ),
@@ -1475,7 +1474,7 @@ def _md_twin_database(
         *([f"Also called: {', '.join(ds.also_known_as)}.", ""] if ds.also_known_as else []),
         "## Files",
         "",
-        f"- DuckDB, every table and view: {vbase}data.duckdb (about {fmt_size(v.files.get('data.duckdb'))}). Attach it read-only over HTTPS: ATTACH '{vbase}data.duckdb' AS db (READ_ONLY);",
+        f"- DuckDB, every table and view: {vbase}data.duckdb. Attach it read-only over HTTPS: ATTACH '{vbase}data.duckdb' AS db (READ_ONLY);",
         f"- Parquet, one file per table: {vbase}tables/<table>.parquet",
         f"- SQL: {vbase}schema.sql (CREATE TABLE with keys, references and the views)",
         f"- Schema: {vbase}schema.json",
@@ -1565,7 +1564,8 @@ def _md_twin_dataset(
         "",
     ]
     for fmt in _fmts(ds, v):
-        lines.append(f"- {fmt}: {base}latest/data.{fmt} ({fmt_size(v.files.get(f'data.{fmt}'))})")
+        size = fmt_size(v.size(f"data.{fmt}"))
+        lines.append(f"- {fmt}: {base}latest/data.{fmt}" + (f" ({size})" if size else ""))
     if why := _left_out(ds, v):
         lines += ["", *why]
     lines += [
@@ -3218,11 +3218,11 @@ def render_site(
             files = [
                 {
                     "name": k,
-                    "size": fmt_size(s),
+                    "size": fmt_size(v.size(k)),
                     "url": f"{version_url(ds.slug, v.manifest.version)}{k}",
                     "download": download_name(ds.slug, v.manifest.version, k),
                 }
-                for k, s in v.files.items()
+                for k in v.files
                 if "/" not in k
             ]
             md = "\n".join(
@@ -3249,7 +3249,10 @@ def render_site(
                         if ds.licence.condition
                         else []
                     ),
-                    *[f"- {f['name']}: {f['url']} ({f['size']})" for f in files],
+                    *[
+                        f"- {f['name']}: {f['url']}" + (f" ({f['size']})" if f["size"] else "")
+                        for f in files
+                    ],
                     "",
                     *[f"{why}\n" for why in _left_out(ds, v)],
                     f"SHA-256 of every file, under the names they download as: {version_url(ds.slug, v.manifest.version)}SHA256SUMS",

@@ -232,8 +232,9 @@ Schema and keys, and `schema.sql` with the CREATE TABLE statements, references a
 database has no JSON, CSV, Excel or SQLite files, no partitions, no query API and no explorer; its
 page lists the tables and shows how to attach the file from R, Python and DuckDB, and two versions
 are compared table by table by row count. The DuckDB file's bytes are not reproducible, since its
-storage picks a compression for each block by sampling, so CI compares DuckDB files by content
-(`python -m publicdata.dbcheck`) and everything else byte for byte.
+storage lays out and packs its blocks differently on each write, and its length can differ too. CI
+compares DuckDB files by content (`python -m publicdata.dbcheck`) and everything else byte for
+byte, and no page or catalogue states a DuckDB file's size.
 
 What shapes the defaults is the register: field types, `key` and `partition_by`. A table keyed by
 several fields with a count field is charted as the sum of that count; any other table counts its

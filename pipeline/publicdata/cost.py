@@ -45,6 +45,12 @@ ZIP_DIRECTORY_MAX = 64 * 10**6
 # The fewest published bytes per row of any table in the fleet is about 205.
 PUBLISHED_BYTES_PER_ROW = 200
 DEFAULT_PER_YEAR = 52
+# A DuckDB file's length differs from one write to the next, so the catalogue gives none and its
+# bound is counted. Of 3,358 table builds none was over 1.25 times its CSV plus 600 KB of blocks,
+# and the one database's file was 1.3 times its Parquet tables.
+DUCKDB_PER_CSV = 1.25
+DUCKDB_PER_TABLES = 2
+DUCKDB_BLOCKS = 600_000
 APPROVAL_LABEL = "cost-approved"
 CATALOG = f"{SITE}/catalog.json"
 UA = "publicdata.au cost (+https://publicdata.au/about/)"
@@ -188,11 +194,12 @@ def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple
     return float(max(recent, 1)), "observed"
 
 
-def _upper(path: str, n: int) -> int:
-    """A DuckDB file's size is published to one significant figure; count its upper bound."""
-    if path.endswith(".duckdb") and n >= 10:
-        return n + 10 ** (len(str(n)) - 1) // 2
-    return n
+def duckdb_bound(files: dict[str, int]) -> int:
+    """The most bytes a version's data.duckdb is counted at, from the files whose size is stated."""
+    tables = sum(n for p, n in files.items() if p.startswith("tables/"))
+    if tables:
+        return DUCKDB_PER_TABLES * tables + DUCKDB_BLOCKS
+    return int(DUCKDB_PER_CSV * files.get("data.csv", 0)) + DUCKDB_BLOCKS
 
 
 def catalogue_sizes(catalog: dict) -> dict[str, dict[str, int]]:
@@ -204,8 +211,9 @@ def catalogue_sizes(catalog: dict) -> dict[str, dict[str, int]]:
         for d in rec.get("distribution", []):
             url = d.get("downloadURL", "")
             if mark in url:
-                path = url.split(mark, 1)[1]
-                files[path] = _upper(path, int(d.get("byteSize") or 0))
+                files[url.split(mark, 1)[1]] = int(d.get("byteSize") or 0)
+        if "data.duckdb" in files:
+            files["data.duckdb"] = duckdb_bound(files)
         out[rec["identifier"]] = files
     return out
 
@@ -523,8 +531,12 @@ def fleet(projections: list[Projection]) -> Fleet:
 
 def build_version_bytes(ds: Dataset, v) -> int:
     """A built version's bytes in R2: every file it lists, and the publisher's file in the raw
-    store, which a withheld source keeps without listing."""
-    return sum(v.files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
+    store, which a withheld source keeps without listing. A DuckDB file counts at its bound, as
+    the catalogue would give it, so two builds of one snapshot state the same total."""
+    files = {k: n for k in v.files if (n := v.size(k)) is not None}
+    if "data.duckdb" in v.files:
+        files["data.duckdb"] = duckdb_bound(files)
+    return sum(files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
 
 
 def fleet_from_build(outs, today: dt.date) -> Fleet:
