@@ -428,6 +428,9 @@ jobs:
         id: checksums
         if: ${{ !cancelled() && env.HAS_CF == 'true' && github.event_name != 'pull_request' && steps.pages.outcome == 'success' }}
         continue-on-error: true
+        # The first run hashes every version that has no list. Each list is kept as it is written,
+        # so a run stopped here leaves the rest to the next deploy and the D1 load is not held up.
+        timeout-minutes: 20
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
