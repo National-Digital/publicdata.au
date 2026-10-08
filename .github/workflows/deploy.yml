@@ -408,22 +408,10 @@ jobs:
         run: |
           npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
           grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
-      # A dated file is cached at the edge as immutable, so the versions a replace rewrote are
-      # purged, or the edge serves the old files for a year.
-      - name: Purge replaced versions from the edge
-        if: env.HAS_CF == 'true' && github.event.inputs.replace
-        env:
-          CLOUDFLARE_PURGE_TOKEN: ${{ secrets.CLOUDFLARE_PURGE_TOKEN }}
-          REPLACE: ${{ github.event.inputs.replace }}
-        run: |
-          if [ -z "$CLOUDFLARE_PURGE_TOKEN" ]; then
-            echo "::warning::CLOUDFLARE_PURGE_TOKEN is not set, so the edge serves the old files under $REPLACE until they are purged by hand"
-            exit 0
-          fi
-          python -m publicdata purge $REPLACE
       # Made from the hashes R2 stored with each file, so the build and its cache key never see it.
       # Straight after the site goes live, which links each list. A failure leaves the lists for the
       # next deploy to catch up, so it never fails the deploy or holds back D1 and the release.
+      # Before the purge, so the edge drops a replaced version's old list with its other files.
       - name: Write each version's SHA256SUMS
         id: checksums
         if: ${{ !cancelled() && env.HAS_CF == 'true' && github.event_name != 'pull_request' && steps.pages.outcome == 'success' }}
@@ -450,6 +438,19 @@ jobs:
           name: checksum-lists
           path: ${{ runner.temp }}/lists/1.sha256
           retention-days: 1
+      # A dated file is cached at the edge as immutable, so the versions a replace rewrote are
+      # purged, or the edge serves the old files for a year.
+      - name: Purge replaced versions from the edge
+        if: env.HAS_CF == 'true' && github.event.inputs.replace
+        env:
+          CLOUDFLARE_PURGE_TOKEN: ${{ secrets.CLOUDFLARE_PURGE_TOKEN }}
+          REPLACE: ${{ github.event.inputs.replace }}
+        run: |
+          if [ -z "$CLOUDFLARE_PURGE_TOKEN" ]; then
+            echo "::warning::CLOUDFLARE_PURGE_TOKEN is not set, so the edge serves the old files under $REPLACE until they are purged by hand"
+            exit 0
+          fi
+          python -m publicdata purge $REPLACE
       # The query API reads D1. Loading runs after the site deploy so a failed load never holds the
       # site back, and stays off until the repository variable D1_ENABLED is true. Only main loads,
       # so the concurrency group above keeps one load at a time.
