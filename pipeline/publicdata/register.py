@@ -365,7 +365,7 @@ def _req(d: dict, key: str, ctx: str) -> object:
     return d[key]
 
 
-def parse(raw: dict, ctx: str) -> Dataset:
+def parse(raw: dict, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 - one check per register field, in the entry's order
     slug = str(_req(raw, "slug", ctx))
     if not SLUG_RE.match(slug):
         msg = f"{ctx}: bad slug '{slug}'"
@@ -755,7 +755,7 @@ def _fields(raw: list, ctx: str) -> list[Field]:
     return fields
 
 
-def _database(raw: dict, ctx: str) -> dict:
+def _database(raw: dict, ctx: str) -> dict:  # noqa: C901, PLR0912, PLR0915 - one check per database field
     """The tables, views and archive layout of a database entry."""
     db = raw.get("database") or {}
     match = str(_req(db, "member_match", f"{ctx}.database"))
@@ -843,7 +843,7 @@ def _database(raw: dict, ctx: str) -> dict:
     }
 
 
-def _wide(raw: dict, fields: list[Field], ctx: str) -> dict:
+def _wide(raw: dict, fields: list[Field], ctx: str) -> dict:  # noqa: C901 - one check per wide-layout field
     unknown = set(raw) - WIDE_KEYS
     if unknown:
         msg = f"{ctx}: wide has unknown keys {sorted(unknown)}"

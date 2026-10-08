@@ -50,13 +50,6 @@ ignore = [
   "CPY",
   # ruff format owns line length.
   "E501",
-  # Counts of branches, returns, statements and arguments. Review judges length here, as it does
-  # in the pipeline.
-  "C901",
-  "PLR0911",
-  "PLR0912",
-  "PLR0913",
-  "PLR0915",
   # Exceptions are named for what happened (SiteUnreachable), and their names are public API.
   "N818",
 ]

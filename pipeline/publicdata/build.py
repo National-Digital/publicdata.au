@@ -203,7 +203,7 @@ def write_formats(tbl: Table, fmts: list[str], hdr, vdir: Path) -> None:
         WRITERS[fmt](tbl, hdr(tbl.rows, f"data.{fmt}"), vdir / f"data.{fmt}", vdir)
 
 
-def build_version(
+def build_version(  # noqa: C901 - a version's build steps, read in order
     ds: Dataset, m: store.Manifest, data: bytes, out: Path, store_dir: Path | None = None
 ) -> tuple[Table, VersionOut]:
     tbl = normalise(ds, m, data)
@@ -618,7 +618,7 @@ def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
     return n
 
 
-def grow_cached(
+def grow_cached(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a cached version's growth steps, read in order
     ds: Dataset, m: store.Manifest, hit: dict, vdir: Path, cache: BuildCache, *, key: str
 ) -> dict | None:
     """A cached table version brought up to the current writers.
@@ -716,7 +716,7 @@ def grow_cached(
     return meta
 
 
-def _cached_version(
+def _cached_version(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     m: store.Manifest,
     store_dir: Path,

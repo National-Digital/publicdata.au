@@ -243,7 +243,7 @@ def read_xlsx(data: bytes, sheet: str, header_row: int) -> pa.Table:
     return pa.table({h: pa.array(c, pa.string()) for h, c in zip(header, cols, strict=True)})
 
 
-def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
+def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:  # noqa: C901, PLR0912, PLR0915 - one reader for every wide layout, read in order
     """A presentation table as one row per data cell.
 
     A row is per group of cells instead when the last header row names the fields. Header cells
@@ -505,7 +505,7 @@ def _strptime(arr: pa.ChunkedArray, f: Field) -> pa.ChunkedArray:
     return out
 
 
-def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):
+def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):  # noqa: C901 - one branch per field type
     """Return (typed array, suppression mask or None)."""
     arr = _blank_to_null(arr)
     if f.null_values:
@@ -557,7 +557,7 @@ def _is_shapefile(ext: str, member: str) -> bool:
     return ext in ("shp", "gpkg") or (ext == "zip" and member.lower().endswith((".shp", ".gpkg")))
 
 
-def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
+def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PLR0912, PLR0915 - the normalising steps, read in order
     held: list[str] = []
     short: list[int] = []
     shapes = None

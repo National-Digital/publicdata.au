@@ -335,7 +335,7 @@ class Connection:
 class Client:
     """Talks to one publicdata.au site. The module-level functions use a shared default."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - a public signature
         self,
         site: str | None = None,
         *,
@@ -623,7 +623,7 @@ class Client:
             params[field] = _filter(value)
         return self._json(base + kind, params)
 
-    def rows(
+    def rows(  # noqa: PLR0913 - a public signature
         self,
         slug: str,
         where: Mapping[str, Any] | None = None,
@@ -775,7 +775,7 @@ class Client:
                 shutil.copyfileobj(r, f, 1 << 20)
         return dest, got
 
-    def download(
+    def download(  # noqa: PLR0913 - a public signature
         self,
         slug: str,
         format: str = "parquet",
@@ -1188,7 +1188,7 @@ class Client:
     def _caching(self, *, cache: bool | None) -> bool:
         return self.cache if cache is None else bool(cache)
 
-    def _fetch(
+    def _fetch(  # noqa: PLR0913 - the options are keyword-only and named at each call
         self, slug, format, version=None, table=None, cache=None, *, tmp: Path | None = None
     ):
         """One version's file: the kept copy when caching, else a download into `tmp`."""
@@ -1248,7 +1248,7 @@ def _parquet_module():
     return pq
 
 
-def _csv_column(col, kind):
+def _csv_column(col, kind):  # noqa: PLR0911 - one return per field type
     """One column of the gzipped CSV, typed as pyarrow types the Parquet file's column.
 
     Numbers become int64 or float64 (float64 when a whole number is missing), "nan" becomes NaN,

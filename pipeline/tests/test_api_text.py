@@ -104,7 +104,7 @@ def test_the_mcp_server_has_every_tool_from_api_json(site):
     assert at.as_html(S["mcp"]["privacy"]) in privacy
 
 
-def test_every_query_parameter_is_described_and_every_tool_maps_onto_one(site):
+def test_every_query_parameter_is_described_and_every_tool_maps_onto_one(site):  # noqa: C901 - one check per parameter
     doc = json.loads((site / "openapi.json").read_text(encoding="utf-8"))
     ds_doc = json.loads(
         (site / "d" / "qld-road-casualties" / "openapi.json").read_text(encoding="utf-8")

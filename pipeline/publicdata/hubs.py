@@ -118,7 +118,7 @@ class Excluded(Refused):
     """A dataset the register keeps off the hubs on purpose, which is reported but is no failure."""
 
 
-def entry(
+def entry(  # noqa: PLR0913 - the options are keyword-only and named at each call
     record: dict,
     versions: dict,
     schema: dict,
@@ -1459,7 +1459,7 @@ def configured(env=os.environ) -> tuple[dict, list[str]]:
     return hubs, skipped
 
 
-def run(
+def run(  # noqa: C901, PLR0913 - each hub's steps in order; the options are keyword-only
     hubs: dict,
     entries,
     fetch: Callable | None = None,
@@ -1509,7 +1509,7 @@ def run(
     return failures
 
 
-def _one(
+def _one(  # noqa: PLR0913 - the options are keyword-only and named at each call
     name: str,
     hub,
     slug: str,

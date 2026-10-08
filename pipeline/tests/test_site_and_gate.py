@@ -33,7 +33,7 @@ from publicdata.store import Manifest
 from .conftest import ROOT, as_parquet, make_dataset, make_manifest
 
 
-def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
+def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):  # noqa: PLR0915 - one fixture build, checked page by page
     out = site_copy
     assert check(out, register_dir) == []
     home = (out / "index.html").read_text(encoding="utf-8")
@@ -444,7 +444,7 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_cop
     assert "/api/v1/datasets/qld-road-casualties/aggregate?group=" in md
 
 
-def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp_path, site_copy):
+def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp_path, site_copy):  # noqa: PLR0915 - one check per explorer panel
     out = site_copy
 
     def ex(slug, page="explore"):

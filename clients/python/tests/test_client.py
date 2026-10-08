@@ -95,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def do_GET(self):
+    def do_GET(self):  # noqa: C901, PLR0911, PLR0912, PLR0915 - a fake site answers one route per branch
         u = urllib.parse.urlsplit(self.path)
         q = dict(urllib.parse.parse_qsl(u.query))
         Handler.hits.append((u.path, q, self.headers.get("User-Agent")))

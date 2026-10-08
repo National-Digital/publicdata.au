@@ -201,7 +201,7 @@ def check(out: Path, register_dir: Path, absent: list[str] = (), *, site: bool =
     return checked(out, register_dir, absent, site=site)[0]
 
 
-def checked(
+def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds a version to
     out: Path, register_dir: Path, absent: list[str] = (), *, site: bool = True
 ) -> tuple[list[str], list[str]]:
     """The gate's errors, and the list of every dataset page's first query.

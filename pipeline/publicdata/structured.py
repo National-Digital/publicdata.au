@@ -84,7 +84,7 @@ def _literal_ok(value, rng: set[str]) -> bool:
     return False
 
 
-def _vocab_errors(node, where: str) -> list[str]:
+def _vocab_errors(node, where: str) -> list[str]:  # noqa: C901, PLR0912 - one check per vocabulary rule
     errors: list[str] = []
     if isinstance(node, list):
         for i, v in enumerate(node):
@@ -133,7 +133,7 @@ def _url(v) -> bool:
 DESCRIPTION_MIN, DESCRIPTION_MAX = 50, 5000
 
 
-def _dataset(n: dict, at: str) -> list[str]:
+def _dataset(n: dict, at: str) -> list[str]:  # noqa: C901, PLR0912 - one check per Dataset property
     e: list[str] = []
     if not _text(n.get("name")):
         e.append(f"{at}: Dataset needs a name")

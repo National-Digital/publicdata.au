@@ -52,13 +52,6 @@ ignore = [
   # Outside the client's public API a docstring is optional and holds a why, as CONTRIBUTING.md
   # says; a forced one would be filler.
   "D1",
-  # Counts of branches, returns, statements and arguments. A build step reads top to bottom in
-  # one function, and splitting it to meet a count scatters it; review judges length.
-  "C901",
-  "PLR0911",
-  "PLR0912",
-  "PLR0913",
-  "PLR0915",
   # Exceptions are named for what happened (Refused, LicenceDrift), some are signals rather than
   # errors (d1's _Skip and _Defer), and the names appear in logs.
   "N818",

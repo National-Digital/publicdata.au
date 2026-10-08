@@ -824,7 +824,7 @@ def test_live_rows_reads_the_newest_version_and_skips_failures(monkeypatch, no_s
     assert cost.live_rows(["a", "b"]) == {"a": 7}
 
 
-def _api(labels=("cost-approved",), events=(), perms=None, runs=(), author="alice", *, head="h2"):
+def _api(labels=("cost-approved",), events=(), perms=None, runs=(), author="alice", *, head="h2"):  # noqa: PLR0913 - the options are keyword-only and named at each call
     perms = perms or {"maint": "maintain", "alice": "admin", "reader": "read"}
 
     def get(path):

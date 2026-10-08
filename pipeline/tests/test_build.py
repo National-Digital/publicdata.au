@@ -331,7 +331,7 @@ def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
     assert any("does not say why data.json" in e for e in check(out, register_dir))
 
 
-def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
+def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(  # noqa: PLR0915 - one fixture build, checked file by file
     register_dir, fixture_store, tmp_path
 ):
     ds = {d.slug: d for d in load(register_dir)}["gnaf"]

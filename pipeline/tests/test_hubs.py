@@ -297,7 +297,7 @@ class FakeZenodoHttp:
         self.calls = []
         self.headers = {}
 
-    def request(self, method, url, timeout=None, **kw):
+    def request(self, method, url, timeout=None, **kw):  # noqa: PLR0911 - a fake API answers one route per return
         path = url.split("/api", 1)[-1] if "/api/" in url else url
         self.calls.append((method, path))
         if method == "GET" and path == "/deposit/depositions":

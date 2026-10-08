@@ -224,7 +224,7 @@ def metadata(header: dict, extra: dict[str, str] | None = None) -> dict[str, str
     return {"publicdata": dumps(header), KEY: VERSION, **(extra or {})}
 
 
-def write(
+def write(  # noqa: PLR0913 - the options are keyword-only and named at each call
     t: pa.Table,
     header: dict,
     path: Path,

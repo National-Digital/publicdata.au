@@ -194,7 +194,7 @@ def publisher_for(portal: catalogue.Portal, pkg: dict, curated: list[Publisher])
 MANY_FIELDS = 50
 
 
-def draft(
+def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; the options are keyword-only
     url: str,
     curated: list[Publisher],
     session: requests.Session | None = None,

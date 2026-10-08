@@ -241,7 +241,7 @@ def site_card(out: Path, datasets: int, publishers: int, cache: BuildCache | Non
     return Card(rel, f"{NAME}: {HEADLINE}", _drawn(out, rel, spec, cache))
 
 
-def dataset_card(
+def dataset_card(  # noqa: PLR0913 - the options are keyword-only and named at each call
     out: Path,
     rel: str,
     title: str,

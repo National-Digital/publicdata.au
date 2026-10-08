@@ -120,7 +120,7 @@ def literal(v) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def version_sql(
+def version_sql(  # noqa: PLR0913 - the options are keyword-only and named at each call
     sqlite_path: Path,
     slug: str,
     version: str,
@@ -137,7 +137,7 @@ def version_sql(
         yield stmt
 
 
-def _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl=None, *, fts=()):
+def _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl=None, *, fts=()):  # noqa: PLR0913 - the options are keyword-only and named at each call
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         cols = [(c[1], c[2]) for c in src.execute("PRAGMA table_info(records)").fetchall()]
@@ -202,7 +202,7 @@ def parquet_columns(parquet: Path, ds) -> list[tuple[str, str]]:
     return cols + ([("suppressed", "TEXT")] if "suppressed" in have else [])
 
 
-def _table_sql(slug, version, index_fields, cols, header, *, fields, rows, tbl=None, fts=()):
+def _table_sql(slug, version, index_fields, cols, header, *, fields, rows, tbl=None, fts=()):  # noqa: C901, PLR0912, PLR0913, PLR0915 - one table's statements, read in order
     """Yields (kind, statement, rows it inserts).
 
     Kinds "create", "insert" and "update" fill the table; "index", "fts" and "register" finish it
@@ -325,7 +325,7 @@ def _raw_size(v) -> int:
     return 0
 
 
-def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, *, wide: dict[int, int]):
+def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, *, wide: dict[int, int]):  # noqa: PLR0913 - the options are keyword-only and named at each call
     """A row too long for one statement, inserted in pieces.
 
     It goes in with its longest text and blob values empty, and each of those is then appended a
@@ -446,7 +446,7 @@ def _sqlite_digest(path: Path, table: str = "records") -> bytes:
         src.close()
 
 
-def write_loads(
+def write_loads(  # noqa: PLR0913 - the options are keyword-only and named at each call
     roots: list[Path],
     datasets,
     loaded: dict[str, list[str]],
@@ -512,7 +512,7 @@ def write_loads(
     return written
 
 
-def _write_load(out, slug, version, tbl, stmts, *, stamp, keep, fts=False, after=()) -> list[Path]:
+def _write_load(out, slug, version, tbl, stmts, *, stamp, keep, fts=False, after=()) -> list[Path]:  # noqa: PLR0913 - the options are keyword-only and named at each call
     """Writes one load's parts and its manifest.
 
     Every part but the last only adds rows, and `cum` records the rows the table holds after each,
@@ -1032,7 +1032,7 @@ class _Failed(Exception):
         self.done = done
 
 
-def _fill(db, j: Job, budget: _Budget, log) -> None:
+def _fill(db, j: Job, budget: _Budget, log) -> None:  # noqa: C901 - one load's parts and their retries, read in order
     """Runs the parts that add rows.
 
     It starts from where the last load stopped if the table still holds exactly the rows that load
@@ -1167,7 +1167,7 @@ def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> N
             log(f"d1 load: {j.key} is loaded; dropping what it replaced reported an error")
 
 
-def _record_failure(db, j: Job, done: int, why: str, now: str, *, log) -> None:
+def _record_failure(db, j: Job, done: int, why: str, now: str, *, log) -> None:  # noqa: PLR0913 - the options are keyword-only and named at each call
     j.attempts += 1
     rows = j.cum[done - 1] if done else 0
     try:
@@ -1183,7 +1183,7 @@ def _record_failure(db, j: Job, done: int, why: str, now: str, *, log) -> None:
         log(f"d1 load: {j.key} failure could not be recorded: {e}")
 
 
-def _run(
+def _run(  # noqa: PLR0913 - the options are keyword-only and named at each call
     db, j: Job, reg, served: set[str], folder: Path, *, now: str, budget: _Budget, log
 ) -> None:
     try:
@@ -1241,7 +1241,7 @@ def _stale(j: Job, now: str) -> bool:
     return at - since > datetime.timedelta(days=STALE_DAYS)
 
 
-def _summary(
+def _summary(  # noqa: PLR0913 - the options are keyword-only and named at each call
     path: Path | None, jobs: list[Job], budget: int, log, spent: int = 0, *, now: str = ""
 ) -> None:
     order = {"loaded": 0, "resumed": 0, "failed": 1, "unchecked": 2, "deferred": 3, "skipped": 4}
@@ -1304,7 +1304,7 @@ def _summary(
         log(f"d1 load: no step summary: {e}")
 
 
-def load(
+def load(  # noqa: PLR0913 - the options are keyword-only and named at each call
     folder: Path,
     db,
     log=print,

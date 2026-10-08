@@ -129,7 +129,7 @@ def financial_start(text) -> int | None:
     return a if int(b) == (a + 1 if len(b) == 4 else (a + 1) % 100) else None
 
 
-def series(
+def series(  # noqa: PLR0913 - the options are keyword-only and named at each call
     db: Path,
     yf: str,
     kind: str,
@@ -510,7 +510,7 @@ def _cell(lon: float, lat: float) -> tuple[float, float]:
     return (lon - LON0) / STEP, (LAT1 - lat) / STEP
 
 
-def map_html(
+def map_html(  # noqa: PLR0913 - the options are keyword-only and named at each call
     cells_: dict,
     what: str,
     out: Path,
@@ -648,7 +648,7 @@ def year_span(s: dict) -> str:
     return f"{_name(s, a)} to {_name(s, b)}" if a != b else _name(s, a)
 
 
-def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, *, within=None) -> dict:
+def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, *, within=None) -> dict:  # noqa: PLR0913 - the options are keyword-only and named at each call
     """Everything a dataset or version page draws for one version.
 
     That is the yearly chart, its caption, a sparkline for a card and a map when the rows have
@@ -818,7 +818,7 @@ def newest(con, field: str):
     return top if top is not None else con.execute(f"SELECT MAX({f}) FROM records").fetchone()[0]
 
 
-def sample_rows(
+def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at each call
     db: Path,
     fields: list[str],
     n: int = 3,

@@ -918,7 +918,7 @@ def _places(ds: Dataset, latest: VersionOut) -> list[dict]:
     return out
 
 
-def _place_pages(
+def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     o: DatasetOut,
     latest_view: dict,
@@ -1421,7 +1421,7 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
     return out
 
 
-def _md_twin_database(
+def _md_twin_database(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     o: DatasetOut,
     views: list[dict],
@@ -1510,7 +1510,7 @@ def _md_twin_database(
     return "\n".join(lines)
 
 
-def _md_twin_dataset(
+def _md_twin_dataset(  # noqa: C901, PLR0912, PLR0913 - the page's sections in order; the options are keyword-only
     ds: Dataset,
     o: DatasetOut,
     views: list[dict],
@@ -3111,7 +3111,7 @@ SHOWCASE_TABLES = 6
 SAMPLE_FIELDS = 8
 
 
-def render_site(
+def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in the order they are written
     outs: list[DatasetOut],
     out: Path,
     records: list[dict] | None = None,
@@ -3212,7 +3212,7 @@ def render_site(
             md,
         )
 
-    def version_pages(o, ds, views, fig, hints, *, card, base, latest) -> None:
+    def version_pages(o, ds, views, fig, hints, *, card, base, latest) -> None:  # noqa: PLR0913 - the options are keyword-only and named at each call
         """One page per dated version: its files, its change from the version before and its figure."""
         for v, view in zip(o.versions, views, strict=True):
             vfig = (

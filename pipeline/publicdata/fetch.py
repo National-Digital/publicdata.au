@@ -345,7 +345,7 @@ def _changed(ds: Dataset, value, unit: int = 0) -> str:
         raise FetchError(msg) from e
 
 
-def _licence(
+def _licence(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset, stated: str, normalised: str, title: str, url: str, *, read_from: str
 ) -> dict:
     """The licence a portal states, keeping its own code and the id worked out from its words.
@@ -369,7 +369,7 @@ def _now() -> str:
     return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 
 
-def _portal_version(
+def _portal_version(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     store_dir: Path,
     s: requests.Session,
@@ -722,7 +722,7 @@ def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
 ALA_MIN_SPAN = 0.0001
 
 
-def _ala_slices(s, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: float, dim: int):
+def _ala_slices(s, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: float, dim: int):  # noqa: C901, PLR0913 - the slicing rule in one place; the options are keyword-only
     """Rows of a query too large for the API's paging, read in slices.
 
     The query is split by load time, then by latitude and longitude, then by year, until every
@@ -782,7 +782,7 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: f
             yield from _ala_slices(s, base, q, sub, m, lo=a, hi=b, dim=dim)
 
 
-def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):  # noqa: C901, PLR0912, PLR0915 - the adapter's steps, read in order
     """The Atlas of Living Australia's search API, kept as one CSV.
 
     Every record the search matches is read from each provider the register names, under an open
@@ -1112,7 +1112,7 @@ def _kiwis_state(owner: str) -> str:
     return head.strip() if sep else ""
 
 
-def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None):  # noqa: C901 - the adapter's steps, read in order
     """The Bureau of Meteorology's Water Data Online (a Kisters KiWIS service).
 
     `search` is the parameter type, `package` the time series name and `resource` the table:
@@ -1435,7 +1435,7 @@ STACK_NOTE = (
 )
 
 
-def _stack_rows(
+def _stack_rows(  # noqa: C901, PLR0912, PLR0913 - one reader for every stacked layout; the options are keyword-only
     data: bytes,
     filename: str,
     header_match: str,
@@ -1602,7 +1602,7 @@ def _stack(
     return out.getvalue().encode("utf-8"), read, len(rows), len(rows) - len(unique)
 
 
-def _stack_version(
+def _stack_version(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     store_dir: Path,
     data: bytes,
@@ -1634,7 +1634,7 @@ def _stack_version(
     return data, m, licence
 
 
-def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = None):  # noqa: C901 - the adapter's steps, read in order
     """A series a CKAN portal holds as many workbooks across many packages, read into one table.
 
     `package` is the search text, `package_match` the packages to take by name, `resource_match`

@@ -442,7 +442,7 @@ def live_rows(slugs: list[str], site: str = SITE, workers: int = 16) -> dict[str
         return {s: n for s, n in ex.map(one, slugs) if n is not None}
 
 
-def project(
+def project(  # noqa: C901, PLR0913 - one projection, read in order
     datasets: list[Dataset],
     store_dir: Path,
     sizes: dict[str, dict[str, int]] | None,
@@ -784,7 +784,7 @@ def _pages(get, path: str, key: str | None = None, limit: int = 30) -> list:
 WRITE_ROLES = ("admin", "maintain", "write")
 
 
-def approval(repo: str, pr: int, get) -> tuple[bool, str]:
+def approval(repo: str, pr: int, get) -> tuple[bool, str]:  # noqa: C901, PLR0911 - one branch per way a pull request can be approved
     """Whether the pull request's newest commit carries an approval.
 
     The label must be on, last added by someone with write access who did not open the pull
@@ -947,7 +947,7 @@ def report(
     return "\n".join(lines), over
 
 
-def run(
+def run(  # noqa: PLR0913 - the options are keyword-only and named at each call
     datasets: list[Dataset],
     store_dir: Path,
     catalog_src: str,

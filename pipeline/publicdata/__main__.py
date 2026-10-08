@@ -52,7 +52,7 @@ def cmd_register(args) -> int:
     return 1 if bad else 0
 
 
-def cmd_labels(args) -> int:
+def cmd_labels(args) -> int:  # noqa: C901 - one pass that drafts, reports and writes
     """Draft a label for every field that has none.
 
     The label is the one another entry already gives a field of the same name, or else one
@@ -114,7 +114,7 @@ def cmd_draft(args) -> int:
     return 0
 
 
-def cmd_fetch(args) -> int:
+def cmd_fetch(args) -> int:  # noqa: C901 - the fetch command's cases, read in order
     store_dir = Path(args.store)
     for pair in args.file:
         slug, _, path = pair.partition("=")
@@ -635,7 +635,7 @@ def cmd_cache(args) -> int:
     return 0
 
 
-def cmd_verify(args) -> int:
+def cmd_verify(args) -> int:  # noqa: C901, PLR0911, PLR0912 - the plan and run subcommands share their setup
     """Plan or run the real-data check.
 
     plan prints the datasets the check builds, or nothing when no changed path shapes versions
@@ -840,7 +840,7 @@ def cmd_cost(args) -> int:
     )
 
 
-def main(argv=None) -> int:
+def main(argv=None) -> int:  # noqa: PLR0915 - the parser declares every command in one place
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("register").add_subparsers(dest="sub", required=True)

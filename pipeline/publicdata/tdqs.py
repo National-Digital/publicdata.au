@@ -97,7 +97,7 @@ def _usage(t: dict, siblings: list[str]) -> list[str]:
     return []
 
 
-def _parameters(t: dict) -> list[str]:
+def _parameters(t: dict) -> list[str]:  # noqa: C901 - one check per parameter rule
     s = t.get("inputSchema") or {}
     out = []
     if s.get("type") != "object":

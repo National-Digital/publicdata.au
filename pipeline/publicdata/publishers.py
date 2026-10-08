@@ -131,7 +131,7 @@ class Publisher:
         return self.short or self.name
 
 
-def load_curated(folder: Path) -> list[Publisher]:
+def load_curated(folder: Path) -> list[Publisher]:  # noqa: C901 - one check per curated field
     """One file per government, each a list of publishers."""
     raw = []
     for p in sorted(folder.glob("*.yaml")) if folder.is_dir() else []:
@@ -259,7 +259,7 @@ def _council_base(name: str) -> str:
     return re.sub(r"\s+", " ", COUNCIL_WORDS.sub(" ", name)).strip(" -").lower()
 
 
-def suggest(records: list[dict], curated: list[Publisher], lgas: dict[str, str]) -> list[dict]:
+def suggest(records: list[dict], curated: list[Publisher], lgas: dict[str, str]) -> list[dict]:  # noqa: C901, PLR0912, PLR0915 - one rule per way an organisation is matched
     """Proposed curation for the organisations that the portal cannot place.
 
     These are the organisations data.gov.au and the Infrastructure catalogue list. The proposal

@@ -216,7 +216,7 @@ PORTAL_HOSTS = {
 }
 
 
-def locate(url: str) -> tuple[str, str, str] | None:
+def locate(url: str) -> tuple[str, str, str] | None:  # noqa: PLR0911 - one return per way a record is placed
     """What a pasted portal URL names.
 
     The answer is (host, "name", package name), (host, "id", record id) or (host, "url", bare
@@ -384,7 +384,7 @@ def shard(record_id: str) -> str:
     return f"{portal}-{rest[0]}"
 
 
-def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -> list[str]:
+def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -> list[str]:  # noqa: C901, PLR0912, PLR0915 - the directory's pages in the order they are written
     """Writes the browse page, one page per government and one per publisher, and their JSON.
 
     Returns the URLs that belong in the sitemap.

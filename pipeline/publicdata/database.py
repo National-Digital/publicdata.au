@@ -99,7 +99,7 @@ def _expr(f: Field, dtype: str) -> str:
     return f"CAST({src} AS {dtype})"
 
 
-def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[str], *, tmp: Path):
+def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[str], *, tmp: Path):  # noqa: PLR0913 - the options are keyword-only and named at each call
     """Create the typed table and load each of its members in turn.
 
     Members are extracted one at a time so the disk holds one member's text, not a whole table's.
@@ -231,7 +231,7 @@ def schema_sql(ds: Dataset, header: dict) -> str:
     return "\n".join(lines)
 
 
-def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> DatabaseOut:
+def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> DatabaseOut:  # noqa: PLR0915 - a database's build steps, read in order
     """Write data.duckdb, tables/<name>.parquet, schema.json and schema.sql into vdir.
 
     `hdr(rows, rel)` gives the provenance header for a file. Tables load in register order.

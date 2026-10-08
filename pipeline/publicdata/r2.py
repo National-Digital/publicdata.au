@@ -175,7 +175,7 @@ def _record(s3, bucket: str, key: str, lay: dict) -> None:
 MD5_HEX = 32
 
 
-def push(
+def push(  # noqa: C901, PLR0913 - the upload rules in one place; the options are keyword-only
     root: Path,
     bucket: str,
     prefix: str = "",
@@ -274,7 +274,7 @@ def _built_to(p: Path, lay: dict | None) -> bool:
     return follows(pq.read_metadata(p), lay)
 
 
-def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, *, etags: dict[str, str]) -> int:
+def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, *, etags: dict[str, str]) -> int:  # noqa: PLR0913 - the options are keyword-only and named at each call
     """Upload a query copy unless R2's follows lay.
 
     The record is written after the upload, so it never names a layout the copy in R2 does not

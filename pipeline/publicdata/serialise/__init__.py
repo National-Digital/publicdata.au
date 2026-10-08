@@ -216,7 +216,7 @@ def iter_rows(t: pa.Table, batch: int = 20_000):
         yield from b.to_pylist()
 
 
-def table_schema(tbl: Table) -> dict:
+def table_schema(tbl: Table) -> dict:  # noqa: C901 - one branch per field type
     ds = tbl.dataset
     used = {p["layer"]: p for p in tbl.places}
     fields = []

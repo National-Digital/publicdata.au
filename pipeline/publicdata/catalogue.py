@@ -53,7 +53,7 @@ class Portal:
         return f"{self.api.removesuffix('/api/3/action')}/dataset/{name}"
 
 
-def _council(code, host, jur, kind, publisher, *, replaces=()):
+def _council(code, host, jur, kind, publisher, *, replaces=()):  # noqa: PLR0913 - the options are keyword-only and named at each call
     return Portal(code, host, f"https://{host}", jur, kind, publisher, tuple(replaces))
 
 
@@ -191,7 +191,7 @@ KNOWN_LICENCES = {
 OPEN_IDS = {"CC0-1.0", "PDM", "PDDL-1.0", "ODC-BY-1.0", "ODBL-1.0", "other-open", "other-at"}
 
 
-def licence_id(title: str) -> str:
+def licence_id(title: str) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch per licence wording a portal uses
     """A portal's licence title onto an SPDX-style id.
 
     A title nothing here recognises is kept as the portal states it, so it shows up in review

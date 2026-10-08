@@ -487,7 +487,7 @@ def test_a_catalogue_row_larger_than_d1_holds_skips_the_index_without_failing(tm
     assert d1.catalogue_loads(path, [], tmp_path / "out") == []
 
 
-def _write_job(folder, slug, version, rows, index=("a",), *, keep=d1.KEEP):
+def _write_job(folder, slug, version, rows, index=("a",), *, keep=d1.KEEP):  # noqa: PLR0913 - the options are keyword-only and named at each call
     """A load of `rows` one-column rows.
 
     The table's creation is in part 1, then a row per part, then the part that indexes and

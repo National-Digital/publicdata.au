@@ -180,7 +180,7 @@ def _stratum(ds: Dataset) -> tuple:
     )
 
 
-def sample(
+def sample(  # noqa: PLR0913 - the options are keyword-only and named at each call
     datasets: list[Dataset],
     store_dir: Path,
     seed: str,
@@ -254,7 +254,7 @@ def _plain(v):
     return json.loads(json.dumps(v, ensure_ascii=False))
 
 
-def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, *, rels: list[str]):
+def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, *, rels: list[str]):  # noqa: PLR0913 - the options are keyword-only and named at each call
     """The files a deploy grew into a reused version, made again with the code as it stands.
 
     The deploy grew them from the Parquet the site serves, and they are made again the same way,
@@ -284,7 +284,7 @@ def _unmeasured(p: Path) -> dict:
     return man
 
 
-def _version(
+def _version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - one version's checks in order; the options are keyword-only
     ds: Dataset, meta: dict, vout, out: Path, entry: Path, *, cache: BuildCache, key: str
 ) -> list[str]:
     """How a version built now differs from the cache entry a deploy would reuse for it."""

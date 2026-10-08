@@ -233,7 +233,7 @@ def split_field(console: dict) -> str | None:
 PERSPECTIVE_AGG = {"sum": "sum", "avg": "avg", "min": "low", "max": "high"}
 
 
-def defaults(ds, console: dict) -> dict:
+def defaults(ds, console: dict) -> dict:  # noqa: C901, PLR0915 - the explorer's panels in the order they are laid out
     """The first dashboard, drawn from the same field hints as the query console.
 
     It holds a stacked bar of the main category that filters the other panels, the same split
