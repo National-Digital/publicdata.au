@@ -171,3 +171,90 @@ export function house(cfg, mode) {
 
 // WCAG 1.4.12's override, injected before the "spacing" pass.
 export const TEXT_SPACING = "*{line-height:1.5!important;letter-spacing:.12em!important;word-spacing:.16em!important}p{margin-bottom:2em!important}";
+
+// axe leaves contrast as "needs review" when it cannot name one background colour: a gradient, a
+// pseudo-element, an overlapping element, an SVG chart. This measures what is painted instead. Each
+// node is captured with its text and again with all text transparent; the pixels that change are
+// the glyphs, and the second capture gives the background under each one. A halo drawn as the
+// text's own stroke stays, because it is the background the glyph is read against. The text colour must
+// clear 7:1 (4.5:1 for large text, WCAG 1.4.6) against every one of those background pixels.
+// Returns the nodes that fail with the worst ratio, and the nodes that could not be measured.
+export const FREEZE = "*,*::before,*::after{caret-color:transparent!important;outline:none!important}";
+export const HIDE_TEXT = "*,*::before,*::after{color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important}text,tspan{fill:transparent!important}";
+
+export async function paintedContrast(page, targets) {
+  if (!targets.length) return [];
+  const freeze = await page.addStyleTag({ content: FREEZE });
+  // Entrance animations are run to their end and endless ones held still, so both captures agree.
+  await page.evaluate(() => document.getAnimations().forEach((a) => { try { a.finish(); } catch { a.pause(); } }));
+  const out = [];
+  try {
+    const info = await page.evaluate((targets) => targets.map((t) => {
+      const el = document.querySelector(t);
+      if (!el) return { target: t, missing: true };
+      const s = getComputedStyle(el);
+      let alpha = 1;
+      for (let a = el; a; a = a.parentElement) alpha *= parseFloat(getComputedStyle(a).opacity);
+      const size = parseFloat(s.fontSize), bold = parseInt(s.fontWeight, 10) >= 700;
+      return { target: t, fg: el instanceof SVGElement ? s.fill : s.color, alpha, large: size >= 24 || (bold && size >= 18.66) };
+    }), targets);
+    for (const n of info) {
+      if (n.missing) continue;
+      const rect = await page.evaluate((t) => {
+        const el = document.querySelector(t);
+        el.scrollIntoView({ block: "center", inline: "center" });
+        const r = el.getBoundingClientRect();
+        const x = Math.max(0, Math.floor(r.left)), y = Math.max(0, Math.floor(r.top));
+        // The capture's clip is measured from the top of the document, not the viewport.
+        return { x: x + scrollX, y: y + scrollY, width: Math.min(Math.ceil(r.right), innerWidth) - x, height: Math.min(Math.ceil(r.bottom), innerHeight) - y };
+      }, n.target);
+      if (rect.width < 1 || rect.height < 1) continue;
+      const shown = await page.screenshot({ clip: rect, encoding: "base64" });
+      const hide = await page.addStyleTag({ content: HIDE_TEXT });
+      const bare = await page.screenshot({ clip: rect, encoding: "base64" });
+      await hide.evaluate((s) => s.remove());
+      const worst = await page.evaluate(async (shown, bare, fg, alpha) => {
+        const pixels = async (png) => {
+          const img = new Image();
+          img.src = "data:image/png;base64," + png;
+          await img.decode();
+          const c = document.createElement("canvas");
+          c.width = img.width;
+          c.height = img.height;
+          const g = c.getContext("2d");
+          g.drawImage(img, 0, 0);
+          return g.getImageData(0, 0, c.width, c.height).data;
+        };
+        const a = await pixels(shown), b = await pixels(bare);
+        const m = fg.match(/[\d.]+/g).map(Number);
+        const k = (m[3] ?? 1) * alpha;
+        const lum = (rgb) => rgb.map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+        const seen = new Set();
+        let low = Infinity, glyphs = 0;
+        for (let i = 0; i < a.length; i += 4) {
+          if (a[i] === b[i] && a[i + 1] === b[i + 1] && a[i + 2] === b[i + 2]) continue;
+          glyphs++;
+          const key = (b[i] << 16) | (b[i + 1] << 8) | b[i + 2];
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const bg = [b[i], b[i + 1], b[i + 2]];
+          const l1 = lum(bg.map((v, j) => m[j] * k + v * (1 - k))), l2 = lum(bg);
+          low = Math.min(low, (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05));
+        }
+        return glyphs ? low : null;
+      }, shown, bare, n.fg, n.alpha);
+      const need = n.large ? 4.5 : 7;
+      if (worst === null) out.push({ target: n.target, ratio: null, need });
+      else if (worst + 0.005 < need) out.push({ target: n.target, ratio: worst, need });
+    }
+  } finally {
+    await freeze.evaluate((s) => s.remove());
+  }
+  return out;
+}
+
+// An exception covers results of one rule inside one container on the pages its pattern names,
+// where * stands for one path segment. Each states why a person judged the result acceptable.
+export function exceptionsFor(exceptions, path, rule) {
+  return exceptions.filter((e) => e.rule === rule && new RegExp(`^${e.pages.replace(/[.?+^$()[\]{}|\\]/g, "\\$&").replace(/\*/g, "[^/]+")}$`).test(path));
+}

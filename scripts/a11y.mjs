@@ -10,11 +10,16 @@ import { readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { extname, join, normalize } from "node:path";
 import puppeteer from "puppeteer-core";
-import { HOUSE, TEXT_SPACING, house } from "./a11y-checks.mjs";
+import { HOUSE, TEXT_SPACING, exceptionsFor, house, paintedContrast } from "./a11y-checks.mjs";
 
 const require = createRequire(import.meta.url);
 const AXE = require.resolve("axe-core/axe.min.js");
-const TAGS = ["wcag2a", "wcag2aa", "wcag2aaa", "wcag21a", "wcag21aa", "wcag21aaa", "wcag22aa", "best-practice"];
+const TAGS = ["wcag2a", "wcag2aa", "wcag2aaa", "wcag21a", "wcag21aa", "wcag21aaa", "wcag22aa", "best-practice", "experimental"];
+// hidden-content only ever asks a person to look at whatever is hidden, so it can never pass.
+const RULES = { "hidden-content": { enabled: false } };
+const CONTRAST = new Set(["color-contrast", "color-contrast-enhanced"]);
+const EXCEPTIONS = JSON.parse(await readFile(new URL("./a11y-exceptions.json", import.meta.url), "utf8"));
+const used = new Set();
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css",
@@ -138,8 +143,9 @@ try {
       const problems = [];
       await page.evaluate(axe);
       const result = await page.evaluate(
-        (tags) => window.axe.run(document, { runOnly: { type: "tag", values: tags } }),
+        (tags, rules) => window.axe.run(document, { runOnly: { type: "tag", values: tags }, rules }),
         TAGS,
+        RULES,
       );
       for (const v of result.violations) {
         problems.push(`axe ${v.id} [${v.impact}] ${v.help}`);
@@ -148,6 +154,27 @@ try {
           problems.push(`      ${n.failureSummary.split("\n").join(" ").slice(0, 300)}`);
         }
         if (v.nodes.length > 5) problems.push(`    … and ${v.nodes.length - 5} more`);
+      }
+      // A result axe leaves for review fails unless the painted measurement settles it or an
+      // exception in a11y-exceptions.json covers it.
+      const contrast = new Set();
+      const reviews = [];
+      for (const v of result.incomplete) {
+        for (const n of v.nodes) {
+          if (CONTRAST.has(v.id)) contrast.add(n.target.join(" "));
+          else reviews.push({ rule: v.id, target: n.target.join(" "), detail: (n.any[0] || n.all[0] || n.none[0] || {}).message || v.help });
+        }
+      }
+      for (const f of await paintedContrast(page, [...contrast])) {
+        reviews.push({ rule: "painted-contrast", target: f.target, detail: f.ratio === null ? "no glyph could be measured" : `${f.ratio.toFixed(2)}:1 against the background painted behind it, needs ${f.need}:1` });
+      }
+      for (const r of reviews) {
+        let covered = null;
+        for (const e of exceptionsFor(EXCEPTIONS, path, r.rule)) {
+          if (await page.evaluate((t, w) => !!document.querySelector(t)?.closest(w), r.target, e.within)) covered = e;
+        }
+        if (covered) used.add(covered);
+        else problems.push(`review ${r.rule}: ${r.target}: ${r.detail}`);
       }
       // The house checks depend on layout and type, not colour, so one scheme is enough.
       if (scheme === "light") {
@@ -180,6 +207,11 @@ try {
       report(path, scheme, problems);
       await page.close();
     }
+  }
+  for (const e of EXCEPTIONS) {
+    if (used.has(e) || paths.length) continue;
+    failed++;
+    console.log(`✗ exception for ${e.rule} within ${e.within} on ${e.pages} matched nothing; remove it`);
   }
 } finally {
   await browser.close();

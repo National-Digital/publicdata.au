@@ -1928,7 +1928,9 @@ PROSE = {
 <h2>How it is checked</h2>
 <p>Every change to the site has to pass these checks before it can be merged. Each runs in the light and in the dark colour scheme.</p>
 <ul>
-<li>The axe-core rules for WCAG 2.2 at levels A, AA and AAA, which include text contrast of at least 7 to 1.</li>
+<li>The axe-core rules for WCAG 2.2 at levels A, AA and AAA, including its experimental rules, which include text contrast of at least 7 to 1.</li>
+<li>Any result axe cannot decide fails the build until it is settled. Contrast over a gradient, an image or a chart is settled by measuring the colours painted behind the text, and anything else a person reviews and records with the reason.</li>
+<li>A menu on a narrow screen that opens and closes from the keyboard and shows its links without script.</li>
 <li>Text of at least 0.875rem where it is read and 0.75rem elsewhere. The base size grows on wide screens and follows the size set in your browser.</li>
 <li>Paragraphs and lists of no more than 80 characters a line.</li>
 <li>Links, buttons and fields of at least 44 by 44 pixels, or 24 by 24 inside a dense data region.</li>

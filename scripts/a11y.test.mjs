@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { test } from "node:test";
-import { HOUSE, TEXT_SPACING, house } from "./a11y-checks.mjs";
+import { HOUSE, TEXT_SPACING, exceptionsFor, house, paintedContrast } from "./a11y-checks.mjs";
 
 // Each house rule is proven to fire on the defect it guards against, and to stay quiet on a page
 // without it. The browser is the same one the gate uses; a job without Chrome or without the
@@ -130,4 +130,38 @@ test("a menu with small links, no Escape and nothing without script fails each p
   assert.deepEqual(rules(closed), ["menu"]);
   assert.ok(closed.some((f) => f.detail.includes("Escape does not close")));
   assert.deepEqual(rules(await run(html, "menu-nojs", HOUSE.reflowWidth)), ["menu"]);
+});
+
+async function painted(html, targets) {
+  const browser = await puppeteer.launch({ executablePath: chrome, args: ["--no-sandbox", "--disable-gpu"] });
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 900 });
+    await page.setContent(html, { waitUntil: "load" });
+    return await paintedContrast(page, targets);
+  } finally {
+    await browser.close();
+  }
+}
+
+test("text on a gradient fails where the gradient's worst stop is too light, and passes where every stop clears 7:1", { skip }, async () => {
+  const html = `${BASE}<div style="padding:1rem;background:linear-gradient(90deg,#000,#000 50%,#888)"><p id="bad" style="color:#fff;max-width:none">${LONG}</p></div>
+    <div style="padding:1rem;background:linear-gradient(90deg,#000,#1a1a1a)"><p id="good" style="color:#fff;max-width:none">${LONG}</p></div>${END}`;
+  const found = await painted(html, ["#bad", "#good"]);
+  assert.deepEqual(found.map((f) => f.target), ["#bad"]);
+  assert.ok(found[0].ratio < 7);
+});
+
+test("a halo drawn as the text's own stroke counts as its background", { skip }, async () => {
+  const svg = (halo) => `<svg width="300" height="60"><rect width="300" height="60" fill="#777"/><text id="t" x="10" y="40" font-size="20" fill="#fff" ${halo ? 'stroke="#000" stroke-width="6" paint-order="stroke"' : ""}>Cairns harbour</text></svg>`;
+  assert.deepEqual(await painted(`${BASE}${svg(true)}${END}`, ["#t"]), []);
+  assert.equal((await painted(`${BASE}${svg(false)}${END}`, ["#t"])).length, 1);
+});
+
+test("an exception covers its rule on the pages its pattern names and nowhere else", () => {
+  const ex = [{ pages: "/d/*/explore/", rule: "painted-contrast", within: "#x-ghost" }];
+  assert.equal(exceptionsFor(ex, "/d/qld-road-crash-locations/explore/", "painted-contrast").length, 1);
+  assert.equal(exceptionsFor(ex, "/d/qld-road-crash-locations/", "painted-contrast").length, 0);
+  assert.equal(exceptionsFor(ex, "/d/a/b/explore/", "painted-contrast").length, 0);
+  assert.equal(exceptionsFor(ex, "/d/qld-road-crash-locations/explore/", "color-contrast").length, 0);
 });

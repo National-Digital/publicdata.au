@@ -14,7 +14,9 @@ check fires on a page built to fail it, as every gate in this repo must.
 
 | Check | Criterion | Rule |
 | --- | --- | --- |
-| axe-core, AAA tags | every rule axe has through WCAG 2.2, including 1.4.6 enhanced contrast at 7:1 and its best practices (landmarks, heading order) | no violation of any impact |
+| axe-core, AAA tags | every rule axe has through WCAG 2.2, including 1.4.6 enhanced contrast at 7:1, its best practices (landmarks, heading order) and its experimental rules (2.5.3 label in name, 1.3.1 headings and table headers, 1.3.4 orientation, focusable roles); `hidden-content` is off because it can only ask for review | no violation of any impact |
+| needs review | every criterion axe tests | a result axe cannot decide fails the gate unless the painted-contrast check settles it or an exception below covers it |
+| painted contrast | 1.4.3, 1.4.6 | where axe cannot name one background (a gradient, a pseudo-element, an overlapping element, a chart), the node is captured with its text and without it, and the text colour must clear 7:1, or 4.5:1 for large text, against every pixel behind its glyphs; a halo drawn as the text's own stroke counts as background |
 | type floor | 1.4.4, 1.4.8 | text a person reads (paragraphs, lists, cells, links, controls, headings) is at least 0.875rem; every other visible text at least 0.75rem; inside a dense data region, 0.75rem |
 | root scale | 1.4.4, 1.4.8 | the root font size grows with the viewport: at least 16px at 1280px wide and 19px at 2560px, so a wide screen gets larger type, not a wider margin |
 | measure | 1.4.8 | no paragraph, list item or definition averages more than 80 characters a line |
@@ -35,6 +37,15 @@ Every size in the stylesheet is in rem, never px, so a reader's own browser font
 and the root size is `clamp(100%, .75rem + .35vw, 125%)`: the browser default on a phone or laptop,
 a quarter larger on a 2560px screen. The content column is 70rem and grows with it; prose is capped
 at 65ch.
+
+## Exceptions
+
+`scripts/a11y-exceptions.json` lists the results a person has judged acceptable. Each entry names
+one rule, a container selector and a page pattern where `*` stands for one path segment, and says
+why and when it was reviewed. An entry that no longer matches anything fails the gate, so the list
+cannot outlive the markup it describes. The one entry today is the explorer's placeholder, a
+dimmed, `aria-hidden` preview shown until the explorer loads, which as inactive text has no contrast
+requirement.
 
 ## Dense data regions, held to AA
 
