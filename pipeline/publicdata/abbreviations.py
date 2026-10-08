@@ -1,5 +1,5 @@
 """Abbreviations in the site's own prose must be in the glossary (WCAG 2.2 SC 3.1.4). The glossary is
-glossary.json, rendered on the about page; the gate reads each built page's prose and the register's
+glossary.json, rendered on the glossary page; the gate reads each built page's prose and the register's
 headline copy is checked at validate time, so an unexplained abbreviation stops a pull request before
 it stops a deploy."""
 
@@ -198,7 +198,7 @@ def check_copy(fields: dict[str, str], ctx: str, names: tuple[str, ...] = ()) ->
 
 
 def render(entries: dict[str, str]) -> str:
-    """The about page's glossary, one definition per term."""
+    """The glossary page's list, one definition per term."""
     from html import escape
 
     items = "".join(

@@ -84,7 +84,7 @@ touches them is reviewed against this list.
 - **2.4.12 Focus not obscured (enhanced).** Nothing is sticky over content except a table's header
   row inside its own scrolling region.
 - **3.1.3 Unusual words, 3.1.4 Abbreviations.** Every abbreviation the site's own prose uses is in
-  the glossary on the about page, linked from every footer, and the gate fails a page or a register
+  the glossary at `/glossary/`, linked from every footer, and the gate fails a page or a register
   entry that uses one the glossary does not hold and the page does not expand inline. A publisher's
   own words (titles and descriptions quoted from a portal, cell values, codes) are not rewritten and
   are outside the rule, as are code samples. A template that sets a publisher's value inside the

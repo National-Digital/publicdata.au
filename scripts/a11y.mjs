@@ -40,6 +40,7 @@ const DEFAULT = [
   "/about/",
   "/terms/",
   "/accessibility/",
+  "/glossary/",
   "/privacy/",
   "/topics/roads/",
   "/d/qld-road-crash-locations/",

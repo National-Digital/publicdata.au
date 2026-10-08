@@ -14,7 +14,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import OPERATOR, REPO, SITE, brand, explorer, figures
+from . import OPERATOR, REPO, SITE, abbreviations, brand, explorer, figures
 from . import api_text as at
 from .build import DatasetOut, VersionOut, dataset_url, version_url
 from .cache import BuildCache
@@ -1868,8 +1868,13 @@ PROSE = {
 <p>The site sets no cookies. Page views are counted by Cloudflare Web Analytics, which is served from this site's own provider, stores nothing in the browser and does not follow anyone across sites. There is no other tracking. Votes in the backlog are counted once per browser per day using a salted hash that changes every day. Nobody is asked who they are. The <a href="/privacy/">privacy page</a> sets out everything the site records.</p>
 <h2>Security</h2>
 <p>The disclosure policy is at <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
-<h2 id="abbreviations">Abbreviations</h2>
-<p>Every abbreviation this site uses in its own words, with its expansion. Publishers' own titles, codes and cell values are quoted as published.</p>
+""",
+    ),
+    "glossary": (
+        "Glossary",
+        "Every abbreviation publicdata.au uses in its own words, with what it stands for.",
+        """
+<p>Every abbreviation this site uses in its own words is listed here with what it stands for. Publishers' own titles, codes and cell values are quoted as published, so they can hold abbreviations this list does not explain.</p>
 {glossary}
 """,
     ),
@@ -1937,7 +1942,7 @@ PROSE = {
 <li>Link text that says where the link goes.</li>
 <li>A visible focus outline on everything you can reach with the keyboard.</li>
 <li>No sideways scrolling at 320 pixels wide, or with line, letter, word and paragraph spacing increased.</li>
-<li>Every abbreviation in the site's own text spelt out on the page or listed under <a href="/about/#abbreviations">abbreviations</a>.</li>
+<li>Every abbreviation in the site's own text spelt out on the page or listed in the <a href="/glossary/">glossary</a>.</li>
 </ul>
 <p>Each check is first run against a page built to fail it, so a check that stops working fails the build. The abbreviation rule also runs on every page of every deploy and on the text of each new or changed dataset entry.</p>
 <h2>What the site provides</h2>
@@ -4271,7 +4276,10 @@ def render_site(
             .replace("{terms_changed}", TERMS_CHANGED[0])
             .replace("{repo}", REPO)
             .replace("{gh}", GH_MARK)
+            .replace("{glossary}", abbreviations.render(abbreviations.glossary()))
         )
+        if left := re.findall(r"\{[a-z_]+\}", body):
+            raise ValueError(f"{slug}: placeholder {', '.join(left)} was never filled")
         md = "\n".join(
             [
                 "---",
@@ -4543,6 +4551,7 @@ def render_site(
             f"- {SITE}/government/index.md",
             f"- {SITE}/agents/index.md",
             f"- {SITE}/about/index.md",
+            f"- {SITE}/glossary/index.md",
             f"- {SITE}/contribute/index.md",
             "",
             "## Source",
