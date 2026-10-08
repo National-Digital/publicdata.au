@@ -1,7 +1,7 @@
 # Architecture
 
 One job: take a dataset a government already publishes under an open licence and serve it
-as immutable, versioned, schema-carrying files that never send traffic back to the source.
+as dated, versioned, schema-carrying files that never send traffic back to the source.
 
 ## The shape
 
@@ -37,6 +37,10 @@ pipeline/publicdata/
                        page per topic listing what is served and what is coming
   brand.py             the mark, favicons, app icons, web app manifest, 1200x630 social cards
   hubs.py              copies each newest version to Hugging Face, Zenodo and Kaggle
+  cost.py              each register entry's projected R2 growth and D1 rows written a year,
+                       and the pull request check that holds a changed entry over budget
+  cadence.py           the register's cadence text as versions a year, for the cost check
+                       and the hubs
   __main__.py          register validate | draft | labels, fetch, build, gate, and the rest
 ```
 
@@ -59,7 +63,7 @@ pipeline/publicdata/
    since review. A grant that is not Creative Commons is admitted only through
    `register/licences/`, which quotes the publisher on reproduction, adaptation, commercial use
    and attribution. Old versions stay up under the licence they were published under.
-6. Versions are immutable and dated by source change; unchanged hash, no version. The
+6. Versions are dated by source change and keep their content; unchanged hash, no version. The
    [Archive](#archive) section says how long they are kept and what may change.
 7. Serialisers are pure functions of the model. Two builds of one snapshot are byte-identical,
    and CI proves it.
@@ -116,7 +120,7 @@ pipeline/publicdata/
 /health.json
 ```
 
-Immutable versions are cached for a year. Every dataset page carries schema.org Dataset
+Dated versions are cached for a year. Every dataset page carries schema.org Dataset
 JSON-LD.
 
 ## What every dataset gets
@@ -125,9 +129,9 @@ A register entry that passes `register validate` and has a stored version gets a
 the build, with nothing written by hand:
 
 - the dataset page, its Markdown twin, schema.org Dataset JSON-LD and a catalogue record;
-- one dated, immutable version per source change, each with its files, its manifest, the
-  publisher's own file and a diff against the version before. Every table version has Parquet,
-  CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
+- one dated version per source change, which keeps its content, each with its files, its
+  manifest, the publisher's own file and a diff against the version before. Every table version
+  has Parquet, CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
   `data.geo.parquet` and a GeoPackage, and a polygon or line layer keeps its shapes in
   `data.parquet`, which is GeoParquet, with a GeoPackage and PMTiles vector tiles. The DuckDB
   file attaches read-only over HTTPS (the R2 function answers range requests), so a query runs
@@ -169,7 +173,8 @@ the key `publicdata.profile` holds the profile version, now `1`, beside the `pub
 provenance key. A reader checks that key before it relies on the order, the sizes or the page
 index.
 
-A published file never changes (ADR 0002), so the profile reaches a version in one of two ways.
+A published file keeps its bytes unless a correction rebuilds it (ADR 0002), so the profile
+reaches a version in one of two ways.
 
 - A version's own files keep the layout its fetch recorded. `fetch` writes the register entry's
   layout (`profile.layout`: the profile version, `sort`, `key`, `lookup` and `int32`) into the
@@ -265,9 +270,13 @@ files or Parquet are missing.
 
 This site is the version history the portals do not keep. The archive role has its own rules.
 
-- Every version is kept indefinitely. A version is never deleted or rewritten, including when
-  the publisher withdraws or replaces the source file. The only exception is a legal takedown,
-  which is recorded in `changes.json` as a tombstone that keeps the manifest and hash.
+- Every version is kept indefinitely. A version is never deleted, including when the publisher
+  withdraws or replaces the source file, and its source bytes never change. Its converted files
+  are rebuilt only to correct a fault in our conversion or in the publisher's attribution, to
+  comply with the law, or when a publisher asks for removal, and the change goes in the
+  version's notes. A file is removed only for a legal takedown or a publisher's request to
+  remove its dataset, and the version's `tombstone` keeps the manifest and hash on record.
+  [CORRECTIONS.md](CORRECTIONS.md) sets out the steps for each.
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
@@ -280,7 +289,7 @@ This site is the version history the portals do not keep. The archive role has i
 - `versions.json` per dataset lists every version with date, as-at, row count, field count,
   source hash and encoding. `/d/<slug>/history.tar.zst` bundles every version's data.parquet
   and manifest for offline use.
-- Publishers can cite a version URL knowing it will resolve to the same bytes in ten years.
+- Publishers can cite a version URL knowing it will resolve to the same data in ten years.
 
 ## Hosting
 
@@ -298,11 +307,20 @@ answers 410 for every file R2 still holds, `latest/` included, and so does each 
 writing but R2 kept. Query copies (`_q/<slug>/<version>.parquet`) go to `publicdata-dist` alone:
 split moves every one into the R2 tree whatever its size, no route or page reaches them, and
 nothing links them. They are stored as plain bytes, never gzipped, so a reader can take byte
-ranges. A query copy is written once like a dated file. A missing one is uploaded, which is how
-the versions published before the profile get theirs on the first deploy after it; a later
-profile writes beside them (`<version>.p<N>.parquet`), and an edit to `sort`, `lookup` or
-`int32` reaches the copies of versions that have none yet. The gate wants every table version's
-query copy in the tree or among the files a cached build left out (`dist-push --expect`). The edge caches nothing over 512 MB
+ranges. Beside each copy R2 holds a record of the layout it follows
+(`profile.layout_key`, `<version>.layout.json`), and the push lists `_q/` alone to read them. A
+missing copy is uploaded, which is how the versions published before the profile get theirs on
+the first deploy after it, and a later profile writes beside them (`<version>.p<N>.parquet`). A
+copy whose record names the entry's current layout is never uploaded again; one whose record
+names another is, so an edit to `sort`, `lookup` or `int32`, which builds the entry's versions
+again, reaches every version's copy on that deploy. The record is written after the upload, so
+it never names a layout the copy does not follow. A copy written before the records were kept,
+or one that cannot be read, is judged from its footer (`profile.follows`) and gets its record
+once the push's checks pass. The push stops before any upload when a copy in the tree does not
+follow its entry's layout. The gate
+wants every table version's query copy in the tree or among the files a cached build left out,
+and `dist-push --expect` wants each of those in R2 under a record of the entry's layout, so a
+cached version is never published beside a copy in another layout. The edge caches nothing over 512 MB
 and, until it learns a file is too large, answers a byte range with the whole file, so a dated
 file over 500 MB is redirected to its URL with `?edge=bypass`; a zone Cache Rule placed after
 "Dated version trees" bypasses the cache for that query, and without it large files fall back to
@@ -317,7 +335,7 @@ entry, its manifest and the rebuild numbers. The build code is not among them. T
 files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
 the deploy that built them, so a cached build lists them in `absent.json` instead of writing them,
 the gate counts them as present, and `dist-push --expect` stops the deploy if R2 lacks any of
-them. The Parquet a diff, the history archive or a page reads is read back from
+them or holds one of their query copies in another layout. The Parquet a diff, the history archive or a page reads is read back from
 `publicdata-dist` when needed (`build --published`). The build never reads a data.sqlite: its
 figures, query console and D1 load query the Parquet through DuckDB (`records.connect`), as a
 view shaped like the SQLite file's records table, with SQLite's tie order, NaN read as null and
@@ -378,7 +396,7 @@ Each shard pulls only the cache entries its datasets key to (`cache pull --only`
 hands over the cache entries it wrote, with the version files a preview serves. The deploy job
 then builds the whole site from the cache those entries filled, links the preview files in with
 `build --built`, and pushes the pages. Every deploy is therefore limited by its largest single
-dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
+dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote and their query API answers from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
 
 Because the build code is not in a version's key, the deploy checks a change to it against real
 versions. The plan job lists the files the change touches since its base, which for a pull
@@ -445,6 +463,29 @@ headers. Dated answers are cached at the edge for good, the newest for five minu
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
 `RateLimit-Policy` and a JSON body; every API answer carries the same policy header.
 
+D1 bills rows written, and each index entry is a row, so a load is planned before it runs. Each
+load fills a table named for the version and a digest of its rows, which no `_versions` row
+names yet; the last part builds the indexes and registers the table in one statement that holds
+only when the table has every row and every index. The version it replaces keeps answering until
+then and is dropped after, so the API never reads a partial table and always names the version
+it answers from. `_loads` records, per dataset, the version waiting, how many parts of it are in
+place and the rows they hold, how many deploys failed it, and since when the dataset has waited. A
+part that reports an error is checked by count: one that applied is kept, one that did not runs
+again, and anything else fails the version. The next deploy carries on after the last part in
+place when the table still holds exactly the rows recorded, and otherwise starts the version
+again. Failures count per dataset, across its versions, and a failure sends the dataset to the
+back of the queue. After three it is skipped, with a warning on the deploy, until a dispatch names
+it in `d1_retry`; a load that succeeds clears the count. Each deploy plans up to 10 million rows
+written (`d1.BUDGET`, or `d1_budget` on a dispatch, such as `25M`): a load part way through goes
+first, then the dataset that has waited longest, then the smaller, and the first in line always
+loads, so a version larger than the budget loads alone. The budget is a soft cap: parts run again
+and resumes that start over are charged as they happen, and once they have spent it the loads not
+yet started wait, but a load under way finishes. The rest wait for later deploys. The step summary
+lists what loaded, waited and was skipped, and names every dataset skipped or waiting over seven
+days, whose API answers come from the version before. Each deploy also drops the load tables that
+neither `_versions` nor `_loads` names, as a failed cleanup can leave. Only deploys of main load,
+one at a time.
+
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
 then the endpoints answer 503 and point to the files. The query builder is tested against
@@ -505,7 +546,8 @@ votable record ids so the vote endpoint reads one small file per check.
 not; they live in the R2 bucket `publicdata-raw` under the same path and are pulled by hash
 before every build (`publicdata store pull`). No built tree holds them: the `/d/` function serves
 a version's `source.<ext>` from `publicdata-raw`, only once that version's manifest is published,
-and `dist-push` stops the deploy if a published version's file is missing there. A committed manifest with no matching object is a
+and `dist-push` stops the deploy if a published version's file is missing there, listing only
+the directories of the datasets it publishes. A committed manifest with no matching object is a
 build failure, never a silent skip. A download that is empty, or an HTML page where a data file should be, is
 refused and reported; it never becomes a version. One dataset that cannot be fetched does not
 stop the others, and the fetch workflow ends red when anything failed. The scheduled fetch workflow pushes new bytes and opens one

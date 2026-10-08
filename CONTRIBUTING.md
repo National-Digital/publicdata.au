@@ -1,9 +1,9 @@
 # Contributing
 
-publicdata.au republishes Australian government open data as dated versions that never change.
-Contributions are welcome: a new dataset, a fix to an entry, a new output format, an adapter for a
-portal we cannot read yet, or a bug fix. This guide covers the routine changes step by step, then
-the rules every change is held to.
+publicdata.au republishes Australian government open data as dated versions that keep their
+content. Contributions are welcome: a new dataset, a fix to an entry, a new output format, an
+adapter for a portal we cannot read yet, or a bug fix. This guide covers the routine changes step
+by step, then the rules every change is held to.
 
 By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues
 privately as [SECURITY.md](SECURITY.md) describes.
@@ -188,6 +188,15 @@ deploy after the sync opens it until the deploy after it closes; the catalogue s
    example query; if it reads poorly, set `example` and `chart` in the entry.
 6. Set `status: live` and open a pull request titled `data(register): add <what it is>`. Say where
    the licence evidence is and what you checked.
+7. The Storage cost check projects what the entry adds in a year: the bytes one version stores
+   in R2 times the versions its cadence implies, plus a rebuild of every stored version when an
+   edit changes what a version publishes, and the rows its versions write to D1, once for the
+   table and once for each index. An entry over 5 GB or 10,000,000 D1 rows a year fails it until
+   a maintainer other than the pull request's author adds the `cost-approved` label. The label
+   approves the commit it was added on: a later push, reopening the pull request or changing its
+   base needs it added again. The check runs the base branch's code against the pull request's
+   register, so a change to the check takes effect once it is merged. Run
+   `python -m publicdata cost <slug>` to see the figures first.
 
 A dataset that cannot be published yet keeps its entry at `backlog`, `assessing` or `blocked`, with
 the reason, so the site can say why.
@@ -195,9 +204,10 @@ the reason, so the site can say why.
 ## Change or fix a dataset entry
 
 Edit `register/<slug>.yaml` and open a `fix(register): ...` pull request. A field the publisher
-renamed, a resource that moved or a header that changed row are the usual causes. A change that
-would alter a published version's bytes is not possible: versions are immutable, so the fix applies
-from the next version. When the publisher changes its licence, the fetch stops that dataset until a
+renamed, a resource that moved or a header that changed row are the usual causes. The fix applies
+from the next version. When a fault in our conversion or a wrong attribution has already reached
+published versions, those versions are rebuilt as [docs/CORRECTIONS.md](docs/CORRECTIONS.md)
+describes. When the publisher changes its licence, the fetch stops that dataset until a
 person has read the new licence and updated `licence` and `licence.reviewed`.
 
 ## Manual sources
@@ -336,17 +346,8 @@ such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 
 ## Withdraw a dataset or correct published files
 
-- When a publisher withdraws a source, the entry stays and the versions already published stay
-  where they are. Set the entry's status and the reason, and no new versions are made.
-- When a licence turns out not to allow publication, a maintainer withholds the dataset or the
-  affected columns, as `source_withheld` and the omitted fields do. The build stops making those
-  files and the site says why.
-- A legal takedown is the only time a published file is removed. It is recorded in `changes.json`
-  as a tombstone that keeps the manifest and hash.
-- To rebuild files a bug wrote wrongly, a maintainer runs the Deploy workflow with `replace` set
-  to the version prefixes, which also purges them from the edge cache. The pull request that fixed
-  the bug says which versions it affects and raises their rebuild number (see Change the build
-  code).
+[docs/CORRECTIONS.md](docs/CORRECTIONS.md) covers a correction from the report to the log, and a
+withdrawal, withholding or removal, which change what a version's URL serves.
 
 ## Change the API or the MCP tools
 
@@ -461,10 +462,10 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   fit 32 bits, such as a year, a count or a short identifier. A new version holding a larger
   value is held at its fetch, so leave out anything that can grow past 2,147,483,647.
 - A version keeps the `sort`, `lookup` and `int32` its fetch found, so an edit to them changes
-  the files of later versions and the query copies not yet written. A query copy already in R2
-  keeps the order it was written in, since its key names only the profile version; each copy
-  records its own order in its footer (`sorting_columns`), so a reader takes the order from the
-  file. None of the three applies to a `kind: database` entry.
+  the files of later versions and never a published one. The query copy of every version
+  follows the edit from the next deploy, which writes each copy again in R2. Each copy records
+  its own order in its footer (`sorting_columns`), so a reader takes the order from the file.
+  None of the three applies to a `kind: database` entry.
 - The fetch checks every `int32` field against a new version before it stores it, and holds the
   dataset with an error naming the field when a value does not fit. Before declaring `int32` on
   a field, run `python -m publicdata register validate`, which checks the stored versions whose

@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs | contribute."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs | contribute | cost."""
 
 from __future__ import annotations
 
@@ -447,10 +447,27 @@ def cmd_d1(args) -> int:
     return 0
 
 
-def cmd_d1_load(args) -> int:
-    from .d1 import Wrangler, load
+def _rows_written(text: str) -> int:
+    import argparse
 
-    failed = load(Path(args.dir), Wrangler())
+    from .d1 import rows_written
+
+    try:
+        return rows_written(text or "0")
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
+def cmd_d1_load(args) -> int:
+    from .d1 import BUDGET, Wrangler, load
+
+    failed = load(
+        Path(args.dir),
+        Wrangler(),
+        budget=args.budget or BUDGET,
+        retry=set(args.retry.split()),
+        summary=Path(args.summary) if args.summary else None,
+    )
     print(f"d1 load: {failed} version(s) did not load")
     return 1 if failed else 0
 
@@ -561,16 +578,21 @@ def cmd_dist_push(args) -> int:
         print(f"dist push: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
     from .r2 import check_sources
+    from .register import load
+    from .serialise.profile import layout
 
     # Before anything goes up, so a version whose source the site cannot serve is never published.
     found = check_sources([Path(args.large)])
+    expect = _absent(args.expect)
+    queries = (Path(args.large) / "_q").is_dir() or any(k.startswith("_q/") for k in expect)
     n = push(
         Path(args.large),
         "publicdata-dist",
         replace=tuple(args.replace),
         immutable=dated_file,
-        expect=_absent(args.expect),
+        expect=expect,
         include=dated_file if args.dated_only else lambda key: True,
+        layouts={ds.slug: layout(ds) for ds in load(REGISTER)} if queries else None,
     )
     print(
         f"dist push: {n} file(s){' (replacing under ' + ', '.join(args.replace) + ')' if args.replace else ''}"
@@ -582,7 +604,7 @@ def cmd_dist_push(args) -> int:
 def cmd_purge(args) -> int:
     import os
 
-    from .edge import purge
+    from .edge import purge, with_answers
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
@@ -592,7 +614,7 @@ def cmd_purge(args) -> int:
     if not token:
         print("purge: CLOUDFLARE_PURGE_TOKEN is not set")
         return 2
-    print(f"purge: {purge(args.prefix, token)} prefix(es) purged from the edge")
+    print(f"purge: {purge(with_answers(args.prefix), token)} prefix(es) purged from the edge")
     return 0
 
 
@@ -833,6 +855,46 @@ def cmd_contribute(args) -> int:
     return 0
 
 
+def cmd_cost(args) -> int:
+    import datetime as dt
+
+    from . import cost
+    from .register import load
+
+    root = Path(args.root).resolve() if args.root else ROOT
+    register = root / "register"
+    changed, fresh, reshaped = set(args.slug), set(), {}
+    if args.base:
+        if links := cost.symlinks(root):
+            print(f"cost: the register may not hold symbolic links: {', '.join(links)}")
+            return 2
+        base, paths = cost.changed_paths(args.base, root)
+        entries = cost.changed_entries(register, paths, root)
+        priced = cost.costed(root, base, entries)
+        if same := sorted(set(entries) - priced):
+            print(f"cost: {', '.join(same)}: edited, but nothing the projection reads changed")
+        changed |= priced
+        fresh, reshaped = cost.entry_changes(root, base, {s: entries[s] for s in priced})
+    approve = None
+    if args.github_pr:
+        repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
+        approve = lambda: cost.approval(repo, args.github_pr, lambda p: cost._github(p, token))  # noqa: E731
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    return cost.run(
+        load(register),
+        Path(args.store),
+        args.catalog or cost.CATALOG,
+        changed,
+        today,
+        approved=args.approved,
+        probing=args.probe,
+        fresh=fresh,
+        summary=args.summary,
+        reshaped=reshaped,
+        approve=approve,
+    )
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -916,7 +978,9 @@ def main(argv=None) -> int:
         help="where a cached version's Parquet is read back from, as the site lays it out",
     )
     b.set_defaults(fn=cmd_build)
-    pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
+    pg = sub.add_parser(
+        "purge", help="purge replaced versions and their query API answers from the edge cache"
+    )
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
     pg.set_defaults(fn=cmd_purge)
     sh = sub.add_parser("shards", help="split the versions the cache cannot serve over build jobs")
@@ -995,6 +1059,16 @@ def main(argv=None) -> int:
     d1s.set_defaults(fn=cmd_d1)
     d1l = d1.add_parser("load", help="run the load files against D1, verify and retry")
     d1l.add_argument("--dir", required=True)
+    d1l.add_argument(
+        "--budget",
+        type=_rows_written,
+        default=0,
+        help="rows written this deploy may plan, such as 10M (0: the default)",
+    )
+    d1l.add_argument(
+        "--retry", default="", help="dataset slugs, or all, to load again past their failures"
+    )
+    d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])
@@ -1041,15 +1115,39 @@ def main(argv=None) -> int:
     )
     hb.set_defaults(fn=cmd_hubs)
 
-    co = sub.add_parser("contribute", help="the most-wanted datasets as contributor issues")
-    co.add_argument("sub", choices=["sync", "issues"])
-    co.add_argument("--repo", default=REPO.removeprefix("https://github.com/"))
-    co.add_argument("--site", default=SITE)
-    co.add_argument("--votes", type=int, default=1, help="sync: votes a catalogue record needs")
-    co.add_argument("--cap", type=int, default=10, help="sync: the most issues open at once")
-    co.add_argument("--dry-run", action="store_true", help="sync: print the changes, make none")
-    co.add_argument("--out", default="contribute.json", help="issues: where the open ones go")
-    co.set_defaults(fn=cmd_contribute)
+    cb = sub.add_parser("contribute", help="the most-wanted datasets as contributor issues")
+    cb.add_argument("sub", choices=["sync", "issues"])
+    cb.add_argument("--repo", default=REPO.removeprefix("https://github.com/"))
+    cb.add_argument("--site", default=SITE)
+    cb.add_argument("--votes", type=int, default=1, help="sync: votes a catalogue record needs")
+    cb.add_argument("--cap", type=int, default=10, help="sync: the most issues open at once")
+    cb.add_argument("--dry-run", action="store_true", help="sync: print the changes, make none")
+    cb.add_argument("--out", default="contribute.json", help="issues: where the open ones go")
+    cb.set_defaults(fn=cmd_contribute)
+    co = sub.add_parser(
+        "cost", help="project each entry's storage growth and D1 writes and gate changed ones"
+    )
+    co.add_argument("slug", nargs="*", help="entries to gate, as well as those --base finds")
+    co.add_argument("--base", help="gate the register entries changed since this ref")
+    co.add_argument("--store", default=str(STORE))
+    co.add_argument(
+        "--root", help="the checkout whose register and history are read (default this one)"
+    )
+    co.add_argument("--catalog", help="a catalog.json path or URL (default the live site's)")
+    co.add_argument("--today", help="the date versions are counted back from (YYYY-MM-DD)")
+    co.add_argument(
+        "--approved", action="store_true", help="treat an over-budget entry as approved"
+    )
+    co.add_argument(
+        "--github-pr", type=int, help="read this pull request's cost-approved label from GitHub"
+    )
+    co.add_argument(
+        "--probe", action="store_true", help="size a new or moved source from its portal or host"
+    )
+    co.add_argument(
+        "--summary", help="append the Markdown table here (default GITHUB_STEP_SUMMARY)"
+    )
+    co.set_defaults(fn=cmd_cost)
     args = ap.parse_args(argv)
     return args.fn(args)
 

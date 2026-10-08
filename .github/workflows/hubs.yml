@@ -92,6 +92,8 @@ jobs:
         if: always() && github.ref == 'refs/heads/main' && hashFiles('hubs.log') != ''
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          HUB: ${{ github.event.inputs.hub || 'huggingface zenodo kaggle' }}
+          ONLY: ${{ github.event.inputs.only }}
         run: |
           # Pushes go as the app too, in place of the checkout's own credential.
           git config --local --replace-all http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
@@ -110,8 +112,17 @@ jobs:
           git fetch -q origin main
           git rebase -q origin/main
           git push -q -u origin HEAD
-          gh pr create --title "data(hubs): where the copies are, $DATE" --body "The Hubs run recorded where each dataset's copies are. Merging lists them on the dataset pages and in their structured data."
+          PR=$(gh pr create --title "data(hubs): where the copies are, $DATE" --body "The Hubs run recorded where each dataset's copies are. Merging lists them on the dataset pages and in their structured data.")
           gh pr merge --auto --squash || echo "::warning::auto-merge was not armed; merge the hubs PR by hand."
+          # A full run reads every location back from the hubs, so its record covers any older hubs
+          # PR still open, such as one from a run queued behind it or one auto-merge never merged.
+          [ -z "$ONLY" ] && [ "$HUB" = "huggingface zenodo kaggle" ] || exit 0
+          gh pr list --state open --author app/publicdata-fetch --json number,headRefName \
+            --jq ".[] | select(.headRefName | startswith(\"data/hubs-\")) | select(.headRefName != \"$BRANCH\") | .number" |
+            while read -r n; do
+              gh pr close "$n" --delete-branch --comment "Superseded by $PR, a later run's record of every hub." ||
+                echo "::warning::hubs PR #$n was not closed; close it by hand."
+            done
       - name: Summarise
         if: always()
         run: |

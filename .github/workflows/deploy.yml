@@ -13,7 +13,15 @@ on:
   workflow_dispatch:
     inputs:
       replace:
-        description: Key prefixes whose existing R2 files this build may overwrite, space separated, e.g. d/<slug>/v/<date>/ (the version notes are added by a separate PR)
+        description: Key prefixes whose existing R2 files this build may overwrite, space separated, e.g. d/<slug>/v/<date>/ (the version notes come from the PR that made the fix)
+        type: string
+        default: ""
+      d1_budget:
+        description: Rows written the D1 load may plan in this deploy, for an approved large load (empty keeps the default of 10 million)
+        type: string
+        default: ""
+      d1_retry:
+        description: Dataset slugs, space separated, or all, whose versions D1 skips after repeated failures and should try again
         type: string
         default: ""
 
@@ -48,6 +56,16 @@ jobs:
       verify: ${{ steps.verify.outputs.slugs }}
       spatial: ${{ steps.spatial.outputs.version }}
     steps:
+      # A budget D1 cannot read would fail the load after the site is out, so it stops here.
+      - name: Check the D1 budget input
+        if: github.event.inputs.d1_budget != ''
+        env:
+          D1_BUDGET: ${{ github.event.inputs.d1_budget }}
+        run: |
+          if ! [[ "$D1_BUDGET" =~ ^[[:space:]]*[0-9][0-9_,]*[[:space:]]*[kKmMgG]?[[:space:]]*$ ]]; then
+            echo "::error::d1_budget '$D1_BUDGET' is not a count of rows, such as 10000000 or 10M"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the last release tag, which the real-data check compares the code with
@@ -415,12 +433,15 @@ jobs:
           fi
           python -m publicdata purge $REPLACE
       # The query API reads D1. Loading runs after the site deploy so a failed load never holds the
-      # site back, and stays off until the repository variable D1_ENABLED is true.
+      # site back, and stays off until the repository variable D1_ENABLED is true. Only main loads,
+      # so the concurrency group above keeps one load at a time.
       - name: Load new versions into D1
-        if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && vars.D1_ENABLED == 'true'
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.D1_ENABLED == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          D1_BUDGET: ${{ github.event.inputs.d1_budget }}
+          D1_RETRY: ${{ github.event.inputs.d1_retry }}
         run: |
           # Only a database that has never been loaded may be read as empty; any other error stops.
           # _orders records the row order each version was loaded in, so one loaded in another
@@ -430,7 +451,7 @@ jobs:
             if grep -q "no such table" list.err loaded.json; then echo '[]' > loaded.json; else cat list.err loaded.json; exit 1; fi
           fi
           python -m publicdata d1 sql --root "$DIST" --root "$DIST_LARGE" --loaded loaded.json --out d1-load --stamp "$GITHUB_RUN_ID" --catalogue catalogue-search.sqlite
-          python -m publicdata d1 load --dir d1-load
+          python -m publicdata d1 load --dir d1-load --budget "${D1_BUDGET:-0}" --retry "$D1_RETRY" --summary "$GITHUB_STEP_SUMMARY"
       - name: Comment the preview URL
         if: env.HAS_CF == 'true' && github.event_name == 'pull_request'
         env:
