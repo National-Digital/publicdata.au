@@ -33,7 +33,15 @@ python -m publicdata build --fixtures --out /tmp/pd
 python -m publicdata gate /tmp/pd
 pytest -n auto
 cd .. && node --test functions/*.test.mjs scripts/*.test.mjs
+npx eslint . --max-warnings 0
+npx prettier --check .
 ```
+
+The last two lines are the JavaScript checks CI runs: ESLint over the Pages Functions, the scripts,
+the explorer and the site's browser scripts, and Prettier over the same files. `npx eslint --fix .`
+and `npx prettier --write .` correct most findings in place. Prettier reads only JavaScript, so
+templates and generated JSON keep the form their writers give them. A rule is switched off for one
+line at a time, with `// eslint-disable-next-line <rule> -- <reason>`.
 
 The fixtures are small and stand in for the real store. To build a real dataset, fetch it from
 the publisher into a local store and build from that:
