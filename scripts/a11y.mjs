@@ -1,6 +1,7 @@
 // Holds built pages to WCAG 2.2 AAA: axe-core's rules through the AAA tags in both colour
 // schemes, then the house checks in a11y-checks.mjs at 1280px, 2560px (the type must grow) and
-// 320px (reflow, and the menu opened, closed and without script), and with the text-spacing
+// 320px (reflow, the working checks again for content only a narrow screen shows, and the menu
+// opened, closed and without script), and with the text-spacing
 // override. docs/ACCESSIBILITY.md states the target and
 // the regions held to AA. Usage: node scripts/a11y.mjs <dist> [path ...]. With no paths, a fixed
 // set of representative pages is checked. Chrome is found at CHROME_PATH or /usr/bin/google-chrome.
@@ -158,6 +159,7 @@ try {
         await page.setViewport({ width: HOUSE.reflowWidth, height: 900 });
         await settle(page);
         runs.push(await page.evaluate(house, HOUSE, "reflow"));
+        runs.push(await page.evaluate(house, HOUSE, "all"));
         runs.push(...(await menuRuns(page)));
         await page.setViewport(WORK);
         await page.addStyleTag({ content: TEXT_SPACING });
