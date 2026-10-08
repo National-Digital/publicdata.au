@@ -7,10 +7,13 @@ import re
 import socket
 import sqlite3
 import threading
+import time
 import urllib.parse
 import warnings
+from collections.abc import Iterable, Iterator
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
@@ -37,7 +40,7 @@ G_FIELDS = [
 ]
 
 
-def _g_files():
+def _g_files() -> tuple[bytes, bytes]:
     """One table as the pipeline writes it, as Parquet and as gzipped CSV.
 
     The CSV joins the suppressed names with ";" as the CSV writer joins them.
@@ -75,17 +78,23 @@ def _g_files():
 
 
 class Handler(BaseHTTPRequestHandler):
-    hits: ClassVar[list] = []
+    hits: ClassVar[list[tuple[str, dict[str, str], str | None]]] = []
     throttle = 0
     failing = 0
     duckdb_bytes = b""
     gpkg_bytes = b""
-    ranges: ClassVar[list] = []
+    ranges: ClassVar[list[str | None]] = []
 
-    def log_message(self, *a):
+    def log_message(self, *a: object) -> None:
         pass
 
-    def send(self, status, body, ctype="application/json", headers=()):
+    def send(
+        self,
+        status: int,
+        body: object,
+        ctype: str = "application/json",
+        headers: Iterable[tuple[str, str]] = (),
+    ) -> None:
         raw = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", ctype)
@@ -95,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def do_GET(self):  # noqa: C901, PLR0911, PLR0912, PLR0915 - a fake site answers one route per branch
+    def do_GET(self) -> None:  # noqa: C901, PLR0911, PLR0912, PLR0915 - a fake site answers one route per branch
         u = urllib.parse.urlsplit(self.path)
         q = dict(urllib.parse.parse_qsl(u.query))
         Handler.hits.append((u.path, q, self.headers.get("User-Agent")))
@@ -305,12 +314,12 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
 
-def last_api_hit():
+def last_api_hit() -> tuple[str, dict[str, str], str | None]:
     return next(h for h in reversed(Handler.hits) if h[0].startswith("/api/"))
 
 
 @pytest.fixture
-def client():
+def client() -> Iterator[pd_au.Client]:
     Handler.hits = []
     Handler.throttle = 0
     Handler.failing = 0
@@ -321,7 +330,7 @@ def client():
     srv.shutdown()
 
 
-def test_filters_render_in_the_apis_operator_form():
+def test_filters_render_in_the_apis_operator_form() -> None:
     assert str(pd_au.gte(2020)) == "gte.2020"
     assert str(pd_au.in_("QLD", "NSW")) == "in.(QLD,NSW)"
     assert str(pd_au.in_(["a", "b"])) == "in.(a,b)"
@@ -333,7 +342,7 @@ def test_filters_render_in_the_apis_operator_form():
         pd_au.in_("a,b")
 
 
-def test_rows_sends_where_select_and_order(client):
+def test_rows_sends_where_select_and_order(client: pd_au.Client) -> None:
     r = client.rows(
         "a",
         {"state": "QLD", "year": pd_au.gte(2020), "lga": None, "sex": ["F", "M"]},
@@ -352,12 +361,13 @@ def test_rows_sends_where_select_and_order(client):
         "order": "n.desc",
         "limit": "2",
     }
+    assert ua is not None
     assert ua.startswith("publicdata-au-python/")
     assert r == [{"n": 0}, {"n": 1}]
     assert r.page["next"]
 
 
-def test_rows_carries_provenance(client):
+def test_rows_carries_provenance(client: pd_au.Client) -> None:
     r = client.rows("a")
     assert r.version == "2026-08-07"
     assert r.attribution
@@ -366,34 +376,36 @@ def test_rows_carries_provenance(client):
     assert r.version_page == "vp"
 
 
-def test_all_follows_every_page(client):
+def test_all_follows_every_page(client: pd_au.Client) -> None:
     r = client.rows("a", all=True, limit=2)
     assert [x["n"] for x in r] == [0, 1, 2, 3, 4]
     assert r.page["next"] is None
     assert len([h for h in Handler.hits if h[0].endswith("/rows")]) == 3
 
 
-def test_a_dated_version_goes_on_the_path(client):
+def test_a_dated_version_goes_on_the_path(client: pd_au.Client) -> None:
     client.rows("a", version="2026-08-07")
     assert last_api_hit()[0] == "/api/v1/datasets/a/versions/2026-08-07/rows"
     with pytest.raises(ValueError, match="date"):
         client.rows("a", version="latest")
 
 
-def test_aggregate(client):
+def test_aggregate(client: pd_au.Client) -> None:
     a = client.aggregate("a", group=["g", "h"], metric=["count", "sum.n"], where={"x": 1})
     assert last_api_hit()[1] == {"group": "g,h", "metric": "count,sum.n", "x": "eq.1"}
     assert a == [{"g": 1, "count": 2}]
     assert a.version == "2026-08-07"
 
 
-def test_429_waits_then_retries(client):
+def test_429_waits_then_retries(client: pd_au.Client) -> None:
     Handler.throttle = 2
     assert client.datasets("crash")[0] == {"slug": "a", "q": "crash"}
 
 
-def test_a_passing_server_error_is_retried(client, monkeypatch):
-    monkeypatch.setattr(pd_au.time, "sleep", lambda s: None)
+def test_a_passing_server_error_is_retried(
+    client: pd_au.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda s: None)
     Handler.failing = 2
     assert client.datasets("crash")[0]["slug"] == "a"
     Handler.failing = 5
@@ -402,14 +414,14 @@ def test_a_passing_server_error_is_retried(client, monkeypatch):
     assert err.value.status == 503
 
 
-def test_429_past_the_retries_raises(client):
+def test_429_past_the_retries_raises(client: pd_au.Client) -> None:
     Handler.throttle = 5
     with pytest.raises(pd_au.PublicDataError) as err:
         client.datasets()
     assert err.value.status == 429
 
 
-def test_an_error_names_the_status_and_the_apis_message(client):
+def test_an_error_names_the_status_and_the_apis_message(client: pd_au.Client) -> None:
     with pytest.raises(pd_au.PublicDataError) as err:
         client.rows("nope")
     assert err.value.status == 404
@@ -417,13 +429,15 @@ def test_an_error_names_the_status_and_the_apis_message(client):
     assert err.value.body == {"error": "No such dataset in the query API"}
 
 
-def test_a_bad_slug_never_reaches_the_network(client):
+def test_a_bad_slug_never_reaches_the_network(client: pd_au.Client) -> None:
     with pytest.raises(ValueError, match="not a dataset slug"):
         client.rows("../etc")
     assert Handler.hits == []
 
 
-def test_download_follows_latest_and_names_the_version(client, tmp_path, monkeypatch):
+def test_download_follows_latest_and_names_the_version(
+    client: pd_au.Client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     p = client.download("a", "csv")
     assert p.name == "a-2026-08-07.csv"
@@ -432,7 +446,7 @@ def test_download_follows_latest_and_names_the_version(client, tmp_path, monkeyp
         client.download("a", "docx")
 
 
-def test_read_takes_provenance_from_the_file_it_read(client):
+def test_read_takes_provenance_from_the_file_it_read(client: pd_au.Client) -> None:
     pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     df = client.read("a", version="2026-08-07")
@@ -443,7 +457,9 @@ def test_read_takes_provenance_from_the_file_it_read(client):
     assert not any(h[0].endswith("datapackage.json") for h in Handler.hits)
 
 
-def test_read_falls_back_to_the_gzipped_csv_typed_as_the_parquet_path(client, monkeypatch):
+def test_read_falls_back_to_the_gzipped_csv_typed_as_the_parquet_path(
+    client: pd_au.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
 
@@ -474,7 +490,7 @@ def test_read_falls_back_to_the_gzipped_csv_typed_as_the_parquet_path(client, mo
         client.read("db", "2026-08-07", table="thing")
 
 
-def test_a_far_timestamp_is_never_made_a_null():
+def test_a_far_timestamp_is_never_made_a_null() -> None:
     pd = pytest.importorskip("pandas")
 
     col = pd.Series(["9999-12-31 00:00:00", None], dtype=object)
@@ -483,7 +499,7 @@ def test_a_far_timestamp_is_never_made_a_null():
     assert pd.isna(out.iloc[1])
 
 
-def test_a_format_a_version_leaves_out_says_why(client, tmp_path):
+def test_a_format_a_version_leaves_out_says_why(client: pd_au.Client, tmp_path: Path) -> None:
     with pytest.raises(
         pd_au.PublicDataError, match=re.escape("has no data.xlsx in this version")
     ) as err:
@@ -498,7 +514,7 @@ def test_a_format_a_version_leaves_out_says_why(client, tmp_path):
         client.download("a", "csv.gz", "2026-08-07", tmp_path / "x.csv.gz")
 
 
-def test_an_unreachable_site_raises_the_packages_own_error():
+def test_an_unreachable_site_raises_the_packages_own_error() -> None:
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -509,12 +525,12 @@ def test_an_unreachable_site_raises_the_packages_own_error():
     assert "could not reach" in str(err.value)
 
 
-def test_versions_and_dataset(client):
+def test_versions_and_dataset(client: pd_au.Client) -> None:
     assert client.versions("a") == [{"version": "2026-08-07"}]
     assert client.dataset("a")["licenses"][0]["name"] == "CC-BY-4.0"
 
 
-def test_site_can_come_from_the_environment(monkeypatch):
+def test_site_can_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PUBLICDATA_SITE", "http://example.test/")
     assert pd_au.Client().site == "http://example.test"
 
@@ -522,7 +538,7 @@ def test_site_can_come_from_the_environment(monkeypatch):
 @pytest.mark.skipif(
     not os.environ.get("PUBLICDATA_LIVE"), reason="set PUBLICDATA_LIVE=1 to query the live site"
 )
-def test_live_site():
+def test_live_site() -> None:
     slugs = [d["slug"] for d in pd_au.datasets()]
     assert "au-road-deaths" in slugs
     r = pd_au.rows("au-road-deaths", {"state": "QLD"}, limit=1)
@@ -530,14 +546,14 @@ def test_live_site():
     assert r.attribution
 
 
-def test_tables_of_a_table_and_of_a_database(client):
+def test_tables_of_a_table_and_of_a_database(client: pd_au.Client) -> None:
     assert client.tables("a") == [
         {"name": "records", "fields": [{"name": "n", "type": "integer"}], "primaryKey": ["n"]}
     ]
     assert [t["name"] for t in client.tables("db", "2026-08-07")] == ["thing"]
 
 
-def test_a_table_of_a_database_is_read_as_parquet(client):
+def test_a_table_of_a_database_is_read_as_parquet(client: pd_au.Client) -> None:
     pytest.importorskip("pyarrow")
     pytest.importorskip("pandas")
     df = client.read("db", "2026-08-07", table="thing")
@@ -552,7 +568,9 @@ def test_a_table_of_a_database_is_read_as_parquet(client):
         client.file_url("db", table="../x")
 
 
-def test_connect_attaches_the_newest_version_read_only(client, tmp_path):
+def test_connect_attaches_the_newest_version_read_only(
+    client: pd_au.Client, tmp_path: Path
+) -> None:
     duckdb = pytest.importorskip("duckdb")
     src = tmp_path / "data.duckdb"
     con = duckdb.connect(str(src))
@@ -574,7 +592,7 @@ def test_connect_attaches_the_newest_version_read_only(client, tmp_path):
         client.connect("a", name='x" (READ_ONLY); DROP TABLE records; --')
 
 
-def test_datasets_filter_by_publisher_topic_and_jurisdiction(client):
+def test_datasets_filter_by_publisher_topic_and_jurisdiction(client: pd_au.Client) -> None:
     assert [d["slug"] for d in client.datasets(publisher="bureau")] == ["a"]
     assert [d["slug"] for d in client.datasets(topic="crime")] == ["b"]
     assert [d["slug"] for d in client.datasets(jurisdiction="queensland")] == ["a"]
@@ -583,10 +601,10 @@ def test_datasets_filter_by_publisher_topic_and_jurisdiction(client):
     with pytest.raises(ValueError, match="crime, roads"):
         client.datasets(topic="nope")
     with pytest.raises(ValueError, match="one piece of text"):
-        client.datasets(publisher=["a"])
+        client.datasets(publisher=["a"])  # type: ignore[arg-type]  # the type the check refuses
 
 
-def test_changes_and_diff(client):
+def test_changes_and_diff(client: pd_au.Client) -> None:
     assert client.changes("a")[0]["added"] == 1
     assert client.changes("a", since="2026-08-02") == []
     assert client.diff("a")["added_keys"] == [9]
@@ -594,7 +612,7 @@ def test_changes_and_diff(client):
         client.diff("a", "2026-08-01")
 
 
-def test_cite_as_text_and_bibtex(client):
+def test_cite_as_text_and_bibtex(client: pd_au.Client) -> None:
     assert client.cite("a") == (
         "Pub (2026). A things. Version 2026-08-07, serialised and versioned by National Digital "
         f"at publicdata.au. Publisher. {client.site}/d/a/v/2026-08-07/"
@@ -605,7 +623,7 @@ def test_cite_as_text_and_bibtex(client):
     assert "read from the publisher on 2026-08-01" in client.cite("a", "2026-08-01")
 
 
-def test_the_cache_keeps_a_version_and_reuses_it(client, tmp_path):
+def test_the_cache_keeps_a_version_and_reuses_it(client: pd_au.Client, tmp_path: Path) -> None:
     pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     client.cache = True
@@ -629,7 +647,7 @@ def test_the_cache_keeps_a_version_and_reuses_it(client, tmp_path):
     assert not (tmp_path / "cache" / "a").exists()
 
 
-def test_nothing_is_kept_unless_asked(client, tmp_path):
+def test_nothing_is_kept_unless_asked(client: pd_au.Client, tmp_path: Path) -> None:
     pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     client._cache_dir = tmp_path / "cache"
@@ -637,7 +655,7 @@ def test_nothing_is_kept_unless_asked(client, tmp_path):
     assert not (tmp_path / "cache").exists()
 
 
-def test_a_licence_condition_is_shown_once(client):
+def test_a_licence_condition_is_shown_once(client: pd_au.Client) -> None:
     with pytest.warns(pd_au.LicenceCondition, match="No mail lists"):
         client.aggregate("c")
 
@@ -647,7 +665,7 @@ def test_a_licence_condition_is_shown_once(client):
         client.aggregate("a")
 
 
-def test_relation_is_lazy_and_checks_the_table(client, tmp_path):
+def test_relation_is_lazy_and_checks_the_table(client: pd_au.Client, tmp_path: Path) -> None:
     duckdb = pytest.importorskip("duckdb")
     src = tmp_path / "data.duckdb"
     con = duckdb.connect(str(src))
@@ -655,7 +673,9 @@ def test_relation_is_lazy_and_checks_the_table(client, tmp_path):
     con.close()
     Handler.duckdb_bytes = src.read_bytes()
     r = client.relation("a")
-    assert r.filter("n >= 5").aggregate("count(*)").fetchone()[0] == 5
+    row = r.filter("n >= 5").aggregate("count(*)").fetchone()
+    assert row is not None
+    assert row[0] == 5
     client.relation("a")
     assert len(client._relations) == 1
     with pytest.raises(ValueError, match="no table or view"):
@@ -664,7 +684,7 @@ def test_relation_is_lazy_and_checks_the_table(client, tmp_path):
         client.relation("a", "2026-08-07")
 
 
-def test_read_geo_reads_the_layer_and_its_provenance(client, tmp_path):
+def test_read_geo_reads_the_layer_and_its_provenance(client: pd_au.Client, tmp_path: Path) -> None:
     gpd = pytest.importorskip("geopandas")
 
     from shapely.geometry import Point  # noqa: PLC0415 - the client's geo extra
@@ -679,13 +699,14 @@ def test_read_geo_reads_the_layer_and_its_provenance(client, tmp_path):
     Handler.gpkg_bytes = src.read_bytes()
     out = client.read_geo("a")
     assert len(out) == 2
+    assert out.crs is not None
     assert out.crs.to_epsg() == 7844
     assert out.attrs["publicdata"]["licence"] == {"id": "CC-BY-4.0"}
     with pytest.raises(pd_au.PublicDataError, match="no map layer"):
         client.read_geo("b")
 
 
-def test_fields_and_typed_rows(client):
+def test_fields_and_typed_rows(client: pd_au.Client) -> None:
     f = client.fields("t")
     assert [x["name"] for x in f] == ["n", "day", "at", "flag", "g"]
     r = client.rows("t")
@@ -703,7 +724,7 @@ def test_fields_and_typed_rows(client):
     assert db[0]["table"] == "thing"
 
 
-def test_provenance_catalogue_and_file_url(client):
+def test_provenance_catalogue_and_file_url(client: pd_au.Client) -> None:
     assert client.provenance("a", "2026-08-07")["sha256"] == "abc"
     out = client.catalogue(
         "water", jurisdiction="Queensland", status=["votable", "served"], limit=5
@@ -720,13 +741,13 @@ def test_provenance_catalogue_and_file_url(client):
     assert client.file_url("a", "csv", "2026-08-07").endswith("/d/a/v/2026-08-07/data.csv")
 
 
-def test_an_unreachable_site_is_its_own_error():
+def test_an_unreachable_site_is_its_own_error() -> None:
     c = pd_au.Client("http://127.0.0.1:9", retries=0, timeout=2)
     with pytest.raises(pd_au.SiteUnreachable):
         c.versions("a")
 
 
-def test_close_releases_relation_connections(client, tmp_path):
+def test_close_releases_relation_connections(client: pd_au.Client, tmp_path: Path) -> None:
     duckdb = pytest.importorskip("duckdb")
     src = tmp_path / "data.duckdb"
     con = duckdb.connect(str(src))
@@ -739,15 +760,15 @@ def test_close_releases_relation_connections(client, tmp_path):
     assert c._relations == {}
 
 
-def test_read_takes_only_the_columns_asked_for(client):
+def test_read_takes_only_the_columns_asked_for(client: pd_au.Client) -> None:
     pytest.importorskip("pyarrow")
     df = client.read("a", columns=["n"])
     assert list(df.columns) == ["n"]
     with pytest.raises(ValueError, match="list of field names"):
-        client.read("a", columns="n")
+        client.read("a", columns="n")  # type: ignore[arg-type]  # the type the check refuses
 
 
-def test_codes_compare_as_text_with_leading_zeros():
+def test_codes_compare_as_text_with_leading_zeros() -> None:
     pytest.importorskip("pandas")
     assert pd_au._norm_codes([800, 4220, None, "16490 "], ["0800", "4220"]) == [
         "0800",
@@ -757,7 +778,9 @@ def test_codes_compare_as_text_with_leading_zeros():
     ]
 
 
-def test_join_boundaries_finds_the_layer_and_keeps_the_order(client, monkeypatch):
+def test_join_boundaries_finds_the_layer_and_keeps_the_order(
+    client: pd_au.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
     gpd = pytest.importorskip("geopandas")
     import pandas as pd  # noqa: PLC0415 - the client's geo extra
     from shapely.geometry import box  # noqa: PLC0415 - the client's geo extra
@@ -773,6 +796,7 @@ def test_join_boundaries_finds_the_layer_and_keeps_the_order(client, monkeypatch
     with pytest.warns(UserWarning, match="1 row"):
         g = client.join_boundaries(df)
     assert list(g["n"]) == [1, 2, 3]
+    assert g.crs is not None
     assert g.crs.to_epsg() == 7844
     names = list(g["poa_2021_name"])
     assert names[0] == "4220"
@@ -790,7 +814,7 @@ def test_join_boundaries_finds_the_layer_and_keeps_the_order(client, monkeypatch
         client.join_boundaries(df, layer="nowhere")
 
 
-def test_a_pinned_version_is_typed_from_its_own_fields(client):
+def test_a_pinned_version_is_typed_from_its_own_fields(client: pd_au.Client) -> None:
     r = client.rows("t", version="2026-01-01")
     assert r[0]["day"] == "2026-01-02"
     assert r.page["fields"] == {"day": "Old."}

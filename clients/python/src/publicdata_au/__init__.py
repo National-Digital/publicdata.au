@@ -43,7 +43,59 @@ from collections.abc import Mapping
 from contextlib import closing
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+    from http.client import HTTPResponse
+    from types import ModuleType
+
+    import duckdb
+    import geopandas as gpd
+    import pandas as pd
+    from typing_extensions import Self, TypedDict, Unpack
+
+    class _DatasetsOptions(TypedDict, total=False):
+        publisher: str | None
+        topic: str | None
+        jurisdiction: str | None
+
+    class _RowsOptions(TypedDict, total=False):
+        select: str | list[str] | None
+        order: str | list[str] | None
+        limit: int | None
+        offset: int | None
+        version: str | None
+        all: bool
+
+    class _VersionOption(TypedDict, total=False):
+        version: str | None
+
+    class _CacheOption(TypedDict, total=False):
+        cache: bool | None
+
+    class _DownloadOptions(TypedDict, total=False):
+        table: str | None
+        cache: bool | None
+
+    class _ReadOptions(TypedDict, total=False):
+        table: str | None
+        cache: bool | None
+        columns: list[str] | None
+
+    class _ConnectOptions(TypedDict, total=False):
+        name: str | None
+        cache: bool | None
+
+    class _CiteOptions(TypedDict, total=False):
+        format: str
+
+    class _CatalogueOptions(TypedDict, total=False):
+        jurisdiction: str | None
+        status: str | list[str] | None
+        limit: int
+        offset: int
+
 
 __version__ = "0.5.0"
 __all__ = [
@@ -118,7 +170,13 @@ PAGE_MAX = 10_000
 class PublicDataError(Exception):
     """An answer from publicdata.au that was not a success."""
 
-    def __init__(self, status: int, message: str, body: Any = None, url: str = ""):
+    def __init__(
+        self,
+        status: int,
+        message: str,
+        body: Any = None,  # noqa: ANN401 - the answer as decoded, JSON or text
+        url: str = "",
+    ) -> None:
         """Keep the HTTP status, the decoded body and the URL that answered."""
         super().__init__(f"{status}: {message}" + (f" ({url})" if url else ""))
         self.status = status
@@ -142,7 +200,7 @@ class LicenceCondition(UserWarning):
 class Filter:
     """One condition on a field, in the query API's `operator.value` form."""
 
-    def __init__(self, expr: str):
+    def __init__(self, expr: str) -> None:
         """Hold the condition as the query API spells it, such as `gte.2020`."""
         self.expr = expr
 
@@ -154,7 +212,7 @@ class Filter:
         """The constructor call that makes this filter again."""
         return f"Filter({self.expr!r})"
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Whether another filter states the same condition."""
         return isinstance(other, Filter) and other.expr == self.expr
 
@@ -163,38 +221,38 @@ class Filter:
         return hash(self.expr)
 
 
-def _v(value) -> str:
+def _v(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
 
 
-def eq(value) -> Filter:
+def eq(value: object) -> Filter:
     """Match a field equal to `value`; a plain value in `where` means the same."""
     return Filter(f"eq.{_v(value)}")
 
 
-def neq(value) -> Filter:
+def neq(value: object) -> Filter:
     """Match a field that differs from `value`."""
     return Filter(f"neq.{_v(value)}")
 
 
-def gt(value) -> Filter:
+def gt(value: object) -> Filter:
     """Match a field greater than `value`."""
     return Filter(f"gt.{_v(value)}")
 
 
-def gte(value) -> Filter:
+def gte(value: object) -> Filter:
     """Match a field greater than or equal to `value`."""
     return Filter(f"gte.{_v(value)}")
 
 
-def lt(value) -> Filter:
+def lt(value: object) -> Filter:
     """Match a field less than `value`."""
     return Filter(f"lt.{_v(value)}")
 
 
-def lte(value) -> Filter:
+def lte(value: object) -> Filter:
     """Match a field less than or equal to `value`."""
     return Filter(f"lte.{_v(value)}")
 
@@ -209,7 +267,7 @@ def ilike(pattern: str) -> Filter:
     return Filter(f"ilike.{pattern}")
 
 
-def in_(*values) -> Filter:
+def in_(*values: object) -> Filter:
     """Match a field equal to any of the values, given one by one or as one list.
 
     A value cannot contain a comma, since the query API separates the values with commas.
@@ -232,7 +290,7 @@ def not_(f: Filter) -> Filter:
     return Filter(f"not.{f.expr}")
 
 
-def _filter(value) -> str:
+def _filter(value: object) -> str:
     if isinstance(value, Filter):
         return value.expr
     if value is None:
@@ -242,14 +300,19 @@ def _filter(value) -> str:
     return eq(value).expr
 
 
-class Rows(list):
+class Rows(list[dict[str, Any]]):
     """A list of row dicts that also carries where they came from.
 
     `version`, `attribution`, `cite` and `licence` come from the answer itself, so they always
     name the version the rows were read from.
     """
 
-    def __init__(self, rows=(), meta: Mapping | None = None, page: Mapping | None = None):
+    def __init__(
+        self,
+        rows: Iterable[dict[str, Any]] = (),
+        meta: Mapping[str, Any] | None = None,
+        page: Mapping[str, Any] | None = None,
+    ) -> None:
         """Hold the rows with the answer's provenance (`meta`) and its page details (`page`)."""
         super().__init__(rows)
         self.meta = dict(meta or {})
@@ -258,29 +321,34 @@ class Rows(list):
     @property
     def version(self) -> str | None:
         """The date of the version the rows were read from."""
-        return self.meta.get("version")
+        v: str | None = self.meta.get("version")
+        return v
 
     @property
     def attribution(self) -> str | None:
         """The attribution the publisher asks for, to show with the rows."""
-        return self.meta.get("attribution")
+        v: str | None = self.meta.get("attribution")
+        return v
 
     @property
     def cite(self) -> str | None:
         """A citation of the version the rows came from."""
-        return self.meta.get("cite")
+        v: str | None = self.meta.get("cite")
+        return v
 
     @property
-    def licence(self) -> dict | None:
+    def licence(self) -> dict[str, Any] | None:
         """The licence the rows are published under, as the answer states it."""
-        return self.meta.get("licence")
+        v: dict[str, Any] | None = self.meta.get("licence")
+        return v
 
     @property
     def version_page(self) -> str | None:
         """The URL of the version's page on the site, to link to as the source."""
-        return self.page.get("version_page")
+        v: str | None = self.page.get("version_page")
+        return v
 
-    def to_pandas(self):
+    def to_pandas(self) -> pd.DataFrame:
         """The rows as a DataFrame.
 
         Dates are already `datetime.date`; `df.attrs["fields"]` maps each column to its field's
@@ -288,16 +356,21 @@ class Rows(list):
         """
         import pandas as pd  # noqa: PLC0415 - an optional extra
 
-        df = pd.DataFrame(list(self))
+        df: pd.DataFrame = pd.DataFrame(list(self))
         df.attrs["publicdata"] = self.meta
         df.attrs["fields"] = dict(self.page.get("fields") or {})
         return df
 
 
-class Results(list):
+class Results(list[dict[str, Any]]):
     """A page of catalogue records: `total` matches in all, `next_offset` for the next page."""
 
-    def __init__(self, rows=(), total: int | None = None, next_offset: int | None = None):
+    def __init__(
+        self,
+        rows: Iterable[dict[str, Any]] = (),
+        total: int | None = None,
+        next_offset: int | None = None,
+    ) -> None:
         super().__init__(rows)
         self.total = total
         self.next_offset = next_offset
@@ -310,20 +383,20 @@ class Connection:
     version, the file's URL and its licence.
     """
 
-    def __init__(self, con, publicdata: dict):
+    def __init__(self, con: duckdb.DuckDBPyConnection, publicdata: dict[str, Any]) -> None:
         """Wrap a DuckDB connection with the provenance of the file it attached."""
         self._con = con
         self.publicdata = publicdata
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401 - whatever DuckDB's connection has
         """Hand any other attribute to the DuckDB connection."""
         return getattr(self._con, name)
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         """Use the connection in a `with` block, which closes it at the end."""
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> None:
         """Close the DuckDB connection."""
         self._con.close()
 
@@ -343,8 +416,8 @@ class Client:
         retries: int = 3,
         user_agent: str | None = None,
         cache: bool | None = None,
-        cache_dir: str | os.PathLike | None = None,
-    ):
+        cache_dir: str | os.PathLike[str] | None = None,
+    ) -> None:
         """Set the site, the timeout and retries for each request, and whether files are cached.
 
         `site` defaults to PUBLICDATA_SITE or https://publicdata.au, and `cache` to
@@ -360,7 +433,7 @@ class Client:
         self._cache_dir = Path(cache_dir) if cache_dir else None
         self._conditions: dict[str, str] = {}
         self._shown: set[str] = set()
-        self._relations: dict[tuple, Connection] = {}
+        self._relations: dict[tuple[str, str, bool], Connection] = {}
         self._memo: dict[str, Any] = {}
 
     def close(self) -> None:
@@ -369,20 +442,20 @@ class Client:
             con.close()
         self._relations.clear()
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         """Use the client in a `with` block, which closes its connections at the end."""
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: object) -> None:
         """Close the DuckDB connections `relation()` opened."""
         self.close()
 
-    def _open(self, url: str):
+    def _open(self, url: str) -> HTTPResponse:
         req = urllib.request.Request(url, headers={"User-Agent": self.user_agent})
         attempt = 0
         while True:
             try:
-                return urllib.request.urlopen(req, timeout=self.timeout)
+                resp: HTTPResponse = urllib.request.urlopen(req, timeout=self.timeout)
             except urllib.error.HTTPError as err:  # noqa: PERF203 - each attempt answers its own error
                 # The API allows a burst per address, then answers 429 with how long to wait.
                 if err.code == HTTPStatus.TOO_MANY_REQUESTS and attempt < self.retries:
@@ -407,8 +480,10 @@ class Client:
             except (urllib.error.URLError, TimeoutError) as err:
                 reason = getattr(err, "reason", err)
                 raise SiteUnreachable(0, f"could not reach the site: {reason}", None, url) from err
+            else:
+                return resp
 
-    def _json(self, path_or_url: str, params: Mapping | None = None):
+    def _json(self, path_or_url: str, params: Mapping[str, object] | None = None) -> dict[str, Any]:
         url = path_or_url if "://" in path_or_url else self.site + path_or_url
         if params:
             q = urllib.parse.urlencode(
@@ -419,7 +494,9 @@ class Client:
             if q:
                 url += ("&" if "?" in url else "?") + q
         with self._open(url) as r:
-            return json.loads(r.read())
+            # Every endpoint the client calls answers a JSON object.
+            body: dict[str, Any] = json.loads(r.read())
+        return body
 
     def datasets(
         self,
@@ -428,7 +505,7 @@ class Client:
         publisher: str | None = None,
         topic: str | None = None,
         jurisdiction: str | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Datasets the site serves, each with slug, title, publisher, licence and page URL.
 
         `q` searches titles, summaries, publishers, keywords and field names. `publisher` is
@@ -436,13 +513,17 @@ class Client:
         `jurisdiction` a code such as "Qld" or a name such as "Queensland", all ignoring case.
         Every condition given must match.
         """
-        out = self._json("/api/v1/datasets", {"q": q} if q else None)["results"]
+        out: list[dict[str, Any]] = self._json("/api/v1/datasets", {"q": q} if q else None)[
+            "results"
+        ]
         if publisher is None and topic is None and jurisdiction is None:
             return out
         keep = self._catalogue_match(publisher, topic, jurisdiction)
         return [d for d in out if d["slug"] in keep]
 
-    def _catalogue_match(self, publisher, topic, jurisdiction) -> set[str]:
+    def _catalogue_match(
+        self, publisher: str | None, topic: str | None, jurisdiction: str | None
+    ) -> set[str]:
         for what, v in (("publisher", publisher), ("topic", topic), ("jurisdiction", jurisdiction)):
             if v is not None and (not isinstance(v, str) or not v):
                 msg = f"{what} must be one piece of text"
@@ -480,22 +561,24 @@ class Client:
             ]
         return {e["identifier"] for e in keep}
 
-    def dataset(self, slug: str) -> dict:
+    def dataset(self, slug: str) -> dict[str, Any]:
         """The dataset's Frictionless data package.
 
         It holds the title, licence, attribution, fields and every file of the newest version.
         """
         return self._json(f"/d/{_slug(slug)}/datapackage.json")
 
-    def versions(self, slug: str) -> list[dict]:
+    def versions(self, slug: str) -> list[dict[str, Any]]:
         """Every version kept, newest first, each with its date, rows, fields and source hash."""
-        return self._json(f"/d/{_slug(slug)}/versions.json")["versions"]
+        out: list[dict[str, Any]] = self._json(f"/d/{_slug(slug)}/versions.json")["versions"]
+        return out
 
     def latest(self, slug: str) -> str:
         """The date of the newest version."""
-        return self._json(f"/d/{_slug(slug)}/versions.json")["latest"]
+        out: str = self._json(f"/d/{_slug(slug)}/versions.json")["latest"]
+        return out
 
-    def schema(self, slug: str, version: str | None = None) -> dict:
+    def schema(self, slug: str, version: str | None = None) -> dict[str, Any]:
         """A version's schema.json.
 
         For a table it holds the fields. For a database it holds every table with its fields,
@@ -504,14 +587,15 @@ class Client:
         at = f"v/{_date(version)}" if version else "latest"
         return self._json(f"/d/{_slug(slug)}/{at}/schema.json")
 
-    def tables(self, slug: str, version: str | None = None) -> list[dict]:
+    def tables(self, slug: str, version: str | None = None) -> list[dict[str, Any]]:
         """The tables of a database, each with its name, description, rows, fields and keys.
 
         A dataset that is one table has one entry, `records`.
         """
         s = self.schema(slug, version)
         if s.get("kind") == "database":
-            return s["tables"]
+            tables: list[dict[str, Any]] = s["tables"]
+            return tables
         return [
             {
                 "name": "records",
@@ -527,7 +611,7 @@ class Client:
         *,
         name: str | None = None,
         cache: bool | None = None,
-    ):
+    ) -> Connection:
         """A DuckDB connection with the version's DuckDB file attached read-only over HTTPS.
 
         The file is made the current database, so every table and view is queried by name. Only
@@ -580,7 +664,7 @@ class Client:
         version: str | None = None,
         *,
         cache: bool | None = None,
-    ):
+    ) -> duckdb.DuckDBPyRelation:
         """One table or view as a lazy DuckDB relation over the attached file.
 
         `.filter()`, `.aggregate()`, `.project()` and `.order()` build SQL that runs only when
@@ -612,16 +696,24 @@ class Client:
         if _table(table) not in names:
             msg = f"{slug!r} has no table or view {table!r}; its tables are {', '.join(sorted(names))}"
             raise ValueError(msg)
-        return con.table(table)
+        rel: duckdb.DuckDBPyRelation = con.table(table)
+        return rel
 
-    def _query(self, slug, kind, where, version, params) -> dict:
+    def _query(
+        self,
+        slug: str,
+        kind: str,
+        where: Mapping[str, object] | None,
+        version: str | None,
+        params: Mapping[str, object],
+    ) -> dict[str, Any]:
         base = f"/api/v1/datasets/{_slug(slug)}/"
         if version:
             base += f"versions/{_date(version)}/"
-        params = dict(params)
+        query = dict(params)
         for field, value in (where or {}).items():
-            params[field] = _filter(value)
-        return self._json(base + kind, params)
+            query[field] = _filter(value)
+        return self._json(base + kind, query)
 
     def rows(  # noqa: PLR0913 - a public signature
         self,
@@ -685,7 +777,7 @@ class Client:
         self._notice(slug, out.licence)
         return self._typed(slug, out, version)
 
-    def fields(self, slug: str, version: str | None = None) -> list[dict]:
+    def fields(self, slug: str, version: str | None = None) -> list[dict[str, Any]]:
         """Each field's name, type and description.
 
         The type is "string", "integer", "number", "boolean", "date" or "datetime". A number or
@@ -696,16 +788,19 @@ class Client:
         """
         if not version:
             try:
-                return self._json(f"/d/{_slug(slug)}/fields.json")["fields"]
+                listed: list[dict[str, Any]] = self._json(f"/d/{_slug(slug)}/fields.json")["fields"]
             except PublicDataError as err:
                 if err.status != HTTPStatus.NOT_FOUND:
                     raise
+            else:
+                return listed
         s = self.schema(slug, version)
         if s.get("kind") == "database":
             return [{"table": t["name"], **f} for t in s["tables"] for f in t["fields"]]
-        return s.get("fields", [])
+        out: list[dict[str, Any]] = s.get("fields", [])
+        return out
 
-    def _field_types(self, slug: str, version: str | None = None) -> dict[str, dict]:
+    def _field_types(self, slug: str, version: str | None = None) -> dict[str, dict[str, Any]]:
         # Typing is a convenience: if the fields cannot be read, the answer goes back untyped.
         key = f"fields:{slug}:{version or 'latest'}"
         if key not in self._memo:
@@ -714,7 +809,8 @@ class Client:
             except PublicDataError:
                 return {}
             self._memo[key] = {f["name"]: f for f in fields if "table" not in f}
-        return self._memo[key]
+        out: dict[str, dict[str, Any]] = self._memo[key]
+        return out
 
     def _typed(self, slug: str, out: Rows, version: str | None = None) -> Rows:
         """Values typed as the fields of the version they came from say.
@@ -758,7 +854,14 @@ class Client:
             return f"{self.site}/d/{_slug(slug)}/{at}/tables/{_table(table)}.parquet"
         return f"{self.site}/d/{_slug(slug)}/{at}/data.{format}"
 
-    def _save(self, slug, format, version, path, table=None) -> tuple[Path, str]:
+    def _save(
+        self,
+        slug: str,
+        format: str,
+        version: str | None,
+        path: str | os.PathLike[str] | None,
+        table: str | None = None,
+    ) -> tuple[Path, str]:
         try:
             resp = self._open(self.file_url(slug, format, version, table))
         except PublicDataError as err:
@@ -780,7 +883,7 @@ class Client:
         slug: str,
         format: str = "parquet",
         version: str | None = None,
-        path: str | os.PathLike | None = None,
+        path: str | os.PathLike[str] | None = None,
         *,
         table: str | None = None,
         cache: bool | None = None,
@@ -811,7 +914,7 @@ class Client:
         table: str | None = None,
         cache: bool | None = None,
         columns: list[str] | None = None,
-    ):
+    ) -> pd.DataFrame:
         """The whole table as a pandas DataFrame, read from the version's Parquet file.
 
         With `table` it reads one table of a database. `columns` reads only those fields.
@@ -835,12 +938,18 @@ class Client:
             p, _ = self._fetch(slug, "parquet", version, table, cache, tmp=Path(d))
             tbl = pq.read_table(p, columns=list(columns) if columns else None)
         header = (tbl.schema.metadata or {}).get(b"publicdata")
-        df = tbl.to_pandas()
+        df: pd.DataFrame = tbl.to_pandas()
         df.attrs["publicdata"] = json.loads(header) if header else {}
         self._notice(slug, df.attrs["publicdata"].get("licence"))
         return df
 
-    def _read_csv(self, slug, version, cache, columns):
+    def _read_csv(
+        self,
+        slug: str,
+        version: str | None,
+        cache: bool | None,  # noqa: FBT001 - read() passes its keyword on in place
+        columns: list[str] | None,
+    ) -> pd.DataFrame:
         import pandas as pd  # noqa: PLC0415 - an optional extra
 
         fields = self._field_types(slug, version)
@@ -869,7 +978,7 @@ class Client:
         self._notice(slug, df.attrs["publicdata"].get("licence"))
         return df
 
-    def _file_header(self, slug: str, version: str | None) -> dict:
+    def _file_header(self, slug: str, version: str | None) -> dict[str, Any]:
         """The provenance header every file of a version carries.
 
         It is the first line of the version's NDJSON, read with a range request so the rest is
@@ -882,11 +991,15 @@ class Client:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 line = r.read(65536).split(b"\n", 1)[0]
-            return json.loads(line).get("publicdata", {})
+            header: dict[str, Any] = json.loads(line).get("publicdata", {})
         except (urllib.error.URLError, TimeoutError, ValueError, AttributeError):
             return {}
+        else:
+            return header
 
-    def read_geo(self, slug: str, version: str | None = None, *, cache: bool | None = None):
+    def read_geo(
+        self, slug: str, version: str | None = None, *, cache: bool | None = None
+    ) -> gpd.GeoDataFrame:
         """A dataset's map layer as a geopandas GeoDataFrame, read from the version's GeoPackage.
 
         Datasets with a location or a shape have one; the coordinates are in the reference
@@ -917,21 +1030,23 @@ class Client:
         self._notice(slug, header.get("licence"))
         return gdf
 
-    def changes(self, slug: str, since: str | None = None, until: str | None = None) -> list[dict]:
+    def changes(
+        self, slug: str, since: str | None = None, until: str | None = None
+    ) -> list[dict[str, Any]]:
         """Every comparison of a version with the one before it, oldest first.
 
         Each names the two versions, their rows, the rows added, removed, changed and unchanged,
         the schema changes and the URL of the full comparison. `since` and `until` bound the
         versions compared. A database is compared by each table's row count.
         """
-        out = self._json(f"/d/{_slug(slug)}/changes.json")["changes"]
+        out: list[dict[str, Any]] = self._json(f"/d/{_slug(slug)}/changes.json")["changes"]
         if since:
             out = [c for c in out if c["from"] >= _date(since)]
         if until:
             out = [c for c in out if c["to"] <= _date(until)]
         return out
 
-    def diff(self, slug: str, version: str | None = None) -> dict:
+    def diff(self, slug: str, version: str | None = None) -> dict[str, Any]:
         """The full comparison of `version`, the newest by default, with the version before it.
 
         It holds the counts, the keys of the rows added, removed and changed (up to 50,000 of
@@ -985,7 +1100,7 @@ class Client:
         body = ",\n".join(f"  {k} = {{{v}}}" for k, v in fields.items())
         return f"@misc{{{slug}-{version},\n{body}\n}}"
 
-    def provenance(self, slug: str, version: str | None = None) -> dict:
+    def provenance(self, slug: str, version: str | None = None) -> dict[str, Any]:
         """The record kept with a version.
 
         It names the publisher's file the version was read from, with its address, name, size
@@ -1018,7 +1133,7 @@ class Client:
         the `reason` when closed. `jurisdiction` is a code such as "qld" or a name such as
         "Queensland".
         """
-        jur = None
+        jur: str | None = None
         if jurisdiction is not None:
             jur = _JUR_CODES.get(str(jurisdiction).lower())
             if not jur:
@@ -1035,7 +1150,7 @@ class Client:
         ]
         return Results(rows, body.get("total"), body.get("next_offset"))
 
-    def boundary_layers(self) -> list[dict]:
+    def boundary_layers(self) -> list[dict[str, Any]]:
         """The ABS boundary layers rows join to.
 
         They are council areas, SA2s, suburbs, postal areas and state and federal electorates,
@@ -1044,9 +1159,10 @@ class Client:
         """
         if "places" not in self._memo:
             self._memo["places"] = self._json("/places.json")["layers"]
-        return self._memo["places"]
+        layers: list[dict[str, Any]] = self._memo["places"]
+        return layers
 
-    def _layer(self, layer: str) -> dict:
+    def _layer(self, layer: str) -> dict[str, Any]:
         want = str(layer).lower()
         for lay in self.boundary_layers():
             if want in (lay["key"].lower(), lay["slug"].lower(), lay["code"].lower()):
@@ -1055,7 +1171,7 @@ class Client:
         msg = f"no boundary layer {layer!r}; the layers are {keys}"
         raise ValueError(msg)
 
-    def boundaries(self, layer: str, *, cache: bool | None = None):
+    def boundaries(self, layer: str, *, cache: bool | None = None) -> gpd.GeoDataFrame:
         """A boundary layer as a GeoDataFrame in GDA2020 (EPSG:7844).
 
         `layer` is a key such as "lga", "sa2", "suburb", "postcode", "state_electorate" or
@@ -1064,8 +1180,13 @@ class Client:
         return self.read_geo(self._layer(layer)["slug"], cache=cache)
 
     def join_boundaries(
-        self, df, layer: str | None = None, by: str | None = None, *, cache: bool | None = None
-    ):
+        self,
+        df: pd.DataFrame | Iterable[Mapping[str, Any]],
+        layer: str | None = None,
+        by: str | None = None,
+        *,
+        cache: bool | None = None,
+    ) -> gpd.GeoDataFrame:
         """`df` with the boundary of the area each row names by its ABS code, as a GeoDataFrame.
 
         The rows keep the order of `df`. The layer is found from a column such as
@@ -1081,14 +1202,13 @@ class Client:
         if isinstance(df, gpd.GeoDataFrame):
             msg = "df already has a geometry; drop it first"
             raise ValueError(msg)  # noqa: TRY004 - a public error callers may catch
-        if not isinstance(df, pd.DataFrame):
-            df = pd.DataFrame(list(df))
+        frame = df if isinstance(df, pd.DataFrame) else pd.DataFrame(list(df))
         if layer is None:
-            hits = [lay for lay in self.boundary_layers() if lay["code"] in df.columns]
+            hits = [lay for lay in self.boundary_layers() if lay["code"] in frame.columns]
             if not hits:
-                codes = ", ".join(lay["code"] for lay in self.boundary_layers())
+                named = ", ".join(lay["code"] for lay in self.boundary_layers())
                 msg = (
-                    f"df has no column named for a boundary code ({codes}); "
+                    f"df has no column named for a boundary code ({named}); "
                     'pass layer= and by=, as in layer="lga", by="council_code"'
                 )
                 raise ValueError(msg)
@@ -1099,15 +1219,15 @@ class Client:
         else:
             lay = self._layer(layer)
         col = by or lay["code"]
-        if col not in df.columns:
+        if col not in frame.columns:
             msg = f"df has no column {col!r}"
             raise ValueError(msg)
         b = self.boundaries(lay["key"], cache=cache)
         ref = b[lay["code"]].astype(str)
-        codes = _norm_codes(df[col], ref)
+        codes = _norm_codes(frame[col], ref)
         index = dict(zip(ref, range(len(ref)), strict=True))
         pos = [index.get(c) if c is not None else None for c in codes]
-        out = df.copy()
+        out = frame.copy()
         out[col] = codes
         if lay["name"] not in out.columns:
             out[lay["name"]] = [b[lay["name"]].iloc[i] if i is not None else None for i in pos]
@@ -1115,7 +1235,7 @@ class Client:
             [b.geometry.iloc[i] if i is not None else None for i in pos], crs=b.crs, index=out.index
         )
         gdf = gpd.GeoDataFrame(out, geometry=geometry, crs=b.crs)
-        gdf.attrs["publicdata"] = dict(getattr(df, "attrs", {}).get("publicdata") or {})
+        gdf.attrs["publicdata"] = dict(getattr(frame, "attrs", {}).get("publicdata") or {})
         gdf.attrs["boundaries"] = b.attrs.get("publicdata", {})
         missed = sum(1 for c, i in zip(codes, pos, strict=True) if c is not None and i is None)
         if missed:
@@ -1139,13 +1259,15 @@ class Client:
             base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
         return base / "publicdata-au"
 
-    def cache_list(self, slug: str | None = None, version: str | None = None) -> list[dict]:
+    def cache_list(
+        self, slug: str | None = None, version: str | None = None
+    ) -> list[dict[str, Any]]:
         """Every kept file: its dataset, version, file, bytes and when it was saved."""
         root = self._cache_root(slug, version)
         if not root.is_dir():
             return []
         base = self.cache_dir()
-        out = []
+        out: list[dict[str, Any]] = []
         for p in sorted(root.rglob("*")):
             if p.is_file() and not p.name.endswith(".part"):
                 parts = p.relative_to(base).parts
@@ -1174,7 +1296,7 @@ class Client:
         shutil.rmtree(root)
         return freed
 
-    def _cache_root(self, slug, version) -> Path:
+    def _cache_root(self, slug: str | None, version: str | None) -> Path:
         if version and not slug:
             msg = "a version needs its dataset's slug"
             raise ValueError(msg)
@@ -1189,15 +1311,22 @@ class Client:
         return self.cache if cache is None else bool(cache)
 
     def _fetch(  # noqa: PLR0913 - the options are keyword-only and named at each call
-        self, slug, format, version=None, table=None, cache=None, *, tmp: Path | None = None
-    ):
+        self,
+        slug: str,
+        format: str,
+        version: str | None = None,
+        table: str | None = None,
+        cache: bool | None = None,  # noqa: FBT001 - the callers pass it in place
+        *,
+        tmp: Path | None = None,
+    ) -> tuple[Path, str]:
         """One version's file: the kept copy when caching, else a download into `tmp`."""
         if format not in FORMATS:
             msg = f"format must be one of {', '.join(FORMATS)}"
             raise ValueError(msg)
         if not self._caching(cache=cache):
             name = f"tables-{table}.parquet" if table else f"data.{format}"
-            return self._save(slug, format, version, tmp / name, table)
+            return self._save(slug, format, version, tmp / name, table)  # type: ignore[operator]  # a caller that does not cache passes tmp
         version = _date(version) if version else self.latest(slug)
         name = f"tables/{_table(table)}.parquet" if table else f"data.{format}"
         dest = self.cache_dir() / _slug(slug) / version / name
@@ -1213,7 +1342,7 @@ class Client:
 
     # The licence notice: shown once per dataset, as the dataset's page shows it.
 
-    def _notice(self, slug: str, licence: Mapping | None = None) -> None:
+    def _notice(self, slug: str, licence: Mapping[str, Any] | None = None) -> None:
         if slug in self._shown:
             return
         if isinstance(licence, Mapping):
@@ -1240,7 +1369,7 @@ class Client:
             )
 
 
-def _parquet_module():
+def _parquet_module() -> ModuleType | None:
     try:
         import pyarrow.parquet as pq  # noqa: PLC0415 - an optional extra
     except ImportError:
@@ -1248,7 +1377,7 @@ def _parquet_module():
     return pq
 
 
-def _csv_column(col, kind):  # noqa: PLR0911 - one return per field type
+def _csv_column(col: pd.Series[Any], kind: str | None) -> pd.Series[Any]:  # noqa: PLR0911 - one return per field type
     """One column of the gzipped CSV, typed as pyarrow types the Parquet file's column.
 
     Numbers become int64 or float64 (float64 when a whole number is missing), "nan" becomes NaN,
@@ -1261,7 +1390,7 @@ def _csv_column(col, kind):  # noqa: PLR0911 - one return per field type
 
     present = col.notna()
 
-    def each(f):
+    def each(f: Callable[[Any], object]) -> pd.Series[Any]:
         return pd.Series(
             [f(v) if ok else None for v, ok in zip(col, present, strict=True)],
             index=col.index,
@@ -1273,20 +1402,25 @@ def _csv_column(col, kind):  # noqa: PLR0911 - one return per field type
     if kind in ("integer", "number"):
         # float() reads "nan" and "inf" as the CSV writer writes them, and round-trips every double.
         conv = float if kind == "number" else int
-        return pd.Series(
+        numbers: pd.Series[Any] = pd.Series(
             [conv(v) if ok else float("nan") for v, ok in zip(col, present, strict=True)],
             index=col.index,
             dtype="float64",
         )
+        return numbers
     if kind == "date":
         return each(dt.date.fromisoformat)
     if kind == "datetime":
         # The Parquet file stores milliseconds, which pyarrow 14 and later keep in pandas.
         try:
             stamps = [v if ok else "NaT" for v, ok in zip(col, present, strict=True)]
-            return pd.Series(np.array(stamps, dtype="datetime64[ms]"), index=col.index)
+            times: pd.Series[Any] = pd.Series(
+                np.array(stamps, dtype="datetime64[ms]"), index=col.index
+            )
         except ValueError:
             return each(dt.datetime.fromisoformat)
+        else:
+            return times
     if kind == "boolean":
         out = each(lambda v: v.lower() == "true")
         return out.astype(bool) if present.all() else out
@@ -1326,7 +1460,7 @@ def _datetime(v: str) -> dt.datetime:
     return dt.datetime.fromisoformat(v.replace("Z", "+00:00").replace(" ", "T", 1))
 
 
-def _bool(v):
+def _bool(v: object) -> bool:
     if isinstance(v, bool):
         return v
     if v in (0, 1):
@@ -1334,7 +1468,11 @@ def _bool(v):
     raise ValueError(v)
 
 
-_CONVERT = {"date": dt.date.fromisoformat, "datetime": _datetime, "boolean": _bool}
+_CONVERT: dict[str, Callable[[Any], object]] = {
+    "date": dt.date.fromisoformat,
+    "datetime": _datetime,
+    "boolean": _bool,
+}
 
 _JUR_CODES = {
     **{c: c for c in ("cth", "nsw", "vic", "qld", "wa", "sa", "tas", "act", "nt")},
@@ -1352,7 +1490,7 @@ _JUR_CODES = {
 }
 
 
-def _norm_codes(col, ref) -> list:
+def _norm_codes(col: Iterable[object], ref: Iterable[object]) -> list[str | None]:
     """Codes as text, with the leading zeros a number lost put back.
 
     The zeros come back only when every code in `ref` has one width.
@@ -1361,7 +1499,7 @@ def _norm_codes(col, ref) -> list:
 
     widths = {len(r) for r in ref if isinstance(r, str)}
     width = next(iter(widths)) if len(widths) == 1 else 0
-    out = []
+    out: list[str | None] = []
     for v in col:
         if v is None or v is pd.NA or (isinstance(v, float) and math.isnan(v)):
             out.append(None)
@@ -1373,9 +1511,9 @@ def _norm_codes(col, ref) -> list:
     return out
 
 
-def _header(kv) -> dict:
+def _header(kv: Iterable[tuple[str, object]]) -> dict[str, Any]:
     """A file's publicdata table: one row per key, with any value that is not text held as JSON."""
-    out = {}
+    out: dict[str, Any] = {}
     for k, v in kv:
         out[k] = v
         if isinstance(v, str) and v[:1] in ("{", "["):
@@ -1384,7 +1522,7 @@ def _header(kv) -> dict:
     return out
 
 
-def _is_date(v) -> bool:
+def _is_date(v: str) -> bool:
     try:
         _date(v)
     except ValueError:
@@ -1430,13 +1568,13 @@ def _date(version: str) -> str:
     return v
 
 
-def _list(value) -> str | None:
+def _list(value: str | Iterable[str] | None) -> str | None:
     if value is None:
         return None
     return value if isinstance(value, str) else ",".join(value)
 
 
-def _page(body: Mapping) -> dict:
+def _page(body: Mapping[str, Any]) -> dict[str, Any]:
     return {
         k: body.get(k) for k in ("dataset_page", "version_page", "this_version", "manifest", "next")
     }
@@ -1445,27 +1583,33 @@ def _page(body: Mapping) -> dict:
 _default = Client()
 
 
-def datasets(q: str | None = None, **kw) -> list[dict]:
+def datasets(q: str | None = None, **kw: Unpack[_DatasetsOptions]) -> list[dict[str, Any]]:
     """Datasets the site serves, each with slug, title, publisher, licence and page URL."""
     return _default.datasets(q, **kw)
 
 
-def dataset(slug: str) -> dict:
+def dataset(slug: str) -> dict[str, Any]:
     """The dataset's Frictionless data package."""
     return _default.dataset(slug)
 
 
-def versions(slug: str) -> list[dict]:
+def versions(slug: str) -> list[dict[str, Any]]:
     """Every version kept, newest first, each with its date, rows, fields and source hash."""
     return _default.versions(slug)
 
 
-def rows(slug: str, where: Mapping[str, Any] | None = None, **kw) -> Rows:
+def rows(slug: str, where: Mapping[str, Any] | None = None, **kw: Unpack[_RowsOptions]) -> Rows:
     """Rows of a dataset from the query API."""
     return _default.rows(slug, where, **kw)
 
 
-def aggregate(slug: str, group=None, metric="count", where=None, **kw) -> Rows:
+def aggregate(
+    slug: str,
+    group: str | list[str] | None = None,
+    metric: str | list[str] = "count",
+    where: Mapping[str, Any] | None = None,
+    **kw: Unpack[_VersionOption],
+) -> Rows:
     """Counts, sums, averages, minimums and maximums by group, from the query API."""
     return _default.aggregate(slug, group, metric, where, **kw)
 
@@ -1474,24 +1618,26 @@ def download(
     slug: str,
     format: str = "parquet",
     version: str | None = None,
-    path=None,
-    **kw,
+    path: str | os.PathLike[str] | None = None,
+    **kw: Unpack[_DownloadOptions],
 ) -> Path:
     """Saves one version's file, the newest by default, and returns where."""
     return _default.download(slug, format, version, path, **kw)
 
 
-def read(slug: str, version: str | None = None, **kw):
+def read(slug: str, version: str | None = None, **kw: Unpack[_ReadOptions]) -> pd.DataFrame:
     """The whole table as a pandas DataFrame, read from the version's Parquet file."""
     return _default.read(slug, version, **kw)
 
 
-def read_geo(slug: str, version: str | None = None, **kw):
+def read_geo(slug: str, version: str | None = None, **kw: Unpack[_CacheOption]) -> gpd.GeoDataFrame:
     """A dataset's map layer as a GeoDataFrame, read from the version's GeoPackage."""
     return _default.read_geo(slug, version, **kw)
 
 
-def relation(slug: str, table: str | None = None, version: str | None = None, **kw):
+def relation(
+    slug: str, table: str | None = None, version: str | None = None, **kw: Unpack[_CacheOption]
+) -> duckdb.DuckDBPyRelation:
     """One table or view as a lazy DuckDB relation over the attached file."""
     return _default.relation(slug, table, version, **kw)
 
@@ -1501,32 +1647,34 @@ def latest(slug: str) -> str:
     return _default.latest(slug)
 
 
-def changes(slug: str, since: str | None = None, until: str | None = None) -> list[dict]:
+def changes(slug: str, since: str | None = None, until: str | None = None) -> list[dict[str, Any]]:
     """Every comparison of a version with the one before it, oldest first."""
     return _default.changes(slug, since, until)
 
 
-def diff(slug: str, version: str | None = None) -> dict:
+def diff(slug: str, version: str | None = None) -> dict[str, Any]:
     """The full comparison of `version`, the newest by default, with the version before it."""
     return _default.diff(slug, version)
 
 
-def cite(slug: str, version: str | None = None, **kw) -> str:
+def cite(slug: str, version: str | None = None, **kw: Unpack[_CiteOptions]) -> str:
     """How to cite one version, the newest by default."""
     return _default.cite(slug, version, **kw)
 
 
-def fields(slug: str, version: str | None = None) -> list[dict]:
+def fields(slug: str, version: str | None = None) -> list[dict[str, Any]]:
     """Each field's name, type and description."""
     return _default.fields(slug, version)
 
 
-def file_url(slug: str, format: str = "parquet", version: str | None = None, table=None) -> str:
+def file_url(
+    slug: str, format: str = "parquet", version: str | None = None, table: str | None = None
+) -> str:
     """The URL of a version's file."""
     return _default.file_url(slug, format, version, table)
 
 
-def provenance(slug: str, version: str | None = None) -> dict:
+def provenance(slug: str, version: str | None = None) -> dict[str, Any]:
     """The record kept with a version."""
     return _default.provenance(slug, version)
 
@@ -1536,22 +1684,27 @@ def browse(slug: str, version: str | None = None) -> str:
     return _default.browse(slug, version)
 
 
-def catalogue(q: str | None = None, **kw) -> Results:
+def catalogue(q: str | None = None, **kw: Unpack[_CatalogueOptions]) -> Results:
     """Every dataset on the government portals, of which the site serves a small part."""
     return _default.catalogue(q, **kw)
 
 
-def boundary_layers() -> list[dict]:
+def boundary_layers() -> list[dict[str, Any]]:
     """The ABS boundary layers rows join to."""
     return _default.boundary_layers()
 
 
-def boundaries(layer: str, **kw):
+def boundaries(layer: str, **kw: Unpack[_CacheOption]) -> gpd.GeoDataFrame:
     """A boundary layer as a GeoDataFrame in GDA2020 (EPSG:7844)."""
     return _default.boundaries(layer, **kw)
 
 
-def join_boundaries(df, layer: str | None = None, by: str | None = None, **kw):
+def join_boundaries(
+    df: pd.DataFrame | Iterable[Mapping[str, Any]],
+    layer: str | None = None,
+    by: str | None = None,
+    **kw: Unpack[_CacheOption],
+) -> gpd.GeoDataFrame:
     """`df` with the boundary of the area each row names, as a GeoDataFrame."""
     return _default.join_boundaries(df, layer, by, **kw)
 
@@ -1561,7 +1714,7 @@ def cache_dir() -> Path:
     return _default.cache_dir()
 
 
-def cache_list(slug: str | None = None, version: str | None = None) -> list[dict]:
+def cache_list(slug: str | None = None, version: str | None = None) -> list[dict[str, Any]]:
     """Every kept file: its dataset, version, file, bytes and when it was saved."""
     return _default.cache_list(slug, version)
 
@@ -1571,17 +1724,17 @@ def cache_clear(slug: str | None = None, version: str | None = None) -> int:
     return _default.cache_clear(slug, version)
 
 
-def schema(slug: str, version: str | None = None) -> dict:
+def schema(slug: str, version: str | None = None) -> dict[str, Any]:
     """A version's schema.json."""
     return _default.schema(slug, version)
 
 
-def tables(slug: str, version: str | None = None) -> list[dict]:
+def tables(slug: str, version: str | None = None) -> list[dict[str, Any]]:
     """The tables of a database, each with its name, description, rows, fields and keys."""
     return _default.tables(slug, version)
 
 
-def connect(slug: str, version: str | None = None, **kw):
+def connect(slug: str, version: str | None = None, **kw: Unpack[_ConnectOptions]) -> Connection:
     """A DuckDB connection with the version's DuckDB file attached read-only over HTTPS."""
     return _default.connect(slug, version, **kw)
 
