@@ -423,7 +423,12 @@ def test_a_parts_only_version_says_what_it_leaves_out_and_lists_only_its_files(
     assert gate.query_explained(out, registered()) == []
     # The MCP server's row tools answer it from its parts, so its field list is read from them.
     fields = json.loads((out / "d/test-rolling/fields.json").read_text("utf-8"))
-    assert fields["version"] == "2026-09-15" and "rows_url" not in fields
+    assert fields["version"] == "2026-09-15"
+    # The query API loads it from its parts, and the page and the field list say where.
+    assert fields["rows_url"] == "https://publicdata.au/api/v1/datasets/test-rolling/rows"
+    assert "The query API serves it from its parts" in page
+    api = json.loads((out / "openapi.json").read_text("utf-8"))
+    assert "test-rolling" in json.dumps(api["paths"])
     # The same as the whole table's, which a build with a data.parquet reads.
     whole, _ = built
     from publicdata.site import _console
@@ -761,3 +766,76 @@ def test_a_feed_s_history_marks_first_and_last_seen_as_observed_here(built, tmp_
     render_site(list(outs.values()), site)
     page = (site / "d/test-feed/index.html").read_text("utf-8")
     assert "the dates it first and last read the row in that state" in page
+
+
+def _d1_load(out: Path, tmp: Path, version: str):
+    """test-rolling's version loaded into SQLite as the deploy loads D1."""
+    import sqlite3
+
+    from publicdata import d1
+
+    (out / "latest.json").write_text(json.dumps({"test-rolling": version}))
+    files = d1.write_loads([out], [registered()["test-rolling"]], {}, tmp)
+    db = sqlite3.connect(":memory:")
+    db.execute(d1.REGISTRY)
+    db.execute(d1.ORDERS)
+    for f in files:
+        db.executescript(f.read_text())
+    return db
+
+
+def test_the_query_api_loads_a_version_stored_as_parts_from_its_parts(
+    fetched, built, tmp_path, monkeypatch
+):
+    import duckdb
+
+    st, _ = fetched
+    whole, _ = built
+    monkeypatch.setattr(parts, "WHOLE_BYTES", 0)
+    out = tmp_path / "dist"
+    build_dataset(registered()["test-rolling"], st, out)
+    m = manifest(out, "test-rolling", "2026-09-15")
+    assert m["whole"] is False and all(p["files"]["csv.gz"]["csv_bytes"] > 0 for p in m["parts"])
+    split = _d1_load(out, tmp_path / "a", "2026-09-15")
+    one = _d1_load(whole, tmp_path / "b", "2026-09-15")
+    (tbl, fields, rows, header), (tbl1, fields1, rows1, header1) = (
+        db.execute("SELECT tbl, fields, rows, header FROM _versions").fetchone()
+        for db in (split, one)
+    )
+    assert (fields, rows) == (fields1, rows1) == (fields, 47)
+    # The version's own provenance, as its DuckDB file holds it, though most parts are earlier files.
+    con = duckdb.connect(
+        str(tree(out, "test-rolling", "2026-09-15") / "data.duckdb"), read_only=True
+    )
+    rows_held = con.execute("SELECT * FROM publicdata").fetchall()
+    con.close()
+
+    def parsed(v):
+        try:
+            return json.loads(v)
+        except ValueError:
+            return v
+
+    assert json.loads(header) == {k: parsed(v) for k, v in rows_held}
+    assert json.loads(header)["attribution"] == json.loads(header1)["attribution"]
+    # The same rows as the whole file, in the parts' order: each part in turn, in its own order.
+    got = split.execute(f'SELECT * FROM "{tbl}" ORDER BY rowid').fetchall()
+    assert sorted(got, key=repr) == sorted(
+        one.execute(f'SELECT * FROM "{tbl1}"').fetchall(), key=repr
+    )
+    ids = [r[0] for r in split.execute(f'SELECT id FROM "{tbl}" ORDER BY rowid')]
+    from publicdata.build import part_files
+
+    want = [
+        i
+        for p in part_files(out, "test-rolling", "2026-09-15", m["parts"])
+        for i in pq.read_table(p).column("id").to_pylist()
+    ]
+    assert ids == want and ids != sorted(ids)
+    # Over the size the query API loads, the version stays files-only.
+    from publicdata import d1
+
+    monkeypatch.setattr(
+        d1, "MAX_CSV", sum(p["files"]["csv.gz"]["csv_bytes"] for p in m["parts"]) - 1
+    )
+    assert d1.write_loads([out], [registered()["test-rolling"]], {}, tmp_path / "c") == []

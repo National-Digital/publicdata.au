@@ -361,8 +361,8 @@ Parquet adds up to 100 MB or less and the table has 5 million rows or fewer. Pas
 is its parts and `data.duckdb`, which holds a `parts` table naming each part's URL and a
 `records()` table macro that reads every part's Parquet over HTTPS when it is called
 (`records(files := [...])` reads the parts named). `"whole": false` in the manifest says so. Such
-a version has no query API, explorer or pages by place, since each reads one whole file; its
-dataset page says so, and `llms.txt` lists only the files it has. The gate fails a table
+a version has no console, explorer or pages by place, since each reads one whole file; its
+dataset page says so, and says when the query API serves it from its parts, and `llms.txt` lists only the files it has. The gate fails a table
 dataset's page that has no query console and gives no reason. A diff or the history archive
 reads the parts back. Either way there is one dataset page, and it lists the newest snapshot's
 parts.
@@ -648,7 +648,10 @@ per version with indexes on the key and partition fields, and records it in `_ve
 field list, licence and attribution, and in `_orders` with the order its rows were taken in
 (`profile.signature`); a loaded version whose Parquet is in another order is loaded again, so its
 rowid agrees with the Parquet and the console. At most two versions per dataset are loaded; every version
-stays available as files. A version whose data.csv is over 500 MB, or a dataset whose entry sets
+stays available as files. A version stored as period parts is loaded from its parts in the
+manifest's order, each part in its own order, with the provenance header its DuckDB file holds,
+while the CSVs of its parts together come to 500 MB or less; each part's manifest record keeps
+its CSV's size (`csv_bytes`) for that. A version whose data.csv is over 500 MB, or a dataset whose entry sets
 `query: false`, is not loaded, and its page, OpenAPI and MCP resources leave the query API out;
 `d1.queryable` is the one rule both the build and the loader read. Every other version is for the
 Parquet engine, which reads the version's query copy in `publicdata-dist` first. Up to four versions load at
