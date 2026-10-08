@@ -151,34 +151,44 @@ def _dataset(n: dict, at: str) -> list[str]:  # noqa: C901, PLR0912 - one check 
     lic = _values(n.get("license"))
     if not lic:
         e.append(f"{at}: Dataset needs a license")
-    for v in lic:
-        if not (_url(v) or _is(v, "CreativeWork")):
-            e.append(f"{at}.license: must be a URL or CreativeWork")
+    e.extend(
+        f"{at}.license: must be a URL or CreativeWork"
+        for v in lic
+        if not (_url(v) or _is(v, "CreativeWork"))
+    )
     for key in ("hasPart", "isPartOf"):
-        for v in _values(n.get(key)):
-            if not (_url(v) or _is(v, "Dataset")):
-                e.append(f"{at}.{key}: must be a URL or a full Dataset")
+        e.extend(
+            f"{at}.{key}: must be a URL or a full Dataset"
+            for v in _values(n.get(key))
+            if not (_url(v) or _is(v, "Dataset"))
+        )
     for key in ("url", "sameAs"):
-        for v in _values(n.get(key)):
-            if not _url(v):
-                e.append(f"{at}.{key}: must be a URL")
-    for v in _values(n.get("isAccessibleForFree")):
-        if not isinstance(v, bool):
-            e.append(f"{at}.isAccessibleForFree: must be a boolean")
-    for v in _values(n.get("temporalCoverage")):
-        if not (isinstance(v, str) and ISO_INTERVAL.match(v)):
-            e.append(f"{at}.temporalCoverage: {v!r} is not an ISO 8601 date or interval")
-    for v in _values(n.get("spatialCoverage")):
-        if not (_text(v) or (_is(v, "Place") and _text(v.get("name")))):
-            e.append(f"{at}.spatialCoverage: must be text or a named Place")
+        e.extend(f"{at}.{key}: must be a URL" for v in _values(n.get(key)) if not _url(v))
+    e.extend(
+        f"{at}.isAccessibleForFree: must be a boolean"
+        for v in _values(n.get("isAccessibleForFree"))
+        if not isinstance(v, bool)
+    )
+    e.extend(
+        f"{at}.temporalCoverage: {v!r} is not an ISO 8601 date or interval"
+        for v in _values(n.get("temporalCoverage"))
+        if not (isinstance(v, str) and ISO_INTERVAL.match(v))
+    )
+    e.extend(
+        f"{at}.spatialCoverage: must be text or a named Place"
+        for v in _values(n.get("spatialCoverage"))
+        if not (_text(v) or (_is(v, "Place") and _text(v.get("name"))))
+    )
     for i, v in enumerate(_values(n.get("distribution"))):
         if not _is(v, "DataDownload") or not _url(v.get("contentUrl")):
             e.append(f"{at}.distribution[{i}]: must be a DataDownload with a contentUrl")
         elif not _text(v.get("encodingFormat")):
             e.append(f"{at}.distribution[{i}]: needs an encodingFormat")
-    for v in _values(n.get("includedInDataCatalog")):
-        if not _is(v, "DataCatalog"):
-            e.append(f"{at}.includedInDataCatalog: must be a DataCatalog")
+    e.extend(
+        f"{at}.includedInDataCatalog: must be a DataCatalog"
+        for v in _values(n.get("includedInDataCatalog"))
+        if not _is(v, "DataCatalog")
+    )
     return e
 
 

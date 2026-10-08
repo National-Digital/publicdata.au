@@ -97,15 +97,17 @@ def _usage(t: dict, siblings: list[str]) -> list[str]:
     return []
 
 
-def _parameters(t: dict) -> list[str]:  # noqa: C901 - one check per parameter rule
+def _parameters(t: dict) -> list[str]:
     s = t.get("inputSchema") or {}
     out = []
     if s.get("type") != "object":
         return ["inputSchema must be an object schema"]
     props = s.get("properties") or {}
-    for r in s.get("required") or []:
-        if r not in props:
-            out.append(f"required parameter {r} is not among the properties")
+    out.extend(
+        f"required parameter {r} is not among the properties"
+        for r in s.get("required") or []
+        if r not in props
+    )
     if s.get("additionalProperties") is not False:
         out.append("inputSchema should set additionalProperties to false so a typo is refused")
     for p, v in props.items():
@@ -178,9 +180,11 @@ def _length(t: dict) -> list[str]:
             f"the description is {len(d)} characters; keep it between {MIN_DESCRIPTION} "
             f"and {MAX_DESCRIPTION}"
         )
-    for s in sentences(d):
-        if len(s.split()) > MAX_SENTENCE_WORDS:
-            out.append(f"a sentence runs past {MAX_SENTENCE_WORDS} words: {s[:60]!r}")
+    out.extend(
+        f"a sentence runs past {MAX_SENTENCE_WORDS} words: {s[:60]!r}"
+        for s in sentences(d)
+        if len(s.split()) > MAX_SENTENCE_WORDS
+    )
     return out
 
 

@@ -392,16 +392,18 @@ def duckdb_digest(path: Path) -> str:
                 f'SELECT coalesce(sum(hash(rowid, {names}) % 1000003), 0) FROM d."{t}"'
             ).fetchone()[0]
             parts.append(f"{t}:{n}:{h}:{s}")
-        for q in (
-            "SELECT block_size FROM pragma_database_size() WHERE database_name = 'd'",
-            "SELECT tags FROM duckdb_databases() WHERE database_name = 'd'",
-            (
-                "SELECT table_name, constraint_type, constraint_text FROM duckdb_constraints() "
-                "WHERE database_name = 'd' ORDER BY ALL"
-            ),
-            "SELECT index_name, sql FROM duckdb_indexes() WHERE database_name = 'd' ORDER BY ALL",
-        ):
-            parts.append(dumps(con.execute(q).fetchall()))
+        parts.extend(
+            dumps(con.execute(q).fetchall())
+            for q in (
+                "SELECT block_size FROM pragma_database_size() WHERE database_name = 'd'",
+                "SELECT tags FROM duckdb_databases() WHERE database_name = 'd'",
+                (
+                    "SELECT table_name, constraint_type, constraint_text FROM duckdb_constraints() "
+                    "WHERE database_name = 'd' ORDER BY ALL"
+                ),
+                "SELECT index_name, sql FROM duckdb_indexes() WHERE database_name = 'd' ORDER BY ALL",
+            )
+        )
         parts.append(
             dumps(
                 con.execute(

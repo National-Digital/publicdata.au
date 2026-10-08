@@ -22,11 +22,14 @@ def compare(a: Path, b: Path) -> list[str]:
     problems = []
     fa = {p.relative_to(a).as_posix(): p for p in a.rglob(NAME)}
     fb = {p.relative_to(b).as_posix(): p for p in b.rglob(NAME)}
-    for rel in sorted(set(fa) ^ set(fb)):
-        problems.append(f"{rel}: only in {'a' if rel in fa else 'b'}")
-    for rel in sorted(set(fa) & set(fb)):
-        if duckdb_digest(fa[rel]) != duckdb_digest(fb[rel]):
-            problems.append(f"{rel}: the two files hold different content")
+    problems.extend(
+        f"{rel}: only in {'a' if rel in fa else 'b'}" for rel in sorted(set(fa) ^ set(fb))
+    )
+    problems.extend(
+        f"{rel}: the two files hold different content"
+        for rel in sorted(set(fa) & set(fb))
+        if duckdb_digest(fa[rel]) != duckdb_digest(fb[rel])
+    )
     return problems
 
 

@@ -844,8 +844,10 @@ def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at ea
         if not cols:
             return {"fields": [], "rows": []}
         conds = []
-        for w in [where] if isinstance(where, dict) else list(where or ()):
-            conds.append({**w, "value": newest(con, w["field"])} if w["value"] == "newest" else w)
+        conds.extend(
+            ({**w, "value": newest(con, w["field"])} if w["value"] == "newest" else w)
+            for w in ([where] if isinstance(where, dict) else list(where or ()))
+        )
         cond, params = _conditions(conds, con)
         terms = [(_q(f), " DESC" if desc else "") for f, desc in order if f in have]
         by = ", ".join([*(f + d for f, d in terms), "rowid"])

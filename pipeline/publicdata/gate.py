@@ -140,9 +140,11 @@ def _manifest(out: Path) -> list[str]:
                     f"manifest.webmanifest: {icon['src']} is {w}x{h}, declared {icon.get('sizes')}"
                 )
             seen.add((icon.get("sizes"), icon.get("purpose", "any")))
-    for need in (("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")):
-        if need not in seen:
-            errors.append(f"manifest.webmanifest: no {need[1]} icon at {need[0]}")
+    errors.extend(
+        f"manifest.webmanifest: no {need[1]} icon at {need[0]}"
+        for need in (("192x192", "any"), ("512x512", "any"), ("512x512", "maskable"))
+        if need not in seen
+    )
     return errors
 
 
@@ -213,39 +215,41 @@ def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds
     errors: list[str] = []
     absent = set(absent)
     datasets = {d.slug: d for d in load(register_dir)}
-    for req in (
-        ()
-        if not site
-        else (
-            "index.html",
-            "catalog.json",
-            "places.json",
-            "backlog.json",
-            "llms.txt",
-            "llms-full.txt",
-            "health.json",
-            "robots.txt",
-            "sitemap.xml",
-            ".well-known/ard.json",
-            ".well-known/ai-catalog.json",
-            ".well-known/security.txt",
-            "_headers",
-            "_routes.json",
-            "latest.json",
-            "withheld.json",
-            "openapi.json",
-            "mcp/resources.json",
-            "mcp/server-card",
-            "mcp/listing.json",
-            "manifest.webmanifest",
-            "favicon.svg",
-            "favicon.ico",
-            "apple-touch-icon.png",
-            "og/site.png",
+    errors.extend(
+        f"missing {req}"
+        for req in (
+            ()
+            if not site
+            else (
+                "index.html",
+                "catalog.json",
+                "places.json",
+                "backlog.json",
+                "llms.txt",
+                "llms-full.txt",
+                "health.json",
+                "robots.txt",
+                "sitemap.xml",
+                ".well-known/ard.json",
+                ".well-known/ai-catalog.json",
+                ".well-known/security.txt",
+                "_headers",
+                "_routes.json",
+                "latest.json",
+                "withheld.json",
+                "openapi.json",
+                "mcp/resources.json",
+                "mcp/server-card",
+                "mcp/listing.json",
+                "manifest.webmanifest",
+                "favicon.svg",
+                "favicon.ico",
+                "apple-touch-icon.png",
+                "og/site.png",
+            )
         )
-    ):
-        if not (out / req).exists():
-            errors.append(f"missing {req}")
+        if not (out / req).exists()
+    )
     ddir = out / "d"
     for vman in sorted(ddir.glob("*/v/*/manifest.json")) if ddir.exists() else []:
         slug = vman.parts[-4]
@@ -291,17 +295,19 @@ def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds
                     errors.append(
                         f"{slug}/{version}: formats_left_out names a format no cap covers"
                     )
-                for f in serialise.MEASURED:
-                    if f"data.{f}" not in measured:
-                        errors.append(f"{slug}/{version}: measured_bytes lacks data.{f}")
+                errors.extend(
+                    f"{slug}/{version}: measured_bytes lacks data.{f}"
+                    for f in serialise.MEASURED
+                    if f"data.{f}" not in measured
+                )
                 for name, n in measured.items():
                     if (vdir / name).is_file() and (vdir / name).stat().st_size != n:
                         errors.append(f"{slug}/{version}: measured_bytes disagrees with {name}")
-                for x in (*gone, "arrow"):
-                    if have(f"data.{x}"):
-                        errors.append(
-                            f"{slug}/{version}: data.{x} is published though the caps leave it out"
-                        )
+                errors.extend(
+                    f"{slug}/{version}: data.{x} is published though the caps leave it out"
+                    for x in (*gone, "arrow")
+                    if have(f"data.{x}")
+                )
                 vpage = vdir / "index.html"
                 if site and vpage.exists():
                     text = vpage.read_text(encoding="utf-8")
@@ -317,9 +323,7 @@ def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds
                 "schema.sql",
                 "data.csv-metadata.json",
             )
-        for f in need:
-            if not have(f):
-                errors.append(f"{slug}/{version}: missing {f}")
+        errors.extend(f"{slug}/{version}: missing {f}" for f in need if not have(f))
         if ds.kind != "database":
             q = query_key(slug, version)
             if not (out / q).exists() and q not in absent:
@@ -336,27 +340,28 @@ def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds
         # version page, the data package and the catalogue, so no one reaches the files
         # without seeing it.
         if ds.licence.condition:
-            for rel_page in (
-                ddir / slug / "index.html",
-                ddir / slug / "index.md",
-                ddir / slug / "datapackage.json",
-                vdir / "index.html",
-                vdir / "index.md",
-                out / "catalog.json",
-            ):
-                if rel_page.exists() and ds.licence.condition[:60] not in rel_page.read_text(
-                    encoding="utf-8"
-                ):
-                    errors.append(
-                        f"{rel_page.relative_to(out).as_posix()}: the licence condition is not stated"
-                    )
+            errors.extend(
+                f"{rel_page.relative_to(out).as_posix()}: the licence condition is not stated"
+                for rel_page in (
+                    ddir / slug / "index.html",
+                    ddir / slug / "index.md",
+                    ddir / slug / "datapackage.json",
+                    vdir / "index.html",
+                    vdir / "index.md",
+                    out / "catalog.json",
+                )
+                if rel_page.exists()
+                and ds.licence.condition[:60] not in rel_page.read_text(encoding="utf-8")
+            )
         # A cached version's data.json was checked by the build that published it.
         if (vdir / "data.json").exists():
             with (vdir / "data.json").open(encoding="utf-8") as f:
                 head = f.read(4000)
-            for needle in ('"attribution"', '"licence"', '"sha256"', '"not_endorsed"'):
-                if needle not in head:
-                    errors.append(f"{slug}/{version}: data.json header lacks {needle}")
+            errors.extend(
+                f"{slug}/{version}: data.json header lacks {needle}"
+                for needle in ('"attribution"', '"licence"', '"sha256"', '"not_endorsed"')
+                if needle not in head
+            )
     if not site:
         return errors, []
     for page in sorted(ddir.glob("*/explore/index.html")) if ddir.exists() else []:

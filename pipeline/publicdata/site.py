@@ -1558,8 +1558,10 @@ def _md_twin_dataset(  # noqa: C901, PLR0912, PLR0913 - the page's sections in o
         f"Latest version, redirects to `{vbase}`:",
         "",
     ]
-    for fmt in _fmts(ds, v):
-        lines.append(f"- {fmt}: {base}latest/data.{fmt} ({fmt_size(v.files.get(f'data.{fmt}'))})")
+    lines.extend(
+        f"- {fmt}: {base}latest/data.{fmt} ({fmt_size(v.files.get(f'data.{fmt}'))})"
+        for fmt in _fmts(ds, v)
+    )
     if why := _left_out(ds, v):
         lines += ["", *why]
     lines += [

@@ -52,9 +52,6 @@ ignore = [
   # Outside the client's public API a docstring is optional and holds a why, as CONTRIBUTING.md
   # says; a forced one would be filler.
   "D1",
-  # The gate and the validators list each check as a loop that appends a problem when it fails,
-  # which reads as the rule it checks; the speed PERF401 offers is nothing on lists this short.
-  "PERF401",
 ]
 
 [tool.ruff.lint.pydocstyle]
