@@ -197,7 +197,10 @@ test("a version's checksum list is part of the version: cached for a year as imm
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable, no-transform');
   assert.equal(r.headers.get('content-disposition'), null);
-  assert.equal((await get('/d/x/latest/SHA256SUMS')).headers.get('location'), '/d/x/v/2026-04-24/SHA256SUMS');
+  assert.equal(
+    (await get('/d/x/latest/SHA256SUMS')).headers.get('location'),
+    '/d/x/v/2026-04-24/SHA256SUMS',
+  );
 });
 
 test("a version's source is the raw store's copy, and only for a version that was published", async () => {
