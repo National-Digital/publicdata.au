@@ -49,14 +49,19 @@ const pages = paths.length ? paths : DEFAULT;
 
 const server = createServer(async (req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (p.endsWith('/')) p += 'index.html';
+  if (p.endsWith('/')) {
+    p += 'index.html';
+  }
   const file = normalize(join(dist, p));
   try {
-    if (!file.startsWith(normalize(dist))) throw new Error('outside');
+    if (!file.startsWith(normalize(dist))) {
+      throw new Error('outside');
+    }
     const s = await stat(file);
     if (s.isDirectory()) {
       res.writeHead(301, { location: p + '/' });
-      return res.end();
+      res.end();
+      return;
     }
     res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' });
     res.end(await readFile(file));
@@ -65,7 +70,9 @@ const server = createServer(async (req, res) => {
     res.end('not found');
   }
 });
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
+await new Promise((r) => {
+  server.listen(0, '127.0.0.1', r);
+});
 const base = `http://127.0.0.1:${server.address().port}`;
 
 const browser = await puppeteer.launch({
@@ -89,7 +96,9 @@ try {
       }
       await page.evaluate(axe);
       const result = await page.evaluate(
-        (tags) => window.axe.run(document, { runOnly: { type: 'tag', values: tags } }),
+        // Runs in the page, so it reaches the page's globals through globalThis.
+        (tags) =>
+          globalThis.axe.run(globalThis.document, { runOnly: { type: 'tag', values: tags } }),
         TAGS,
       );
       const bad = result.violations.filter(

@@ -40,10 +40,16 @@ function latestTag() {
   return parsed[0] || [MAJOR_FLOOR, 0, 0];
 }
 
-function bumpType(subject) {
-  const m = subject.match(/^\s*([a-zA-Z]+)(\([^)]*\))?(!)?:/);
-  if (!m) return 'patch'; // not conventional -> safe patch
-  if (m[3] || /BREAKING[ -]CHANGE/.test(subject)) return 'major'; // `type!:` or BREAKING note
+function bumpType(title) {
+  const m = title.match(/^\s*([a-zA-Z]+)(\([^)]*\))?(!)?:/);
+  // A title that is not a Conventional Commit is a patch, the safe choice.
+  if (!m) {
+    return 'patch';
+  }
+  // `type!:` or a BREAKING CHANGE note.
+  if (m[3] || /BREAKING[ -]CHANGE/.test(title)) {
+    return 'major';
+  }
   return m[1].toLowerCase() === 'feat' ? 'minor' : 'patch';
 }
 

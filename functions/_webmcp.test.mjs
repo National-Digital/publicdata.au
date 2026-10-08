@@ -20,8 +20,9 @@ for (const r of [
   ['Gold Coast', 2021, 0],
   ['Brisbane', 2020, 0],
   ['Logan', null, 1],
-])
+]) {
   ins.run(...r);
+}
 
 const seen = [];
 async function fakeFetch(u) {
@@ -34,7 +35,9 @@ async function fakeFetch(u) {
     .all(...plan.binds)
     .map((r) => ({ ...r }));
   const more = rows.length > plan.limit;
-  if (more) rows = rows.slice(0, plan.limit);
+  if (more) {
+    rows = rows.slice(0, plan.limit);
+  }
   const body = { publicdata: { attribution: 'A' }, rows, next: more ? 'n' : null };
   return new Response(JSON.stringify(body), { headers: { 'x-publicdata-version': '2026-04-24' } });
 }

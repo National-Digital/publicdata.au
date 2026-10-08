@@ -8,7 +8,9 @@ const CASES = JSON.parse(
 );
 
 test('a file is named the way site.download_name names it', () => {
-  for (const c of CASES) assert.equal(downloadName(c.slug, c.version, c.rel), c.name, c.rel);
+  for (const c of CASES) {
+    assert.equal(downloadName(c.slug, c.version, c.rel), c.name, c.rel);
+  }
 });
 
 test('only a file inside a dated version gets a file name', () => {

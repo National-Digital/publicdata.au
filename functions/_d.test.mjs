@@ -21,13 +21,18 @@ const env = {
   ASSETS: {
     fetch: async (r) => {
       const u = new URL(r.url || r);
-      if (u.pathname === '/static/page-headers.json')
+      if (u.pathname === '/static/page-headers.json') {
         return Response.json({
           'Content-Security-Policy': "default-src 'self'",
           'X-Content-Type-Options': 'nosniff',
         });
-      if (u.pathname === '/latest.json') return Response.json({ x: '2026-04-24' });
-      if (u.pathname === '/withheld.json') return Response.json(['/d/x/v/2026-04-24/source.csv']);
+      }
+      if (u.pathname === '/latest.json') {
+        return Response.json({ x: '2026-04-24' });
+      }
+      if (u.pathname === '/withheld.json') {
+        return Response.json(['/d/x/v/2026-04-24/source.csv']);
+      }
       return new Response('nf', { status: 404 });
     },
   },

@@ -35,10 +35,14 @@ async function loadedVersions(env, slug) {
 // live list the site was built with decides. An unread list withholds nothing.
 let live;
 async function withheld(env, url, slug) {
-  if (!env.ASSETS) return false;
+  if (!env.ASSETS) {
+    return false;
+  }
   if (!live) {
     const r = await env.ASSETS.fetch(new URL('/latest.json', url));
-    if (!r.ok) return false;
+    if (!r.ok) {
+      return false;
+    }
     live = await r.json();
   }
   return Object.keys(live).length > 0 && !(slug in live);
@@ -55,24 +59,34 @@ function notLoaded(e) {
 // answer never changes and is cached for good; the newest is cached for five minutes.
 export async function answer(context, build, op) {
   const { request, env, params } = context;
-  if (!env.DB) return reply(503, { error: NOT_ENABLED });
+  if (!env.DB) {
+    return reply(503, { error: NOT_ENABLED });
+  }
   const slug = params.slug;
-  if (!SLUG.test(slug)) return reply(404, { error: 'No such dataset' });
+  if (!SLUG.test(slug)) {
+    return reply(404, { error: 'No such dataset' });
+  }
   const url = new URL(request.url);
-  if (await withheld(env, url, slug)) return reply(410, { error: WITHHELD });
+  if (await withheld(env, url, slug)) {
+    return reply(410, { error: WITHHELD });
+  }
   const qs = url.searchParams;
   const cache = caches.default;
   const hit = await cache.match(request);
-  if (hit) return hit;
+  if (hit) {
+    return hit;
+  }
   const format = qs.get('format') || 'json';
-  if (!['json', 'ndjson', 'csv'].includes(format))
+  if (!['json', 'ndjson', 'csv'].includes(format)) {
     return reply(400, { error: 'format is json, ndjson or csv' });
+  }
   const want = params.version;
-  if (want && !VERSION.test(want))
+  if (want && !VERSION.test(want)) {
     return reply(404, {
       error: 'A version is a date, YYYY-MM-DD',
       versions: `${API}/${slug}/versions`,
     });
+  }
   let v;
   try {
     v = want
@@ -81,7 +95,9 @@ export async function answer(context, build, op) {
           .first()
       : await newest(env, slug);
   } catch (e) {
-    if (notLoaded(e)) return reply(503, { error: NOT_ENABLED });
+    if (notLoaded(e)) {
+      return reply(503, { error: NOT_ENABLED });
+    }
     throw e;
   }
   if (!v) {
@@ -98,7 +114,9 @@ export async function answer(context, build, op) {
   try {
     plan = build(v.tbl, JSON.parse(v.fields), qs);
   } catch (e) {
-    if (e instanceof QueryError) return reply(400, { error: e.message });
+    if (e instanceof QueryError) {
+      return reply(400, { error: e.message });
+    }
     throw e;
   }
   let rows;
@@ -116,7 +134,9 @@ export async function answer(context, build, op) {
     });
   }
   const more = rows.length > plan.limit;
-  if (more) rows = rows.slice(0, plan.limit);
+  if (more) {
+    rows = rows.slice(0, plan.limit);
+  }
   let next = null;
   if (more) {
     // The next page is pinned to this version's own path, so a release mid-way cannot shift it.
@@ -172,22 +192,33 @@ export async function answer(context, build, op) {
 // The versions of one dataset loaded for queries, newest first, with the URLs to query each.
 export async function versions(context) {
   const { request, env, params } = context;
-  if (!env.DB) return reply(503, { error: NOT_ENABLED });
+  if (!env.DB) {
+    return reply(503, { error: NOT_ENABLED });
+  }
   const slug = params.slug;
-  if (!SLUG.test(slug)) return reply(404, { error: 'No such dataset' });
-  if (await withheld(env, new URL(request.url), slug)) return reply(410, { error: WITHHELD });
+  if (!SLUG.test(slug)) {
+    return reply(404, { error: 'No such dataset' });
+  }
+  if (await withheld(env, new URL(request.url), slug)) {
+    return reply(410, { error: WITHHELD });
+  }
   const cache = caches.default;
   const hit = await cache.match(request);
-  if (hit) return hit;
+  if (hit) {
+    return hit;
+  }
   let list;
   try {
     list = await loadedVersions(env, slug);
   } catch (e) {
-    if (notLoaded(e)) return reply(503, { error: NOT_ENABLED });
+    if (notLoaded(e)) {
+      return reply(503, { error: NOT_ENABLED });
+    }
     throw e;
   }
-  if (!list.length)
+  if (!list.length) {
     return reply(404, { error: 'No such dataset in the query API', files: `${SITE}/d/${slug}/` });
+  }
   const res = new Response(
     JSON.stringify({
       dataset: slug,

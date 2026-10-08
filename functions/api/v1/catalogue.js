@@ -21,9 +21,13 @@ const COLS = [
 
 export function shape(r) {
   const o = {};
-  for (const c of COLS) o[c] = r[c];
+  for (const c of COLS) {
+    o[c] = r[c];
+  }
   o.publisher_page = SITE + r.publisher_path;
-  if (r.state === 'served') o.page = SITE + r.note;
+  if (r.state === 'served') {
+    o.page = SITE + r.note;
+  }
   o.reason = r.state === 'closed' ? r.note : null;
   delete o.note;
   return o;
@@ -37,13 +41,14 @@ export async function onRequestGet({ request, env }) {
     request,
     params.has('q') && !params.has('url') && !params.has('ids') ? 3 : 2,
   );
-  if (wait)
+  if (wait) {
     return json({ error: `Too many requests from this address. Wait ${wait} seconds.` }, 429, {
       'retry-after': String(wait),
       'ratelimit-policy': policy(),
     });
+  }
   const t = await table(env);
-  if (!t)
+  if (!t) {
     return json(
       {
         error:
@@ -51,6 +56,7 @@ export async function onRequestGet({ request, env }) {
       },
       503,
     );
+  }
   const cache = { 'cache-control': 'public, max-age=300', 'ratelimit-policy': policy() };
   const head = { catalogue_read: t.version, records: t.rows };
   try {
@@ -60,7 +66,9 @@ export async function onRequestGet({ request, env }) {
     }
     if (params.has('ids')) {
       const ids = params.get('ids').split(',').filter(Boolean).slice(0, 50);
-      if (!ids.length) return json({ ...head, rows: [] }, 200, cache);
+      if (!ids.length) {
+        return json({ ...head, rows: [] }, 200, cache);
+      }
       const res = await env.DB.prepare(
         `SELECT * FROM "${t.tbl}" WHERE id IN (${ids.map(() => '?').join(',')}) OR vote IN (${ids.map(() => '?').join(',')})`,
       )
@@ -94,7 +102,9 @@ export async function onRequestGet({ request, env }) {
       cache,
     );
   } catch (e) {
-    if (e instanceof CatalogueError) return json({ error: e.message }, 400);
+    if (e instanceof CatalogueError) {
+      return json({ error: e.message }, 400);
+    }
     throw e;
   }
 }

@@ -21,16 +21,18 @@ export async function onRequestPost({ request, env }) {
   } catch {
     return json({ error: 'That is not a URL' }, 400);
   }
-  if (!/^https?:$/.test(url.protocol))
+  if (!/^https?:$/.test(url.protocol)) {
     return json({ error: 'The URL must start with http or https' }, 400);
+  }
   const wait = await spend(request, 3);
-  if (wait)
+  if (wait) {
     return json({ error: `Too many requests from this address. Wait ${wait} seconds.` }, 429, {
       'retry-after': String(wait),
       'ratelimit-policy': policy(),
     });
+  }
   const t = await table(env);
-  if (!t)
+  if (!t) {
     return json(
       {
         error:
@@ -38,6 +40,7 @@ export async function onRequestPost({ request, env }) {
       },
       503,
     );
+  }
   const r = await resolve(env, t.tbl, url.href);
   if (!r) {
     return json({
@@ -49,10 +52,16 @@ export async function onRequestPost({ request, env }) {
     });
   }
   const record = shape(r);
-  if (r.state === 'served') return json({ status: 'served', record, page: record.page });
-  if (r.state === 'closed') return json({ status: 'closed', record, reason: record.reason });
+  if (r.state === 'served') {
+    return json({ status: 'served', record, page: record.page });
+  }
+  if (r.state === 'closed') {
+    return json({ status: 'closed', record, reason: record.reason });
+  }
   const v = await castVote({ request, env, params: { slug: r.vote } });
   const b = await v.json();
-  if (!v.ok) return json({ error: b.error || 'The vote was not counted' }, v.status);
+  if (!v.ok) {
+    return json({ error: b.error || 'The vote was not counted' }, v.status);
+  }
   return json({ status: 'voted', record, votes: b.votes });
 }

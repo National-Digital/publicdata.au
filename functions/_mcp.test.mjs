@@ -38,8 +38,9 @@ for (const r of [
   ['Gold Coast', 2021, 0],
   ['Brisbane', 2020, 0],
   ['Logan', null, 1],
-])
+]) {
   ins.run(...r);
+}
 
 const DB = {
   prepare(q) {
@@ -150,7 +151,9 @@ globalThis.caches = {
   default: {
     match: async (r) => (kept.has(r.url) ? new Response(kept.get(r.url)) : undefined),
     put: async (r, res) => {
-      if (new URL(r.url).pathname.startsWith('/_limit/')) kept.set(r.url, await res.text());
+      if (new URL(r.url).pathname.startsWith('/_limit/')) {
+        kept.set(r.url, await res.text());
+      }
     },
   },
 };
@@ -187,8 +190,12 @@ const pageFetch = async (u) => {
   const m = url.pathname.match(
     /^\/api\/v1\/datasets\/([^/]+)\/(?:versions\/([^/]+)\/)?(rows|aggregate)$/,
   );
-  if (url.pathname === '/api/v1/votes') return voteCounts({ env, waitUntil() {} });
-  if (!m) return env.ASSETS.fetch(new Request(url));
+  if (url.pathname === '/api/v1/votes') {
+    return voteCounts({ env, waitUntil() {} });
+  }
+  if (!m) {
+    return env.ASSETS.fetch(new Request(url));
+  }
   return answer(
     { request: new Request(url), env, params: { slug: m[1], version: m[2] }, waitUntil() {} },
     m[3] === 'rows' ? rowsQuery : aggregateQuery,
@@ -244,19 +251,30 @@ function conforms(schema, v, at = '$') {
   const types = [].concat(schema.type || []);
   const kind =
     v === null ? 'null' : Array.isArray(v) ? 'array' : Number.isInteger(v) ? 'integer' : typeof v;
-  if (types.length && !types.includes(kind) && !(kind === 'integer' && types.includes('number')))
+  if (types.length && !types.includes(kind) && !(kind === 'integer' && types.includes('number'))) {
     return `${at} is ${kind}, not ${types.join(' or ')}`;
-  for (const k of schema.required || []) if (!(k in v)) return `${at}.${k} is missing`;
-  for (const [k, s] of Object.entries(schema.properties || {}))
+  }
+  for (const k of schema.required || []) {
+    if (!(k in v)) {
+      return `${at}.${k} is missing`;
+    }
+  }
+  for (const [k, s] of Object.entries(schema.properties || {})) {
     if (v && k in v) {
       const e = conforms(s, v[k], `${at}.${k}`);
-      if (e) return e;
+      if (e) {
+        return e;
+      }
     }
-  if (schema.items && Array.isArray(v))
+  }
+  if (schema.items && Array.isArray(v)) {
     for (const [i, x] of v.entries()) {
       const e = conforms(schema.items, x, `${at}[${i}]`);
-      if (e) return e;
+      if (e) {
+        return e;
+      }
     }
+  }
   return null;
 }
 
@@ -398,7 +416,9 @@ test('the row tools stop at the query API limit for one address and say how long
     (await rpc('tools/call', { name: 'count_rows', arguments: { slug: 'crashes' } }, headers)).body
       .result;
   const per = raw.limits.requests / 2;
-  for (let i = 0; i < per; i++) assert.ok(!(await count(at)).isError, String(i));
+  for (let i = 0; i < per; i++) {
+    assert.ok(!(await count(at)).isError, String(i));
+  }
   const r = await count(at);
   assert.equal(r.isError, true);
   assert.equal(r.content[0].text, 'rate limited; wait 7 seconds and call again');

@@ -54,7 +54,7 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
         assert f"EXEC.{tool} = function" in js and f'"{tool}": {{' in js
     assert not (out / "static" / "site.css").exists()
     assert "--primary-ink:#171717" in home and "RG Fallback" in home
-    assert "var API = '/api/v1/datasets/';" in js and "partitionRows" not in js
+    assert "const API = '/api/v1/datasets/';" in js and "partitionRows" not in js
     assert re.search(r'<script src="/static/site\.js\?v=[0-9a-f]{12}" defer>', home)
     ds = (out / "d" / "qld-road-crash-locations" / "index.html").read_text(encoding="utf-8")
     assert 'data-fmt="parquet"' in ds and 'data-fmt="geojson"' in ds

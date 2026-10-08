@@ -15,11 +15,15 @@ async function recount(env) {
 export async function onRequestGet({ env, waitUntil }) {
   const o = await env.VOTES.get(ROLLUP);
   let body = o ? JSON.parse(await o.text()) : null;
-  if (!body) body = await recount(env);
-  else if (Date.now() - body.at > FRESH_MS) {
+  if (!body) {
+    body = await recount(env);
+  } else if (Date.now() - body.at > FRESH_MS) {
     const next = recount(env);
-    if (waitUntil) waitUntil(next);
-    else body = await next;
+    if (waitUntil) {
+      waitUntil(next);
+    } else {
+      body = await next;
+    }
   }
   return json(body.counts, 200, { 'cache-control': 'public, max-age=30' });
 }

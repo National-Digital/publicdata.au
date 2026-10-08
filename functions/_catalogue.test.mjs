@@ -188,9 +188,12 @@ const env = {
   ASSETS: {
     fetch: async (u) => {
       const p = new URL(String(u.url || u)).pathname;
-      if (p === '/backlog.json')
+      if (p === '/backlog.json') {
         return Response.json({ entries: [{ slug: 'abn-bulk-extract', status: 'backlog' }] });
-      if (p === '/catalogue/votable/act-3.json') return Response.json({ 'act-3u5a-ve4j': [] });
+      }
+      if (p === '/catalogue/votable/act-3.json') {
+        return Response.json({ 'act-3u5a-ve4j': [] });
+      }
       return new Response('', { status: 404 });
     },
   },
@@ -271,7 +274,9 @@ test('search and links share the fair-use limit per address', async () => {
       env,
     });
   let last;
-  for (let i = 0; i < 21; i++) last = await ask();
+  for (let i = 0; i < 21; i++) {
+    last = await ask();
+  }
   assert.equal(last.status, 429);
   assert.ok(Number(last.headers.get('retry-after')) > 0);
   const other = await onRequestGet({
@@ -332,16 +337,16 @@ CREATE VIRTUAL TABLE "${S}_fts" USING fts5(title, summary, publisher, keywords, 
   s.exec(
     `INSERT INTO "${S}_fts" (rowid, title, summary, publisher, keywords, fields) SELECT rowid, title, summary, publisher, keywords, fields FROM "${S}"`,
   );
-  const env = { DB: d1(s) };
+  const served = { DB: d1(s) };
   assert.deepEqual(
-    (await searchServed(env, 'casualties')).map((r) => r.slug),
+    (await searchServed(served, 'casualties')).map((r) => r.slug),
     ['qld-road-casualties'],
   );
   assert.deepEqual(
-    (await searchServed(env, 'speed limit')).map((r) => r.slug),
+    (await searchServed(served, 'speed limit')).map((r) => r.slug),
     ['au-road-deaths'],
   );
-  assert.deepEqual(Object.keys((await searchServed(env, 'road'))[0]), [
+  assert.deepEqual(Object.keys((await searchServed(served, 'road'))[0]), [
     'slug',
     'title',
     'publisher',
@@ -349,7 +354,7 @@ CREATE VIRTUAL TABLE "${S}_fts" USING fts5(title, summary, publisher, keywords, 
     'page',
     'latest',
   ]);
-  assert.equal((await searchServed(env, '')).length, 2);
+  assert.equal((await searchServed(served, '')).length, 2);
   assert.equal(await searchServed({}, 'road'), null);
   assert.equal(await searchServed({ DB: d1(new DatabaseSync(':memory:')) }, 'road'), null);
   const cat = {

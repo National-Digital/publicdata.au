@@ -28,35 +28,56 @@ const TOP_KEYS = new Set(['panels', 'layout', 'masters', 'global_filters']);
 const obj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 function depth(v, d = 0) {
-  if (d > 16) return d;
-  if (v === null || typeof v !== 'object') return d;
+  if (d > 16) {
+    return d;
+  }
+  if (v === null || typeof v !== 'object') {
+    return d;
+  }
   return Math.max(d, ...Object.values(v).map((x) => depth(x, d + 1)));
 }
 
 // Returns an error message, or null when the body is a dashboard this site can show.
 export function problem(body, versions) {
-  if (!obj(body)) return 'Send JSON with slug, version and workspace';
-  if (typeof body.slug !== 'string' || !versions) return 'No such dataset';
+  if (!obj(body)) {
+    return 'Send JSON with slug, version and workspace';
+  }
+  if (typeof body.slug !== 'string' || !versions) {
+    return 'No such dataset';
+  }
   if (
     typeof body.version !== 'string' ||
     !DATE.test(body.version) ||
     !versions.includes(body.version)
-  )
+  ) {
     return 'No such version of this dataset';
-  const ws = body.workspace;
-  if (!obj(ws) || !obj(ws.panels)) return 'workspace needs a panels object';
-  for (const k of Object.keys(ws))
-    if (!TOP_KEYS.has(k)) return `workspace has an unknown key: ${k}`;
-  const panels = Object.entries(ws.panels);
-  if (panels.length < 1 || panels.length > MAX_PANELS)
-    return `A dashboard has 1 to ${MAX_PANELS} panels`;
-  for (const [id, p] of panels) {
-    if (!/^[\w-]{1,64}$/.test(id) || !obj(p))
-      return 'Each panel needs a short id and a settings object';
-    for (const k of Object.keys(p))
-      if (!PANEL_KEYS.has(k)) return `A panel has an unknown key: ${k}`;
   }
-  if (depth(ws) > 16) return 'workspace is nested too deeply';
+  const ws = body.workspace;
+  if (!obj(ws) || !obj(ws.panels)) {
+    return 'workspace needs a panels object';
+  }
+  for (const k of Object.keys(ws)) {
+    if (!TOP_KEYS.has(k)) {
+      return `workspace has an unknown key: ${k}`;
+    }
+  }
+  const panels = Object.entries(ws.panels);
+  if (panels.length < 1 || panels.length > MAX_PANELS) {
+    return `A dashboard has 1 to ${MAX_PANELS} panels`;
+  }
+  for (const [id, p] of panels) {
+    if (!/^[\w-]{1,64}$/.test(id) || !obj(p)) {
+      return 'Each panel needs a short id and a settings object';
+    }
+    for (const k of Object.keys(p)) {
+      if (!PANEL_KEYS.has(k)) {
+        return `A panel has an unknown key: ${k}`;
+      }
+    }
+  }
+  if (depth(ws) > 16) {
+    return 'workspace is nested too deeply';
+  }
   return null;
 }
 

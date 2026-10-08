@@ -45,7 +45,9 @@ const db = new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE "v_t_20260424" (lga TEXT, year INTEGER);
 CREATE TABLE _versions (slug TEXT, version TEXT, tbl TEXT, fields TEXT, rows INTEGER, attribution TEXT, header TEXT);`);
 const ins = db.prepare('INSERT INTO "v_t_20260424" VALUES (?, ?)');
-for (let i = 0; i < 5; i++) ins.run(`LGA ${i}`, 2020 + i);
+for (let i = 0; i < 5; i++) {
+  ins.run(`LGA ${i}`, 2020 + i);
+}
 const header = {
   dataset: 'test-data',
   version: '2026-04-24',

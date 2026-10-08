@@ -54,7 +54,7 @@ def site(fixture_site) -> Path:
 def test_site_js_carries_the_spec_and_an_executor_for_every_tool(site):
     js = (site / "static" / "site.js").read_text(encoding="utf-8")
     assert "/*API_SPEC*/" not in js
-    injected = json.loads(re.search(r"var SPEC = (\{.*?\});\n", js)[1])
+    injected = json.loads(re.search(r"const SPEC = (\{.*?\});\n", js)[1])
     assert injected == at.browser_spec()
     assert set(re.findall(r"EXEC\.(\w+) = function", js)) == set(at.tool_names())
 

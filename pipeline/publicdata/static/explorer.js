@@ -7,7 +7,6 @@ const status = $('x-status');
 const host = $('x-host');
 let viewer = null;
 let current = null;
-let saving = null;
 // An embed is read-only unless its snippet asked for edit=1.
 const EDIT = !X.embed || new URLSearchParams(location.search).get('edit') === '1';
 
@@ -18,7 +17,9 @@ function say(text, state) {
 
 function toast(m) {
   const t = $('toast');
-  if (!t) return;
+  if (!t) {
+    return;
+  }
   t.textContent = m;
   t.classList.add('show');
   clearTimeout(toast.t);
@@ -34,8 +35,9 @@ function mb(n) {
 const b64 = {
   enc(bytes) {
     let s = '';
-    for (let i = 0; i < bytes.length; i += 0x8000)
+    for (let i = 0; i < bytes.length; i += 0x8000) {
       s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
     return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   },
   dec(s) {
@@ -54,7 +56,9 @@ async function pipe(bytes, stream, limit = Infinity) {
   let got = 0;
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     got += value.length;
     if (got > limit) {
       reader.cancel();
@@ -72,7 +76,9 @@ async function pipe(bytes, stream, limit = Infinity) {
 }
 
 function depth(v, d = 0) {
-  if (d > 16 || v === null || typeof v !== 'object') return d;
+  if (d > 16 || v === null || typeof v !== 'object') {
+    return d;
+  }
   return Math.max(d, ...Object.values(v).map((x) => depth(x, d + 1)));
 }
 
@@ -97,8 +103,9 @@ async function unpack(s) {
     typeof panels !== 'object' ||
     Object.keys(panels).length > MAX_PANELS ||
     depth(state) > 16
-  )
+  ) {
     throw new Error('not a dashboard');
+  }
   return state;
 }
 
@@ -126,16 +133,27 @@ const PANEL_KEYS = [
 function clean(ws) {
   const panels = {};
   for (const [id, p] of Object.entries((ws && ws.panels) || {})) {
-    if (!p || typeof p !== 'object') continue;
+    if (!p || typeof p !== 'object') {
+      continue;
+    }
     const q = {};
-    for (const k of PANEL_KEYS) if (p[k] !== undefined && p[k] !== null) q[k] = p[k];
+    for (const k of PANEL_KEYS) {
+      if (p[k] !== undefined && p[k] !== null) {
+        q[k] = p[k];
+      }
+    }
     panels[id] = relabel(q);
   }
   const out = { panels };
-  if (ws && ws.layout) out.layout = ws.layout;
-  if (ws && Array.isArray(ws.masters) && ws.masters.length) out.masters = ws.masters;
-  if (ws && Array.isArray(ws.global_filters) && ws.global_filters.length)
+  if (ws && ws.layout) {
+    out.layout = ws.layout;
+  }
+  if (ws && Array.isArray(ws.masters) && ws.masters.length) {
+    out.masters = ws.masters;
+  }
+  if (ws && Array.isArray(ws.global_filters) && ws.global_filters.length) {
     out.global_filters = ws.global_filters.map(term);
+  }
   return out;
 }
 
@@ -146,7 +164,9 @@ const TEXT = new Set((X.text || []).map((n) => LABELS[n] || n));
 const YESNO = new Set((X.yesno || []).map((n) => LABELS[n] || n));
 const col = (c) => (typeof c === 'string' && Object.hasOwn(LABELS, c) ? LABELS[c] : c);
 function term(f) {
-  if (!Array.isArray(f)) return f;
+  if (!Array.isArray(f)) {
+    return f;
+  }
   const c = col(f[0]);
   // Years are text and true or false is Yes or No now, so an older filter's value is carried over.
   const fix = (x) =>
@@ -179,27 +199,41 @@ function relabel(p) {
   }
   const c = (x) => alias[x] ?? col(x);
   const q = { ...p };
-  if (p.expressions) q.expressions = exprs;
-  for (const k of ['columns', 'group_by', 'split_by']) if (Array.isArray(p[k])) q[k] = p[k].map(c);
-  if (Array.isArray(p.sort))
+  if (p.expressions) {
+    q.expressions = exprs;
+  }
+  for (const k of ['columns', 'group_by', 'split_by']) {
+    if (Array.isArray(p[k])) {
+      q[k] = p[k].map(c);
+    }
+  }
+  if (Array.isArray(p.sort)) {
     q.sort = p.sort.map((s) => (Array.isArray(s) ? [c(s[0]), ...s.slice(1)] : s));
-  if (Array.isArray(p.filter))
+  }
+  if (Array.isArray(p.filter)) {
     q.filter = p.filter.map((f) => term(Array.isArray(f) ? [c(f[0]), ...f.slice(1)] : f));
+  }
   for (const k of ['aggregates', 'columns_config']) {
-    if (p[k] && typeof p[k] === 'object')
+    if (p[k] && typeof p[k] === 'object') {
       q[k] = Object.fromEntries(
         Object.entries(p[k])
           .filter(([n]) => !alias[n] || k !== 'aggregates')
           .map(([n, v]) => [c(n), v]),
       );
+    }
   }
   return q;
 }
 
 function ids(layout, acc = []) {
-  if (!layout) return acc;
-  if (layout.type === 'tab-layout') acc.push(...(layout.tabs || []));
-  else (layout.children || []).forEach((c) => ids(c, acc));
+  if (!layout) {
+    return acc;
+  }
+  if (layout.type === 'tab-layout') {
+    acc.push(...(layout.tabs || []));
+  } else {
+    (layout.children || []).forEach((c) => ids(c, acc));
+  }
   return acc;
 }
 
@@ -212,11 +246,17 @@ function theme() {
 function prepare(ws, active) {
   const w = clean(ws);
   const t = theme();
-  for (const p of Object.values(w.panels)) Object.assign(p, { table: TABLE, theme: t });
+  for (const p of Object.values(w.panels)) {
+    Object.assign(p, { table: TABLE, theme: t });
+  }
   // A phone has no room for splits, so the panels become tabs.
   if (host.clientWidth < 720) {
     const tabs = ids(w.layout).filter((id) => w.panels[id]);
-    for (const id of Object.keys(w.panels)) if (!tabs.includes(id)) tabs.push(id);
+    for (const id of Object.keys(w.panels)) {
+      if (!tabs.includes(id)) {
+        tabs.push(id);
+      }
+    }
     w.layout = { type: 'tab-layout', tabs, selected: 0 };
   }
   w.active = active || null;
@@ -231,7 +271,9 @@ async function initial() {
       const r = await fetch(`${X.views}/${view}`);
       if (r.ok) {
         const saved = await r.json();
-        if (saved.slug === X.slug) return { v: saved.version, w: saved.workspace, view };
+        if (saved.slug === X.slug) {
+          return { v: saved.version, w: saved.workspace, view };
+        }
       }
       say('That saved dashboard was not found, so the first dashboard is shown instead.');
     } catch {
@@ -242,7 +284,9 @@ async function initial() {
   if (m) {
     try {
       const s = await unpack(m[1]);
-      if (s && typeof s === 'object') return { v: s.v, w: s.w };
+      if (s && typeof s === 'object') {
+        return { v: s.v, w: s.w };
+      }
     } catch {
       say('The dashboard in this link could not be read, so the first dashboard is shown instead.');
     }
@@ -252,22 +296,29 @@ async function initial() {
 
 async function download(url, size, label) {
   const r = await fetch(url);
-  if (!r.ok) throw new Error(`${label} answered ${r.status}`);
+  if (!r.ok) {
+    throw new Error(`${label} answered ${r.status}`);
+  }
   const total = Number(r.headers.get('content-length')) || size || 0;
-  if (!r.body || !total) return new Uint8Array(await r.arrayBuffer());
+  if (!r.body || !total) {
+    return new Uint8Array(await r.arrayBuffer());
+  }
   const reader = r.body.getReader();
   const parts = [];
   let got = 0;
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     parts.push(value);
     got += value.length;
-    if (label === 'data')
+    if (label === 'data') {
       say(
         `Downloading ${mb(total)} of data: ${Math.min(99, Math.round((got / total) * 100))}%`,
         'busy',
       );
+    }
   }
   const out = new Uint8Array(got);
   let at = 0;
@@ -290,7 +341,9 @@ async function engine() {
     import(V + '@perspective-dev/viewer-charts/dist/cdn/perspective-viewer-charts.js'),
   ]);
   const gz = await fetch(V + '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm.gz');
-  if (!gz.ok) throw new Error(`the query engine answered ${gz.status}`);
+  if (!gz.ok) {
+    throw new Error(`the query engine answered ${gz.status}`);
+  }
   const wasm = await new Response(gz.body.pipeThrough(new DecompressionStream('gzip'))).blob();
   const wasmURL = URL.createObjectURL(new Blob([wasm], { type: 'application/wasm' }));
   const worker = new Worker(
@@ -334,11 +387,12 @@ function natural(values) {
   const low = values.map((v) => v.trim().toLowerCase());
   for (const names of [MONTHS, DAYS]) {
     const at = (v) => names.findIndex((m) => v === m || (v.length >= 3 && m.startsWith(v)));
-    if (low.every((v) => at(v) >= 0))
+    if (low.every((v) => at(v) >= 0)) {
       return values
         .map((v, i) => [at(low[i]), v])
         .sort((a, b) => a[0] - b[0])
         .map((x) => x[1]);
+    }
   }
   const num = values.filter((v) => lead(v));
   if (num.length >= 3 && num.length * 3 >= values.length * 2) {
@@ -368,7 +422,9 @@ async function table(e, bytes) {
       )
     ).toArray()[0];
     for (const [i, n] of strings.entries()) {
-      if (Number(counts[`c${i}`]) > 150) continue;
+      if (Number(counts[`c${i}`]) > 150) {
+        continue;
+      }
       const values = (
         await e.conn.query(
           `SELECT DISTINCT ${quote(n)} AS v FROM ${src} WHERE ${quote(n)} IS NOT NULL LIMIT 200`,
@@ -377,7 +433,9 @@ async function table(e, bytes) {
         .toArray()
         .map((r) => r.v);
       const sorted = values.length <= 150 && natural(values);
-      if (!sorted) continue;
+      if (!sorted) {
+        continue;
+      }
       // An ENUM keeps the text and sorts in the order it lists.
       order[n] = `o${i}`;
       await e.conn.query(
@@ -405,13 +463,17 @@ async function table(e, bytes) {
 async function snapshot() {
   const ws = clean(await viewer.saveWorkspace());
   const s = { w: ws };
-  if (current.version !== X.versions[0].version) s.v = current.version;
+  if (current.version !== X.versions[0].version) {
+    s.v = current.version;
+  }
   return s;
 }
 
 let timer = null;
 function remember() {
-  if (!viewer || !EDIT) return;
+  if (!viewer || !EDIT) {
+    return;
+  }
   clearTimeout(timer);
   timer = setTimeout(async () => {
     const packed = await pack(await snapshot());
@@ -443,8 +505,9 @@ TAB_CSS.replaceSync(
 function styleTabs() {
   for (const t of viewer.querySelectorAll('perspective-viewer-tab')) {
     const r = t.shadowRoot;
-    if (r && !r.adoptedStyleSheets.includes(TAB_CSS))
+    if (r && !r.adoptedStyleSheets.includes(TAB_CSS)) {
       r.adoptedStyleSheets = [...r.adoptedStyleSheets, TAB_CSS];
+    }
   }
 }
 
@@ -455,8 +518,12 @@ function serial(handler) {
   return new Proxy(handler, {
     get(target, key) {
       const v = Reflect.get(target, key);
-      if (typeof v !== 'function') return v;
-      if (key === 'getFeatures') return v.bind(target);
+      if (typeof v !== 'function') {
+        return v;
+      }
+      if (key === 'getFeatures') {
+        return v.bind(target);
+      }
       return (...args) => {
         const run = chain.then(() => v.apply(target, args));
         chain = run.catch(() => {});
@@ -478,6 +545,7 @@ async function draw(e, ws, active) {
   try {
     await viewer.restoreWorkspace(prepare(ws, active));
   } catch (err) {
+    // eslint-disable-next-line no-console -- the page says what happened; the console keeps the detail.
     console.warn(err);
     say(
       'Part of that dashboard does not fit this version of the data, so the first dashboard is shown instead.',
@@ -504,7 +572,9 @@ async function save() {
     body: JSON.stringify({ slug: X.slug, version: current.version, workspace: s.w }),
   });
   const body = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(body.error || `the API answered ${r.status}`);
+  if (!r.ok) {
+    throw new Error(body.error || `the API answered ${r.status}`);
+  }
   return body.id;
 }
 
@@ -599,9 +669,10 @@ function bindToolbar() {
   });
   $('x-embed-edit').addEventListener('change', () => {
     const code = $('x-embed-code');
+    const edit = $('x-embed-edit').checked ? '&edit=1' : '';
     code.textContent = code.textContent.replace(
       /\?view=([a-f0-9]{16})(&edit=1)?/,
-      (m, id) => `?view=${id}${$('x-embed-edit').checked ? '&edit=1' : ''}`,
+      `?view=$1${edit}`,
     );
   });
   $('x-bar').hidden = false;
@@ -611,9 +682,13 @@ function bindToolbar() {
 // A visitor's first explorer, on any dataset, opens the first chart's settings so the editing shows
 // before anyone has to look for it. Once seen it stays closed everywhere, so the key is site-wide.
 function intro(start) {
-  if (X.embed || start.w !== X.defaults || document.documentElement.clientWidth < 720) return null;
+  if (X.embed || start.w !== X.defaults || document.documentElement.clientWidth < 720) {
+    return null;
+  }
   try {
-    if (localStorage.getItem('x-intro') === '1') return null;
+    if (localStorage.getItem('x-intro') === '1') {
+      return null;
+    }
     localStorage.setItem('x-intro', '1');
   } catch {
     return null;
@@ -637,15 +712,20 @@ async function main() {
   await table(e, bytes);
   say('Drawing', 'busy');
   await draw(e, start.w, intro(start));
-  if ($('x-ghost')) $('x-ghost').hidden = true;
-  if (!X.embed) bindToolbar();
+  if ($('x-ghost')) {
+    $('x-ghost').hidden = true;
+  }
+  if (!X.embed) {
+    bindToolbar();
+  }
   say(
     `${current.rows_fmt} rows, version ${current.version}. Everything runs in this browser.`,
     'ready',
   );
-  if (X.embed)
+  if (X.embed) {
     $('x-open').href =
       `${location.origin}${X.page}${start.view ? `?view=${start.view}` : location.hash}`;
+  }
   if (start.view && !X.embed) {
     $('x-short-url').textContent = `${location.origin}${X.page}?view=${start.view}`;
     $('x-short').hidden = false;
@@ -653,6 +733,7 @@ async function main() {
 }
 
 main().catch((err) => {
+  // eslint-disable-next-line no-console -- the page says what happened; the console keeps the stack.
   console.error(err);
   say(
     `The explorer stopped: ${err.message}. The files and the query API on the dataset page still work.`,

@@ -28,10 +28,12 @@ test('unknown datasets, versions and settings are refused', () => {
     problem({ ...good, workspace: { panels: { a: { table: 'other' } } } }, versions),
     /unknown key: table/,
   );
-  const many = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`p${i}`, {}]));
+  const many = Object.fromEntries([...Array(13).keys()].map((i) => [`p${i}`, {}]));
   assert.match(problem({ ...good, workspace: { panels: many } }, versions), /1 to 12/);
   let deep = {};
-  for (let i = 0; i < 20; i++) deep = { x: deep };
+  for (let i = 0; i < 20; i++) {
+    deep = { x: deep };
+  }
   assert.match(
     problem({ ...good, workspace: { ...good.workspace, layout: deep } }, versions),
     /too deeply/,

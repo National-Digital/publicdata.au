@@ -17,8 +17,9 @@ for (const r of [
   ['Gold Coast', 2021, 0, null],
   ['Brisbane', 2020, 0, 60],
   ["O'Connor", 2021, 1, 100],
-])
+]) {
   ins.run(...r);
+}
 const run = (plan) =>
   db
     .prepare(plan.sql)

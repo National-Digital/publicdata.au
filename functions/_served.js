@@ -15,7 +15,9 @@ const pick = (r) => ({
 });
 
 export async function searchServed(env, q, limit = LIMIT) {
-  if (!env.DB) return null;
+  if (!env.DB) {
+    return null;
+  }
   let t;
   try {
     t = await env.DB.prepare(
@@ -26,7 +28,9 @@ export async function searchServed(env, q, limit = LIMIT) {
   } catch {
     return null;
   }
-  if (!t) return null;
+  if (!t) {
+    return null;
+  }
   const m = terms(q);
   try {
     const res = m

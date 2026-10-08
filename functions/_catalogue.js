@@ -36,17 +36,26 @@ export function locate(raw) {
     return null;
   }
   let host = u.hostname.toLowerCase().replace(/^www\./, '');
-  if (!host) return null;
+  if (!host) {
+    return null;
+  }
   host = PORTAL_HOSTS[host] || host;
   let m = u.pathname.match(/\/datasets?\/([^/?#]+)/);
-  if (m)
+  if (m) {
     return { host, kind: 'name', value: decodeURIComponent(m[1]).toLowerCase(), bare: bare(u) };
+  }
   m = u.pathname.match(/(?:^|\/)([a-z0-9]{4}-[a-z0-9]{4})(?:\/|$)/);
-  if (m) return { host, kind: 'source', value: m[1], bare: bare(u) };
+  if (m) {
+    return { host, kind: 'source', value: m[1], bare: bare(u) };
+  }
   const df = u.searchParams.get('df[id]');
-  if (df) return { host, kind: 'source', value: df, bare: bare(u) };
+  if (df) {
+    return { host, kind: 'source', value: df, bare: bare(u) };
+  }
   m = u.pathname.match(/\/data\/[^/,]+,([^/,]+),/);
-  if (m) return { host, kind: 'source', value: m[1], bare: bare(u) };
+  if (m) {
+    return { host, kind: 'source', value: m[1], bare: bare(u) };
+  }
   return { host, kind: 'url', value: bare(u), bare: bare(u) };
 }
 
@@ -57,7 +66,9 @@ export function terms(q) {
     String(q || '')
       .toLowerCase()
       .match(/[\p{L}\p{N}]+/gu) || [];
-  if (!words.length) return '';
+  if (!words.length) {
+    return '';
+  }
   return words
     .slice(0, 12)
     .map((w) => `"${w}"`)
@@ -69,24 +80,29 @@ export function searchPlan(tbl, params) {
   const where = [];
   const jur = params.get('jur');
   if (jur) {
-    if (!JURS.includes(jur)) throw new CatalogueError(`jur is one of ${JURS.join(', ')}`);
+    if (!JURS.includes(jur)) {
+      throw new CatalogueError(`jur is one of ${JURS.join(', ')}`);
+    }
     where.push('c.jur = ?');
     binds.push(jur);
   }
   const state = params.get('state');
   if (state) {
     const want = state.split(',');
-    if (want.some((s) => !STATES.includes(s)))
+    if (want.some((s) => !STATES.includes(s))) {
       throw new CatalogueError(`state is one or more of ${STATES.join(', ')}`);
+    }
     where.push(`c.state IN (${want.map(() => '?').join(',')})`);
     binds.push(...want);
   }
   const limit = params.has('limit') ? Number(params.get('limit')) : 20;
   const offset = params.has('offset') ? Number(params.get('offset')) : 0;
-  if (!Number.isInteger(limit) || limit < 1 || limit > LIMIT_MAX)
+  if (!Number.isInteger(limit) || limit < 1 || limit > LIMIT_MAX) {
     throw new CatalogueError(`limit is 1 to ${LIMIT_MAX}`);
-  if (!Number.isInteger(offset) || offset < 0 || offset > 5000)
+  }
+  if (!Number.isInteger(offset) || offset < 0 || offset > 5000) {
     throw new CatalogueError('offset is 0 to 5000');
+  }
   const q = terms(params.get('q'));
   const from = q ? `"${tbl}_fts" f JOIN "${tbl}" c ON c.rowid = f.rowid` : `"${tbl}" c`;
   if (q) {
@@ -109,7 +125,9 @@ export function searchPlan(tbl, params) {
 }
 
 export async function table(env) {
-  if (!env.DB) return null;
+  if (!env.DB) {
+    return null;
+  }
   try {
     return await env.DB.prepare(
       'SELECT tbl, version, rows FROM _versions WHERE slug = ? ORDER BY version DESC LIMIT 1',
@@ -124,18 +142,24 @@ export async function table(env) {
 // The record a pasted portal URL names, or null.
 export async function resolve(env, tbl, raw) {
   const hit = locate(raw);
-  if (!hit) return null;
+  if (!hit) {
+    return null;
+  }
   const one = (sql, ...b) =>
     env.DB.prepare(`SELECT ${COLS} FROM "${tbl}" WHERE ${sql} LIMIT 1`)
       .bind(...b)
       .first();
   let rec = null;
-  if (hit.kind === 'name') rec = await one('host = ? AND name = ?', hit.host, hit.value);
+  if (hit.kind === 'name') {
+    rec = await one('host = ? AND name = ?', hit.host, hit.value);
+  }
   if (!rec && hit.kind !== 'url') {
     const p = await env.DB.prepare(`SELECT portal FROM "${tbl}" WHERE host = ? LIMIT 1`)
       .bind(hit.host)
       .first();
-    if (p) rec = await one('id = ?', recordId(p.portal, hit.value));
+    if (p) {
+      rec = await one('id = ?', recordId(p.portal, hit.value));
+    }
   }
   return (
     rec ||

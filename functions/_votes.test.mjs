@@ -30,15 +30,20 @@ const env = {
   ASSETS: {
     fetch: async (u) => {
       const p = new URL(String(u.url || u)).pathname;
-      if (p === '/backlog.json')
+      if (p === '/backlog.json') {
         return Response.json({
           entries: [
             { slug: 'abn-bulk-extract', status: 'backlog' },
             { slug: 'crashes', status: 'live' },
           ],
         });
-      if (p === '/catalogue/aliases.json') return Response.json({ 'gov-1111': 'abn-bulk-extract' });
-      if (p === '/catalogue/votable/act-3.json') return Response.json({ 'act-3u5a-ve4j': [] });
+      }
+      if (p === '/catalogue/aliases.json') {
+        return Response.json({ 'gov-1111': 'abn-bulk-extract' });
+      }
+      if (p === '/catalogue/votable/act-3.json') {
+        return Response.json({ 'act-3u5a-ve4j': [] });
+      }
       return new Response('', { status: 404 });
     },
   },

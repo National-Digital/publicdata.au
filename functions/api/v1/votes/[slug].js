@@ -7,14 +7,20 @@ async function allowed(env, slug) {
   if (res.ok) {
     const { entries } = await res.json();
     const e = entries.find((x) => x.slug === slug);
-    if (e) return e.status !== 'live' && e.status !== 'building';
+    if (e) {
+      return e.status !== 'live' && e.status !== 'building';
+    }
   }
   const m = slug.match(/^([a-z]+)-([a-z0-9])/);
-  if (!m) return false;
+  if (!m) {
+    return false;
+  }
   const shard = await env.ASSETS.fetch(
     new URL(`/catalogue/votable/${m[1]}-${m[2]}.json`, 'https://publicdata.au'),
   );
-  if (!shard.ok) return false;
+  if (!shard.ok) {
+    return false;
+  }
   return Object.prototype.hasOwnProperty.call(await shard.json(), slug);
 }
 
@@ -28,19 +34,26 @@ const keyFor = async (request, env, slug) =>
   `v/${slug}/${today()}/${await voter(request, env, slug)}`;
 
 export async function onRequestPost({ request, env, params }) {
-  if (!SLUG.test(params.slug)) return json({ error: 'Unknown dataset' }, 400);
+  if (!SLUG.test(params.slug)) {
+    return json({ error: 'Unknown dataset' }, 400);
+  }
   const { al, slug } = await target(env, params.slug);
-  if (!(await allowed(env, slug)))
+  if (!(await allowed(env, slug))) {
     return json({ error: 'That dataset is not open for votes' }, 404);
+  }
   // One vote a day per browser, including one cast earlier today under the record id.
   const keys = await Promise.all([slug, ...others(al, slug)].map((s) => keyFor(request, env, s)));
   const cast = await Promise.all(keys.map((k) => env.VOTES.head(k)));
-  if (!cast.some(Boolean)) await env.VOTES.put(keys[0], '1');
+  if (!cast.some(Boolean)) {
+    await env.VOTES.put(keys[0], '1');
+  }
   return json({ slug, votes: await count(env, slug, al) });
 }
 
 export async function onRequestDelete({ request, env, params }) {
-  if (!SLUG.test(params.slug)) return json({ error: 'Unknown dataset' }, 400);
+  if (!SLUG.test(params.slug)) {
+    return json({ error: 'Unknown dataset' }, 400);
+  }
   const { al, slug } = await target(env, params.slug);
   const keys = await Promise.all([slug, ...others(al, slug)].map((s) => keyFor(request, env, s)));
   await Promise.all(keys.map((k) => env.VOTES.delete(k)));
@@ -48,7 +61,9 @@ export async function onRequestDelete({ request, env, params }) {
 }
 
 export async function onRequestGet({ env, params }) {
-  if (!SLUG.test(params.slug)) return json({ error: 'Unknown dataset' }, 400);
+  if (!SLUG.test(params.slug)) {
+    return json({ error: 'Unknown dataset' }, 400);
+  }
   const { al, slug } = await target(env, params.slug);
   return json({ slug, votes: await count(env, slug, al) }, 200, {
     'cache-control': 'public, max-age=30',

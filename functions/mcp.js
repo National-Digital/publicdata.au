@@ -45,8 +45,9 @@ const fail = (id, code, message) => ({ jsonrpc: '2.0', id: id ?? null, error: { 
 async function call(ctx, params) {
   const name = params && params.name;
   const tool = BY_NAME.get(name);
-  if (!tool)
+  if (!tool) {
     return { error: [-32602, `no tool ${name}; tools are ${[...BY_NAME.keys()].join(', ')}`] };
+  }
   const input = params.arguments && typeof params.arguments === 'object' ? params.arguments : {};
   const missing = tool.inputSchema.required.filter(
     (k) => input[k] === undefined || input[k] === '',
@@ -57,15 +58,18 @@ async function call(ctx, params) {
     : unknown.length
       ? `${name} takes ${Object.keys(tool.inputSchema.properties).join(', ')}, not ${unknown.join(', ')}`
       : null;
-  if (problem) return { result: { content: [{ type: 'text', text: problem }], isError: true } };
+  if (problem) {
+    return { result: { content: [{ type: 'text', text: problem }], isError: true } };
+  }
   const wait = await spend(ctx.request, COST.get(name));
-  if (wait)
+  if (wait) {
     return {
       result: {
         content: [{ type: 'text', text: `rate limited; wait ${wait} seconds and call again` }],
         isError: true,
       },
     };
+  }
   try {
     const out = await EXEC[name](ctx, input);
     return {
@@ -73,8 +77,9 @@ async function call(ctx, params) {
     };
   } catch (e) {
     // A tool that fails tells the model why, so it can change the call and try again.
-    if (e instanceof ToolError || e instanceof QueryError)
+    if (e instanceof ToolError || e instanceof QueryError) {
       return { result: { content: [{ type: 'text', text: e.message }], isError: true } };
+    }
     throw e;
   }
 }
@@ -85,7 +90,9 @@ let listed;
 async function resources(ctx) {
   if (!listed) {
     const r = await ctx.env.ASSETS.fetch(new Request('https://publicdata.au/mcp/resources.json'));
-    if (!r.ok) throw new Error(`${r.status} for /mcp/resources.json`);
+    if (!r.ok) {
+      throw new Error(`${r.status} for /mcp/resources.json`);
+    }
     listed = (await r.json()).resources;
   }
   return listed;
@@ -93,40 +100,44 @@ async function resources(ctx) {
 
 async function read(ctx, params) {
   const uri = params && params.uri;
-  if (typeof uri !== 'string' || !FIELDS.test(uri))
+  if (typeof uri !== 'string' || !FIELDS.test(uri)) {
     return {
       error: [
         -32602,
         `no resource ${uri}; resources are https://publicdata.au/d/<slug>/fields.json`,
       ],
     };
+  }
   // Through the /d/ handler, so a file moved to R2 reads as the public URL does.
   const r = await dFile({ request: new Request(uri), env: ctx.env });
-  if (!r.ok)
+  if (!r.ok) {
     return {
       error: [-32002, `no resource ${uri}; resources/list names every dataset that has one`],
     };
+  }
   return { result: { contents: [{ uri, mimeType: 'application/json', text: await r.text() }] } };
 }
 
 // A prompt's text with its arguments filled; ask_dataset attaches the dataset's fields.
 async function prompt(ctx, params) {
   const p = PROMPTS.get(params && params.name);
-  if (!p)
+  if (!p) {
     return {
       error: [
         -32602,
         `no prompt ${params && params.name}; prompts are ${[...PROMPTS.keys()].join(', ')}`,
       ],
     };
+  }
   const args = params.arguments && typeof params.arguments === 'object' ? params.arguments : {};
   const missing = p.arguments
     .filter((a) => a.required && (args[a.name] === undefined || args[a.name] === ''))
     .map((a) => a.name);
-  if (missing.length)
+  if (missing.length) {
     return {
       error: [-32602, `${missing.join(', ')} ${missing.length > 1 ? 'are' : 'is'} required`],
     };
+  }
   const fill = (s) =>
     s.replace(/\{(\w+)\}/g, (m, k) => (args[k] === undefined ? m : String(args[k])));
   const text = fill(p.text) + (p.question && args.question ? ' ' + fill(p.question) : '');
@@ -136,8 +147,9 @@ async function prompt(ctx, params) {
     const r = await read(ctx, {
       uri: SPEC.resource_template.uriTemplate.replace('{slug}', args.slug),
     });
-    if (r.error)
+    if (r.error) {
       return { error: [-32602, `no dataset ${args.slug}; find one with search_datasets`] };
+    }
     messages.push({ role: 'user', content: { type: 'resource', resource: r.result.contents[0] } });
   }
   return { result: { description: p.description, messages } };
@@ -153,18 +165,23 @@ async function complete(ctx, params) {
       : ref.type === 'ref/prompt' &&
         PROMPTS.has(ref.name) &&
         PROMPTS.get(ref.name).arguments.some((a) => a.name === 'slug');
-  if (!known || arg.name !== 'slug') return { values: [], hasMore: false };
+  if (!known || arg.name !== 'slug') {
+    return { values: [], hasMore: false };
+  }
   const v = String(arg.value || '').toLowerCase();
   const all = (await resources(ctx)).map((r) => r.name).filter((s) => s.includes(v));
   return { values: all.slice(0, 100), total: all.length, hasMore: all.length > 100 };
 }
 
 async function handle(ctx, msg) {
-  if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string')
+  if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
     return fail(msg && msg.id, -32600, 'not a JSON-RPC 2.0 request');
+  }
   const { id, method, params } = msg;
   // A notification has no id and gets no answer.
-  if (id === undefined) return null;
+  if (id === undefined) {
+    return null;
+  }
   if (method === 'initialize') {
     const asked = params && params.protocolVersion;
     return ok(id, {
@@ -179,8 +196,12 @@ async function handle(ctx, msg) {
       instructions: SPEC.instructions,
     });
   }
-  if (method === 'ping') return ok(id, {});
-  if (method === 'tools/list') return ok(id, { tools: TOOLS });
+  if (method === 'ping') {
+    return ok(id, {});
+  }
+  if (method === 'tools/list') {
+    return ok(id, { tools: TOOLS });
+  }
   if (method === 'resources/list') {
     try {
       return ok(id, { resources: await resources(ctx) });
@@ -192,7 +213,7 @@ async function handle(ctx, msg) {
       );
     }
   }
-  if (method === 'prompts/list')
+  if (method === 'prompts/list') {
     return ok(id, {
       prompts: SPEC.prompts.map(({ name, title, description, arguments: a }) => ({
         name,
@@ -201,6 +222,7 @@ async function handle(ctx, msg) {
         arguments: a,
       })),
     });
+  }
   if (method === 'prompts/get') {
     const r = await prompt(ctx, params);
     return r.error ? fail(id, ...r.error) : ok(id, r.result);
@@ -216,8 +238,9 @@ async function handle(ctx, msg) {
       );
     }
   }
-  if (method === 'resources/templates/list')
+  if (method === 'resources/templates/list') {
     return ok(id, { resourceTemplates: [SPEC.resource_template] });
+  }
   if (method === 'resources/read') {
     const r = await read(ctx, params);
     return r.error ? fail(id, ...r.error) : ok(id, r.result);
@@ -244,7 +267,7 @@ async function handle(ctx, msg) {
 
 export async function onRequestPost(context) {
   const v = context.request.headers.get('mcp-protocol-version');
-  if (v && !VERSIONS.includes(v))
+  if (v && !VERSIONS.includes(v)) {
     return send(
       fail(
         null,
@@ -253,6 +276,7 @@ export async function onRequestPost(context) {
       ),
       400,
     );
+  }
   let msg;
   try {
     msg = await context.request.json();
@@ -269,7 +293,9 @@ export async function onRequestPost(context) {
     const out = [];
     for (const m of msg) {
       const r = await handle(ctx, m);
-      if (r) out.push(r);
+      if (r) {
+        out.push(r);
+      }
     }
     return out.length ? send(out) : send(null, 202);
   }

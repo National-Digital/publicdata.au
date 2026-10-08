@@ -22,18 +22,28 @@ export function filters(where) {
   for (const k of Object.keys(where || {})) {
     const w = where[k],
       f = enc(k);
-    if (w === null) out.push(f + '=is.null');
-    else if (Array.isArray(w)) {
-      if (w.some((x) => String(x).indexOf(',') >= 0))
+    if (w === null) {
+      out.push(f + '=is.null');
+    } else if (Array.isArray(w)) {
+      if (w.some((x) => String(x).indexOf(',') >= 0)) {
         throw new ToolError(
           'a list value cannot contain a comma; filter ' + k + ' on one value at a time',
         );
+      }
       out.push(f + '=in.' + enc('(' + w.join(',') + ')'));
     } else if (typeof w === 'object') {
-      if (w.min !== undefined) out.push(f + '=gte.' + enc(w.min));
-      if (w.max !== undefined) out.push(f + '=lte.' + enc(w.max));
-      if (w.like !== undefined) out.push(f + '=ilike.' + enc(w.like));
-    } else out.push(f + '=eq.' + enc(w));
+      if (w.min !== undefined) {
+        out.push(f + '=gte.' + enc(w.min));
+      }
+      if (w.max !== undefined) {
+        out.push(f + '=lte.' + enc(w.max));
+      }
+      if (w.like !== undefined) {
+        out.push(f + '=ilike.' + enc(w.like));
+      }
+    } else {
+      out.push(f + '=eq.' + enc(w));
+    }
   }
   return out;
 }
@@ -44,7 +54,9 @@ async function file(ctx, path) {
   const r = path.startsWith('/d/')
     ? await dFile({ request: req, env: ctx.env })
     : await ctx.env.ASSETS.fetch(req);
-  if (!r.ok) throw new ToolError(r.status + ' for ' + SITE + path);
+  if (!r.ok) {
+    throw new ToolError(r.status + ' for ' + SITE + path);
+  }
   return r.json();
 }
 
@@ -64,7 +76,9 @@ async function api(ctx, slug, op, version, qs) {
   };
   const r = await answer(context, op === 'rows' ? rowsQuery : aggregateQuery, op);
   const b = await r.json().catch(() => ({}));
-  if (!r.ok) throw new ToolError(b.error || r.status + ' for ' + SITE + u);
+  if (!r.ok) {
+    throw new ToolError(b.error || r.status + ' for ' + SITE + u);
+  }
   b.version = r.headers.get('x-publicdata-version');
   b.url = SITE + u;
   return b;
@@ -76,7 +90,9 @@ async function total(ctx, slug, version, where) {
 }
 
 function slugOf(input) {
-  if (!input.slug) throw new ToolError('slug is required; find one with search_datasets');
+  if (!input.slug) {
+    throw new ToolError('slug is required; find one with search_datasets');
+  }
   return input.slug;
 }
 
@@ -89,7 +105,9 @@ EXEC.search_datasets = async (ctx, input) => {
     env: ctx.env,
   });
   const b = await r.json();
-  if (!r.ok) throw new ToolError(b.error || String(r.status));
+  if (!r.ok) {
+    throw new ToolError(b.error || String(r.status));
+  }
   return text(b);
 };
 EXEC.get_dataset = async (ctx, input) => {
@@ -105,17 +123,20 @@ EXEC.list_fields = async (ctx, input) => {
   try {
     return text(await file(ctx, '/d/' + enc(slug) + '/fields.json'));
   } catch (e) {
-    if (e instanceof ToolError)
+    if (e instanceof ToolError) {
       throw new ToolError(
         'no queryable dataset with slug ' + slug + '; search_datasets names them',
       );
+    }
     throw e;
   }
 };
 EXEC.list_partitions = async (ctx, input) => {
   const slug = slugOf(input);
   const latest = await file(ctx, '/latest.json');
-  if (!latest[slug]) throw new ToolError('no live dataset with slug ' + slug);
+  if (!latest[slug]) {
+    throw new ToolError('no live dataset with slug ' + slug);
+  }
   const base = '/d/' + enc(slug) + '/v/' + latest[slug] + '/';
   const ix = await file(ctx, base + 'by/' + enc(input.field) + '/index.json');
   return text({
@@ -133,8 +154,12 @@ EXEC.query_rows = async (ctx, input) => {
     offset = input.offset || 0,
     slug = slugOf(input);
   const qs = filters(input.where).concat(['limit=' + limit, 'offset=' + offset]);
-  if (input.select && input.select.length) qs.push('select=' + input.select.map(enc).join(','));
-  if (input.order) qs.push('order=' + enc(input.order));
+  if (input.select && input.select.length) {
+    qs.push('select=' + input.select.map(enc).join(','));
+  }
+  if (input.order) {
+    qs.push('order=' + enc(input.order));
+  }
   const b = await api(ctx, slug, 'rows', input.version, qs);
   const n = await total(ctx, slug, b.version, input.where);
   return text({
@@ -157,7 +182,9 @@ EXEC.count_rows = async (ctx, input) => {
     'order=' + enc(alias + '.desc'),
     'limit=' + limit,
   ]);
-  if (group.length) qs.push('group=' + group.map(enc).join(','));
+  if (group.length) {
+    qs.push('group=' + group.map(enc).join(','));
+  }
   const b = await api(ctx, slug, 'aggregate', input.version, qs);
   const n = await total(ctx, slug, b.version, input.where);
   return text({
@@ -180,15 +207,23 @@ EXEC.diff_versions = async (ctx, input) =>
   );
 EXEC.search_catalogue = async (ctx, input) => {
   const qs = new URLSearchParams({ q: input.query || '', limit: '20' });
-  if (input.jurisdiction) qs.set('jur', input.jurisdiction);
-  if (input.votable_only) qs.set('state', 'votable,chosen');
-  if (input.offset) qs.set('offset', String(input.offset));
+  if (input.jurisdiction) {
+    qs.set('jur', input.jurisdiction);
+  }
+  if (input.votable_only) {
+    qs.set('state', 'votable,chosen');
+  }
+  if (input.offset) {
+    qs.set('offset', String(input.offset));
+  }
   const r = await catalogue({
     request: new Request(SITE + '/api/v1/catalogue?' + qs, { headers: ctx.request.headers }),
     env: ctx.env,
   });
   const b = await r.json();
-  if (!r.ok) throw new ToolError(b.error || String(r.status));
+  if (!r.ok) {
+    throw new ToolError(b.error || String(r.status));
+  }
   return text(b);
 };
 // The same shape as backlog() in site.js; functions/_mcp.test.mjs holds the two to each other.
@@ -223,6 +258,8 @@ EXEC.upvote_dataset = async (ctx, input) => {
   // The caller's own request goes through, so the one-vote-a-day hash is theirs.
   const r = await castVote({ request: ctx.request, env: ctx.env, params: { slug: slugOf(input) } });
   const b = await r.json();
-  if (!r.ok) throw new ToolError(b.error || String(r.status));
+  if (!r.ok) {
+    throw new ToolError(b.error || String(r.status));
+  }
   return text(b);
 };

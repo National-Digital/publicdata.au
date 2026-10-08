@@ -33,10 +33,16 @@ const PAGE = /\/v\/\d{4}-\d{2}-\d{2}\/(index\.(html|md))?$/;
 // security headers from the build, read once per isolate.
 let pageHeaders;
 async function headersFor(env) {
-  if (pageHeaders) return pageHeaders;
+  if (pageHeaders) {
+    return pageHeaders;
+  }
   const r = await env.ASSETS.fetch(new Request('https://publicdata.au/static/page-headers.json'));
-  if (r.ok) return (pageHeaders = await r.json());
+  if (r.ok) {
+    pageHeaders = await r.json();
+    return pageHeaders;
+  }
   // Not remembered, so the next page tries again; the page still goes out with nosniff.
+  // eslint-disable-next-line no-console -- the Workers log is where an operator sees this.
   console.error(
     `page-headers.json answered ${r.status}; a version page went out without the site's headers`,
   );
@@ -46,28 +52,37 @@ async function headersFor(env) {
 // The live datasets and their newest versions. An isolate serves one deployment, so it is read once.
 let live;
 async function liveOf(env, url) {
-  if (live) return live;
+  if (live) {
+    return live;
+  }
   const r = await env.ASSETS.fetch(new URL('/latest.json', url));
-  if (!r.ok) return {};
-  return (live = await r.json());
+  if (!r.ok) {
+    return {};
+  }
+  live = await r.json();
+  return live;
 }
 
 // The publisher's files the register no longer republishes, which R2 still holds.
 let held;
 async function heldOf(env, url) {
-  if (held) return held;
+  if (held) {
+    return held;
+  }
   const r = await env.ASSETS.fetch(new URL('/withheld.json', url));
-  return (held = new Set(r.ok ? await r.json() : []));
+  held = new Set(r.ok ? await r.json() : []);
+  return held;
 }
 
 // Whether R2 still holds versions of a withheld dataset, per slug. Its versions never change.
 const archive = new Map();
 async function archivedOf(env, slug) {
-  if (!archive.has(slug))
+  if (!archive.has(slug)) {
     archive.set(
       slug,
       (await env.DIST.list({ prefix: `d/${slug}/v/`, limit: 1 })).objects.length > 0,
     );
+  }
   return archive.get(slug);
 }
 
@@ -77,12 +92,16 @@ const SOURCE = /^d\/([a-z0-9-]+)\/v\/(\d{4}-\d{2}-\d{2})\/(source\.[a-z0-9]+)$/;
 // only beside a published version's manifest: in R2, or on Pages for a preview.
 async function rawSource(env, url, key, read) {
   const m = key.match(SOURCE);
-  if (!m || !env.RAW) return null;
+  if (!m || !env.RAW) {
+    return null;
+  }
   const man = `d/${m[1]}/v/${m[2]}/manifest.json`;
   let published = !!(await env.DIST.head(man));
   if (!published) {
     const r = await env.ASSETS.fetch(new Request(new URL('/' + man, url)));
-    if (r.body) await r.body.cancel();
+    if (r.body) {
+      await r.body.cancel();
+    }
     published = r.ok;
   }
   // Pages binds R2 read-write only, so the archive is handed on with its two read methods alone.
@@ -106,7 +125,9 @@ export async function onRequestGet({ request, env }) {
     } catch {
       /* a malformed escape names nothing */
     }
-    if (!plain || !PLAIN.test(plain)) return new Response('Not found', { status: 404 });
+    if (!plain || !PLAIN.test(plain)) {
+      return new Response('Not found', { status: 404 });
+    }
     return new Response(null, {
       status: 308,
       headers: { location: plain + url.search, 'cache-control': 'public, max-age=86400' },
@@ -126,7 +147,9 @@ export async function onRequestGet({ request, env }) {
     slug &&
     (archived || (r.status < 400 && (gone || (await heldOf(env, url)).has(url.pathname))))
   ) {
-    if (r.body) await r.body.cancel();
+    if (r.body) {
+      await r.body.cancel();
+    }
     return new Response(WITHHELD, {
       status: 410,
       headers: {
@@ -142,7 +165,9 @@ async function serve(request, env, url, latest) {
   const m = url.pathname.match(/^\/d\/([a-z0-9-]+)\/latest\/(.*)$/);
   if (m) {
     const v = latest[m[1]];
-    if (!v) return new Response('No such dataset', { status: 404 });
+    if (!v) {
+      return new Response('No such dataset', { status: 404 });
+    }
     return new Response(null, {
       status: 302,
       headers: {
@@ -157,7 +182,9 @@ async function serve(request, env, url, latest) {
   const page = PAGE.test(url.pathname);
   if (page) {
     const r = await fromR2(request, env, url);
-    if (r) return r;
+    if (r) {
+      return r;
+    }
   }
   const asset = await env.ASSETS.fetch(request);
   if (asset.status !== 404) {
@@ -166,12 +193,15 @@ async function serve(request, env, url, latest) {
       !DATED.test(url.pathname) ||
       PAGE.test(url.pathname) ||
       (asset.status !== 200 && asset.status !== 206)
-    )
+    ) {
       return asset;
+    }
     const r = new Response(asset.body, asset);
     r.headers.set('cache-control', 'public, max-age=31536000, immutable, no-transform');
     const cd = disposition(decodeURIComponent(url.pathname.slice(1)));
-    if (cd) r.headers.set('content-disposition', cd);
+    if (cd) {
+      r.headers.set('content-disposition', cd);
+    }
     return r;
   }
   return (!page && (await fromR2(request, env, url))) || asset;
@@ -208,7 +238,9 @@ async function fromR2(request, env, url) {
   ) {
     // A file that large goes to its own URL marked edge=bypass, which a zone Cache Rule keeps
     // out of the cache, so every range reaches R2 and comes back as a 206.
-    if (obj.body) await obj.body.cancel();
+    if (obj.body) {
+      await obj.body.cancel();
+    }
     const to = new URL(url);
     to.searchParams.set('edge', BYPASS);
     return new Response(null, {
@@ -223,8 +255,12 @@ async function fromR2(request, env, url) {
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   const ext = key.split('.').pop();
-  if (TYPES[ext]) headers.set('content-type', TYPES[ext]);
-  if (key.endsWith('.csv-metadata.json')) headers.set('content-type', 'application/csvm+json');
+  if (TYPES[ext]) {
+    headers.set('content-type', TYPES[ext]);
+  }
+  if (key.endsWith('.csv-metadata.json')) {
+    headers.set('content-type', 'application/csvm+json');
+  }
   headers.set('etag', obj.httpEtag);
   headers.set('accept-ranges', 'bytes');
   headers.set('access-control-allow-origin', '*');
@@ -236,9 +272,15 @@ async function fromR2(request, env, url) {
       ? 'public, max-age=31536000, immutable, no-transform'
       : 'public, max-age=300, no-transform',
   );
-  if (page) for (const [k, v] of Object.entries(await headersFor(env))) headers.set(k, v);
+  if (page) {
+    for (const [k, v] of Object.entries(await headersFor(env))) {
+      headers.set(k, v);
+    }
+  }
   const cd = disposition(key);
-  if (cd) headers.set('content-disposition', cd);
+  if (cd) {
+    headers.set('content-disposition', cd);
+  }
   // Range readers such as DuckDB size the file from HEAD before asking for bytes.
   if (head) {
     headers.set('content-length', String(obj.size));
