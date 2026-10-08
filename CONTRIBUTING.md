@@ -62,11 +62,14 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   takes the settings CI uses for it. It names each file and rule that fails and stops the commit. A
   commit with no staged Python file in either directory runs no check. It takes well under a
   second.
-- `pre-commit` also checks the staged `.github/` tree when a commit stages anything under
-  `.github/`. It writes the staged files to a temporary directory, so an unstaged edit cannot
-  hide a fault, and runs actionlint with shellcheck and `zizmor --offline --persona auditor` over
-  that copy. It names each file and rule that fails and stops the commit once the Python check
-  has run. Offline, zizmor leaves out the audits that ask GitHub: `impostor-commit`,
+- `pre-commit` also checks the files the Workflow lint job reads, when a commit stages one of
+  them: `.github/workflows/`, `.github/actions/`, `.github/actionlint.yaml` and
+  `.github/dependabot.yml`. A change to a template, `CODEOWNERS` or the lint fixture runs no
+  check. It writes those staged files to a temporary directory, so an unstaged edit cannot hide a
+  fault, and runs actionlint with shellcheck and
+  `zizmor --offline --persona auditor --strict-collection` over that copy, so a workflow zizmor
+  cannot parse fails too. It names each file and rule that fails and stops the commit once the
+  Python check has run. Offline, zizmor leaves out the audits that ask GitHub: `impostor-commit`,
   `ref-confusion`, `known-vulnerable-actions`, `stale-action-refs` and `ref-version-mismatch`.
   The Workflow lint job in CI runs those too, so a commit the hook passes can still fail there.
   Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
@@ -126,7 +129,7 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   audits need a token, so run zizmor with one before you push, at the versions that job pins:
 
   ```sh
-  GH_TOKEN=$(gh auth token) uvx zizmor==1.30.1 --persona auditor .github
+  GH_TOKEN=$(gh auth token) uvx zizmor==1.30.1 --persona auditor --strict-collection .github
   actionlint -shellcheck "$(command -v shellcheck)"
   ```
 

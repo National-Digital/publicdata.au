@@ -1,9 +1,11 @@
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -16,10 +18,15 @@ NODE = shutil.which("node")
 VENV_BIN = Path(sys.executable).parent
 
 
-def _run(args, cwd, path, check=False):
+def _env(cwd, path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(PATH=os.pathsep.join(map(str, path)), HOME=str(cwd), GIT_CONFIG_NOSYSTEM="1")
     env["PYTEST_XDIST_AUTO_NUM_WORKERS"] = "1"
+    return env
+
+
+def _run(args, cwd, path, check=False):
+    env = _env(cwd, path)
     return subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, check=check)
 
 
@@ -156,10 +163,7 @@ WORKFLOW = """name: Check
 on: pull_request
 permissions:
   contents: read
-concurrency:
-  group: check-${{{{ github.ref }}}}
-  cancel-in-progress: true
-jobs:
+{concurrency}jobs:
   check:
     name: Check
     runs-on: ubuntu-24.04
@@ -171,8 +175,12 @@ jobs:
 """
 
 
-def _workflow(uses=CHECKOUT, run="echo ok") -> dict[str, str]:
-    return {".github/workflows/check.yml": WORKFLOW.format(uses=uses, run=run)}
+CONCURRENCY = "concurrency:\n  group: check-${{ github.ref }}\n  cancel-in-progress: true\n"
+
+
+def _workflow(uses=CHECKOUT, run="echo ok", concurrency=CONCURRENCY) -> dict[str, str]:
+    text = WORKFLOW.format(uses=uses, run=run, concurrency=concurrency)
+    return {".github/workflows/check.yml": text}
 
 
 @pytest.fixture
@@ -236,6 +244,33 @@ def test_pre_commit_checks_the_staged_workflow(wf_repo, tmp_path):
     assert "unpinned-uses" in out.stdout + out.stderr
 
 
+@needs_workflow_tools
+def test_pre_commit_runs_zizmor_at_the_auditor_persona(wf_repo, tmp_path):
+    # concurrency-limits is reported only at the pedantic persona and above.
+    out = _commit(wf_repo, _workflow(concurrency=""), [_wf_bin(tmp_path, **WORKFLOW_TOOLS)])
+    assert out.returncode != 0
+    assert "concurrency-limits" in out.stdout + out.stderr
+
+
+@needs_workflow_tools
+def test_pre_commit_stops_a_workflow_zizmor_cannot_parse(wf_repo, tmp_path):
+    bad = "name: Bad\non: pull_request\njobs:\n  x:\n    runs-on: ubuntu-24.04\n    steps: nope\n"
+    files = {**_workflow(), ".github/workflows/bad.yml": bad}
+    out = _commit(wf_repo, files, [_wf_bin(tmp_path, **WORKFLOW_TOOLS)])
+    assert out.returncode != 0
+    assert "failed to load file://.github/workflows/bad.yml" in out.stdout + out.stderr
+
+
+@needs_workflow_tools
+@needs_ruff
+def test_a_workflow_failure_still_lets_the_python_check_report(wf_repo, tmp_path):
+    files = {**_workflow(uses="actions/checkout@v7"), "pipeline/publicdata/bad.py": "import os\n"}
+    out = _commit(wf_repo, files, [_wf_bin(tmp_path, ruff=RUFF, **WORKFLOW_TOOLS)])
+    assert out.returncode != 0
+    assert "unpinned-uses" in out.stdout + out.stderr
+    assert "F401" in out.stdout + out.stderr
+
+
 def test_pre_commit_runs_no_workflow_check_without_staged_workflows(wf_repo, tmp_path):
     fake = _fake(tmp_path, "lint", f"{shutil.which('touch')} {tmp_path / 'ran'}\nexit 1")
     files = {"register/x.yaml": "slug: x\n", "docs/github.md": "# X\n", "github/x.yml": "x: 1\n"}
@@ -246,12 +281,60 @@ def test_pre_commit_runs_no_workflow_check_without_staged_workflows(wf_repo, tmp
     assert not (tmp_path / "ran").exists()
 
 
-def test_pre_commit_fails_when_actionlint_is_missing(wf_repo, tmp_path):
+def test_pre_commit_runs_no_workflow_check_for_templates_or_the_lint_fixture(wf_repo, tmp_path):
+    files = {
+        ".github/PULL_REQUEST_TEMPLATE.md": "## Why\n",
+        ".github/CODEOWNERS": "* @x\n",
+        ".github/ISSUE_TEMPLATE/bug.md": "# Bug\n",
+        ".github/lint-fixtures/defects.yml": "on: push\n",
+    }
+    out = _commit(wf_repo, files, [_wf_bin(tmp_path)])
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "not found" not in out.stdout + out.stderr
+
+
+@pytest.mark.parametrize("missing", ["actionlint", "shellcheck", "zizmor"])
+def test_pre_commit_fails_when_a_workflow_tool_is_missing(wf_repo, tmp_path, missing):
     fake = _fake(tmp_path, "lint", "exit 0")
-    out = _commit(wf_repo, _workflow(), [_wf_bin(tmp_path, shellcheck=fake, zizmor=fake)])
+    tools = {t: fake for t in WORKFLOW_TOOLS if t != missing}
+    out = _commit(wf_repo, _workflow(), [_wf_bin(tmp_path, **tools)])
     assert out.returncode != 0
-    pin = CI_PINS["ACTIONLINT"]
-    assert f"actionlint not found; install actionlint {pin}" in out.stdout + out.stderr
+    pin = CI_PINS[missing.upper()]
+    assert f"{missing} not found; install {missing} {pin}" in out.stdout + out.stderr
+
+
+def test_pre_commit_removes_its_copy_when_interrupted(wf_repo, tmp_path):
+    seen = tmp_path / "tree"
+    zizmor = _fake(
+        tmp_path,
+        "zizmor",
+        f'[ "$1" = --version ] && exit 0\npwd > {seen}\nexec {shutil.which("sleep")} 30',
+    )
+    fake = _fake(tmp_path, "lint", "exit 0")
+    path = [_wf_bin(tmp_path, actionlint=fake, shellcheck=fake, zizmor=zizmor)]
+    ((name, text),) = _workflow().items()
+    (wf_repo / name).write_text(text, encoding="utf-8")
+    _run([GIT, "add", "."], wf_repo, path, check=True)
+    hook = subprocess.Popen(
+        [shutil.which("sh"), ".githooks/pre-commit"],
+        cwd=wf_repo,
+        env=_env(wf_repo, path),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        for _ in range(200):
+            if seen.exists() and seen.read_text().strip():
+                break
+            time.sleep(0.05)
+        os.killpg(hook.pid, signal.SIGTERM)
+        assert hook.wait(timeout=10) != 0
+    finally:
+        if hook.poll() is None:
+            hook.kill()
+    tree = Path(seen.read_text().strip())
+    assert tree.name and not tree.exists()
 
 
 def test_pre_commit_warns_when_a_tool_is_not_the_version_ci_pins(wf_repo, tmp_path):
