@@ -444,10 +444,27 @@ def cmd_d1(args) -> int:
     return 0
 
 
-def cmd_d1_load(args) -> int:
-    from .d1 import Wrangler, load
+def _rows_written(text: str) -> int:
+    import argparse
 
-    failed = load(Path(args.dir), Wrangler())
+    from .d1 import rows_written
+
+    try:
+        return rows_written(text or "0")
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
+def cmd_d1_load(args) -> int:
+    from .d1 import BUDGET, Wrangler, load
+
+    failed = load(
+        Path(args.dir),
+        Wrangler(),
+        budget=args.budget or BUDGET,
+        retry=set(args.retry.split()),
+        summary=Path(args.summary) if args.summary else None,
+    )
     print(f"d1 load: {failed} version(s) did not load")
     return 1 if failed else 0
 
@@ -944,6 +961,16 @@ def main(argv=None) -> int:
     d1s.set_defaults(fn=cmd_d1)
     d1l = d1.add_parser("load", help="run the load files against D1, verify and retry")
     d1l.add_argument("--dir", required=True)
+    d1l.add_argument(
+        "--budget",
+        type=_rows_written,
+        default=0,
+        help="rows written this deploy may plan, such as 10M (0: the default)",
+    )
+    d1l.add_argument(
+        "--retry", default="", help="dataset slugs, or all, to load again past their failures"
+    )
+    d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])

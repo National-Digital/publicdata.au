@@ -445,6 +445,29 @@ headers. Dated answers are cached at the edge for good, the newest for five minu
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
 `RateLimit-Policy` and a JSON body; every API answer carries the same policy header.
 
+D1 bills rows written, and each index entry is a row, so a load is planned before it runs. Each
+load fills a table named for the version and a digest of its rows, which no `_versions` row
+names yet; the last part builds the indexes and registers the table in one statement that holds
+only when the table has every row and every index. The version it replaces keeps answering until
+then and is dropped after, so the API never reads a partial table and always names the version
+it answers from. `_loads` records, per dataset, the version waiting, how many parts of it are in
+place and the rows they hold, how many deploys failed it, and since when the dataset has waited. A
+part that reports an error is checked by count: one that applied is kept, one that did not runs
+again, and anything else fails the version. The next deploy carries on after the last part in
+place when the table still holds exactly the rows recorded, and otherwise starts the version
+again. Failures count per dataset, across its versions, and a failure sends the dataset to the
+back of the queue. After three it is skipped, with a warning on the deploy, until a dispatch names
+it in `d1_retry`; a load that succeeds clears the count. Each deploy plans up to 10 million rows
+written (`d1.BUDGET`, or `d1_budget` on a dispatch, such as `25M`): a load part way through goes
+first, then the dataset that has waited longest, then the smaller, and the first in line always
+loads, so a version larger than the budget loads alone. The budget is a soft cap: parts run again
+and resumes that start over are charged as they happen, and once they have spent it the loads not
+yet started wait, but a load under way finishes. The rest wait for later deploys. The step summary
+lists what loaded, waited and was skipped, and names every dataset skipped or waiting over seven
+days, whose API answers come from the version before. Each deploy also drops the load tables that
+neither `_versions` nor `_loads` names, as a failed cleanup can leave. Only deploys of main load,
+one at a time.
+
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
 then the endpoints answer 503 and point to the files. The query builder is tested against

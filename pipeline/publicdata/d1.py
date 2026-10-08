@@ -4,10 +4,18 @@ Each loaded version is one table built from the version's own data.parquet, read
 data.sqlite holds it, so the API answers from the same typed rows as every file. The latest version of each live dataset is loaded; a
 dataset keeps at most KEEP versions in the database, and every version stays available as files.
 `_versions` records what is loaded, with the field list the API validates queries against.
+
+A load fills a table no reader can see, named for its content, and registers it in `_versions`
+only once its row count and indexes are checked in the same statement; the version it replaces
+keeps serving until then and is dropped after. `_loads` holds what is pending: when it was first
+seen, how far a load got and how often it failed. D1 bills rows written, so each deploy loads up
+to BUDGET of them, oldest pending first, and the rest wait for the next deploy.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import datetime
 import hashlib
 import json
 import math
@@ -15,13 +23,14 @@ import re
 import sqlite3
 import subprocess
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pyarrow.parquet as pq
 
 from .serialise import SQLITE_TYPES, dumps
-from .serialise.profile import signature
+from .serialise.profile import sha256, signature
 
 KEEP = 2
 MAX_STATEMENT = 90_000  # D1 allows 100 KB per statement
@@ -41,6 +50,23 @@ WORKERS = 4
 # D1 runs one import per database at a time and refuses a second while the first is in flight,
 # so the parts of every version and the checks after them go through this lock.
 IMPORT_LOCK = threading.Lock()
+# Rows written one deploy may plan, counting each index entry and the full-text index.
+BUDGET = 10_000_000
+# A dataset whose loads failed in this many deploys, whatever the versions, waits for a forced
+# retry; a load that succeeds clears the count.
+MAX_FAILURES = 3
+# A dataset skipped, or waiting longer than this, is listed on every deploy.
+STALE_DAYS = 7
+# A load table's name: the version's table name and a digest. The sweep drops only these.
+OWNED = re.compile(r"v_[a-z0-9_]+_[0-9a-f]{10}")
+# Tries per part within one deploy, and per check against D1.
+TRIES = 2
+ASKS = 3
+ASK_DELAY = 5.0
+# Rows the full-text index writes per row of its table, near enough to plan by.
+FTS_WRITES = 2
+# Part of every load table's name, so a change to how rows are written loads afresh.
+LOADER = "2"
 REGISTRY = """CREATE TABLE IF NOT EXISTS _versions (
   slug TEXT NOT NULL,
   version TEXT NOT NULL,
@@ -59,6 +85,19 @@ ORDERS = """CREATE TABLE IF NOT EXISTS _orders (
   version TEXT NOT NULL,
   ord TEXT NOT NULL,
   PRIMARY KEY (slug, version)
+);"""
+# One row per dataset with a version waiting to load: the table it fills, the parts of it in
+# place and the rows they hold, the deploys that failed it, and since when the dataset waits.
+LOADS = """CREATE TABLE IF NOT EXISTS _loads (
+  slug TEXT PRIMARY KEY,
+  version TEXT NOT NULL,
+  tbl TEXT NOT NULL,
+  part INTEGER NOT NULL,
+  rows INTEGER NOT NULL,
+  attempts INTEGER NOT NULL,
+  error TEXT,
+  since TEXT NOT NULL,
+  tried TEXT
 );"""
 
 
@@ -80,23 +119,44 @@ def literal(v) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def version_sql(sqlite_path: Path, slug: str, version: str, index_fields: tuple[str, ...]):
+def version_sql(
+    sqlite_path: Path,
+    slug: str,
+    version: str,
+    index_fields: tuple[str, ...],
+    tbl: str | None = None,
+    fts: tuple[str, ...] = (),
+):
     """Yields the statements that create and fill one table from a SQLite file shaped as a
     version's data.sqlite, as the catalogue and served indexes are."""
+    for _, stmt, _ in _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl, fts):
+        yield stmt
+
+
+def _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl=None, fts=()):
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         cols = [(c[1], c[2]) for c in src.execute("PRAGMA table_info(records)").fetchall()]
         header = dict(src.execute("SELECT key, value FROM publicdata").fetchall())
         rows = src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
-        yield from _table_sql(slug, version, index_fields, cols, header, _fields(src), rows)
+        yield from _table_sql(
+            slug, version, index_fields, cols, header, _fields(src), rows, tbl, fts
+        )
     finally:
         src.close()
 
 
-def parquet_version_sql(parquet: Path, ds, version: str, index_fields: tuple[str, ...]):
+def parquet_version_sql(
+    parquet: Path, ds, version: str, index_fields: tuple[str, ...], tbl: str | None = None
+):
     """Yields the statements that create and fill one dataset version's table from its Parquet,
     typed as its data.sqlite and in the Parquet's row order, which is the publisher's unless
     the version was written under a sort."""
+    for _, stmt, _ in _parquet_stmts(parquet, ds, version, index_fields, tbl):
+        yield stmt
+
+
+def _parquet_stmts(parquet, ds, version, index_fields, tbl=None):
     from .records import connect
 
     cols = parquet_columns(parquet, ds)
@@ -108,7 +168,7 @@ def parquet_version_sql(parquet: Path, ds, version: str, index_fields: tuple[str
         src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
         rows = (r for batch in iter(lambda: src.fetchmany(10_000), []) for r in batch)
         yield from _table_sql(
-            ds.slug, version, index_fields, cols, header, built_fields(ds, parquet), rows
+            ds.slug, version, index_fields, cols, header, built_fields(ds, parquet), rows, tbl
         )
 
 
@@ -123,11 +183,20 @@ def parquet_columns(parquet: Path, ds) -> list[tuple[str, str]]:
     return cols + ([("suppressed", "TEXT")] if "suppressed" in have else [])
 
 
-def _table_sql(slug, version, index_fields, cols, header, fields, rows):
-    tbl = table_name(slug, version)
+def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None, fts=()):
+    """Yields (kind, statement, rows it inserts). Kinds "create", "insert" and "update" fill the
+    table; "index", "fts" and "register" finish it and can run again. The registration names the
+    table and holds only if the table has every row and every index."""
+    tbl = tbl or table_name(slug, version)
     names = [c for c, _ in cols]
-    yield f'DROP TABLE IF EXISTS "{tbl}";'
-    yield f'CREATE TABLE "{tbl}" ({", ".join(f"{chr(34)}{c}{chr(34)} {t}" for c, t in cols)});'
+    if fts:
+        yield "create", f'DROP TABLE IF EXISTS "{tbl}_fts";', 0
+    yield "create", f'DROP TABLE IF EXISTS "{tbl}";', 0
+    yield (
+        "create",
+        f'CREATE TABLE "{tbl}" ({", ".join(f"{chr(34)}{c}{chr(34)} {t}" for c, t in cols)});',
+        0,
+    )
     head = f'INSERT INTO "{tbl}" ({", ".join(f"{chr(34)}{n}{chr(34)}" for n in names)}) VALUES '
     # D1's limit is in bytes, and a name or an address in another script takes several per letter.
     batch, size, n = [], len(head.encode()), 0
@@ -139,20 +208,36 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows):
         n += 1
         if len(head.encode()) + width + 1 > MAX_STATEMENT:
             if batch:
-                yield head + ",".join(batch) + ";"
+                yield "insert", head + ",".join(batch) + ";", len(batch)
                 batch, size = [], len(head.encode())
             yield from _wide_row(tbl, head, names, row, n, wide)
             continue
         if batch and (size + width + 2 > MAX_STATEMENT or len(batch) >= max_rows):
-            yield head + ",".join(batch) + ";"
+            yield "insert", head + ",".join(batch) + ";", len(batch)
             batch, size = [], len(head.encode())
         batch.append(values)
         size += width + 1
     if batch:
-        yield head + ",".join(batch) + ";"
-    for f in dict.fromkeys(index_fields):
-        if f in names:
-            yield f'CREATE INDEX "{tbl}_{f}" ON "{tbl}" ("{f}");'
+        yield "insert", head + ",".join(batch) + ";", len(batch)
+    indexes = [f for f in dict.fromkeys(index_fields) if f in names]
+    for f in indexes:
+        yield "index", f'CREATE INDEX IF NOT EXISTS "{tbl}_{f}" ON "{tbl}" ("{f}");', 0
+    if fts:
+        text = ", ".join(fts)
+        yield "fts", f'DROP TABLE IF EXISTS "{tbl}_fts";', 0
+        yield (
+            "fts",
+            f"CREATE VIRTUAL TABLE \"{tbl}_fts\" USING fts5({text}, content='{tbl}', "
+            "content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2');",
+            0,
+        )
+        for a in range(0, n, FTS_ROWS):
+            yield (
+                "fts",
+                f'INSERT INTO "{tbl}_fts" (rowid, {text}) SELECT rowid, {text} FROM "{tbl}" '
+                f"WHERE rowid > {a} AND rowid <= {a + FTS_ROWS};",
+                0,
+            )
     # The provenance header every file of this version carries, parsed back to one object.
     prov = {}
     for k, v in header.items():
@@ -160,22 +245,25 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows):
             prov[k] = json.loads(v)
         except ValueError:
             prov[k] = v
-    register = (
-        "INSERT OR REPLACE INTO _versions "
-        + ("VALUES (" if not wide else "SELECT ")
-        + ", ".join(
-            literal(x)
-            for x in (
-                slug,
-                version,
-                tbl,
-                json.dumps(fields),
-                n,
-                prov.get("attribution", ""),
-                json.dumps(prov, ensure_ascii=False, sort_keys=True),
-            )
+    values = ", ".join(
+        literal(x)
+        for x in (
+            slug,
+            version,
+            tbl,
+            json.dumps(fields),
+            n,
+            prov.get("attribution", ""),
+            json.dumps(prov, ensure_ascii=False, sort_keys=True),
         )
     )
+    holds = [
+        f'(SELECT COUNT(*) FROM "{tbl}") = {n}',
+        "(SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = "
+        f"{literal(tbl)}) = {len(indexes)}",
+    ]
+    if fts:
+        holds.append(f'(SELECT COUNT(*) FROM "{tbl}_fts_docsize") = {n}')
     if wide:
         # The row count cannot see an append that failed, so the version registers only when
         # every value built a piece at a time holds all its bytes.
@@ -183,11 +271,17 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows):
             f"""CASE WHEN typeof("{c}") IN ('text', 'blob') THEN length(CAST("{c}" AS BLOB)) ELSE 0 END"""
             for c in names
         )
-        register += (
-            f' WHERE (SELECT sum({sizes}) FROM "{tbl}" WHERE rowid IN '
+        holds.append(
+            f'(SELECT sum({sizes}) FROM "{tbl}" WHERE rowid IN '
             f"({','.join(map(str, wide))})) = {sum(wide.values())}"
         )
-    yield register + (");" if not wide else ";")
+    register = f"INSERT OR REPLACE INTO _versions SELECT {values} WHERE {' AND '.join(holds)};"
+    if len(register.encode()) > MAX_STATEMENT:
+        # Raised once every row is read and before any part is written.
+        raise TooWide(
+            f"its registration check is {len(register.encode()):,} bytes, over D1's statement limit"
+        )
+    yield "register", register, 0
 
 
 class TooWide(ValueError):
@@ -217,7 +311,7 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict
             raise TooWide(f"row {rowid} is too long for one statement")
         lits[i] = "''" if isinstance(row[i], str) else "X''"
         later.append(i)
-    yield head + "(" + ",".join(lits) + ");"
+    yield "insert", head + "(" + ",".join(lits) + ");", 1
     for i in later:
         col, v = names[i], row[i]
         stem = f'UPDATE "{tbl}" SET "{col}" = '
@@ -226,25 +320,20 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict
         if isinstance(v, bytes):
             step = room // 2 - 2
             for a in range(0, len(v), step):
-                yield f"{stem}CAST(\"{col}\" || X'{v[a : a + step].hex()}' AS BLOB){tail}"
+                yield (
+                    "update",
+                    f"{stem}CAST(\"{col}\" || X'{v[a : a + step].hex()}' AS BLOB){tail}",
+                    0,
+                )
             continue
         a = 0
         while a < len(v):
             k = room
             while len(literal(v[a : a + k]).encode()) > room:
                 k = max(1, k * room // len(literal(v[a : a + k]).encode()) - 1)
-            yield f'{stem}"{col}" || {literal(v[a : a + k])}{tail}'
+            yield "update", f'{stem}"{col}" || {literal(v[a : a + k])}{tail}', 0
             a += k
     wide[rowid] = sum(_raw_size(v) for v in row)
-
-
-def prune_sql(slug: str, loaded: list[str], new: str, keep: int = KEEP):
-    """Statements that drop the versions beyond the newest `keep`, counting the one being loaded."""
-    versions = sorted(set(loaded) | {new}, reverse=True)
-    for v in versions[keep:]:
-        yield f'DROP TABLE IF EXISTS "{table_name(slug, v)}";'
-        yield f"DELETE FROM _versions WHERE slug = {literal(slug)} AND version = {literal(v)};"
-        yield f"DELETE FROM _orders WHERE slug = {literal(slug)} AND version = {literal(v)};"
 
 
 def queryable(ds, csv_bytes: int | None) -> bool:
@@ -282,6 +371,41 @@ def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:
     return None
 
 
+def rows_written(text: str) -> int:
+    """A count of rows as a dispatch input gives it: 10000000, 10_000,000, 10M, 500k or 1G."""
+    m = re.fullmatch(r"\s*(\d[\d_,]*)\s*([kKmMgG]?)\s*", text or "")
+    if not m:
+        raise ValueError(f"{text!r} is not a count of rows, such as 10000000 or 10M")
+    n = int(m[1].replace("_", "").replace(",", ""))
+    return n * {"": 1, "k": 10**3, "m": 10**6, "g": 10**9}[m[2].lower()]
+
+
+def load_table(slug: str, version: str, *content) -> str:
+    """The table one load fills: the version's name and a digest of what goes in it, so a load
+    never writes into a table the API reads, and a load resumed later is of the same rows."""
+    h = hashlib.sha256(LOADER.encode())
+    for c in content:
+        h.update(b"\0" + (c if isinstance(c, bytes) else json.dumps(c).encode()))
+    return f"{table_name(slug, version)}_{h.hexdigest()[:10]}"
+
+
+def _sqlite_digest(path: Path, table: str = "records") -> bytes:
+    src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        h = hashlib.sha256()
+        for q in (
+            f"SELECT * FROM {table} ORDER BY rowid",
+            "SELECT * FROM fields ORDER BY rowid",
+            "SELECT * FROM publicdata ORDER BY key",
+        ):
+            for row in src.execute(q):
+                h.update(repr(row).encode())
+            h.update(b"\0")
+        return h.digest()
+    finally:
+        src.close()
+
+
 def write_loads(
     roots: list[Path],
     datasets,
@@ -292,12 +416,10 @@ def write_loads(
     loaded_orders: dict[tuple[str, str], str] | None = None,
 ) -> list[Path]:
     """SQL files for each live dataset whose latest version is not loaded yet, in parts that run
-    in name order. The first part recreates the table and the last registers the version, so a
-    part that fails leaves a table the API never reads and the next deploy starts that version
-    again. `roots` are the built trees to look for data.parquet in, such as dist and the tree
-    split off for R2. A loaded version whose fields differ from the built one, as when a column
-    is joined in, or whose rows were taken in another order than its Parquet's, is loaded
-    again."""
+    in name order, with a manifest the loader plans from. `roots` are the built trees to look for
+    data.parquet in, such as dist and the tree split off for R2. A loaded version whose fields
+    differ from the built one, as when a column is joined in, or whose rows were taken in another
+    order than its Parquet's, is loaded again into a table of its own."""
     out.mkdir(parents=True, exist_ok=True)
     written = []
     latest_json = next((r / "latest.json" for r in roots if (r / "latest.json").exists()), None)
@@ -319,51 +441,89 @@ def write_loads(
                 continue
         if src is None or not queryable(ds, _csv_bytes(roots, ds.slug, version)):
             continue
+        index = (*ds.key, *ds.partition_by)
+        sig = signature(src)
+        tbl = load_table(
+            ds.slug,
+            version,
+            sha256(src),
+            parquet_columns(src, ds),
+            built_fields(ds, src),
+            list(index),
+            sig,
+        )
         try:
-            body = list(parquet_version_sql(src, ds, version, (*ds.key, *ds.partition_by)))
+            stmts = list(_parquet_stmts(src, ds, version, index, tbl))
         except TooWide as e:
             print(f"d1: {ds.slug}@{version} stays files-only: {e}")
             continue
-        register = body.pop()
-        # Registering is the last statement of all, so a version counts as loaded only once every
-        # part, the pruning of older versions included, has run.
+        # The order is recorded only once the version is registered under this table.
         order = (
-            "INSERT OR REPLACE INTO _orders VALUES "
-            f"({literal(ds.slug)}, {literal(version)}, {literal(signature(src))});"
+            f"INSERT OR REPLACE INTO _orders SELECT {literal(ds.slug)}, {literal(version)}, "
+            f"{literal(sig)} WHERE EXISTS (SELECT 1 FROM _versions WHERE slug = "
+            f"{literal(ds.slug)} AND version = {literal(version)} AND tbl = {literal(tbl)});"
         )
-        stmts = [
-            REGISTRY,
-            ORDERS,
-            *body,
-            *prune_sql(ds.slug, loaded.get(ds.slug, []), version),
-            order,
-            register,
-        ]
-        written += _parts(out, f"{ds.slug}@{version}", stmts, stamp)
+        written += _write_load(out, ds.slug, version, tbl, stmts, stamp, KEEP, after=[order])
     return written
 
 
-def _parts(out: Path, key: str, stmts, stamp: str) -> list[Path]:
-    written = []
-    part, size, f = 0, 0, None
-    for stmt in stmts:
-        if f is None or size + len(stmt) > PART_BYTES:
-            if f:
-                f.close()
-            part += 1
-            path = out / f"{key}.part{part:03d}.sql"
-            f = path.open("w", encoding="utf-8", newline="\n")
+def _write_load(out, slug, version, tbl, stmts, stamp, keep, fts=False, after=()) -> list[Path]:
+    """Writes one load's parts and its manifest. Every part but the last only adds rows, and
+    `cum` records the rows the table holds after each, which is what a resumed load checks. The
+    last part builds the indexes and registers the version, and can run again."""
+    body: list[list[str]] = []
+    cum: list[int] = []
+    finish = [REGISTRY, ORDERS]
+    rows = indexes = updates = size = 0
+    for kind, stmt, n in stmts:
+        if kind in ("index", "fts", "register"):
+            finish.append(stmt)
+            indexes += kind == "index"
+            continue
+        if not body or size + len(stmt) > PART_BYTES:
+            if body:
+                cum.append(rows)
+            body.append([])
+            size = 0
+        body[-1].append(stmt)
+        size += len(stmt) + 1
+        rows += n
+        updates += kind == "update"
+    cum.append(rows)
+    finish += after
+    if keep == 1:
+        # Readers take the highest version, and _served's are hashes, so the others go in the same
+        # part, once this one is registered.
+        finish.append(
+            f"DELETE FROM _versions WHERE slug = {literal(slug)} AND version != {literal(version)} "
+            f"AND EXISTS (SELECT 1 FROM _versions WHERE slug = {literal(slug)} AND version = "
+            f"{literal(version)} AND tbl = {literal(tbl)});"
+        )
+    key = f"{slug}@{version}"
+    paths = []
+    for i, part in enumerate([*body, finish], 1):
+        path = out / f"{key}.part{i:03d}.sql"
+        with path.open("w", encoding="utf-8", newline="\n") as f:
             if stamp:
                 # D1 re-processes a file it has seen before instead of taking it afresh, and
                 # that path fails; a per-run comment makes every part a new file.
                 f.write(f"-- load {stamp}\n")
-            written.append(path)
-            size = 0
-        f.write(stmt + "\n")
-        size += len(stmt) + 1
-    if f:
-        f.close()
-    return written
+            f.writelines(s + "\n" for s in part)
+        paths.append(path)
+    manifest = {
+        "slug": slug,
+        "version": version,
+        "tbl": tbl,
+        "rows": rows,
+        "parts": [p.name for p in paths],
+        "cum": cum,
+        "indexes": indexes,
+        "fts": fts,
+        "updates": updates,
+        "keep": keep,
+    }
+    (out / f"{key}.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
+    return paths
 
 
 # The catalogue search index: every listed record on the portals, one table per harvest, with a
@@ -415,45 +575,31 @@ def catalogue_sqlite(path: Path, rows: list[dict], version: str) -> None:
 
 
 def catalogue_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str = "") -> list[Path]:
-    """Load parts for the catalogue index when this harvest is not loaded yet. One index is kept."""
+    """Load parts for the catalogue index when this harvest is not loaded yet. A harvest is a new
+    version only when the portals' lists changed, so an unchanged catalogue never loads again.
+    One index is kept."""
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     version = dict(src.execute("SELECT key, value FROM publicdata").fetchall())["catalogue_read"]
-    n = src.execute("SELECT COUNT(*) FROM records").fetchone()[0]
     src.close()
     if not version or version in loaded:
         return []
     out.mkdir(parents=True, exist_ok=True)
-    tbl = table_name(CATALOGUE, version)
+    tbl = load_table(CATALOGUE, version, _sqlite_digest(sqlite_path))
     try:
-        body = list(
-            version_sql(
-                sqlite_path, CATALOGUE, version, ("id", "portal", "host", "name", "url", "vote")
+        stmts = list(
+            _sqlite_stmts(
+                sqlite_path,
+                CATALOGUE,
+                version,
+                ("id", "portal", "host", "name", "url", "vote"),
+                tbl,
+                ("title", "summary", "publisher"),
             )
         )
     except TooWide as e:
         print(f"d1: {CATALOGUE}@{version} not loaded: {e}")
         return []
-    register = body.pop()
-    body.insert(0, f'DROP TABLE IF EXISTS "{tbl}_fts";')
-    fts = [
-        f'CREATE VIRTUAL TABLE "{tbl}_fts" USING fts5(title, summary, publisher, '
-        f"content='{tbl}', content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2');",
-        *(
-            f'INSERT INTO "{tbl}_fts" (rowid, title, summary, publisher) SELECT rowid, title, '
-            f'summary, publisher FROM "{tbl}" WHERE rowid > {a} AND rowid <= {a + FTS_ROWS};'
-            for a in range(0, n, FTS_ROWS)
-        ),
-    ]
-    prune = []
-    for v in sorted(set(loaded) - {version}):
-        prune += [
-            f'DROP TABLE IF EXISTS "{table_name(CATALOGUE, v)}_fts";',
-            f'DROP TABLE IF EXISTS "{table_name(CATALOGUE, v)}";',
-            f"DELETE FROM _versions WHERE slug = {literal(CATALOGUE)} AND version = {literal(v)};",
-        ]
-    # The new index is registered before the old one is dropped, so a search always has a table.
-    stmts = [REGISTRY, *body, *fts, register, *prune]
-    return _parts(out, f"{CATALOGUE}@{version}", stmts, stamp)
+    return _write_load(out, CATALOGUE, version, tbl, stmts, stamp, 1, fts=True)
 
 
 # The datasets served here, for search_datasets: one small table with a full-text index, kept in
@@ -512,32 +658,16 @@ def served_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str = "
     db.executemany(f"INSERT INTO records VALUES ({', '.join('?' for _ in SERVED_FIELDS)})", rows)
     db.commit()
     db.close()
-    tbl = table_name(SERVED, version)
     try:
-        body = list(version_sql(tmp, SERVED, version, ("slug",)))
+        tbl = load_table(SERVED, version, _sqlite_digest(tmp))
+        text = ("title", "summary", "publisher", "keywords", "fields")
+        stmts = list(_sqlite_stmts(tmp, SERVED, version, ("slug",), tbl, text))
     except TooWide as e:
         print(f"d1: {SERVED}@{version} not loaded: {e}")
         return []
     finally:
         tmp.unlink()
-    register = body.pop()
-    text = "title, summary, publisher, keywords, fields"
-    stmts = [
-        REGISTRY,
-        f'DROP TABLE IF EXISTS "{tbl}_fts";',
-        *body,
-        f"CREATE VIRTUAL TABLE \"{tbl}_fts\" USING fts5({text}, content='{tbl}', "
-        "content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2');",
-        f'INSERT INTO "{tbl}_fts" (rowid, {text}) SELECT rowid, {text} FROM "{tbl}";',
-        register,
-    ]
-    for v in sorted(set(loaded) - {version}):
-        stmts += [
-            f'DROP TABLE IF EXISTS "{table_name(SERVED, v)}_fts";',
-            f'DROP TABLE IF EXISTS "{table_name(SERVED, v)}";',
-            f"DELETE FROM _versions WHERE slug = {literal(SERVED)} AND version = {literal(v)};",
-        ]
-    return _parts(out, f"{SERVED}@{version}", stmts, stamp)
+    return _write_load(out, SERVED, version, tbl, stmts, stamp, 1, fts=True)
 
 
 class Wrangler:
@@ -576,31 +706,65 @@ class Wrangler:
             sql,
         ]
         r = subprocess.run(cmd, check=False, capture_output=True, text=True)
-        out = json.loads(r.stdout or "{}")
+        try:
+            out = json.loads(r.stdout or "{}")
+        except ValueError:
+            out = {}
         if r.returncode != 0 or isinstance(out, dict):
             raise RuntimeError(f"D1 query failed: {sql[:80]}: {r.stdout[:300]} {r.stderr[:300]}")
         return [row for part in out for row in part.get("results", [])]
 
 
-def registered(db) -> dict[tuple[str, str], int]:
+class Unknown(RuntimeError):
+    """D1 did not answer a check, so what a table holds is not known. Never read as absent."""
+
+
+def _absent(e: Exception) -> bool:
+    return "no such table" in str(e)
+
+
+def _ask(db, sql: str) -> list[dict]:
+    """A query, asked again when D1 fails to answer. A missing table is an answer."""
+    for i in range(ASKS):
+        try:
+            return db.query(sql)
+        except RuntimeError as e:
+            if _absent(e) or i == ASKS - 1:
+                raise
+            time.sleep(ASK_DELAY)
+    raise AssertionError("unreachable")
+
+
+def _registry(db) -> dict[tuple[str, str], dict]:
     try:
-        rows = db.query("SELECT slug, version, rows FROM _versions")
+        rows = _ask(db, "SELECT slug, version, tbl, rows FROM _versions")
     except RuntimeError as e:
-        if "no such table" in str(e):
+        if _absent(e):
             return {}
         raise
-    return {(r["slug"], r["version"]): int(r["rows"]) for r in rows}
+    return {(r["slug"], r["version"]): {"tbl": r["tbl"], "rows": int(r["rows"])} for r in rows}
 
 
-def holds(db, slug: str, version: str, expected: int) -> bool:
-    """One COUNT per table: D1 caps compound SELECTs at five terms."""
+def registered(db) -> dict[tuple[str, str], int]:
+    return {k: v["rows"] for k, v in _registry(db).items()}
+
+
+def _count(db, tbl: str) -> int | None:
+    """The rows a table holds, None when it does not exist. Raises Unknown when D1 does not say."""
     try:
-        n = db.query(f'SELECT COUNT(*) AS n FROM "{table_name(slug, version)}"')[0]["n"]
-    except RuntimeError:
-        return False
-    except LookupError:
-        return False
-    return n == expected
+        return int(_ask(db, f'SELECT COUNT(*) AS n FROM "{tbl}"')[0]["n"])
+    except RuntimeError as e:
+        if _absent(e):
+            return None
+        raise Unknown(str(e)) from e
+    except (LookupError, TypeError, ValueError) as e:
+        raise Unknown(f"no count for {tbl}: {e}") from e
+
+
+def holds(db, tbl: str, expected: int) -> bool:
+    """One COUNT per table: D1 caps compound SELECTs at five terms. Raises Unknown rather than
+    answer False when D1 cannot be asked."""
+    return _count(db, tbl) == expected
 
 
 def restamp(path: Path, attempt: int) -> None:
@@ -609,63 +773,494 @@ def restamp(path: Path, attempt: int) -> None:
     path.write_text(f"{first} retry {attempt}\n{rest}", encoding="utf-8")
 
 
-def _load_version(db, key: str, parts: list[Path], log, attempts: int) -> bool:
-    slug, version = key.split("@", 1)
-    for attempt in range(1, attempts + 1):
-        errors = 0
-        for p in parts:
+@dataclasses.dataclass
+class Job:
+    """One version's load, as its manifest describes it, and where it stands."""
+
+    key: str
+    slug: str
+    version: str
+    tbl: str
+    rows: int
+    parts: list[Path]
+    cum: list[int]
+    indexes: int
+    fts: bool
+    updates: int
+    keep: int
+    start: int = 0  # body parts already in the table, as `_loads` records them
+    attempts: int = 0
+    since: str = ""
+    outcome: str = ""
+    note: str = ""
+    first: bool = False
+    charged: int = 0
+
+    @property
+    def body(self) -> list[Path]:
+        return self.parts[:-1]
+
+    def finishing(self) -> int:
+        return self.rows * self.indexes + (FTS_WRITES * self.rows if self.fts else 0)
+
+    @property
+    def resumable(self) -> bool:
+        # An appended piece of a wide row leaves no trace in the row count, so such a version
+        # always loads from its first part.
+        return self.updates == 0
+
+    def planned(self) -> int:
+        """Rows written: each row, each index entry, the full-text index and wide-row pieces."""
+        done = self.cum[self.start - 1] if self.start else 0
+        return self.rows - done + self.finishing() + self.updates
+
+
+def _jobs(folder: Path) -> list[Job]:
+    jobs = []
+    for m in sorted(folder.glob("*.json")):
+        d = json.loads(m.read_text(encoding="utf-8"))
+        jobs.append(
+            Job(
+                key=m.name[: -len(".json")],
+                slug=d["slug"],
+                version=d["version"],
+                tbl=d["tbl"],
+                rows=d["rows"],
+                parts=[folder / p for p in d["parts"]],
+                cum=d["cum"],
+                indexes=d["indexes"],
+                fts=d["fts"],
+                updates=d["updates"],
+                keep=d["keep"],
+            )
+        )
+    return jobs
+
+
+def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], now: str):
+    """Orders the loads and splits them into this deploy's and later ones'. A load that got part
+    way goes first, then the dataset that has waited longest, then the smaller. Loads are taken
+    while they fit the budget, and the first in line is taken whatever its size, so a version
+    larger than the budget loads alone in some deploy and none waits for good. A dataset whose
+    loads failed in MAX_FAILURES deploys, of any versions, is skipped until a load of it succeeds
+    or `retry` names it; a failure also restarts its wait, so it goes behind the others."""
+    queue = []
+    for j in jobs:
+        row = state.get(j.slug)
+        j.since = row["since"] if row else now
+        j.attempts = int(row["attempts"]) if row else 0
+        if row and row["version"] == j.version:
+            part, done = int(row["part"]), int(row["rows"])
+            if row["tbl"] == j.tbl and j.resumable and 0 < part <= len(j.cum):
+                if j.cum[part - 1] == done:
+                    j.start = part
+        if j.attempts >= MAX_FAILURES and not ({"all", j.slug} & retry):
+            j.outcome = "skipped"
+            j.note = f"failed in {j.attempts} deploys: {(row or {}).get('error') or ''}"[:300]
+            continue
+        queue.append(j)
+    queue.sort(key=lambda j: (j.start == 0, j.since, j.planned(), j.key))
+    take, wait, used = [], [], 0
+    for j in queue:
+        if not take or used + j.planned() <= budget:
+            take.append(j)
+            used += j.planned()
+        else:
+            j.outcome = "deferred"
+            wait.append(j)
+    return take, wait
+
+
+def _upsert(rows: list[tuple], since: bool = False) -> str:
+    return (
+        "INSERT INTO _loads (slug, version, tbl, part, rows, attempts, error, since, tried) VALUES "
+        + ",".join("(" + ", ".join(literal(v) for v in r) + ")" for r in rows)
+        + " ON CONFLICT(slug) DO UPDATE SET version = excluded.version, tbl = excluded.tbl, "
+        "part = excluded.part, rows = excluded.rows, attempts = excluded.attempts, "
+        "error = excluded.error, tried = excluded.tried"
+        + (", since = excluded.since;" if since else ";")
+    )
+
+
+def _drops(tbl: str) -> list[str]:
+    return [f'DROP TABLE IF EXISTS "{tbl}_fts";', f'DROP TABLE IF EXISTS "{tbl}";']
+
+
+def _note_pending(db, jobs: list[Job], state: dict[str, dict], served: set[str], log) -> None:
+    """Records each pending load the registry of loads lacks or holds for another table, keeping
+    the time its dataset began to wait, and drops a table an earlier load left part filled. A row
+    whose dataset is no longer pending goes, with any table it was filling."""
+    rows, sql = [], []
+    pending = {j.slug for j in jobs}
+    for j in jobs:
+        row = state.get(j.slug)
+        if j.outcome == "skipped" or (row and (row["version"], row["tbl"]) == (j.version, j.tbl)):
+            continue
+        if row and row["tbl"] != j.tbl and row["tbl"] not in served:
+            sql += _drops(row["tbl"])
+        rows.append(
+            (
+                j.slug,
+                j.version,
+                j.tbl,
+                0,
+                0,
+                j.attempts,
+                row["error"] if row else None,
+                j.since,
+                row["tried"] if row else None,
+            )
+        )
+    for slug, row in state.items():
+        if slug not in pending:
+            if row["tbl"] not in served:
+                sql += _drops(row["tbl"])
+            sql.append(f"DELETE FROM _loads WHERE slug = {literal(slug)};")
+    for i in range(0, len(rows), 50):
+        sql.append(_upsert(rows[i : i + 50]))
+    for s in sql:
+        try:
+            _ask(db, s)
+        except RuntimeError as e:
+            log(f"d1 load: could not record pending loads: {e}")
+            return
+
+
+class _Skip(Exception):
+    """Nothing was written, and this deploy cannot tell where the load stands."""
+
+
+class _Defer(Exception):
+    """The deploy's budget is spent; nothing of this load was written."""
+
+
+class _Budget:
+    """Rows written so far in this deploy. A load reserves its plan before it writes, and each
+    part run again, or a resume that has to start over, is charged on top. Once retries have
+    used it up, loads not yet started wait for the next deploy; the first in line always runs."""
+
+    def __init__(self, cap: int):
+        self.cap, self.spent, self.lock = cap, 0, threading.Lock()
+
+    def reserve(self, j: Job, need: int) -> None:
+        with self.lock:
+            if not j.first and self.spent + need > self.cap:
+                raise _Defer(f"{self.spent:,} of the {self.cap:,} rows written already spent")
+            self.spent += need
+            j.charged += need
+
+    def charge(self, j: Job, rows: int) -> None:
+        with self.lock:
+            self.spent += rows
+            j.charged += rows
+
+
+class _Failed(Exception):
+    def __init__(self, done: int, why: str):
+        super().__init__(why)
+        self.done = done
+
+
+def _fill(db, j: Job, budget: _Budget, log) -> None:
+    """Runs the parts that add rows, from where the last load stopped if the table still holds
+    exactly the rows that load recorded. Raises _Failed with the parts known to be in place."""
+    start = j.start
+    if start:
+        try:
             with IMPORT_LOCK:
-                errors += 0 if db.file(p) else 1
-        # D1 refuses a query while another version's import is in flight, so the check waits too.
+                n = _count(db, j.tbl)
+        except Unknown as e:
+            raise _Skip(str(e)) from e
+        if n != j.cum[start - 1]:
+            log(
+                f"d1 load: {j.key} holds {n} rows, not the {j.cum[start - 1]} recorded after "
+                f"part {start}; loading it from part 1"
+            )
+            start = 0
+            budget.reserve(j, j.cum[j.start - 1])
+        else:
+            log(f"d1 load: {j.key} resumes after part {start} of {len(j.body)}")
+    for i in range(start, len(j.body)):
+        before = j.cum[i - 1] if i else 0
+        for t in range(1, TRIES + 1):
+            if t > 1:
+                budget.charge(j, j.cum[i] - before)
+            with IMPORT_LOCK:
+                if db.file(j.body[i]):
+                    break
+                # An import can report an error after it has applied; the count tells.
+                n = _count(db, j.tbl)
+            if n == j.cum[i]:
+                break
+            if not j.resumable:
+                raise _Failed(0, f"part {i + 1} reported an error")
+            if n != before and not (i == 0 and n is None):
+                raise _Failed(0, f"part {i + 1} left {n} rows, not {before} or {j.cum[i]}")
+            if t == TRIES:
+                raise _Failed(i, f"part {i + 1} did not apply in {TRIES} tries")
+            restamp(j.body[i], t)
+
+
+def _finish(db, j: Job, budget: _Budget, log) -> None:
+    """Builds the indexes and registers the version, which holds only if the table is whole."""
+    with IMPORT_LOCK:
+        n = _count(db, j.tbl)
+    if n != j.rows:
+        raise _Failed(0, f"holds {n} rows before its indexes, not {j.rows}")
+    for t in range(1, TRIES + 1):
+        if t > 1:
+            budget.charge(j, j.finishing())
         with IMPORT_LOCK:
-            reg = registered(db)
-            ok = (slug, version) in reg and holds(db, slug, version, reg[(slug, version)])
+            reported = db.file(j.parts[-1])
+            try:
+                reg = _ask(
+                    db,
+                    f"SELECT tbl, rows FROM _versions WHERE slug = {literal(j.slug)} "
+                    f"AND version = {literal(j.version)}",
+                )
+            except RuntimeError as e:
+                raise Unknown(str(e)) from e
+            ok = bool(reg) and reg[0]["tbl"] == j.tbl and int(reg[0]["rows"]) == j.rows
+            ok = ok and holds(db, j.tbl, j.rows)
         log(
-            f"d1 load: {key} attempt {attempt}: {len(parts)} parts, {errors} reported errors, {'verified' if ok else 'not verified'}"
+            f"d1 load: {j.key} finish try {t}: {'reported ok' if reported else 'reported an error'}"
+            f", {'registered' if ok else 'not registered'}"
         )
         if ok:
-            return True
-        for p in parts:
-            restamp(p, attempt)
-    return False
+            return
+        restamp(j.parts[-1], t)
+    raise _Failed(len(j.body), "its indexes or registration did not complete")
 
 
-def _unregister(db, key: str, log) -> None:
-    slug, version = key.split("@", 1)
+def _sweep(db, keep: set[str], log) -> None:
+    """Drops the load tables, and their full-text indexes, that no registration, pending load
+    or load of this deploy names: what a confirmation D1 did not answer, or a cleanup that
+    failed, left behind. Only names shaped as load_table makes them are touched."""
     try:
-        db.query(
-            f"DELETE FROM _versions WHERE slug = {literal(slug)} AND version = {literal(version)}"
-        )
-        log(f"d1 load: {key} unregistered; the next deploy loads it again")
+        names = {
+            r["name"]
+            for r in _ask(
+                db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'v%'"
+            )
+        }
     except RuntimeError as e:
-        # With no registry there is nothing to unregister; the version is not served either way.
-        log(f"d1 load: {key} could not be unregistered: {e}")
-
-
-def load(folder: Path, db, log=print, attempts: int = 2, workers: int = WORKERS) -> int:
-    """Runs every part of each version, then checks the version is registered and its table holds
-    its rows. An import can report an error after it has applied, so a version that fails the
-    check loads again from its first part with a fresh stamp. A version still wrong is
-    unregistered so the API never serves it. One version's failure never stops the others, and up
-    to `workers` versions load at once. Returns the number of versions that did not load."""
-    groups: dict[str, list[Path]] = {}
-    for p in sorted(folder.glob("*.sql")):
-        groups.setdefault(p.name.split(".part")[0], []).append(p)
-
-    def one(key: str) -> bool:
-        parts = groups[key]
+        log(f"d1 load: no sweep this deploy: {e}")
+        return
+    for name in sorted(names):
+        base = name.removesuffix("_fts")
+        if not OWNED.fullmatch(base) or base in keep:
+            continue
         try:
-            ok = _load_version(db, key, parts, log, attempts)
-        except (RuntimeError, OSError, ValueError, KeyError, IndexError) as e:
-            log(f"d1 load: {key} failed: {e}")
-            ok = False
-        if not ok:
-            _unregister(db, key, log)
-        return ok
+            _ask(db, f'DROP TABLE IF EXISTS "{name}"')
+            log(f"d1 load: dropped {name}, which nothing names")
+        except RuntimeError as e:
+            log(f"d1 load: could not drop {name}: {e}")
+            return
+
+
+def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> None:
+    """After the new table is registered: unregisters the versions beyond the ones kept, then
+    drops the tables no registration names any more, the one this load replaced among them."""
+    others = sorted((v for s, v in reg if s == j.slug and v != j.version), reverse=True)
+    # Newer versions are kept first, so a re-run of an older deploy never drops one.
+    kept = [v for v in others if v > j.version][: j.keep - 1]
+    kept += [v for v in others if v < j.version][: j.keep - 1 - len(kept)]
+    gone = [v for v in others if v not in kept]
+    names = {reg[(j.slug, v)]["tbl"] for v in kept} | {j.tbl}
+    stmts = []
+    for v in gone:
+        stmts += [
+            f"DELETE FROM _versions WHERE slug = {literal(j.slug)} AND version = {literal(v)};",
+            f"DELETE FROM _orders WHERE slug = {literal(j.slug)} AND version = {literal(v)};",
+        ]
+    old = [reg[(j.slug, v)]["tbl"] for v in gone]
+    if (j.slug, j.version) in reg:
+        old.append(reg[(j.slug, j.version)]["tbl"])
+    for t in dict.fromkeys(old):
+        if t not in names:
+            stmts += _drops(t)
+    stmts.append(f"DELETE FROM _loads WHERE slug = {literal(j.slug)} AND tbl = {literal(j.tbl)};")
+    path = folder / f"{j.key}.clean.sql"
+    path.write_text("\n".join(stmts) + "\n", encoding="utf-8")
+    with IMPORT_LOCK:
+        if not db.file(path):
+            log(f"d1 load: {j.key} is loaded; dropping what it replaced reported an error")
+
+
+def _record_failure(db, j: Job, done: int, why: str, now: str, log) -> None:
+    j.attempts += 1
+    rows = j.cum[done - 1] if done else 0
+    try:
+        with IMPORT_LOCK:
+            _ask(
+                db,
+                _upsert(
+                    [(j.slug, j.version, j.tbl, done, rows, j.attempts, why[:500], now, now)],
+                    since=True,
+                ),
+            )
+    except RuntimeError as e:
+        log(f"d1 load: {j.key} failure could not be recorded: {e}")
+
+
+def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, budget: _Budget, log) -> None:
+    try:
+        if j.tbl in served:
+            # Registered by a deploy that could not confirm it; only the finish part runs again.
+            if j.fts:
+                raise _Failed(0, f"{j.tbl} is registered; its full-text index is not rebuilt")
+            budget.reserve(j, j.finishing())
+        else:
+            budget.reserve(j, j.planned())
+            _fill(db, j, budget, log)
+        _finish(db, j, budget, log)
+    except _Defer as e:
+        log(f"d1 load: {j.key} waits for the next deploy: {e}")
+        j.outcome, j.note = "deferred", str(e)
+        return
+    except _Skip as e:
+        log(f"d1 load: {j.key} skipped this deploy, D1 did not answer: {e}")
+        j.outcome, j.note = "unchecked", str(e)[:300]
+        return
+    except _Failed as e:
+        log(f"d1 load: {j.key} failed: {e}")
+        _record_failure(db, j, e.done, str(e), now, log)
+        j.outcome, j.note = "failed", str(e)
+        return
+    except Unknown as e:
+        # Counted as a failure with no progress, so a check D1 never answers cannot reload a
+        # version on every deploy. Nothing is unregistered: a registered version stays served.
+        log(f"d1 load: {j.key} not checked, D1 did not answer: {e}")
+        _record_failure(db, j, 0, f"unchecked: {e}", now, log)
+        j.outcome, j.note = "unchecked", str(e)[:300]
+        return
+    except (RuntimeError, OSError, ValueError, KeyError, IndexError) as e:
+        log(f"d1 load: {j.key} failed: {e}")
+        _record_failure(db, j, 0, str(e), now, log)
+        j.outcome, j.note = "failed", str(e)[:300]
+        return
+    j.outcome = "resumed" if j.start else "loaded"
+    try:
+        _clean(db, j, reg, folder, log)
+    except (RuntimeError, OSError) as e:
+        log(f"d1 load: {j.key} is loaded; dropping what it replaced failed: {e}")
+
+
+def _stale(j: Job, now: str) -> bool:
+    try:
+        since = datetime.datetime.fromisoformat(j.since)
+        at = datetime.datetime.fromisoformat(now)
+    except ValueError:
+        return False
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=datetime.UTC)
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=datetime.UTC)
+    return at - since > datetime.timedelta(days=STALE_DAYS)
+
+
+def _summary(
+    path: Path | None, jobs: list[Job], budget: int, log, spent: int = 0, now: str = ""
+) -> None:
+    order = {"loaded": 0, "resumed": 0, "failed": 1, "unchecked": 2, "deferred": 3, "skipped": 4}
+    jobs = sorted(jobs, key=lambda j: (order.get(j.outcome, 5), j.key))
+    for j in jobs:
+        if j.outcome == "skipped":
+            log(
+                f"::warning title=D1 load skipped::{j.key} {j.note}. It loads again once "
+                f"a deploy is dispatched with d1_retry: {j.slug}"
+            )
+        elif j.outcome in ("failed", "unchecked"):
+            left = MAX_FAILURES - j.attempts
+            more = (
+                f"; skipped from now on after {left} more" if left > 0 else "; skipped from now on"
+            )
+            log(f"::warning title=D1 load {j.outcome}::{j.key} {j.note[:200]}{more}")
+    stale = [j for j in jobs if j.outcome == "skipped" or (now and _stale(j, now))]
+    for j in stale:
+        if j.outcome != "skipped":
+            log(
+                f"::warning title=D1 load waiting::{j.key} has waited since {j.since[:10]}; "
+                "the API answers from the version before it"
+            )
+    if path is None:
+        return
+    lines = [
+        "## D1 load",
+        "",
+        f"Budget {budget:,} rows written, a soft cap; {spent:,} charged by the loads that ran.",
+        "",
+    ]
+    if stale:
+        lines += [
+            f"Skipped, or waiting over {STALE_DAYS} days; the API answers from the version "
+            "before each:",
+            "",
+            *(
+                f"- {j.key}: {'skipped, ' + j.note if j.outcome == 'skipped' else 'waiting'}"
+                f" since {j.since[:10]}".replace("\n", " ")[:300]
+                for j in stale
+            ),
+            "",
+        ]
+    lines += [
+        "| Version | Outcome | Rows | Planned rows written | Waiting since | Note |",
+        "| --- | --- | ---: | ---: | --- | --- |",
+    ]
+    for j in jobs:
+        what = f"resumed after part {j.start}" if j.outcome == "resumed" else j.outcome
+        note = j.note.replace("|", "/").replace("\n", " ")[:160]
+        lines.append(
+            f"| {j.key} | {what} | {j.rows:,} | {j.planned():,} | {j.since[:16]} | {note} |"
+        )
+    try:
+        with path.open("a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError as e:
+        log(f"d1 load: no step summary: {e}")
+
+
+def load(
+    folder: Path,
+    db,
+    log=print,
+    workers: int = WORKERS,
+    budget: int = BUDGET,
+    retry: set[str] | None = None,
+    summary: Path | None = None,
+    now: str | None = None,
+) -> int:
+    """Loads this deploy's share of the pending versions and leaves the rest to later deploys.
+    A part that reports an error is counted: one that applied is kept, one that did not is run
+    again, anything else fails the version. A failed version keeps its progress and the version
+    before it keeps serving. Up to `workers` versions load at once. Returns the number of
+    versions that failed in this deploy."""
+    jobs = _jobs(folder)
+    now = now or datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    for ddl in (REGISTRY, ORDERS, LOADS):
+        _ask(db, ddl)
+    reg = _registry(db)
+    served = {r["tbl"] for r in reg.values()}
+    state = {r["slug"]: r for r in _ask(db, "SELECT * FROM _loads")}
+    take, wait = plan(jobs, state, budget, retry or set(), now)
+    _note_pending(db, jobs, state, served, log)
+    _sweep(db, served | {j.tbl for j in jobs} | {r["tbl"] for r in state.values()}, log)
+    if take:
+        take[0].first = True
+    spent = _Budget(budget)
+    log(
+        f"d1 load: {len(take)} to load ({sum(j.planned() for j in take):,} rows written), "
+        f"{len(wait)} deferred, {sum(j.outcome == 'skipped' for j in jobs)} skipped"
+    )
+
+    def one(j: Job) -> None:
+        _run(db, j, reg, served, folder, now, spent, log)
 
     if workers <= 1:
-        results = [one(k) for k in groups]
+        for j in take:
+            one(j)
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(one, groups))
-    return sum(1 for ok in results if not ok)
+            list(pool.map(one, take))
+    _summary(summary, jobs, budget, log, spent.spent, now)
+    return sum(j.outcome == "failed" for j in jobs)
