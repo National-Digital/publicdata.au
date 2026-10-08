@@ -92,13 +92,35 @@ if TYPE_CHECKING:
 
     class _Table(TypedDict, total=False):
         name: str
-        fields: list[JSONObject]
-
-    class _Schema(TypedDict, total=False):
-        kind: str
-        tables: list[_Table]
         fields: list[_Field]
+
+    class _Results(TypedDict):
+        results: list[JSONObject]
+
+    class _Catalog(TypedDict):
+        dataset: list[_CatalogEntry]
+
+    class _VersionsDoc(TypedDict):
+        versions: list[JSONObject]
+        latest: str
+
+    class _SchemaTables(TypedDict, total=False):
+        kind: str
+        tables: list[JSONObject]
+        fields: list[JSON]
         primaryKey: JSON
+
+    class _ManifestDoc(TypedDict, total=False):
+        fetched_at: str
+
+    class _Places(TypedDict):
+        layers: list[_Layer]
+
+    class _PlacesDoc(TypedDict):
+        layers: list[JSONObject]
+
+    class _ChangeLog(TypedDict):
+        changes: list[_ChangeEntry]
 
     class _Change(TypedDict):
         url: str
@@ -598,6 +620,7 @@ class Client:
         self._relations: dict[tuple[str, str, bool], Connection] = {}
         self._fields_memo: dict[str, dict[str, _Field]] = {}
         self._places: list[_Layer] | None = None
+        self._places_json: list[JSONObject] = []
 
     def close(self) -> None:
         """Closes the DuckDB connections `relation()` opened."""
@@ -647,6 +670,11 @@ class Client:
                 return resp
 
     def _json(self, path_or_url: str, params: Mapping[str, object] | None = None) -> JSONObject:
+        # Every endpoint the client calls answers a JSON object.
+        body: JSONObject = json.loads(self._get(path_or_url, params))
+        return body
+
+    def _get(self, path_or_url: str, params: Mapping[str, object] | None = None) -> bytes:
         url = path_or_url if "://" in path_or_url else self.site + path_or_url
         if params:
             q = urllib.parse.urlencode(
@@ -657,9 +685,7 @@ class Client:
             if q:
                 url += ("&" if "?" in url else "?") + q
         with self._open(url) as r:
-            # Every endpoint the client calls answers a JSON object.
-            body: JSONObject = json.loads(r.read())
-        return body
+            return r.read()
 
     def datasets(
         self,
@@ -676,8 +702,8 @@ class Client:
         `jurisdiction` a code such as "Qld" or a name such as "Queensland", all ignoring case.
         Every condition given must match.
         """
-        found = self._json("/api/v1/datasets", {"q": q} if q else None)
-        out = cast("list[JSONObject]", found["results"])
+        found: _Results = json.loads(self._get("/api/v1/datasets", {"q": q} if q else None))
+        out = found["results"]
         if publisher is None and topic is None and jurisdiction is None:
             return out
         keep = self._catalogue_match(publisher, topic, jurisdiction)
@@ -690,7 +716,8 @@ class Client:
             if v is not None and (not isinstance(v, str) or not v):
                 msg = f"{what} must be one piece of text"
                 raise ValueError(msg)
-        entries = cast("list[_CatalogEntry]", self._json("/catalog.json")["dataset"])
+        catalog: _Catalog = json.loads(self._get("/catalog.json"))
+        entries = catalog["dataset"]
         keep = entries
         if publisher is not None:
             p = publisher.lower()
@@ -732,11 +759,13 @@ class Client:
 
     def versions(self, slug: str) -> list[JSONObject]:
         """Every version kept, newest first, each with its date, rows, fields and source hash."""
-        return cast("list[JSONObject]", self._json(f"/d/{_slug(slug)}/versions.json")["versions"])
+        doc: _VersionsDoc = json.loads(self._get(f"/d/{_slug(slug)}/versions.json"))
+        return doc["versions"]
 
     def latest(self, slug: str) -> str:
         """The date of the newest version."""
-        return cast("str", self._json(f"/d/{_slug(slug)}/versions.json")["latest"])
+        doc: _VersionsDoc = json.loads(self._get(f"/d/{_slug(slug)}/versions.json"))
+        return doc["latest"]
 
     def schema(self, slug: str, version: str | None = None) -> JSONObject:
         """A version's schema.json.
@@ -744,17 +773,16 @@ class Client:
         For a table it holds the fields. For a database it holds every table with its fields,
         keys and references, and the views.
         """
-        at = f"v/{_date(version)}" if version else "latest"
-        return self._json(f"/d/{_slug(slug)}/{at}/schema.json")
+        return self._json(_schema_path(slug, version))
 
     def tables(self, slug: str, version: str | None = None) -> list[JSONObject]:
         """The tables of a database, each with its name, description, rows, fields and keys.
 
         A dataset that is one table has one entry, `records`.
         """
-        s = self.schema(slug, version)
+        s: _SchemaTables = json.loads(self._get(_schema_path(slug, version)))
         if s.get("kind") == "database":
-            return cast("list[JSONObject]", s["tables"])
+            return s["tables"]
         return [
             {
                 "name": "records",
@@ -872,7 +900,8 @@ class Client:
         query = dict(params)
         for field, value in (where or {}).items():
             query[field] = _filter(value)
-        return cast("_Answer", self._json(base + kind, query))
+        body: _Answer = json.loads(self._get(base + kind, query))
+        return body
 
     def rows(  # noqa: PLR0913 - a public signature
         self,
@@ -910,7 +939,7 @@ class Client:
         self._notice(slug, out.licence)
         nxt = body.get("next")
         while all and nxt:
-            body = cast("_Answer", self._json(nxt))
+            body = json.loads(self._get(nxt))
             out.extend(body.get("rows", ()))
             nxt = body.get("next")
         out.page["next"] = nxt
@@ -945,27 +974,36 @@ class Client:
         are the newest version's; a pinned version is described by its schema, without ranges or
         values.
         """
+        return self._field_list(slug, version)[0]
+
+    def _field_list(self, slug: str, version: str | None) -> tuple[list[JSONObject], list[_Field]]:
+        # The same parsed fields, as fields() gives them and as _field_types reads them.
         if not version:
             try:
-                listed = cast(
-                    "list[JSONObject]", self._json(f"/d/{_slug(slug)}/fields.json")["fields"]
-                )
+                loaded = json.loads(self._get(f"/d/{_slug(slug)}/fields.json"))
             except PublicDataError as err:
                 if err.status != HTTPStatus.NOT_FOUND:
                     raise
             else:
-                return listed
-        s = cast("_Schema", self.schema(slug, version))
+                return loaded["fields"], loaded["fields"]
+        s = json.loads(self._get(_schema_path(slug, version)))
         if s.get("kind") == "database":
-            return [{"table": t["name"], **f} for t in s["tables"] for f in t["fields"]]
-        return cast("list[JSONObject]", s.get("fields", []))
+            as_json: list[JSONObject] = [
+                {"table": t["name"], **f} for t in s["tables"] for f in t["fields"]
+            ]
+            tables: list[_Table] = s["tables"]
+            as_field: list[_Field] = [
+                {"table": t["name"], **f} for t in tables for f in t["fields"]
+            ]
+            return as_json, as_field
+        return s.get("fields", []), s.get("fields", [])
 
     def _field_types(self, slug: str, version: str | None = None) -> dict[str, _Field]:
         # Typing is a convenience: if the fields cannot be read, the answer goes back untyped.
         key = f"fields:{slug}:{version or 'latest'}"
         if key not in self._fields_memo:
             try:
-                fields = cast("list[_Field]", self.fields(slug, version))
+                fields = self._field_list(slug, version)[1]
             except PublicDataError:
                 return {}
             self._fields_memo[key] = {f["name"]: f for f in fields if "table" not in f}
@@ -1200,12 +1238,13 @@ class Client:
         the schema changes and the URL of the full comparison. `since` and `until` bound the
         versions compared. A database is compared by each table's row count.
         """
-        out = cast("list[_ChangeEntry]", self._json(f"/d/{_slug(slug)}/changes.json")["changes"])
+        out = json.loads(self._get(f"/d/{_slug(slug)}/changes.json"))["changes"]
         if since:
             out = [c for c in out if c["from"] >= _date(since)]
         if until:
             out = [c for c in out if c["to"] <= _date(until)]
-        return cast("list[JSONObject]", out)
+        listed: list[JSONObject] = out
+        return listed
 
     def diff(self, slug: str, version: str | None = None) -> JSONObject:
         """The full comparison of `version`, the newest by default, with the version before it.
@@ -1214,7 +1253,8 @@ class Client:
         each, `truncated` says when there were more) and up to ten changed rows field by field.
         """
         version = _date(version) if version else self.latest(slug)
-        for c in cast("list[_ChangeEntry]", self.changes(slug)):
+        log: _ChangeLog = json.loads(self._get(f"/d/{_slug(slug)}/changes.json"))
+        for c in log["changes"]:
             if c["to"] == version:
                 return self._json(c["url"])
         msg = (
@@ -1232,7 +1272,7 @@ class Client:
         if format not in ("text", "bibtex"):
             msg = 'format must be "text" or "bibtex"'
             raise ValueError(msg)
-        dp = cast("_DataPackage", self._json(f"/d/{_slug(slug)}/datapackage.json"))
+        dp: _DataPackage = json.loads(self._get(f"/d/{_slug(slug)}/datapackage.json"))
         version = _date(version) if version else dp["version"]
         url = f"{self.site}/d/{slug}/v/{version}/"
         pub = next(
@@ -1245,7 +1285,8 @@ class Client:
         if version == dp["version"] and dp.get("publicdata:attribution"):
             note = dp["publicdata:attribution"].rstrip(".")
         else:
-            fetched = cast("str", self._json(f"/d/{slug}/v/{version}/manifest.json")["fetched_at"])
+            m: _ManifestDoc = json.loads(self._get(f"/d/{slug}/v/{version}/manifest.json"))
+            fetched = m["fetched_at"]
             note = f"Licensed under {licence}, read from the publisher on {fetched[:10]}"
         how = f"Version {version}, serialised and versioned by National Digital at publicdata.au"
         if format == "text":
@@ -1301,7 +1342,7 @@ class Client:
                 msg = f"jurisdiction is one of {', '.join(sorted(set(_JUR_CODES.values())))}"
                 raise ValueError(msg)
         params = {"q": q, "jur": jur, "state": _list(status), "limit": limit, "offset": offset}
-        body = cast("_CatalogueAnswer", self._json("/api/v1/catalogue", params))
+        body: _CatalogueAnswer = json.loads(self._get("/api/v1/catalogue", params))
         rows: list[JSONObject] = [
             {
                 ("jurisdiction" if k == "jur" else "status" if k == "state" else k): v
@@ -1318,11 +1359,15 @@ class Client:
         each with its `key`, `slug`, `title`, the `code` and `name` fields that identify an
         area, and the `version` served.
         """
-        return cast("list[JSONObject]", self._layers())
+        self._layers()
+        return self._places_json
 
     def _layers(self) -> list[_Layer]:
         if self._places is None:
-            self._places = cast("list[_Layer]", self._json("/places.json")["layers"])
+            loaded = json.loads(self._get("/places.json"))
+            places: _Places = loaded
+            raw: _PlacesDoc = loaded
+            self._places, self._places_json = places["layers"], raw["layers"]
         return self._places
 
     def _layer(self, layer: str) -> _Layer:
@@ -1519,7 +1564,7 @@ class Client:
             cond = self._conditions[slug]
         else:
             try:
-                dp = cast("_DataPackage", self._json(f"/d/{_slug(slug)}/datapackage.json"))
+                dp: _DataPackage = json.loads(self._get(f"/d/{_slug(slug)}/datapackage.json"))
             except PublicDataError:
                 return
             cond = " ".join(
@@ -1732,6 +1777,11 @@ def _table(table: str) -> str:
         msg = f"not a table name: {table!r}"
         raise ValueError(msg)
     return table
+
+
+def _schema_path(slug: str, version: str | None) -> str:
+    at = f"v/{_date(version)}" if version else "latest"
+    return f"/d/{_slug(slug)}/{at}/schema.json"
 
 
 def _date(version: str) -> str:
