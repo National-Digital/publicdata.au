@@ -203,8 +203,10 @@ def pick_package(ds: Dataset, packages: list[dict]) -> str:
 
 
 def pick_resource(ds: Dataset, resources: list[dict]) -> dict:
-    """The named resource, or the newest whose name matches: latest created, then last listed,
-    since a portal that re-imports old files gives them all one creation date.
+    """The named resource, or the newest whose name matches.
+
+    The newest is the latest created, then the last listed, since a portal that re-imports old
+    files gives them all one creation date.
     """
     if not ds.source.resource_match:
         res = next((r for r in resources if r["id"] == ds.source.resource), None)
@@ -234,8 +236,10 @@ def etag(headers) -> str:
 
 
 def resource_filename(res: dict) -> str:
-    """The file's name from its URL. A name with no extension takes the resource's stated format,
-    since the reader is chosen by extension.
+    """The file's name from its URL.
+
+    A name with no extension takes the resource's stated format, since the reader is chosen by
+    extension.
     """
     name = res["url"].split("?", 1)[0].rsplit("/", 1)[-1]
     # A download script, main.html?download&realfilename=layer.zip, names the file it serves.
@@ -254,9 +258,11 @@ def resource_filename(res: dict) -> str:
 
 
 def free_version(changed: str, taken: set[str], today: dt.date) -> tuple[str, str]:
-    """The version label for a changed file: the publisher's change date, or when a version
-    already holds that date, the fetch date, or else the next day no version holds. The note
-    says why the label is not the change date.
+    """The version label for a changed file, and a note.
+
+    The label is the publisher's change date, or when a version already holds that date, the fetch
+    date, or else the next day no version holds. The note says why the label is not the change
+    date.
     """
     if changed not in taken:
         return changed, ""
@@ -297,8 +303,10 @@ class ManualDue(RuntimeError):
 
 
 def _download(ds: Dataset, s: requests.Session, url: str):
-    """The file's bytes and headers: by the session, or from the file a person downloaded when
-    the entry's host turns automated clients away.
+    """The file's bytes and headers.
+
+    They come by the session, or from the file a person downloaded when the entry's host turns
+    automated clients away.
     """
     if ds.source.manual:
         if ds.slug not in MANUAL:
@@ -318,9 +326,11 @@ def _download(ds: Dataset, s: requests.Session, url: str):
 
 
 def _changed(ds: Dataset, value, unit: int = 0) -> str:
-    """The portal's change date as UTC ISO, from an epoch in seconds (unit 1), milliseconds
-    (unit 1000) or an ISO string (unit 0). A version is dated by it, so a portal that states none
-    is a failed fetch rather than a guessed date.
+    """The portal's change date as UTC ISO.
+
+    It is read from an epoch in seconds (unit 1), milliseconds (unit 1000) or an ISO string
+    (unit 0). A version is dated by it, so a portal that states none is a failed fetch rather than
+    a guessed date.
     """
     try:
         if unit:
@@ -335,6 +345,7 @@ def _licence(
     ds: Dataset, stated: str, normalised: str, title: str, url: str, read_from: str
 ) -> dict:
     """The licence a portal states, keeping its own code and the id worked out from its words.
+
     `id` is the one the register is checked against: the portal's code when the entry names one
     in licence.portal_id, as a CKAN portal's id is, and otherwise the worked-out id. `read_from`
     is the address the statement was read from, and `read_at` when.
@@ -364,8 +375,9 @@ def _portal_version(
     source: dict,
     licence: dict,
 ):
-    """Download a portal's export and make its manifest. The export is dated by the portal's own
-    change date, and an unchanged SHA-256 is no version.
+    """Download a portal's export and make its manifest.
+
+    The export is dated by the portal's own change date, and an unchanged SHA-256 is no version.
     """
     existing = store.manifests(store_dir, ds.slug)
     r = s.get(url, timeout=600, allow_redirects=True)
@@ -469,8 +481,9 @@ def opendatasoft(ds: Dataset, store_dir: Path, session: requests.Session | None 
 
 
 def arcgis_hub(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A layer of an ArcGIS Hub item, as the CSV the site's download API serves. package is the
-    item id and resource the layer number, 0 when absent.
+    """A layer of an ArcGIS Hub item, as the CSV the site's download API serves.
+
+    package is the item id and resource the layer number, 0 when absent.
     """
     s = _session(session)
     base = ds.source.portal.rstrip("/")
@@ -509,9 +522,10 @@ def arcgis_hub(ds: Dataset, store_dir: Path, session: requests.Session | None = 
 
 
 def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """An ArcGIS feature layer with no file behind it: every feature is read in pages ordered by
-    the layer's object id, in WGS84, and kept as one GeoJSON file. url is the layer; the licence
-    is the one the CKAN package named in portal and package states.
+    """An ArcGIS feature layer with no file behind it, kept as one GeoJSON file.
+
+    Every feature is read in pages ordered by the layer's object id, in WGS84. url is the layer;
+    the licence is the one the CKAN package named in portal and package states.
     """
     s = _session(session)
     p = _package(ds, s, f"{ds.source.portal.rstrip('/')}/api/3/action")
@@ -700,8 +714,10 @@ def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
 
 
 def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: float, dim: int):
-    """Rows of a query too large for the API's paging, split by load time, then by latitude
-    and longitude, then by year, until every slice fits.
+    """Rows of a query too large for the API's paging, read in slices.
+
+    The query is split by load time, then by latitude and longitude, then by year, until every
+    slice fits.
     """
     if n <= ALA_DEEP:
         yield from _ala_pages(s, base, q, fq, n)
@@ -751,11 +767,12 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: floa
 
 
 def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """The Atlas of Living Australia's search API: every record the search matches from each
-    provider the register names, under an open licence, kept as one CSV. The version is dated
-    by the newest load date among the rows. The manifest counts each provider's rows with and
-    without the licence filter, and a provider whose open rows fall while its rows do not is a
-    licence change, which stops the fetch.
+    """The Atlas of Living Australia's search API, kept as one CSV.
+
+    Every record the search matches is read from each provider the register names, under an open
+    licence. The version is dated by the newest load date among the rows. The manifest counts each
+    provider's rows with and without the licence filter, and a provider whose open rows fall while
+    its rows do not is a licence change, which stops the fetch.
     """
     s = _session(session)
     base = ds.source.url.rstrip("/")
@@ -872,8 +889,9 @@ def page_text(body: bytes) -> str:
 
 
 def statement_licence(ds: Dataset, s: requests.Session) -> dict:
-    """The licence a publisher states on its own page, for a file no portal describes: the
-    register's licence holds while the page still carries the words the entry quotes.
+    """The licence a publisher states on its own page, for a file no portal describes.
+
+    The register's licence holds while the page still carries the words the entry quotes.
     """
     r = s.get(ds.licence.evidence, timeout=120)
     r.raise_for_status()
@@ -899,8 +917,10 @@ WFS_PAGES = 1000
 
 
 def _wfs_pages(ds: Dataset, s: requests.Session):
-    """Every feature of a WFS GetFeature, `page_size` at a time in the order its sortBy gives, as
-    one GeoJSON FeatureCollection. The last response stands for the whole for its headers.
+    """Every feature of a WFS GetFeature, as one GeoJSON FeatureCollection.
+
+    Features are read `page_size` at a time in the order its sortBy gives. The last response stands
+    for the whole for its headers.
     """
     feats: list = []
     sep = "&" if "?" in ds.source.url else "?"
@@ -927,9 +947,10 @@ UNREAD_DATE_NOTE = (
 
 
 def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A file at a fixed URL on the publisher's own site, with no portal record. The version is
-    dated by the server's Last-Modified, or failing that by the fetch, and the licence is the
-    evidence page's own words, read every run.
+    """A file at a fixed URL on the publisher's own site, with no portal record.
+
+    The version is dated by the server's Last-Modified, or failing that by the fetch, and the
+    licence is the evidence page's own words, read every run.
     """
     s = _session(session)
     licence = statement_licence(ds, s)
@@ -1014,9 +1035,10 @@ KIWIS_STATIONS_NOTE = (
 
 
 def _kiwis_query(s: requests.Session, base: str, request: str, **params):
-    """One KiWIS query. The service answers 500 to a space sent as "+", so the query is
-    percent-encoded, and a refusal it explains in JSON, such as too many values, is final
-    rather than retried.
+    """One KiWIS query.
+
+    The service answers 500 to a space sent as "+", so the query is percent-encoded, and a refusal
+    it explains in JSON, such as too many values, is final rather than retried.
     """
     query = {
         "service": "kisters",
@@ -1045,8 +1067,10 @@ def _kiwis_query(s: requests.Session, base: str, request: str, **params):
 
 
 def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[dict]:
-    """The values of a batch of series. The service counts values its own way, so a batch it
-    refuses as too large is split until it answers.
+    """The values of a batch of series.
+
+    The service counts values its own way, so a batch it refuses as too large is split until it
+    answers.
     """
     try:
         return _kiwis_query(
@@ -1073,10 +1097,11 @@ def _kiwis_state(owner: str) -> str:
 
 
 def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """The Bureau of Meteorology's Water Data Online (a Kisters KiWIS service). `search` is the
-    parameter type, `package` the time series name and `resource` the table: `stations` is the
-    stations reporting the parameter with their attributes, `values` every value of the series for
-    every station, as one CSV each. The licence is the evidence page's own words.
+    """The Bureau of Meteorology's Water Data Online (a Kisters KiWIS service).
+
+    `search` is the parameter type, `package` the time series name and `resource` the table:
+    `stations` is the stations reporting the parameter with their attributes, `values` every value
+    of the series for every station, as one CSV each. The licence is the evidence page's own words.
     """
     s = _session(session)
     if not (
@@ -1238,10 +1263,11 @@ def _aihw_query(d: dict) -> dict:
 
 
 def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A data table workbook of the Australian Institute of Health and Welfare. `url` is the
-    report's data page, whose file list the Institute's site fetches from its search API; the
-    newest file whose title matches `resource_match` is downloaded, since a release can carry
-    a new file name and address. The licence is the copyright page's own words.
+    """A data table workbook of the Australian Institute of Health and Welfare.
+
+    `url` is the report's data page, whose file list the Institute's site fetches from its search
+    API; the newest file whose title matches `resource_match` is downloaded, since a release can
+    carry a new file name and address. The licence is the copyright page's own words.
     """
     s = _session(session)
     licence = statement_licence(ds, s)
@@ -1316,9 +1342,11 @@ def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
 
 
 def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A file on Zenodo, followed across versions of one concept record. `url` is the records
-    API, `package` the concept record id and `resource_match` the file name. The licence is the
-    one the newest version's metadata states, and the version is dated by that record.
+    """A file on Zenodo, followed across versions of one concept record.
+
+    `url` is the records API, `package` the concept record id and `resource_match` the file name.
+    The licence is the one the newest version's metadata states, and the version is dated by that
+    record.
     """
     s = _session(session)
     got = catalogue.get_json(
@@ -1400,13 +1428,14 @@ def _stack_rows(
     group_match: str = "",
     footnote_marks: bool = False,
 ) -> tuple[list[str], list[list[str]]]:
-    """A workbook's or a CSV's header and rows as text, the header being the first row whose first
-    cell is header_match, since the publisher's title rows above it vary. With section_match the
-    file holds several small tables, each under a title that pattern matches, read as one row per
-    cell. A header over header_depth rows names each column by its lowest filled cell. With
-    group_match, a row with only its first cell filled names the group of the rows below it when
-    the pattern matches, and is a footnote otherwise. With footnote_marks, a footnote number at the
-    end of the first cell moves to a Note column.
+    """A workbook's or a CSV's header and rows as text.
+
+    The header is the first row whose first cell is header_match, since the publisher's title rows
+    above it vary. With section_match the file holds several small tables, each under a title that
+    pattern matches, read as one row per cell. A header over header_depth rows names each column by
+    its lowest filled cell. With group_match, a row with only its first cell filled names the group
+    of the rows below it when the pattern matches, and is a footnote otherwise. With
+    footnote_marks, a footnote number at the end of the first cell moves to a Note column.
     """
     from .normalise import _cell, _distinct
 
@@ -1508,9 +1537,11 @@ def _section_rows(rows, filename: str, header_match: str, section_match: str) ->
 def _stack(
     ds: Dataset, s: requests.Session, files: list[dict]
 ) -> tuple[bytes, list[dict], int, int]:
-    """Every file read into one table, its columns laid out as the first file has them, ordered by
-    every column with a row two files share kept once. Each file is a dict with url, filename and
-    whatever the manifest should say of it.
+    """Every file read into one table.
+
+    Its columns are laid out as the first file has them, and it is ordered by every column, with a
+    row two files share kept once. Each file is a dict with url, filename and whatever the manifest
+    should say of it.
     """
     from .register import FILE_SOURCE
 
@@ -1596,10 +1627,11 @@ def _stack_version(
 
 
 def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A series a CKAN portal holds as many workbooks across many packages, read whole into one
-    table. `package` is the search text, `package_match` the packages to take by name,
-    `resource_match` the resources by name (every workbook when blank), `header_match` the first
-    cell of each workbook's header row. Every package must state the one licence.
+    """A series a CKAN portal holds as many workbooks across many packages, read into one table.
+
+    `package` is the search text, `package_match` the packages to take by name, `resource_match`
+    the resources by name (every workbook when blank), `header_match` the first cell of each
+    workbook's header row. Every package must state the one licence.
     """
     s = _session(session)
     api = f"{ds.source.portal.rstrip('/')}/api/3/action"
@@ -1691,8 +1723,9 @@ LINK_RE = re.compile(r"""<a\b[^>]*?href\s*=\s*["']([^"']+)["']""", re.IGNORECASE
 
 
 def page_links(page: bytes, base: str, pattern: str) -> list[str]:
-    """Every link on a page whose address, decoded, matches the pattern: absolute, once each, in
-    the order the page gives them.
+    """Every link on a page whose address, decoded, matches the pattern.
+
+    The links are absolute, once each, in the order the page gives them.
     """
     rx = re.compile(pattern)
     out: list[str] = []
@@ -1704,10 +1737,11 @@ def page_links(page: bytes, base: str, pattern: str) -> list[str]:
 
 
 def file_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A series a publisher lists on its own page as one file per period, read whole into one
-    table. `url` is the page, `resource_match` the pattern each file's link matches, and
-    `header_match` the first cell of each file's header row. The licence is the evidence page's
-    own words, and the version is dated by the newest file's Last-Modified.
+    """A series a publisher lists on its own page as one file per period, read into one table.
+
+    `url` is the page, `resource_match` the pattern each file's link matches, and `header_match`
+    the first cell of each file's header row. The licence is the evidence page's own words, and
+    the version is dated by the newest file's Last-Modified.
     """
     s = _session(session)
     licence = statement_licence(ds, s)
@@ -1766,8 +1800,10 @@ class FetchError(RuntimeError):
 
 
 def expect_page(ds: Dataset, url: str, r, data: bytes) -> None:
-    """An empty body or an HTML page where a data file should be is refused. Some portals answer
-    requests from cloud addresses with an empty 200; that must never become a version.
+    """Refuses an empty body or an HTML page where a data file should be.
+
+    Some portals answer requests from cloud addresses with an empty 200; that must never become a
+    version.
     """
     ctype = r.headers.get("Content-Type", "") if r.headers else ""
     status = getattr(r, "status_code", "?")
@@ -1819,8 +1855,10 @@ def portal_defines(portal_id: str, portal: str) -> str:
 
 
 def normalise_licence_id(portal_id: str, portal: str = "") -> str:
-    """A portal's licence code onto the register's ids, read as that portal's license_list defines
-    it. A generic code the portal does not version gives "", which no register id matches.
+    """A portal's licence code onto the register's ids.
+
+    The code is read as that portal's license_list defines it. A generic code the portal does not
+    version gives "", which no register id matches.
     """
     s = (portal_id or "").strip().upper().replace("_", "-")
     if s in EXACT:
@@ -1847,7 +1885,7 @@ def _is_workbook(filename: str) -> bool:
 
 
 def _encoding(filename: str, data: bytes, preferred: str) -> str:
-    """xlsx and zip name their container; a text file names its character set."""
+    """An xlsx or zip names its container; a text file names its character set."""
     if _is_xlsx(filename):
         return "xlsx"
     if filename.lower().endswith(".xls"):
@@ -1858,9 +1896,11 @@ def _encoding(filename: str, data: bytes, preferred: str) -> str:
 
 
 def check_licence(ds: Dataset, licence: dict) -> None:
-    """Runs on every fetch, changed bytes or not: a licence the portal now states differently
-    from the register stops the run before anything is written. A register entry may name the
-    portal's exact licence id when the portal's id is ambiguous and the evidence page settles it.
+    """Stops the run when the portal's licence differs from the register's.
+
+    It runs on every fetch, changed bytes or not, and stops before anything is written. A register
+    entry may name the portal's exact licence id when the portal's id is ambiguous and the evidence
+    page settles it.
     """
     if ds.licence.portal_id:
         defined = portal_defines(ds.licence.portal_id, getattr(ds.source, "portal", ""))
@@ -1939,15 +1979,18 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
 
 
 def rows_digest(ds: Dataset, m: store.Manifest, data: bytes) -> str:
-    """SHA-256 of the normalised rows taken in sorted order, or "" when the file does not
-    normalise here; the build then reports why. Some portals re-sort an export on every reload.
+    """SHA-256 of the normalised rows taken in sorted order.
+
+    It is "" when the file does not normalise here; the build then reports why. Some portals
+    re-sort an export on every reload.
     """
     return _rows(ds, m, data)[0]
 
 
 def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None, list[str]]:
-    """The rows digest, the row count, which is None when the file does not normalise here, and
-    the declared INT32 fields the rows do not fit.
+    """The rows digest, the row count and the declared INT32 fields the rows do not fit.
+
+    The row count is None when the file does not normalise here.
     """
     from .normalise import normalise
     from .serialise.profile import misfits
@@ -1975,8 +2018,10 @@ FEED_NOTE = (
 
 
 def feed_version(m: store.Manifest, existing: list[store.Manifest], today: dt.date):
-    """A feed's version is the day it was fetched. A second change on a day that already has a
-    version waits for the next day's fetch, so a day is never split or rewritten.
+    """A feed's version is the day it was fetched.
+
+    A second change on a day that already has a version waits for the next day's fetch, so a day
+    is never split or rewritten.
     """
     if any(x.version == today.isoformat() for x in existing):
         return None

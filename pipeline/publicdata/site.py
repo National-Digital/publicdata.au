@@ -121,8 +121,10 @@ FORMAT_NOTES = {
 
 
 def download_name(slug: str, version: str, rel: str) -> str:
-    """The name a version's file saves under: data.csv of qld-x 2026-04-24 is
-    qld-x_2026-04-24.csv. functions/_download.js does the same.
+    """The name a version's file saves under.
+
+    For example, data.csv of qld-x 2026-04-24 is qld-x_2026-04-24.csv. functions/_download.js
+    does the same.
     """
     tail = rel[4:] if rel.startswith("data.") else "_" + rel.replace("/", "_")
     return f"{slug}_{version}{tail}"
@@ -214,7 +216,9 @@ def collection_url(collection: str) -> str:
 
 
 def _years(ds: Dataset, m, span: str = "") -> str:
-    """'2001 to 2026' when both ends are the publisher's own, else the full years the chart
+    """The years the data covers, in words.
+
+    That is '2001 to 2026' when both ends are the publisher's own, else the full years the chart
     draws from the rows, else 'since 1960' when only the start is known, else the as-at year.
     """
     start = ds.temporal_start[:4] if ds.temporal_start else ""
@@ -279,16 +283,19 @@ def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
 
 
 def _short_title(ds: Dataset) -> str:
-    """The title without its trailing place or years, for a question: "Births, deaths and
-    marriages registered by calendar year" from the title that ends ", Victoria".
+    """The title without its trailing place or years, for a question.
+
+    For example, "Births, deaths and marriages registered by calendar year" comes from the title
+    that ends ", Victoria".
     """
     head, _, tail = ds.title.rpartition(", ")
     return head if head and len(tail.split()) <= 4 else ds.title
 
 
 def cadence_words(ds: Dataset) -> tuple[str, str]:
-    """The register's cadence as the page's "Updated" value and as a sentence, so a closed or
-    irregular series reads as words ("releases it irregular" did not).
+    """The register's cadence as the page's "Updated" value and as a sentence.
+
+    That way a closed or irregular series reads as words ("releases it irregular" did not).
     """
     c, pub = ds.source.cadence, ds.publisher.short
     rest = c.removeprefix("historical, ")
@@ -458,8 +465,10 @@ def _temporal(ds: Dataset, m) -> str | None:
 
 
 def copies_of(record: dict | None, slug: str) -> list[dict]:
-    """Where a dataset is also published, in a fixed order, from the record the Hubs job
-    commits in store/hubs.json. Only copies the job found are listed.
+    """Where a dataset is also published, in a fixed order.
+
+    It is read from the record the Hubs job commits in store/hubs.json. Only copies the job found
+    are listed.
     """
     found = ((record or {}).get("datasets") or {}).get(slug) or {}
     out = []
@@ -629,8 +638,10 @@ def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict:
 
 
 def _files_of(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
-    """(file, format) for every data file of a version: the whole-table formats, or a database's
-    DuckDB file and the Parquet file of each table.
+    """(file, format) for every data file of a version.
+
+    These are the whole-table formats, or a database's DuckDB file and the Parquet file of each
+    table.
     """
     if ds.kind == "database":
         return [
@@ -714,8 +725,10 @@ XLSX_FIRST_MAX = 50_000_000
 
 
 def _default_format(ds: Dataset, latest: VersionOut) -> str:
-    """The format a visitor gets without choosing: Excel when the workbook is a size an office
-    machine opens, else CSV. Parquet stays a click away for the people who know it.
+    """The format a visitor gets without choosing.
+
+    That is Excel when the workbook is a size an office machine opens, else CSV. Parquet stays a
+    click away for the people who know it.
     """
     have = set(_fmts(ds, latest))
     if "xlsx" in have and 0 < latest.files.get("data.xlsx", 0) <= XLSX_FIRST_MAX:
@@ -724,8 +737,9 @@ def _default_format(ds: Dataset, latest: VersionOut) -> str:
 
 
 def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
-    """The format buttons and what site.js needs for each: the file and its note. The default
-    format comes first and is the one pressed.
+    """The format buttons and what site.js needs for each: the file and its note.
+
+    The default format comes first and is the one pressed.
     """
     first = _default_format(ds, latest)
     order = sorted(_fmts(ds, latest), key=lambda f: f != first)
@@ -766,9 +780,11 @@ SAMPLE_ROWS = 10
 
 
 def _sample(ds: Dataset, db: Path, within: dict | None = None) -> dict:
-    """The page's sample rows, with a heading and a note that say how they were picked: the
-    register's sample, else the newest rows first with the partition field's values taking
-    turns, so a table filed oldest first or one sex after the other shows more than one corner.
+    """The page's sample rows, with a heading and a note that say how they were picked.
+
+    The rows are the register's sample, else the newest rows first with the partition field's
+    values taking turns, so a table filed oldest first or one sex after the other shows more than
+    one corner.
     """
     spec = ds.sample or {}
     yf = figures.year_field(ds)
@@ -849,9 +865,10 @@ def _subject_words(d: Dataset) -> set[str]:
 
 
 def _related(ds: Dataset, live: list[DatasetOut]) -> list[dict]:
-    """Datasets under the same topic from another publisher that share words of subject with
-    this one, most shared first, so a reader who has one state's table finds the others without
-    going back to the topic page.
+    """Datasets under the same topic from another publisher that share words of subject.
+
+    They are listed most shared first, so a reader who has one state's table finds the others
+    without going back to the topic page.
     """
     mine = _subject_words(ds)
     scored = []
@@ -908,8 +925,10 @@ def _place_pages(
     links: dict,
     citation: dict,
 ) -> list[str]:
-    """A page for every value of the place field: its rows counted and drawn, its files, the
-    first rows and the other places. Returns the page URLs for the sitemap.
+    """A page for every value of the place field.
+
+    Each page holds its rows counted and drawn, its files, the first rows and the other places.
+    Returns the page URLs for the sitemap.
     """
     if not places:
         return []
@@ -1052,9 +1071,10 @@ def _place_pages(
 
 
 def licence_record(ds: Dataset, m) -> dict:
-    """Where and when the licence was read: by a person, from the register, and by the fetch
-    that made the latest version, from its manifest. A manifest from before fetches recorded the
-    address carries the time only.
+    """Where and when the licence was read.
+
+    It was read by a person, from the register, and by the fetch that made the latest version,
+    from its manifest. A manifest from before fetches recorded the address carries the time only.
     """
     lic = m.licence or {}
     read_from = lic.get("read_from") or ""
@@ -1097,8 +1117,10 @@ def _asked(ds: Dataset, console: dict) -> str:
 
 
 def _example_title(ds: Dataset, console: dict) -> str:
-    """The example query in words: the register's label when it is a whole phrase, else what it
-    counts, by its group, where its filters hold.
+    """The example query in words.
+
+    That is the register's label when it is a whole phrase, else what it counts, by its group,
+    where its filters hold.
     """
     ex = console["example"]
     if figures.PHRASE.search(ex.get("label", "")):
@@ -1186,8 +1208,9 @@ def _md_twin_explore(ds: Dataset, explore: dict, attr: str) -> str:
 
 
 def _db_view(ds: Dataset, v: VersionOut) -> dict:
-    """What the database page lists: each table with its rows, size, key and references, the
-    views, and the files.
+    """What the database page lists.
+
+    That is each table with its rows, size, key and references, the views, and the files.
     """
     vb = version_url(ds.slug, v.manifest.version)
     tables = []
@@ -1236,10 +1259,11 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict:
 
 
 def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict]:
-    """How to open the dataset from Excel, Power BI, R, Python, DuckDB and a script, as the
-    connect tabs show. Code uses the dated version's URL, since a pinned file never changes under
-    a script; Excel and Power BI use latest/, since their refresh is how a workbook follows a new
-    version.
+    """How to open the dataset from Excel, Power BI, R, Python, DuckDB and a script.
+
+    These are as the connect tabs show them. Code uses the dated version's URL, since a pinned file
+    never changes under a script; Excel and Power BI use latest/, since their refresh is how a
+    workbook follows a new version.
     """
     vb = version_url(ds.slug, v.manifest.version)
     name = ds.slug.replace("-", "_")
@@ -2249,8 +2273,9 @@ def _fields_resource(o: DatasetOut, console: dict) -> dict:
 
 
 def _console(ds: Dataset, parquet: Path) -> dict:
-    """Fields with value hints and a first query for the dataset page's query console, read from
-    the same rows the query API is loaded from.
+    """Fields with value hints and a first query for the dataset page's query console.
+
+    Both are read from the same rows the query API is loaded from.
     """
     con = connect(parquet, [f.name for f in ds.fields])
     cols = set(con.columns())
@@ -2313,9 +2338,10 @@ ID_NAME = re.compile(r"(^|_)(id|no|number|code)$")
 
 
 def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
-    """A first query from the field statistics, for an entry whose register names none: a filter
-    on the partition field or a short list of values, a group with more than one value inside it,
-    and a count, or the count field's sum for a table of counts.
+    """A first query from the field statistics, for an entry whose register names none.
+
+    It is a filter on the partition field or a short list of values, a group with more than one
+    value inside it, and a count, or the count field's sum for a table of counts.
     """
     q = lambda n: '"' + n + '"'  # noqa: E731
     by = {e["name"]: e for e in fields}

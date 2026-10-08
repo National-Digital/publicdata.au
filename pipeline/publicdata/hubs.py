@@ -123,8 +123,10 @@ def entry(
     site: str = SITE,
     registered=None,
 ) -> Entry:
-    """One dataset's newest version as the hubs see it. `registered` is the dataset's register
-    entry, when there is one, whose labels and descriptions fill fields the schema leaves bare.
+    """One dataset's newest version as the hubs see it.
+
+    `registered` is the dataset's register entry, when there is one, whose labels and descriptions
+    fill fields the schema leaves bare.
     """
     lic = LICENCES.get(record.get("license") or "")
     if lic is None:
@@ -175,8 +177,10 @@ def entry(
 
 
 def _described(fields, registered) -> list[dict]:
-    """Every field with a description: the schema's own, else the register's description or
-    label, else a label drafted from the field name, so no hub shows a column without one.
+    """Every field with a description, so no hub shows a column without one.
+
+    The description is the schema's own, else the register's description or label, else a label
+    drafted from the field name.
     """
     from .register import draft_label
 
@@ -193,8 +197,10 @@ def _described(fields, registered) -> list[dict]:
 
 
 def authorised(record: dict, registered) -> None:
-    """The register, not the live catalogue, decides what may be copied: the entry must exist, be
-    live, hold an open licence, and name the same licence the catalogue states.
+    """The register decides what may be copied, whatever the live catalogue says.
+
+    The entry must exist, be live, hold an open licence, and name the same licence the catalogue
+    states.
     """
     slug = record.get("identifier", "")
     if registered is None:
@@ -665,8 +671,10 @@ def _code(text: str) -> dict:
 
 
 def cover_image(card: Path, dest: Path) -> Path:
-    """Kaggle crops its header at 560 by 280 from the top left and its thumbnail as the middle
-    square, so the site's social card is cut to 2:1 about its centre and sized to exactly that.
+    """The site's social card cut to 2:1 about its centre and sized for Kaggle.
+
+    Kaggle crops its header at 560 by 280 from the top left and its thumbnail as the middle
+    square, so the card is sized to exactly that.
     """
     from PIL import Image
 
@@ -761,9 +769,10 @@ def _http() -> requests.Session:
 def read_site(
     site: str = SITE, only: set[str] | None = None, http=None, register: dict | None = None
 ):
-    """Yields (slug, Entry or Refused) for every dataset in the live catalogue. `register` maps a
-    slug to its register entry; when it is given, a dataset the register does not authorise is
-    refused before anything is read or copied.
+    """Yields (slug, Entry or Refused) for every dataset in the live catalogue.
+
+    `register` maps a slug to its register entry; when it is given, a dataset the register does
+    not authorise is refused before anything is read or copied.
     """
     http = http or _http()
     checked = register is not None
@@ -867,8 +876,9 @@ class HuggingFace:
         return f"https://huggingface.co/datasets/{repo}"
 
     def refresh(self, e: Entry, work: Path, fetch: Callable) -> str:
-        """Rewrites the card, publicdata.json and the data files of a version the repository
-        already holds, so a format added since it was published reaches it.
+        """Rewrites the card, publicdata.json and the data files of a version already held.
+
+        That way a format added since the version was published reaches the repository's copy.
         """
         self.files(e, work, fetch)
         self.api.upload_folder(
@@ -950,9 +960,10 @@ class Zenodo:
         )
 
     def _search(self, e: Entry) -> list[dict]:
-        """The records that name this dataset, asked for directly. The full listing is paged, and a
-        page boundary can lose a record while Zenodo is still indexing the last publish; a query
-        for one dataset has no boundary to lose it at.
+        """The records that name this dataset, asked for directly.
+
+        The full listing is paged, and a page boundary can lose a record while Zenodo is still
+        indexing the last publish; a query for one dataset has no boundary to lose it at.
         """
         return self._call(
             "GET",
@@ -1071,8 +1082,10 @@ class Kaggle:
         return r
 
     def mine(self) -> set[str]:
-        """The account's own dataset slugs. Listing them proves the token, and Kaggle answers 403
-        rather than 404 for a dataset that does not exist, so existence is read from here.
+        """The account's own dataset slugs.
+
+        Listing them proves the token, and Kaggle answers 403 rather than 404 for a dataset that
+        does not exist, so existence is read from here.
         """
         if self._mine is None:
             found, page = set(), 1
@@ -1112,8 +1125,10 @@ class Kaggle:
         return None
 
     def exists(self, ref: str) -> bool:
-        """Kaggle's list of an account's datasets lags behind a new one, so a slug the list does
-        not name is asked about directly before it is taken to be absent.
+        """Whether a dataset exists, asking Kaggle directly when its list does not name it.
+
+        Kaggle's list of an account's datasets lags behind a new one, so a slug the list does not
+        name is asked about directly before it is taken to be absent.
         """
         r = self._run("datasets", "status", ref)
         # A throttled answer says nothing, and taking it as absent re-creates a dataset we hold.
@@ -1150,10 +1165,11 @@ class Kaggle:
         return paths
 
     def publish(self, e: Entry, work: Path, fetch: Callable, first: bool) -> str:
-        """Kaggle scores a dataset's page from its newest version, and attaches file and column
-        descriptions only as files are uploaded, so every upload follows the settings: a new
-        dataset is created, given its settings and uploaded once more, and a later version is
-        given its settings first.
+        """Publishes a version, with every upload following the settings.
+
+        Kaggle scores a dataset's page from its newest version, and attaches file and column
+        descriptions only as files are uploaded. A new dataset is therefore created, given its
+        settings and uploaded once more, and a later version is given its settings first.
         """
         ref = f"{self.owner}/{e.slug}"
         kaggle_settings_licence(e)
@@ -1182,8 +1198,10 @@ class Kaggle:
         return f"https://www.kaggle.com/datasets/{ref}"
 
     def refresh(self, e: Entry, work: Path, fetch: Callable) -> str:
-        """Gives a version Kaggle already holds the current settings, uploads its files again so
-        their descriptions attach and the page is scored afresh, and pushes the notebook.
+        """Gives a version Kaggle already holds the current settings and uploads its files again.
+
+        The upload attaches their descriptions and has the page scored afresh, and the notebook is
+        pushed after.
         """
         ref = f"{self.owner}/{e.slug}"
         data = work / "data"
@@ -1210,8 +1228,9 @@ class Kaggle:
         self._check(r, f"Kaggle refused a version of {e.slug}")
 
     def settings(self, e: Entry, meta_dir: Path, fetch: Callable) -> None:
-        """Tags, update frequency, sources and the cover image, which Kaggle takes only through a
-        metadata update.
+        """Tags, update frequency, sources and the cover image.
+
+        Kaggle takes these only through a metadata update.
         """
         ref = f"{self.owner}/{e.slug}"
         meta_dir.mkdir(parents=True, exist_ok=True)
@@ -1242,9 +1261,10 @@ class Kaggle:
         self._check(r, f"Kaggle refused the settings for {e.slug}")
 
     def has_notebook(self, e: Entry) -> bool:
-        """True or False only when Kaggle says so: a 403 or 404 means absent, and any other
-        failure, such as a throttled call, is retried and then raised, so a failed check never
-        spends Kaggle's limit on saving notebooks.
+        """True or False only when Kaggle says so.
+
+        A 403 or 404 means absent, and any other failure, such as a throttled call, is retried and
+        then raised, so a failed check never spends Kaggle's limit on saving notebooks.
         """
         ref = kaggle_notebook(e, self.owner)[0]["id"]
         for attempt in range(4):
@@ -1260,8 +1280,10 @@ class Kaggle:
         raise RuntimeError(msg)
 
     def ensure(self, e: Entry, work: Path, fetch: Callable) -> str | None:
-        """Pushes the starter notebook a held dataset lacks, such as one Kaggle's limit on saving
-        notebooks turned away; returns what was done, or None when nothing was needed.
+        """Pushes the starter notebook a held dataset lacks.
+
+        Such a dataset may be one Kaggle's limit on saving notebooks turned away. Returns what was
+        done, or None when nothing was needed.
         """
         if self._notebooks_limited or self.has_notebook(e):
             return None
@@ -1276,8 +1298,9 @@ class Kaggle:
             self.push_notebook(e, nb_dir)
 
     def push_notebook(self, e: Entry, nb_dir: Path) -> bool:
-        """True once pushed. False when Kaggle's limit on saving notebooks turned it away; the
-        rest of the run then pushes none, as each refused push counts against the limit, and a
+        """True once pushed, and False when Kaggle's limit on saving notebooks turned it away.
+
+        The rest of the run then pushes none, as each refused push counts against the limit, and a
         later run adds the notebooks still missing.
         """
         nb_dir.mkdir(parents=True, exist_ok=True)
@@ -1401,9 +1424,11 @@ def run(
     record: dict | None = None,
     on_record: Callable | None = None,
 ) -> int:
-    """Publishes each entry's version to each hub that lacks it. One failure is reported and the
-    rest carry on; the return is the number of failures. Where each copy is goes into `record`,
-    and `on_record` is called with it after every dataset so a caller can save as the run goes.
+    """Publishes each entry's version to each hub that lacks it.
+
+    One failure is reported and the rest carry on; the return is the number of failures. Where
+    each copy is goes into `record`, and `on_record` is called with it after every dataset so a
+    caller can save as the run goes.
     """
     fetch = fetch or download
     failures = 0
@@ -1482,8 +1507,10 @@ def _one(
 
 
 def merge_record(old: dict, new: dict) -> dict:
-    """The committed record with this run's findings laid over it. A dataset or hub this run did
-    not reach keeps what was recorded, so a run limited to some datasets loses nothing.
+    """The committed record with this run's findings laid over it.
+
+    A dataset or hub this run did not reach keeps what was recorded, so a run limited to some
+    datasets loses nothing.
     """
     datasets = {k: dict(v) for k, v in (old.get("datasets") or {}).items()}
     for slug, hubs_ in (new.get("datasets") or {}).items():
