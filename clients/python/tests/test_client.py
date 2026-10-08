@@ -530,7 +530,11 @@ def test_an_unreachable_site_raises_the_packages_own_error() -> None:
 
 def test_versions_and_dataset(client: pd_au.Client) -> None:
     assert client.versions("a") == [{"version": "2026-08-07"}]
-    assert client.dataset("a")["licenses"][0]["name"] == "CC-BY-4.0"
+    licences = client.dataset("a")["licenses"]
+    assert isinstance(licences, list)
+    first = licences[0]
+    assert isinstance(first, dict)
+    assert first["name"] == "CC-BY-4.0"
 
 
 def test_site_can_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -583,7 +587,7 @@ def test_connect_attaches_the_newest_version_read_only(
     con.close()
     Handler.duckdb_bytes = src.read_bytes()
     con = client.connect("a")
-    assert con.execute("SELECT count(*) FROM records").fetchone()[0] == 2
+    assert con.execute("SELECT count(*) FROM records").fetchall() == [(2,)]
     assert con.publicdata["version"] == "2026-08-07"
     assert con.publicdata["name"] == "a"
     assert con.publicdata["licence"] == {"id": "CC-BY-4.0"}
@@ -714,8 +718,10 @@ def test_fields_and_typed_rows(client: pd_au.Client) -> None:
     assert [x["name"] for x in f] == ["n", "day", "at", "flag", "g"]
     r = client.rows("t")
     assert r[0]["day"] == __import__("datetime").date(2026, 1, 2)
-    assert r[0]["at"].hour == 10
-    assert r[0]["at"].utcoffset().total_seconds() == 0
+    at = r[0]["at"]
+    assert isinstance(at, dt.datetime)
+    assert at.hour == 10
+    assert at.utcoffset() == dt.timedelta(0)
     assert r[0]["flag"] is True
     assert r[1]["flag"] is False
     assert r[1]["day"] == "not a date"

@@ -65,6 +65,13 @@ strict = true
 python_version = "3.10"
 files = ["src", "tests"]
 enable_error_code = ["ignore-without-code"]
+# Any is narrowed once, where a value enters at the parse of JSON, YAML or a library's answer.
+# disallow_any_expr stays off: it would flag every use of such a value before and after that
+# narrowing, which is every pyarrow, JSON and YAML value.
+disallow_any_explicit = true
+disallow_any_decorated = true
+disallow_any_unimported = true
+disallow_any_generics = true
 
 [tool.ruff.lint.pydocstyle]
 # The docstrings open with their summary on the first line and often describe what a function

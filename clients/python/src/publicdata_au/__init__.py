@@ -47,11 +47,9 @@ from http import HTTPStatus
 from http.client import HTTPResponse  # noqa: TC003 - get_type_hints reads the hints at runtime
 from pathlib import Path
 from types import ModuleType  # noqa: TC003 - get_type_hints reads the hints at runtime
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypeAlias, TypedDict, cast
 
 if TYPE_CHECKING:
-    from typing import TypeAlias
-
     # The extras' types, named apart from the pd, gpd and duckdb that each function imports for
     # itself, so a function that leaves out its import fails on the undefined name.
     import duckdb as _duckdb
@@ -59,7 +57,105 @@ if TYPE_CHECKING:
     import pandas as _pd  # noqa: ICN001 - named apart from the pd each function imports
     from typing_extensions import Self, Unpack
 
-    _Column: TypeAlias = "_pd.Series[Any]"
+    # A column of the gzipped CSV is read as text and typed field by field.
+    _Text: TypeAlias = "_pd.Series[str]"
+    _Column: TypeAlias = "_pd.Series[str] | _pd.Series[int] | _pd.Series[float] | _pd.Series[bool] | _pd.Series[object]"
+
+    class _Meta(TypedDict, total=False):
+        version: str
+        attribution: str
+        cite: str
+        licence: JSONObject
+
+    class _Page(TypedDict, total=False):
+        dataset_page: JSON
+        version_page: str | None
+        this_version: JSON
+        manifest: JSON
+        next: str | None
+        fields: dict[str, JSON]
+
+    class _Answer(TypedDict, total=False):
+        rows: list[Row]
+        publicdata: JSONObject
+        dataset_page: JSON
+        version_page: str | None
+        this_version: JSON
+        manifest: JSON
+        next: str | None
+
+    class _Field(TypedDict, total=False):
+        name: str
+        type: str
+        description: str
+        table: str
+
+    class _Table(TypedDict, total=False):
+        name: str
+        fields: list[JSONObject]
+
+    class _Schema(TypedDict, total=False):
+        kind: str
+        tables: list[_Table]
+        fields: list[_Field]
+        primaryKey: JSON
+
+    class _Change(TypedDict):
+        url: str
+
+    _ChangeKeys = TypedDict("_ChangeKeys", {"from": str, "to": str})
+
+    class _ChangeEntry(_Change, _ChangeKeys):
+        pass
+
+    class _Layer(TypedDict):
+        key: str
+        slug: str
+        code: str
+        name: str
+        noun: str
+
+    class _Publisher(TypedDict, total=False):
+        name: str
+
+    _CatalogEntry = TypedDict(
+        "_CatalogEntry",
+        {
+            "identifier": str,
+            "publisher": _Publisher | None,
+            "publicdata:topics": list[str] | None,
+            "publicdata:jurisdiction": str | None,
+            "spatial": str | None,
+        },
+        total=False,
+    )
+
+    class _Contributor(TypedDict, total=False):
+        title: str
+        role: str
+
+    _LicenceEntry = TypedDict(
+        "_LicenceEntry",
+        {"title": str, "name": str, "publicdata:condition": str},
+        total=False,
+    )
+
+    _DataPackage = TypedDict(
+        "_DataPackage",
+        {
+            "version": str,
+            "title": str,
+            "contributors": list[_Contributor],
+            "licenses": list[_LicenceEntry],
+            "publicdata:attribution": str,
+        },
+        total=False,
+    )
+
+    class _CatalogueAnswer(TypedDict, total=False):
+        rows: list[JSONObject]
+        total: int | None
+        next_offset: int | None
 else:
     if sys.version_info >= (3, 11):
         from typing import Self, Unpack
@@ -72,7 +168,15 @@ else:
                 return Any
 
     # pandas' Series takes no subscript at runtime, so a tool that reads the hints sees Any.
-    _Column = Any
+    _Text = _Column = Any
+
+
+# A value as JSON holds it, and a JSON object: what the site's answers are made of.
+JSON: TypeAlias = str | int | float | bool | list["JSON"] | dict[str, "JSON"] | None
+JSONObject: TypeAlias = dict[str, JSON]
+# A row of rows(): JSON as the API sends it, with dates and datetimes read into Python's own.
+_Value: TypeAlias = JSON | dt.date
+Row: TypeAlias = dict[str, _Value]
 
 
 class _Extra:
@@ -229,7 +333,7 @@ class PublicDataError(Exception):
         self,
         status: int,
         message: str,
-        body: Any = None,  # noqa: ANN401 - the answer as decoded, JSON or text
+        body: object = None,
         url: str = "",
     ) -> None:
         """Keep the HTTP status, the decoded body and the URL that answered."""
@@ -355,7 +459,7 @@ def _filter(value: object) -> str:
     return eq(value).expr
 
 
-class Rows(list[dict[str, Any]]):
+class Rows(list[Row]):
     """A list of row dicts that also carries where they came from.
 
     `version`, `attribution`, `cite` and `licence` come from the answer itself, so they always
@@ -364,44 +468,40 @@ class Rows(list[dict[str, Any]]):
 
     def __init__(
         self,
-        rows: Iterable[dict[str, Any]] = (),
-        meta: Mapping[str, Any] | None = None,
-        page: Mapping[str, Any] | None = None,
+        rows: Iterable[Row] = (),
+        meta: Mapping[str, object] | None = None,
+        page: Mapping[str, object] | None = None,
     ) -> None:
         """Hold the rows with the answer's provenance (`meta`) and its page details (`page`)."""
         super().__init__(rows)
-        self.meta = dict(meta or {})
-        self.page = dict(page or {})
+        # Both come from the site's answer, whose keys these name.
+        self.meta = cast("_Meta", dict(meta or {}))
+        self.page = cast("_Page", dict(page or {}))
 
     @property
     def version(self) -> str | None:
         """The date of the version the rows were read from."""
-        v: str | None = self.meta.get("version")
-        return v
+        return self.meta.get("version")
 
     @property
     def attribution(self) -> str | None:
         """The attribution the publisher asks for, to show with the rows."""
-        v: str | None = self.meta.get("attribution")
-        return v
+        return self.meta.get("attribution")
 
     @property
     def cite(self) -> str | None:
         """A citation of the version the rows came from."""
-        v: str | None = self.meta.get("cite")
-        return v
+        return self.meta.get("cite")
 
     @property
-    def licence(self) -> dict[str, Any] | None:
+    def licence(self) -> JSONObject | None:
         """The licence the rows are published under, as the answer states it."""
-        v: dict[str, Any] | None = self.meta.get("licence")
-        return v
+        return self.meta.get("licence")
 
     @property
     def version_page(self) -> str | None:
         """The URL of the version's page on the site, to link to as the source."""
-        v: str | None = self.page.get("version_page")
-        return v
+        return self.page.get("version_page")
 
     def to_pandas(self) -> _pd.DataFrame:
         """The rows as a DataFrame.
@@ -417,12 +517,12 @@ class Rows(list[dict[str, Any]]):
         return df
 
 
-class Results(list[dict[str, Any]]):
+class Results(list[JSONObject]):
     """A page of catalogue records: `total` matches in all, `next_offset` for the next page."""
 
     def __init__(
         self,
-        rows: Iterable[dict[str, Any]] = (),
+        rows: Iterable[JSONObject] = (),
         total: int | None = None,
         next_offset: int | None = None,
     ) -> None:
@@ -431,19 +531,26 @@ class Results(list[dict[str, Any]]):
         self.next_offset = next_offset
 
 
-class Connection:
+if TYPE_CHECKING:
+    # To the checker a Connection has every method of DuckDB's, which __getattr__ hands on.
+    _ConnectionBase = _duckdb.DuckDBPyConnection
+else:
+    _ConnectionBase = object
+
+
+class Connection(_ConnectionBase):
     """A DuckDB connection from `connect()`, with the provenance of the file it attached.
 
     Every method of the DuckDB connection works on it. `publicdata` names the dataset, the
     version, the file's URL and its licence.
     """
 
-    def __init__(self, con: _duckdb.DuckDBPyConnection, publicdata: dict[str, Any]) -> None:
+    def __init__(self, con: _duckdb.DuckDBPyConnection, publicdata: JSONObject) -> None:
         """Wrap a DuckDB connection with the provenance of the file it attached."""
         self._con = con
         self.publicdata = publicdata
 
-    def __getattr__(self, name: str) -> Any:  # noqa: ANN401 - whatever DuckDB's connection has
+    def __getattr__(self, name: str) -> object:
         """Hand any other attribute to the DuckDB connection."""
         return getattr(self._con, name)
 
@@ -489,7 +596,8 @@ class Client:
         self._conditions: dict[str, str] = {}
         self._shown: set[str] = set()
         self._relations: dict[tuple[str, str, bool], Connection] = {}
-        self._memo: dict[str, Any] = {}
+        self._fields_memo: dict[str, dict[str, _Field]] = {}
+        self._places: list[_Layer] | None = None
 
     def close(self) -> None:
         """Closes the DuckDB connections `relation()` opened."""
@@ -538,7 +646,7 @@ class Client:
             else:
                 return resp
 
-    def _json(self, path_or_url: str, params: Mapping[str, object] | None = None) -> dict[str, Any]:
+    def _json(self, path_or_url: str, params: Mapping[str, object] | None = None) -> JSONObject:
         url = path_or_url if "://" in path_or_url else self.site + path_or_url
         if params:
             q = urllib.parse.urlencode(
@@ -550,7 +658,7 @@ class Client:
                 url += ("&" if "?" in url else "?") + q
         with self._open(url) as r:
             # Every endpoint the client calls answers a JSON object.
-            body: dict[str, Any] = json.loads(r.read())
+            body: JSONObject = json.loads(r.read())
         return body
 
     def datasets(
@@ -560,7 +668,7 @@ class Client:
         publisher: str | None = None,
         topic: str | None = None,
         jurisdiction: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[JSONObject]:
         """Datasets the site serves, each with slug, title, publisher, licence and page URL.
 
         `q` searches titles, summaries, publishers, keywords and field names. `publisher` is
@@ -568,9 +676,8 @@ class Client:
         `jurisdiction` a code such as "Qld" or a name such as "Queensland", all ignoring case.
         Every condition given must match.
         """
-        out: list[dict[str, Any]] = self._json("/api/v1/datasets", {"q": q} if q else None)[
-            "results"
-        ]
+        found = self._json("/api/v1/datasets", {"q": q} if q else None)
+        out = cast("list[JSONObject]", found["results"])
         if publisher is None and topic is None and jurisdiction is None:
             return out
         keep = self._catalogue_match(publisher, topic, jurisdiction)
@@ -583,7 +690,7 @@ class Client:
             if v is not None and (not isinstance(v, str) or not v):
                 msg = f"{what} must be one piece of text"
                 raise ValueError(msg)
-        entries = self._json("/catalog.json")["dataset"]
+        entries = cast("list[_CatalogEntry]", self._json("/catalog.json")["dataset"])
         keep = entries
         if publisher is not None:
             p = publisher.lower()
@@ -616,24 +723,22 @@ class Client:
             ]
         return {e["identifier"] for e in keep}
 
-    def dataset(self, slug: str) -> dict[str, Any]:
+    def dataset(self, slug: str) -> JSONObject:
         """The dataset's Frictionless data package.
 
         It holds the title, licence, attribution, fields and every file of the newest version.
         """
         return self._json(f"/d/{_slug(slug)}/datapackage.json")
 
-    def versions(self, slug: str) -> list[dict[str, Any]]:
+    def versions(self, slug: str) -> list[JSONObject]:
         """Every version kept, newest first, each with its date, rows, fields and source hash."""
-        out: list[dict[str, Any]] = self._json(f"/d/{_slug(slug)}/versions.json")["versions"]
-        return out
+        return cast("list[JSONObject]", self._json(f"/d/{_slug(slug)}/versions.json")["versions"])
 
     def latest(self, slug: str) -> str:
         """The date of the newest version."""
-        out: str = self._json(f"/d/{_slug(slug)}/versions.json")["latest"]
-        return out
+        return cast("str", self._json(f"/d/{_slug(slug)}/versions.json")["latest"])
 
-    def schema(self, slug: str, version: str | None = None) -> dict[str, Any]:
+    def schema(self, slug: str, version: str | None = None) -> JSONObject:
         """A version's schema.json.
 
         For a table it holds the fields. For a database it holds every table with its fields,
@@ -642,15 +747,14 @@ class Client:
         at = f"v/{_date(version)}" if version else "latest"
         return self._json(f"/d/{_slug(slug)}/{at}/schema.json")
 
-    def tables(self, slug: str, version: str | None = None) -> list[dict[str, Any]]:
+    def tables(self, slug: str, version: str | None = None) -> list[JSONObject]:
         """The tables of a database, each with its name, description, rows, fields and keys.
 
         A dataset that is one table has one entry, `records`.
         """
         s = self.schema(slug, version)
         if s.get("kind") == "database":
-            tables: list[dict[str, Any]] = s["tables"]
-            return tables
+            return cast("list[JSONObject]", s["tables"])
         return [
             {
                 "name": "records",
@@ -761,19 +865,19 @@ class Client:
         where: Mapping[str, object] | None,
         version: str | None,
         params: Mapping[str, object],
-    ) -> dict[str, Any]:
+    ) -> _Answer:
         base = f"/api/v1/datasets/{_slug(slug)}/"
         if version:
             base += f"versions/{_date(version)}/"
         query = dict(params)
         for field, value in (where or {}).items():
             query[field] = _filter(value)
-        return self._json(base + kind, query)
+        return cast("_Answer", self._json(base + kind, query))
 
     def rows(  # noqa: PLR0913 - a public signature
         self,
         slug: str,
-        where: Mapping[str, Any] | None = None,
+        where: Mapping[str, object] | None = None,
         *,
         select: str | list[str] | None = None,
         order: str | list[str] | None = None,
@@ -806,7 +910,7 @@ class Client:
         self._notice(slug, out.licence)
         nxt = body.get("next")
         while all and nxt:
-            body = self._json(nxt)
+            body = cast("_Answer", self._json(nxt))
             out.extend(body.get("rows", ()))
             nxt = body.get("next")
         out.page["next"] = nxt
@@ -817,7 +921,7 @@ class Client:
         slug: str,
         group: str | list[str] | None = None,
         metric: str | list[str] = "count",
-        where: Mapping[str, Any] | None = None,
+        where: Mapping[str, object] | None = None,
         *,
         version: str | None = None,
     ) -> Rows:
@@ -832,7 +936,7 @@ class Client:
         self._notice(slug, out.licence)
         return self._typed(slug, out, version)
 
-    def fields(self, slug: str, version: str | None = None) -> list[dict[str, Any]]:
+    def fields(self, slug: str, version: str | None = None) -> list[JSONObject]:
         """Each field's name, type and description.
 
         The type is "string", "integer", "number", "boolean", "date" or "datetime". A number or
@@ -843,29 +947,29 @@ class Client:
         """
         if not version:
             try:
-                listed: list[dict[str, Any]] = self._json(f"/d/{_slug(slug)}/fields.json")["fields"]
+                listed = cast(
+                    "list[JSONObject]", self._json(f"/d/{_slug(slug)}/fields.json")["fields"]
+                )
             except PublicDataError as err:
                 if err.status != HTTPStatus.NOT_FOUND:
                     raise
             else:
                 return listed
-        s = self.schema(slug, version)
+        s = cast("_Schema", self.schema(slug, version))
         if s.get("kind") == "database":
             return [{"table": t["name"], **f} for t in s["tables"] for f in t["fields"]]
-        out: list[dict[str, Any]] = s.get("fields", [])
-        return out
+        return cast("list[JSONObject]", s.get("fields", []))
 
-    def _field_types(self, slug: str, version: str | None = None) -> dict[str, dict[str, Any]]:
+    def _field_types(self, slug: str, version: str | None = None) -> dict[str, _Field]:
         # Typing is a convenience: if the fields cannot be read, the answer goes back untyped.
         key = f"fields:{slug}:{version or 'latest'}"
-        if key not in self._memo:
+        if key not in self._fields_memo:
             try:
-                fields = self.fields(slug, version)
+                fields = cast("list[_Field]", self.fields(slug, version))
             except PublicDataError:
                 return {}
-            self._memo[key] = {f["name"]: f for f in fields if "table" not in f}
-        out: dict[str, dict[str, Any]] = self._memo[key]
-        return out
+            self._fields_memo[key] = {f["name"]: f for f in fields if "table" not in f}
+        return self._fields_memo[key]
 
     def _typed(self, slug: str, out: Rows, version: str | None = None) -> Rows:
         """Values typed as the fields of the version they came from say.
@@ -994,8 +1098,9 @@ class Client:
             tbl = pq.read_table(p, columns=list(columns) if columns else None)
         header = (tbl.schema.metadata or {}).get(b"publicdata")
         df: _pd.DataFrame = tbl.to_pandas()
-        df.attrs["publicdata"] = json.loads(header) if header else {}
-        self._notice(slug, df.attrs["publicdata"].get("licence"))
+        provenance: JSONObject = json.loads(header) if header else {}
+        df.attrs["publicdata"] = provenance
+        self._notice(slug, provenance.get("licence"))
         return df
 
     def _read_csv(
@@ -1029,11 +1134,12 @@ class Client:
         for name in df.columns:
             kind = "suppressed" if name == "suppressed" else fields.get(name, {}).get("type")
             df[name] = _csv_column(df[name], kind)
-        df.attrs["publicdata"] = self._file_header(slug, version or got)
-        self._notice(slug, df.attrs["publicdata"].get("licence"))
+        provenance = self._file_header(slug, version or got)
+        df.attrs["publicdata"] = provenance
+        self._notice(slug, provenance.get("licence"))
         return df
 
-    def _file_header(self, slug: str, version: str | None) -> dict[str, Any]:
+    def _file_header(self, slug: str, version: str | None) -> JSONObject:
         """The provenance header every file of a version carries.
 
         It is the first line of the version's NDJSON, read with a range request so the rest is
@@ -1046,7 +1152,7 @@ class Client:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 line = r.read(65536).split(b"\n", 1)[0]
-            header: dict[str, Any] = json.loads(line).get("publicdata", {})
+            header: JSONObject = json.loads(line).get("publicdata", {})
         except (urllib.error.URLError, TimeoutError, ValueError, AttributeError):
             return {}
         else:
@@ -1087,28 +1193,28 @@ class Client:
 
     def changes(
         self, slug: str, since: str | None = None, until: str | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[JSONObject]:
         """Every comparison of a version with the one before it, oldest first.
 
         Each names the two versions, their rows, the rows added, removed, changed and unchanged,
         the schema changes and the URL of the full comparison. `since` and `until` bound the
         versions compared. A database is compared by each table's row count.
         """
-        out: list[dict[str, Any]] = self._json(f"/d/{_slug(slug)}/changes.json")["changes"]
+        out = cast("list[_ChangeEntry]", self._json(f"/d/{_slug(slug)}/changes.json")["changes"])
         if since:
             out = [c for c in out if c["from"] >= _date(since)]
         if until:
             out = [c for c in out if c["to"] <= _date(until)]
-        return out
+        return cast("list[JSONObject]", out)
 
-    def diff(self, slug: str, version: str | None = None) -> dict[str, Any]:
+    def diff(self, slug: str, version: str | None = None) -> JSONObject:
         """The full comparison of `version`, the newest by default, with the version before it.
 
         It holds the counts, the keys of the rows added, removed and changed (up to 50,000 of
         each, `truncated` says when there were more) and up to ten changed rows field by field.
         """
         version = _date(version) if version else self.latest(slug)
-        for c in self.changes(slug):
+        for c in cast("list[_ChangeEntry]", self.changes(slug)):
             if c["to"] == version:
                 return self._json(c["url"])
         msg = (
@@ -1126,7 +1232,7 @@ class Client:
         if format not in ("text", "bibtex"):
             msg = 'format must be "text" or "bibtex"'
             raise ValueError(msg)
-        dp = self._json(f"/d/{_slug(slug)}/datapackage.json")
+        dp = cast("_DataPackage", self._json(f"/d/{_slug(slug)}/datapackage.json"))
         version = _date(version) if version else dp["version"]
         url = f"{self.site}/d/{slug}/v/{version}/"
         pub = next(
@@ -1139,8 +1245,8 @@ class Client:
         if version == dp["version"] and dp.get("publicdata:attribution"):
             note = dp["publicdata:attribution"].rstrip(".")
         else:
-            m = self._json(f"/d/{slug}/v/{version}/manifest.json")
-            note = f"Licensed under {licence}, read from the publisher on {m['fetched_at'][:10]}"
+            fetched = cast("str", self._json(f"/d/{slug}/v/{version}/manifest.json")["fetched_at"])
+            note = f"Licensed under {licence}, read from the publisher on {fetched[:10]}"
         how = f"Version {version}, serialised and versioned by National Digital at publicdata.au"
         if format == "text":
             return f"{pub} ({version[:4]}). {dp['title']}. {how}. {note}. {url}"
@@ -1155,7 +1261,7 @@ class Client:
         body = ",\n".join(f"  {k} = {{{v}}}" for k, v in fields.items())
         return f"@misc{{{slug}-{version},\n{body}\n}}"
 
-    def provenance(self, slug: str, version: str | None = None) -> dict[str, Any]:
+    def provenance(self, slug: str, version: str | None = None) -> JSONObject:
         """The record kept with a version.
 
         It names the publisher's file the version was read from, with its address, name, size
@@ -1195,8 +1301,8 @@ class Client:
                 msg = f"jurisdiction is one of {', '.join(sorted(set(_JUR_CODES.values())))}"
                 raise ValueError(msg)
         params = {"q": q, "jur": jur, "state": _list(status), "limit": limit, "offset": offset}
-        body = self._json("/api/v1/catalogue", params)
-        rows = [
+        body = cast("_CatalogueAnswer", self._json("/api/v1/catalogue", params))
+        rows: list[JSONObject] = [
             {
                 ("jurisdiction" if k == "jur" else "status" if k == "state" else k): v
                 for k, v in r.items()
@@ -1205,24 +1311,26 @@ class Client:
         ]
         return Results(rows, body.get("total"), body.get("next_offset"))
 
-    def boundary_layers(self) -> list[dict[str, Any]]:
+    def boundary_layers(self) -> list[JSONObject]:
         """The ABS boundary layers rows join to.
 
         They are council areas, SA2s, suburbs, postal areas and state and federal electorates,
         each with its `key`, `slug`, `title`, the `code` and `name` fields that identify an
         area, and the `version` served.
         """
-        if "places" not in self._memo:
-            self._memo["places"] = self._json("/places.json")["layers"]
-        layers: list[dict[str, Any]] = self._memo["places"]
-        return layers
+        return cast("list[JSONObject]", self._layers())
 
-    def _layer(self, layer: str) -> dict[str, Any]:
+    def _layers(self) -> list[_Layer]:
+        if self._places is None:
+            self._places = cast("list[_Layer]", self._json("/places.json")["layers"])
+        return self._places
+
+    def _layer(self, layer: str) -> _Layer:
         want = str(layer).lower()
-        for lay in self.boundary_layers():
+        for lay in self._layers():
             if want in (lay["key"].lower(), lay["slug"].lower(), lay["code"].lower()):
                 return lay
-        keys = ", ".join(lay["key"] for lay in self.boundary_layers())
+        keys = ", ".join(lay["key"] for lay in self._layers())
         msg = f"no boundary layer {layer!r}; the layers are {keys}"
         raise ValueError(msg)
 
@@ -1236,7 +1344,7 @@ class Client:
 
     def join_boundaries(
         self,
-        df: _pd.DataFrame | Iterable[Mapping[str, Any]],
+        df: _pd.DataFrame | Iterable[Mapping[str, object]],
         layer: str | None = None,
         by: str | None = None,
         *,
@@ -1259,9 +1367,9 @@ class Client:
             raise ValueError(msg)  # noqa: TRY004 - a public error callers may catch
         frame = df if isinstance(df, pd.DataFrame) else pd.DataFrame(list(df))
         if layer is None:
-            hits = [lay for lay in self.boundary_layers() if lay["code"] in frame.columns]
+            hits = [lay for lay in self._layers() if lay["code"] in frame.columns]
             if not hits:
-                named = ", ".join(lay["code"] for lay in self.boundary_layers())
+                named = ", ".join(lay["code"] for lay in self._layers())
                 msg = (
                     f"df has no column named for a boundary code ({named}); "
                     'pass layer= and by=, as in layer="lga", by="council_code"'
@@ -1318,15 +1426,13 @@ class Client:
             base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
         return base / "publicdata-au"
 
-    def cache_list(
-        self, slug: str | None = None, version: str | None = None
-    ) -> list[dict[str, Any]]:
+    def cache_list(self, slug: str | None = None, version: str | None = None) -> list[JSONObject]:
         """Every kept file: its dataset, version, file, bytes and when it was saved."""
         root = self._cache_root(slug, version)
         if not root.is_dir():
             return []
         base = self.cache_dir()
-        out: list[dict[str, Any]] = []
+        out: list[JSONObject] = []
         for p in sorted(root.rglob("*")):
             if p.is_file() and not p.name.endswith(".part"):
                 parts = p.relative_to(base).parts
@@ -1404,7 +1510,7 @@ class Client:
 
     # The licence notice: shown once per dataset, as the dataset's page shows it.
 
-    def _notice(self, slug: str, licence: Mapping[str, Any] | None = None) -> None:
+    def _notice(self, slug: str, licence: JSON = None) -> None:
         if slug in self._shown:
             return
         if isinstance(licence, Mapping):
@@ -1413,7 +1519,7 @@ class Client:
             cond = self._conditions[slug]
         else:
             try:
-                dp = self._json(f"/d/{_slug(slug)}/datapackage.json")
+                dp = cast("_DataPackage", self._json(f"/d/{_slug(slug)}/datapackage.json"))
             except PublicDataError:
                 return
             cond = " ".join(
@@ -1439,7 +1545,7 @@ def _parquet_module() -> ModuleType | None:
     return pq
 
 
-def _csv_column(col: _Column, kind: str | None) -> _Column:  # noqa: PLR0911 - one return per field type
+def _csv_column(col: _Text, kind: str | None) -> _Column:  # noqa: PLR0911 - one return per field type
     """One column of the gzipped CSV, typed as pyarrow types the Parquet file's column.
 
     Numbers become int64 or float64 (float64 when a whole number is missing), "nan" becomes NaN,
@@ -1452,7 +1558,7 @@ def _csv_column(col: _Column, kind: str | None) -> _Column:  # noqa: PLR0911 - o
 
     present = col.notna()
 
-    def each(f: Callable[[Any], object]) -> _Column:
+    def each(f: Callable[[str], object]) -> _Column:
         return pd.Series(
             [f(v) if ok else None for v, ok in zip(col, present, strict=True)],
             index=col.index,
@@ -1516,7 +1622,19 @@ def _absent_why(slug: str, format: str) -> str:
     )
 
 
-def _datetime(v: str) -> dt.datetime:
+def _iso_date(v: _Value) -> dt.date:
+    if not isinstance(v, str):
+        # What date.fromisoformat raises for a value that is not text.
+        msg = f"fromisoformat: argument must be str, not {type(v).__name__}"
+        raise TypeError(msg)
+    return dt.date.fromisoformat(v)
+
+
+def _datetime(v: _Value) -> dt.datetime:
+    if not isinstance(v, str):
+        # What the str.replace below fails with on a value that is not text.
+        msg = f"{type(v).__name__!r} object has no attribute 'replace'"
+        raise AttributeError(msg)  # noqa: TRY004 - the error str.replace raised here before
     return dt.datetime.fromisoformat(v.replace("Z", "+00:00").replace(" ", "T", 1))
 
 
@@ -1528,8 +1646,9 @@ def _bool(v: object) -> bool:
     raise ValueError(v)
 
 
-_CONVERT: dict[str, Callable[[Any], object]] = {
-    "date": dt.date.fromisoformat,
+# The API sends dates as text and booleans as 0 or 1.
+_CONVERT: dict[str, Callable[[_Value], _Value]] = {
+    "date": _iso_date,
     "datetime": _datetime,
     "boolean": _bool,
 }
@@ -1571,9 +1690,9 @@ def _norm_codes(col: Iterable[object], ref: Iterable[object]) -> list[str | None
     return out
 
 
-def _header(kv: Iterable[tuple[str, object]]) -> dict[str, Any]:
+def _header(kv: Iterable[tuple[str, JSON]]) -> JSONObject:
     """A file's publicdata table: one row per key, with any value that is not text held as JSON."""
-    out: dict[str, Any] = {}
+    out: JSONObject = {}
     for k, v in kv:
         out[k] = v
         if isinstance(v, str) and v[:1] in ("{", "["):
@@ -1634,31 +1753,35 @@ def _list(value: str | Iterable[str] | None) -> str | None:
     return value if isinstance(value, str) else ",".join(value)
 
 
-def _page(body: Mapping[str, Any]) -> dict[str, Any]:
+def _page(body: _Answer) -> _Page:
     return {
-        k: body.get(k) for k in ("dataset_page", "version_page", "this_version", "manifest", "next")
+        "dataset_page": body.get("dataset_page"),
+        "version_page": body.get("version_page"),
+        "this_version": body.get("this_version"),
+        "manifest": body.get("manifest"),
+        "next": body.get("next"),
     }
 
 
 _default = Client()
 
 
-def datasets(q: str | None = None, **kw: Unpack[_DatasetsOptions]) -> list[dict[str, Any]]:
+def datasets(q: str | None = None, **kw: Unpack[_DatasetsOptions]) -> list[JSONObject]:
     """Datasets the site serves, each with slug, title, publisher, licence and page URL."""
     return _default.datasets(q, **kw)
 
 
-def dataset(slug: str) -> dict[str, Any]:
+def dataset(slug: str) -> JSONObject:
     """The dataset's Frictionless data package."""
     return _default.dataset(slug)
 
 
-def versions(slug: str) -> list[dict[str, Any]]:
+def versions(slug: str) -> list[JSONObject]:
     """Every version kept, newest first, each with its date, rows, fields and source hash."""
     return _default.versions(slug)
 
 
-def rows(slug: str, where: Mapping[str, Any] | None = None, **kw: Unpack[_RowsOptions]) -> Rows:
+def rows(slug: str, where: Mapping[str, object] | None = None, **kw: Unpack[_RowsOptions]) -> Rows:
     """Rows of a dataset from the query API."""
     return _default.rows(slug, where, **kw)
 
@@ -1667,7 +1790,7 @@ def aggregate(
     slug: str,
     group: str | list[str] | None = None,
     metric: str | list[str] = "count",
-    where: Mapping[str, Any] | None = None,
+    where: Mapping[str, object] | None = None,
     **kw: Unpack[_VersionOption],
 ) -> Rows:
     """Counts, sums, averages, minimums and maximums by group, from the query API."""
@@ -1709,12 +1832,12 @@ def latest(slug: str) -> str:
     return _default.latest(slug)
 
 
-def changes(slug: str, since: str | None = None, until: str | None = None) -> list[dict[str, Any]]:
+def changes(slug: str, since: str | None = None, until: str | None = None) -> list[JSONObject]:
     """Every comparison of a version with the one before it, oldest first."""
     return _default.changes(slug, since, until)
 
 
-def diff(slug: str, version: str | None = None) -> dict[str, Any]:
+def diff(slug: str, version: str | None = None) -> JSONObject:
     """The full comparison of `version`, the newest by default, with the version before it."""
     return _default.diff(slug, version)
 
@@ -1724,7 +1847,7 @@ def cite(slug: str, version: str | None = None, **kw: Unpack[_CiteOptions]) -> s
     return _default.cite(slug, version, **kw)
 
 
-def fields(slug: str, version: str | None = None) -> list[dict[str, Any]]:
+def fields(slug: str, version: str | None = None) -> list[JSONObject]:
     """Each field's name, type and description."""
     return _default.fields(slug, version)
 
@@ -1736,7 +1859,7 @@ def file_url(
     return _default.file_url(slug, format, version, table)
 
 
-def provenance(slug: str, version: str | None = None) -> dict[str, Any]:
+def provenance(slug: str, version: str | None = None) -> JSONObject:
     """The record kept with a version."""
     return _default.provenance(slug, version)
 
@@ -1751,7 +1874,7 @@ def catalogue(q: str | None = None, **kw: Unpack[_CatalogueOptions]) -> Results:
     return _default.catalogue(q, **kw)
 
 
-def boundary_layers() -> list[dict[str, Any]]:
+def boundary_layers() -> list[JSONObject]:
     """The ABS boundary layers rows join to."""
     return _default.boundary_layers()
 
@@ -1762,7 +1885,7 @@ def boundaries(layer: str, **kw: Unpack[_CacheOption]) -> _gpd.GeoDataFrame:
 
 
 def join_boundaries(
-    df: _pd.DataFrame | Iterable[Mapping[str, Any]],
+    df: _pd.DataFrame | Iterable[Mapping[str, object]],
     layer: str | None = None,
     by: str | None = None,
     **kw: Unpack[_CacheOption],
@@ -1776,7 +1899,7 @@ def cache_dir() -> Path:
     return _default.cache_dir()
 
 
-def cache_list(slug: str | None = None, version: str | None = None) -> list[dict[str, Any]]:
+def cache_list(slug: str | None = None, version: str | None = None) -> list[JSONObject]:
     """Every kept file: its dataset, version, file, bytes and when it was saved."""
     return _default.cache_list(slug, version)
 
@@ -1786,12 +1909,12 @@ def cache_clear(slug: str | None = None, version: str | None = None) -> int:
     return _default.cache_clear(slug, version)
 
 
-def schema(slug: str, version: str | None = None) -> dict[str, Any]:
+def schema(slug: str, version: str | None = None) -> JSONObject:
     """A version's schema.json."""
     return _default.schema(slug, version)
 
 
-def tables(slug: str, version: str | None = None) -> list[dict[str, Any]]:
+def tables(slug: str, version: str | None = None) -> list[JSONObject]:
     """The tables of a database, each with its name, description, rows, fields and keys."""
     return _default.tables(slug, version)
 
