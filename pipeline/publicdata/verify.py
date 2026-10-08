@@ -18,7 +18,7 @@ import random
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 import yaml
 
@@ -50,7 +50,10 @@ from .serialise.geo import geo_kind
 from .serialise.profile import QUERY_DIR
 
 if TYPE_CHECKING:
-    from .build import VersionOut
+    from collections.abc import Mapping
+
+    from .build import CacheMeta, VersionOut
+    from .jsontypes import JSON, JSONObject
     from .register import Dataset
 
 # What picks the code paths a dataset's build runs through (_stratum).
@@ -251,9 +254,9 @@ def uncovered(datasets: list[Dataset], store_dir: Path, chosen: list[str]) -> li
     ]
 
 
-def _entry(cache: BuildCache, key: str) -> dict[str, Any] | None:
+def _entry(cache: BuildCache, key: str) -> JSON:
     p = cache.root / key / "meta.json"
-    meta: dict[str, Any] | None = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
+    meta: JSON = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
     return meta
 
 
@@ -288,15 +291,15 @@ def _regrown(  # noqa: PLR0913 - the options are keyword-only and named at each 
         return digests(vdir, rels)
 
 
-def _unmeasured(p: Path) -> dict[str, Any]:
-    man: dict[str, Any] = json.loads(p.read_text(encoding="utf-8"))
+def _unmeasured(p: Path) -> JSONObject:
+    man: JSONObject = json.loads(p.read_text(encoding="utf-8"))
     man.pop("measured_bytes", None)
     return man
 
 
 def _version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - one version's checks in order; the options are keyword-only
     ds: Dataset,
-    meta: dict[str, Any],
+    meta: CacheMeta,
     vout: VersionOut,
     out: Path,
     entry: Path,
@@ -341,8 +344,9 @@ def _version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - one version's checks in
     if masked:
         skip.add("manifest.json")
     out_lines = []
+    recorded: Mapping[str, object] = meta
     for name in ("rows", "unknown_columns", "suppressed_cells", "partitions", "tables"):
-        old, new = meta.get(name), _plain(getattr(vout, name))
+        old, new = recorded.get(name), _plain(getattr(vout, name))
         if name == "tables" and old is None:
             old = {}
         if old != new:
@@ -407,7 +411,8 @@ def check(
         key = version_key(cache, ds, m, store_dir)
         keys.append(key)
         where = f"d/{ds.slug}/v/{m.version}/"
-        meta = _entry(cache, key)
+        # A version's entry holds the meta.json the build wrote for it.
+        meta = cast("CacheMeta | None", _entry(cache, key))
         if meta is None:
             rebuilt += 1
             continue
@@ -417,8 +422,8 @@ def check(
     pairs = list(zip(fresh.versions, keys, strict=True))
     for (a, ka), (b, kb) in itertools.pairwise(pairs):
         rel = f"d/{ds.slug}/diff/{a.manifest.version}..{b.manifest.version}.json"
-        meta = _entry(cache, cache.key(ka, kb, "diff"))
-        if meta is not None and meta != json.loads((out / rel).read_text(encoding="utf-8")):
+        diff = _entry(cache, cache.key(ka, kb, "diff"))
+        if diff is not None and diff != json.loads((out / rel).read_text(encoding="utf-8")):
             problems.append(f"{rel}: differs")
     if keys and whole:
         hkey = cache.key(*keys, "history")

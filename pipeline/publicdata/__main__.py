@@ -12,13 +12,15 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from .build import DatasetOut
     from .cache import BuildCache
+    from .cost import RawEntry
+    from .hubs import HubRecord
     from .register import Dataset
 
 from . import REPO, SITE
@@ -837,12 +839,12 @@ def cmd_shards(args: argparse.Namespace) -> int:
     return 0
 
 
-def _hubs_record(store_dir: Path) -> dict[str, Any]:
+def _hubs_record(store_dir: Path) -> HubRecord:
     """Where the Hubs job found each copy, committed beside the manifests."""
     path = store_dir / "hubs.json"
     if not path.exists():
         return {}
-    record: dict[str, Any] = json.loads(path.read_text("utf-8"))
+    record: HubRecord = json.loads(path.read_text("utf-8"))
     return record
 
 
@@ -870,9 +872,9 @@ def cmd_hubs(args) -> int:
     chosen = {n: make() for n, make in available.items() if n in args.hub}
 
     path = Path(args.record) if args.record else None
-    old = json.loads(path.read_text("utf-8")) if path and path.exists() else {}
+    old: HubRecord = json.loads(path.read_text("utf-8")) if path and path.exists() else {}
 
-    def save(found: dict[str, Any]) -> dict[str, Any]:
+    def save(found: HubRecord) -> HubRecord:
         # Written after every dataset, so a run stopped part way keeps what it recorded, and
         # swapped into place whole, so a stop mid-write leaves the last good record.
         if path is None:
@@ -884,7 +886,7 @@ def cmd_hubs(args) -> int:
         tmp.replace(path)
         return merged
 
-    found: dict[str, Any] = {}
+    found: HubRecord = {}
     failures = hubs.run(
         chosen, entries, refresh=args.refresh, record=found, on_record=save if path else None
     )
@@ -939,7 +941,7 @@ def cmd_cost(args) -> int:
     register = root / "register"
     changed: set[str] = set(args.slug)
     fresh: set[str] = set()
-    reshaped: dict[str, dict[str, Any]] = {}
+    reshaped: dict[str, RawEntry] = {}
     if args.base:
         if links := cost.symlinks(root):
             print(f"cost: the register may not hold symbolic links: {', '.join(links)}")

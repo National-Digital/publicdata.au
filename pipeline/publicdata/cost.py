@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
 
 import requests
 import yaml
@@ -35,12 +35,72 @@ if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet
 
     from .build import DatasetOut, VersionOut
-    from .register import Dataset
+    from .jsontypes import JSON, JSONObject
+    from .register import Dataset, Geometry
+
+    # A register entry as its YAML reads, before the register parses it.
+    type RawEntry = JSONObject
+
+    class CatalogDistribution(TypedDict, total=False):
+        format: str
+        downloadURL: str
+        byteSize: int | str | None
+
+    class CatalogRecord(TypedDict):
+        identifier: str
+        versionInfo: NotRequired[str]
+        distribution: NotRequired[list[CatalogDistribution]]
+
+    class Catalog(TypedDict, total=False):
+        dataset: list[CatalogRecord]
+
+    class VersionRows(TypedDict, total=False):
+        version: str
+        rows: int
+
+    class VersionsDoc(TypedDict, total=False):
+        latest: str
+        versions: list[VersionRows]
+
+    class GhLogin(TypedDict, total=False):
+        login: str
+
+    class GhLabel(TypedDict, total=False):
+        name: str
+
+    class GhRepo(TypedDict, total=False):
+        full_name: str
+
+    class GhHead(TypedDict):
+        sha: str
+        ref: str
+        repo: NotRequired[GhRepo | None]
+
+    class GhPull(TypedDict):
+        user: GhLogin
+        head: GhHead
+        labels: NotRequired[list[GhLabel]]
+
+    class GhEvent(TypedDict):
+        created_at: str
+        event: str
+        label: NotRequired[GhLabel | None]
+        actor: NotRequired[GhLogin | None]
+
+    class GhPermission(TypedDict, total=False):
+        role_name: str
+        permission: str
+
+    class GhRun(TypedDict):
+        head_sha: str
+        created_at: str
+        head_repository: NotRequired[GhRepo | None]
+
 
 type Kind = Literal["plain", "zip", "gzip", "spreadsheet"]
 type Basis = Literal["measured", "estimate", "unknown"]
 # Reads a GitHub API path and gives back its JSON, an object or a list as the path decides.
-type Getter = Callable[[str], Any]
+type Getter = Callable[[str], object]
 
 GB = 10**9
 BUDGET_GB_YEAR = 5.0
@@ -222,7 +282,7 @@ def _upper(path: str, n: int) -> int:
     return n
 
 
-def catalogue_sizes(catalog: dict[str, Any]) -> dict[str, dict[str, int]]:
+def catalogue_sizes(catalog: Catalog) -> dict[str, dict[str, int]]:
     """Bytes of each file of the newest version, by its path inside the version, per slug."""
     out: dict[str, dict[str, int]] = {}
     for rec in catalog.get("dataset", []):
@@ -413,8 +473,9 @@ def probe(ds: Dataset, timeout: float = 30) -> Sized:
             hint = f"x.{str(res.get('format') or '').lower()}" if res.get("format") else ""
             hint = hint if kind_of(hint) != "plain" else str(res.get("url") or "")
             # Some portals give the size as text ("2 MiB"); the host's headers are exact.
-            if str(res.get("size") or "").isdigit() and kind_of(hint) == "plain":
-                return Sized(int(res["size"]))
+            size = str(res.get("size") or "")
+            if size.isdigit() and kind_of(hint) == "plain":
+                return Sized(int(size))
             return _sized(res["url"], timeout, hint)
         if ds.source.adapter == "file" and not ds.source.page_size:
             return _sized(ds.source.url, timeout, ds.source.format and f"x.{ds.source.format}")
@@ -436,9 +497,9 @@ def live_rows(slugs: list[str], site: str = SITE, workers: int = 16) -> dict[str
     def one(slug: str) -> tuple[str, int | None]:
         req = urllib.request.Request(f"{site}/d/{slug}/versions.json", headers={"User-Agent": UA})
 
-        def get() -> dict[str, Any]:
+        def get() -> VersionsDoc:
             with _open(req, 60) as r:
-                doc: dict[str, Any] = json.load(r)
+                doc: VersionsDoc = json.load(r)
                 return doc
 
         try:
@@ -464,7 +525,7 @@ def project(  # noqa: C901, PLR0913 - one projection, read in order
     fresh: frozenset[str] = frozenset(),
     prober: Callable[[Dataset], Sized] = probe,
     probing: bool = False,
-    reshaped: dict[str, dict[str, Any]] | None = None,
+    reshaped: dict[str, RawEntry] | None = None,
     rows: dict[str, int] | None = None,
 ) -> list[Projection]:
     """The projected growth of each entry.
@@ -510,8 +571,8 @@ def project(  # noqa: C901, PLR0913 - one projection, read in order
             old = reshaped[ds.slug]
             before = replace(
                 ds,
-                partition_by=tuple(old.get("partition_by") or ()),
-                geometry=old.get("geometry") or None,
+                partition_by=tuple(cast("list[str]", old.get("partition_by") or ())),
+                geometry=cast("Geometry | None", old.get("geometry") or None),
             )
             was = (
                 measured_bytes(before, files, newest.bytes)
@@ -664,8 +725,8 @@ QUIET_SOURCE_KEYS = ("cadence", "encoding", "as_at_regex")
 SHAPE_KEYS = ("unpivot", "wide", "enrich", "geometry", "kind", "database", "tables")
 
 
-def _source(raw: dict[str, Any]) -> dict[str, Any]:
-    src = dict(raw.get("source") or {})
+def _source(raw: RawEntry) -> JSONObject:
+    src = dict(cast("JSONObject", raw.get("source") or {}))
     for k in QUIET_SOURCE_KEYS:
         src.pop(k, None)
     # A CKAN entry's url is the landing page; the fetch reads the portal, package and resource.
@@ -674,12 +735,12 @@ def _source(raw: dict[str, Any]) -> dict[str, Any]:
     return src
 
 
-def _shape(raw: dict[str, Any]) -> dict[str, Any]:
-    out = {k: raw.get(k) for k in SHAPE_KEYS}
+def _shape(raw: RawEntry) -> dict[str, object]:
+    out: dict[str, object] = {k: raw.get(k) for k in SHAPE_KEYS}
     # A field's description or label leaves the bytes alone; its name, source and type do not.
     out["fields"] = [
         (f.get("name"), f.get("source"), f.get("type")) if isinstance(f, dict) else f
-        for f in raw.get("fields") or ()
+        for f in cast("list[JSON]", raw.get("fields") or ())
     ]
     return out
 
@@ -696,21 +757,21 @@ def _base_paths(root: Path, base: str) -> dict[str, str]:
 
 def entry_changes(
     root: Path, base: str, entries: dict[str, str]
-) -> tuple[set[str], dict[str, dict[str, Any]]]:
+) -> tuple[set[str], dict[str, RawEntry]]:
     """Changed entries whose source or output shape differs from the base's.
 
     For these the stored file no longer says how big a version will be. The base copy of each
     entry whose output shape changed comes back too. An entry with no base copy counts as moved.
     """
     fresh: set[str] = set()
-    reshaped: dict[str, dict[str, Any]] = {}
+    reshaped: dict[str, RawEntry] = {}
     base_paths = _base_paths(root, base)
     for slug, path in entries.items():
-        new = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
+        new: RawEntry = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
         if slug not in base_paths:
             fresh.add(slug)
             continue
-        old = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
+        old: RawEntry = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
         shaped = _shape(old) != _shape(new)
         if shaped or _source(old) != _source(new):
             fresh.add(slug)
@@ -724,8 +785,8 @@ def entry_changes(
 COST_KEYS = ("partition_by", "key", "query", "status", "licence")
 
 
-def _costs(raw: dict[str, Any]) -> tuple[object, ...]:
-    src = raw.get("source") or {}
+def _costs(raw: RawEntry) -> tuple[object, ...]:
+    src = cast("JSONObject", raw.get("source") or {})
     return (
         _source(raw),
         _shape(raw),
@@ -748,28 +809,28 @@ def costed(root: Path, base: str, entries: dict[str, str]) -> set[str]:
         if slug not in base_paths:
             out.add(slug)
             continue
-        new = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
-        old = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
+        new: RawEntry = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
+        old: RawEntry = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
         if _costs(old) != _costs(new):
             out.add(slug)
     return out
 
 
-def load_catalog(where: str) -> dict[str, Any]:
+def load_catalog(where: str) -> Catalog:
     if where.startswith(("http://", "https://")):
         req = urllib.request.Request(where, headers={"User-Agent": UA})
 
-        def get() -> dict[str, Any]:
+        def get() -> Catalog:
             with _open(req, 60) as r:
-                doc: dict[str, Any] = json.load(r)
+                doc: Catalog = json.load(r)
                 return doc
 
         return retry(get)
-    doc: dict[str, Any] = json.loads(Path(where).read_text(encoding="utf-8"))
+    doc: Catalog = json.loads(Path(where).read_text(encoding="utf-8"))
     return doc
 
 
-def _github(path: str, token: str) -> Any:  # noqa: ANN401 - GitHub's JSON, an object or a list by path
+def _github(path: str, token: str) -> JSON:
     req = urllib.request.Request(
         f"{GITHUB_API}/{path}",
         headers={
@@ -780,9 +841,10 @@ def _github(path: str, token: str) -> Any:  # noqa: ANN401 - GitHub's JSON, an o
         },
     )
 
-    def get() -> Any:  # noqa: ANN401 - as _github
+    def get() -> JSON:
         with _open(req, 30) as r:
-            return json.load(r)
+            doc: JSON = json.load(r)
+            return doc
 
     return retry(get)
 
@@ -791,12 +853,13 @@ def _github(path: str, token: str) -> Any:  # noqa: ANN401 - GitHub's JSON, an o
 PER_PAGE = 100
 
 
-def _pages(get: Getter, path: str, key: str | None = None, limit: int = 30) -> list[Any]:
-    out: list[Any] = []
+def _pages(get: Getter, path: str, key: str | None = None, limit: int = 30) -> list[JSON]:
+    out: list[JSON] = []
     sep = "&" if "?" in path else "?"
     for page in range(1, limit + 1):
         doc = get(f"{path}{sep}per_page={PER_PAGE}&page={page}")
-        items = doc[key] if key else doc
+        # A paged path answers a list, or an object that holds the list under key.
+        items = cast("dict[str, list[JSON]]", doc)[key] if key else cast("list[JSON]", doc)
         out += items
         if len(items) < PER_PAGE:
             break
@@ -813,12 +876,13 @@ def approval(repo: str, pr: int, get: Getter) -> tuple[bool, str]:  # noqa: C901
     request, after the head commit arrived and after any change of base. `get` reads a GitHub API
     path.
     """
-    pull = get(f"repos/{repo}/pulls/{pr}")
+    pull = cast("GhPull", get(f"repos/{repo}/pulls/{pr}"))
     if APPROVAL_LABEL not in {lb["name"] for lb in pull.get("labels", [])}:
         return False, "the label is not on the pull request"
     author, head = pull["user"]["login"], pull["head"]["sha"]
-    last, rebased = None, ""
-    for e in _pages(get, f"repos/{repo}/issues/{pr}/events"):
+    last: GhEvent | None = None
+    rebased = ""
+    for e in cast("list[GhEvent]", _pages(get, f"repos/{repo}/issues/{pr}/events")):
         if (
             e.get("event") in ("labeled", "unlabeled")
             and (e.get("label") or {}).get("name") == APPROVAL_LABEL
@@ -832,7 +896,10 @@ def approval(repo: str, pr: int, get: Getter) -> tuple[bool, str]:  # noqa: C901
     if not actor or actor == author:
         return False, "the label was added by the pull request's author"
     try:
-        perm = get(f"repos/{repo}/collaborators/{urllib.parse.quote(actor)}/permission")
+        perm = cast(
+            "GhPermission",
+            get(f"repos/{repo}/collaborators/{urllib.parse.quote(actor)}/permission"),
+        )
     except urllib.error.HTTPError:
         perm = {}
     if perm.get("role_name") not in WRITE_ROLES and perm.get("permission") not in WRITE_ROLES:
@@ -845,9 +912,7 @@ def approval(repo: str, pr: int, get: Getter) -> tuple[bool, str]:  # noqa: C901
     return True, f"approved by {actor} for {head[:7]}"
 
 
-def head_since(
-    repo: str, pull: dict[str, Any], get: Getter, workflow: str = "cost.yml"
-) -> str | None:
+def head_since(repo: str, pull: GhPull, get: Getter, workflow: str = "cost.yml") -> str | None:
     """When the pull request's head became its current commit.
 
     That is the first of this check's runs in the unbroken run of runs on that commit, newest
@@ -857,7 +922,7 @@ def head_since(
     branch = urllib.parse.quote(head["ref"], safe="")
     path = f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request_target&branch={branch}"  # fmt: skip
     since = None
-    for r in _pages(get, path, "workflow_runs", limit=10):
+    for r in cast("list[GhRun]", _pages(get, path, "workflow_runs", limit=10)):
         if (r.get("head_repository") or {}).get("full_name") != (head.get("repo") or {}).get(
             "full_name"
         ):
@@ -982,7 +1047,7 @@ def run(  # noqa: PLR0913 - the options are keyword-only and named at each call
     probing: bool = False,
     fresh: AbstractSet[str] = frozenset(),
     summary: str | None = None,
-    reshaped: dict[str, dict[str, Any]] | None = None,
+    reshaped: dict[str, RawEntry] | None = None,
     approve: Callable[[], tuple[bool, str]] | None = None,
     rows: dict[str, int] | None = None,
     prober: Callable[[Dataset], Sized] = probe,

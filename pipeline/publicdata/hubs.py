@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from html import escape
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 import requests
 from PIL import Image
@@ -34,13 +34,198 @@ from .register import GRANTS, LICENCE_CONDITIONS, OPEN_LICENCES, draft_label
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping
-    from typing import BinaryIO
+    from typing import BinaryIO, NotRequired, TypedDict, Unpack
+
+    from .jsontypes import JSON, JSONObject
 
     type Fetch = Callable[[str, Path], object]
     type Log = Callable[[str], object]
     type Outcome = Entry | Refused
     # Kaggle publishes a first version differently, so it is named apart from the protocol.
     type AnyHub = Hub | Kaggle
+
+
+if TYPE_CHECKING:
+    # The shapes of what the site serves and the hubs are sent. Each is read as the site or the
+    # hub writes it, at the one place the JSON is parsed.
+
+    class HubField(TypedDict, total=False):
+        """A field as the version's schema.json gives it; other keys pass through to the hubs."""
+
+        name: str
+        type: str
+        title: str
+        description: str
+
+    class Schema(TypedDict, total=False):
+        fields: list[HubField]
+
+    class VersionRow(TypedDict, total=False):
+        version: str
+        rows: int
+
+    class Versions(TypedDict, total=False):
+        versions: list[VersionRow]
+
+    class Publisher(TypedDict, total=False):
+        name: str
+        homepage: str
+
+    class Distribution(TypedDict, total=False):
+        format: str
+        downloadURL: str
+        byteSize: int
+
+    # A dataset in the site's catalog.json; two keys are not identifiers, so the functional form.
+    CatalogueRecord = TypedDict(
+        "CatalogueRecord",
+        {
+            "identifier": str,
+            "title": str,
+            "description": str,
+            "license": str,
+            "versionInfo": str,
+            "publisher": Publisher,
+            "distribution": list[Distribution],
+            "keyword": list[str],
+            "accrualPeriodicity": str,
+            "publicdata:attribution": str,
+            "publicdata:cite": str,
+        },
+        total=False,
+    )
+
+    class Catalogue(TypedDict):
+        dataset: list[CatalogueRecord]
+
+    class Related(TypedDict, total=False):
+        identifier: str
+        relation: str
+        resource_type: str
+
+    class DepositionMetadata(TypedDict, total=False):
+        version: str
+        related_identifiers: list[Related]
+
+    class DepositionLinks(TypedDict, total=False):
+        latest_draft: str
+        bucket: str
+        html: str
+
+    class DepositionFile(TypedDict, total=False):
+        id: str
+
+    class Deposition(TypedDict, total=False):
+        """A Zenodo deposition, as far as this module reads one."""
+
+        id: int
+        submitted: bool
+        conceptdoi: str
+        doi_url: str
+        metadata: DepositionMetadata
+        links: DepositionLinks
+        files: list[DepositionFile]
+
+    class ZenodoRequest(TypedDict, total=False):
+        params: Mapping[str, str | int]
+        data: BinaryIO
+        headers: Mapping[str, str]
+        json: object
+
+    class Named(TypedDict):
+        name: str
+
+    class Contributor(TypedDict):
+        name: str
+        type: str
+
+    class Community(TypedDict):
+        identifier: str
+
+    class ZenodoMetadata(TypedDict):
+        upload_type: str
+        title: str
+        publication_date: str
+        version: str
+        creators: list[Named]
+        contributors: list[Contributor]
+        description: str
+        access_right: str
+        license: str
+        keywords: list[str]
+        related_identifiers: list[Related]
+        language: str
+        notes: str
+        communities: NotRequired[list[Community]]
+
+    class KaggleColumn(TypedDict):
+        name: str
+        description: str
+        type: str
+
+    class KaggleSchema(TypedDict):
+        fields: list[KaggleColumn]
+
+    class KaggleResource(TypedDict):
+        path: str
+        description: str
+        schema: NotRequired[KaggleSchema]
+
+    class KaggleMetadata(TypedDict):
+        title: str
+        id: str
+        subtitle: str
+        description: str
+        isPrivate: bool
+        licenses: list[Named]
+        keywords: list[str]
+        expectedUpdateFrequency: str
+        userSpecifiedSources: str
+        resources: list[KaggleResource]
+
+    class KernelMetadata(TypedDict):
+        id: str
+        title: str
+        code_file: str
+        language: str
+        kernel_type: str
+        is_private: str
+        enable_gpu: str
+        enable_internet: str
+        dataset_sources: list[str]
+        competition_sources: list[str]
+        kernel_sources: list[str]
+        model_sources: list[str]
+
+    class Link(TypedDict):
+        name: str
+        url: str
+
+    class LicenceLink(TypedDict):
+        id: str
+        title: str
+        url: str
+
+    class Provenance(TypedDict):
+        """publicdata.json, as every copy carries it."""
+
+        dataset: str
+        title: str
+        version: str
+        version_url: str
+        dataset_page: str
+        publisher: Link
+        licence: LicenceLink
+        attribution: str
+        cite: str
+        not_endorsed: str
+        manifest: JSONObject
+
+    class HubRecord(TypedDict, total=False):
+        """Where each hub holds each dataset, and each hub's account page."""
+
+        accounts: dict[str, str]
+        datasets: dict[str, dict[str, str]]
 
 
 class _LicenceId(Protocol):
@@ -59,7 +244,7 @@ class _SiteResponse(Protocol):
 
     def raise_for_status(self) -> None: ...
 
-    def json(self) -> Any: ...  # noqa: ANN401 - the site's JSON, read before it is checked
+    def json(self) -> object: ...
 
 
 class SiteHttp(Protocol):
@@ -76,23 +261,15 @@ class _ZenodoResponse(Protocol):
     @property
     def text(self) -> str: ...
 
-    def json(self) -> Any: ...  # noqa: ANN401 - Zenodo's JSON
+    def json(self) -> object: ...
 
 
 class ZenodoHttp(Protocol):
     @property
     def headers(self) -> MutableMapping[str, str | bytes]: ...
 
-    def request(  # noqa: PLR0913 - the part of requests.Session.request Zenodo calls
-        self,
-        method: str,
-        url: str,
-        *,
-        timeout: float,
-        params: Mapping[str, str | int] | None = None,
-        data: BinaryIO | None = None,
-        headers: Mapping[str, str] | None = None,
-        json: object = None,
+    def request(
+        self, method: str, url: str, *, timeout: float, **kw: Unpack[ZenodoRequest]
     ) -> _ZenodoResponse: ...
 
 
@@ -150,10 +327,10 @@ class Entry:
     version: str
     keywords: tuple[str, ...]
     rows: int
-    fields: tuple[dict[str, Any], ...]
+    fields: tuple[HubField, ...]
     formats: int
     files: dict[str, str] = field(default_factory=dict)
-    manifest: dict[str, Any] = field(default_factory=dict)
+    manifest: JSONObject = field(default_factory=dict)
     queryable: bool = False
     topics: tuple[str, ...] = ()
     cadence: str = ""
@@ -171,9 +348,9 @@ class Entry:
 
     @property
     def source_page(self) -> str:
-        s: dict[str, str] = self.manifest.get("source") or {}
-        if s.get("portal") and s.get("package"):
-            return f"{s['portal'].rstrip('/')}/dataset/{s['package']}"
+        s = self.manifest.get("source") or {}
+        if isinstance(s, dict) and s.get("portal") and s.get("package"):
+            return f"{str(s['portal']).rstrip('/')}/dataset/{s['package']}"
         return self.publisher_url
 
 
@@ -186,10 +363,10 @@ class Excluded(Refused):
 
 
 def entry(  # noqa: PLR0913 - the options are keyword-only and named at each call
-    record: dict[str, Any],
-    versions: dict[str, Any],
-    schema: dict[str, Any],
-    manifest: dict[str, Any],
+    record: CatalogueRecord,
+    versions: Versions,
+    schema: Schema,
+    manifest: JSONObject,
     *,
     queryable: bool = False,
     site: str = SITE,
@@ -248,7 +425,7 @@ def entry(  # noqa: PLR0913 - the options are keyword-only and named at each cal
     )
 
 
-def _described(fields: Iterable[dict[str, Any]], registered: object) -> list[dict[str, Any]]:
+def _described(fields: Iterable[HubField], registered: object) -> list[HubField]:
     """Every field with a description, so no hub shows a column without one.
 
     The description is the schema's own, else the register's description or label, else a label
@@ -256,7 +433,7 @@ def _described(fields: Iterable[dict[str, Any]], registered: object) -> list[dic
     """
     reg = {f.name: f for f in getattr(registered, "fields", ()) or ()}
     names = [f["name"] for f in fields]
-    out = []
+    out: list[HubField] = []
     for f in fields:
         text = _text(f)
         if not text:
@@ -266,7 +443,7 @@ def _described(fields: Iterable[dict[str, Any]], registered: object) -> list[dic
     return out
 
 
-def authorised(record: dict[str, Any], registered: Registered | None) -> None:
+def authorised(record: CatalogueRecord, registered: Registered | None) -> None:
     """The register decides what may be copied, whatever the live catalogue says.
 
     The entry must exist, be live, hold an open licence, and name the same licence the catalogue
@@ -294,7 +471,7 @@ def authorised(record: dict[str, Any], registered: Registered | None) -> None:
         raise Refused(msg)
 
 
-def provenance(e: Entry) -> dict[str, Any]:
+def provenance(e: Entry) -> Provenance:
     """publicdata.json, which travels with every copy so the link back survives a re-upload."""
     return {
         "dataset": e.slug,
@@ -315,7 +492,7 @@ def _cell(s: str) -> str:
     return " ".join(str(s).split()).replace("|", "\\|")
 
 
-def _text(f: dict[str, Any]) -> str:
+def _text(f: HubField) -> str:
     """A field's description, else its title unless the title only names the source cell."""
     for text in (f.get("description"), f.get("title")):
         if text and not text.strip().startswith("("):
@@ -324,7 +501,7 @@ def _text(f: dict[str, Any]) -> str:
     return ""
 
 
-def _about(f: dict[str, Any]) -> str:
+def _about(f: HubField) -> str:
     return _cell(_text(f))
 
 
@@ -424,12 +601,12 @@ HF_TAGS = 14
 
 
 def hf_card(e: Entry, repo: str) -> str:
-    tags = ["australia", "government", "open-data", "publicdata-au"]
+    tags: list[JSON] = ["australia", "government", "open-data", "publicdata-au"]
     for k in e.keywords:
         t = _tag(k)
         if t and t.count("-") < HF_TAG_WORDS and t not in tags and len(tags) < HF_TAGS:
             tags.append(t)
-    meta = {
+    meta: JSONObject = {
         "license": e.licence.huggingface,
         **(
             {"license_name": e.licence.id.lower(), "license_link": e.licence.url}
@@ -446,7 +623,7 @@ def hf_card(e: Entry, repo: str) -> str:
     return "---\n" + _yaml(meta) + "---\n\n" + body
 
 
-def _yaml(meta: dict[str, Any]) -> str:
+def _yaml(meta: JSONObject) -> str:
     """Card frontmatter. JSON strings are valid YAML scalars, so no YAML library is needed."""
     out = []
     for k, v in meta.items():
@@ -491,7 +668,7 @@ LATITUDE = re.compile(r"(^|_)lat(itude)?$")
 LONGITUDE = re.compile(r"(^|_)(lon|lng|long|longitude)$")
 
 
-def kaggle_type(f: dict[str, Any]) -> str:
+def kaggle_type(f: HubField) -> str:
     if f.get("type") in ("number", "integer"):
         if LATITUDE.search(f["name"]):
             return "latitude"
@@ -540,14 +717,14 @@ KAGGLE_TITLE_MIN, KAGGLE_TITLE_MAX = 6, 50
 KAGGLE_SUBTITLE_MIN = 20
 
 
-def kaggle_metadata(e: Entry, owner: str) -> dict[str, Any]:
+def kaggle_metadata(e: Entry, owner: str) -> KaggleMetadata:
     if not KAGGLE_SLUG_MIN <= len(e.slug) <= KAGGLE_SLUG_MAX:
         msg = f"slug {e.slug!r} is outside Kaggle's 3 to 50 characters"
         raise Refused(msg)
     subtitle = _clip(f"{e.publisher}, republished by publicdata.au", 80)
     if len(subtitle) < KAGGLE_SUBTITLE_MIN:
         subtitle = _clip(f"{subtitle}, Australian government open data", 80)
-    schema = {
+    schema: KaggleSchema = {
         "fields": [
             {
                 "name": f["name"],
@@ -574,15 +751,7 @@ def kaggle_metadata(e: Entry, owner: str) -> dict[str, Any]:
         "expectedUpdateFrequency": kaggle_frequency(e.cadence),
         "userSpecifiedSources": kaggle_sources(e),
         "resources": [
-            *(
-                {
-                    "path": f"data.{fmt}",
-                    "description": f"{e.title}, version {e.version}, as {KAGGLE_FILES[fmt]}."
-                    + (" One table, named data." if fmt == "sqlite" else ""),
-                    **({"schema": schema} if fmt in ("parquet", "csv") else {}),
-                }
-                for fmt in kaggle_formats(e)
-            ),
+            *(_kaggle_resource(e, fmt, schema) for fmt in kaggle_formats(e)),
             {
                 "path": "publicdata.json",
                 "description": "The version, licence, attribution and citation of these rows, and "
@@ -590,6 +759,17 @@ def kaggle_metadata(e: Entry, owner: str) -> dict[str, Any]:
             },
         ],
     }
+
+
+def _kaggle_resource(e: Entry, fmt: str, schema: KaggleSchema) -> KaggleResource:
+    out: KaggleResource = {
+        "path": f"data.{fmt}",
+        "description": f"{e.title}, version {e.version}, as {KAGGLE_FILES[fmt]}."
+        + (" One table, named data." if fmt == "sqlite" else ""),
+    }
+    if fmt in ("parquet", "csv"):
+        out["schema"] = schema
+    return out
 
 
 # Kaggle keeps only tags that already exist and drops the rest, so each topic offers several.
@@ -647,7 +827,7 @@ def kaggle_tags(e: Entry) -> list[str]:
 def kaggle_sources(e: Entry) -> str:
     """The provenance Kaggle shows under Sources, as its Markdown."""
     m = e.manifest
-    fetched = (m.get("fetched_at") or "")[:10]
+    fetched = str(m.get("fetched_at") or "")[:10]
     parts = [
         (
             f"Published by [{e.publisher}]({e.publisher_url}) on [the publisher's dataset page]"
@@ -677,10 +857,10 @@ def _notebook_title(e: Entry) -> str:
     return f"{e.slug[:33].rstrip('-')} {digest} quick start"
 
 
-def kaggle_notebook(e: Entry, owner: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def kaggle_notebook(e: Entry, owner: str) -> tuple[KernelMetadata, JSONObject]:
     """A public starter notebook over the dataset: its kernel-metadata.json and the notebook."""
     title = _notebook_title(e)
-    meta = {
+    meta: KernelMetadata = {
         "id": f"{owner}/{title.replace(' ', '-')}",
         "title": title,
         "code_file": "notebook.ipynb",
@@ -695,7 +875,7 @@ def kaggle_notebook(e: Entry, owner: str) -> tuple[dict[str, Any], dict[str, Any
         "model_sources": [],
     }
     text_fields = [f["name"] for f in e.fields if f.get("type") == "string"]
-    cells = [
+    cells: list[JSON] = [
         _md(
             f"# {e.title}\n\n{e.description}\n\n"
             f"These rows are the [{e.version} version]({e.version_url}) on "
@@ -738,7 +918,7 @@ def kaggle_notebook(e: Entry, owner: str) -> tuple[dict[str, Any], dict[str, Any
             f"To cite this version: {e.cite}"
         ),
     ]
-    nb = {
+    nb: JSONObject = {
         "cells": cells,
         "metadata": {
             "kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"}
@@ -749,11 +929,11 @@ def kaggle_notebook(e: Entry, owner: str) -> tuple[dict[str, Any], dict[str, Any
     return meta, nb
 
 
-def _md(text: str) -> dict[str, Any]:
+def _md(text: str) -> JSONObject:
     return {"cell_type": "markdown", "metadata": {}, "source": text}
 
 
-def _code(text: str) -> dict[str, Any]:
+def _code(text: str) -> JSONObject:
     return {
         "cell_type": "code",
         "metadata": {},
@@ -786,7 +966,7 @@ def cover_image(card: Path, dest: Path) -> Path:
     return dest
 
 
-def zenodo_metadata(e: Entry, community: str | None = None) -> dict[str, Any]:
+def zenodo_metadata(e: Entry, community: str | None = None) -> ZenodoMetadata:
     p: Callable[[str], str] = lambda s: f"<p>{escape(s)}</p>"  # noqa: E731
     link: Callable[[str], str] = lambda u: f'<a href="{escape(u)}">{escape(u)}</a>'  # noqa: E731
     description = "".join(
@@ -812,7 +992,7 @@ def zenodo_metadata(e: Entry, community: str | None = None) -> dict[str, Any]:
             ),
         ]
     )
-    related = [
+    related: list[Related] = [
         {"identifier": e.version_url, "relation": "isIdenticalTo", "resource_type": "dataset"},
         {"identifier": e.page, "relation": "isVersionOf", "resource_type": "dataset"},
     ]
@@ -820,7 +1000,7 @@ def zenodo_metadata(e: Entry, community: str | None = None) -> dict[str, Any]:
         related.append(
             {"identifier": e.source_page, "relation": "isDerivedFrom", "resource_type": "dataset"}
         )
-    meta = {
+    meta: ZenodoMetadata = {
         "upload_type": "dataset",
         "title": e.title,
         "publication_date": e.version,
@@ -874,7 +1054,7 @@ def read_site(
     checked = register is not None
     register = register or {}
 
-    def get(url: str) -> Any:  # noqa: ANN401 - the site's JSON, read before it is checked
+    def get(url: str) -> object:
         r = http.get(url, timeout=60)
         r.raise_for_status()
         return r.json()
@@ -883,7 +1063,8 @@ def read_site(
         r = http.get(f"{site}/api/v1/datasets/{slug}/versions", timeout=60)
         return r.status_code == HTTPStatus.OK
 
-    for rec in get(f"{site}/catalog.json")["dataset"]:
+    # Each document is the site's own; it is read as the shape the site writes.
+    for rec in cast("Catalogue", get(f"{site}/catalog.json"))["dataset"]:
         slug = rec["identifier"]
         if only and slug not in only:
             continue
@@ -896,9 +1077,9 @@ def read_site(
                 slug,
                 entry(
                     rec,
-                    get(f"{base}versions.json"),
-                    get(f"{base}v/{v}/schema.json"),
-                    get(f"{base}v/{v}/manifest.json"),
+                    cast("Versions", get(f"{base}versions.json")),
+                    cast("Schema", get(f"{base}v/{v}/schema.json")),
+                    cast("JSONObject", get(f"{base}v/{v}/manifest.json")),
                     queryable=served(slug),
                     site=site,
                     registered=register.get(slug),
@@ -1001,15 +1182,25 @@ class Zenodo:
         self.pause = 30.0
         self.http: ZenodoHttp = _http()
         self.http.headers["Authorization"] = f"Bearer {token}"
-        self._records: list[dict[str, Any]] | None = None
+        self._records: list[Deposition] | None = None
 
-    def _call(self, method: str, path: str, **kw: Any) -> Any:  # noqa: ANN401 - Zenodo's JSON, and the keywords requests takes
+    def _call(
+        self, method: str, path: str, *, timeout: float = 120, **kw: Unpack[ZenodoRequest]
+    ) -> object:
         url = path if path.startswith("http") else f"{self.base}/api{path}"
-        r = self.http.request(method, url, timeout=kw.pop("timeout", 120), **kw)
+        r = self.http.request(method, url, timeout=timeout, **kw)
         if r.status_code >= HTTPStatus.BAD_REQUEST:
             msg = f"Zenodo {method} {url} answered {r.status_code}: {r.text[:500]}"
             raise RuntimeError(msg)
         return r.json() if r.content else {}
+
+    def _deposition(self, method: str, path: str, **kw: Unpack[ZenodoRequest]) -> Deposition:
+        # Zenodo answers each deposition call with one deposition.
+        return cast("Deposition", self._call(method, path, **kw))
+
+    def _depositions(self, path: str, **kw: Unpack[ZenodoRequest]) -> list[Deposition]:
+        # A listing answers with a list of them.
+        return cast("list[Deposition]", self._call("GET", path, **kw))
 
     def _put_file(self, url: str, p: Path, tries: int = 4) -> None:
         # A large upload sometimes meets a 502 or 504 from Zenodo's gateway; the file is sent again.
@@ -1030,13 +1221,12 @@ class Zenodo:
             else:
                 return
 
-    def records(self) -> list[dict[str, Any]]:
+    def records(self) -> list[Deposition]:
         if self._records is None:
-            out: list[dict[str, Any]] = []
+            out: list[Deposition] = []
             page = 1
             while True:
-                batch = self._call(
-                    "GET",
+                batch = self._depositions(
                     "/deposit/depositions",
                     params={"size": ZENODO_PAGE, "page": page, "all_versions": "true"},
                 )
@@ -1048,28 +1238,27 @@ class Zenodo:
         return self._records
 
     @staticmethod
-    def _page(rec: dict[str, Any]) -> set[str]:
+    def _page(rec: Deposition) -> set[str | None]:
         return {
             r.get("identifier")
             for r in (rec.get("metadata") or {}).get("related_identifiers") or ()
             if r.get("relation") == "isVersionOf"
         }
 
-    def _ours(self, e: Entry) -> list[dict[str, Any]]:
+    def _ours(self, e: Entry) -> list[Deposition]:
         # Oldest first, so a dataset Zenodo holds under two concept records keeps growing the
         # original and is located by it.
         return sorted(
             (r for r in self.records() if e.page in self._page(r)), key=lambda r: int(r["id"])
         )
 
-    def _search(self, e: Entry) -> list[dict[str, Any]]:
+    def _search(self, e: Entry) -> list[Deposition]:
         """The records that name this dataset, asked for directly.
 
         The full listing is paged, and a page boundary can lose a record while Zenodo is still
         indexing the last publish; a query for one dataset has no boundary to lose it at.
         """
-        found: list[dict[str, Any]] = self._call(
-            "GET",
+        return self._depositions(
             "/deposit/depositions",
             params={
                 "size": 100,
@@ -1077,9 +1266,8 @@ class Zenodo:
                 "q": f'metadata.related_identifiers.identifier:"{e.page}"',
             },
         )
-        return found
 
-    def _remember(self, *recs: dict[str, Any], forget: Iterable[int] = ()) -> None:
+    def _remember(self, *recs: Deposition, forget: Iterable[int] = ()) -> None:
         # Publishing is the only change this run makes, so the listing is kept in step by hand
         # rather than read again while Zenodo's index is still settling.
         gone = set(forget)
@@ -1093,8 +1281,7 @@ class Zenodo:
         """The concept DOI, which resolves to the newest version and names them all."""
         for r in self._ours(e):
             if r.get("submitted") and r.get("conceptdoi"):
-                doi: str = r["conceptdoi"]
-                return doi
+                return r["conceptdoi"]
         return None
 
     def held(self, e: Entry) -> set[str]:
@@ -1130,12 +1317,14 @@ class Zenodo:
         published = [r for r in mine if r.get("submitted")]
         if published:
             newest = max(published, key=lambda r: (r.get("metadata") or {}).get("version", ""))
-            made = self._call("POST", f"/deposit/depositions/{newest['id']}/actions/newversion")
-            draft = self._call("GET", made["links"]["latest_draft"])
+            made = self._deposition(
+                "POST", f"/deposit/depositions/{newest['id']}/actions/newversion"
+            )
+            draft = self._deposition("GET", made["links"]["latest_draft"])
             for f in draft.get("files") or ():
                 self._call("DELETE", f"/deposit/depositions/{draft['id']}/files/{f['id']}")
         else:
-            draft = self._call("POST", "/deposit/depositions", json={})
+            draft = self._deposition("POST", "/deposit/depositions", json={})
         # The metadata goes first, so Zenodo checks it before any file is sent, and a draft that
         # fails at any step is deleted, since a draft without metadata is never matched again.
         try:
@@ -1147,9 +1336,9 @@ class Zenodo:
             bucket = draft["links"]["bucket"]
             for p in paths:
                 self._put_file(f"{bucket}/{p.name}", p)
-            done = self._call("POST", f"/deposit/depositions/{draft['id']}/actions/publish")
+            done = self._deposition("POST", f"/deposit/depositions/{draft['id']}/actions/publish")
             if "metadata" not in done:
-                done = self._call("GET", f"/deposit/depositions/{draft['id']}")
+                done = self._deposition("GET", f"/deposit/depositions/{draft['id']}")
         except Exception:
             # The original error is the one worth reporting; a failed cleanup must not replace it.
             with contextlib.suppress(Exception):
@@ -1157,8 +1346,7 @@ class Zenodo:
             self._remember(forget=dropped)
             raise
         self._remember(done, forget=dropped)
-        url: str = done.get("doi_url") or done.get("links", {}).get("html", "")
-        return url
+        return done.get("doi_url") or done.get("links", {}).get("html", "")
 
 
 KAGGLE_PAGE = 200
@@ -1550,8 +1738,8 @@ def run(  # noqa: C901, PLR0913 - each hub's steps in order; the options are key
     log: Log = print,
     *,
     refresh: bool = False,
-    record: dict[str, Any] | None = None,
-    on_record: Callable[[dict[str, Any]], object] | None = None,
+    record: HubRecord | None = None,
+    on_record: Callable[[HubRecord], object] | None = None,
 ) -> int:
     """Publishes each entry's version to each hub that lacks it.
 
@@ -1636,7 +1824,7 @@ def _one(  # noqa: PLR0913 - the options are keyword-only and named at each call
     log(f"{name} {slug}: published {e.version} {url}")
 
 
-def merge_record(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+def merge_record(old: HubRecord, new: HubRecord) -> HubRecord:
     """The committed record with this run's findings laid over it.
 
     A dataset or hub this run did not reach keeps what was recorded, so a run limited to some

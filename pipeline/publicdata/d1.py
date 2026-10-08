@@ -36,7 +36,7 @@ from .serialise.profile import sha256, signature
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-    from typing import Any, Literal, Protocol, TypedDict
+    from typing import Literal, NotRequired, Protocol, TypedDict
 
     from .register import Dataset
 
@@ -44,9 +44,38 @@ if TYPE_CHECKING:
     type Stmt = tuple[Kind, str, int]
     type Log = Callable[[str], object]
 
+    class Row(TypedDict):
+        """A row D1 answers, by the columns of the tables this module reads."""
+
+        slug: NotRequired[str]
+        version: NotRequired[str]
+        tbl: NotRequired[str]
+        rows: NotRequired[int]
+        part: NotRequired[int]
+        attempts: NotRequired[int]
+        error: NotRequired[str | None]
+        since: NotRequired[str]
+        tried: NotRequired[str | None]
+        name: NotRequired[str]
+        n: NotRequired[int]
+
+    class LoadManifest(TypedDict):
+        """What load_parts writes beside a version's parts, and _jobs reads back."""
+
+        slug: str
+        version: str
+        tbl: str
+        rows: int
+        parts: list[str]
+        cum: list[int]
+        indexes: int
+        fts: bool
+        updates: int
+        keep: int
+
     class D1(Protocol):
         def file(self, path: Path) -> bool: ...
-        def query(self, sql: str) -> list[dict[str, Any]]: ...
+        def query(self, sql: str) -> list[Row]: ...
 
     class Registered(TypedDict):
         tbl: str
@@ -626,7 +655,7 @@ def _write_load(  # noqa: PLR0913 - the options are keyword-only and named at ea
                 f.write(f"-- load {stamp}\n")
             f.writelines(s + "\n" for s in part)
         paths.append(path)
-    manifest = {
+    manifest: LoadManifest = {
         "slug": slug,
         "version": version,
         "tbl": tbl,
@@ -812,7 +841,7 @@ class Wrangler:
         ]
         return subprocess.run(cmd, check=False).returncode == 0
 
-    def query(self, sql: str) -> list[dict[str, Any]]:
+    def query(self, sql: str) -> list[Row]:
         cmd = [
             "npx",
             "--yes",
@@ -845,7 +874,7 @@ def _absent(e: Exception) -> bool:
     return "no such table" in str(e)
 
 
-def _ask(db: D1, sql: str) -> list[dict[str, Any]]:
+def _ask(db: D1, sql: str) -> list[Row]:
     """A query, asked again when D1 fails to answer. A missing table is an answer."""
     for i in range(ASKS):
         try:
@@ -944,7 +973,7 @@ class Job:
 def _jobs(folder: Path) -> list[Job]:
     jobs: list[Job] = []
     for m in sorted(folder.glob("*.json")):
-        d = json.loads(m.read_text(encoding="utf-8"))
+        d: LoadManifest = json.loads(m.read_text(encoding="utf-8"))
         jobs.append(
             Job(
                 key=m.name[: -len(".json")],
@@ -964,7 +993,7 @@ def _jobs(folder: Path) -> list[Job]:
 
 
 def plan(
-    jobs: list[Job], state: dict[str, dict[str, Any]], budget: int, retry: set[str], now: str
+    jobs: list[Job], state: dict[str, Row], budget: int, retry: set[str], now: str
 ) -> tuple[list[Job], list[Job]]:
     """Orders the loads and splits them into this deploy's and later ones'.
 
@@ -1024,7 +1053,7 @@ def _drops(tbl: str) -> list[str]:
 
 
 def _note_pending(
-    db: D1, jobs: list[Job], state: dict[str, dict[str, Any]], served: set[str], log: Log
+    db: D1, jobs: list[Job], state: dict[str, Row], served: set[str], log: Log
 ) -> None:
     """Records each pending load the registry of loads lacks or holds for another table.
 

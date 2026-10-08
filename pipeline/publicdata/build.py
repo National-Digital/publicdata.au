@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -71,10 +71,40 @@ from .spine import enrich, spine_versions
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from .jsontypes import JSON, JSONObject
+    from .provenance import Header
     from .register import Dataset
+    from .serialise import PartitionEntry
     from .serialise.profile import Layout
 
-    type HeaderFor = Callable[[int, str], dict[str, Any]]
+    type HeaderFor = Callable[[int, str], Header]
+
+    class CacheMeta(TypedDict):
+        """A cached version's meta.json, as _meta writes it and grow_cached extends it."""
+
+        sha256: dict[str, str]
+        query_sha256: NotRequired[str]
+        rows: int
+        files: dict[str, int]
+        unknown_columns: list[str]
+        suppressed_cells: int
+        partitions: dict[str, list[PartitionEntry]]
+        first: str
+        tables: NotRequired[dict[str, int]]
+        writers: NotRequired[dict[str, str]]
+        left_out: NotRequired[dict[str, str] | None]
+        grown: NotRequired[dict[str, str]]
+
+    class _Sums(TypedDict, total=False):
+        """The digests a new entry may carry beside its files' own."""
+
+        query_sha256: str
+        grown: dict[str, str]
+
+    class _Record(TypedDict):
+        left_out: dict[str, str]
+        measured: dict[str, int]
+
 
 REGISTER_DIR = Path(__file__).resolve().parents[2] / "register"
 
@@ -86,7 +116,7 @@ class VersionOut:
     files: dict[str, int]  # relative path -> bytes
     unknown_columns: list[str]
     suppressed_cells: int
-    partitions: dict[str, Any]
+    partitions: dict[str, list[PartitionEntry]]
     first: str = ""  # the first row of data.ndjson, which the dataset page shows
     absent: tuple[str, ...] = ()  # files a cached build left out; already published
     tables: dict[str, int] = field(default_factory=dict)  # a database's tables and their rows
@@ -124,7 +154,7 @@ def kept(rel: str) -> bool:
 class DatasetOut:
     dataset: Dataset
     versions: list[VersionOut] = field(default_factory=list)
-    changes: list[dict[str, Any]] = field(default_factory=list)
+    changes: list[JSONObject] = field(default_factory=list)
 
     @property
     def latest(self) -> VersionOut | None:
@@ -175,7 +205,7 @@ def build_database_version(
     vdir.mkdir(parents=True)
     base = version_url(ds.slug, m.version)
 
-    def hdr(rows: int, rel: str) -> dict[str, Any]:
+    def hdr(rows: int, rel: str) -> Header:
         return prov_header(ds, m, rows, base + rel)
 
     db = build_database(ds, m, src, vdir, hdr)
@@ -225,7 +255,7 @@ def build_version(  # noqa: C901 - a version's build steps, read in order
     vdir.mkdir(parents=True)
     base = version_url(ds.slug, m.version)
 
-    def hdr(rows: int, rel: str) -> dict[str, Any]:
+    def hdr(rows: int, rel: str) -> Header:
         return prov_header(ds, m, rows, base + rel)
 
     gone: dict[str, str] | None = None
@@ -284,7 +314,7 @@ def _sorted_once(tbl: Table, lay: Layout) -> Table:
     return replace(tbl, order=(tbl.table, (tuple(lay["sort"]), tuple(lay["key"])), perm))
 
 
-def _query_copy(tbl: Table, header: dict[str, Any], vdir: Path, out: Path) -> str:
+def _query_copy(tbl: Table, header: Header, vdir: Path, out: Path) -> str:
     """The version's query copy under the current profile and register entry, at its internal key.
 
     This is the version's own data.parquet when that already follows them, else it is written
@@ -304,7 +334,7 @@ def _query_copy(tbl: Table, header: dict[str, Any], vdir: Path, out: Path) -> st
     return rel
 
 
-def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict[str, Any] | None:
+def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> _Record | None:
     """The format record of a capped version already published.
 
     The record is its manifest's formats_left_out and measured_bytes, which no later build
@@ -320,7 +350,7 @@ def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict[str, An
 
 
 def _cap(
-    tbl: Table, ds: Dataset, record: dict[str, Any] | None, hdr: HeaderFor, vdir: Path
+    tbl: Table, ds: Dataset, record: _Record | None, hdr: HeaderFor, vdir: Path
 ) -> tuple[dict[str, str], dict[str, int], list[str]]:
     """A capped version's formats_left_out, its measured_bytes and the files left written.
 
@@ -387,12 +417,12 @@ def _history(dout: DatasetOut, out: Path, cache: BuildCache | None, keys: list[s
             cache.put(key, {}, Path(tmp))
 
 
-def _datapackage(dout: DatasetOut) -> dict[str, Any]:
+def _datapackage(dout: DatasetOut) -> JSONObject:
     ds, v = dout.dataset, dout.versions[-1]
     m = v.manifest
     base = version_url(ds.slug, m.version)
     h = prov_header(ds, m, v.rows, base)
-    resources: list[dict[str, Any]] = []
+    resources: list[JSON] = []
     if ds.kind == "database":
         resources.append(
             {
@@ -532,7 +562,7 @@ def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
     return {*keys, *diffs, *([cache.key(*keys, "history")] if keys else [])}
 
 
-def _from_cache(ds: Dataset, m: store.Manifest, hit: dict[str, Any], vdir: Path) -> VersionOut:
+def _from_cache(ds: Dataset, m: store.Manifest, hit: CacheMeta, vdir: Path) -> VersionOut:
     return VersionOut(
         m,
         hit["rows"],
@@ -550,11 +580,12 @@ def _from_cache(ds: Dataset, m: store.Manifest, hit: dict[str, Any], vdir: Path)
     )
 
 
-def _meta(ds: Dataset, vout: VersionOut, writers: dict[str, str], vdir: Path) -> dict[str, Any]:
+def _meta(ds: Dataset, vout: VersionOut, writers: dict[str, str], vdir: Path) -> CacheMeta:
     query = vdir.parents[3] / vout.query if vout.query else None
+    summed: _Sums = {"query_sha256": digest(query)} if query is not None and query.is_file() else {}
     return {
         "sha256": digests(vdir, databases=ds.kind != "database"),
-        **({"query_sha256": digest(query)} if query is not None and query.is_file() else {}),
+        **summed,
         "rows": vout.rows,
         "files": vout.files,
         "unknown_columns": vout.unknown_columns,
@@ -572,7 +603,7 @@ def _want(ds: Dataset, rows: int, gone: dict[str, str] | None) -> list[str]:
     return formats_for(rows, geo_kind(ds), gone)
 
 
-def current(ds: Dataset, hit: dict[str, Any], now: dict[str, str]) -> bool:
+def current(ds: Dataset, hit: CacheMeta, now: dict[str, str]) -> bool:
     """Whether a cached version already holds every format the current writers would make."""
     if ds.kind == "database":
         return True
@@ -627,8 +658,8 @@ def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
 
 
 def grow_cached(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a cached version's growth steps, read in order
-    ds: Dataset, m: store.Manifest, hit: dict[str, Any], vdir: Path, cache: BuildCache, *, key: str
-) -> dict[str, Any] | None:
+    ds: Dataset, m: store.Manifest, hit: CacheMeta, vdir: Path, cache: BuildCache, *, key: str
+) -> CacheMeta | None:
     """A cached table version brought up to the current writers.
 
     A format whose writer the entry has not seen, or saw in another form, is written again from
@@ -656,7 +687,7 @@ def grow_cached(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a cached version's g
         return None
     base = version_url(ds.slug, m.version)
 
-    def hdr(rows: int, rel: str) -> dict[str, Any]:
+    def hdr(rows: int, rel: str) -> Header:
         return prov_header(ds, m, rows, base + rel)
 
     tbl = _built_table(ds, m, out, parquet)
@@ -711,7 +742,7 @@ def grow_cached(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a cached version's g
     # The Parquet each rewritten file was made from, which the check reads to make it again.
     grown = {k: v for k, v in hit.get("grown", {}).items() if k in files}
     grown |= dict.fromkeys(written, digest(parquet))
-    meta = {
+    meta: CacheMeta = {
         **hit,
         "files": dict(sorted(files.items())),
         "writers": writers,
@@ -741,7 +772,8 @@ def _cached_version(  # noqa: PLR0913 - the options are keyword-only and named a
     """
     vdir = out / "d" / ds.slug / "v" / m.version
     if cache is not None:
-        hit = cache.get(key, vdir)
+        # The entry's meta.json is the CacheMeta that _meta or grow_cached wrote.
+        hit = cast("CacheMeta | None", cache.get(key, vdir))
         if hit is not None:
             hit = grow_cached(ds, m, hit, vdir, cache, key=key)
         if hit is not None:
@@ -815,7 +847,7 @@ def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Tab
     )
 
 
-def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict[str, Any]:
+def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> JSONObject:
     """Two versions of a database compared table by table, by row count.
 
     The tables are not read back: a release of a hundred million rows is compared by what each
@@ -896,7 +928,7 @@ def build_dataset(
             pm, ptbl, pkey = prev
             path = out / "d" / ds.slug / "diff" / f"{pm.version}..{m.version}.json"
             dkey = cache.key(pkey, key, "diff") if cache else ""
-            d: dict[str, Any] | None = cache.get(dkey) if cache else None
+            d: JSONObject | None = cache.get(dkey) if cache else None
             if d is None:
                 if ds.kind == "database":
                     d = diff_database(ds, dout.versions[-2], vout)

@@ -17,7 +17,7 @@ import re
 import time
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
 from urllib.parse import quote, urlparse
 
 import requests
@@ -25,12 +25,172 @@ import requests
 from . import store
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
-    # A catalogue record, keyed as _record writes it and as the snapshot reads back.
-    type Record = dict[str, Any]
+    from .jsontypes import JSON
+    from .store import PortalStats
+
     type Log = Callable[[str], object]
+    type Params = Mapping[str, str | int | float | Sequence[str]]
+
+    class _Fields(TypedDict):
+        """The fields of a record each harvester gives _record."""
+
+        name: str
+        title: str
+        org: str
+        org_title: str
+        kind: str
+        licence_title: str
+        created: str
+        modified: str
+        url: str
+        summary: str
+        harvested_from: str
+
+    class _CouncilFields(TypedDict):
+        """The fields a council portal's harvester gives _council_record."""
+
+        source_id: str
+        name: str
+        title: str
+        licence: str
+        licence_title: str
+        formats: list[str]
+        modified: str
+        url: str
+        summary: str
+
+    class Record(_Fields):
+        """A catalogue record, keyed as _record writes it and as the snapshot reads back."""
+
+        id: str
+        portal: str
+        licence: str
+        open: bool | None
+        formats: list[str]
+        downloadable: bool
+        source_host: NotRequired[str]
+
+    # The parts of each portal's API answers that the harvesters read.
+    class _Named(TypedDict, total=False):
+        id: str
+        name: str
+        title: str | None
+
+    class _NamedList(TypedDict):
+        result: list[_Named]
+
+    class _Harvest(TypedDict, total=False):
+        site_url: str | None
+
+    class _CkanOrg(TypedDict, total=False):
+        name: str | None
+
+    class _CkanPackage(TypedDict, total=False):
+        id: str
+        name: str | None
+        title: str | None
+        original_harvest_source: str | _Harvest | None
+        extras_original_harvest_source: str | _Harvest | None
+        license_id: str | None
+        organization: str | _CkanOrg | None
+        dataset_type: str | None
+        type: str | None
+        res_format: list[object] | None
+        metadata_created: str | None
+        metadata_modified: str | None
+        url: str | None
+        notes: str | None
+
+    class _CkanResult(TypedDict):
+        results: list[_CkanPackage]
+        count: int
+
+    class _CkanSearch(TypedDict):
+        result: _CkanResult
+
+    class _SocrataResource(TypedDict, total=False):
+        id: str
+        type: str | None
+        attribution: str | None
+        name: str | None
+        createdAt: str | None
+        data_updated_at: str | None
+        updatedAt: str | None
+        description: str | None
+
+    class _SocrataMeta(TypedDict, total=False):
+        license: str | None
+
+    class _SocrataResult(TypedDict, total=False):
+        resource: _SocrataResource
+        metadata: _SocrataMeta | None
+        permalink: str | None
+        link: str | None
+
+    class _SocrataPage(TypedDict):
+        results: list[_SocrataResult]
+        resultSetSize: int
+
+    class _Dataflow(TypedDict, total=False):
+        id: str
+        version: str | None
+        name: str | None
+        description: str | None
+
+    class _Dataflows(TypedDict):
+        dataflows: list[_Dataflow]
+
+    class _SdmxAnswer(TypedDict):
+        data: _Dataflows
+
+    class _OdsMeta(TypedDict, total=False):
+        license: str | None
+        license_url: str | None
+        title: str | None
+        modified: str | None
+        description: str | None
+
+    class _OdsMetas(TypedDict, total=False):
+        default: _OdsMeta | None
+
+    class _OdsDataset(TypedDict, total=False):
+        dataset_id: str
+        dataset_uid: str | None
+        metas: _OdsMetas | None
+        has_records: bool | None
+        features: list[str] | None
+
+    class _OdsPage(TypedDict):
+        total_count: int
+        results: list[_OdsDataset]
+
+    class HubItem(TypedDict, total=False):
+        """An ArcGIS Hub dataset's properties, as its search and item APIs state them."""
+
+        id: str
+        type: str | None
+        title: str | None
+        license: str | None
+        licenseInfo: str | None
+        created: object
+        modified: object
+        description: str | None
+        snippet: str | None
+
+    class _HubFeature(TypedDict, total=False):
+        properties: HubItem | None
+
+    class _HubLink(TypedDict, total=False):
+        href: str
+        rel: str
+
+    class _HubPage(TypedDict, total=False):
+        features: list[_HubFeature] | None
+        numberMatched: int
+        links: list[_HubLink] | None
 
 
 class _Headers(TypedDict, total=False):
@@ -157,7 +317,7 @@ GET_ATTEMPTS = 5
 def _get(
     s: requests.Session,
     url: str,
-    params: dict[str, Any] | None = None,
+    params: Params | None = None,
     *,
     timeout: float = 180,
     **kw: Unpack[_Headers],
@@ -184,17 +344,19 @@ class PortalError(RuntimeError):
 
 
 def get_json(
-    s: requests.Session, url: str, params: dict[str, Any] | None = None, **kw: Unpack[_GetOptions]
-) -> Any:  # noqa: ANN401 - a portal's parsed JSON, whose shape each caller reads
+    s: requests.Session, url: str, params: Params | None = None, **kw: Unpack[_GetOptions]
+) -> JSON:
+    """A portal's answer parsed as JSON; each caller names the shape it reads."""
     r = _get(s, url, params, **kw)
     try:
-        return r.json()
+        got: JSON = r.json()
     except ValueError:
         msg = (
             f"{url}: HTTP {r.status_code}, {r.headers.get('Content-Type') or 'no content type'}, "
             f"{len(r.content)} bytes, not JSON: {r.content[:120]!r}"
         )
         raise PortalError(msg) from None
+    return got
 
 
 # CKAN's default licence register, by title. Checked before any pattern so a title such as
@@ -305,7 +467,7 @@ def summary(notes: str) -> str:
     return cut.rstrip(",;:.") + "…"
 
 
-def _day(iso: str) -> str:
+def _day(iso: str | None) -> str:
     return (iso or "")[:10]
 
 
@@ -318,49 +480,64 @@ def record_id(portal: str, source_id: str) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", f"{portal}-{source_id}".lower()).strip("-")[:64]
 
 
-def _record(portal: Portal, **kw: Any) -> Record:  # noqa: ANN401 - the record's fields, each a JSON value
-    fmts = kw.pop("formats")
-    lic = kw.pop("licence")
+def _record(
+    portal: Portal,
+    *,
+    source_id: str,
+    licence: str,
+    formats: list[str],
+    source_host: str = "",
+    **kw: Unpack[_Fields],
+) -> Record:
     rec = {
-        "id": record_id(portal.code, kw.pop("source_id")),
+        "id": record_id(portal.code, source_id),
         "portal": portal.code,
-        "licence": lic,
-        "open": is_open(lic),
-        "formats": fmts,
-        "downloadable": bool(set(fmts) & DOWNLOADABLE),
-        "source_host": kw.pop("source_host", ""),
+        "licence": licence,
+        "open": is_open(licence),
+        "formats": formats,
+        "downloadable": bool(set(formats) & DOWNLOADABLE),
+        "source_host": source_host,
         **kw,
     }
-    return dict(sorted(rec.items()))
+    # The keys in name order, as the snapshot has always kept them.
+    return cast("Record", dict(sorted(rec.items())))
 
 
 def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
-    lic_titles = {
-        x["id"]: x.get("title") or x["id"]
-        for x in get_json(s, f"{portal.api}/license_list")["result"]
-    }
-    orgs, off = {}, 0
+    licences = cast("_NamedList", get_json(s, f"{portal.api}/license_list"))
+    lic_titles = {x["id"]: x.get("title") or x["id"] for x in licences["result"]}
+    orgs: dict[str, str] = {}
+    off = 0
     while True:
-        page = get_json(
-            s, f"{portal.api}/organization_list", {"all_fields": "true", "limit": 25, "offset": off}
+        page = cast(
+            "_NamedList",
+            get_json(
+                s,
+                f"{portal.api}/organization_list",
+                {"all_fields": "true", "limit": 25, "offset": off},
+            ),
         )["result"]
         new = [o for o in page if o["name"] not in orgs]
         if not new:
             break
         orgs.update({o["name"]: (o.get("title") or o["name"]).strip() for o in new})
         off += len(page)
-    out, dropped, start, rows = [], 0, 0, 1000
+    out: list[Record] = []
+    dropped, start, rows = 0, 0, 1000
     while True:
-        res = get_json(
-            s,
-            f"{portal.api}/package_search",
-            {
-                "rows": rows,
-                "start": start,
-                "sort": "id asc",
-                "fl": CKAN_FIELDS,
-                "include_private": "false",
-            },
+        res = cast(
+            "_CkanSearch",
+            get_json(
+                s,
+                f"{portal.api}/package_search",
+                {
+                    "rows": rows,
+                    "start": start,
+                    "sort": "id asc",
+                    "fl": CKAN_FIELDS,
+                    "include_private": "false",
+                },
+            ),
         )["result"]
         batch = res["results"]
         for p in batch:
@@ -412,12 +589,13 @@ def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
 
 
 def socrata(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
-    out, off, after = [], 0, ""
+    out: list[Record] = []
+    off, after = 0, ""
     while True:
         # scroll_id pages in id order, starting from an empty one, and stays stable while the
         # catalogue changes. Offsets over the default relevance order repeat and skip rows.
-        params = {"domains": portal.host, "limit": 100, "scroll_id": after}
-        res = get_json(s, portal.api, params)
+        params: Params = {"domains": portal.host, "limit": 100, "scroll_id": after}
+        res = cast("_SocrataPage", get_json(s, portal.api, params))
         for r in res["results"]:
             x, meta = r["resource"], r.get("metadata") or {}
             kind = x.get("type") or ""
@@ -452,13 +630,16 @@ def socrata(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list
 
 def sdmx(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """ABS dataflows. The ABS states CC BY 4.0 for its statistics unless a release says otherwise."""
-    flows = get_json(
-        s,
-        f"{portal.api}/dataflow/ABS",
-        {"detail": "allstubs"},
-        headers={"Accept": "application/vnd.sdmx.structure+json"},
+    flows = cast(
+        "_SdmxAnswer",
+        get_json(
+            s,
+            f"{portal.api}/dataflow/ABS",
+            {"detail": "allstubs"},
+            headers={"Accept": "application/vnd.sdmx.structure+json"},
+        ),
     )["data"]["dataflows"]
-    out = []
+    out: list[Record] = []
     for f in flows:
         fid, ver = f["id"], f.get("version") or "1.0"
         out.append(
@@ -484,13 +665,13 @@ def sdmx(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
     return out, 0
 
 
-def _council_record(portal: Portal, **kw: Any) -> Record:  # noqa: ANN401 - the record's fields, each a JSON value
+def _council_record(portal: Portal, *, created: str = "", **kw: Unpack[_CouncilFields]) -> Record:
     return _record(
         portal,
         org=portal.code,
         org_title=portal.publisher,
         kind="dataset",
-        created=kw.pop("created", ""),
+        created=created,
         harvested_from="",
         **kw,
     )
@@ -506,10 +687,14 @@ def ods(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
     A dataset with records can be exported in every format the platform offers; one without is a
     page of links, which is listed with no files.
     """
-    out, off, total = [], 0, 0
+    out: list[Record] = []
+    off, total = 0, 0
     while True:
-        res = get_json(
-            s, f"{portal.api}/api/explore/v2.1/catalog/datasets", {"limit": 100, "offset": off}
+        res = cast(
+            "_OdsPage",
+            get_json(
+                s, f"{portal.api}/api/explore/v2.1/catalog/datasets", {"limit": 100, "offset": off}
+            ),
         )
         total = res["total_count"]
         if total > ODS_PAGING_LIMIT:
@@ -522,7 +707,7 @@ def ods(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
             m = (x.get("metas") or {}).get("default") or {}
             lic = m.get("license") or ""
             lid = cc_url(m.get("license_url") or "") or licence_id(lic)
-            fmts = []
+            fmts: list[str] = []
             if x.get("has_records"):
                 fmts = ["API", "CSV", "JSON", "XLSX"]
                 if "geo" in (x.get("features") or []):
@@ -579,7 +764,7 @@ def _epoch_day(ms: object) -> str:
         return ""
 
 
-def hub_licence(x: dict[str, Any]) -> tuple[str, str]:
+def hub_licence(x: HubItem) -> tuple[str, str]:
     """The licence an ArcGIS Hub dataset states.
 
     Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
@@ -599,11 +784,12 @@ def hub_licence(x: dict[str, Any]) -> tuple[str, str]:
 
 def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """An ArcGIS Hub site, read through its OGC Records search of the site's own catalogue."""
-    out, n = [], 0
+    out: list[Record] = []
+    n = 0
     url = f"{portal.api}/api/search/v1/collections/dataset/items"
-    params: dict[str, Any] | None = {"limit": 100}
+    params: Params | None = {"limit": 100}
     while True:
-        res = get_json(s, url, params)
+        res = cast("_HubPage", get_json(s, url, params))
         feats = res.get("features") or []
         for f in feats:
             x = f.get("properties") or {}
@@ -641,7 +827,7 @@ def harvest(
     log: Log = print,
     previous: list[Record] | None = None,
     previous_version: str = "",
-) -> tuple[list[Record], dict[str, dict[str, Any]]]:
+) -> tuple[list[Record], dict[str, PortalStats]]:
     """A portal that cannot be read keeps its records from the previous snapshot.
 
     The stats say so, so an outage never reads as datasets withdrawn. With no previous snapshot
@@ -650,7 +836,7 @@ def harvest(
     s = requests.Session()
     s.headers["User-Agent"] = UA
     records: list[Record] = []
-    stats: dict[str, dict[str, Any]] = {}
+    stats: dict[str, PortalStats] = {}
     for p in portals:
         try:
             recs, dropped = HARVESTERS[p.kind](p, s, log)
@@ -689,7 +875,7 @@ def _title_key(title: str) -> str:
 
 
 def _drop_copies(
-    records: list[Record], portals: Iterable[Portal], stats: dict[str, dict[str, Any]]
+    records: list[Record], portals: Iterable[Portal], stats: dict[str, PortalStats]
 ) -> list[Record]:
     """Drop the copies of records that a council portal now lists itself.
 

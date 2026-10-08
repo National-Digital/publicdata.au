@@ -21,7 +21,7 @@ import urllib.parse
 import zoneinfo
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import openpyxl
 import requests
@@ -34,12 +34,160 @@ from .serialise.profile import layout, misfits
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
+    from .jsontypes import JSON, JSONObject
     from .register import Dataset
+    from .store import ManifestLicence, ManifestSource, StackFile
+
+    # The licence as an adapter read it, which the version's manifest keeps.
+    type LicenceRead = ManifestLicence
 
     # The bytes (None when unchanged), the manifest and the licence as the adapter read it.
-    type FetchResult = tuple[bytes | None, store.Manifest, dict[str, Any]]
+    type FetchResult = tuple[bytes | None, store.Manifest, LicenceRead]
     type Adapter = Callable[[Dataset, Path], FetchResult]
     type Download = Fetched | requests.Response
+
+    class CkanOrganization(TypedDict, total=False):
+        name: str | None
+        title: str | None
+
+    class CkanResource(TypedDict, total=False):
+        id: str
+        url: str
+        name: str | None
+        format: str | None
+        description: str | None
+        created: str | None
+        last_modified: str | None
+        metadata_modified: str | None
+
+    class CkanPackage(TypedDict, total=False):
+        id: str
+        name: str
+        title: str | None
+        version: str | None
+        notes: str | None
+        organization: CkanOrganization | None
+        metadata_created: str | None
+        metadata_modified: str
+        license_id: str
+        license_title: str
+        license_url: str
+        resources: list[CkanResource]
+
+    class _CkanResult(TypedDict):
+        results: list[CkanPackage]
+
+    class CkanSearch(TypedDict, total=False):
+        success: bool
+        error: JSON
+        result: _CkanResult
+
+    class _SocrataLicence(TypedDict, total=False):
+        name: str | None
+        termsLink: str
+
+    class _SocrataView(TypedDict, total=False):
+        name: str
+        license: _SocrataLicence | None
+        licenseId: str | None
+        rowsUpdatedAt: int | None
+        viewLastModified: int | None
+
+    class _OdsMeta(TypedDict, total=False):
+        title: str
+        license: str | None
+        license_url: str | None
+        data_processed: str | None
+        modified: str | None
+
+    class _OdsMetas(TypedDict, total=False):
+        default: _OdsMeta | None
+
+    class _OdsDataset(TypedDict, total=False):
+        metas: _OdsMetas | None
+
+    class _HubProps(catalogue.HubItem, total=False):
+        url: str | None
+
+    # A Hub item answers with its properties at the top or under properties.
+    class _HubAnswer(_HubProps, total=False):
+        properties: _HubProps | None
+
+    class _EditingInfo(TypedDict, total=False):
+        lastEditDate: int | None
+
+    class _EsriField(TypedDict):
+        name: str
+        type: str
+
+    class _LayerInfo(TypedDict, total=False):
+        name: str
+        fields: list[_EsriField]
+        objectIdField: str | None
+        maxRecordCount: int | None
+        editingInfo: _EditingInfo | None
+
+    class GeoFeature(TypedDict, total=False):
+        type: str
+        geometry: JSON
+        properties: dict[str, str | float | None] | None
+
+    class _FeaturePage(TypedDict, total=False):
+        features: list[GeoFeature]
+
+    class AlaOccurrence(TypedDict, total=False):
+        uuid: str
+        id: str
+        license: str
+        firstLoadedDate: str
+        otherProperties: JSONObject | None
+
+    class _AlaCount(TypedDict, total=False):
+        totalRecords: int
+
+    class _AlaPage(TypedDict, total=False):
+        occurrences: list[AlaOccurrence] | None
+
+    # KiWIS answers a list query as a header row and then one row of text per item.
+    type KiwisTable = list[list[str]]
+
+    class KiwisSeries(TypedDict, total=False):
+        station_no: str
+        ts_id: str
+        # Each value as its timestamp, value and quality code.
+        data: list[tuple[str, float | None, int | None]]
+
+    class _ZenodoLinks(TypedDict, total=False):
+        self: str
+        self_html: str
+
+    class _ZenodoFile(TypedDict, total=False):
+        key: str
+        checksum: str
+        links: _ZenodoLinks
+
+    class _ZenodoLicence(TypedDict, total=False):
+        id: str | None
+        url: str
+
+    class _ZenodoMeta(TypedDict, total=False):
+        license: _ZenodoLicence | None
+        publication_date: str | None
+
+    class _ZenodoRecord(TypedDict, total=False):
+        id: int | str
+        doi: str
+        updated: str | None
+        links: _ZenodoLinks | None
+        metadata: _ZenodoMeta | None
+        files: list[_ZenodoFile] | None
+
+    class _ZenodoHits(TypedDict, total=False):
+        hits: list[_ZenodoRecord] | None
+
+    class _ZenodoSearch(TypedDict, total=False):
+        hits: _ZenodoHits | None
+
 
 TZ = zoneinfo.ZoneInfo("Australia/Brisbane")
 UNREADABLE_DATE = (TypeError, ValueError)
@@ -101,7 +249,7 @@ def ckan_resource(
     api = f"{ds.source.portal.rstrip('/')}/api/3/action"
     p = _package(ds, s, api)
     res = pick_resource(ds, p["resources"])
-    licence = {
+    licence: LicenceRead = {
         "id": p.get("license_id", ""),
         "title": p.get("license_title", ""),
         "url": p.get("license_url", ""),
@@ -175,7 +323,7 @@ def ckan_resource(
     return data, m, licence
 
 
-def _same_record(m: store.Manifest, p: dict[str, Any], res: dict[str, Any]) -> bool:
+def _same_record(m: store.Manifest, p: CkanPackage, res: CkanResource) -> bool:
     """Whether the portal still describes the file the newest version was made from."""
     was = m.source
     return (
@@ -185,7 +333,7 @@ def _same_record(m: store.Manifest, p: dict[str, Any], res: dict[str, Any]) -> b
     )
 
 
-def _package(ds: Dataset, s: requests.Session, api: str) -> dict[str, Any]:
+def _package(ds: Dataset, s: requests.Session, api: str) -> CkanPackage:
     if ds.source.package_match:
         query: dict[str, str | int] = {
             "q": ds.source.package,
@@ -203,11 +351,11 @@ def _package(ds: Dataset, s: requests.Session, api: str) -> dict[str, Any]:
     if not pkg.get("success"):
         msg = f"{ds.slug}: package_show failed: {pkg.get('error')}"
         raise RuntimeError(msg)
-    result: dict[str, Any] = pkg["result"]
+    result: CkanPackage = pkg["result"]
     return result
 
 
-def pick_package(ds: Dataset, packages: list[dict[str, Any]]) -> str:
+def pick_package(ds: Dataset, packages: list[CkanPackage]) -> str:
     """The newest package whose name matches, by the date the portal created it."""
     rx = re.compile(ds.source.package_match)
     hits = [p for p in packages if rx.search(p.get("name", ""))]
@@ -218,7 +366,7 @@ def pick_package(ds: Dataset, packages: list[dict[str, Any]]) -> str:
     return name
 
 
-def pick_resource(ds: Dataset, resources: list[dict[str, Any]]) -> dict[str, Any]:
+def pick_resource(ds: Dataset, resources: list[CkanResource]) -> CkanResource:
     """The named resource, or the newest whose name matches.
 
     The newest is the latest created, then the last listed, since a portal that re-imports old
@@ -251,7 +399,7 @@ def etag(headers: Mapping[str, str]) -> str:
     return f"W/{tag}" if weak else tag
 
 
-def resource_filename(res: dict[str, Any]) -> str:
+def resource_filename(res: CkanResource) -> str:
     """The file's name from its URL.
 
     A name with no extension takes the resource's stated format, since the reader is chosen by
@@ -341,7 +489,7 @@ def _download(ds: Dataset, s: requests.Session, url: str) -> Download:
     return r
 
 
-def _changed(ds: Dataset, value: str | float | None, unit: int = 0) -> str:
+def _changed(ds: Dataset, value: object, unit: int = 0) -> str:
     """The portal's change date as UTC ISO.
 
     It is read from an epoch in seconds (unit 1), milliseconds (unit 1000) or an ISO string
@@ -350,7 +498,7 @@ def _changed(ds: Dataset, value: str | float | None, unit: int = 0) -> str:
     """
     try:
         if unit:
-            return dt.datetime.fromtimestamp(int(value) / unit, dt.UTC).isoformat()  # type: ignore[arg-type]  # None raises the TypeError that reports no date
+            return dt.datetime.fromtimestamp(int(value) / unit, dt.UTC).isoformat()  # type: ignore[call-overload]  # None raises the TypeError that reports no date
         return _normal_iso(str(value))
     except UNREADABLE_DATE as e:
         msg = f"{ds.slug}: the portal states no change date ({value!r})"
@@ -359,7 +507,7 @@ def _changed(ds: Dataset, value: str | float | None, unit: int = 0) -> str:
 
 def _licence(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset, stated: str, normalised: str, title: str, url: str, *, read_from: str
-) -> dict[str, Any]:
+) -> LicenceRead:
     """The licence a portal states, keeping its own code and the id worked out from its words.
 
     `id` is the one the register is checked against: the portal's code when the entry names one
@@ -389,8 +537,8 @@ def _portal_version(  # noqa: PLR0913 - the options are keyword-only and named a
     changed: str,
     *,
     filename: str,
-    source: dict[str, Any],
-    licence: dict[str, Any],
+    source: ManifestSource,
+    licence: LicenceRead,
 ) -> FetchResult:
     """Download a portal's export and make its manifest.
 
@@ -425,17 +573,22 @@ def _portal_version(  # noqa: PLR0913 - the options are keyword-only and named a
         bytes=len(data),
         filename=filename,
         encoding=_encoding(filename, data, ds.source.encoding),
-        source={
-            "url": url,
-            "portal": ds.source.portal,
-            **source,
-            "etag": etag(r.headers),
-            "http_last_modified": r.headers.get("Last-Modified", ""),
-        },
+        source=_portal_source(url, ds.source.portal, source, r.headers),
         licence=licence,
         notes=[note] if note else [],
     )
     return data, m, licence
+
+
+def _portal_source(
+    url: str, portal: str, source: ManifestSource, headers: Mapping[str, str]
+) -> ManifestSource:
+    # The keys in the order the manifest has always written them; source's own keep their place.
+    out: ManifestSource = {"url": url, "portal": portal}
+    out.update(source)
+    out["etag"] = etag(headers)
+    out["http_last_modified"] = headers.get("Last-Modified", "")
+    return out
 
 
 def socrata_view(
@@ -444,7 +597,7 @@ def socrata_view(
     """A Socrata dataset, such as the ACT's, exported whole as CSV. package is its four-by-four."""
     s = _session(session)
     base = ds.source.portal.rstrip("/")
-    view = catalogue.get_json(s, f"{base}/api/views/{ds.source.package}.json")
+    view = cast("_SocrataView", catalogue.get_json(s, f"{base}/api/views/{ds.source.package}.json"))
     lic = view.get("license") or {}
     title = lic.get("name") or ""
     return _portal_version(
@@ -476,7 +629,8 @@ def opendatasoft(
     """An Opendatasoft dataset exported whole as comma-separated CSV. package is its dataset id."""
     s = _session(session)
     base = f"{ds.source.portal.rstrip('/')}/api/explore/v2.1/catalog/datasets/{ds.source.package}"
-    meta = (catalogue.get_json(s, base).get("metas") or {}).get("default") or {}
+    found = cast("_OdsDataset", catalogue.get_json(s, base))
+    meta = (found.get("metas") or {}).get("default") or {}
     title = meta.get("license") or ""
     return _portal_version(
         ds,
@@ -510,15 +664,21 @@ def arcgis_hub(
     """
     s = _session(session)
     base = ds.source.portal.rstrip("/")
-    item = catalogue.get_json(
-        s, f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}"
+    item = cast(
+        "_HubAnswer",
+        catalogue.get_json(
+            s, f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}"
+        ),
     )
     props = item.get("properties") or item
     lic_id, lic_title = catalogue.hub_licence(props)
     layer = ds.source.resource or "0"
     changed = props.get("modified")
-    if props.get("url"):
-        info = catalogue.get_json(s, f"{props['url'].rstrip('/')}/{layer}", {"f": "json"})
+    if url := props.get("url"):
+        info = cast(
+            "_LayerInfo",
+            catalogue.get_json(s, f"{url.rstrip('/')}/{layer}", {"f": "json"}),
+        )
         changed = (info.get("editingInfo") or {}).get("lastEditDate") or changed
     return _portal_version(
         ds,
@@ -564,7 +724,7 @@ def arcgis_feature(
         read_from=f"{ds.source.portal.rstrip('/')}/api/3/action/package_show?id={p['name']}",
     )
     layer = ds.source.url.rstrip("/")
-    info = catalogue.get_json(s, layer, {"f": "pjson"})
+    info = cast("_LayerInfo", catalogue.get_json(s, layer, {"f": "pjson"}))
     if "fields" not in info:
         msg = f"{ds.slug}: {layer} is not a feature layer: {str(info)[:200]}"
         raise FetchError(msg)
@@ -572,22 +732,25 @@ def arcgis_feature(
         (f["name"] for f in info["fields"] if f["type"] == "esriFieldTypeOID"), "OBJECTID"
     )
     page = min(int(info.get("maxRecordCount") or 1000), 2000)
-    feats: list[dict[str, Any]] = []
+    feats: list[GeoFeature] = []
     offset = 0
     while True:
-        got = catalogue.get_json(
-            s,
-            f"{layer}/query",
-            {
-                "where": "1=1",
-                "outFields": "*",
-                "orderByFields": oid,
-                "resultOffset": offset,
-                "resultRecordCount": page,
-                "outSR": 4326,
-                "f": "geojson",
-            },
-            timeout=300,
+        got = cast(
+            "_FeaturePage",
+            catalogue.get_json(
+                s,
+                f"{layer}/query",
+                {
+                    "where": "1=1",
+                    "outFields": "*",
+                    "orderByFields": oid,
+                    "resultOffset": offset,
+                    "resultRecordCount": page,
+                    "outSR": 4326,
+                    "f": "geojson",
+                },
+                timeout=300,
+            ),
         )
         if "features" not in got:
             msg = f"{ds.slug}: page at {offset} is not GeoJSON: {str(got)[:200]}"
@@ -704,7 +867,9 @@ ALA_NOTE = (
 
 
 def _ala_count(s: requests.Session, base: str, q: str, fq: list[str]) -> int:
-    got = catalogue.get_json(s, base, {"q": q, "fq": fq, "pageSize": 0}, timeout=120)
+    got = cast(
+        "_AlaCount", catalogue.get_json(s, base, {"q": q, "fq": fq, "pageSize": 0}, timeout=120)
+    )
     if "totalRecords" not in got:
         msg = f"ALA count failed: {str(got)[:200]}"
         raise FetchError(msg)
@@ -713,23 +878,26 @@ def _ala_count(s: requests.Session, base: str, q: str, fq: list[str]) -> int:
 
 def _ala_pages(
     s: requests.Session, base: str, q: str, fq: list[str], n: int
-) -> Iterator[dict[str, Any]]:
+) -> Iterator[AlaOccurrence]:
     for start in range(0, n, ALA_PAGE):
-        got = catalogue.get_json(
-            s,
-            base,
-            {
-                "q": q,
-                "fq": fq,
-                "pageSize": ALA_PAGE,
-                "startIndex": start,
-                "fl": ALA_REQUEST,
-                # Sorting by load date drops rows: whole slices share one second and the
-                # API's page order is not stable across ties. The record id is unique.
-                "sort": "id",
-                "dir": "asc",
-            },
-            timeout=120,
+        got = cast(
+            "_AlaPage",
+            catalogue.get_json(
+                s,
+                base,
+                {
+                    "q": q,
+                    "fq": fq,
+                    "pageSize": ALA_PAGE,
+                    "startIndex": start,
+                    "fl": ALA_REQUEST,
+                    # Sorting by load date drops rows: whole slices share one second and the
+                    # API's page order is not stable across ties. The record id is unique.
+                    "sort": "id",
+                    "dir": "asc",
+                },
+                timeout=120,
+            ),
         )
         rows = got.get("occurrences")
         if rows is None:
@@ -746,7 +914,7 @@ ALA_MIN_SPAN = 0.0001
 
 def _ala_slices(  # noqa: C901, PLR0913 - the slicing rule in one place; the options are keyword-only
     s: requests.Session, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: float, dim: int
-) -> Iterator[dict[str, Any]]:
+) -> Iterator[AlaOccurrence]:
     """Rows of a query too large for the API's paging, read in slices.
 
     The query is split by load time, then by latitude and longitude, then by year, until every
@@ -826,8 +994,12 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -
         "license:(" + " OR ".join(f'"{x}"' for x in ALA_LICENCES) + ")",
     ]
     existing = store.manifests(store_dir, ds.slug)
-    before = (existing[-1].source.get("providers") or {}) if existing else {}
-    rows: dict[str, dict[str, Any]] = {}
+    before = (
+        cast("dict[str, dict[str, int]]", existing[-1].source.get("providers") or {})
+        if existing
+        else {}
+    )
+    rows: dict[str, AlaOccurrence] = {}
     counts: dict[str, dict[str, int]] = {}
     now = dt.datetime.now(dt.UTC).timestamp()
     for uid in ds.source.providers:
@@ -861,9 +1033,10 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -
     for key in sorted(rows):
         r = rows[key]
         other = r.get("otherProperties") or {}
-        line = [key]
+        fields: Mapping[str, object] = r
+        line: list[object] = [key]
         for f in ALA_FIELDS[1:]:
-            v = r.get(f, other.get(f))
+            v = fields.get(f, other.get(f))
             if f == "firstLoadedDate" and v:
                 v = str(v)[:19] + "Z"
             line.append("" if v is None else v)
@@ -930,7 +1103,7 @@ def page_text(body: bytes) -> str:
     return " ".join(text.split())
 
 
-def statement_licence(ds: Dataset, s: requests.Session) -> dict[str, Any]:
+def statement_licence(ds: Dataset, s: requests.Session) -> LicenceRead:
     """The licence a publisher states on its own page, for a file no portal describes.
 
     The register's licence holds while the page still carries the words the entry quotes.
@@ -964,7 +1137,7 @@ def _wfs_pages(ds: Dataset, s: requests.Session) -> tuple[Download, bytes]:
     Features are read `page_size` at a time in the order its sortBy gives. The last response stands
     for the whole for its headers.
     """
-    feats: list[Any] = []
+    feats: list[JSON] = []
     sep = "&" if "?" in ds.source.url else "?"
     for page in range(WFS_PAGES):
         url = f"{ds.source.url}{sep}count={ds.source.page_size}&startIndex={page * ds.source.page_size}"
@@ -1076,7 +1249,7 @@ KIWIS_STATIONS_NOTE = (
 )
 
 
-def _kiwis_query(s: requests.Session, base: str, request: str, **params: str) -> list[Any]:
+def _kiwis_query(s: requests.Session, base: str, request: str, **params: str) -> list[JSON]:
     """One KiWIS query.
 
     The service answers 500 to a space sent as "+", so the query is percent-encoded, and a refusal
@@ -1105,26 +1278,28 @@ def _kiwis_query(s: requests.Session, base: str, request: str, **params: str) ->
     if isinstance(got, dict):
         msg = f"KiWIS {request} failed: {str(got)[:200]}"
         raise FetchError(msg)
-    rows: list[Any] = got
-    return rows
+    return cast("list[JSON]", got)
 
 
-def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[dict[str, Any]]:
+def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[KiwisSeries]:
     """The values of a batch of series.
 
     The service counts values its own way, so a batch it refuses as too large is split until it
     answers.
     """
     try:
-        return _kiwis_query(
-            s,
-            base,
-            "getTimeseriesValues",
-            ts_id=",".join(batch),
-            period="complete",
-            returnfields="Timestamp,Value,Quality Code",
-            metadata="true",
-            md_returnfields="station_no,ts_id",
+        return cast(
+            "list[KiwisSeries]",
+            _kiwis_query(
+                s,
+                base,
+                "getTimeseriesValues",
+                ts_id=",".join(batch),
+                period="complete",
+                returnfields="Timestamp,Value,Quality Code",
+                metadata="true",
+                md_returnfields="station_no,ts_id",
+            ),
         )
     except FetchError as e:
         if "TooManyResults" not in str(e) or len(batch) <= 1:
@@ -1154,18 +1329,21 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
         raise FetchError(msg)
     licence = statement_licence(ds, s)
     base = ds.source.url
-    raw = _kiwis_query(
-        s,
-        base,
-        "getStationList",
-        parametertype_name=ds.source.search,
-        returnfields=",".join(KIWIS_STATION_FIELDS),
+    raw = cast(
+        "KiwisTable",
+        _kiwis_query(
+            s,
+            base,
+            "getStationList",
+            parametertype_name=ds.source.search,
+            returnfields=",".join(KIWIS_STATION_FIELDS),
+        ),
     )
     header, rows = raw[0], raw[1:]
     stations = {r[0]: dict(zip(header, r, strict=True)) for r in rows}
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
-    source: dict[str, Any] = {"url": base, "parameter": ds.source.search, "stations": len(stations)}
+    source: ManifestSource = {"url": base, "parameter": ds.source.search, "stations": len(stations)}
     if ds.source.resource == "stations":
         w.writerow([*KIWIS_STATION_COLUMNS.values(), "state"])
         for no in sorted(stations):
@@ -1178,20 +1356,23 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
             )
         changed, notes = dt.datetime.now(dt.UTC).isoformat(), [KIWIS_STATIONS_NOTE]
     else:
-        series = _kiwis_query(
-            s,
-            base,
-            "getTimeseriesList",
-            parametertype_name=ds.source.search,
-            ts_name=ds.source.package,
-            # coverage answers as the from and to columns; naming those two is refused.
-            returnfields="station_no,ts_id,ts_name,coverage",
+        series = cast(
+            "KiwisTable",
+            _kiwis_query(
+                s,
+                base,
+                "getTimeseriesList",
+                parametertype_name=ds.source.search,
+                ts_name=ds.source.package,
+                # coverage answers as the from and to columns; naming those two is refused.
+                returnfields="station_no,ts_id,ts_name,coverage",
+            ),
         )
         dated = [dict(zip(series[0], r, strict=True)) for r in series[1:] if r[3] and r[4]]
         if not dated:
             msg = f"{ds.slug}: no station has a dated {ds.source.package} series"
             raise FetchError(msg)
-        values: dict[str, list[Any]] = {}
+        values: dict[str, list[tuple[str, float | None, int | None]]] = {}
         for batch in _kiwis_batches(dated):
             for ts in _kiwis_values(s, base, batch):
                 values[ts["station_no"]] = ts.get("data") or []
@@ -1231,7 +1412,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
     return data, m, licence
 
 
-def _kiwis_batches(series: list[dict[str, Any]]) -> list[list[str]]:
+def _kiwis_batches(series: list[dict[str, str]]) -> list[list[str]]:
     """Series packed into requests by the days each covers, under the service's value limit."""
     est = []
     for r in series:
@@ -1257,7 +1438,7 @@ AIHW_LISTING = "https://www.aihw.gov.au/api/search/all-downloadable-resources"
 AIHW_ATTRS = re.compile(r'<div[^>]*class="s-downloadable-resources[^"]*"(.*?)>', re.DOTALL)
 
 
-def _aihw_listing(page: bytes) -> dict[str, Any]:
+def _aihw_listing(page: bytes) -> JSONObject:
     """The query the AIHW data page makes for its file list, from the wrapper's attributes."""
     for m in AIHW_ATTRS.finditer(page.decode("utf-8", "replace")):
         d = dict(re.findall(r'data-([a-z-]+)="([^"]*)"', m.group(1)))
@@ -1267,7 +1448,7 @@ def _aihw_listing(page: bytes) -> dict[str, Any]:
     raise FetchError(msg)
 
 
-def _aihw_query(d: dict[str, str]) -> dict[str, Any]:
+def _aihw_query(d: dict[str, str]) -> JSONObject:
     def flag(k: str) -> bool:
         return d.get(k, "").lower() == "true"
 
@@ -1392,11 +1573,14 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
     record.
     """
     s = _session(session)
-    got = catalogue.get_json(
-        s,
-        ds.source.url,
-        {"q": f"conceptrecid:{ds.source.package}", "sort": "mostrecent", "size": 1},
-        timeout=120,
+    got = cast(
+        "_ZenodoSearch",
+        catalogue.get_json(
+            s,
+            ds.source.url,
+            {"q": f"conceptrecid:{ds.source.package}", "sort": "mostrecent", "size": 1},
+            timeout=120,
+        ),
     )
     hits = (got.get("hits") or {}).get("hits") or []
     if not hits:
@@ -1405,12 +1589,14 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
     rec = hits[0]
     meta = rec.get("metadata") or {}
     stated = str((meta.get("license") or {}).get("id") or "")
+    empty: _ZenodoLicence = {}
+    lic = meta.get("license", empty)
     licence = _licence(
         ds,
         stated,
         normalise_licence_id(stated),
         stated,
-        meta.get("license", {}).get("url", ""),
+        lic.get("url", ""),  # type: ignore[union-attr]  # BUG: a record whose license is null raises AttributeError here
         read_from=f"{ds.source.url}?q=conceptrecid:{ds.source.package}",
     )
     rx = re.compile(ds.source.resource_match or ".")
@@ -1574,8 +1760,8 @@ def _section_rows(
 
 
 def _stack(
-    ds: Dataset, s: requests.Session, files: list[dict[str, str]]
-) -> tuple[bytes, list[dict[str, Any]], int, int]:
+    ds: Dataset, s: requests.Session, files: list[StackFile]
+) -> tuple[bytes, list[StackFile], int, int]:
     """Every file read into one table.
 
     Its columns are laid out as the first file has them, and it is ordered by every column, with a
@@ -1585,7 +1771,7 @@ def _stack(
     named = any(x.source == FILE_SOURCE for x in ds.fields)
     header: list[str] = []
     rows: list[list[str]] = []
-    read: list[dict[str, Any]] = []
+    read: list[StackFile] = []
     for f in files:
         got = _download(ds, s, f["url"])
         expect_page(ds, f["url"], got, got.content)
@@ -1616,14 +1802,12 @@ def _stack(
             at = [h.index(c) for c in header]
             body = [[row[i] for i in at] for row in body]
         rows.extend(body)
-        read.append(
-            {k: v for k, v in f.items() if k != "filename"}
-            | {
-                "sha256": hashlib.sha256(got.content).hexdigest(),
-                "rows": len(body),
-                "http_last_modified": got.headers.get("Last-Modified", ""),
-            }
-        )
+        kept = f.copy()
+        kept.pop("filename")
+        kept["sha256"] = hashlib.sha256(got.content).hexdigest()
+        kept["rows"] = len(body)
+        kept["http_last_modified"] = got.headers.get("Last-Modified", "")
+        read.append(kept)
     unique = sorted(set(map(tuple, rows)))
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
@@ -1637,9 +1821,9 @@ def _stack_version(  # noqa: PLR0913 - the options are keyword-only and named at
     store_dir: Path,
     data: bytes,
     changed: str,
-    source: dict[str, Any],
+    source: ManifestSource,
     *,
-    licence: dict[str, Any],
+    licence: LicenceRead,
     notes: tuple[str, ...] = (),
 ) -> FetchResult:
     digest = hashlib.sha256(data).hexdigest()
@@ -1675,8 +1859,11 @@ def ckan_stack(  # noqa: C901 - the adapter's steps, read in order
     """
     s = _session(session)
     api = f"{ds.source.portal.rstrip('/')}/api/3/action"
-    found = catalogue.get_json(
-        s, f"{api}/package_search", {"q": ds.source.package, "rows": 1000}, timeout=120
+    found = cast(
+        "CkanSearch",
+        catalogue.get_json(
+            s, f"{api}/package_search", {"q": ds.source.package, "rows": 1000}, timeout=120
+        ),
     )
     if not found.get("success"):
         msg = f"{ds.slug}: package_search failed: {found.get('error')}"
@@ -1706,7 +1893,7 @@ def ckan_stack(  # noqa: C901 - the adapter's steps, read in order
         read_from=f"{api}/package_search?q={urllib.parse.quote(ds.source.package)}",
     )
     rrx = re.compile(ds.source.resource_match) if ds.source.resource_match else None
-    resources: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    resources: list[tuple[CkanPackage, CkanResource]] = []
     for p in packages:
         for r in p.get("resources") or []:
             if rrx and not rrx.search((r.get("name") or "").strip()):
@@ -1719,7 +1906,7 @@ def ckan_stack(  # noqa: C901 - the adapter's steps, read in order
         msg = f"{ds.slug}: the packages hold no workbooks to read"
         raise FetchError(msg)
     resources.sort(key=lambda pr: (pr[1].get("created") or "", pr[1]["id"]))
-    files = [
+    files: list[StackFile] = [
         {
             "url": r["url"],
             "filename": resource_filename(r),
@@ -1746,7 +1933,7 @@ def ckan_stack(  # noqa: C901 - the adapter's steps, read in order
         )
         raise ManualDue(msg)
     data, read, n, repeated = _stack(ds, s, files)
-    source = {
+    source: ManifestSource = {
         "url": ds.source.url,
         "portal": ds.source.portal,
         "search": ds.source.package,
@@ -1792,7 +1979,7 @@ def file_stack(
     if not links:
         msg = f"{ds.slug}: {ds.source.url} links to no file matching '{ds.source.resource_match}'"
         raise FetchError(msg)
-    files = [
+    files: list[StackFile] = [
         {"url": u, "filename": urllib.parse.unquote(u.split("?", 1)[0].rsplit("/", 1)[-1])}
         for u in links
     ]
@@ -1804,7 +1991,7 @@ def file_stack(
             changed = max(changed, when.astimezone(dt.UTC).isoformat())
         except UNREADABLE_DATE:
             pass
-    source = {
+    source: ManifestSource = {
         "url": ds.source.url,
         "files": read,
         "rows_read": n,
@@ -1943,7 +2130,7 @@ def _encoding(filename: str, data: bytes, preferred: str) -> str:
     return detect_encoding(data, preferred)
 
 
-def check_licence(ds: Dataset, licence: Mapping[str, Any]) -> None:
+def check_licence(ds: Dataset, licence: LicenceRead) -> None:
     """Stops the run when the portal's licence differs from the register's.
 
     It runs on every fetch, changed bytes or not, and stops before anything is written. A register

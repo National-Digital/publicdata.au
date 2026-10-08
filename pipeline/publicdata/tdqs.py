@@ -15,15 +15,14 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from .api_text import mcp_spec
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-# A tool definition as api.json gives it, or as a test writes one, before any check has read it.
-type Tool = dict[str, Any]
+    from .api_text import Tool
 
 NAME = re.compile(r"^[a-z]+(?:_[a-z]+)+$")
 HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
@@ -207,23 +206,23 @@ def _naming(t: Tool) -> list[str]:
     return []
 
 
-QUALITIES: tuple[tuple[str, Callable[..., list[str]]], ...] = (
-    ("naming", _naming),
-    ("purpose", _purpose),
+# Only usage reads the other tools' names.
+QUALITIES: tuple[tuple[str, Callable[[Tool, Sequence[str]], list[str]]], ...] = (
+    ("naming", lambda t, _: _naming(t)),
+    ("purpose", lambda t, _: _purpose(t)),
     ("usage", _usage),
-    ("parameters", _parameters),
-    ("limits", _limits),
-    ("returns", _returns),
-    ("annotations", _annotations),
-    ("length", _length),
+    ("parameters", lambda t, _: _parameters(t)),
+    ("limits", lambda t, _: _limits(t)),
+    ("returns", lambda t, _: _returns(t)),
+    ("annotations", lambda t, _: _annotations(t)),
+    ("length", lambda t, _: _length(t)),
 )
 
 
 def tool_problems(t: Tool, siblings: Sequence[str]) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for quality, f in QUALITIES:
-        found = f(t, siblings) if f is _usage else f(t)
-        out += [(quality, m) for m in found]
+        out += [(quality, m) for m in f(t, siblings)]
     return out
 
 

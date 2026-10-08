@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import pyarrow as pa
 import requests
@@ -25,7 +25,56 @@ from .register import CLOSED_LICENCES, OPEN_LICENCES, Field, draft_label
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from .fetch import CkanPackage
+    from .normalise import ArrowChunked
     from .register import FieldType
+
+    class _PackageShow(TypedDict, total=False):
+        success: bool
+        result: CkanPackage
+
+    class DraftLicence(TypedDict, total=False):
+        id: str
+        reviewed: str
+        evidence: str
+        attribution: str
+
+    class DraftSource(TypedDict, total=False):
+        adapter: str
+        portal: str
+        package: str
+        resource: str
+        url: str
+        sheet: str
+        header_row: int
+        encoding: str
+
+    class DraftField(TypedDict, total=False):
+        name: str
+        label: str
+        source: str
+        type: str
+        date_format: str
+
+    class DraftEntry(TypedDict, total=False):
+        """A drafted register entry, with its keys in the order the YAML writes them."""
+
+        slug: str
+        title: str
+        status: str
+        summary: str
+        description: str
+        publisher: dict[str, str]
+        licence: DraftLicence
+        source: DraftSource
+        suppression: list[str]
+        search_title: str
+        also_known_as: list[str]
+        keywords: list[str]
+        faq: list[str]
+        fields: list[DraftField]
+        blocked_reason: str
+
 
 SAMPLE_BYTES = 20_000_000
 WORKBOOK_BYTES = 200_000_000
@@ -98,7 +147,7 @@ def field_name(header: str, taken: set[str]) -> str:
     return name
 
 
-def _fits(arr: pa.ChunkedArray[Any], f: Field, suppression: tuple[str, ...] = ()) -> bool:
+def _fits(arr: ArrowChunked, f: Field, suppression: tuple[str, ...] = ()) -> bool:
     try:
         convert(arr, f, suppression)
     except UNFIT:
@@ -106,7 +155,7 @@ def _fits(arr: pa.ChunkedArray[Any], f: Field, suppression: tuple[str, ...] = ()
     return True
 
 
-def infer(name: str, header: str, arr: pa.ChunkedArray[Any]) -> tuple[Field, tuple[str, ...]]:
+def infer(name: str, header: str, arr: ArrowChunked) -> tuple[Field, tuple[str, ...]]:
     """The field and any suppression tokens it uses, typed by the normaliser's own conversion."""
     values = {v.strip() for v in arr.to_pylist() if v is not None and v.strip()}
     base = Field(name, header)
@@ -172,7 +221,7 @@ def _sample_table(
     return read_csv(data, enc), enc
 
 
-def _licence(pkg: dict[str, Any], host: str = "") -> str:
+def _licence(pkg: CkanPackage, host: str = "") -> str:
     lic = normalise_licence_id(pkg.get("license_id") or "", host)
     if lic in OPEN_LICENCES or lic in CLOSED_LICENCES:
         return lic
@@ -181,7 +230,7 @@ def _licence(pkg: dict[str, Any], host: str = "") -> str:
 
 
 def publisher_for(
-    portal: catalogue.Portal, pkg: dict[str, Any], curated: list[Publisher]
+    portal: catalogue.Portal, pkg: CkanPackage, curated: list[Publisher]
 ) -> dict[str, str]:
     org = pkg.get("organization") or {}
     key = f"{portal.code}:{org.get('name') or 'unknown'}"
@@ -215,12 +264,12 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
     *,
     sheet: str = "",
     header_row: int = 1,
-) -> tuple[str, dict[str, Any], list[str]]:
+) -> tuple[str, DraftEntry, list[str]]:
     """Returns (slug, the entry, notes for the reviewer)."""
     s = session or requests.Session()
     s.headers["User-Agent"] = UA
     portal, name, in_url = portal_for(url)
-    pkg = catalogue.get_json(s, f"{portal.api}/package_show", {"id": name})
+    pkg = cast("_PackageShow", catalogue.get_json(s, f"{portal.api}/package_show", {"id": name}))
     if not pkg.get("success"):
         msg = f"{portal.host}: package_show found no dataset {name}"
         raise DraftError(msg)
@@ -238,7 +287,7 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
         if not tabular:
             msg = f"{name} has no CSV or Excel resource"
             raise DraftError(msg)
-        res = next((r for r in tabular if r["format"].upper() == "CSV"), tabular[0])
+        res = next((r for r in tabular if (r.get("format") or "").upper() == "CSV"), tabular[0])
     notes: list[str] = []
     if len(tabular) > 1:
         notes.append(
@@ -281,7 +330,7 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
     seg = JUR_SEGMENT[pub["jurisdiction"]]
     words = slugify(title).removeprefix(f"{seg}-")
     slug = slug or f"{seg}-{words}"[:64].rstrip("-")
-    entry: dict[str, Any] = {
+    entry: DraftEntry = {
         "slug": slug,
         "title": title,
         "status": "building" if open_ else ("blocked" if lic in CLOSED_LICENCES else "assessing"),
@@ -300,32 +349,24 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
                 else ""
             ),
         },
-        "source": {
-            "adapter": "ckan-resource",
-            "portal": portal.api.removesuffix("/api/3/action"),
-            "package": p["name"],
-            "resource": res["id"],
-            "url": landing,
-            **({"sheet": sheet} if sheet else {}),
-            **({"header_row": header_row} if header_row != 1 else {}),
-            **({"encoding": "utf-8-sig"} if enc == "utf-8-sig" else {}),
-        },
-        **({"suppression": sorted(suppression)} if suppression else {}),
-        "search_title": "",
-        "also_known_as": [],
-        "keywords": [],
-        "faq": [],
-        "fields": [
-            {
-                "name": f.name,
-                "label": labels[f.name],
-                "source": f.source,
-                "type": f.type,
-                **({"date_format": f.date_format} if f.type in ("date", "datetime") else {}),
-            }
-            for f in fields
-        ],
+        "source": _draft_source(
+            portal,
+            package=p["name"],
+            resource=res["id"],
+            landing=landing,
+            sheet=sheet,
+            header_row=header_row,
+            enc=enc,
+        ),
     }
+    # Each key goes in after the last, so the YAML lists them in this order.
+    if suppression:
+        entry["suppression"] = sorted(suppression)
+    entry["search_title"] = ""
+    entry["also_known_as"] = []
+    entry["keywords"] = []
+    entry["faq"] = []
+    entry["fields"] = [_draft_field(f, labels[f.name]) for f in fields]
     if not entry["licence"]["attribution"]:
         entry["licence"].pop("attribution")
     if entry["status"] == "blocked":
@@ -349,7 +390,40 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
     return slug, entry, notes
 
 
-def to_yaml(entry: dict[str, Any]) -> str:
+def _draft_source(  # noqa: PLR0913 - one value per key the source writes
+    portal: catalogue.Portal,
+    *,
+    package: str,
+    resource: str,
+    landing: str,
+    sheet: str,
+    header_row: int,
+    enc: str,
+) -> DraftSource:
+    out: DraftSource = {
+        "adapter": "ckan-resource",
+        "portal": portal.api.removesuffix("/api/3/action"),
+        "package": package,
+        "resource": resource,
+        "url": landing,
+    }
+    if sheet:
+        out["sheet"] = sheet
+    if header_row != 1:
+        out["header_row"] = header_row
+    if enc == "utf-8-sig":
+        out["encoding"] = "utf-8-sig"
+    return out
+
+
+def _draft_field(f: Field, label: str) -> DraftField:
+    out: DraftField = {"name": f.name, "label": label, "source": f.source, "type": f.type}
+    if f.type in ("date", "datetime"):
+        out["date_format"] = f.date_format
+    return out
+
+
+def to_yaml(entry: DraftEntry) -> str:
     text = yaml.safe_dump(entry, sort_keys=False, allow_unicode=True, width=100)
     for k in TODO:
         text = re.sub(
