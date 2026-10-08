@@ -323,13 +323,18 @@ test('no /d/ request reaches the _q/ copies', async () => {
     `/d/${SLUG}/v/${OLDER}/..%2F..%2F..%2F..%2F_q%2F${SLUG}%2F${OLDER}.parquet`,
     `/d/%2F_q/${SLUG}/${OLDER}.parquet`,
     `/d/${SLUG}/v/${OLDER}/%5C..%5C..%5C_q%5C${SLUG}.parquet`,
+    `/d/${SLUG}/v/${OLDER}/_q/${SLUG}/${OLDER}.parquet`,
   ];
   for (const t of tries) {
-    const url = new URL('https://publicdata.au' + t);
-    // Pages runs the /d/ function only on /d/ paths, after the URL is normalised.
-    if (!url.pathname.startsWith('/d/')) continue;
-    const res = await dFile({ request: new Request(url), env: denv });
-    assert.notEqual(res.status, 200, t);
+    let url = new URL('https://publicdata.au' + t);
+    // Pages runs the /d/ function only on /d/ paths, after the URL is normalised. An escaped path
+    // is sent to its plain form, which is followed the same way.
+    for (let hop = 0; hop < 3 && url.pathname.startsWith('/d/'); hop++) {
+      const res = await dFile({ request: new Request(url), env: denv });
+      assert.notEqual(res.status, 200, t);
+      if (res.status !== 308) break;
+      url = new URL(res.headers.get('location'), url);
+    }
   }
   assert.ok(asked.length > 0);
   assert.ok(asked.every((k) => k.startsWith('d/')), JSON.stringify(asked));

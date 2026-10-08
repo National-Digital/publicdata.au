@@ -1,7 +1,8 @@
 {
   "_comment": "Every sentence the site says about the query API and the agent tools. The tools under webmcp serve both the pages and the MCP server at /mcp. The build writes them into openapi.json, the agents page, llms.txt, each dataset page and its Markdown twin, site.js and functions/_tools.json. {name} is filled from limits; `code` becomes code in HTML. The gate checks limits, operators, metrics and parameters against functions/_query.js and functions/_api.js.",
   "site": {
-    "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage at URLs that never change. Every release is a dated, immutable version with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it."
+    "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs that never change. Every release is a dated, immutable version with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it.",
+    "file_formats": "parquet, csv, csv.gz, ndjson and duckdb are on every table version. xlsx is there up to {xlsx_mb} MB of CSV and {excel_rows} rows, json up to {json_mb} MB of NDJSON, and sqlite up to {sqlite_mb} MB of CSV. gpkg, and geo.parquet for points, exist only for datasets that declare geometry, with geojson up to a {geojson_mb} MB file, and pmtiles only for polygon and line layers. A version's manifest.json lists each format the limits left out, with the reason, under formats_left_out, and that set never changes. A version whose manifest has no caps field was fetched before these limits: it also has arrow, its xlsx stops at the Excel row limit, and its json and geojson stop at {json_rows} rows."
   },
   "limits": {
     "requests": 60,
@@ -74,7 +75,7 @@
       },
       "get_dataset": {
         "title": "Read a dataset",
-        "description": "Read a served dataset's data package and full version history: licence, attribution, whole-table files and the version dates diff_versions and the version parameter take. It returns no rows. To answer from the rows use query_rows or count_rows, and for field names use list_fields.\nslug is lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, such as au-road-deaths.\nThe whole history comes back in one answer, with no paging. It needs no key or sign-in, and costs nothing against the rate limit. A slug that is not served returns a 404 error.",
+        "description": "Read a served dataset's data package and full version history: licence, attribution, whole-table files and the version dates diff_versions and the version parameter take. It carries no rows. To answer from the rows use query_rows or count_rows, and for field names use list_fields.\nslug is lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, such as au-road-deaths.\nThe whole history comes back in one answer, with no paging. It needs no key or sign-in, and costs nothing against the rate limit. A slug that is not served returns a 404 error.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" }
@@ -94,7 +95,7 @@
       },
       "list_partitions": {
         "title": "List partition files",
-        "description": "List the download files that split a served dataset's newest version by one field, such as one file per year. Use it to hand someone a slice of the data as a file. It returns file links and no rows, so to answer a question use query_rows or count_rows instead, and for the whole table as one file use get_dataset. field must be one of the partition_by fields that list_fields names, and any other field returns a 404 error. Every value comes back in one answer, with no paging. The call costs nothing against the rate limit.",
+        "description": "List the download files that split a served dataset's newest version by one field, such as one file per year. Use it to hand someone a slice of the data as a file. It gives file links and no rows, so to answer a question use query_rows or count_rows instead, and for the whole table as one file use get_dataset. field must be one of the partition_by fields that list_fields names, and any other field returns a 404 error. Every value comes back in one answer, with no paging. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" },
@@ -105,7 +106,7 @@
       },
       "query_rows": {
         "title": "Query rows",
-        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows, and for files use get_dataset or list_partitions.\nField names and values for where, select and order come from list_fields. where holds at most 90 values, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nPage with offset until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
+        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows, and for files use get_dataset or list_partitions.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nOne page holds up to limit rows, and offset steps through the rest until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "api": "rows",
         "input": {
@@ -138,7 +139,7 @@
       },
       "diff_versions": {
         "title": "Compare versions",
-        "description": "Compare two consecutive versions of a served dataset row by row on its key fields, to see what a publisher changed between releases. from and to must be adjacent dates in the version history from get_dataset, older first. Any other pair returns a 404 error, so step through a longer span one pair at a time. A dataset with no key, which list_fields shows as an empty key, gets row counts only, and a dataset with one version has nothing to compare. The call costs nothing against the rate limit.",
+        "description": "Compare two consecutive versions of a served dataset row by row on its key fields, to see what a publisher changed between releases. from and to must be adjacent dates in the version history from get_dataset, older first. Any other pair returns a 404 error, so step through a longer span one pair at a time. A dataset with no key, which list_fields shows as an empty key, gets row counts only, and a dataset with one version has nothing to compare. One answer holds the counts of rows added, removed, changed and unchanged, the keys of the rows added, removed and changed, and up to ten changed rows with their old and new values. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" },
@@ -171,7 +172,7 @@
       },
       "upvote_dataset": {
         "title": "Vote for a dataset",
-        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, so a vote cannot be withdrawn, and a second vote from the same caller on the same day adds nothing. The call costs nothing against the rate limit.",
+        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, so a vote cannot be withdrawn, and a second vote from the same caller on the same day adds nothing. The answer gives the dataset's vote total after this call. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "The vote key of a search_catalogue row, or a slug from /backlog.json" }

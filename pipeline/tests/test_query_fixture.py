@@ -101,7 +101,7 @@ def write(path: Path, profiled: bool = False, sort: bool = True, provenance: boo
 
     writer.pq = SimpleNamespace(write_table=write_table)
     try:
-        writer.write_parquet(SimpleNamespace(table=table), HEADER, path)
+        writer.write_parquet(SimpleNamespace(table=table), HEADER, path, lay={})
     finally:
         writer.pq = pq
 

@@ -9,7 +9,6 @@ import html
 import json
 import re
 import shutil
-import sqlite3
 import urllib.parse
 from pathlib import Path
 
@@ -19,6 +18,7 @@ from . import OPERATOR, REPO, SITE, brand, explorer, figures
 from . import api_text as at
 from .build import DatasetOut, VersionOut, dataset_url, version_url
 from .cache import BuildCache
+from .cost import fleet_from_build
 from .d1 import KEEP, queryable
 from .provenance import (
     CITE_REQUEST,
@@ -30,8 +30,18 @@ from .provenance import (
     landing,
     long_date,
 )
+from .records import connect
 from .register import NEWEST, WHERE_OPS, Dataset
-from .serialise import FORMAT_LABEL, FORMATS, MEDIA, SHAPE_FORMATS, formats_for, pretty
+from .serialise import (
+    FORMAT_LABEL,
+    FORMATS,
+    MEDIA,
+    SHAPE_FORMATS,
+    formats_for,
+    pretty,
+    profile,
+    reasons,
+)
 from .serialise.geo import geo_kind
 from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
 from .spine import DATUM as SPINE_DATUM
@@ -236,9 +246,28 @@ SITE_ORDER = (
 )
 
 
+def _file_formats_text() -> str:
+    """Which formats a version has, from api.json, with the limits filled in from CAPS."""
+    from .serialise import CAPS, EXCEL_MAX_ROWS, JSON_MAX_ROWS
+
+    mb = {f"{f}_mb": CAPS[f][1] // 1_000_000 for f in CAPS}
+    return at.fill(
+        at.spec()["site"]["file_formats"],
+        {**mb, "excel_rows": EXCEL_MAX_ROWS, "json_rows": JSON_MAX_ROWS},
+    )
+
+
 def _fmts(ds: Dataset, v: VersionOut) -> list[str]:
-    have = set(formats_for(v.rows, geo_kind(ds)))
+    have = set(formats_for(v.rows, geo_kind(ds), v.left_out))
     return [f for f in SITE_ORDER if f in have]
+
+
+def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
+    """Why each format a table version lacks is not there, one sentence each, in site order."""
+    if ds.kind == "database":
+        return []
+    gone = reasons(v.rows, geo_kind(ds), v.left_out)
+    return [gone[f] for f in SITE_ORDER if f in gone]
 
 
 def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
@@ -279,7 +308,8 @@ def _seo_title(ds: Dataset, v: VersionOut, span: str = "") -> str:
     have = set(_fmts(ds, v))
     # At most four names keep the title inside what a result page shows; the description lists them all.
     names = ["CSV", *(["JSON"] if "json" in have else []), "Parquet"]
-    fmts = ", ".join([*names, "GeoJSON" if "geojson" in have else "SQLite"])
+    last = "GeoJSON" if "geojson" in have else "SQLite" if "sqlite" in have else "DuckDB"
+    fmts = ", ".join([*names, last])
     lead = ds.search_title or ds.title
     return f"{lead}{f' {years}' if years else ''}: {fmts} download | {HOST}"
 
@@ -312,10 +342,11 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
             f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
         )
     ]
-    if "data.xlsx" in v.files:
+    why = reasons(v.rows, geo_kind(ds), v.left_out).get("xlsx")
+    if not why:
         excel = f"Yes. {vbase}data.xlsx is a workbook with the {fmt_int(v.rows)} rows on a records sheet, the field list on a second sheet and the provenance on a third. The CSV also opens in Excel."
     else:
-        excel = f"Not as a workbook. Excel stops at 1,048,576 rows and this table has {fmt_int(v.rows)}, so there is no data.xlsx. Load the CSV or the Parquet file with Power Query, or take one partition file at a time."
+        excel = f"Not as a workbook. {why} Load the CSV or the Parquet file with Power Query, or take one partition file at a time."
     out.append(
         (
             f"Can I open {short} in Excel?",
@@ -743,7 +774,7 @@ def _sample(ds: Dataset, db: Path, within: dict | None = None) -> dict:
         order=order,
         spread=spread,
     )
-    # SQLite holds a boolean as 1 or 0; the table shows it as the JSON does.
+    # The records hold a boolean as 1 or 0; the table shows it as the JSON does.
     flags = [i for i, f in enumerate(out["fields"]) if ds.field(f).type == "boolean"]
     for r in out["rows"]:
         for i in flags:
@@ -754,6 +785,17 @@ def _sample(ds: Dataset, db: Path, within: dict | None = None) -> dict:
         w = ds.field(name).display
         return w if w[1:2].isupper() else w[:1].lower() + w[1:]
 
+    # A version written under a sort: has its rows, and so its sample, in that order.
+    sorted_by = [
+        f
+        for f in (profile.signature(db) if db.exists() else "").split(",")
+        if f and f not in ds.key
+    ]
+    source_order = (
+        "sorted by " + ", then ".join(low(f) for f in sorted_by)
+        if sorted_by
+        else "in the publisher's order"
+    )
     if spec.get("label"):
         how = spec["label"]
     elif order or spread:
@@ -762,11 +804,11 @@ def _sample(ds: Dataset, db: Path, within: dict | None = None) -> dict:
                 "From the latest version",
                 *([f"newest first by {low(order[0][0])}"] if order else []),
                 *([f"each {low(spread)} in turn"] if spread else []),
-                "then in the publisher's order, with every field.",
+                f"then {source_order}, with every field.",
             ]
         )
     else:
-        how = "From the latest version, in the publisher's order, with every field."
+        how = f"From the latest version, {source_order}, with every field."
     plain = not (order or spread or spec.get("where") or spec.get("label"))
     rows = "row" if n == 1 else "rows"
     out["heading"] = f"The first {n} {rows}" if plain else f"A sample of {n} {rows}"
@@ -1462,6 +1504,8 @@ def _md_twin_dataset(
     ]
     for fmt in _fmts(ds, v):
         lines.append(f"- {fmt}: {base}latest/data.{fmt} ({fmt_size(v.files.get(f'data.{fmt}'))})")
+    if why := _left_out(ds, v):
+        lines += ["", *why]
     lines += [
         "",
         f"Pinned version {m.version}: `{vbase}data.<format>`. Dated versions never change.",
@@ -1573,6 +1617,7 @@ def html_to_md(body: str) -> str:
     s = body
     s = re.sub(r"<h2[^>]*>(.*?)</h2>", r"\n## \1\n", s, flags=re.S)
     s = re.sub(r"<h3[^>]*>(.*?)</h3>", r"\n### \1\n", s, flags=re.S)
+    s = re.sub(r"<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n", s, flags=re.S)
     s = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1", s, flags=re.S)
     s = re.sub(r"<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>", r"- \1: \2\n", s, flags=re.S)
     s = re.sub(
@@ -1615,7 +1660,7 @@ PROSE = {
 </ul>
 <h2>What we would like from you</h2>
 <ul>
-<li>A download URL that does not change between releases. Portals that rename the file each quarter still work, but a stable URL means we never need a browser to fetch it.</li>
+<li>A download URL that does not change between releases. Portals that rename the file each quarter still work, but a stable URL means we never need a browser to fetch it. <a href="/publishers/stable-urls/">Publishing a dataset at a stable URL</a> sets out a layout that gives this and keeps the history.</li>
 <li>A licence stated on the dataset page. A dataset with no licence stated waits in the backlog until you confirm one in writing.</li>
 <li>A contact for corrections. If a reader finds a problem in the content, we send it to you.</li>
 </ul>
@@ -1624,6 +1669,80 @@ PROSE = {
 <h2>If you would like more</h2>
 <p>The <a href="/backlog/">backlog</a> shows which of your datasets people have asked for and how many votes each has. We build in vote order. If you want one built sooner, or want the same treatment for data you have not published yet, <a href="https://nationaldigital.com.au/contact/">talk to National Digital</a>, the company that runs this site.</p>
 <p class="muted">Publishers with datasets here: {publishers}.</p>
+""",
+    ),
+    "publishers/stable-urls": (
+        "Publishing a dataset at a stable URL",
+        "A layout for releasing a data file so that every link keeps working, a program can fetch each release on its own, and a change to the columns breaks nothing it need not.",
+        """
+<p>This page is for the team inside an agency that publishes a data file and replaces it at each release. It sets out a layout for the files and their URLs that keeps every link working, lets a program fetch the newest release without a person, and survives a change to the columns. It is the layout this site uses for every dataset it serves, and it comes from what breaks across the government sources the site reads. Nothing here needs a portal, a database or an API. A folder on an ordinary web server is enough.</p>
+<h2>Two URLs for every file</h2>
+<p>A dataset that changes needs two kinds of URL. A dated URL names one release and returns the same bytes for as long as the site exists. A current URL always returns the newest release and never changes. Each does a job the other cannot. A report cites the dated URL, so a reader years later opens the file the author used. A program reads the current URL, so it picks up each release without anyone editing it.</p>
+<p>Most sites publish one or the other. A file that is overwritten in place gives a current URL and loses the history. A file with the release date in its name, such as <code>enrolments_26052026.xlsx</code>, gives a dated URL and breaks every link at the next release, because the new file has a new name and the old one is usually taken down.</p>
+<p>The layout below gives both.</p>
+<pre>/data/senior-enrolments/
+  index.html                        the dataset page
+  latest/senior-enrolments.csv      the current URL, a redirect to the newest dated file
+  latest/senior-enrolments.xlsx
+  v/2026-05-26/senior-enrolments.csv
+  v/2026-05-26/senior-enrolments.xlsx
+  v/2026-05-26/schema.json
+  v/2025-06-20/senior-enrolments.csv
+  v/2025-06-20/senior-enrolments.xlsx
+  v/2025-06-20/schema.json
+  versions.json                     every release, newest first
+  schema.json                       the current column list
+  changes.md                        what changed at each release</pre>
+<p>The date goes in the path and the file name stays the same, so a saved file has the same name whichever release it came from, and the folder it sits in says when it was made. The date is the day of the release as <code>YYYY-MM-DD</code>, which sorts into order in any file listing.</p>
+<h2>The current URL</h2>
+<p>The current URL should redirect to the newest dated file with status 302 or 307, so that a program which follows it can see from the final address which release it received. If the web server cannot redirect, overwrite the file at the current URL with a copy of the newest release instead. The bytes change and the address does not, and a program can tell releases apart by the <code>Last-Modified</code> and <code>ETag</code> headers, so send both.</p>
+<p>Publish <code>versions.json</code> beside it. It lists each release with its date, its dated URL, its SHA-256 hash, its row count and the schema version it follows. A program that reads this file can tell whether there is a new release without downloading one, and can fetch an older release when it needs it.</p>
+<pre>{
+  "dataset": "senior-enrolments",
+  "schema_version": "1.3",
+  "versions": [
+    {"date": "2026-05-26", "schema_version": "1.3", "rows": 48213,
+     "sha256": "9f2c…", "url": "/data/senior-enrolments/v/2026-05-26/senior-enrolments.csv"},
+    {"date": "2025-06-20", "schema_version": "1.2", "rows": 46990,
+     "sha256": "41b0…", "url": "/data/senior-enrolments/v/2025-06-20/senior-enrolments.csv"}
+  ]
+}</pre>
+<h2>The dated URL</h2>
+<p>A dated file is never edited and never removed. If a release turns out to be wrong, publish a corrected release under a new date and say in the change log which release it replaces and why. The wrong file stays where it is, because reports already cite it. Send <code>Cache-Control: public, max-age=31536000, immutable</code> on a dated file, so that browsers and proxies keep it, and a short <code>max-age</code> on the current URL, so that a new release is seen within minutes.</p>
+<h2>Headers and access</h2>
+<p>Serve each file with its correct <code>Content-Type</code> (<code>text/csv; charset=utf-8</code> for CSV), a <code>Content-Disposition</code> header carrying the file name, <code>Last-Modified</code>, <code>ETag</code>, and support for <code>HEAD</code> and range requests, so a program can check for a new release cheaply. Nothing on the data path should need a login or JavaScript.</p>
+<p>If the site runs a bot challenge, exempt the data paths from it. A challenge exists to stop programs, and the programs it stops include every one the data is published for. A program cannot pass a challenge and should not try, so a dataset behind one is read by hand or left alone. A rate limit on the data paths protects the server and still lets the readers through.</p>
+<h2>When the columns change</h2>
+<p>A dataset's schema is the list of its columns, with the name, the type and the meaning of each. Rows change at every release, and that is expected. The schema should change rarely, and when it does the change is either compatible or breaking, and each kind has its own rule.</p>
+<p>A compatible change adds a column, or widens what a column can hold without changing what it means. A program that reads the file by column name keeps working. Make the change at the current URL, add the column at the end, raise the minor part of the schema version (1.2 to 1.3) and note it in the change log.</p>
+<p>A breaking change renames a column, removes one, changes its type, its unit, its code list or the population it counts, or changes what a column means while keeping its name. That last one does harm because nothing fails and the numbers are quietly wrong. Every program that reads the file is affected, so a breaking change gets a new major version at a new path. Publish the new series under <code>/data/senior-enrolments/v2/</code>, keep the old series where it is, and say on the page which old column maps to which new one. If the old series can be produced for one more release, do that, so readers have a release to compare.</p>
+<p>A few habits avoid most breaking changes. Keep column names plain, with ASCII letters, digits and underscores, and keep units and years out of them. Put a value that varies into a row: a column per year, such as <code>2024</code> and <code>2025</code>, is a schema change every year, where a <code>year</code> column is a row change. Never put text in a numeric column. A suppressed count is a blank cell with a second column that says it was suppressed, or a documented token such as <code>&lt;5</code> that is used the same way in every release.</p>
+<p>The schema version is a number on the dataset page and in <code>schema.json</code>, separate from the release date. Two releases a year apart with the same columns share a schema version, and a reader can tell from the number alone whether the file they wrote code for still reads.</p>
+<h2>Describing the columns</h2>
+<p>Publish the column list as a file a program can read as well as a table a person can. The format this site uses and recommends is <a href="https://specs.frictionlessdata.io/table-schema/">Table Schema</a>, a short JSON document naming each column with its type, a one-line description, the list of codes it holds where that applies, and the column that identifies a row. A workbook can carry the same information on a sheet of its own, one row per column, and some Australian publishers already do this well.</p>
+<p>Identify a row by a code that does not change, and publish the lookup from code to name beside the data. Schools, councils, stations and hospitals are renamed and merged, and a name that was unique in one release is ambiguous in the next. A dataset keyed on a stable code can be joined to its own earlier releases and to other datasets. The name belongs in the file as well, for the reader, and the code is the key.</p>
+<h2>The dataset page</h2>
+<p>One page per dataset, at a URL that does not change, holds the description, the licence with the attribution wording the agency wants, a contact for corrections, the known caveats such as a preliminary period or a change of method, the current and dated download links, the schema version and the change log. Give the page schema.org <code>Dataset</code> markup, and give the portal record the same facts pointing at the current URL, so catalogues and search engines find it. On a CKAN portal, update the existing resource at each release instead of adding a new one, so that the resource id and its URL hold.</p>
+<h2>A check list</h2>
+<ol>
+<li>Every release has a dated URL that never changes and is never removed.</li>
+<li>A current URL redirects to, or holds a copy of, the newest release, and the file name is the same at both.</li>
+<li><code>versions.json</code> lists every release with its date, URL, hash, row count and schema version.</li>
+<li>Files are served with a content type, <code>Last-Modified</code>, <code>ETag</code> and range support, and need no login or challenge.</li>
+<li>Column names are plain and stable, values that vary are rows, and numeric columns hold only numbers.</li>
+<li><code>schema.json</code> describes every column, and a schema version separate from the release date says when the columns changed.</li>
+<li>A compatible change adds a column at the end. A breaking change starts a new major version at a new path and keeps the old one.</li>
+<li>Rows carry a stable code, and the lookup from code to name is published.</li>
+<li>The dataset page states the licence, the attribution and a contact, and carries the change log.</li>
+</ol>
+<h2>What this site does with it</h2>
+<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. <a href="https://nationaldigital.com.au/contact/">National Digital</a>, which runs this site, will talk through a layout with any agency that asks. No government agency has endorsed this site.</p>
+<h2>Further reading</h2>
+<ul>
+<li><a href="https://www.w3.org/TR/dwbp/">Data on the Web Best Practices</a> from the W3C, in particular the practices on persistent URIs, version indicators and version history.</li>
+<li><a href="https://specs.frictionlessdata.io/table-schema/">Table Schema</a>, the column description format.</li>
+<li><a href="https://www.w3.org/TR/vocab-dcat-3/">DCAT 3</a>, the catalogue vocabulary the portals use, which has a field for the current download URL and one for the licence.</li>
+</ul>
 """,
     ),
     "government": (
@@ -1651,7 +1770,7 @@ PROSE = {
 <h2>Asking for a dataset</h2>
 <p>Every dataset listed on an Australian government open-data portal can be searched from the box at the top of any page, and one with an open licence and a download can be voted for. Votes set the build order. Nobody is asked who they are. If your agency would like a dataset built sooner, or wants the same treatment for data it has not published yet, the <a href="/publishers/">publishers page</a> says how that works.</p>
 <h2>If your agency publishes</h2>
-<p>A dataset listed on your portal with an open licence can be served here without a request, and you can ask for it to be removed at any time. Your attribution travels inside every file, your original file sits beside every version, and every page states that you have not endorsed the site. The <a href="/publishers/">publishers page</a> has the detail.</p>
+<p>A dataset listed on your portal with an open licence can be served here without a request, and you can ask for it to be removed at any time. Your attribution travels inside every file, your original file sits beside every version, and every page states that you have not endorsed the site. The <a href="/publishers/">publishers page</a> has the detail. If your team is working out how to release a file at a URL that holds, or how to change its columns without breaking the people who read it, <a href="/publishers/stable-urls/">publishing a dataset at a stable URL</a> sets out the layout this site recommends.</p>
 """,
     ),
     "agents": (
@@ -1679,7 +1798,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, xlsx, json, parquet, sqlite, duckdb, ndjson, arrow, csv.gz, and geojson, gpkg and geo.parquet where the dataset has coordinates or shapes, with pmtiles vector tiles for boundary layers.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 </ul>
 <h2>Inside every data file</h2>
@@ -2103,11 +2222,11 @@ def _fields_resource(o: DatasetOut, console: dict) -> dict:
     }
 
 
-def _console(ds: Dataset, sqlite_path: Path) -> dict:
+def _console(ds: Dataset, parquet: Path) -> dict:
     """Fields with value hints and a first query for the dataset page's query console, read from
-    the same data.sqlite the query API is loaded from."""
-    con = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-    cols = {r[1] for r in con.execute("PRAGMA table_info(records)")}
+    the same rows the query API is loaded from."""
+    con = connect(parquet, [f.name for f in ds.fields])
+    cols = set(con.columns())
     names = [f.name for f in ds.fields if f.name in cols]
     q = lambda n: '"' + n + '"'  # noqa: E731
     stats = con.execute(
@@ -2193,7 +2312,7 @@ def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
         ).fetchone()
         if row:
             filters.append({"field": first, "op": "eq", "value": str(row[0])})
-            cond, params = f" WHERE {q(first)} = ?", [row[0]]
+            cond, params = f" WHERE {q(first)} = ?", [con.param(first, row[0])]
 
     def splits(n: str) -> bool:
         # A group that is one value under the filter, such as a state's name under its code,
@@ -2325,7 +2444,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
         "in": "path",
         "required": True,
         "schema": {"type": "string", "enum": fmts},
-        "description": "geojson, gpkg and geo.parquet exist only for datasets that declare geometry, and pmtiles only for polygon and line layers; xlsx only up to the Excel row limit; json and geojson only up to 2,000,000 rows, above which parquet, ndjson and csv serve the whole table.",
+        "description": _file_formats_text(),
     }
 
     def j(desc, schema=None):
@@ -3033,7 +3152,7 @@ def render_site(
                     ds,
                     v.manifest,
                     hints,
-                    out / "d" / ds.slug / "v" / v.manifest.version / "data.sqlite",
+                    out / "d" / ds.slug / "v" / v.manifest.version / "data.parquet",
                     out,
                 )
             )
@@ -3069,6 +3188,7 @@ def render_site(
                     ),
                     *[f"- {f['name']}: {f['url']} ({f['size']})" for f in files],
                     "",
+                    *[f"{why}\n" for why in _left_out(ds, v)],
                     "## Attribution",
                     "",
                     attribution(ds, v.manifest),
@@ -3091,6 +3211,7 @@ def render_site(
                 v=view,
                 is_latest=v is latest,
                 files=files,
+                left_out=_left_out(ds, v),
                 partition_dirs=list(v.partitions.keys()),
                 change=view["change"],
                 fig=vfig,
@@ -3183,10 +3304,10 @@ def render_site(
             ds.partition_by[0] if ds.partition_by else (ds.key[0] if ds.key else ds.fields[0].name)
         )
         console = hints = None
-        sqlite_path = out / "d" / ds.slug / "v" / m.version / "data.sqlite"
-        if sqlite_path.exists():
-            hints = _console(ds, sqlite_path)
-        if QUERY_API and hints and queryable(ds, sqlite_path):
+        rows_path = out / "d" / ds.slug / "v" / m.version / "data.parquet"
+        if rows_path.exists():
+            hints = _console(ds, rows_path)
+        if QUERY_API and hints and queryable(ds, latest.files.get("data.csv")):
             queried.append(o)
             console = hints
             _write(out, f"d/{ds.slug}/openapi.json", pretty(_dataset_openapi(o, console)))
@@ -3209,11 +3330,11 @@ def render_site(
                     },
                 }
             )
-        fig = figures.dataset_figures(ds, m, hints, sqlite_path, out)
+        fig = figures.dataset_figures(ds, m, hints, rows_path, out)
         figs[ds.slug] = fig
         consoles[ds.slug] = console
         views_by[ds.slug] = views
-        example = figures.example_rows(sqlite_path, console) if console else []
+        example = figures.example_rows(rows_path, console, key=ds.key) if console else []
         explore = None
         ex_versions = [
             {
@@ -3278,7 +3399,7 @@ def render_site(
             crumbs.append((ds.collection_title, collection_url(ds.collection)))
         crumbs.append((ds.title, base))
         related = _related(ds, live)
-        sample_rows = _sample(ds, sqlite_path)
+        sample_rows = _sample(ds, rows_path)
         serialise_dictionary(ds, latest, out / "d" / ds.slug / "schema.xlsx")
         places = _places(ds, latest)
         card = _dataset_card(out, ds, latest, f"og/d/{ds.slug}.png", cache)
@@ -3319,6 +3440,7 @@ def render_site(
             latest=views[-1],
             versions=views,
             formats=formats,
+            left_out=_left_out(ds, latest),
             ds_data=ds_data,
             console=console,
             explore_url=explore["page"] if explore else "",
@@ -3350,7 +3472,7 @@ def render_site(
             o,
             views[-1],
             console,
-            sqlite_path,
+            rows_path,
             out,
             page,
             places,
@@ -3596,7 +3718,7 @@ def render_site(
         present += [x for x in states if x not in present]
         hero_slug = hero_slug or slug
         g = o.dataset.geometry
-        db = out / "d" / slug / "v" / o.latest.manifest.version / "data.sqlite"
+        db = out / "d" / slug / "v" / o.latest.manifest.version / "data.parquet"
         c = figures.cells(db, g["lon"], g["lat"], spec["where"])
         if c:
             parts.append((states[0], c))
@@ -3652,8 +3774,8 @@ def render_site(
     if show and consoles.get(show.dataset.slug):
         sd, sm = show.dataset, show.latest.manifest
         con = consoles[sd.slug]
-        db = out / "d" / sd.slug / "v" / sm.version / "data.sqlite"
-        srows = figures.example_rows(db, con)
+        db = out / "d" / sd.slug / "v" / sm.version / "data.parquet"
+        srows = figures.example_rows(db, con, key=sd.key)
         group = (con["example"]["group"] or [None])[0]
         # The demo adds the groups up and hands the agent its filters as exact matches.
         adds = con["example"]["metric"].split(".")[0] in ("count", "sum")
@@ -3714,9 +3836,9 @@ def render_site(
     )
     if shown:
         hf = figs[shown.dataset.slug]
-        hdb = out / "d" / shown.dataset.slug / "v" / shown.latest.manifest.version / "data.sqlite"
+        hdb = out / "d" / shown.dataset.slug / "v" / shown.latest.manifest.version / "data.parquet"
         hcon = consoles.get(shown.dataset.slug)
-        hrows = figures.example_rows(hdb, hcon) if hcon else []
+        hrows = figures.example_rows(hdb, hcon, key=shown.dataset.key) if hcon else []
         bars_title = _example_title(shown.dataset, hcon) if hrows else ""
         preview = {
             "slug": shown.dataset.slug,
@@ -3751,7 +3873,7 @@ def render_site(
         "@id": CATALOG_ID,
         "name": HOST,
         "url": SITE + "/",
-        "description": "Versioned republication of Australian open government data as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage, with a query API, a browser explorer and an MCP server.",
+        "description": "Versioned republication of Australian open government data as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage, with a query API, a browser explorer and an MCP server.",
         # The operator's accounts on GitHub and on the data hubs that carry copies of these datasets.
         "provider": {**OPERATOR_ORG, "sameAs": accounts},
     }
@@ -3767,7 +3889,7 @@ def render_site(
             "",
             f"# {brand.HEADLINE}",
             "",
-            f"publicdata.au republishes Australian government datasets as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage. Every release a publisher makes becomes a dated version that never changes, with its schema, its provenance and a diff against the release before. A query API answers filters and counts from a URL, an explorer charts every row in the browser, and an MCP server at {SITE}/mcp gives agents the same tools. There are no keys and no accounts. No government agency runs or has endorsed this site.",
+            f"publicdata.au republishes Australian government datasets as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage. Every release a publisher makes becomes a dated version that never changes, with its schema, its provenance and a diff against the release before. A query API answers filters and counts from a URL, an explorer charts every row in the browser, and an MCP server at {SITE}/mcp gives agents the same tools. There are no keys and no accounts. No government agency runs or has endorsed this site.",
             "",
             "## Datasets",
             "",
@@ -4078,7 +4200,7 @@ def render_site(
             md,
             title=f"{heading} | {HOST}",
             description=desc,
-            nav=slug,
+            nav=slug.split("/")[0],
             heading=heading,
             body=body,
             extra_jsonld=(
@@ -4253,6 +4375,7 @@ def render_site(
                 "datasets_live": len(live),
                 "versions": sum(len(o.versions) for o in live),
                 "rows": sum(o.latest.rows for o in live),
+                "storage": fleet_from_build(live, dt.date.fromisoformat(built_at[:10])).as_json(),
             }
         ),
     )
@@ -4300,7 +4423,12 @@ def render_site(
             if ds.licence.condition:
                 full.append(f"  Licence condition: {ds.licence.condition}")
             continue
-        line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(o.latest.rows)} rows, {len(ds.fields)} fields. Parquet {vb}data.parquet{f' · JSON {vb}data.json' if 'data.json' in o.latest.files else ''} · CSV {vb}data.csv{f' · Excel {vb}data.xlsx' if 'data.xlsx' in o.latest.files else ''} · SQLite {vb}data.sqlite · DuckDB {vb}data.duckdb · Arrow {vb}data.arrow{' · GeoJSON ' + vb + 'data.geojson' if 'data.geojson' in o.latest.files else ''}{' · GeoPackage ' + vb + 'data.gpkg' if ds.geometry else ''} · Markdown {dataset_url(ds.slug)}index.md"
+        files = " · ".join(
+            f"{FORMAT_LABEL[f]} {vb}data.{f}"
+            for f in ("parquet", "json", "csv", "xlsx", "sqlite", "duckdb", "geojson", "gpkg")
+            if f"data.{f}" in o.latest.files
+        )
+        line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(o.latest.rows)} rows, {len(ds.fields)} fields. {files} · Markdown {dataset_url(ds.slug)}index.md"
         llms.append(line)
         full += [line, "  Fields: " + ", ".join(f"{f.name} ({f.type})" for f in ds.fields)]
         if ds.key:
@@ -4322,6 +4450,7 @@ def render_site(
             "",
             f"- {SITE}/backlog/index.md",
             f"- {SITE}/publishers/index.md",
+            f"- {SITE}/publishers/stable-urls/index.md",
             f"- {SITE}/government/index.md",
             f"- {SITE}/agents/index.md",
             f"- {SITE}/about/index.md",
@@ -4476,6 +4605,7 @@ def render_site(
         SITE + "/",
         f"{SITE}/backlog/",
         f"{SITE}/publishers/",
+        f"{SITE}/publishers/stable-urls/",
         f"{SITE}/government/",
         f"{SITE}/agents/",
         f"{SITE}/about/",

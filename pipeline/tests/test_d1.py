@@ -3,7 +3,14 @@ import sqlite3
 import subprocess
 import sys
 
+import pytest
+
 from publicdata import d1
+
+
+@pytest.fixture(autouse=True)
+def no_waiting(monkeypatch):
+    monkeypatch.setattr(d1, "ASK_DELAY", 0)
 
 
 def test_literals_quote_text_and_keep_numbers():
@@ -127,14 +134,21 @@ def test_load_files_rebuild_the_latest_version_and_register_it(tmp_path, fixture
     src = sqlite3.connect(
         out / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "data.sqlite"
     )
-    tbl = d1.table_name("qld-road-crash-locations", "2026-04-24")
+    (tbl,) = db.execute(
+        "SELECT tbl FROM _versions WHERE slug = 'qld-road-crash-locations'"
+    ).fetchone()
+    assert tbl.startswith(d1.table_name("qld-road-crash-locations", "2026-04-24") + "_")
     assert (
         db.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()
         == src.execute("SELECT COUNT(*) FROM records").fetchone()
     )
+    # D1 holds the rows in the Parquet's order, which the register sorts for this dataset.
     assert (
-        db.execute(f'SELECT * FROM "{tbl}" ORDER BY rowid LIMIT 3').fetchall()
-        == src.execute("SELECT * FROM records ORDER BY rowid LIMIT 3").fetchall()
+        db.execute(f'SELECT * FROM "{tbl}" ORDER BY crash_ref_number LIMIT 3').fetchall()
+        == src.execute("SELECT * FROM records ORDER BY crash_ref_number LIMIT 3").fetchall()
+    )
+    assert [r[0] for r in db.execute(f'SELECT crash_year FROM "{tbl}" ORDER BY rowid')] == sorted(
+        r[0] for r in src.execute("SELECT crash_year FROM records")
     )
     slug, version, t, fields, rows, attribution, header = db.execute(
         "SELECT * FROM _versions WHERE slug = 'qld-road-crash-locations'"
@@ -152,12 +166,17 @@ def test_load_files_rebuild_the_latest_version_and_register_it(tmp_path, fixture
     assert any("loc_local_government_area" in i for i in indexes)
 
 
-def test_only_the_newest_versions_are_kept():
-    stmts = list(d1.prune_sql("x", ["2026-01-01", "2026-04-01"], "2026-07-01", keep=2))
-    assert stmts == [
-        'DROP TABLE IF EXISTS "v_x_20260101";',
-        "DELETE FROM _versions WHERE slug = 'x' AND version = '2026-01-01';",
-    ]
+def test_only_the_newest_versions_are_kept_once_the_new_one_is_registered(tmp_path):
+    fake = FakeD1()
+    for v in ("2026-01-01", "2026-04-01"):
+        _deploy(fake, tmp_path / v, [("x", v, 3)])
+    _deploy(fake, tmp_path / "c", [("x", "2026-07-01", 3)])
+    reg = d1._registry(fake)
+    assert sorted(v for _, v in reg) == ["2026-04-01", "2026-07-01"]
+    tables = _tables(fake)
+    assert not any("20260101" in t for t in tables)
+    assert {r["tbl"] for r in reg.values()} <= tables
+    assert fake.query("SELECT COUNT(*) AS n FROM _loads") == [{"n": 0}]
 
 
 def test_openapi_lists_the_query_api_only_once_it_is_switched_on(tmp_path, monkeypatch):
@@ -212,25 +231,28 @@ def test_a_large_version_loads_in_parts_that_register_it_only_at_the_end(
     ds = [d for d in load(ROOT / "register") if d.slug == "qld-road-crash-locations"]
     parts = d1.write_loads([out], ds, {}, tmp_path / "load")
     assert len(parts) > 3 and [p.name for p in parts] == sorted(p.name for p in parts)
-    assert "DROP TABLE" in parts[0].read_text() and "_versions VALUES" in parts[-1].read_text()
-    assert all("_versions VALUES" not in p.read_text() for p in parts[:-1])
-    assert (
-        parts[-1]
-        .read_text()
-        .strip()
-        .splitlines()[-1]
-        .startswith("INSERT OR REPLACE INTO _versions")
+    assert "DROP TABLE" in parts[0].read_text() and "INTO _versions" in parts[-1].read_text()
+    assert all("INTO _versions" not in p.read_text() for p in parts[:-1])
+    assert all("CREATE INDEX" not in p.read_text() for p in parts[:-1])
+    last = parts[-1].read_text().strip().splitlines()
+    assert last[-2].startswith("INSERT OR REPLACE INTO _versions")
+    assert last[-1].startswith("INSERT OR REPLACE INTO _orders")
+    manifest = json.loads(
+        (tmp_path / "load" / "qld-road-crash-locations@2026-04-24.json").read_text()
     )
-    pruned = d1.write_loads(
-        [out], ds, {"qld-road-crash-locations": ["2025-01-01", "2025-06-01"]}, tmp_path / "load2"
-    )
-    last = pruned[-1].read_text().strip().splitlines()
-    assert last[-1].startswith("INSERT OR REPLACE INTO _versions") and any(
-        "v_qld_road_crash_locations_20250101" in x for x in last
-    )
+    assert manifest["parts"] == [p.name for p in parts] and manifest["rows"] == 300
+    assert len(manifest["cum"]) == len(parts) - 1 and manifest["cum"][-1] == 300
+    assert manifest["cum"] == sorted(manifest["cum"]) and manifest["indexes"] >= 1
     db = sqlite3.connect(":memory:")
-    for p in parts:
+    for p in parts[:-1]:
         db.executescript(p.read_text())
+    db.execute(d1.REGISTRY)
+    db.execute(d1.ORDERS)
+    # Without its indexes the registration does not hold.
+    stmts = parts[-1].read_text().splitlines()
+    db.execute(next(s for s in stmts if s.startswith("INSERT OR REPLACE INTO _versions")))
+    assert db.execute("SELECT COUNT(*) FROM _versions").fetchone() == (0,)
+    db.executescript(parts[-1].read_text())
     assert db.execute("SELECT rows FROM _versions").fetchone() == (300,)
 
 
@@ -249,14 +271,17 @@ class FakeD1:
     """SQLite behind the two calls the loader makes. `plan` says what each file call does:
     "ok", "error-applied" (applies, then reports an error) or "error" (applies nothing)."""
 
-    def __init__(self, plan=()):
-        self.db = sqlite3.connect(":memory:")
+    def __init__(self, plan=(), broken=()):
+        self.db = sqlite3.connect(":memory:", check_same_thread=False)
         self.plan = list(plan)
+        self.broken = broken
         self.files = []
 
     def file(self, path):
         self.files.append(path.name)
         what = self.plan.pop(0) if self.plan else "ok"
+        if path.name.startswith(tuple(self.broken)):
+            what = "error"
         if what != "error":
             self.db.executescript(path.read_text())
         return what == "ok"
@@ -288,62 +313,41 @@ def test_an_import_that_reports_an_error_after_applying_is_accepted_on_its_count
     folder, parts = parts_for(fixture_site, tmp_path, monkeypatch)
     fake = FakeD1(["ok", "error-applied"])
     assert d1.load(folder, fake, log=lambda *_: None, workers=1) == 0
-    assert len(fake.files) == len(parts)  # verified first time, no retry
+    assert fake.files[: len(parts)] == [p.name for p in parts]  # no part ran twice
     assert d1.registered(fake) == {("qld-road-crash-locations", "2026-04-24"): 300}
 
 
-def test_a_part_that_did_not_apply_reloads_the_version_from_its_first_part(
+def test_a_part_that_did_not_apply_runs_again_and_the_load_goes_on_from_there(
     fixture_site, tmp_path, monkeypatch
 ):
     folder, parts = parts_for(fixture_site, tmp_path, monkeypatch)
     fake = FakeD1(["ok", "error"])
-    lines = []
-    assert d1.load(folder, fake, log=lines.append, workers=1) == 0
-    assert len(fake.files) == 2 * len(parts)
-    assert all(p.read_text().startswith("-- load run1 retry 1\n") for p in parts)
-    assert d1.holds(fake, "qld-road-crash-locations", "2026-04-24", 300)
-    assert "attempt 2" in lines[-1] and "verified" in lines[-1]
+    assert d1.load(folder, fake, log=lambda *_: None, workers=1) == 0
+    names = [p.name for p in parts]
+    assert fake.files[: len(parts) + 1] == [names[0], names[1], *names[1:]]
+    assert parts[1].read_text().startswith("-- load run1 retry 1\n")
+    assert not parts[0].read_text().startswith("-- load run1 retry")
+    (tbl,) = (r["tbl"] for r in d1._registry(fake).values())
+    assert d1.holds(fake, tbl, 300)
 
 
-def test_a_version_that_never_loads_is_unregistered(fixture_site, tmp_path, monkeypatch):
+def test_a_version_that_never_loads_is_never_registered(fixture_site, tmp_path, monkeypatch):
     folder, parts = parts_for(fixture_site, tmp_path, monkeypatch)
-    first = ["ok", "error"] + ["ok"] * (len(parts) - 2)
-    fake = FakeD1(first + first)  # the second part never applies, on either attempt
+    fake = FakeD1(["ok", "error", "error"])  # the second part never applies
     assert d1.load(folder, fake, log=lambda *_: None, workers=1) == 1
     assert d1.registered(fake) == {}
+    (row,) = fake.query("SELECT * FROM _loads")
+    assert (row["part"], row["rows"], row["attempts"]) == (1, _manifest(folder)["cum"][0], 1)
 
 
-def test_one_version_that_cannot_be_queried_does_not_stop_the_next(
-    fixture_site, tmp_path, monkeypatch
-):
+def test_one_version_that_cannot_load_does_not_stop_the_next(fixture_site, tmp_path, monkeypatch):
     folder, parts = parts_for(fixture_site, tmp_path, monkeypatch)
-    (folder / "zz-other@2026-01-01.part001.sql").write_text(
-        d1.REGISTRY + '\nCREATE TABLE "v_zz_other_20260101" (x);\n'
-        'INSERT INTO "v_zz_other_20260101" VALUES (1);\n'
-        "INSERT OR REPLACE INTO _versions VALUES ('zz-other', '2026-01-01', 'v_zz_other_20260101', '[]', 1, '', '{}');\n"
-    )
-
-    class Flaky(FakeD1):
-        def __init__(self):
-            super().__init__()
-            self.broken = True
-
-        def file(self, path):
-            if path.name.startswith("zz-"):
-                self.broken = False
-            return super().file(path)
-
-        def query(self, sql):
-            if self.broken:
-                raise RuntimeError("D1 query failed: rate limited")
-            return super().query(sql)
-
+    _write_job(folder, "zz-other", "2026-01-01", 1)
     lines = []
-    fake = Flaky()
-    assert d1.load(folder, fake, log=lines.append, workers=1) == 1
+    fake = FakeD1(broken=("qld-road-crash-locations@",))
+    assert d1.load(folder, fake, log=lines.append) == 1
     assert ("zz-other", "2026-01-01") in d1.registered(fake)  # the next version still loaded
     assert any("qld-road-crash-locations@2026-04-24 failed" in x for x in lines)
-    assert any("could not be unregistered" in x for x in lines)
 
 
 def test_a_version_too_large_for_d1_is_files_only_everywhere(tmp_path, monkeypatch):
@@ -354,9 +358,9 @@ def test_a_version_too_large_for_d1_is_files_only_everywhere(tmp_path, monkeypat
 
     out = tmp_path / "dist"
     big = out / "d" / "qld-road-crash-locations"
-    monkeypatch.setattr(d1, "MAX_SQLITE", 100_000)
+    monkeypatch.setattr(d1, "MAX_CSV", 100_000)
     assert main(["build", "--fixtures", "--out", str(out)]) == 0
-    assert (big / "v" / "2026-04-24" / "data.sqlite").stat().st_size > d1.MAX_SQLITE
+    assert (big / "v" / "2026-04-24" / "data.csv").stat().st_size > d1.MAX_CSV
     page = (big / "index.html").read_text(encoding="utf-8")
     assert 'id="console"' not in page and not (big / "fields.json").exists()
     assert not (big / "openapi.json").exists() and (big / "explore" / "index.html").exists()
@@ -387,19 +391,16 @@ def test_query_false_keeps_a_dataset_out_of_the_loads(tmp_path, site_copy):
     assert d1.write_loads([out], off, {}, tmp_path / "b") == []
 
 
-def test_versions_import_one_part_at_a_time_with_each_version_in_order(tmp_path, monkeypatch):
+def test_versions_import_one_part_at_a_time_with_each_version_in_order(tmp_path):
     import threading
     import time
 
     folder = tmp_path / "load"
-    folder.mkdir()
     for k in range(6):
-        key = f"s{k}@2026-01-01"
-        for part in (1, 2, 3):
-            (folder / f"{key}.part{part:03d}.sql").write_text(f"-- {k} {part}\n")
+        _write_job(folder, f"s{k}", "2026-01-01", 3)
     order, live, peak, lock = {}, [0], [0], threading.Lock()
 
-    class Slow:
+    class Slow(FakeD1):
         def file(self, path):
             with lock:
                 live[0] += 1
@@ -408,44 +409,41 @@ def test_versions_import_one_part_at_a_time_with_each_version_in_order(tmp_path,
             order.setdefault(path.name.split(".part")[0], []).append(path.name)
             with lock:
                 live[0] -= 1
-            return True
+            return super().file(path)
 
-    monkeypatch.setattr(d1, "registered", lambda db: {(f"s{k}", "2026-01-01"): 1 for k in range(6)})
-    monkeypatch.setattr(d1, "holds", lambda *a: True)
-    assert d1.load(folder, Slow(), log=lambda *_: None) == 0
+    fake = Slow()
+    assert d1.load(folder, fake, log=lambda *_: None) == 0
     # D1 refuses a second import while one runs, so the parts never overlap.
     assert peak[0] == 1
-    assert all(v == sorted(v) and len(v) == 3 for v in order.values()) and len(order) == 6
+    loads = {k: v for k, v in order.items() if ".part" in v[0]}
+    assert all(v == sorted(v) and len(v) == 5 for v in loads.values()) and len(loads) == 6
+    assert len(d1.registered(fake)) == 6
 
 
-def test_a_version_is_checked_only_while_no_other_import_runs(tmp_path, monkeypatch):
+def test_a_version_is_checked_only_while_no_other_import_runs(tmp_path):
     import threading
     import time
 
     folder = tmp_path / "load"
-    folder.mkdir()
     for k in range(6):
-        for part in (1, 2):
-            (folder / f"s{k}@2026-01-01.part{part:03d}.sql").write_text(f"-- {k} {part}\n")
+        _write_job(folder, f"s{k}", "2026-01-01", 2)
     importing, clashes, lock = [0], [], threading.Lock()
 
-    class Slow:
+    class Slow(FakeD1):
         def file(self, path):
             with lock:
                 importing[0] += 1
             time.sleep(0.02)
             with lock:
                 importing[0] -= 1
-            return True
+            return super().file(path)
 
-    def registered(db):
-        time.sleep(0.01)
-        with lock:
-            clashes.append(importing[0])
-        return {(f"s{k}", "2026-01-01"): 1 for k in range(6)}
+        def query(self, sql):
+            time.sleep(0.005)
+            with lock:
+                clashes.append(importing[0])
+            return super().query(sql)
 
-    monkeypatch.setattr(d1, "registered", registered)
-    monkeypatch.setattr(d1, "holds", lambda *a: True)
     assert d1.load(folder, Slow(), log=lambda *_: None) == 0
     assert clashes and not any(clashes)
 
@@ -457,26 +455,26 @@ def test_a_loaded_version_whose_fields_changed_is_loaded_again(tmp_path):
     v = root / "d" / "x-y" / "v" / "2026-01-02"
     v.mkdir(parents=True)
     (root / "latest.json").write_text(json.dumps({"x-y": "2026-01-02"}))
-    db = sqlite3.connect(v / "data.sqlite")
-    db.executescript(
-        """CREATE TABLE records (a INTEGER, sal_2021_name TEXT);
-        CREATE TABLE fields (name TEXT, type TEXT);
-        INSERT INTO fields VALUES ('a', 'integer'), ('sal_2021_name', 'string');
-        CREATE TABLE publicdata (key TEXT, value TEXT);
-        INSERT INTO records VALUES (1, 'Kingaroy');"""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    t = pa.table({"a": pa.array([1], pa.int64()), "sal_2021_name": ["Kingaroy"]})
+    pq.write_table(t.replace_schema_metadata({"publicdata": "{}"}), v / "data.parquet")
+    # The loader sizes the version's data.csv from its dataset's data package.
+    (root / "d" / "x-y" / "datapackage.json").write_text(
+        json.dumps({"resources": [{"path": "/d/x-y/v/2026-01-02/data.csv", "bytes": 8192}]})
     )
-    db.commit()
-    db.close()
-    ds = SimpleNamespace(slug="x-y", key=(), partition_by=(), query=True)
+    fields = (SimpleNamespace(name="a", type="integer"), SimpleNamespace(name="sal_2021_name", type="string"))  # fmt: skip
+    ds = SimpleNamespace(slug="x-y", key=(), partition_by=(), query=True, fields=fields)
     loaded = {"x-y": ["2026-01-02"]}
-    same = json.dumps(d1.built_fields(v / "data.sqlite"))
+    same = json.dumps(d1.built_fields(ds, v / "data.parquet"))
     assert (
         d1.write_loads([root], [ds], loaded, tmp_path / "a", "", {("x-y", "2026-01-02"): same})
         == []
     )
     old = json.dumps([{"name": "a", "type": "integer"}])
     parts = d1.write_loads([root], [ds], loaded, tmp_path / "b", "", {("x-y", "2026-01-02"): old})
-    assert [p.name for p in parts] == ["x-y@2026-01-02.part001.sql"]
+    assert [p.name for p in parts] == ["x-y@2026-01-02.part001.sql", "x-y@2026-01-02.part002.sql"]
     # A registry read without fields, as before deploys asked for them, reloads nothing.
     assert d1.write_loads([root], [ds], loaded, tmp_path / "c") == []
 
@@ -486,3 +484,404 @@ def test_a_catalogue_row_larger_than_d1_holds_skips_the_index_without_failing(tm
     path = tmp_path / "catalogue.sqlite"
     d1.catalogue_sqlite(path, [row], "2026-10-03")
     assert d1.catalogue_loads(path, [], tmp_path / "out") == []
+
+
+def _write_job(folder, slug, version, rows, index=("a",), keep=d1.KEEP):
+    """A load of `rows` one-column rows: the table's creation in part 1, then a row per part,
+    then the part that indexes and registers it. The table is named for the row count, so the
+    same arguments give the same load in every deploy."""
+    folder.mkdir(parents=True, exist_ok=True)
+    tbl = d1.load_table(slug, version, rows)
+    saved = (d1.PART_BYTES, d1.MAX_VALUES)
+    d1.MAX_VALUES = 1
+    try:
+        stmts = list(
+            d1._table_sql(
+                slug,
+                version,
+                index,
+                [("a", "INTEGER")],
+                {"attribution": "x"},
+                [{"name": "a", "type": "integer"}],
+                iter([(i,) for i in range(rows)]),
+                tbl,
+            )
+        )
+        d1.PART_BYTES = len(stmts[0][1]) + len(stmts[1][1]) + 2
+        return d1._write_load(folder, slug, version, tbl, stmts, "run", keep)
+    finally:
+        d1.PART_BYTES, d1.MAX_VALUES = saved
+
+
+def _deploy(fake, folder, specs, **kw):
+    for slug, version, rows in specs:
+        _write_job(folder, slug, version, rows)
+    lines = []
+    kw.setdefault("workers", 1)
+    return d1.load(folder, fake, log=lines.append, **kw), lines
+
+
+def _tables(fake):
+    return {r["name"] for r in fake.query("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
+def _manifest(folder):
+    (m,) = folder.glob("*.json")
+    return json.loads(m.read_text())
+
+
+def _load_row(fake, slug):
+    rows = fake.query(f"SELECT * FROM _loads WHERE slug = '{slug}'")
+    return rows[0] if rows else None
+
+
+def _served(fake, slug):
+    """What the API answers from: the newest registered version and the rows its table holds."""
+    r = fake.query(
+        f"SELECT version, tbl, rows FROM _versions WHERE slug = '{slug}' ORDER BY version DESC"
+    )
+    if not r:
+        return None
+    n = fake.query(f'SELECT COUNT(*) AS n FROM "{r[0]["tbl"]}"')[0]["n"]
+    return r[0]["version"], r[0]["rows"], n
+
+
+def test_loading_an_older_version_never_drops_a_newer_one(tmp_path):
+    fake = FakeD1()
+    _deploy(fake, tmp_path / "d0", [("x", "2026-03-01", 3)])
+    _deploy(fake, tmp_path / "d1", [("x", "2026-02-01", 3)])
+    _deploy(fake, tmp_path / "d2", [("x", "2026-01-01", 3)])
+    assert sorted(v for _, v in d1.registered(fake)) == ["2026-01-01", "2026-03-01"]
+    assert _served(fake, "x") == ("2026-03-01", 3, 3)
+
+
+def test_a_version_that_failed_in_three_deploys_waits_for_a_change_or_a_retry(tmp_path):
+    fake = FakeD1(broken=("x@2026-01-01.part002",))
+    for k in range(d1.MAX_FAILURES):
+        assert _deploy(fake, tmp_path / f"d{k}", [("x", "2026-01-01", 2)])[0] == 1
+    assert _load_row(fake, "x")["attempts"] == d1.MAX_FAILURES
+    ran = len(fake.files)
+    summary = tmp_path / "summary.md"
+    failed, lines = _deploy(fake, tmp_path / "d3", [("x", "2026-01-01", 2)], summary=summary)
+    assert failed == 0 and len(fake.files) == ran  # nothing ran, nothing failed the deploy
+    assert any(x.startswith("::warning") and "d1_retry: x" in x for x in lines)
+    assert "| x@2026-01-01 | skipped |" in summary.read_text()
+    assert _load_row(fake, "x")["attempts"] == d1.MAX_FAILURES  # the count survives a skip
+    # A forced retry runs it again, and the failure still counts.
+    assert _deploy(fake, tmp_path / "d4", [("x", "2026-01-01", 2)], retry={"x"})[0] == 1
+    assert len(fake.files) > ran
+    # A new version does not clear the count; only a load that succeeds does.
+    ran = len(fake.files)
+    assert _deploy(fake, tmp_path / "d5", [("x", "2026-02-01", 2)])[0] == 0
+    assert len(fake.files) == ran and d1.registered(fake) == {}
+    fake.broken = ()
+    assert _deploy(fake, tmp_path / "d6", [("x", "2026-02-01", 2)], retry={"all"})[0] == 0
+    assert _served(fake, "x") == ("2026-02-01", 2, 2) and _load_row(fake, "x") is None
+
+
+def test_a_failed_load_resumes_at_the_part_that_failed(tmp_path):
+    fake = FakeD1(broken=("x@2026-01-01.part004",))
+    assert _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 5)])[0] == 1
+    row = _load_row(fake, "x")
+    assert (row["part"], row["rows"], row["attempts"]) == (3, 2, 1)
+    assert d1.registered(fake) == {}
+    fake.broken, fake.files = (), []
+    failed, lines = _deploy(fake, tmp_path / "d1", [("x", "2026-01-01", 5)])
+    assert failed == 0 and any("resumes after part 3" in x for x in lines)
+    assert fake.files[0] == "x@2026-01-01.part004.sql"
+    assert _served(fake, "x") == ("2026-01-01", 5, 5)
+    (tbl,) = (r["tbl"] for r in d1._registry(fake).values())
+    assert [r["a"] for r in fake.query(f'SELECT a FROM "{tbl}" ORDER BY rowid')] == list(range(5))
+    assert _load_row(fake, "x") is None
+
+
+def test_a_resume_whose_table_disagrees_with_its_progress_loads_from_part_one(tmp_path):
+    fake = FakeD1(broken=("x@2026-01-01.part004",))
+    assert _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 5)])[0] == 1
+    tbl = _load_row(fake, "x")["tbl"]
+    fake.db.execute(f'DELETE FROM "{tbl}" WHERE rowid = 1')
+    fake.broken, fake.files = (), []
+    failed, lines = _deploy(fake, tmp_path / "d1", [("x", "2026-01-01", 5)])
+    assert failed == 0 and any("loading it from part 1" in x for x in lines)
+    assert fake.files[0] == "x@2026-01-01.part001.sql"
+    assert [r["a"] for r in fake.query(f'SELECT a FROM "{tbl}" ORDER BY rowid')] == list(range(5))
+
+
+def test_a_version_rebuilt_between_deploys_loads_afresh_and_drops_the_part_filled_table(tmp_path):
+    fake = FakeD1(broken=("x@2026-01-01.part004",))
+    assert _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 5)])[0] == 1
+    stale = _load_row(fake, "x")["tbl"]
+    fake.broken, fake.files = (), []
+    # Other rows for the same version: another table, so the old progress cannot apply.
+    assert _deploy(fake, tmp_path / "d1", [("x", "2026-01-01", 6)])[0] == 0
+    assert fake.files[0] == "x@2026-01-01.part001.sql"
+    assert _served(fake, "x") == ("2026-01-01", 6, 6) and stale not in _tables(fake)
+
+
+class Flaky(FakeD1):
+    """D1 that stops answering queries on request."""
+
+    down = False
+
+    def query(self, sql):
+        if self.down and "COUNT(*)" in sql:
+            raise RuntimeError("D1 query failed: rate limited")
+        return super().query(sql)
+
+
+def test_a_check_d1_does_not_answer_is_never_read_as_not_loaded(tmp_path):
+    fake = Flaky(broken=("x@2026-01-01.part004",))
+    assert _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 5)])[0] == 1
+    row = _load_row(fake, "x")
+    assert d1.holds(fake, row["tbl"], 2) and not d1.holds(fake, "v_nowhere", 0)
+    fake.down, fake.broken, fake.files = True, (), []
+    with pytest.raises(d1.Unknown):
+        d1.holds(fake, row["tbl"], 2)
+    failed, lines = _deploy(fake, tmp_path / "d1", [("x", "2026-01-01", 5)])
+    # Skipped for this deploy: nothing reloaded, the progress kept, no failure counted.
+    assert failed == 0 and fake.files == [] and _load_row(fake, "x") == row
+    assert any("::warning" in x and "unchecked" in x for x in lines)
+    fake.down = False
+    assert _deploy(fake, tmp_path / "d2", [("x", "2026-01-01", 5)])[0] == 0
+    assert fake.files[0] == "x@2026-01-01.part004.sql"
+
+
+def test_loads_past_the_budget_wait_and_the_longest_waiting_go_first(tmp_path):
+    fake = FakeD1()
+    # Each plans 2 rows written per row: the row and its one index entry.
+    summary = tmp_path / "s.md"
+    specs = [("a", "2026-01-01", 10), ("b", "2026-01-01", 10), ("c", "2026-01-01", 12)]
+    _deploy(fake, tmp_path / "d0", specs, budget=45, now="2026-10-07T01:00:00", summary=summary)
+    assert {s for s, _ in d1.registered(fake)} == {"a", "b"}
+    assert _load_row(fake, "c")["since"] == "2026-10-07T01:00:00"
+    assert "| c@2026-01-01 | deferred | 12 | 24 |" in summary.read_text()
+    # c has waited longest, so it goes before a smaller newcomer.
+    specs = [("c", "2026-01-01", 12), ("d", "2026-01-01", 1)]
+    _deploy(fake, tmp_path / "d1", specs, budget=25, now="2026-10-07T02:00:00")
+    assert {s for s, _ in d1.registered(fake)} == {"a", "b", "c"}
+    assert _load_row(fake, "d")["since"] == "2026-10-07T02:00:00"
+    _deploy(fake, tmp_path / "d2", [("d", "2026-01-01", 1)], budget=25)
+    assert _load_row(fake, "d") is None and ("d", "2026-01-01") in d1.registered(fake)
+
+
+def test_a_version_larger_than_the_budget_loads_alone_when_it_is_first_in_line(tmp_path):
+    fake = FakeD1()
+    specs = [("a", "2026-01-01", 30), ("b", "2026-01-01", 20), ("c", "2026-01-01", 10)]
+    loaded = []
+    for k in range(3):
+        _deploy(fake, tmp_path / f"d{k}", specs, budget=5, now=f"2026-10-07T0{k}:00:00")
+        loaded.append({s for s, _ in d1.registered(fake)})
+    assert loaded == [{"c"}, {"b", "c"}, {"a", "b", "c"}]
+
+
+def test_a_load_part_way_through_goes_before_the_rest(tmp_path):
+    fake = FakeD1(broken=("z@2026-01-01.part003",))
+    _deploy(fake, tmp_path / "d0", [("z", "2026-01-01", 20)], now="2026-10-07T03:00:00")
+    fake.broken = ()
+    specs = [("a", "2026-01-01", 1), ("z", "2026-01-01", 20)]
+    _deploy(fake, tmp_path / "d1", specs, budget=5)
+    assert {s for s, _ in d1.registered(fake)} == {"z"}
+
+
+def test_the_previous_version_serves_until_the_next_one_is_whole(tmp_path):
+    fake = FakeD1()
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 3)])
+    # The new version waits behind a smaller load, and the old one answers meanwhile.
+    _deploy(fake, tmp_path / "d1", [("a", "2026-01-01", 1), ("x", "2026-02-01", 50)], budget=5)
+    assert _served(fake, "x") == ("2026-01-01", 3, 3)
+    assert ("x", "2026-02-01") not in d1.registered(fake)
+    # A failed load of it leaves the old one answering too.
+    fake.broken = ("x@2026-02-01.part010",)
+    assert _deploy(fake, tmp_path / "d2", [("x", "2026-02-01", 50)])[0] == 1
+    assert _served(fake, "x") == ("2026-01-01", 3, 3)
+    fake.broken = ()
+    assert _deploy(fake, tmp_path / "d3", [("x", "2026-02-01", 50)])[0] == 0
+    assert _served(fake, "x") == ("2026-02-01", 50, 50)
+    assert {v for s, v in d1.registered(fake) if s == "x"} == {"2026-01-01", "2026-02-01"}
+
+
+class Watch(FakeD1):
+    """Checks after every statement D1 runs that each registered table is whole and indexed."""
+
+    def check(self):
+        for r in self.db.execute("SELECT tbl, rows FROM _versions").fetchall():
+            assert self.db.execute(f'SELECT COUNT(*) FROM "{r[0]}"').fetchone()[0] == r[1]
+            idx = self.db.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = ?",
+                (r[0],),
+            ).fetchone()[0]
+            assert idx == 1, r
+
+    def file(self, path):
+        what = self.plan.pop(0) if self.plan else "ok"
+        if path.name.startswith(tuple(self.broken)):
+            what = "error"
+        self.files.append(path.name)
+        if what == "crash":
+            raise OSError("the runner stopped")
+        if what == "error":
+            return False
+        for stmt in path.read_text().split(";\n"):
+            if stmt.strip() and not stmt.startswith("-- load") or "\n" in stmt.strip():
+                self.db.executescript(stmt + ";")
+                self.check()
+        return what == "ok"
+
+
+def test_no_registered_table_is_ever_partial_through_failures_crashes_and_a_reload(tmp_path):
+    fake = Watch()
+    fake.db.execute(d1.REGISTRY)
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 3)])
+    first = d1._registry(fake)[("x", "2026-01-01")]["tbl"]
+    # The same version again with other rows, as when a column is joined in: it fills a table of
+    # its own while the registered one answers, through a crash and a failed finish.
+    fake.plan = ["ok", "ok", "crash"]
+    assert _deploy(fake, tmp_path / "d1", [("x", "2026-01-01", 5)])[0] == 1
+    assert d1._registry(fake)[("x", "2026-01-01")]["tbl"] == first
+    assert _load_row(fake, "x")["part"] == 0  # where a crash left it is not known
+    fake.broken = ("x@2026-01-01.part007",)  # the finish
+    assert _deploy(fake, tmp_path / "d2", [("x", "2026-01-01", 5)])[0] == 1
+    assert _load_row(fake, "x")["part"] == 6
+    assert d1._registry(fake)[("x", "2026-01-01")]["tbl"] == first
+    fake.broken, fake.files = (), []
+    assert _deploy(fake, tmp_path / "d3", [("x", "2026-01-01", 5)])[0] == 0
+    assert fake.files == ["x@2026-01-01.part007.sql", "x@2026-01-01.clean.sql"]
+    assert _served(fake, "x") == ("2026-01-01", 5, 5) and first not in _tables(fake)
+
+
+def test_a_version_registered_by_a_deploy_that_could_not_confirm_it_only_finishes(tmp_path):
+    fake = FakeD1()
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 3)])
+    fake.files = []
+    failed, _ = _deploy(fake, tmp_path / "d1", [("x", "2026-01-01", 3)])
+    assert failed == 0 and fake.files == ["x@2026-01-01.part005.sql", "x@2026-01-01.clean.sql"]
+    assert _served(fake, "x") == ("2026-01-01", 3, 3)
+
+
+def test_the_load_plan_goes_to_the_step_summary(tmp_path):
+    fake = FakeD1()
+    summary = tmp_path / "summary.md"
+    _deploy(fake, tmp_path / "d0", [("a", "2026-01-01", 2)], summary=summary)
+    text = summary.read_text()
+    assert "## D1 load" in text and "| a@2026-01-01 | loaded | 2 | 4 |" in text
+
+
+def test_a_dataset_failing_on_every_new_version_is_capped_and_never_blocks_the_rest(tmp_path):
+    # a is the oldest waiting and fails at its first row; every deploy brings a new version.
+    fake = FakeD1(broken=tuple(f"a@2026-01-0{k}.part002" for k in range(1, 9)))
+    _deploy(fake, tmp_path / "d0", [("a", "2026-01-01", 5)], now="2026-10-07T00:00:00")
+    for k in range(2, 6):
+        specs = [("a", f"2026-01-0{k}", 5), ("b", "2026-01-01", 5)]
+        _deploy(fake, tmp_path / f"d{k}", specs, budget=1, now=f"2026-10-07T0{k}:00:00")
+    assert ("b", "2026-01-01") in d1.registered(fake)
+    assert _load_row(fake, "a")["attempts"] == d1.MAX_FAILURES
+    ran = len(fake.files)
+    failed, lines = _deploy(fake, tmp_path / "d6", [("a", "2026-01-06", 5)], budget=1)
+    assert failed == 0 and len(fake.files) == ran
+    assert any("D1 load skipped" in x and "a@2026-01-06" in x for x in lines)
+
+
+def test_an_index_kept_alone_unregisters_the_others_with_its_own_registration(tmp_path):
+    fake = FakeD1()
+    _write_job(tmp_path / "d0", "_served", "ffff", 2, keep=1)
+    assert d1.load(tmp_path / "d0", fake, log=lambda *_: None) == 0
+    fake.broken = ("_served@0000.clean",)
+    _write_job(tmp_path / "d1", "_served", "0000", 3, keep=1)
+    assert d1.load(tmp_path / "d1", fake, log=lambda *_: None) == 0
+    # The cleanup failed, yet the old index, whose hash sorts higher, is no longer registered.
+    assert [v for _, v in d1.registered(fake)] == ["0000"]
+    assert _served(fake, "_served") == ("0000", 3, 3)
+
+
+def test_the_sweep_drops_only_load_tables_nothing_names(tmp_path):
+    fake = FakeD1()
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 2)])
+    fake.broken = ("y@2026-01-01.part003",)
+    _deploy(fake, tmp_path / "d1", [("y", "2026-01-01", 3)])
+    served = d1._registry(fake)[("x", "2026-01-01")]["tbl"]
+    pending = _load_row(fake, "y")["tbl"]
+    orphan = d1.load_table("z", "2026-01-01", 1)
+    for t in (
+        orphan,
+        "v_x_20260101",  # an older load's name
+        "v_notes",
+        "_cf_kv",
+        "keep_me_0123456789",
+    ):
+        fake.db.execute(f'CREATE TABLE "{t}" (a)')
+    fake.db.execute(
+        f"CREATE VIRTUAL TABLE \"{orphan}_fts\" USING fts5(a, content='{orphan}', "
+        "content_rowid='rowid')"
+    )
+    fake.broken = ()
+    lines = []
+    d1.load(tmp_path / "d1", fake, log=lines.append, workers=1)
+    left = _tables(fake)
+    assert orphan not in left and f"{orphan}_fts" not in left
+    assert {served, "v_x_20260101", "v_notes", "_cf_kv", "keep_me_0123456789"} <= left
+    assert pending in left or ("y", "2026-01-01") in d1.registered(fake)
+    assert any(f"dropped {orphan}" in x for x in lines)
+
+
+def test_a_resume_that_starts_over_is_charged_in_full_and_holds_back_the_next(tmp_path):
+    fake = FakeD1(broken=("x@2026-01-01.part008",))
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 10)])
+    fake.db.execute(f'DELETE FROM "{_load_row(fake, "x")["tbl"]}" WHERE rowid = 1')
+    fake.broken = ()
+    # Planned as a resume of 4 rows (plus 10 index entries), x has to load all 10 again.
+    summary = tmp_path / "s.md"
+    specs = [("x", "2026-01-01", 10), ("b", "2026-01-01", 1)]
+    _deploy(fake, tmp_path / "d1", specs, budget=17, summary=summary)
+    assert {s for s, _ in d1.registered(fake)} == {"x"}
+    assert "| b@2026-01-01 | deferred |" in summary.read_text()
+    assert "20 charged" in summary.read_text()
+
+
+def test_a_part_run_again_is_charged_again(tmp_path):
+    fake = FakeD1(["ok", "error"])
+    summary = tmp_path / "s.md"
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 3)], summary=summary)
+    assert "7 charged" in summary.read_text()  # 3 rows, 3 index entries, the row run again
+
+
+def test_a_registration_check_too_long_for_d1_keeps_the_version_files_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(d1, "MAX_STATEMENT", 3_000)
+    rows = [(i, "x" * 4_000, None) for i in range(1, 1_200)]
+    with pytest.raises(d1.TooWide, match="registration check"):
+        list(d1.version_sql(_version(tmp_path, rows), "t", "2026-01-01", ()))
+
+
+def test_a_dataset_skipped_or_waiting_a_week_is_listed_on_the_deploy(tmp_path):
+    fake = FakeD1()
+    specs = [("a", "2026-01-01", 1), ("b", "2026-01-01", 30)]
+    _deploy(fake, tmp_path / "d0", specs, budget=1, now="2026-10-01T00:00:00")
+    summary = tmp_path / "s.md"
+    _, lines = _deploy(
+        fake,
+        tmp_path / "d1",
+        [("b", "2026-01-01", 30), ("c", "2026-01-01", 1)],
+        budget=1,
+        now="2026-10-09T00:00:00",
+        summary=summary,
+    )
+    text = summary.read_text()
+    assert "waiting over 7 days" in text and "- b@2026-01-01: waiting since 2026-10-01" in text
+    assert any("D1 load waiting" in x and "b@2026-01-01" in x for x in lines)
+
+
+def test_a_budget_reads_as_a_count_with_a_suffix():
+    assert d1.rows_written("10M") == 10_000_000 and d1.rows_written("500k") == 500_000
+    assert d1.rows_written("12_000,000") == 12_000_000 and d1.rows_written(" 7 ") == 7
+    for bad in ("ten", "10MB", "-1", ""):
+        with pytest.raises(ValueError):
+            d1.rows_written(bad)
+
+
+def test_a_deploy_with_nothing_to_load_still_sweeps(tmp_path):
+    fake = FakeD1()
+    _deploy(fake, tmp_path / "d0", [("x", "2026-01-01", 2)])
+    orphan = d1.load_table("x", "2026-01-01", 9)
+    fake.db.execute(f'CREATE TABLE "{orphan}" (a)')
+    (tmp_path / "empty").mkdir()
+    assert d1.load(tmp_path / "empty", fake, log=lambda *_: None) == 0
+    assert orphan not in _tables(fake) and _served(fake, "x") == ("2026-01-01", 2, 2)

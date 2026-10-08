@@ -1,4 +1,6 @@
 import hashlib
+import json
+from datetime import UTC, datetime, timedelta
 
 from publicdata import r2
 
@@ -10,12 +12,14 @@ class FakeS3:
         self.etags = etags or {}
         self.puts = []
         self.heads = []
+        self.listed = []
 
     def get_paginator(self, name):
         fake = self
 
         class P:
             def paginate(self, Bucket, Prefix):
+                fake.listed.append(Prefix)
                 yield {
                     "Contents": [
                         {"Key": k, "ETag": f'"{fake.etags.get(k, "")}"'}
@@ -200,3 +204,403 @@ def test_store_push_replaces_raw_bytes_only_for_versions_main_never_took(tmp_pat
         "x/2026-10-04/manifest.json",
         "x/2026-10-04/source.csv",
     ]
+
+
+class Bucket(FakeS3):
+    """FakeS3 holding bytes, so the cache can go up and come back down."""
+
+    def __init__(self):
+        super().__init__(set())
+        self.bytes = {}
+        self.deleted = []
+        self.batches = []
+
+    def upload_file(self, path, bucket, key, ExtraArgs):
+        super().upload_file(path, bucket, key, ExtraArgs)
+        data = open(path, "rb").read()
+        self.bytes[key] = data
+        self.existing.add(key)
+        self.etags[key] = hashlib.md5(data).hexdigest()
+
+    def download_file(self, bucket, key, dest):
+        if key not in self.bytes:
+            raise _missing()
+        open(dest, "wb").write(self.bytes[key])
+
+    def get_object(self, Bucket, Key):
+        import io
+
+        if Key not in self.bytes:
+            raise _missing()
+        return {"Body": io.BytesIO(self.bytes[Key])}
+
+    def put_object(self, Bucket, Key, Body, ContentType):
+        self.bytes[Key] = Body
+        self.existing.add(Key)
+
+    def delete_objects(self, Bucket, Delete):
+        self.batches.append([o["Key"] for o in Delete["Objects"]])
+        for o in Delete["Objects"]:
+            self.deleted.append(o["Key"])
+            self.existing.discard(o["Key"])
+            self.bytes.pop(o["Key"])
+        return {}
+
+
+def _missing():
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": "404"}}, "GetObject")
+
+
+def _entry(root, key, meta="{}", files=()):
+    (root / key / "files").mkdir(parents=True)
+    for name in files:
+        (root / key / "files" / name).write_text(name)
+    (root / key / "meta.json").write_text(meta)
+
+
+def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_dropped(
+    tmp_path, monkeypatch
+):
+    bucket = Bucket()
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    up = tmp_path / "up"
+    _entry(up, "a" * 64, files=("manifest.json",))
+    _entry(up, "b" * 64)
+    (up / ".c.tmp").mkdir()  # an entry a failed put left half written
+    assert r2.cache_push(up) == (3, 0)
+    # meta.json goes last, so an interrupted push never leaves a record without its files.
+    puts = [k for k, _ in bucket.puts]
+    assert sorted(puts[-2:]) == [f"_build/{'a' * 64}/meta.json", f"_build/{'b' * 64}/meta.json"]
+    assert r2.cache_push(up) == (0, 0)
+    (up / ("a" * 64) / "meta.json").write_text('{"grown": 1}')
+    assert r2.cache_push(up) == (1, 0)
+    assert r2.cache_pull(tmp_path / "meta", meta_only=True) == 2
+    assert (
+        sorted(p.name for p in (tmp_path / "meta").rglob("*") if p.is_file()) == ["meta.json"] * 2
+    )
+    down = tmp_path / "down"
+    assert r2.cache_pull(down) == 2
+    assert (down / ("a" * 64) / "files" / "manifest.json").read_text() == "manifest.json"
+    assert (down / ("a" * 64) / "meta.json").read_text() == '{"grown": 1}'
+    import shutil
+
+    shutil.rmtree(up / ("b" * 64))
+    assert r2.cache_push(up) == (0, 0)  # without prune nothing goes
+    t0 = datetime(2026, 10, 6, tzinfo=UTC)
+    # A preview may have listed the entry, so the first push to find it unused only notes it.
+    assert r2.cache_push(up, prune=True, now=t0) == (0, 0)
+    assert bucket.deleted == []
+    assert r2.cache_pull(tmp_path / "again") == 2
+    assert r2.cache_push(up, prune=True, now=t0 + timedelta(hours=23)) == (0, 0)
+    assert r2.cache_push(up, prune=True, now=t0 + timedelta(hours=24)) == (0, 1)
+    assert bucket.deleted == [f"_build/{'b' * 64}/meta.json"]
+    assert json.loads(bucket.bytes[r2.UNUSED]) == {}
+
+
+def test_an_entry_used_again_is_no_longer_due_and_pruning_takes_its_record_first(
+    tmp_path, monkeypatch
+):
+    import shutil
+
+    bucket = Bucket()
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    up = tmp_path / "up"
+    a, b = "a" * 64, "b" * 64
+    _entry(up, a, files=("x", "y"))
+    _entry(up, b)
+    r2.cache_push(up)
+    t0 = datetime(2026, 10, 6, tzinfo=UTC)
+    shutil.move(up / a, tmp_path / "aside")
+    r2.cache_push(up, prune=True, now=t0)
+    assert json.loads(bucket.bytes[r2.UNUSED]) == {a: t0.isoformat()}
+    shutil.move(tmp_path / "aside", up / a)
+    r2.cache_push(up, prune=True, now=t0 + timedelta(hours=1))
+    assert json.loads(bucket.bytes[r2.UNUSED]) == {}
+    shutil.rmtree(up / a)
+    r2.cache_push(up, prune=True, now=t0 + timedelta(hours=2))
+    assert r2.cache_push(up, prune=True, now=t0 + timedelta(hours=27)) == (0, 1)
+    assert bucket.batches == [
+        [f"_build/{a}/meta.json"],
+        [f"_build/{a}/files/x", f"_build/{a}/files/y"],
+    ]
+
+
+def test_a_delete_r2_refuses_fails_the_push(tmp_path, monkeypatch):
+    import pytest
+
+    class Refusing(Bucket):
+        def delete_objects(self, Bucket, Delete):
+            return {"Errors": [{"Key": Delete["Objects"][0]["Key"], "Code": "AccessDenied"}]}
+
+    bucket = Refusing()
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    up = tmp_path / "up"
+    _entry(up, "a" * 64)
+    r2.cache_push(up)
+    (up / ("a" * 64) / "meta.json").unlink()
+    t0 = datetime(2026, 10, 6, tzinfo=UTC)
+    r2.cache_push(up, prune=True, now=t0)
+    with pytest.raises(SystemExit, match="AccessDenied"):
+        r2.cache_push(up, prune=True, now=t0 + timedelta(days=2))
+
+
+def test_a_pull_leaves_out_an_entry_deleted_under_it_and_can_keep_to_some(tmp_path, monkeypatch):
+    bucket = Bucket()
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    up = tmp_path / "up"
+    a, b = "a" * 64, "b" * 64
+    _entry(up, a, files=("x",))
+    _entry(up, b, files=("x",))
+    r2.cache_push(up)
+    down = tmp_path / "down"
+    assert r2.cache_pull(down, entries={b}) == 1
+    assert sorted(p.name for p in down.iterdir()) == [b]
+
+    class Racing(Bucket):
+        def download_file(self, bucket_, key, dest):
+            if key == f"_build/{a}/files/x":
+                bucket.bytes.pop(f"_build/{a}/meta.json")
+                raise _missing()
+            Bucket.download_file(bucket, bucket_, key, dest)
+
+    racing = Racing()
+    racing.existing, racing.etags = bucket.existing, bucket.etags
+    monkeypatch.setattr(r2, "client", lambda: racing)
+    assert r2.cache_pull(tmp_path / "raced") == 1
+    assert not (tmp_path / "raced" / a / "meta.json").exists()
+    assert (tmp_path / "raced" / b / "meta.json").exists()
+
+
+def test_a_shard_pulls_only_the_entries_its_datasets_key_to(fixture_store, tmp_path, monkeypatch):
+    from publicdata.__main__ import REGISTER, main
+    from publicdata.build import cache_keys
+    from publicdata.cache import BuildCache
+    from publicdata.register import load
+
+    seen = {}
+    monkeypatch.setattr(
+        r2, "cache_pull", lambda root, meta_only=False, entries=None: seen.update(e=entries) or 0
+    )
+    slug = next(
+        d.slug for d in load(REGISTER) if cache_keys(BuildCache(tmp_path), d, fixture_store)
+    )
+    args = [
+        "cache",
+        "pull",
+        "--cache",
+        str(tmp_path),
+        "--store",
+        str(fixture_store),
+        "--only",
+        slug,
+    ]
+    assert main(args) == 0
+    want = next(
+        cache_keys(BuildCache(tmp_path), d, fixture_store) for d in load(REGISTER) if d.slug == slug
+    )
+    assert seen["e"] == want
+    assert main(["cache", "pull", "--cache", str(tmp_path), "--only", slug]) == 2
+
+
+def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
+    import json
+
+    import pytest
+
+    for slug, version, man in (
+        ("x", "2026-10-01", {"filename": "Crashes.CSV"}),
+        ("y", "2026-10-02", {"filename": "a.zip", "source_withheld": "Its terms are unclear."}),
+    ):
+        v = tmp_path / "d" / slug / "v" / version
+        v.mkdir(parents=True)
+        (v / "manifest.json").write_text(json.dumps(man))
+    assert r2.source_keys(tmp_path) == {"d/x/v/2026-10-01/source.csv": "x/2026-10-01/source.csv"}
+    held = FakeS3({"x/2026-10-01/source.csv"})
+    monkeypatch.setattr(r2, "client", lambda: held)
+    assert r2.check_sources([tmp_path]) == 1
+    # Only the published dataset's keys are listed, never the cache or the rest of the store.
+    assert held.listed == ["x/"]
+    other = {"x/2026-09-01/source.csv", "x-y/2026-10-01/source.csv"}
+    monkeypatch.setattr(r2, "client", lambda: FakeS3(other))
+    with pytest.raises(SystemExit, match="d/x/v/2026-10-01/source.csv"):
+        r2.check_sources([tmp_path])
+
+
+class Dist(Bucket):
+    """A bucket that answers byte ranges and lists each object's MD5, as R2 does for one part."""
+
+    def __init__(self):
+        super().__init__()
+        self.ops = []
+
+    def upload_file(self, path, bucket, key, ExtraArgs):
+        super().upload_file(path, bucket, key, ExtraArgs)
+        self.ops.append(("upload", key))
+
+    def put_object(self, Bucket, Key, Body, ContentType):
+        super().put_object(Bucket, Key, Body, ContentType)
+        self.etags[Key] = hashlib.md5(Body).hexdigest()
+        self.ops.append(("put", Key, Body))
+
+    def head_object(self, Bucket, Key):
+        super().head_object(Bucket, Key)
+        return {"ContentLength": len(self.bytes[Key]), "Metadata": {}}
+
+    def get_object(self, Bucket, Key, Range=None):
+        import io
+
+        a, b = (int(x) for x in Range.removeprefix("bytes=").split("-"))
+        self.ops.append(("get", Key))
+        return {"Body": io.BytesIO(self.bytes[Key][a : b + 1])}
+
+
+Q = "_q/t/2026-01-02.parquet"
+MARK = "_q/t/2026-01-02.layout.json"
+
+
+def _lay(**kw):
+    from publicdata.serialise import profile
+
+    return {"profile": profile.VERSION, "sort": [], "key": ["id"], "lookup": [], "int32": []} | kw
+
+
+def _copy(path, lay):
+    import pyarrow as pa
+
+    from publicdata.serialise import profile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    t = pa.table({"id": [3, 1, 2], "year": [2024, 2023, 2024], "place": ["b", "a", "c"]})
+    profile.write(t, {}, path, lay)
+    return path
+
+
+def _held(tmp_path, lay, marked=True):
+    """A bucket holding the version's dated file and its query copy under lay."""
+    from publicdata.serialise import profile
+
+    fake = Dist()
+    for key, p in (
+        ("d/t/v/2026-01-02/data.parquet", _copy(tmp_path / "old" / "data.parquet", _lay())),
+        (Q, _copy(tmp_path / "old" / "q.parquet", lay)),
+    ):
+        fake.upload_file(str(p), "b", key, {"ContentType": "x"})
+    if marked:
+        fake.put_object("b", MARK, profile.layout_body(lay), "application/json")
+    fake.ops.clear()
+    fake.puts.clear()
+    return fake
+
+
+def _remote(fake, key=Q):
+    import io
+
+    import pyarrow.parquet as pq
+
+    return pq.read_metadata(io.BytesIO(fake.bytes[key]))
+
+
+def test_a_query_push_lists_only_the_query_copies(tmp_path, monkeypatch):
+    _copy(tmp_path / "t" / Q, _lay())
+    fake = Dist()
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path / "t", "b", immutable=r2.dated_file, layouts={"t": _lay()}) == 1
+    assert fake.listed == ["_q/"]
+
+
+def test_a_layout_edit_reaches_the_query_copies_r2_holds(tmp_path, monkeypatch):
+    from publicdata.serialise import profile
+
+    for old, new in (
+        (_lay(), _lay(sort=["year"])),
+        (_lay(sort=["year"]), _lay(sort=["place"], lookup=["place"])),
+        (_lay(int32=["id"]), _lay(int32=["id", "year"])),
+        (_lay(int32=["id", "year"]), _lay()),
+    ):
+        fake = _held(tmp_path, old)
+        dated = fake.bytes["d/t/v/2026-01-02/data.parquet"]
+        root = tmp_path / "tree"
+        _copy(root / Q, new)
+        _copy(root / "d/t/v/2026-01-02/data.parquet", new)
+        monkeypatch.setattr(r2, "client", lambda fake=fake: fake)
+        assert r2.push(root, "b", immutable=r2.dated_file, layouts={"t": new}) == 1
+        assert profile.follows(_remote(fake), new) and not profile.follows(_remote(fake), old)
+        assert fake.bytes[MARK] == profile.layout_body(new)
+        assert fake.bytes["d/t/v/2026-01-02/data.parquet"] == dated
+        # The record follows the upload, so it never names a layout the copy does not have.
+        assert [o[:2] for o in fake.ops] == [("upload", Q), ("put", MARK)]
+        fake.ops.clear()
+        assert r2.push(root, "b", immutable=r2.dated_file, layouts={"t": new}) == 0
+        assert fake.ops == []
+
+
+def test_an_unchanged_layout_uploads_no_query_copy(tmp_path, monkeypatch):
+    lay = _lay(sort=["year"], int32=["id"])
+    fake = _held(tmp_path, lay)
+    _copy(tmp_path / "tree" / Q, lay)
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 0
+    assert fake.ops == [] and fake.heads == []
+
+
+def test_a_copy_without_a_record_is_judged_by_its_footer(tmp_path, monkeypatch):
+    from publicdata.serialise import profile
+
+    lay = _lay(sort=["year"])
+    fake = _held(tmp_path, lay, marked=False)
+    _copy(tmp_path / "tree" / Q, lay)
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 0
+    assert ("upload", Q) not in fake.ops and fake.bytes[MARK] == profile.layout_body(lay)
+    stale = _held(tmp_path, _lay(), marked=False)
+    monkeypatch.setattr(r2, "client", lambda: stale)
+    assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 1
+    assert profile.follows(_remote(stale), lay) and stale.bytes[MARK] == profile.layout_body(lay)
+
+
+def test_an_unreadable_copy_is_written_again(tmp_path, monkeypatch):
+    from publicdata.serialise import profile
+
+    lay = _lay(sort=["year"])
+    fake = _held(tmp_path, lay, marked=False)
+    fake.bytes[Q] = b"not parquet"
+    _copy(tmp_path / "tree" / Q, lay)
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 1
+    assert profile.follows(_remote(fake), lay)
+
+
+def test_a_cached_query_copy_must_follow_the_entry_in_r2(tmp_path, monkeypatch):
+    import pytest
+
+    from publicdata.serialise import profile
+
+    lay = _lay(sort=["year"])
+    (tmp_path / "tree").mkdir()
+    for held, ok in ((lay, True), (_lay(), False)):
+        for marked in (True, False):
+            fake = _held(tmp_path, held, marked=marked)
+            monkeypatch.setattr(r2, "client", lambda fake=fake: fake)
+            args = (tmp_path / "tree", "b")
+            kw = dict(immutable=r2.dated_file, expect=[Q], layouts={"t": lay})
+            if ok:
+                assert r2.push(*args, **kw) == 0
+                assert fake.bytes[MARK] == profile.layout_body(lay)
+            else:
+                with pytest.raises(SystemExit, match=Q):
+                    r2.push(*args, **kw)
+                assert fake.ops == [] or fake.ops == [("get", Q)] * len(fake.ops)
+
+
+def test_a_query_copy_the_build_wrote_otherwise_stops_the_push(tmp_path, monkeypatch):
+    import pytest
+
+    _copy(tmp_path / "tree" / Q, _lay())
+    _copy(tmp_path / "tree" / "d/t/v/2026-01-02/data.parquet", _lay())
+    fake = Dist()
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    with pytest.raises(SystemExit, match=Q):
+        r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": _lay(sort=["year"])})
+    assert fake.ops == []

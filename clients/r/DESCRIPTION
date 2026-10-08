@@ -1,6 +1,6 @@
 Package: publicdataau
 Title: Australian Government Open Data from 'publicdata.au'
-Version: 0.4.1
+Version: 0.5.0
 Authors@R: c(
     person("Cameron", "Young", role = c("aut", "cre"), email = "cameron@nationaldigital.com.au"),
     person("National Digital", role = c("cph", "fnd"))
@@ -32,6 +32,7 @@ Imports:
     tibble
 Suggests:
     arrow,
+    bit64,
     DBI,
     dbplyr,
     dplyr,

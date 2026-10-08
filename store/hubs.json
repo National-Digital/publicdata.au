@@ -157,7 +157,7 @@
     "act-vehicles-registered": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/act-vehicles-registered",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/act-vehicles-registered",
-      "zenodo": "10.5281/zenodo.23173852"
+      "zenodo": "10.5281/zenodo.23123524"
     },
     "asic-business-names": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/asic-business-names",
@@ -402,7 +402,7 @@
     "nsw-popular-baby-names": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-popular-baby-names",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-popular-baby-names",
-      "zenodo": "10.5281/zenodo.23140350"
+      "zenodo": "10.5281/zenodo.23123029"
     },
     "nsw-primary-class-sizes": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-primary-class-sizes",
@@ -437,17 +437,17 @@
     "nsw-rental-bond-lodgements-2023": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-lodgements-2023",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-lodgements-2023",
-      "zenodo": "10.5281/zenodo.23145675"
+      "zenodo": "10.5281/zenodo.23123191"
     },
     "nsw-rental-bond-lodgements-2024": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-lodgements-2024",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-lodgements-2024",
-      "zenodo": "10.5281/zenodo.23145681"
+      "zenodo": "10.5281/zenodo.23123217"
     },
     "nsw-rental-bond-lodgements-2025": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-lodgements-2025",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-lodgements-2025",
-      "zenodo": "10.5281/zenodo.23145693"
+      "zenodo": "10.5281/zenodo.23123235"
     },
     "nsw-rental-bond-refunds-2021": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2021",
@@ -462,12 +462,12 @@
     "nsw-rental-bond-refunds-2023": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2023",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-refunds-2023",
-      "zenodo": "10.5281/zenodo.23150921"
+      "zenodo": "10.5281/zenodo.23123321"
     },
     "nsw-rental-bond-refunds-2024": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2024",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-refunds-2024",
-      "zenodo": "10.5281/zenodo.23150931"
+      "zenodo": "10.5281/zenodo.23123347"
     },
     "nsw-rental-bond-refunds-2025": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2025",
@@ -507,7 +507,7 @@
     "nsw-top-baby-names-by-lga-male": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-top-baby-names-by-lga-male",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-top-baby-names-by-lga-male",
-      "zenodo": "10.5281/zenodo.23140354"
+      "zenodo": "10.5281/zenodo.23123036"
     },
     "nsw-traffic-count-stations": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-traffic-count-stations",
@@ -652,7 +652,7 @@
     "qld-crocwatch-sightings-2010-2015": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-crocwatch-sightings-2010-2015",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-crocwatch-sightings-2010-2015",
-      "zenodo": "10.5281/zenodo.23128565"
+      "zenodo": "10.5281/zenodo.23122989"
     },
     "qld-crocwatch-sightings-2016": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-crocwatch-sightings-2016",
@@ -922,17 +922,17 @@
     "qld-public-libraries-directory": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-public-libraries-directory",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-public-libraries-directory",
-      "zenodo": "10.5281/zenodo.23140338"
+      "zenodo": "10.5281/zenodo.23123010"
     },
     "qld-public-library-branch-statistics": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-public-library-branch-statistics",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-public-library-branch-statistics",
-      "zenodo": "10.5281/zenodo.23140342"
+      "zenodo": "10.5281/zenodo.23123017"
     },
     "qld-public-library-council-statistics": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-public-library-council-statistics",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-public-library-council-statistics",
-      "zenodo": "10.5281/zenodo.23140344"
+      "zenodo": "10.5281/zenodo.23123024"
     },
     "qld-qbcc-licensed-contractors": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-qbcc-licensed-contractors",

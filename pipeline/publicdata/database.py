@@ -27,6 +27,7 @@ from .serialise import (
     duckdb_meta,
     dumps,
     pretty,
+    profile,
 )
 from .store import Manifest
 
@@ -110,12 +111,20 @@ def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[
     return con.execute(f"SELECT count(*) FROM {_ident(t.name)}").fetchone()[0]
 
 
-def _write_parquet(con, t: TableSpec, header: dict, path: Path) -> None:
-    reader = con.execute(f"SELECT * FROM {_ident(t.name)}").to_arrow_reader(65_536)
-    schema = reader.schema.with_metadata({"publicdata": dumps(header)})
-    with pq.ParquetWriter(path, schema, compression="zstd", write_statistics=True) as w:
+def _write_parquet(con, t: TableSpec, header: dict, path: Path, profiled: bool) -> None:
+    """One table in the publisher's order: under the Parquet profile, a row group at a time, for
+    a version fetched since, and else as the version was first published."""
+    size = profile.ROW_GROUP_ROWS if profiled else 65_536
+    reader = con.execute(f"SELECT * FROM {_ident(t.name)}").to_arrow_reader(size)
+    if not profiled:
+        schema = reader.schema.with_metadata({"publicdata": dumps(header)})
+        opts = dict(compression="zstd", write_statistics=True)
+    else:
+        schema = reader.schema.with_metadata(profile.metadata(header))
+        opts = profile.options(schema)
+    with pq.ParquetWriter(path, schema, **opts) as w:
         for b in reader:
-            w.write_batch(b)
+            w.write_batch(b, row_group_size=size if profiled else None)
 
 
 def _frictionless_field(f: Field) -> dict:
@@ -249,6 +258,7 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
                     t,
                     hdr(n, f"tables/{t.name}.parquet"),
                     vdir / "tables" / f"{t.name}.parquet",
+                    bool(m.parquet),
                 )
             for v in ds.views:
                 con.execute(f"CREATE VIEW {_ident(v.name)} AS {v.sql.rstrip(';')}")

@@ -63,10 +63,24 @@ class Table:
     geometry: pa.Array | None = None
     # The place spine layers a point dataset was joined to, with the version of each.
     places: list[dict] = field(default_factory=list)
+    # (table, (sort, key), permutation) once the build has sorted this table, so it sorts once.
+    order: tuple | None = field(default=None, repr=False, compare=False)
 
     @property
     def rows(self) -> int:
         return self.table.num_rows
+
+
+def detect_encoding(data: bytes, preferred: str = "") -> str:
+    for enc in [preferred, "utf-8-sig", "cp1252"]:
+        if not enc:
+            continue
+        try:
+            data.decode(enc)
+            return enc
+        except UnicodeDecodeError:
+            continue
+    return "latin-1"
 
 
 def _header(text: str, delimiter: str = ",") -> list[str]:
@@ -546,8 +560,6 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
                 )
             raw = read_xml(data, ds.source.record)
         else:
-            from .fetch import detect_encoding
-
             enc = m.encoding if m.ext != "zip" else detect_encoding(data, ds.source.encoding)
             raw = read_csv(data, enc, ds.source.delimiter, ds.source.header_row, short)
     if ds.unpivot:
