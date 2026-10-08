@@ -10,8 +10,9 @@ import { fieldMap, filterSpecs, groupFields, likePattern, metricSpecs, orderSpec
 // What one call may read. Workers hide CPU time from the code that spends it, so cost is bounded
 // by what decoding is proportional to: row groups, compressed bytes and the values decoded. An
 // ordered page keeps every row before it in a heap, so offset + limit is held to its own cap, and
-// an aggregate holds one bucket per distinct group, so those are capped too.
-export const BUDGET = { groups: 64, bytes: 8 * 2 ** 20, values: 4_000_000, ranges: 160, held: 100_000, buckets: 50_000 };
+// an aggregate holds one bucket per distinct group, so those are capped too. A version stored as
+// period parts has a footer to read for each part a call cannot rule out, so those are capped.
+export const BUDGET = { groups: 64, bytes: 8 * 2 ** 20, values: 4_000_000, ranges: 160, held: 100_000, buckets: 50_000, parts: 120 };
 const PARALLEL = 6;
 const STREAM = 8;
 // R2 answers a range in about 50 to 80 ms whatever its size, so near ranges are read as one.
@@ -20,6 +21,7 @@ const RUN = 8 * 2 ** 20;
 const TAIL = 64 * 1024;
 const FOOTER_MAX = 16 * 2 ** 20;
 const FOOTERS = 32;
+const PART_FOOTERS = 512;
 const PROFILE = 'publicdata.profile';
 const PROFILES = new Set(['1']);
 
@@ -29,6 +31,8 @@ export const ENGINE = '2';
 export class BudgetError extends Error {}
 // A range read refused because the object is no longer the one its footer came from.
 export class StaleError extends Error {}
+// A version's files that this server will not read, such as a part without provenance.
+export class FileError extends Error {}
 
 // A query copy is written again in place when its entry's sort, lookup or int32 changes, so a
 // footer is held to the ETag it was read under. Past this age the copy's ETag is checked before
@@ -187,8 +191,15 @@ async function locate(env, slug, version) {
   if (q && q.profiled && q.header && pub && sameVersion(q, pub)) return { files: [q], parts: null, copy };
   if (q && pub) console.error(`_q ${slug} ${version}: the copy does not match the published file`);
   if (pub) return { files: [pub], parts: null, copy };
-  const parts = partsOf(slug, await manifestOf(env, slug, version));
-  return parts.length ? { files: [], parts, copy } : null;
+  const manifest = await manifestOf(env, slug, version);
+  const parts = partsOf(slug, manifest);
+  if (!parts.length) return null;
+  return {
+    files: [], parts, copy,
+    period: manifest.period || null,
+    rows: Number.isFinite(manifest.rows) ? manifest.rows : parts.reduce((n, p) => n + p.rows, 0),
+    attribution: manifest.attribution ?? null,
+  };
 }
 
 // A version's manifest: in R2 for a dated version, or among the deployment's files for the newest.
@@ -262,31 +273,110 @@ export async function openVersion(env, slug, version) {
   return hit.p;
 }
 
-// Drops a version's footer, after a read found its file changed.
+// Drops a version's footer, after a read found its file changed. A version's parts can sit under
+// an earlier version's folder, so every part footer of the dataset goes.
 export function forget(slug, version) {
   footers.delete(`${slug}/${version}`);
+  for (const k of [...partFooters.keys()]) if (k.startsWith(`d/${slug}/`)) partFooters.delete(k);
 }
 
+// A part's footer, read once per isolate and held to its ETag as a version's file is. A part is a
+// dated file written once, which a later version can share, so its footer is kept by its key.
+const partFooters = new Map();
+function partFooter(env, key) {
+  let p = partFooters.get(key);
+  if (p) partFooters.delete(key);
+  else {
+    p = readFooter(env, key).then((e) => {
+      if (!e) throw new Error(`${key} is not in R2`);
+      return e;
+    });
+    p.catch(() => { if (partFooters.get(key) === p) partFooters.delete(key); });
+  }
+  partFooters.set(key, p);
+  if (partFooters.size > PART_FOOTERS) partFooters.delete(partFooters.keys().next().value);
+  return p;
+}
+
+// Runs fn over items, at most n at a time, keeping their order.
+async function pool(items, n, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const work = async () => { while (next < items.length) { const k = next++; out[k] = await fn(items[k], k); } };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, work));
+  return out;
+}
+
+// The bounds of the period field's values in a part, from its label alone, in the form the
+// predicates compare: a year as a number for an integer field, and ISO text for a date or a
+// datetime. The bounds are inclusive and never narrower than the part, so a part they rule out
+// holds no match. An undated part holds only nulls. null when the label says nothing usable.
+export function periodStat(label, grain, type, rows) {
+  if (label === 'undated') return { min: undefined, max: undefined, nulls: rows, rows };
+  const m = /^(\d{4})(?:-(Q[1-4]|\d{2}))?$/.exec(label);
+  if (!m) return null;
+  const y = Number(m[1]);
+  if (type === 'integer') return grain === 'year' && !m[2] ? { min: y, max: y, nulls: 0, rows } : null;
+  if (type !== 'date' && type !== 'datetime') return null;
+  let from, to;
+  if (grain === 'year' && !m[2]) { from = [y, 1]; to = [y, 12]; }
+  else if (grain === 'quarter' && m[2] && m[2][0] === 'Q') { const q = Number(m[2][1]); from = [y, 3 * q - 2]; to = [y, 3 * q]; }
+  else if (grain === 'month' && m[2] && m[2][0] !== 'Q') { const mo = Number(m[2]); if (mo < 1 || mo > 12) return null; from = [y, mo]; to = [y, mo]; }
+  else if (grain === 'fiscal' && m[2] && m[2][0] !== 'Q') { from = [y, 7]; to = [y + 1, 6]; }
+  else return null;
+  const pad = (n, w) => String(n).padStart(w, '0');
+  const last = new Date(Date.UTC(to[0], to[1], 0)).getUTCDate();
+  const lo = `${pad(from[0], 4)}-${pad(from[1], 2)}-01`, hi = `${pad(to[0], 4)}-${pad(to[1], 2)}-${pad(last, 2)}`;
+  return type === 'date' ? { min: lo, max: hi, nulls: 0, rows } : { min: `${lo}T00:00:00`, max: `${hi}T23:59:59`, nulls: 0, rows };
+}
+
+// The parts a filter on the period field cannot rule out, from the manifest alone.
+function selectParts(at, specs, types) {
+  const per = at.period;
+  const on = per ? specs.filter((s) => s.name === per.field) : [];
+  return at.parts.filter((p) => {
+    if (!p.rows) return false;
+    if (!on.length) return true;
+    const st = periodStat(p.period, per.grain, types.get(per.field), p.rows);
+    return !on.some((s) => none(s, st));
+  });
+}
+
+// The rows a call reads, as one table over one or more files: a version's single file, or the
+// parts of a version stored as parts, in the manifest's order. Group i of the table is group gi
+// of file f, and the rows are in file order, then each file's own order.
+function tableOf(files, rows, head = files[0]) {
+  const groups = [];
+  files.forEach((e, f) => e.groups.forEach((g, gi) => groups.push({ ...g, f, gi })));
+  const n = files.reduce((a, e) => a + e.rows, 0);
+  return { files, groups, rows: rows ?? n, fields: head.fields, types: head.types, profiled: files.every((e) => e.profiled) };
+}
+
+// The page index of the named columns over every file of a table, in the table's group order.
+async function tableIndex(env, table, names) {
+  const per = await Promise.all(table.files.map((e) => pageIndex(env, e, names)));
+  return Object.fromEntries([...new Set(names)].map((n) => [n, per.flatMap((ix) => ix[n])]));
+}
+
+// Near ranges of one file read as one. A range tagged with a file (f) is only joined to ranges
+// of the same file.
 function coalesce(chunks) {
-  const sorted = chunks.filter((c) => c.end > c.start).map((c) => ({ start: c.start, end: c.end })).sort((a, b) => a.start - b.start);
+  const sorted = chunks.filter((c) => c.end > c.start).map((c) => ({ start: c.start, end: c.end, f: c.f || 0 })).sort((a, b) => a.f - b.f || a.start - b.start);
   const out = [];
   for (const c of sorted) {
     const last = out[out.length - 1];
-    if (last && c.start <= last.end + GAP && Math.max(last.end, c.end) - last.start <= RUN) last.end = Math.max(last.end, c.end);
+    if (last && last.f === c.f && c.start <= last.end + GAP && Math.max(last.end, c.end) - last.start <= RUN) last.end = Math.max(last.end, c.end);
     else out.push(c);
   }
   return out;
 }
 
-async function fetchAll(env, entry, ranges) {
-  let next = 0;
-  const work = async () => {
-    while (next < ranges.length) {
-      const r = ranges[next++];
-      r.buf = await readRange(env, entry.key, r.start, r.end - r.start, entry.etag);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(PARALLEL, ranges.length) }, work));
+// Reads each range, PARALLEL at a time, from the file its f names, or from entry.
+async function fetchAll(env, entry, ranges, files = [entry]) {
+  await pool(ranges, PARALLEL, async (r) => {
+    const e = files[r.f || 0];
+    r.buf = await readRange(env, e.key, r.start, r.end - r.start, e.etag);
+  });
   return ranges;
 }
 
@@ -400,9 +490,9 @@ function blockFile(env, entry, blocks) {
 }
 
 class Scan {
-  constructor(env, entry, ix, budget, refuse, specs = []) {
+  constructor(env, entry, ix, budget, refuse, specs = [], used = {}) {
     Object.assign(this, { env, entry, ix, budget, refuse });
-    this.used = { groups: 0, bytes: 0, values: 0, ranges: 0, held: 0, buckets: 0 };
+    this.used = { groups: 0, bytes: 0, values: 0, ranges: 0, held: 0, buckets: 0, parts: 0, ...used };
     this.weight = likeWeights(specs);
     this.cols = new Map();
     this.seen = new Set();
@@ -434,7 +524,8 @@ class Scan {
       for (const n of names) {
         const { pages, dict, oi } = this.ix[n][i];
         const hit = pages.filter((p) => p.to > from && p.from < to);
-        want.push(dict, { start: hit[0].start, end: hit[hit.length - 1].end }, ...(oi ? [oi] : []));
+        const f = this.entry.groups[i].f;
+        want.push({ ...dict, f }, { start: hit[0].start, end: hit[hit.length - 1].end, f }, ...(oi ? [{ ...oi, f }] : []));
         cost.bytes += dict.end - dict.start + hit.reduce((a, p) => a + p.end - p.start, 0);
         cost.values += hit.reduce((a, p) => a + p.to - p.from, 0) * (this.weight.get(n) || 1);
       }
@@ -460,15 +551,17 @@ class Scan {
   async read(todo) {
     const { want, ranges } = this.plan(todo);
     if (!todo.length) return;
-    const blocks = [...want.filter((r) => r.buf), ...(await fetchAll(this.env, this.entry, ranges))];
-    const file = blockFile(this.env, this.entry, blocks);
+    const { files } = this.entry;
+    const blocks = [...want.filter((r) => r.buf), ...(await fetchAll(this.env, files[0], ranges, files))];
+    const byFile = files.map((e, f) => blockFile(this.env, e, blocks.filter((b) => b.f === f)));
     for (const { i, names, from, to } of todo) {
       const g = this.entry.groups[i];
+      const file = byFile[g.f], metadata = files[g.f].metadata;
       const have = this.cols.get(i) || {};
       for (const n of names) if (!have[n]) have[n] = { spans: [], data: null };
       this.cols.set(i, have);
       await parquetRead({
-        file, metadata: this.entry.metadata, columns: names, rowStart: g.start + from, rowEnd: g.start + to, useOffsetIndex: true, compressors, parsers,
+        file, metadata, columns: names, rowStart: g.start + from, rowEnd: g.start + to, useOffsetIndex: true, compressors, parsers,
         onChunk: ({ columnName, columnData, rowStart }) => {
           const t = this.entry.types.get(columnName), c = have[columnName], at = rowStart - g.start;
           // A whole group in one plain array is converted where it lies, which spares a copy.
@@ -644,7 +737,8 @@ function sorter(order, get) {
   };
 }
 
-// SQL a caller can run with DuckDB against the version's Parquet file to get the same answer.
+// SQL a caller can run with DuckDB against the version's Parquet file, or the parts a call reads,
+// to get the same answer.
 function lit(type, v) {
   if (type === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'number') return String(v);
@@ -658,7 +752,11 @@ function fileOrder(entry) {
 // SQLite puts nulls first going up and last coming down, so DuckDB is told the same.
 const sqlOrder = (o) => `"${o.name}" ${o.dir === 'asc' ? 'ASC NULLS FIRST' : 'DESC NULLS LAST'}`;
 const col = (types, n) => (types.get(n) === 'array' ? `NULLIF(array_to_string("${n}", ';'), '')` : `"${n}"`);
+const urlList = (urls) => `[${urls.map((u) => `'${u.replace(/'/g, "''")}'`).join(', ')}]`;
+// The order of a version stored as parts: the parts in the manifest's order, then each part's own.
+const partsOrder = (urls) => [`list_position(${urlList(urls)}, filename)`, 'file_row_number'];
 
+// url is the version's file, or the list of part files a call reads.
 export function duckdbSQL(url, types, specs, tail) {
   const q = (n) => col(types, n);
   const where = specs.map(({ name, op, not, args }) => {
@@ -671,7 +769,10 @@ export function duckdbSQL(url, types, specs, tail) {
     else s = `${q(name)} ILIKE ${lit('string', likePattern(args[0]))} ESCAPE '\\'`;
     return not ? `NOT (${s})` : s;
   });
-  return `SELECT ${tail.select} FROM read_parquet('${url}', file_row_number = true)${where.length ? ' WHERE ' + where.join(' AND ') : ''}${tail.rest}`;
+  const from = Array.isArray(url)
+    ? `read_parquet(${urlList(url)}, filename = true, file_row_number = true, union_by_name = true)`
+    : `read_parquet('${url}', file_row_number = true)`;
+  return `SELECT ${tail.select} FROM ${from}${where.length ? ' WHERE ' + where.join(' AND ') : ''}${tail.rest}`;
 }
 
 // Advice for a page past the held cap that loses no rows: restart from the boundary value with an
@@ -683,20 +784,29 @@ function deeper(order, cap) {
     + (o ? `To page further, filter ${o.name}=${op}.<the last ${o.name} a page gave>, start offset again at 0 and skip the rows of that value you already have, or order by a field that is unique in this version.` : '');
 }
 
-function refusal(entry, url, sql, budget, order = []) {
+// Where a refused call can be answered instead: the version's file, or the parts it would read.
+function elsewhere(src) {
+  return src.parts
+    ? `download the ${src.parts.length === 1 ? 'part' : `${src.parts.length} parts`} its manifest at ${src.manifest} lists for ${src.parts.length === 1 ? 'that period' : 'those periods'}, or run this DuckDB SQL, which reads ${src.parts.length === 1 ? 'that part' : 'those parts'} directly`
+    : `download ${src.url} or run this DuckDB SQL, which reads that dated version's Parquet file directly`;
+}
+
+function refusal(entry, src, sql, budget, order = []) {
   const mb = (n) => (n / 2 ** 20).toFixed(1);
   return (u, over) => {
     const n = (x) => x.toLocaleString('en-AU');
-    const what = { groups: `${u.groups} row groups`, bytes: `${mb(u.bytes)} MB`, values: `${n(u.values)} values`, ranges: `${u.ranges} reads`, held: `${n(u.held)} ordered rows`, buckets: `${n(u.buckets)} distinct groups` };
-    const cap = { groups: `${budget.groups} row groups`, bytes: `${mb(budget.bytes)} MB`, values: `${n(budget.values)} values`, ranges: `${budget.ranges} reads`, held: `${n(budget.held)} ordered rows`, buckets: `${n(budget.buckets)} distinct groups` };
+    const what = { groups: `${u.groups} row groups`, bytes: `${mb(u.bytes)} MB`, values: `${n(u.values)} values`, ranges: `${u.ranges} reads`, held: `${n(u.held)} ordered rows`, buckets: `${n(u.buckets)} distinct groups`, parts: `${u.parts} period parts` };
+    const cap = { groups: `${budget.groups} row groups`, bytes: `${mb(budget.bytes)} MB`, values: `${n(budget.values)} values`, ranges: `${budget.ranges} reads`, held: `${n(budget.held)} ordered rows`, buckets: `${n(budget.buckets)} distinct groups`, parts: `${budget.parts} period parts` };
     const narrow = over.includes('held')
       ? deeper(order, n(budget.held))
       : over.includes('buckets')
         ? 'Group by fewer or coarser fields, or narrow where to fewer rows.'
-        : 'Narrow where to fewer rows, such as one year or one place.';
+        : over.includes('parts')
+          ? `Narrow where on ${src.period} to fewer periods.`
+          : 'Narrow where to fewer rows, such as one year or one place.';
     return new BudgetError(
       `This query would read ${over.map((k) => what[k]).join(' and ')} of the version's ${n(entry.rows)} rows, more than one call may read (${over.map((k) => cap[k]).join(', ')}). `
-      + `${narrow} To answer it as asked, download ${url} or run this DuckDB SQL, which reads that dated version's Parquet file directly: ${sql}`,
+      + `${narrow} To answer it as asked, ${elsewhere(src)}: ${sql}`,
     );
   };
 }
@@ -704,29 +814,71 @@ function refusal(entry, url, sql, budget, order = []) {
 
 // A file written before the query profile is not scanned: unsorted, with small row groups and no
 // page index, it costs seconds of CPU.
-function unprofiled(entry, url, sql) {
+function unprofiled(src, sql) {
+  if (src.parts) {
+    return new BudgetError(
+      `This version's parts were written without the query profile, so this server does not scan them. ${elsewhere(src).replace(/^d/, 'D')}: ${sql}`,
+    );
+  }
   return new BudgetError(
     `This version's Parquet file was written before the query profile and has not been rebuilt yet, so this server does not scan it. `
-    + `Until it has been, download ${url} or run this DuckDB SQL, which reads that file directly: ${sql}`,
+    + `Until it has been, download ${src.url} or run this DuckDB SQL, which reads that file directly: ${sql}`,
   );
 }
 
-// The rows of one version, as rowsQuery and answer() would give them from D1.
-export async function parquetRows(env, entry, params, url, budget = BUDGET) {
-  const m = fieldMap(entry.fields);
-  const cols = selectFields(params, entry.fields, m);
+// What one call reads. A version's file is read as it is. For a version stored as parts, the
+// newest part's footer gives the fields and their types, so the call's filters are typed and the
+// parts a filter on the period field rules out are passed over from the manifest alone.
+async function headOf(env, at) {
+  if (at.groups) return { head: at, at: null };
+  return { head: await partFooter(env, at.parts[at.parts.length - 1].key), at };
+}
+
+// The parts a call reads, as URLs beside the version's url, with the text a refusal gives.
+function sourceOf(at, head, specs, url) {
+  if (!at) return { url, from: url, sel: null };
+  const sel = selectParts(at, specs, head.types);
+  const base = new URL(url).origin;
+  const from = sel.map((p) => `${base}/${p.key}`);
+  return { url, from, sel, parts: from, manifest: url, period: at.period ? at.period.field : 'the period' };
+}
+
+// The table a call scans: the version's file, or the footers of the parts it selected, read
+// PARALLEL at a time once the count of them is within the budget.
+async function tableFor(env, head, at, src, budget, refuse) {
+  if (!at) return tableOf([head]);
+  if (src.sel.length > budget.parts) throw refuse({ groups: 0, bytes: 0, values: 0, ranges: 0, held: 0, buckets: 0, parts: src.sel.length }, ['parts']);
+  const files = await pool(src.sel, PARALLEL, (p) => partFooter(env, p.key));
+  for (const e of files) {
+    if (!e.header) throw new FileError(`${e.key} carries no provenance in its file`);
+    if (JSON.stringify(e.fields) !== JSON.stringify(head.fields)) throw new FileError(`${e.key} has other fields than ${head.key}`);
+  }
+  return tableOf(files, at.rows, head);
+}
+
+// The rows of one version, as rowsQuery and answer() would give them from D1. `at` is the
+// version's file, or a version stored as parts as openVersion gives it, whose url is then its
+// manifest's. Parts are read as one table in the manifest's order, then each part's own order.
+export async function parquetRows(env, at, params, url, budget = BUDGET) {
+  const { head, at: split } = await headOf(env, at);
+  const m = fieldMap(head.fields);
+  const cols = selectFields(params, head.fields, m);
   const specs = prepare(filterSpecs(params, m));
   const order = orderSpecs(params.get('order'), new Set(m.keys()));
   const { limit, offset } = paging(params);
-  const sql = duckdbSQL(url, entry.types, specs, {
-    select: cols.map((c) => `${col(entry.types, c)} AS "${c}"`).join(', '),
-    rest: ` ORDER BY ${[...order.map(sqlOrder), ...fileOrder(entry)].join(', ')} LIMIT ${limit} OFFSET ${offset}`,
+  const src = sourceOf(split, head, specs, url);
+  const sql = duckdbSQL(src.from, head.types, specs, {
+    select: cols.map((c) => `${col(head.types, c)} AS "${c}"`).join(', '),
+    rest: ` ORDER BY ${[...order.map(sqlOrder), ...(split ? partsOrder(src.from) : fileOrder(head))].join(', ')} LIMIT ${limit} OFFSET ${offset}`,
   });
-  if (!entry.profiled) throw unprofiled(entry, url, sql);
+  if (!head.profiled) throw unprofiled(src, sql);
+  const refuse = refusal(split || head, src, sql, budget, order);
+  const entry = await tableFor(env, head, split, src, budget, refuse);
+  if (!entry.profiled) throw unprofiled(src, sql);
   const fnames = [...new Set(specs.map((s) => s.name))];
   const onames = order.map((o) => o.name);
-  const ix = await pageIndex(env, entry, [...fnames, ...onames, ...cols]);
-  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget, order), specs);
+  const ix = await tableIndex(env, entry, [...fnames, ...onames, ...cols]);
+  const scan = new Scan(env, entry, ix, budget, refuse, specs, { parts: split ? src.sel.length : 0 });
   const groups = prune(entry, specs, ix);
   const want = offset + limit + 1;
   // The heap never holds more rows than can match, and each candidate costs a compare per level
@@ -787,12 +939,13 @@ export async function parquetRows(env, entry, params, url, budget = BUDGET) {
   }
   await scan.load([...span].map(([i, s]) => ({ i, names: cols, ...s })));
   const rows = picks.map((p) => Object.fromEntries(cols.map((c) => [c, scan.col(p.i, c)[p.r]])));
-  return { rows, matched, more, cols, used: scan.used, sql };
+  return { rows, matched, more, cols, used: scan.used, sql, ...(split ? { parts: src.sel.map((p) => p.period), attribution: head.header && head.header.attribution } : {}) };
 }
 
 // Counts, sums, averages, minimums and maximums by group, as aggregateQuery gives them from D1.
-export async function parquetAggregate(env, entry, params, url, budget = BUDGET) {
-  const m = fieldMap(entry.fields);
+export async function parquetAggregate(env, at, params, url, budget = BUDGET) {
+  const { head, at: split } = await headOf(env, at);
+  const m = fieldMap(head.fields);
   const group = groupFields(params, m);
   const metrics = metricSpecs(params, m);
   const specs = prepare(filterSpecs(params, m));
@@ -802,15 +955,19 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
   const q = (n) => `"${n}"`;
   const byGroup = group.map((name) => ({ name, dir: 'asc' }));
   const ordered = [...order, ...byGroup].map(sqlOrder);
-  const sql = duckdbSQL(url, entry.types, specs, {
-    select: [...group.map((n) => `${col(entry.types, n)} AS ${q(n)}`), ...metrics.map((x) => `${x.fn.toUpperCase()}(${x.field ? col(entry.types, x.field) : '*'}) AS ${q(x.as)}`)].join(', '),
-    rest: `${group.length ? ' GROUP BY ' + group.map((n) => col(entry.types, n)).join(', ') : ''}${ordered.length ? ' ORDER BY ' + ordered.join(', ') : ''} LIMIT ${limit} OFFSET ${offset}`,
+  const src = sourceOf(split, head, specs, url);
+  const sql = duckdbSQL(src.from, head.types, specs, {
+    select: [...group.map((n) => `${col(head.types, n)} AS ${q(n)}`), ...metrics.map((x) => `${x.fn.toUpperCase()}(${x.field ? col(head.types, x.field) : '*'}) AS ${q(x.as)}`)].join(', '),
+    rest: `${group.length ? ' GROUP BY ' + group.map((n) => col(head.types, n)).join(', ') : ''}${ordered.length ? ' ORDER BY ' + ordered.join(', ') : ''} LIMIT ${limit} OFFSET ${offset}`,
   });
-  if (!entry.profiled) throw unprofiled(entry, url, sql);
+  if (!head.profiled) throw unprofiled(src, sql);
+  const refuse = refusal(split || head, src, sql, budget);
+  const entry = await tableFor(env, head, split, src, budget, refuse);
+  if (!entry.profiled) throw unprofiled(src, sql);
   const fnames = [...new Set(specs.map((s) => s.name))];
   const mnames = metrics.filter((x) => x.field).map((x) => x.field);
-  const ix = await pageIndex(env, entry, [...fnames, ...group, ...mnames]);
-  const scan = new Scan(env, entry, ix, budget, refusal(entry, url, sql, budget), specs);
+  const ix = await tableIndex(env, entry, [...fnames, ...group, ...mnames]);
+  const scan = new Scan(env, entry, ix, budget, refuse, specs, { parts: split ? src.sel.length : 0 });
   const groups = prune(entry, specs, ix);
   const todo = scan.charge(needsOf(groups, [...group, ...mnames], fnames));
   const buckets = new Map();
@@ -864,6 +1021,6 @@ export async function parquetAggregate(env, entry, params, url, budget = BUDGET)
   out.sort(sorter([...order, ...byGroup], (row, name) => row[name]));
   const more = out.length > offset + limit;
   out = out.slice(offset, offset + limit);
-  return { rows: out, matched, more, cols: [...group, ...metrics.map((x) => x.as)], used: scan.used, sql };
+  return { rows: out, matched, more, cols: [...group, ...metrics.map((x) => x.as)], used: scan.used, sql, ...(split ? { parts: src.sel.map((p) => p.period), attribution: head.header && head.header.attribution } : {}) };
 }
 

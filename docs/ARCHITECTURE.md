@@ -697,9 +697,17 @@ the published `data.parquet`, but only when that file carries the profile's foot
 `publicdata.profile` (ADR 0008). Otherwise the query is refused with DuckDB SQL that answers it
 from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
 benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A version
-written only as period parts has neither file, and the engine does not read parts yet, so the
-call says the version is stored as parts, links its manifest and gives DuckDB SQL over the part
-files the manifest lists. A sorted profile
+written only as period parts has neither file, so the engine reads it as the list of part files
+its manifest gives, in the manifest's period order, and treats them as one table whose rows come
+in that order and then in each part's own order. The newest part's footer gives the fields. A
+filter on the period field is compared with each part's label, which bounds the dates or the year
+it can hold, and a part that cannot match is never opened. The footers of the parts left, at most
+120 for one call, are read six at a time and kept by key and ETag; row groups and pages are then
+ruled out in each part as in one file, under one budget for the whole call, and counts and
+aggregates combine across the parts. A refused call gives DuckDB SQL over the parts it would have
+read, ordered by `list_position` of each part in that list and then `file_row_number`, which
+returns the same rows in the same order. An answer names the periods it read and the version's
+manifest, and takes the attribution the manifest records. A sorted profile
 file has a page index, and one without is read a column chunk at a time. Each version's
 footer, and the page index of each column a query touches, are read once per isolate and held to
 the file's ETag. A query copy is written again in place when its entry's `sort`, `lookup` or
