@@ -395,9 +395,11 @@ the raw store takes the SHA-256 its `manifest.json` records. A version with a fi
 hash is skipped and reported. The step may fail without failing the deploy, since the next deploy
 catches up.
 The list is served with a five-minute cache, since it grows when a format is added.
-The deploy signs the lists it wrote with one GitHub artifact attestation (`--subjects`, then
-`actions/attest-build-provenance`), so `gh attestation verify SHA256SUMS --repo
-National-Digital/publicdata.au` ties a list to this repository's workflow. An attestation takes
+A deploy of main signs the lists it wrote with one GitHub artifact attestation (`--subjects`,
+then `actions/attest-build-provenance` in a `sign` job of its own, since the deploy job also runs a
+pull request's code). `gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au
+--source-ref refs/heads/main` ties a list to a run on main, which a pull request's run cannot
+sign as. An attestation takes
 at most 1,024 subjects; a deploy signs the first 1,024 and warns. The Checksums workflow, run by
 hand, writes any missing list across R2 (`--all --download`) and signs every current list again
 (`--resign`) in parts of 1,024. It is the backfill once the lists first ship, and the catch-up
