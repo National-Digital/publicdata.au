@@ -58,7 +58,7 @@ jobs:
           FEEDS: ${{ github.event.schedule == '47 19 * * 0,2-6' && '--feeds' || '' }}
         run: |
           set -o pipefail
-          python -m publicdata fetch --store store --groups groups.json ${FEEDS} | tee fetch.log
+          python -m publicdata fetch --store store --groups groups.json ${FEEDS:+"$FEEDS"} | tee fetch.log
       - name: Count new versions
         id: fetch
         run: |
@@ -106,6 +106,7 @@ jobs:
             # One government's failure is reported and the others still get their pull requests.
             # The other governments' manifests stay untracked in the tree while each branch is cut.
             # A failed command inside an if condition does not stop a set -e shell, so each step is chained.
+            # shellcheck disable=SC2016 # the backticks are a Markdown fence
             if ! {
               git checkout -q --detach "$base" &&
               git checkout -q -b "data/fetch-$DATE-$jur-$GITHUB_RUN_ID" &&
@@ -132,6 +133,7 @@ jobs:
           TITLE: Manual downloads due
         run: |
           open=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          # shellcheck disable=SC2016 # the backticks are Markdown code spans
           due=$(grep -E ': MANUAL ' fetch.log | sed -E 's/^([^:]+): MANUAL [^:]+: download (\S+) .*/- [ ] `\1` from <\2>/' || true)
           if [ -z "$due" ]; then
             [ -z "$open" ] || gh issue close "$open" --comment "Nothing is due as of run $GITHUB_RUN_ID."

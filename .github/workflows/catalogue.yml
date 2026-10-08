@@ -104,6 +104,7 @@ jobs:
           git add store/catalogue/*/manifest.json
           git commit -s -m "data(catalogue): portal dataset lists harvested $DATE" -m "$(grep -E '^catalogue: new version' harvest.log)"
           git push -u origin HEAD
+          # shellcheck disable=SC2016 # the backticks are a Markdown fence
           gh pr create --title "data(catalogue): portal dataset lists harvested $DATE" --body "$(printf 'The harvest found changed portal dataset lists.\n\n```\n%s\n```\n\nThe snapshot is in R2 under publicdata-raw. Merging publishes it.' "$(cat harvest.log)")"
           gh pr merge --auto --squash || echo "::warning::auto-merge was not armed; merge the PR by hand."
       - name: Fail when a portal could not be read
