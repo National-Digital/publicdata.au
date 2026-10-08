@@ -11,14 +11,18 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from functools import lru_cache
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
     from pathlib import Path
+
+# A value as SQLite holds it.
+type SQLValue = str | int | float | bytes | None
 
 ROWID = "rowid"
 # SQLite sums floats with Kahan-Babuska-Neumaier compensation, in row order, and averages the
@@ -56,12 +60,13 @@ def _column(name: str, t: pa.DataType) -> str:
 
 
 @lru_cache(maxsize=4096, typed=True)
-def _affinity(value, affinity: str):
+def _affinity(value: object, affinity: str) -> SQLValue:
     """The value as SQLite holds it in a column of that affinity."""
     with closing(sqlite3.connect(":memory:")) as s:
         s.execute(f"CREATE TABLE t (v {affinity})")
         s.execute("INSERT INTO t VALUES (?)", (value,))
-        return s.execute("SELECT v FROM t").fetchone()[0]
+        got: SQLValue = s.execute("SELECT v FROM t").fetchone()[0]
+        return got
 
 
 class Records:
@@ -71,7 +76,7 @@ class Records:
     data.sqlite.
     """
 
-    def __init__(self, parquet: Path, names: list[str] | None = None):
+    def __init__(self, parquet: Path, names: list[str] | None = None) -> None:
         schema = pq.read_schema(parquet)
         have = [n for n in schema.names if n != "geometry"]
         # The SQLite file lists the register's fields in their order, then the flags.
@@ -115,7 +120,7 @@ class Records:
             return total if fn == "sum" else f"({total}) / count({c})"
         return f"{fn.upper()}({c})"
 
-    def param(self, name: str, value):
+    def param(self, name: str, value: object) -> SQLValue:
         """The value as SQLite compares it with the column.
 
         Text that reads as a number becomes that number against a numeric column, and a number
@@ -132,20 +137,20 @@ class Records:
             raise ValueError(msg)  # noqa: TRY004 - the value does not fit the column
         return v
 
-    def execute(self, sql: str, params=()) -> Records:
+    def execute(self, sql: str, params: Iterable[object] = ()) -> Records:
         self.con.execute(sql, list(params))
         return self
 
-    def fetchone(self):
+    def fetchone(self) -> tuple[Any, ...] | None:
         return self.con.fetchone()
 
-    def fetchall(self) -> list[tuple]:
+    def fetchall(self) -> list[tuple[Any, ...]]:
         return self.con.fetchall()
 
-    def fetchmany(self, n: int) -> list[tuple]:
+    def fetchmany(self, n: int) -> list[tuple[Any, ...]]:
         return self.con.fetchmany(n)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[tuple[Any, ...]]:
         return iter(self.con.fetchall())
 
     def close(self) -> None:
@@ -154,7 +159,7 @@ class Records:
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
 

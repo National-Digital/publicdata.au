@@ -11,6 +11,10 @@ import re
 import sys
 from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, TypeGuard
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 VOCAB = Path(__file__).parent / "schemaorg.json"
 LD_BLOCK = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
@@ -19,14 +23,15 @@ ISO_INTERVAL = re.compile(rf"^({ISO_DATE}|\.\.)(/({ISO_DATE}|\.\.))?$")
 AGENT = {"Person", "Organization"}
 
 
-def compact(src: Path, version: str) -> dict:
+def compact(src: Path, version: str) -> dict[str, Any]:
     graph = json.loads(src.read_text(encoding="utf-8"))["@graph"]
 
-    def ids(v) -> list[str]:
+    def ids(v: list[dict[str, str]] | dict[str, str] | None) -> list[str]:
         v = v if isinstance(v, list) else [v] if v else []
         return sorted(x["@id"].removeprefix("schema:") for x in v)
 
-    types, props = {}, {}
+    types: dict[str, list[str]] = {}
+    props: dict[str, list[list[str]]] = {}
     for n in graph:
         kind = n["@type"] if isinstance(n["@type"], list) else [n["@type"]]
         name = n["@id"].removeprefix("schema:")
@@ -41,13 +46,16 @@ def compact(src: Path, version: str) -> dict:
 
 
 @cache
-def _vocab() -> dict:
-    return json.loads(VOCAB.read_text(encoding="utf-8"))
+def _vocab() -> dict[str, Any]:
+    return json.loads(  # type: ignore[no-any-return]  # the vocabulary file is a JSON object
+        VOCAB.read_text(encoding="utf-8")
+    )
 
 
 @cache
 def _ancestors(t: str) -> frozenset[str]:
-    seen, todo = set(), [t]
+    seen: set[str] = set()
+    todo = [t]
     while todo:
         x = todo.pop()
         if x not in seen:
@@ -56,20 +64,20 @@ def _ancestors(t: str) -> frozenset[str]:
     return frozenset(seen)
 
 
-def _types(node: dict) -> list[str]:
+def _types(node: dict[str, Any]) -> list[str]:
     t = node.get("@type", [])
     return t if isinstance(t, list) else [t]
 
 
-def _values(v) -> list:
+def _values(v: object) -> list[Any]:
     return [x for x in (v if isinstance(v, list) else [v]) if x is not None]
 
 
-def _is(node, *names: str) -> bool:
+def _is(node: object, *names: str) -> bool:
     return isinstance(node, dict) and bool(set(_types(node)) & set(names))
 
 
-def _literal_ok(value, rng: set[str]) -> bool:
+def _literal_ok(value: object, rng: set[str]) -> bool:
     """Whether a literal fits a range.
 
     It does if the range admits that datatype, or the literal is a URL standing in for an entity.
@@ -84,7 +92,7 @@ def _literal_ok(value, rng: set[str]) -> bool:
     return False
 
 
-def _vocab_errors(node, where: str) -> list[str]:  # noqa: C901, PLR0912 - one check per vocabulary rule
+def _vocab_errors(node: object, where: str) -> list[str]:  # noqa: C901, PLR0912 - one check per vocabulary rule
     errors: list[str] = []
     if isinstance(node, list):
         for i, v in enumerate(node):
@@ -121,11 +129,11 @@ def _vocab_errors(node, where: str) -> list[str]:  # noqa: C901, PLR0912 - one c
     return errors
 
 
-def _text(v) -> bool:
+def _text(v: object) -> TypeGuard[str]:
     return isinstance(v, str) and v.strip() != ""
 
 
-def _url(v) -> bool:
+def _url(v: object) -> TypeGuard[str]:
     return isinstance(v, str) and v.startswith("https://")
 
 
@@ -133,7 +141,7 @@ def _url(v) -> bool:
 DESCRIPTION_MIN, DESCRIPTION_MAX = 50, 5000
 
 
-def _dataset(n: dict, at: str) -> list[str]:  # noqa: C901, PLR0912 - one check per Dataset property
+def _dataset(n: dict[str, Any], at: str) -> list[str]:  # noqa: C901, PLR0912 - one check per Dataset property
     e: list[str] = []
     if not _text(n.get("name")):
         e.append(f"{at}: Dataset needs a name")
@@ -192,7 +200,7 @@ def _dataset(n: dict, at: str) -> list[str]:  # noqa: C901, PLR0912 - one check 
     return e
 
 
-def _breadcrumbs(n: dict, at: str) -> list[str]:
+def _breadcrumbs(n: dict[str, Any], at: str) -> list[str]:
     items = _values(n.get("itemListElement"))
     if not items:
         return [f"{at}: BreadcrumbList needs itemListElement"]
@@ -214,7 +222,7 @@ def _breadcrumbs(n: dict, at: str) -> list[str]:
     return e
 
 
-def _faq(n: dict, at: str) -> list[str]:
+def _faq(n: dict[str, Any], at: str) -> list[str]:
     qs = _values(n.get("mainEntity"))
     if not qs:
         return [f"{at}: FAQPage needs mainEntity"]
@@ -230,7 +238,7 @@ def _faq(n: dict, at: str) -> list[str]:
     return e
 
 
-def _catalog(n: dict, at: str) -> list[str]:
+def _catalog(n: dict[str, Any], at: str) -> list[str]:
     """Errors for the DataCatalog's dataset entries that are only references.
 
     Google reads every entry in dataset as a Dataset item on this page, so a bare reference is an
@@ -243,7 +251,7 @@ def _catalog(n: dict, at: str) -> list[str]:
     ]
 
 
-RULES = {
+RULES: dict[str, Callable[[dict[str, Any], str], list[str]]] = {
     "Dataset": _dataset,
     "DataCatalog": _catalog,
     "BreadcrumbList": _breadcrumbs,
@@ -251,7 +259,7 @@ RULES = {
 }
 
 
-def _google_errors(node, where: str) -> list[str]:
+def _google_errors(node: object, where: str) -> list[str]:
     errors: list[str] = []
     if isinstance(node, list):
         for i, v in enumerate(node):
@@ -266,7 +274,7 @@ def _google_errors(node, where: str) -> list[str]:
     return errors
 
 
-def blocks(html: str) -> list[dict]:
+def blocks(html: str) -> list[Any]:
     return [json.loads(b) for b in LD_BLOCK.findall(html)]
 
 

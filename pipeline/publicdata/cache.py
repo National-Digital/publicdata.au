@@ -14,12 +14,22 @@ import stat
 import sys
 from importlib.metadata import version as dist_version
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
 
 import duckdb
 
 from .register import Licence
 from .serialise import WRITER_DEPENDS, WRITER_MODULES, WRITER_VARIANTS, WRITERS, duckdb_digest
 from .serialise.geo import geo_kind
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+    from .register import Dataset
+
+    class _Hasher(Protocol):
+        def update(self, data: bytes, /) -> None: ...
+
 
 PACKAGE = Path(__file__).resolve().parent
 # Raised in a reviewed change whose edit to the build code changes the bytes of versions across
@@ -133,7 +143,7 @@ def spatial_version() -> str:
     return got
 
 
-def spatial(ds) -> bool:
+def spatial(ds: Dataset) -> bool:
     """Whether a dataset's build loads the spatial extension.
 
     It does for a layer with geometry, or a dataset joined to the place spine.
@@ -141,7 +151,7 @@ def spatial(ds) -> bool:
     return bool(ds.geometry or ds.enrich)
 
 
-def shape_layer(ds) -> bool:
+def shape_layer(ds: Dataset) -> bool:
     """Whether a dataset's Parquet is written by the shape layer writer."""
     return geo_kind(ds) in ("polygon", "line")
 
@@ -156,7 +166,7 @@ def kind_key(kind: str) -> str:
     return h.hexdigest() if names else ""
 
 
-def _runtime(h) -> None:
+def _runtime(h: _Hasher) -> None:
     h.update(sys.version.encode() + sqlite3.sqlite_version.encode())
     for lib in LIBRARIES:
         h.update(f"{lib}={dist_version(lib)}\0".encode())
@@ -176,9 +186,9 @@ def environment_key() -> str:
     return h.hexdigest()
 
 
-def _plain(v):
+def _plain(v: object) -> object:
     if dataclasses.is_dataclass(v) and not isinstance(v, type):
-        out = {}
+        out: dict[str, object] = {}
         for f in sorted(dataclasses.fields(v), key=lambda f: f.name):
             x = getattr(v, f.name)
             if not f.repr:
@@ -200,7 +210,7 @@ def _plain(v):
     return v
 
 
-def entry_key(ds) -> str:
+def entry_key(ds: Dataset) -> str:
     """A register entry as its key reads it.
 
     Only the fields in its repr that differ from their defaults count, so a field added to the
@@ -217,7 +227,9 @@ def digest(p: Path) -> str:
     return h.hexdigest()
 
 
-def digests(root: Path, only=None, *, databases: bool = True) -> dict[str, str]:
+def digests(
+    root: Path, only: Iterable[str] | None = None, *, databases: bool = True
+) -> dict[str, str]:
     """The SHA-256 of each file under root, or of those named in only.
 
     A DuckDB file's bytes differ from one write to the next, so it gets a digest of its tables,
@@ -229,7 +241,7 @@ def digests(root: Path, only=None, *, databases: bool = True) -> dict[str, str]:
         if only is not None
         else [p.relative_to(root).as_posix() for p in sorted(root.rglob("*")) if p.is_file()]
     )
-    out = {}
+    out: dict[str, str] = {}
     for rel in sorted(rels):
         p = root / rel
         if not p.is_file():
@@ -248,17 +260,17 @@ def writer_files(fmt: str, *, shape: bool | None = None) -> list[Path]:
     from, and the writer modules each of them imports. A format with a writer for shape layers
     (WRITER_VARIANTS) reads only the one a dataset runs when shape says which; None reads both.
     """
-    todo = set()
+    todo: set[Path] = set()
     for f in (fmt, *WRITER_DEPENDS.get(fmt, ())):
         if shape is not None and f in WRITER_VARIANTS:
-            objs = [WRITER_VARIANTS[f][shape]]
+            objs: list[object] = [WRITER_VARIANTS[f][shape]]
         else:
             fn = WRITERS[f]
             objs = [fn.__globals__.get(name) for name in fn.__code__.co_names]
         for obj in objs:
             mod = sys.modules.get(getattr(obj, "__module__", "") or "")
             if mod is not None and getattr(mod, "__file__", None):
-                p = Path(mod.__file__).resolve()
+                p = Path(mod.__file__).resolve()  # type: ignore[arg-type]  # the getattr above found it
                 if _is_writer(p):
                     todo.add(p)
     seen: set[Path] = set()
@@ -296,7 +308,7 @@ def _read_only(p: Path) -> None:
 
 
 class BuildCache:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path) -> None:
         self.root = root
         self.env = environment_key()
         self.used: set[str] = set()
@@ -312,7 +324,7 @@ class BuildCache:
     def has(self, key: str) -> bool:
         return (self.root / key / "meta.json").is_file()
 
-    def get(self, key: str, dest: Path | None = None) -> dict | None:
+    def get(self, key: str, dest: Path | None = None) -> dict[str, Any] | None:
         """The entry's metadata, with its files linked into dest when one is given."""
         entry = self.root / key
         meta = entry / "meta.json"
@@ -325,14 +337,15 @@ class BuildCache:
             shutil.copytree(entry / "files", dest, copy_function=_link_or_copy)
         self.used.add(key)
         self.hits += 1
-        return json.loads(meta.read_text(encoding="utf-8"))
+        got: dict[str, Any] = json.loads(meta.read_text(encoding="utf-8"))
+        return got
 
     def put(
         self,
         key: str,
-        meta: dict,
+        meta: dict[str, Any],
         src: Path | None = None,
-        keep=lambda _rel: True,
+        keep: Callable[[str], bool] = lambda _rel: True,
         extra: dict[str, bytes] | None = None,
     ) -> None:
         """Stores meta, the files under src that keep(relative path) accepts, and `extra`.

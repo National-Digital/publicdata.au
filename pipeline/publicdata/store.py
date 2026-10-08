@@ -11,6 +11,10 @@ import json
 import re
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .serialise.profile import Layout
 
 VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # The format rules a fetch stamps on each manifest it writes; a version without the stamp keeps
@@ -32,16 +36,16 @@ class Manifest:
     bytes: int
     filename: str
     encoding: str
-    source: dict
-    licence: dict
+    source: dict[str, Any]
+    licence: dict[str, Any]
     backfilled: bool = False
-    tombstone: dict | None = None
+    tombstone: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)
     # A digest of the normalised rows in any order, so a reordered export is no new version.
     rows_sha256: str = ""
     # The Parquet layout the fetch found in the register (serialise.profile.layout), which the
     # version's data.parquet keeps for good; empty for a version fetched before the profile.
-    parquet: dict = field(default_factory=dict)
+    parquet: Layout = field(default_factory=dict)  # type: ignore[assignment]  # empty is the legacy layout
     # CAPS_VERSION when the fetch that wrote this manifest knew the caps, else 0.
     caps: int = 0
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -10,7 +10,7 @@ import pyarrow.compute as pc
 from .serialise import json_view
 
 if TYPE_CHECKING:
-    from .normalise import Table
+    from .normalise import Arr, Table
 
 CAP = 50_000
 EXAMPLES = 10
@@ -22,7 +22,7 @@ def _indexed(t: pa.Table, key: tuple[str, ...]) -> pa.Table:
     v = json_view(t)
     v = v.append_column(ROW, pa.array(range(v.num_rows), pa.int64()))
     counts = v.group_by(list(key)).aggregate([(ROW, "count")])
-    dup = counts.filter(pc.greater(counts[f"{ROW}_count"], 1))
+    dup = counts.filter(pc.greater(counts[f"{ROW}_count"], 1))  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
     if dup.num_rows:
         k = tuple(dup.slice(0, 1).select(list(key)).to_pylist()[0].values())
         msg = f"key {key} is not unique: {k} appears twice"
@@ -33,17 +33,17 @@ def _indexed(t: pa.Table, key: tuple[str, ...]) -> pa.Table:
 NULL_KEY = "\0"
 
 
-def _join_keys(t: pa.Table, key: tuple[str, ...]) -> list[pa.ChunkedArray]:
+def _join_keys(t: pa.Table, key: tuple[str, ...]) -> list[Arr]:
     """Each key column as text with nulls as a marker no value holds, for joining only."""
-    return [pc.fill_null(pc.cast(t[k], pa.string()), NULL_KEY) for k in key]
+    return [pc.fill_null(pc.cast(t[k], pa.string()), NULL_KEY) for k in key]  # type: ignore[type-var, misc]  # pyarrow-stubs 20 types fill_null as coalesce
 
 
-def _flat(c: pa.ChunkedArray) -> pa.ChunkedArray:
+def _flat(c: Arr) -> Arr:
     # A list of suppressed field names compares as one string; no field name holds a NUL.
-    return pc.binary_join(c, "\0") if pa.types.is_list(c.type) else c
+    return pc.binary_join(c, "\0") if pa.types.is_list(c.type) else c  # type: ignore[return-value]  # pyarrow-stubs 20 types binary_join's result loosely
 
 
-def _differs(x: pa.ChunkedArray, y: pa.ChunkedArray) -> pa.ChunkedArray:
+def _differs(x: Arr, y: Arr) -> Arr:
     """True where the two cells would serialise differently.
 
     Values of different types always do, unless both are null.
@@ -52,36 +52,37 @@ def _differs(x: pa.ChunkedArray, y: pa.ChunkedArray) -> pa.ChunkedArray:
         return pc.or_(pc.is_valid(x), pc.is_valid(y))
     x, y = _flat(x), _flat(y)
     one_null = pc.xor(pc.is_null(x), pc.is_null(y))
-    ne = pc.fill_null(pc.not_equal(x, y), fill_value=False)
+    ne = pc.fill_null(pc.not_equal(x, y), fill_value=False)  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
     if pa.types.is_floating(x.type):
         ne = pc.and_(
-            ne, pc.invert(pc.fill_null(pc.and_(pc.is_nan(x), pc.is_nan(y)), fill_value=False))
+            ne,
+            pc.invert(pc.fill_null(pc.and_(pc.is_nan(x), pc.is_nan(y)), fill_value=False)),  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
         )
     return pc.or_(ne, one_null)
 
 
-def _keys(t: pa.Table, key: tuple[str, ...]) -> list[tuple]:
+def _keys(t: pa.Table, key: tuple[str, ...]) -> list[tuple[Any, ...]]:
     rows = t.sort_by([(k, "ascending") for k in key]).select(list(key)).to_pylist()
     return [tuple(r[k] for k in key) for r in rows]
 
 
-def _cap(items: list) -> tuple[list, bool]:
+def _cap[T](items: list[T]) -> tuple[list[T], bool]:
     return items[:CAP], len(items) > CAP
 
 
-def diff(a: Table, b: Table) -> dict:
+def diff(a: Table, b: Table) -> dict[str, Any]:
     """Compare `a`, the older version, with `b`, the newer, by the declared key."""
     key = a.dataset.key
     fa = {f.name: f.type for f in a.dataset.fields}
     fb = {f.name: f.type for f in b.dataset.fields}
-    schema = {
+    schema: dict[str, list[Any]] = {
         "fields_added": [n for n in fb if n not in fa],
         "fields_removed": [n for n in fa if n not in fb],
         "fields_retyped": [
             {"field": n, "from": fa[n], "to": fb[n]} for n in fa if n in fb and fa[n] != fb[n]
         ],
     }
-    out = {
+    out: dict[str, Any] = {
         "dataset": a.dataset.slug,
         "from": a.manifest.version,
         "to": b.manifest.version,
@@ -118,13 +119,13 @@ def diff(a: Table, b: Table) -> dict:
     ra, rb = va.take(both["__a"]), vb.take(both["__b"])
     if set(cols_a) != set(cols_b):
         # A field added or dropped changes every row's JSON.
-        mask = pa.chunked_array([pa.array([True] * both.num_rows, pa.bool_())])
+        mask: Arr = pa.chunked_array([pa.array([True] * both.num_rows, pa.bool_())])
     else:
         mask = pa.chunked_array([pa.array([False] * both.num_rows, pa.bool_())])
         for c in cols_b:
             mask = pc.or_(mask, _differs(ra[c], rb[c]))
     changed = both.filter(mask).sort_by([(k, "ascending") for k in key])
-    examples = []
+    examples: list[dict[str, Any]] = []
     first = changed.slice(0, EXAMPLES)
     if first.num_rows:
         before = va.take(first["__a"]).drop_columns([ROW]).to_pylist()

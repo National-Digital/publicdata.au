@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import OPERATOR, SITE
 from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
@@ -12,6 +12,9 @@ from .spine import LAYERS
 if TYPE_CHECKING:
     from .register import Dataset
     from .store import Manifest
+
+# The header every payload carries, as JSON: its shape is what header() below writes.
+type Header = dict[str, Any]
 
 NOT_ENDORSED = "This is an independent republication. The publisher has not endorsed this site."
 OPERATOR_URL = "https://nationaldigital.com.au/"
@@ -41,7 +44,7 @@ def landing(ds: Dataset) -> str:
     return ds.landing or ds.licence.evidence or ds.source.url
 
 
-def cite(ds: Dataset, m: Manifest, version_url: str) -> dict:
+def cite(ds: Dataset, m: Manifest, version_url: str) -> dict[str, str]:
     """The licence attribution plus the operator's request, in the forms people paste."""
     name = ds.collection_title or ds.title
     lic = ds.licence
@@ -83,7 +86,7 @@ def cite(ds: Dataset, m: Manifest, version_url: str) -> dict:
     }
 
 
-def header(ds: Dataset, m: Manifest, rows: int, url: str) -> dict:
+def header(ds: Dataset, m: Manifest, rows: int, url: str) -> Header:
     version_url = url.rsplit("/", 1)[0] + "/"
     return {
         "site": SITE,

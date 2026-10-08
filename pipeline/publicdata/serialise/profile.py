@@ -16,7 +16,7 @@ import hashlib
 import json
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import duckdb
 import pyarrow as pa
@@ -26,7 +26,11 @@ import pyarrow.parquet as pq
 from . import dumps
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
+
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
+    from publicdata.register import Dataset
 
 VERSION = "1"
 # The footer key a reader checks before it relies on the order, the sizes and the page index.
@@ -45,7 +49,17 @@ QUERY_DIR = "_q"
 LAYOUT_KEYS = ("profile", "sort", "key", "lookup", "int32")
 
 
-def layout(ds) -> dict:
+class Layout(TypedDict, total=False):
+    """A layout as a manifest records it; empty for the legacy layout."""
+
+    profile: str
+    sort: list[str]
+    key: list[str]
+    lookup: list[str]
+    int32: list[str]
+
+
+def layout(ds: Dataset) -> Layout:
     """The register entry's layout under the current profile, as a manifest records it."""
     return {
         "profile": VERSION,
@@ -71,7 +85,7 @@ def layout_key(query: str) -> str:
     return query.removesuffix(".parquet") + ".layout.json"
 
 
-def layout_body(lay: dict) -> bytes:
+def layout_body(lay: Layout) -> bytes:
     return json.dumps(lay, sort_keys=True, separators=(",", ":")).encode()
 
 
@@ -80,7 +94,7 @@ def sort_columns(sort: Sequence[str], key: Sequence[str]) -> list[str]:
     return [*sort, *(k for k in key if k not in sort)]
 
 
-def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Array | None:
+def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Array[Any] | None:
     """The source positions of the rows of `t` in profile order.
 
     It is None when no sort is declared and the rows keep the publisher's order. Ties after the
@@ -107,19 +121,21 @@ def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Arra
     return out.column(POSITION).combine_chunks()
 
 
-def order_of(tbl, sort: Sequence[str], key: Sequence[str]) -> pa.Array | None:
+def order_of(tbl: Table, sort: Sequence[str], key: Sequence[str]) -> pa.Array[Any] | None:
     """The permutation for the rows of `tbl`, reused when the build has already worked it out.
 
     It is taken from the one the build worked out for this table and this sort when it has it,
     so a version is sorted once.
     """
-    known = getattr(tbl, "order", None)
+    known: tuple[pa.Table, tuple[tuple[str, ...], tuple[str, ...]], pa.Array[Any]] | None = getattr(
+        tbl, "order", None
+    )
     if known and known[0] is tbl.table and known[1] == (tuple(sort), tuple(key)):
         return known[2]
     return permutation(tbl.table, sort, key)
 
 
-def apply(t: pa.Table, perm: pa.Array | None) -> pa.Table:
+def apply(t: pa.Table, perm: pa.Array[Any] | None) -> pa.Table:
     if perm is None or pc.all(pc.equal(perm, pa.array(range(len(perm)), pa.int64()))).as_py():
         return t  # a source already in order is not copied
     return t.take(perm)
@@ -134,13 +150,13 @@ def misfits(t: pa.Table, cols: Sequence[str]) -> list[str]:
 
     The fetch asks before it stores a version, and register validate asks of the versions held.
     """
-    out = []
+    out: list[str] = []
     for c in cols:
         if c not in t.column_names:
             continue
         mm = pc.min_max(t.column(c)).as_py()
-        if mm["min"] is not None and not (INT32[0] <= mm["min"] and mm["max"] <= INT32[1]):
-            out.append(f"{c} holds {mm['min']} to {mm['max']}, outside 32 bits")
+        if mm["min"] is not None and not (INT32[0] <= mm["min"] and mm["max"] <= INT32[1]):  # type: ignore[call-overload]  # min_max answers a struct, which as_py gives as a dict
+            out.append(f"{c} holds {mm['min']} to {mm['max']}, outside 32 bits")  # type: ignore[call-overload]  # min_max answers a struct, a dict in Python
     return out
 
 
@@ -155,7 +171,7 @@ def int32_schema(t: pa.Table, cols: Sequence[str]) -> pa.Schema:
         raise ValueError("; ".join(bad) + "; take it out of int32")
     return pa.schema(
         [f.with_type(pa.int32()) if f.name in cols else f for f in t.schema],
-        metadata=t.schema.metadata,
+        metadata=t.schema.metadata,  # type: ignore[arg-type]  # pyarrow-stubs 20 asks for a dict of str or bytes and gets one of bytes
     )
 
 
@@ -163,7 +179,9 @@ def narrow(t: pa.Table, cols: Sequence[str]) -> pa.Table:
     return t.cast(int32_schema(t, cols)) if cols else t
 
 
-def chunks(t: pa.Table, perm: pa.Array | None, rows: int = ROW_GROUP_ROWS):
+def chunks(
+    t: pa.Table, perm: pa.Array[Any] | None, rows: int = ROW_GROUP_ROWS
+) -> Iterator[pa.Table]:
     """The rows of `t` in the order perm gives, a slice at a time, so a sort never copies it."""
     if perm is not None and pc.all(pc.equal(perm, pa.array(range(len(perm)), pa.int64()))).as_py():
         perm = None
@@ -186,7 +204,8 @@ def widen(t: pa.Table) -> pa.Table:
     if all(_normalised(f.type) == f.type for f in t.schema):
         return t
     schema = pa.schema(
-        [f.with_type(_normalised(f.type)) for f in t.schema], metadata=t.schema.metadata
+        [f.with_type(_normalised(f.type)) for f in t.schema],
+        metadata=t.schema.metadata,  # type: ignore[arg-type]  # pyarrow-stubs 20 asks for a dict of str or bytes and gets one of bytes
     )
     return t.cast(schema)
 
@@ -195,13 +214,13 @@ def options(
     schema: pa.Schema,
     sorted_by: Sequence[str] = (),
     lookup: dict[str, int] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Writer options for a file in profile order, written ROW_GROUP_ROWS rows to a group.
 
     `sorted_by` names the columns a sorted file is ordered by, and `lookup` maps each lookup
     field to its count of distinct values.
     """
-    opts = {
+    opts: dict[str, Any] = {
         "compression": "zstd",
         "use_dictionary": True,
         "write_statistics": True,
@@ -220,16 +239,16 @@ def options(
     return opts
 
 
-def metadata(header: dict, extra: dict[str, str] | None = None) -> dict[str, str]:
+def metadata(header: Header, extra: dict[str, str] | None = None) -> dict[str, str]:
     return {"publicdata": dumps(header), KEY: VERSION, **(extra or {})}
 
 
 def write(  # noqa: PLR0913 - the options are keyword-only and named at each call
     t: pa.Table,
-    header: dict,
+    header: Header,
     path: Path,
-    lay: dict,
-    perm: pa.Array | None = None,
+    lay: Layout,
+    perm: pa.Array[Any] | None = None,
     *,
     extra: dict[str, str] | None = None,
 ) -> None:
@@ -262,7 +281,7 @@ def signature(path: Path) -> str:
     return ",".join(meta.schema.column(c.column_index).name for c in cols)
 
 
-def follows(meta: pq.FileMetaData, lay: dict) -> bool:
+def follows(meta: pq.FileMetaData, lay: Layout) -> bool:
     """Whether a Parquet footer shows layout `lay`.
 
     The layout is its profile key, the sorting columns of every row group, the fields with a
@@ -285,7 +304,7 @@ def follows(meta: pq.FileMetaData, lay: dict) -> bool:
         blooms = {
             names[i]
             for i in range(meta.num_columns)
-            if rg.column(i).bloom_filter_offset is not None
+            if rg.column(i).bloom_filter_offset is not None  # type: ignore[attr-defined]  # pyarrow-stubs 20 predates it
         }
         if got != order or blooms != set(lay["lookup"]):
             return False

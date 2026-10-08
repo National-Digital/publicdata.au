@@ -16,12 +16,17 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 import pyarrow as pa
 import yaml
 
 from . import store
+
+if TYPE_CHECKING:
+    from .normalise import Table
+    from .register import Geometry
 
 DATUM = "EPSG:7844"
 MEMORY_LIMIT = "3GB"
@@ -142,7 +147,9 @@ def _shape_path(data: bytes, ext: str, member: str, tmp: Path) -> str:
     return f"/vsizip/{src}/{name}"
 
 
-def _read_layer(data: bytes, ext: str, member: str):
+def _read_layer(
+    data: bytes, ext: str, member: str
+) -> tuple[duckdb.DuckDBPyConnection, str, str, str]:
     """The layer loaded into DuckDB as `src`.
 
     Returns the connection, the geometry column, the attribute columns cast to text, and the
@@ -160,7 +167,7 @@ def _read_layer(data: bytes, ext: str, member: str):
     return con, geom, text, order
 
 
-def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table, pa.Array]:
+def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table, pa.Array[Any]]:
     """The layer's attributes as text, in the file's order, and each feature's geometry.
 
     The geometry is WKB in GDA2020. The publisher's datum is the register's `geometry.crs`.
@@ -202,9 +209,9 @@ class Shapes:
     layer: Layer
     version: str
     sha256: str
-    codes: list[str]
-    names: list[str]
-    wkb: pa.Array
+    codes: list[str | None]
+    names: list[str | None]
+    wkb: pa.Array[Any]
 
 
 _LOADED: dict[tuple[str, str], Shapes] = {}
@@ -233,7 +240,7 @@ def layer_shapes(layer: Layer, store_dir: Path, register_dir: Path) -> Shapes:
             m.sha256,
             tbl.table.column(layer.code[0]).to_pylist(),
             tbl.table.column(layer.name[0]).to_pylist(),
-            tbl.geometry,
+            tbl.geometry,  # type: ignore[arg-type]  # a spine layer is a polygon layer, read with its geometry
         )
     return _LOADED[key]
 
@@ -248,9 +255,10 @@ def _layer_entry(slug: str, register_dir: Path) -> str:
 
     p = register_dir / f"{slug}.yaml"
     if not p.is_file():
-        p = next(iter(sorted(register_dir.rglob(f"{slug}.yaml"))), None)
-        if p is None:
+        found = next(iter(sorted(register_dir.rglob(f"{slug}.yaml"))), None)
+        if found is None:
             return "missing"
+        p = found
     raw = p.read_bytes()
     if (slug, raw) not in _ENTRIES:
         ds = parse(yaml.safe_load(raw.decode("utf-8")) or {}, p.name)
@@ -274,10 +282,10 @@ def spine_versions(keys: tuple[str, ...], store_dir: Path, register_dir: Path) -
     return "|".join(parts)
 
 
-def enrich(tbl, store_dir: Path, register_dir: Path):
+def enrich(tbl: Table, store_dir: Path, register_dir: Path) -> Table:
     """The table with each spine column filled in by location. Returns the layers used."""
     ds = tbl.dataset
-    g = ds.geometry or {}
+    g: Geometry | dict[str, Any] = ds.geometry or {}
     con = connect()
     lon = tbl.table.column(g["lon"]).combine_chunks().cast(pa.float64())
     lat = tbl.table.column(g["lat"]).combine_chunks().cast(pa.float64())

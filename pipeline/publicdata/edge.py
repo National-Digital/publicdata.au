@@ -7,8 +7,21 @@ prefix is purged.
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING, Protocol
 
 import requests
+
+if TYPE_CHECKING:
+
+    class Session(Protocol):
+        def get(
+            self, url: str, *, params: dict[str, str], headers: dict[str, str], timeout: int
+        ) -> requests.Response: ...
+
+        def post(
+            self, url: str, *, json: dict[str, list[str]], headers: dict[str, str], timeout: int
+        ) -> requests.Response: ...
+
 
 API = "https://api.cloudflare.com/client/v4"
 HOST = "publicdata.au"
@@ -27,7 +40,7 @@ def with_answers(prefixes: list[str]) -> list[str]:
     return out
 
 
-def purge(prefixes: list[str], token: str, host: str = HOST, session=requests) -> int:
+def purge(prefixes: list[str], token: str, host: str = HOST, session: Session = requests) -> int:
     """Purges each d/<slug>/v/<date>/ prefix on host. Returns the number of prefixes purged."""
     auth = {"Authorization": f"Bearer {token}"}
     r = session.get(f"{API}/zones", params={"name": host}, headers=auth, timeout=30)

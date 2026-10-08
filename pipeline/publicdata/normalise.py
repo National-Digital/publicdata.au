@@ -16,7 +16,7 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import openpyxl
 import pyarrow as pa
@@ -39,7 +39,11 @@ from .register import (
 from .spine import is_spine, read_points, read_shapes
 
 if TYPE_CHECKING:
+    from .register import Wide
     from .store import Manifest
+
+# pyarrow.compute takes either and hands back either; pyarrow-stubs 20 often names the wrong one.
+type Arr = pa.Array[Any] | pa.ChunkedArray[Any]
 
 ARROW_TYPES = {
     "string": pa.string(),
@@ -67,11 +71,13 @@ class Table:
     # Upstream columns the register leaves out on purpose, seen in this file.
     omitted_columns: list[str] = field(default_factory=list)
     # A polygon or line layer's geometry, one WKB value per row in GDA2020, beside the fields.
-    geometry: pa.Array | None = None
+    geometry: pa.Array[Any] | None = None
     # The place spine layers a point dataset was joined to, with the version of each.
-    places: list[dict] = field(default_factory=list)
+    places: list[dict[str, str]] = field(default_factory=list)
     # (table, (sort, key), permutation) once the build has sorted this table, so it sorts once.
-    order: tuple | None = field(default=None, repr=False, compare=False)
+    order: tuple[pa.Table, tuple[tuple[str, ...], tuple[str, ...]], pa.Array[Any] | None] | None = (
+        field(default=None, repr=False, compare=False)
+    )
 
     @property
     def rows(self) -> int:
@@ -100,7 +106,11 @@ def _delimiter(declared: str) -> str:
 
 
 def read_csv(
-    data: bytes, encoding: str, delimiter: str = "", header_row: int = 1, short: list | None = None
+    data: bytes,
+    encoding: str,
+    delimiter: str = "",
+    header_row: int = 1,
+    short: list[int] | None = None,
 ) -> pa.Table:
     """The file as text columns. `short`, when given, receives the count of rows padded."""
     text = data.decode(encoding)
@@ -152,14 +162,14 @@ def _drop_blank_rows(t: pa.Table) -> pa.Table:
     """A spreadsheet exported as CSV ends in rows of separators alone; they are not data."""
     if not t.num_rows or not t.num_columns:
         return t
-    blank = None
+    blank: Arr | None = None
     for c in t.columns:
-        b = pc.equal(pc.utf8_trim_whitespace(pc.fill_null(c, "")), "")
+        b = pc.equal(pc.utf8_trim_whitespace(pc.fill_null(c, "")), "")  # type: ignore[call-overload, type-var]  # pyarrow-stubs 20 types fill_null as coalesce and takes no Python scalar
         blank = b if blank is None else pc.and_(blank, b)
-    return t.filter(pc.invert(blank)) if pc.any(blank).as_py() else t
+    return t.filter(pc.invert(blank)) if pc.any(blank).as_py() else t  # type: ignore[arg-type, type-var]  # a table with a column always sets blank
 
 
-def _cell(v) -> str:
+def _cell(v: object) -> str:
     """An Excel cell as the text the publisher would have typed, so typing follows one path."""
     if v is None:
         return ""
@@ -181,15 +191,15 @@ def xls_to_xlsx(data: bytes) -> bytes:
     """
     book = xlrd.open_workbook(file_contents=data)
     wb = openpyxl.Workbook()
-    wb.remove(wb.active)
+    wb.remove(wb.active)  # type: ignore[arg-type]  # a new Workbook always has its first sheet
     for sh in book.sheets():
         ws = wb.create_sheet(sh.name[:31])
         for r in range(sh.nrows):
-            row = []
+            row: list[object] = []
             for c in range(sh.ncols):
                 cell = sh.cell(r, c)
                 if cell.ctype == xlrd.XL_CELL_DATE:
-                    row.append(xlrd.xldate_as_datetime(cell.value, book.datemode))
+                    row.append(xlrd.xldate_as_datetime(cell.value, book.datemode))  # type: ignore[arg-type]  # a date cell holds a float
                 elif cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
                     row.append(None)
                 elif cell.ctype == xlrd.XL_CELL_BOOLEAN:
@@ -251,7 +261,8 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:  # noqa: 
     in fill_down. A row with no data is a note and is skipped. Values of the last header row that
     no field names are returned as held.
     """
-    w = ds.wide
+    # normalise reads a wide table only for an entry that declares one.
+    w = cast("Wide", ds.wide)
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
     sheets = w["sheets"] or [ds.source.sheet or wb.sheetnames[0]]
     if w.get("sheet_match"):
@@ -282,7 +293,7 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:  # noqa: 
         for r in head[:-1]:
             for j in range(1, len(r)):
                 r[j] = r[j] or r[j - 1]
-        groups: dict[tuple, dict[str, int]] = {}
+        groups: dict[tuple[str, ...], dict[str, int]] = {}
         match = re.compile(w["column_match"]) if w.get("column_match") else None
         for j, last in enumerate(head[-1]):
             if not last:
@@ -460,30 +471,30 @@ def unpivot(raw: pa.Table, ds: Dataset) -> tuple[pa.Table, list[str]]:
     return pa.table(cols), held
 
 
-def _blank_to_null(arr: pa.ChunkedArray) -> pa.ChunkedArray:
+def _blank_to_null(arr: Arr) -> Arr:
     arr = pc.utf8_trim_whitespace(arr)
-    return pc.if_else(pc.equal(arr, ""), pa.scalar(None, pa.string()), arr)
+    return pc.if_else(pc.equal(arr, ""), pa.scalar(None, pa.string()), arr)  # type: ignore[call-overload, no-any-return]  # pyarrow-stubs 20 takes no Python scalar
 
 
-def _examples(arr: pa.ChunkedArray, mask: pa.ChunkedArray, n: int = 5) -> list[str]:
+def _examples(arr: Arr, mask: Arr, n: int = 5) -> list[str]:
     return [str(v) for v in pc.filter(arr, mask).slice(0, n).to_pylist()]
 
 
 THOUSANDS = r"^-?\d{1,3}(,\d{3})+(\.\d+)?$"
 
 
-def _plain_number(arr: pa.ChunkedArray) -> pa.ChunkedArray:
+def _plain_number(arr: Arr) -> Arr:
     """A figure a publisher wrote with thousands separators, 19,918, as 19918.
 
     Only a cell that is wholly such a figure is touched.
     """
-    grouped = pc.fill_null(pc.match_substring_regex(arr, THOUSANDS), fill_value=False)
+    grouped = pc.fill_null(pc.match_substring_regex(arr, THOUSANDS), fill_value=False)  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
     if not pc.any(grouped).as_py():
         return arr
-    return pc.if_else(grouped, pc.replace_substring(arr, ",", ""), arr)
+    return pc.if_else(grouped, pc.replace_substring(arr, ",", ""), arr)  # type: ignore[no-any-return]  # pyarrow-stubs 20 leaves if_else untyped
 
 
-def _strptime(arr: pa.ChunkedArray, f: Field) -> pa.ChunkedArray:
+def _strptime(arr: Arr, f: Field) -> Arr:
     """Dates in the field's format, or in any of several formats joined by | in one string.
 
     A publisher's workbooks may hold a date as a date in one and as text in another. A value in
@@ -492,28 +503,29 @@ def _strptime(arr: pa.ChunkedArray, f: Field) -> pa.ChunkedArray:
     formats = f.date_format.split("|")
     if len(formats) == 1:
         return pc.strptime(arr, format=formats[0], unit="s")
-    out = None
+    out: Arr | None = None
     for fmt in formats:
         got = pc.strptime(arr, format=fmt, unit="s", error_is_null=True)
         out = got if out is None else pc.coalesce(out, got)
-    bad = pc.and_(pc.is_valid(arr), pc.is_null(out))
+    bad = pc.and_(pc.is_valid(arr), pc.is_null(out))  # type: ignore[arg-type]  # formats is never empty, so out is set
     if pc.any(bad).as_py():
         msg = f"{f.name}: values in none of the formats {formats}: {_examples(arr, bad)}"
         raise NormaliseError(msg)
-    return out
+    return out  # type: ignore[return-value]  # formats is never empty, so out is set
 
 
-def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):  # noqa: C901 - one branch per field type
+def convert(arr: Arr, f: Field, suppression: tuple[str, ...]) -> tuple[Arr, Arr | None]:  # noqa: C901 - one branch per field type
     """Return (typed array, suppression mask or None)."""
     arr = _blank_to_null(arr)
     if f.null_values:
         unknown = pc.fill_null(
-            pc.is_in(arr, value_set=pa.array(list(f.null_values))), fill_value=False
+            pc.is_in(arr, value_set=pa.array(list(f.null_values))),
+            fill_value=False,  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
         )
         arr = pc.if_else(unknown, pa.scalar(None, pa.string()), arr)
     sup = None
     if suppression and f.type in ("integer", "number"):
-        sup = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(suppression))), fill_value=False)
+        sup = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(suppression))), fill_value=False)  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
         if pc.any(sup).as_py():
             arr = pc.if_else(sup, pa.scalar(None, pa.string()), arr)
         else:
@@ -525,10 +537,12 @@ def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):  # no
             return pc.cast(_plain_number(arr), ARROW_TYPES[f.type]), sup
         if f.type == "boolean":
             t = pc.fill_null(
-                pc.is_in(arr, value_set=pa.array(list(f.true_values))), fill_value=False
+                pc.is_in(arr, value_set=pa.array(list(f.true_values))),
+                fill_value=False,  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
             )
             fl = pc.fill_null(
-                pc.is_in(arr, value_set=pa.array(list(f.false_values))), fill_value=False
+                pc.is_in(arr, value_set=pa.array(list(f.false_values))),
+                fill_value=False,  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
             )
             bad = pc.and_(pc.is_valid(arr), pc.invert(pc.or_(t, fl)))
             if pc.any(bad).as_py():
@@ -597,7 +611,9 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
     extra = [c for c in upstream if c not in declared] + held
     unknown = [c for c in extra if c not in ds.omit]
     omitted = [c for c in extra if c in ds.omit]
-    cols, names, masks = [], [], {}
+    cols: list[Arr] = []
+    names: list[str] = []
+    masks: dict[str, Arr] = {}
     for f in own:
         arr, sup = convert(raw.column(upstream[f.source]), f, ds.suppression)
         cols.append(arr)
@@ -606,7 +622,7 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
             masks[f.name] = sup
     suppressed = 0
     if masks:
-        flags = [[] for _ in range(raw.num_rows)]
+        flags: list[list[str]] = [[] for _ in range(raw.num_rows)]
         for name, mask in masks.items():
             for i, v in enumerate(mask.to_pylist()):
                 if v:

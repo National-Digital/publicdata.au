@@ -14,14 +14,18 @@ from . import normalise, store
 from .serialise.profile import INT32, misfits, query_key
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from pathlib import Path
 
+    from .register import Dataset
+    from .store import Manifest
 
-def _parquet_misfits(path: Path, cols) -> list[str]:
+
+def _parquet_misfits(path: Path, cols: Iterable[str]) -> list[str]:
     """Declared INT32 fields a built Parquet does not fit, read from its column statistics."""
     meta = pq.read_metadata(path)
     names = [meta.schema.column(i).name for i in range(meta.num_columns)]
-    out = []
+    out: list[str] = []
     for c in cols:
         if c not in names:
             continue
@@ -37,12 +41,12 @@ def _parquet_misfits(path: Path, cols) -> list[str]:
                 break
             lo = st.min if lo is None else min(lo, st.min)
             hi = st.max if hi is None else max(hi, st.max)
-        if lo is not None and not (INT32[0] <= lo and hi <= INT32[1]):
+        if lo is not None and not (INT32[0] <= lo and hi <= INT32[1]):  # type: ignore[operator]  # hi is set with lo
             out.append(f"{c} holds {lo} to {hi}, outside 32 bits")
     return out
 
 
-def int32_misfits(ds, m, store_dir: Path, built: list[Path]) -> list[str] | None:
+def int32_misfits(ds: Dataset, m: Manifest, store_dir: Path, built: list[Path]) -> list[str] | None:
     """The entry's int32 fields this stored version does not fit.
 
     Returns None when neither a built Parquet of it nor its source is at hand.

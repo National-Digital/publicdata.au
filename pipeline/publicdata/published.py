@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from .cache import _link_or_copy
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
 # The deploy reads every version's Parquet for its figures, so downloads run side by side.
 WORKERS = 16
@@ -24,10 +24,10 @@ class Published:
     def __init__(
         self,
         out: Path,
-        roots: list[Path] = (),
+        roots: Iterable[Path | str] = (),
         source: Path | None = None,
         download: Callable[[str, Path], bool] | None = None,
-    ):
+    ) -> None:
         """Where the files a build left out can be found.
 
         `source` is a directory laid out as the published site; download(rel, path) fetches a

@@ -5,11 +5,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
 
 import yaml
 
 from .spine import LAYERS, SOURCE_PREFIX
 from .topics import TOPICS
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 OPEN_LICENCES = {
     "CC-BY-4.0": ("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"),
@@ -42,7 +46,8 @@ CLOSED_LICENCES = {
 }
 # A dataset is one table, or a database: a publisher's release of several related tables that are
 # served together as one DuckDB file and one Parquet file per table.
-KINDS = ("table", "database")
+type Kind = Literal["table", "database"]
+KINDS: tuple[Kind, ...] = ("table", "database")
 # A wide table whose columns are dates is turned into one row per cell: the column's header goes
 # to the field whose source is HEADER_SOURCE and the cell to the one whose source is CELL_SOURCE.
 HEADER_SOURCE = "(column header)"
@@ -70,8 +75,10 @@ WIDE_KEYS = {
     "column_match",
     "sheet_match",
 }
-STATUSES = ("live", "building", "backlog", "blocked", "assessing")
-TYPES = ("string", "integer", "number", "boolean", "date", "datetime")
+type Status = Literal["live", "building", "backlog", "blocked", "assessing"]
+STATUSES: tuple[Status, ...] = ("live", "building", "backlog", "blocked", "assessing")
+type FieldType = Literal["string", "integer", "number", "boolean", "date", "datetime"]
+TYPES: tuple[FieldType, ...] = ("string", "integer", "number", "boolean", "date", "datetime")
 JURISDICTIONS = ("Cth", "NSW", "Vic", "Qld", "WA", "SA", "Tas", "ACT", "NT", "Local")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 FIELD_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
@@ -81,11 +88,62 @@ class RegisterError(ValueError):
     pass
 
 
+class Wide(TypedDict):
+    sheets: list[str]
+    header_row: int
+    header_rows: int
+    first_column: int
+    row_headers: int
+    fill_down: list[int]
+    column_match: str
+    sheet_match: str
+
+
+class Geometry(TypedDict):
+    kind: str
+    crs: str
+    crs_note: NotRequired[str]
+    lon: NotRequired[str]
+    lat: NotRequired[str]
+    maxzoom: NotRequired[int]
+
+
+class Condition(TypedDict):
+    """A where condition; its op is the query API's name, or the SQL operator in a chart or sample."""
+
+    field: str
+    op: str
+    value: str
+
+
+class Example(TypedDict):
+    filters: tuple[Condition, ...]
+    group: tuple[str]
+    metric: str
+    label: str
+
+
+class Chart(TypedDict):
+    off: NotRequired[bool]
+    where: tuple[Condition, ...]
+    split: str | None
+    metric: str
+    label: str
+    year: str
+
+
+class Sample(TypedDict):
+    where: tuple[Condition, ...]
+    order: tuple[tuple[str, bool], ...]
+    spread: str | None
+    label: str
+
+
 @dataclass(frozen=True)
 class Field:
     name: str
     source: str
-    type: str = "string"
+    type: FieldType = "string"
     description: str = ""
     true_values: tuple[str, ...] = ("Yes", "YES", "Y", "true", "True")
     false_values: tuple[str, ...] = ("No", "NO", "N", "false", "False")
@@ -105,7 +163,7 @@ class Field:
 ACRONYMS = {"abs", "id", "lga", "dca", "nsw", "qld", "sa2", "sa3", "sa4"}
 
 
-def draft_label(name: str, names) -> str:
+def draft_label(name: str, names: Iterable[str]) -> str:
     """A first label for review, from the field name.
 
     A prefix most of the dataset's fields share is dropped (crash_ in crash_severity), involving_x
@@ -260,7 +318,7 @@ class Source:
 class Dataset:
     slug: str
     title: str
-    status: str
+    status: Status
     publisher: Publisher
     licence: Licence
     source: Source
@@ -275,8 +333,8 @@ class Dataset:
     lookup: tuple[str, ...] = ()
     int32: tuple[str, ...] = ()
     unpivot: str = ""
-    wide: dict | None = None
-    geometry: dict | None = None
+    wide: Wide | None = None
+    geometry: Geometry | None = None
     # The place spine layers a point dataset is joined to by location (spine.LAYERS).
     enrich: tuple[str, ...] = ()
     fields: tuple[Field, ...] = ()
@@ -294,10 +352,10 @@ class Dataset:
     landing: str = ""
     row_label: str = ""
     topics: tuple[str, ...] = ()
-    example: dict | None = None
-    chart: dict | None = None
+    example: Example | None = None
+    chart: Chart | None = None
     # The rows the page shows as a sample. It shapes no version's bytes, so it stays out of the repr.
-    sample: dict | None = field(default=None, repr=False)
+    sample: Sample | None = field(default=None, repr=False)
     # Upstream columns knowingly left out, each with the reason, such as a third party's series.
     # They are recorded in the manifest and are not held as unknown.
     omit: dict[str, str] = field(default_factory=dict)
@@ -316,8 +374,8 @@ class Dataset:
     # shapes a version's bytes, so both stay out of the repr the build cache keys on.
     query: bool = field(default=True, repr=False)
     path: str = field(default="", repr=False, compare=False)
-    extra: dict = field(default_factory=dict)
-    kind: str = "table"
+    extra: dict[str, object] = field(default_factory=dict)
+    kind: Kind = "table"
     database: Database | None = None
     tables: tuple[TableSpec, ...] = ()
     views: tuple[View, ...] = ()
@@ -344,28 +402,28 @@ class Dataset:
         raise KeyError(name)
 
 
-def _bool(v, ctx: str) -> bool:
+def _bool(v: object, ctx: str) -> bool:
     if not isinstance(v, bool):
         msg = f"{ctx}: must be true or false"
         raise RegisterError(msg)
     return v
 
 
-def _rebuild(v, ctx: str) -> int:
+def _rebuild(v: object, ctx: str) -> int:
     if isinstance(v, bool) or not isinstance(v, int) or v < 0:
         msg = f"{ctx}: rebuild is a whole number, 0 or more"
         raise RegisterError(msg)
     return v
 
 
-def _req(d: dict, key: str, ctx: str) -> object:
+def _req(d: dict[str, Any], key: str, ctx: str) -> object:
     if key not in d or d[key] in (None, ""):
         msg = f"{ctx}: missing '{key}'"
         raise RegisterError(msg)
     return d[key]
 
 
-def parse(raw: dict, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 - one check per register field, in the entry's order
+def parse(raw: dict[str, Any], ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 - one check per register field, in the entry's order
     slug = str(_req(raw, "slug", ctx))
     if not SLUG_RE.match(slug):
         msg = f"{ctx}: bad slug '{slug}'"
@@ -496,7 +554,7 @@ def parse(raw: dict, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 - one
             if sum(1 for f in fields if f.source == marker) != 1:
                 msg = f"{ctx}: unpivot needs exactly one field with source '{marker}'"
                 raise RegisterError(msg)
-    wide = _wide(raw.get("wide"), fields, ctx) if raw.get("wide") else None
+    wide = _wide(raw["wide"], fields, ctx) if raw.get("wide") else None
     ds = Dataset(
         slug=slug,
         title=str(_req(raw, "title", ctx)),
@@ -673,7 +731,13 @@ def parse(raw: dict, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 - one
     return ds
 
 
-def _profile(raw: dict, fields: list[Field], kind: str, ctx: str) -> dict:
+class _Profile(TypedDict):
+    sort: tuple[str, ...]
+    lookup: tuple[str, ...]
+    int32: tuple[str, ...]
+
+
+def _profile(raw: dict[str, Any], fields: list[Field], kind: str, ctx: str) -> _Profile:
     """The Parquet profile an entry declares.
 
     `sort`, `lookup` and `int32` must be declared fields, each named once. A boolean has two
@@ -705,13 +769,13 @@ def _profile(raw: dict, fields: list[Field], kind: str, ctx: str) -> dict:
                 msg = f"{ctx}: int32 field '{n}' is not an integer"
                 raise RegisterError(msg)
         out[name] = names
-    return out
+    return {"sort": out["sort"], "lookup": out["lookup"], "int32": out["int32"]}
 
 
 LABEL_MAX = 60
 
 
-def _fields(raw: list, ctx: str) -> list[Field]:
+def _fields(raw: list[dict[str, Any]], ctx: str) -> list[Field]:
     fields = []
     seen = set()
     for i, f in enumerate(raw):
@@ -744,18 +808,18 @@ def _fields(raw: list, ctx: str) -> list[Field]:
             )
         )
     labels = [f.display for f in fields]
-    for f in fields:
-        if len(f.label) > LABEL_MAX:
-            msg = f"{ctx}: label for '{f.name}' is over 60 characters"
+    for fld in fields:
+        if len(fld.label) > LABEL_MAX:
+            msg = f"{ctx}: label for '{fld.name}' is over 60 characters"
             raise RegisterError(msg)
         # The explorer names its columns by label, so a label must not be another field's name.
-        if labels.count(f.display) > 1 or f.label in seen:
-            msg = f"{ctx}: label '{f.display}' is not unique"
+        if labels.count(fld.display) > 1 or fld.label in seen:
+            msg = f"{ctx}: label '{fld.display}' is not unique"
             raise RegisterError(msg)
     return fields
 
 
-def _database(raw: dict, ctx: str) -> dict:  # noqa: C901, PLR0912, PLR0915 - one check per database field
+def _database(raw: dict[str, Any], ctx: str) -> dict[str, Any]:  # noqa: C901, PLR0912, PLR0915 - one check per database field
     """The tables, views and archive layout of a database entry."""
     db = raw.get("database") or {}
     match = str(_req(db, "member_match", f"{ctx}.database"))
@@ -843,12 +907,12 @@ def _database(raw: dict, ctx: str) -> dict:  # noqa: C901, PLR0912, PLR0915 - on
     }
 
 
-def _wide(raw: dict, fields: list[Field], ctx: str) -> dict:  # noqa: C901 - one check per wide-layout field
+def _wide(raw: dict[str, Any], fields: list[Field], ctx: str) -> Wide:  # noqa: C901 - one check per wide-layout field
     unknown = set(raw) - WIDE_KEYS
     if unknown:
         msg = f"{ctx}: wide has unknown keys {sorted(unknown)}"
         raise RegisterError(msg)
-    w = {
+    w: Wide = {
         "sheets": [str(x) for x in raw.get("sheets") or ()],
         "header_row": int(raw.get("header_row", 1)),
         "header_rows": int(raw.get("header_rows", 1)),
@@ -904,7 +968,7 @@ def _wide(raw: dict, fields: list[Field], ctx: str) -> dict:  # noqa: C901 - one
 GEOMETRY_KINDS = ("point", "polygon", "line")
 
 
-def _geometry(raw, seen: set[str], ctx: str) -> dict | None:
+def _geometry(raw: object, seen: set[str], ctx: str) -> Geometry | None:
     """The geometry an entry declares.
 
     Points name their longitude and latitude fields; polygons and lines are read whole from a
@@ -913,7 +977,8 @@ def _geometry(raw, seen: set[str], ctx: str) -> dict | None:
     """
     if not raw:
         return None
-    g = dict(raw)
+    # A mapping from the YAML, checked below; keys the build does not read pass through.
+    g = cast("Geometry", dict(cast("dict[str, Any]", raw)))
     g["kind"] = str(g.get("kind", "point"))
     if g["kind"] not in GEOMETRY_KINDS:
         msg = f"{ctx}: geometry.kind '{g['kind']}' not one of {GEOMETRY_KINDS}"
@@ -932,7 +997,7 @@ def _geometry(raw, seen: set[str], ctx: str) -> dict | None:
     return g
 
 
-def _omit(raw, fields: list[Field], ctx: str) -> dict[str, str]:
+def _omit(raw: object, fields: list[Field], ctx: str) -> dict[str, str]:
     if raw is None:
         return {}
     if not isinstance(raw, dict) or not all(isinstance(v, str) and v.strip() for v in raw.values()):
@@ -953,7 +1018,7 @@ AGGREGATES = ("sum", "avg", "min", "max")
 NEWEST = "newest"
 
 
-def _where(raw, by: dict[str, Field], ctx: str) -> tuple[dict, ...]:
+def _where(raw: object, by: dict[str, Field], ctx: str) -> tuple[Condition, ...]:
     """Conditions on fields, as the register writes them.
 
     Each is field: value for an exact match, or field: {op: value, ...} for the query API's other
@@ -962,7 +1027,7 @@ def _where(raw, by: dict[str, Field], ctx: str) -> tuple[dict, ...]:
     if not isinstance(raw, dict):
         msg = f"{ctx}: where maps each field to a value"
         raise RegisterError(msg)
-    out = []
+    out: list[Condition] = []
     for name, cond in raw.items():
         if name not in by:
             msg = f"{ctx}: where names '{name}', not a declared field"
@@ -982,7 +1047,7 @@ def _where(raw, by: dict[str, Field], ctx: str) -> tuple[dict, ...]:
     return tuple(out)
 
 
-def _metric(raw, by: dict[str, Field], ctx: str) -> str:
+def _metric(raw: object, by: dict[str, Field], ctx: str) -> str:
     metric = str(raw)
     if metric == "count":
         return metric
@@ -996,7 +1061,7 @@ def _metric(raw, by: dict[str, Field], ctx: str) -> str:
     return metric
 
 
-def _example(raw, fields: list[Field], ctx: str) -> dict | None:
+def _example(raw: object, fields: list[Field], ctx: str) -> Example | None:
     """The dataset page's first query, chosen for what a reader comes to the table to ask.
 
     The query tile answers it and the console starts from it. Without it the build picks one from
@@ -1021,7 +1086,7 @@ def _example(raw, fields: list[Field], ctx: str) -> dict | None:
     }
 
 
-def _chart(raw, fields: list[Field], ctx: str) -> dict | None:
+def _chart(raw: object, fields: list[Field], ctx: str) -> Chart | None:
     """What the yearly chart and its sparkline draw, where the build's choice reads wrong.
 
     It applies where the example's measure or the build's choice of colour reads wrong: the rows
@@ -1058,7 +1123,7 @@ def _chart(raw, fields: list[Field], ctx: str) -> dict | None:
     }
 
 
-def _sample(raw, fields: list[Field], ctx: str) -> dict | None:
+def _sample(raw: object, fields: list[Field], ctx: str) -> Sample | None:
     """The rows the dataset page shows, where the build's pick of the newest rows reads dull.
 
     It gives the rows kept, the order as the query API writes it, the field whose values take
@@ -1107,7 +1172,7 @@ class Grant:
     letter: str = ""
 
 
-def parse_grant(raw: dict, ctx: str, root: Path) -> Grant:
+def parse_grant(raw: dict[str, Any], ctx: str, root: Path) -> Grant:
     gid = str(_req(raw, "id", ctx))
     if gid in CC_LICENCES or gid in CLOSED_LICENCES:
         msg = f"{ctx}: {gid} is a Creative Commons id, not a grant"
