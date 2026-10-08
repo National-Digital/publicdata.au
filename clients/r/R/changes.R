@@ -40,12 +40,16 @@ pd_changes <- function(slug, from = NULL, to = NULL) {
       stringsAsFactors = FALSE
     )
   })
-  out <- if (length(rows)) do.call(rbind, rows) else data.frame(
-    from = character(), to = character(), rows_from = numeric(), rows_to = numeric(),
-    added = numeric(), removed = numeric(), changed = numeric(), unchanged = numeric(),
-    fields_added = character(), fields_removed = character(), truncated = logical(),
-    url = character(), stringsAsFactors = FALSE
-  )
+  out <- if (length(rows)) {
+    do.call(rbind, rows)
+  } else {
+    data.frame(
+      from = character(), to = character(), rows_from = numeric(), rows_to = numeric(),
+      added = numeric(), removed = numeric(), changed = numeric(), unchanged = numeric(),
+      fields_added = character(), fields_removed = character(), truncated = logical(),
+      url = character(), stringsAsFactors = FALSE
+    )
+  }
   if (!is.null(from)) out <- out[out$from >= from, , drop = FALSE]
   if (!is.null(to)) out <- out[out$to <= to, , drop = FALSE]
   as_tbl(out)
@@ -67,8 +71,10 @@ pd_diff <- function(slug, version = NULL) {
   steps <- pd_changes(slug)
   hit <- steps[steps$to == version, , drop = FALSE]
   if (!nrow(hit)) {
-    pd_abort("no comparison ends at ", version, " for '", slug,
-         "': it is the first version kept, or not a version. pd_changes() lists them.")
+    pd_abort(
+      "no comparison ends at ", version, " for '", slug,
+      "': it is the first version kept, or not a version. pd_changes() lists them."
+    )
   }
   structure(pd_get(hit$url[1], simplify = FALSE), class = "pd_diff")
 }
@@ -78,8 +84,10 @@ print.pd_diff <- function(x, ...) {
   cat("<pd_diff> ", x$dataset, ": ", x$from, " to ", x$to, "\n", sep = "")
   if (!is.null(x$added)) {
     cat(format(x$added, big.mark = ","), " added, ", format(x$removed, big.mark = ","), " removed, ",
-        format(x$changed, big.mark = ","), " changed, ", format(x$unchanged, big.mark = ","),
-        " unchanged\n", sep = "")
+      format(x$changed, big.mark = ","), " changed, ", format(x$unchanged, big.mark = ","),
+      " unchanged\n",
+      sep = ""
+    )
   } else {
     cat("rows: ", format(x$rows_from, big.mark = ","), " to ", format(x$rows_to, big.mark = ","), "\n", sep = "")
   }

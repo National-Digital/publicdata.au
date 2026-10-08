@@ -42,7 +42,8 @@ pd_latest <- function(slug) latest_version(slug)
 pd_provenance <- function(slug, version = NULL) {
   check_slug(slug)
   structure(pd_get(paste0("/d/", slug, "/", at_path(version), "/manifest.json"), simplify = FALSE),
-            class = "pd_provenance")
+    class = "pd_provenance"
+  )
 }
 
 #' @export

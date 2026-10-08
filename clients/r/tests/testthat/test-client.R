@@ -19,7 +19,9 @@ drv <- function(dbdir) {
 fake <- function(req) {
   seen$urls <- c(seen$urls, req$url)
   u <- httr2::url_parse(req$url)
-  if (u$path == "/api/v1/datasets") return(json(list(results = data.frame(slug = c("a", "b"), title = c("A", "B")))))
+  if (u$path == "/api/v1/datasets") {
+    return(json(list(results = data.frame(slug = c("a", "b"), title = c("A", "B")))))
+  }
   if (u$path %in% c("/api/v1/datasets/a/rows", "/api/v1/datasets/a/versions/2026-08-07/rows")) {
     off <- as.integer(if (is.null(u$query$offset)) 0 else u$query$offset)
     lim <- as.integer(if (is.null(u$query$limit)) 100 else u$query$limit)
@@ -30,8 +32,12 @@ fake <- function(req) {
   if (u$path == "/api/v1/datasets/a/aggregate") {
     return(json(list(publicdata = meta, rows = data.frame(g = "x", count = 2L), `next` = NULL)))
   }
-  if (u$path == "/api/v1/datasets/nope/rows") return(json(list(error = "No such dataset in the query API"), 404L))
-  if (u$path == "/d/a/versions.json") return(json(list(latest = "2026-08-07", versions = data.frame(version = "2026-08-07", rows = 5L))))
+  if (u$path == "/api/v1/datasets/nope/rows") {
+    return(json(list(error = "No such dataset in the query API"), 404L))
+  }
+  if (u$path == "/d/a/versions.json") {
+    return(json(list(latest = "2026-08-07", versions = data.frame(version = "2026-08-07", rows = 5L))))
+  }
   if (u$path == "/d/db/latest/schema.json") {
     return(json(list(kind = "database", tables = list(
       list(name = "thing", description = "Things.", rows = 3L, fields = list(list(name = "id")), primaryKey = list("id")),
@@ -43,10 +49,14 @@ fake <- function(req) {
   }
   if (u$path == "/catalog.json") {
     return(json(list(dataset = list(
-      list(identifier = "a", publisher = list(name = "Bureau of Things"), spatial = "Queensland",
-           `publicdata:jurisdiction` = "Qld", `publicdata:topics` = list("roads")),
-      list(identifier = "b", publisher = list(name = "Other"), spatial = "Commonwealth",
-           `publicdata:jurisdiction` = "Cth", `publicdata:topics` = list("crime"))
+      list(
+        identifier = "a", publisher = list(name = "Bureau of Things"), spatial = "Queensland",
+        `publicdata:jurisdiction` = "Qld", `publicdata:topics` = list("roads")
+      ),
+      list(
+        identifier = "b", publisher = list(name = "Other"), spatial = "Commonwealth",
+        `publicdata:jurisdiction` = "Cth", `publicdata:topics` = list("crime")
+      )
     ))))
   }
   if (u$path == "/d/a/changes.json") {
@@ -57,17 +67,23 @@ fake <- function(req) {
     )))))
   }
   if (u$path == "/d/a/diff/2026-08-01..2026-08-07.json") {
-    return(json(list(dataset = "a", from = "2026-08-01", to = "2026-08-07", rows_from = 4L, rows_to = 5L,
-                     added = 1L, removed = 0L, changed = 0L, unchanged = 4L,
-                     schema = list(fields_added = list("m")), added_keys = list(9L))))
+    return(json(list(
+      dataset = "a", from = "2026-08-01", to = "2026-08-07", rows_from = 4L, rows_to = 5L,
+      added = 1L, removed = 0L, changed = 0L, unchanged = 4L,
+      schema = list(fields_added = list("m")), added_keys = list(9L)
+    )))
   }
   if (u$path == "/d/a/datapackage.json") {
-    return(json(list(title = "A things", version = "2026-08-07",
-                     licenses = list(list(name = "CC-BY-4.0", title = "CC BY 4.0")),
-                     contributors = list(list(title = "Bureau of Things", role = "publisher")),
-                     `publicdata:attribution` = "Bureau of Things, CC BY 4.0.")))
+    return(json(list(
+      title = "A things", version = "2026-08-07",
+      licenses = list(list(name = "CC-BY-4.0", title = "CC BY 4.0")),
+      contributors = list(list(title = "Bureau of Things", role = "publisher")),
+      `publicdata:attribution` = "Bureau of Things, CC BY 4.0."
+    )))
   }
-  if (u$path == "/d/a/v/2026-08-01/manifest.json") return(json(list(fetched_at = "2026-08-01T03:00:00+00:00")))
+  if (u$path == "/d/a/v/2026-08-01/manifest.json") {
+    return(json(list(fetched_at = "2026-08-01T03:00:00+00:00")))
+  }
   if (u$path == "/d/c/datapackage.json") {
     return(json(list(licenses = list(list(name = "X", `publicdata:condition` = "No mail lists.")))))
   }
@@ -86,26 +102,34 @@ fake <- function(req) {
     ))))
   }
   if (u$path == "/d/a/v/2026-08-07/manifest.json" || u$path == "/d/a/latest/manifest.json") {
-    return(json(list(dataset = "a", version = "2026-08-07", filename = "a.csv", bytes = 1200L, sha256 = "abc",
-                     fetched_at = "2026-08-07T01:00:00+00:00", source = list(url = "https://gov.example/a.csv"),
-                     licence = list(title = "CC BY 4.0", read_at = "2026-08-07T00:59:00+00:00"), rows = 5L,
-                     url = "https://publicdata.test/d/a/v/2026-08-07/")))
+    return(json(list(
+      dataset = "a", version = "2026-08-07", filename = "a.csv", bytes = 1200L, sha256 = "abc",
+      fetched_at = "2026-08-07T01:00:00+00:00", source = list(url = "https://gov.example/a.csv"),
+      licence = list(title = "CC BY 4.0", read_at = "2026-08-07T00:59:00+00:00"), rows = 5L,
+      url = "https://publicdata.test/d/a/v/2026-08-07/"
+    )))
   }
   if (u$path == "/api/v1/datasets/t/rows") {
-    return(json(list(publicdata = meta, rows = data.frame(n = c(1, 2), day = c("2026-01-02", NA), flag = c(1L, 0L),
-                                                           g = c("x", "y"), extra = c("e", "f")), `next` = NULL)))
+    return(json(list(publicdata = meta, rows = data.frame(
+      n = c(1, 2), day = c("2026-01-02", NA), flag = c(1L, 0L),
+      g = c("x", "y"), extra = c("e", "f")
+    ), `next` = NULL)))
   }
   if (u$path == "/api/v1/datasets/t/versions/2026-01-01/rows") {
     return(json(list(publicdata = meta, rows = data.frame(n = 1, day = "2026-01-02"), `next` = NULL)))
   }
   if (u$path == "/d/t/v/2026-01-01/schema.json") {
-    return(json(list(fields = list(list(name = "n", type = "number", description = "An old measure."),
-                                   list(name = "day", type = "string")))))
+    return(json(list(fields = list(
+      list(name = "n", type = "number", description = "An old measure."),
+      list(name = "day", type = "string")
+    ))))
   }
   if (u$path == "/d/t/fields.json") {
-    return(json(list(fields = list(list(name = "n", type = "integer", description = "A count."),
-                                   list(name = "day", type = "date"), list(name = "flag", type = "boolean"),
-                                   list(name = "g", type = "string")))))
+    return(json(list(fields = list(
+      list(name = "n", type = "integer", description = "A count."),
+      list(name = "day", type = "date"), list(name = "flag", type = "boolean"),
+      list(name = "g", type = "string")
+    ))))
   }
   if (u$path == "/api/v1/catalogue") {
     return(json(list(total = 2L, next_offset = NULL, rows = list(
@@ -115,10 +139,14 @@ fake <- function(req) {
   }
   if (u$path == "/places.json") {
     return(json(list(layers = list(
-      list(key = "postcode", slug = "abs-postal-areas-2021", title = "Postal Area (2021)", code = "poa_2021_code",
-           name = "poa_2021_name", noun = "postcode", version = "2021-06-24"),
-      list(key = "lga", slug = "abs-lga-2025", title = "Local Government Area (2025)", code = "lga_2025_code",
-           name = "lga_2025_name", noun = "council area", version = "2026-05-14")
+      list(
+        key = "postcode", slug = "abs-postal-areas-2021", title = "Postal Area (2021)", code = "poa_2021_code",
+        name = "poa_2021_name", noun = "postcode", version = "2021-06-24"
+      ),
+      list(
+        key = "lga", slug = "abs-lga-2025", title = "Local Government Area (2025)", code = "lga_2025_code",
+        name = "lga_2025_name", noun = "council area", version = "2026-05-14"
+      )
     ))))
   }
   json(list(error = "not here"), 404L)
@@ -151,12 +179,18 @@ test_that("filters render in the API's operator form", {
 
 test_that("rows sends conditions, select, order and limit", {
   local_fake()
-  r <- pd_rows("a", state = "QLD", year = pd_gte(2020), lga = NA, sex = c("F", "M"),
-               .select = c("n", "m"), .order = "n.desc", .limit = 2)
+  r <- pd_rows("a",
+    state = "QLD", year = pd_gte(2020), lga = NA, sex = c("F", "M"),
+    .select = c("n", "m"), .order = "n.desc", .limit = 2
+  )
   q <- query_of(tail(grep("/rows", seen$urls, value = TRUE), 1))
-  expect_equal(q[c("state", "year", "lga", "sex", "select", "order", "limit")],
-               list(state = "eq.QLD", year = "gte.2020", lga = "is.null", sex = "in.(F,M)",
-                    select = "n,m", order = "n.desc", limit = "2"))
+  expect_equal(
+    q[c("state", "year", "lga", "sex", "select", "order", "limit")],
+    list(
+      state = "eq.QLD", year = "gte.2020", lga = "is.null", sex = "in.(F,M)",
+      select = "n,m", order = "n.desc", limit = "2"
+    )
+  )
   expect_equal(r$n, c(0L, 1L), ignore_attr = TRUE)
   expect_false(is.null(attr(r, "next")))
 })
@@ -187,8 +221,10 @@ test_that("a dated version goes on the path and a bad one is refused", {
 test_that("aggregate sends group, metric and conditions", {
   local_fake()
   a <- pd_aggregate("a", group = c("g", "h"), metric = c("count", "sum.n"), x = 1)
-  expect_equal(query_of(tail(seen$urls, 1))[c("x", "group", "metric")],
-               list(x = "eq.1", group = "g,h", metric = "count,sum.n"))
+  expect_equal(
+    query_of(tail(seen$urls, 1))[c("x", "group", "metric")],
+    list(x = "eq.1", group = "g,h", metric = "count,sum.n")
+  )
   expect_equal(a$count, 2L)
 })
 
@@ -219,8 +255,10 @@ test_that("a 429 or a passing server error is retried and nothing else is", {
   for (s in c(500L, 502L, 503L, 504L)) expect_true(transient(json(list(), s)))
   expect_false(transient(json(list(), 404L)))
   expect_false(transient(json(list(), 400L)))
-  expect_equal(req$options[c("connecttimeout", "low_speed_time", "low_speed_limit")],
-               list(connecttimeout = 30, low_speed_time = 60, low_speed_limit = 1))
+  expect_equal(
+    req$options[c("connecttimeout", "low_speed_time", "low_speed_limit")],
+    list(connecttimeout = 30, low_speed_time = 60, low_speed_limit = 1)
+  )
 })
 
 test_that("an unknown format is refused", {
@@ -242,8 +280,10 @@ test_that("the live site answers", {
 
 test_that("pd_read takes provenance from the file it read", {
   skip_if_not_installed("arrow")
-  header <- list(version = "2026-08-07", attribution = "Publisher, CC BY 4.0.", licence = list(id = "CC-BY-4.0"),
-                 not_endorsed = "The publisher has not endorsed this site.")
+  header <- list(
+    version = "2026-08-07", attribution = "Publisher, CC BY 4.0.", licence = list(id = "CC-BY-4.0"),
+    not_endorsed = "The publisher has not endorsed this site."
+  )
   tbl <- arrow::arrow_table(n = 1:3)
   tbl$metadata$publicdata <- as.character(jsonlite::toJSON(header, auto_unbox = TRUE))
   src <- tempfile(fileext = ".parquet")
@@ -270,8 +310,10 @@ test_that("the tables of a database and of a table", {
 })
 
 test_that("a table of a database is served as parquet under tables/", {
-  expect_equal(publicdataau:::file_url("db", "parquet", "2026-08-07", "thing"),
-               paste0(pd_site(), "/d/db/v/2026-08-07/tables/thing.parquet"))
+  expect_equal(
+    publicdataau:::file_url("db", "parquet", "2026-08-07", "thing"),
+    paste0(pd_site(), "/d/db/v/2026-08-07/tables/thing.parquet")
+  )
   expect_error(publicdataau:::file_url("db", "csv", NULL, "thing"), "parquet")
   expect_error(publicdataau:::file_url("db", "parquet", NULL, "../x"), "table")
 })
@@ -329,7 +371,9 @@ test_that("datasets filter by publisher, topic and jurisdiction", {
   expect_error(pd_datasets(topic = "nope"), "crime, roads")
   expect_error(pd_datasets(publisher = c("a", "b")), "one piece of text")
   httr2::local_mocked_responses(function(req) {
-    if (grepl("catalog.json", req$url, fixed = TRUE)) return(json(list(dataset = list(list(identifier = "a")))))
+    if (grepl("catalog.json", req$url, fixed = TRUE)) {
+      return(json(list(dataset = list(list(identifier = "a")))))
+    }
     fake(req)
   })
   expect_error(pd_datasets(topic = "roads"), "does not list topics yet")
@@ -436,10 +480,16 @@ test_that("pd_sf reads the map layer and its provenance, and says when there is 
   pts <- sf::st_sf(id = 1:2, geometry = sf::st_sfc(sf::st_point(c(153, -28)), sf::st_point(c(151, -33)), crs = 7844))
   sf::st_write(pts, src, layer = "records", quiet = TRUE)
   sf::st_write(data.frame(key = c("version", "licence"), value = c("2026-08-07", "{\"id\": \"CC-BY-4.0\"}")),
-               src, layer = "publicdata", quiet = TRUE, append = TRUE)
+    src,
+    layer = "publicdata", quiet = TRUE, append = TRUE
+  )
   local_mocked_bindings(save_file = function(slug, format, version, path, table = NULL) {
-    if (slug == "b") stop(structure(class = c("httr2_http_404", "httr2_http", "httr2_error", "error", "condition"),
-                                    list(message = "404", call = NULL)))
+    if (slug == "b") {
+      stop(structure(
+        class = c("httr2_http_404", "httr2_http", "httr2_error", "error", "condition"),
+        list(message = "404", call = NULL)
+      ))
+    }
     file.copy(src, path, overwrite = TRUE)
     list(path = path, version = "2026-08-07")
   })
@@ -529,8 +579,10 @@ test_that("pd_join_boundaries finds the layer from the column and joins in order
   local_fake()
   state$memo <- list()
   poly <- function(x) sf::st_multipolygon(list(list(rbind(c(x, 0), c(x + 1, 0), c(x + 1, 1), c(x, 0)))))
-  b <- sf::st_sf(lga_2025_code = c("1", "2"), lga_2025_name = c("One", "Two"),
-                 geometry = sf::st_sfc(poly(0), poly(5), crs = 7844))
+  b <- sf::st_sf(
+    lga_2025_code = c("1", "2"), lga_2025_name = c("One", "Two"),
+    geometry = sf::st_sfc(poly(0), poly(5), crs = 7844)
+  )
   local_mocked_bindings(pd_sf = function(slug, version = NULL, cache = NULL) {
     expect_equal(slug, "abs-lga-2025")
     attr(b, "publicdata") <- list(attribution = "ABS")
@@ -594,11 +646,17 @@ test_that("whole numbers past 32 bits keep every digit in the CSV fallback", {
 test_that("a format a version leaves out says why", {
   local_fake()
   expect_error(pd_download("a", "xlsx", "2026-08-07", path = tempfile()),
-               "size limits", class = "publicdataau_not_offered")
+    "size limits",
+    class = "publicdataau_not_offered"
+  )
   expect_error(pd_download("a", "geo.parquet", "2026-08-07", path = tempfile()),
-               "location or a shape", class = "publicdataau_not_offered")
+    "location or a shape",
+    class = "publicdataau_not_offered"
+  )
   expect_error(pd_download("a", "arrow", "2026-08-07", path = tempfile()),
-               "no caps field", class = "publicdataau_not_offered")
+    "no caps field",
+    class = "publicdataau_not_offered"
+  )
   expect_error(pd_download("a", "csv.gz", "2026-08-07", path = tempfile()), class = "httr2_http_404")
 })
 

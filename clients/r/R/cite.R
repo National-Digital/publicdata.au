@@ -20,7 +20,8 @@ pd_cite <- function(slug, version = NULL) {
   pub <- Filter(function(c) identical(c$role, "publisher"), dp$contributors)
   publisher <- if (length(pub)) pub[[1]]$title else "publicdata.au"
   licence <- paste(vapply(dp$licenses, function(l) if (is.null(l$title)) l$name else l$title, character(1)),
-                   collapse = ", ")
+    collapse = ", "
+  )
   note <- if (identical(version, dp$version) && !is.null(dp[["publicdata:attribution"]])) {
     dp[["publicdata:attribution"]]
   } else {

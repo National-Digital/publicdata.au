@@ -37,12 +37,15 @@ pd_catalogue <- function(q = NULL, jurisdiction = NULL, status = NULL, limit = 2
     if (is.na(jur)) pd_abort("jurisdiction is one of ", paste(unique(JUR_CODES), collapse = ", "))
   }
   body <- pd_get("/api/v1/catalogue", list(q = q, jur = jur, state = joined(status), limit = limit, offset = offset),
-                 simplify = FALSE)
+    simplify = FALSE
+  )
   rows <- body$rows
   text <- function(r, k) if (is.null(r[[k]])) NA_character_ else as.character(r[[k]])
-  cols <- c(id = "id", title = "title", summary = "summary", publisher = "publisher", jurisdiction = "jur",
-            url = "url", licence = "licence", formats = "formats", modified = "modified", status = "state",
-            page = "page", reason = "reason")
+  cols <- c(
+    id = "id", title = "title", summary = "summary", publisher = "publisher", jurisdiction = "jur",
+    url = "url", licence = "licence", formats = "formats", modified = "modified", status = "state",
+    page = "page", reason = "reason"
+  )
   out <- tibble::as_tibble(lapply(cols, function(k) vapply(rows, text, character(1), k = k)))
   attr(out, "total") <- body$total
   attr(out, "next_offset") <- body$next_offset

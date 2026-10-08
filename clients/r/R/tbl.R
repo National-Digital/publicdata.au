@@ -45,8 +45,10 @@ pd_tbl <- function(slug, table = NULL, version = NULL, cache = NULL) {
     table <- "records"
   }
   if (!check_table(table) %in% names) {
-    pd_abort("'", slug, "' has no table or view '", table, "'; its tables are ",
-         paste(sort(names), collapse = ", "))
+    pd_abort(
+      "'", slug, "' has no table or view '", table, "'; its tables are ",
+      paste(sort(names), collapse = ", ")
+    )
   }
   dplyr::tbl(con, table)
 }

@@ -15,8 +15,10 @@ pd_boundary_layers <- function() {
   memo("places", {
     p <- pd_get("/places.json", simplify = FALSE)$layers
     text <- function(k) vapply(p, function(l) as.character(l[[k]]), character(1))
-    tibble::tibble(key = text("key"), slug = text("slug"), title = text("title"), code = text("code"),
-                   name = text("name"), noun = text("noun"), version = text("version"))
+    tibble::tibble(
+      key = text("key"), slug = text("slug"), title = text("title"), code = text("code"),
+      name = text("name"), noun = text("noun"), version = text("version")
+    )
   })
 }
 
@@ -79,8 +81,10 @@ pd_join_boundaries <- function(x, layer = NULL, by = NULL, cache = NULL) {
     layers <- pd_boundary_layers()
     hits <- layers[layers$code %in% names(x), ]
     if (!nrow(hits)) {
-      pd_abort("x has no column named for a boundary code (", paste(layers$code, collapse = ", "),
-               "); name the layer and the column, as in layer = \"lga\", by = \"council_code\"")
+      pd_abort(
+        "x has no column named for a boundary code (", paste(layers$code, collapse = ", "),
+        "); name the layer and the column, as in layer = \"lga\", by = \"council_code\""
+      )
     }
     if (nrow(hits) > 1) {
       pd_abort("x has codes for several layers (", paste(hits$key, collapse = ", "), "); choose one with layer =")

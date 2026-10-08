@@ -55,7 +55,9 @@ pd_cache_list <- function(slug = NULL, version = NULL) {
 #' @export
 pd_cache_clear <- function(slug = NULL, version = NULL) {
   root <- cache_root(slug, version)
-  if (!dir.exists(root)) return(invisible(0))
+  if (!dir.exists(root)) {
+    return(invisible(0))
+  }
   files <- list.files(root, recursive = TRUE, full.names = TRUE, all.files = TRUE)
   freed <- sum(file.info(files)$size, na.rm = TRUE)
   unlink(root, recursive = TRUE)

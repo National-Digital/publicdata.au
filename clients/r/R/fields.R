@@ -21,7 +21,9 @@ pd_fields <- function(slug, version = NULL) {
   check_slug(slug)
   if (is.null(check_version(version))) {
     f <- tryCatch(pd_get(paste0("/d/", slug, "/fields.json"), simplify = FALSE), httr2_http_404 = function(e) NULL)
-    if (!is.null(f)) return(fields_tibble(f$fields))
+    if (!is.null(f)) {
+      return(fields_tibble(f$fields))
+    }
   }
   s <- pd_get(paste0("/d/", slug, "/", at_path(version), "/schema.json"), simplify = FALSE)
   if (identical(s$kind, "database")) {
@@ -50,9 +52,13 @@ fields_tibble <- function(fields) {
 # labelling it. An answer is still returned, untyped, when they cannot be read.
 field_meta <- function(slug, table = NULL, version = NULL) {
   key <- paste("fields", slug, if (is.null(version)) "latest" else version, if (is.null(table)) "" else table)
-  if (!is.null(state$memo[[key]])) return(state$memo[[key]])
+  if (!is.null(state$memo[[key]])) {
+    return(state$memo[[key]])
+  }
   f <- tryCatch(pd_fields(slug, version), error = function(e) NULL)
-  if (is.null(f)) return(NULL)
+  if (is.null(f)) {
+    return(NULL)
+  }
   if ("table" %in% names(f)) f <- f[f$table == if (is.null(table)) "records" else table, , drop = FALSE]
   state$memo[[key]] <- f
   f
@@ -61,7 +67,9 @@ field_meta <- function(slug, table = NULL, version = NULL) {
 # Columns as the field types say: the query API sends dates as text and booleans as 0 and 1.
 # A column that does not parse cleanly is left as it came.
 typed <- function(df, fields) {
-  if (is.null(fields) || !nrow(fields) || !ncol(df)) return(df)
+  if (is.null(fields) || !nrow(fields) || !ncol(df)) {
+    return(df)
+  }
   for (col in intersect(names(df), fields$name)) {
     x <- df[[col]]
     type <- fields$type[match(col, fields$name)]
@@ -92,7 +100,9 @@ parse_datetime <- function(x) {
 
 # Each column's description as its "label" attribute, which RStudio's viewer shows.
 labelled <- function(df, fields) {
-  if (is.null(fields) || !nrow(fields)) return(df)
+  if (is.null(fields) || !nrow(fields)) {
+    return(df)
+  }
   for (col in intersect(names(df), fields$name)) {
     d <- fields$description[match(col, fields$name)]
     if (!is.na(d) && nzchar(d)) attr(df[[col]], "label") <- d

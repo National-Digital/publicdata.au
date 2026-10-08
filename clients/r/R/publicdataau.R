@@ -34,7 +34,9 @@ pd_site <- function() {
 formats <- c("parquet", "csv", "csv.gz", "json", "ndjson", "sqlite", "duckdb", "xlsx", "arrow", "geojson", "gpkg", "geo.parquet")
 
 check_table <- function(table) {
-  if (is.null(table)) return(NULL)
+  if (is.null(table)) {
+    return(NULL)
+  }
   if (!is.character(table) || length(table) != 1 || !grepl("^[A-Za-z0-9_]+$", table)) {
     pd_abort("not a table name: ", format(table))
   }
@@ -49,7 +51,9 @@ check_slug <- function(slug) {
 }
 
 check_version <- function(version) {
-  if (is.null(version)) return(NULL)
+  if (is.null(version)) {
+    return(NULL)
+  }
   if (!is.character(version) || length(version) != 1 || !grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", version)) {
     pd_abort("a version is a date such as \"2026-08-07\"")
   }
@@ -78,7 +82,9 @@ pd_perform <- function(req, ...) {
     httr2_failure = function(e) {
       host <- regmatches(req$url, regexpr("^[a-z]+://[^/]+", req$url))
       pd_abort("could not reach ", host, ": ", conditionMessage(e),
-               "\nCheck the connection, or try again later.", class = "publicdataau_unreachable")
+        "\nCheck the connection, or try again later.",
+        class = "publicdataau_unreachable"
+      )
     }
   )
 }
@@ -137,7 +143,9 @@ new_filter <- function(expr) structure(list(expr = expr), class = "pd_filter")
 fv <- function(value) {
   if (length(value) != 1) pd_abort("a filter takes one value; pd_in() takes several")
   if (is.na(value)) pd_abort("a filter cannot compare with NA; use pd_is_null()")
-  if (is.logical(value)) return(if (value) "true" else "false")
+  if (is.logical(value)) {
+    return(if (value) "true" else "false")
+  }
   format(value, scientific = FALSE, trim = TRUE)
 }
 
@@ -186,14 +194,22 @@ print.pd_filter <- function(x, ...) {
 }
 
 as_filter <- function(value) {
-  if (inherits(value, "pd_filter")) return(value$expr)
-  if (is.null(value) || (length(value) == 1 && is.na(value))) return("is.null")
-  if (length(value) > 1) return(pd_in(value)$expr)
+  if (inherits(value, "pd_filter")) {
+    return(value$expr)
+  }
+  if (is.null(value) || (length(value) == 1 && is.na(value))) {
+    return("is.null")
+  }
+  if (length(value) > 1) {
+    return(pd_in(value)$expr)
+  }
   pd_eq(value)$expr
 }
 
 conditions <- function(where) {
-  if (!length(where)) return(list())
+  if (!length(where)) {
+    return(list())
+  }
   if (is.null(names(where)) || any(names(where) == "")) {
     pd_abort("every condition needs a field name, as in pd_rows(slug, state = \"QLD\")")
   }
@@ -204,7 +220,9 @@ joined <- function(x) if (is.null(x)) NULL else paste(x, collapse = ",")
 
 raw_rows <- function(body) {
   rows <- body$rows
-  if (is.null(rows) || length(rows) == 0) return(data.frame())
+  if (is.null(rows) || length(rows) == 0) {
+    return(data.frame())
+  }
   as.data.frame(rows, stringsAsFactors = FALSE)
 }
 
@@ -236,9 +254,13 @@ answer <- function(rows, slug, meta, nxt = NULL, version = NULL) {
 #' @export
 pd_datasets <- function(q = NULL, publisher = NULL, topic = NULL, jurisdiction = NULL) {
   out <- as_tbl(pd_get("/api/v1/datasets", list(q = q))$results)
-  if (is.null(publisher) && is.null(topic) && is.null(jurisdiction)) return(out)
+  if (is.null(publisher) && is.null(topic) && is.null(jurisdiction)) {
+    return(out)
+  }
   keep <- catalogue_match(publisher, topic, jurisdiction)
-  if (!nrow(out)) return(out)
+  if (!nrow(out)) {
+    return(out)
+  }
   out[out$slug %in% keep, , drop = FALSE]
 }
 
@@ -263,8 +285,10 @@ catalogue_match <- function(publisher, topic, jurisdiction) {
     known <- sort(unique(unlist(topics)))
     if (!length(known)) pd_abort("the site's catalogue does not list topics yet")
     if (!t %in% known) {
-      pd_abort("no datasets are filed under topic \"", topic, "\"; the topics are ",
-           paste(known, collapse = ", "))
+      pd_abort(
+        "no datasets are filed under topic \"", topic, "\"; the topics are ",
+        paste(known, collapse = ", ")
+      )
     }
     keep <- keep & vapply(topics, function(x) t %in% x, logical(1))
   }
@@ -456,9 +480,11 @@ absent_why <- function(slug, format) {
   } else if (format == "arrow") {
     "Arrow is only on versions fetched before the format change, whose manifest has no caps field."
   } else {
-    paste0("Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over their size ",
-           "limits, and the version's manifest names the reason under formats_left_out.",
-           if (format == "geojson") " GeoJSON is only for datasets with a location or a shape." else "")
+    paste0(
+      "Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over their size ",
+      "limits, and the version's manifest names the reason under formats_left_out.",
+      if (format == "geojson") " GeoJSON is only for datasets with a location or a shape." else ""
+    )
   }
   paste(head, why, tail)
 }
@@ -532,8 +558,10 @@ has_zstd <- function() arrow::codec_is_available("zstd")
 
 reads_parquet <- function() requireNamespace("arrow", quietly = TRUE) && has_zstd()
 
-csv_classes <- c(string = "character", integer = "character", number = "numeric",
-                 boolean = "logical", date = "character", datetime = "character")
+csv_classes <- c(
+  string = "character", integer = "character", number = "numeric",
+  boolean = "logical", date = "character", datetime = "character"
+)
 
 # A table from the version's gzipped CSV, for a session that cannot read the Parquet file.
 read_csv_gz <- function(slug, version, cache, columns) {
@@ -553,8 +581,10 @@ read_csv_gz <- function(slug, version, cache, columns) {
   header <- names(utils::read.csv(gzfile(got$path), nrows = 0, check.names = FALSE))
   classes <- classes[names(classes) %in% header]
   if (!length(classes)) classes <- NA
-  df <- utils::read.csv(gzfile(got$path), colClasses = classes, na.strings = "",
-                        check.names = FALSE, stringsAsFactors = FALSE, encoding = "UTF-8")
+  df <- utils::read.csv(gzfile(got$path),
+    colClasses = classes, na.strings = "",
+    check.names = FALSE, stringsAsFactors = FALSE, encoding = "UTF-8"
+  )
   if (!is.null(columns)) df <- df[, columns, drop = FALSE]
   for (col in intersect(names(df), f$name[f$type == "integer"])) df[[col]] <- as_int64(df[[col]])
   if ("suppressed" %in% names(df)) {
@@ -574,8 +604,12 @@ read_csv_gz <- function(slug, version, cache, columns) {
 # bit64's integer64, read from the text so no digit is lost; double when 'bit64' is missing.
 as_int64 <- function(x) {
   n <- suppressWarnings(as.numeric(x))
-  if (all(is.na(x) | abs(n) <= .Machine$integer.max)) return(as.integer(n))
-  if (requireNamespace("bit64", quietly = TRUE)) return(bit64::as.integer64(x))
+  if (all(is.na(x) | abs(n) <= .Machine$integer.max)) {
+    return(as.integer(n))
+  }
+  if (requireNamespace("bit64", quietly = TRUE)) {
+    return(bit64::as.integer64(x))
+  }
   n
 }
 
@@ -583,12 +617,15 @@ as_int64 <- function(x) {
 # with a range request so the rest is not downloaded.
 file_header <- function(slug, version) {
   req <- httr2::req_headers(pd_request(file_url(slug, "ndjson", version)), Range = "bytes=0-65535")
-  tryCatch({
-    body <- rawToChar(httr2::resp_body_raw(pd_perform(req)))
-    Encoding(body) <- "UTF-8"
-    h <- jsonlite::fromJSON(strsplit(body, "\n", fixed = TRUE)[[1]][1], simplifyVector = FALSE)$publicdata
-    if (is.null(h)) list() else h
-  }, error = function(e) list())
+  tryCatch(
+    {
+      body <- rawToChar(httr2::resp_body_raw(pd_perform(req)))
+      Encoding(body) <- "UTF-8"
+      h <- jsonlite::fromJSON(strsplit(body, "\n", fixed = TRUE)[[1]][1], simplifyVector = FALSE)$publicdata
+      if (is.null(h)) list() else h
+    },
+    error = function(e) list()
+  )
 }
 
 need <- function(pkg, fn) {
@@ -639,7 +676,9 @@ pd_tables <- function(slug, version = NULL) {
       stringsAsFactors = FALSE
     )
   }
-  if (identical(s$kind, "database")) return(as_tbl(do.call(rbind, lapply(s$tables, one))))
+  if (identical(s$kind, "database")) {
+    return(as_tbl(do.call(rbind, lapply(s$tables, one))))
+  }
   as_tbl(one(list(name = "records", fields = s$fields, primaryKey = s$primaryKey)))
 }
 
@@ -712,7 +751,9 @@ pd_connect <- function(slug, version = NULL, name = NULL, shared_home = FALSE, c
 # A file's publicdata table: one row per key, with any value that is not text held as JSON.
 parse_header <- function(kv) {
   out <- lapply(kv$value, function(v) {
-    if (is.na(v) || !grepl("^[[{]", v)) return(v)
+    if (is.na(v) || !grepl("^[[{]", v)) {
+      return(v)
+    }
     tryCatch(jsonlite::fromJSON(v, simplifyVector = FALSE), error = function(e) v)
   })
   stats::setNames(out, kv$key)
