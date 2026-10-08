@@ -350,6 +350,20 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
 3. On merge, the Python client publishes to PyPI by trusted publishing when the version is new.
    A maintainer builds the R tarball and submits it to CRAN by hand, with `cran-comments.md`.
 
+The R client is held to lintr and styler on every pull request. `clients/r/.lintr` turns on every
+linter lintr has and names the few it turns off, each with its reason. The Clients workflow fails
+on any finding and on any file styler would change. To check before pushing, install the package
+and run both from `clients/r`:
+
+```
+R CMD INSTALL .
+Rscript -e 'lintr::lint_package()'
+Rscript -e 'styler::style_pkg()'
+```
+
+`style_pkg()` rewrites the files in place, so commit what it changes. A line that has to break a
+rule carries `# nolint: <linter>. <reason>`.
+
 ## Reference
 
 - Comments state constraints the code cannot show, in one or two lines of *why*.
