@@ -1,7 +1,7 @@
 # Architecture
 
 One job: take a dataset a government already publishes under an open licence and serve it
-as immutable, versioned, schema-carrying files that never send traffic back to the source.
+as dated, versioned, schema-carrying files that never send traffic back to the source.
 
 ## The shape
 
@@ -63,7 +63,7 @@ pipeline/publicdata/
    since review. A grant that is not Creative Commons is admitted only through
    `register/licences/`, which quotes the publisher on reproduction, adaptation, commercial use
    and attribution. Old versions stay up under the licence they were published under.
-6. Versions are immutable and dated by source change; unchanged hash, no version. The
+6. Versions are dated by source change and keep their content; unchanged hash, no version. The
    [Archive](#archive) section says how long they are kept and what may change.
 7. Serialisers are pure functions of the model. Two builds of one snapshot are byte-identical,
    and CI proves it.
@@ -121,7 +121,7 @@ pipeline/publicdata/
 /health.json
 ```
 
-Immutable versions are cached for a year. Every dataset page carries schema.org Dataset
+Dated versions are cached for a year. Every dataset page carries schema.org Dataset
 JSON-LD.
 
 ## What every dataset gets
@@ -130,9 +130,9 @@ A register entry that passes `register validate` and has a stored version gets a
 the build, with nothing written by hand:
 
 - the dataset page, its Markdown twin, schema.org Dataset JSON-LD and a catalogue record;
-- one dated, immutable version per source change, each with its files, its manifest, the
-  publisher's own file and a diff against the version before. Every table version has Parquet,
-  CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
+- one dated version per source change, which keeps its content, each with its files, its
+  manifest, the publisher's own file and a diff against the version before. Every table version
+  has Parquet, CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
   `data.geo.parquet` and a GeoPackage, and a polygon or line layer keeps its shapes in
   `data.parquet`, which is GeoParquet, with a GeoPackage and PMTiles vector tiles. The DuckDB
   file attaches read-only over HTTPS (the R2 function answers range requests), so a query runs
@@ -174,7 +174,8 @@ the key `publicdata.profile` holds the profile version, now `1`, beside the `pub
 provenance key. A reader checks that key before it relies on the order, the sizes or the page
 index.
 
-A published file never changes (ADR 0002), so the profile reaches a version in one of two ways.
+A published file keeps its bytes unless a correction rebuilds it (ADR 0002), so the profile
+reaches a version in one of two ways.
 
 - A version's own files keep the layout its fetch recorded. `fetch` writes the register entry's
   layout (`profile.layout`: the profile version, `sort`, `key`, `lookup` and `int32`) into the
@@ -270,9 +271,13 @@ files or Parquet are missing.
 
 This site is the version history the portals do not keep. The archive role has its own rules.
 
-- Every version is kept indefinitely. A version is never deleted or rewritten, including when
-  the publisher withdraws or replaces the source file. The only exception is a legal takedown,
-  which is recorded in `changes.json` as a tombstone that keeps the manifest and hash.
+- Every version is kept indefinitely. A version is never deleted, including when the publisher
+  withdraws or replaces the source file, and its source bytes never change. Its converted files
+  are rebuilt only to correct a fault in our conversion or in the publisher's attribution, to
+  comply with the law, or when a publisher asks for removal, and the change goes in the
+  version's notes. A file is removed only for a legal takedown or a publisher's request to
+  remove its dataset, and the version's `tombstone` keeps the manifest and hash on record.
+  [CORRECTIONS.md](CORRECTIONS.md) sets out the steps for each.
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
@@ -285,7 +290,7 @@ This site is the version history the portals do not keep. The archive role has i
 - `versions.json` per dataset lists every version with date, as-at, row count, field count,
   source hash and encoding. `/d/<slug>/history.tar.zst` bundles every version's data.parquet
   and manifest for offline use.
-- Publishers can cite a version URL knowing it will resolve to the same bytes in ten years.
+- Publishers can cite a version URL knowing it will resolve to the same data in ten years.
 
 ## Hosting
 
@@ -419,7 +424,7 @@ Each shard pulls only the cache entries its datasets key to (`cache pull --only`
 hands over the cache entries it wrote, with the version files a preview serves. The deploy job
 then builds the whole site from the cache those entries filled, links the preview files in with
 `build --built`, and pushes the pages. Every deploy is therefore limited by its largest single
-dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
+dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote and their query API answers from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
 
 Because the build code is not in a version's key, the deploy checks a change to it against real
 versions. The plan job lists the files the change touches since its base, which for a pull

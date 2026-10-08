@@ -189,6 +189,15 @@ def test_int32_is_declared_per_field(tmp_path):
     assert narrowed.schema.field("m").type == pa.int64()
 
 
+def test_a_datetime_read_back_is_typed_as_normalise_types_it(tmp_path):
+    # Parquet stores seconds as milliseconds, which would print as 06:00:00.000 in a diff.
+    t = pa.table({"at": pa.array([0, 3600], pa.timestamp("s"))})
+    pq.write_table(t, tmp_path / "t.parquet")
+    back = pq.read_table(tmp_path / "t.parquet")
+    assert back.schema.field("at").type == pa.timestamp("ms")
+    assert profile.widen(back).equals(t)
+
+
 def test_a_version_that_overflows_an_int32_field_stops_the_build(tmp_path):
     with pytest.raises(ValueError, match="big holds 1 to 5000000000, outside 32 bits"):
         _build(tmp_path, _ds(int32=("big",)))

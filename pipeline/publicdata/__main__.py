@@ -470,17 +470,13 @@ def cmd_d1_load(args) -> int:
 
 
 def cmd_store(args) -> int:
-    from .brand import FONTS
-    from .r2 import pull_fonts, pull_store, push
+    from .r2 import pull_store, push
 
     store_dir = Path(args.store)
     if args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
-        fonts = pull_fonts(FONTS)
-        print(
-            f"store pull: {n} file(s), {fonts} font(s), {len(cached)} version(s) already built in the cache"
-        )
+        print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
     else:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)
@@ -646,7 +642,7 @@ def cmd_checksums(args) -> int:
 def cmd_purge(args) -> int:
     import os
 
-    from .edge import purge
+    from .edge import purge, with_answers
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
@@ -656,7 +652,7 @@ def cmd_purge(args) -> int:
     if not token:
         print("purge: CLOUDFLARE_PURGE_TOKEN is not set")
         return 2
-    print(f"purge: {purge(args.prefix, token)} prefix(es) purged from the edge")
+    print(f"purge: {purge(with_answers(args.prefix), token)} prefix(es) purged from the edge")
     return 0
 
 
@@ -869,8 +865,11 @@ def cmd_cost(args) -> int:
             return 2
         base, paths = cost.changed_paths(args.base, root)
         entries = cost.changed_entries(register, paths, root)
-        changed |= set(entries)
-        fresh, reshaped = cost.entry_changes(root, base, entries)
+        priced = cost.costed(root, base, entries)
+        if same := sorted(set(entries) - priced):
+            print(f"cost: {', '.join(same)}: edited, but nothing the projection reads changed")
+        changed |= priced
+        fresh, reshaped = cost.entry_changes(root, base, {s: entries[s] for s in priced})
     approve = None
     if args.github_pr:
         repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
@@ -995,7 +994,9 @@ def main(argv=None) -> int:
         help="add every list left as it is to --subjects, to attest it again; no list is rewritten",
     )
     ck.set_defaults(fn=cmd_checksums)
-    pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
+    pg = sub.add_parser(
+        "purge", help="purge replaced versions and their query API answers from the edge cache"
+    )
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
     pg.set_defaults(fn=cmd_purge)
     sh = sub.add_parser("shards", help="split the versions the cache cannot serve over build jobs")

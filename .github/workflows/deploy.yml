@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       replace:
-        description: Key prefixes whose existing R2 files this build may overwrite, space separated, e.g. d/<slug>/v/<date>/ (the version notes are added by a separate PR)
+        description: Key prefixes whose existing R2 files this build may overwrite, space separated, e.g. d/<slug>/v/<date>/ (the version notes come from the PR that made the fix)
         type: string
         default: ""
       d1_budget:

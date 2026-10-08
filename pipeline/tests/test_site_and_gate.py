@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from publicdata import brand
 from publicdata.gate import check
 
 from .conftest import ROOT
@@ -24,9 +23,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     assert '<meta http-equiv="origin-trial" content="AjNME/' in home
     assert home.index("origin-trial") < home.index("<script")
     assert "<style>" in home and 'rel="stylesheet"' not in home
-    preload = 'rel="preload" href="/static/fonts/RG-StandardBook.woff2"' in home
-    assert preload == brand.has_fonts()
-    assert ('"Random Grotesque";font-weight:300' in home) == brand.has_fonts()
+    assert 'rel="preload" href="/static/fonts/RG-StandardRegular.woff2"' in home
+    assert '"Random Grotesque";font-weight:300' in home
     assert ">all formats<" in home and ">more<" not in home
     assert 'toolname="find_dataset_page"' in home
     # Every dataset link on the home page reaches a built page: the explorer is only built for
@@ -868,3 +866,29 @@ def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site):
         md.startswith("---\ntitle: Publishing a dataset at a stable URL\n")
         and "## A check list" in md
     )
+
+
+def test_a_version_page_shows_the_version_notes(fixture_site):
+    page = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "About this version" in page
+    assert "fixture: first 300 rows of the release" in page
+    md = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.md"
+    ).read_text(encoding="utf-8")
+    assert "## About this version" in md
+    assert "fixture: first 300 rows of the release" in md
+    assert "immutable: true" not in md
+
+
+def test_no_page_promises_a_version_never_changes(fixture_site):
+    """A correction can rebuild a version, so no page or API document may say otherwise."""
+    page = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "Immutable version" not in page
+    for name in ("openapi.json", "llms.txt", "index.html"):
+        text = (fixture_site / name).read_text(encoding="utf-8")
+        assert "versions never change" not in text.lower(), name
+        assert "immutable files" not in text, name
