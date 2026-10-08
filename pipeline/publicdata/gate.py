@@ -12,6 +12,7 @@ from html import unescape as html_unescape
 from pathlib import Path
 
 from . import SITE, abbreviations, explorer, serialise, structured
+from .ard import problems as ard_problems
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
 from .serialise.profile import query_key
@@ -44,7 +45,8 @@ def _without_publisher_values(text: str, page: Path, out: Path, cache: dict) -> 
 
 
 def _mcp_resources(out: Path) -> list[str]:
-    """Every dataset page with a query console is an MCP resource whose fields are the page's own."""
+    """Every dataset page with a query console has a field list whose fields are the console's,
+    and every field list is an MCP resource."""
     errors: list[str] = []
     listed_file = out / "mcp" / "resources.json"
     if not listed_file.exists():
@@ -55,16 +57,17 @@ def _mcp_resources(out: Path) -> list[str]:
         m = re.search(r'id="ds-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.S)
         console = (json.loads(m.group(1)) if m else {}).get("console")
         uri = f"{SITE}/d/{slug}/fields.json"
-        if not console:
-            if uri in listed:
-                errors.append(f"mcp/resources.json: {slug} is listed but has no query console")
+        f = page.parent / "fields.json"
+        if not f.exists():
+            if console:
+                errors.append(f"d/{slug}/fields.json: missing")
+            elif uri in listed:
+                errors.append(f"mcp/resources.json: {slug} is listed but has no fields.json")
+            listed.discard(uri)
             continue
         if uri not in listed:
             errors.append(f"mcp/resources.json: {slug} is not listed")
-        f = page.parent / "fields.json"
-        if not f.exists():
-            errors.append(f"d/{slug}/fields.json: missing")
-        elif json.loads(f.read_text(encoding="utf-8")).get("fields") != console["fields"]:
+        if console and json.loads(f.read_text(encoding="utf-8")).get("fields") != console["fields"]:
             errors.append(f"d/{slug}/fields.json: fields differ from the page's query console")
         listed.discard(uri)
     errors += [f"mcp/resources.json: {u} has no dataset page" for u in sorted(listed)]
@@ -188,6 +191,24 @@ def check(out: Path, register_dir: Path, absent: list[str] = (), site: bool = Tr
     return checked(out, register_dir, absent, site)[0]
 
 
+def ard_errors(out: Path) -> list[str]:
+    """The discovery manifest and every catalogue it links on this site must pass the ARD rules
+    Lighthouse audits, and each linked catalogue must exist."""
+    doc = json.loads((out / ".well-known/ard.json").read_text(encoding="utf-8"))
+    errors = [f"ard: {p}" for p in ard_problems(doc)]
+    for e in doc.get("entries", []):
+        url = e.get("url", "")
+        if e.get("type") != "application/ai-catalog+json" or not url.startswith(SITE + "/"):
+            continue
+        f = out / url.removeprefix(SITE + "/")
+        if not f.exists():
+            errors.append(f"ard: {e['identifier']} links {url}, which the build did not write")
+            continue
+        nested = json.loads(f.read_text(encoding="utf-8"))
+        errors += [f"ard: {p}" for p in ard_problems(nested, top=False, where=url)]
+    return errors
+
+
 def checked(
     out: Path, register_dir: Path, absent: list[str] = (), site: bool = True
 ) -> tuple[list[str], list[str]]:
@@ -212,6 +233,8 @@ def checked(
             "sitemap.xml",
             ".well-known/ard.json",
             ".well-known/ai-catalog.json",
+            ".well-known/api-catalog",
+            "skills/publicdata-au/SKILL.md",
             ".well-known/security.txt",
             "_headers",
             "_routes.json",
@@ -230,6 +253,8 @@ def checked(
     ):
         if not (out / req).exists():
             errors.append(f"missing {req}")
+    if site and (out / ".well-known/ard.json").exists():
+        errors += ard_errors(out)
     ddir = out / "d"
     for vman in sorted(ddir.glob("*/v/*/manifest.json")) if ddir.exists() else []:
         slug = vman.parts[-4]

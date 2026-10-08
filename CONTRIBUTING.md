@@ -98,8 +98,9 @@ installed.
 Workflows with side effects (deploy, fetch, catalogue, hubs, publishing the clients, approving
 data PRs) run only in `National-Digital/publicdata.au`. In a fork or a private copy, only the
 checks run: tests, sign-off, PR title and secret scanning. `pipeline/tests/test_repo.py` fails if a
-new job with side effects lacks that condition. Dependabot reads its config wherever it is, so
-delete `.github/dependabot.yml` in a private copy if you do not want its pull requests.
+new job with side effects lacks that condition. Renovate opens dependency pull requests only in a
+repository its GitHub app covers. It skips forks, and a private copy gets them only if the app is
+installed on it; delete `renovate.json` there if you do not want them.
 
 ## Commits and pull requests
 
@@ -361,13 +362,22 @@ each version lives in one file that the workflows or the pipeline read:
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
 | R, its CRAN snapshot date and the R client's lint tools | `.github/workflows/clients.yml` |
 | DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
+| gh on the fetch runner, gitleaks, and mcp-publisher, each with its SHA-256 | `fetch.yml` and `catalogue.yml`, `secrets.yml`, `deploy.yml` |
 | zizmor, actionlint and shellcheck | `.github/workflows/ci.yml` |
 
-An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
-npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed
-libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles) are in the build's cache key, so
-raising one rebuilds every version, about four hours on main. Merge such a pull request on a day
-with no data pull request due.
+An upgrade is a pull request of its own. Renovate (`renovate.json`) raises every version in the
+table but the last two rows on the first of each month, to exact versions only, with one pull request
+per group and each major raise in a pull request of its own. The groups are the Actions, the
+runner image, the pipeline's packages, the client's packages, the npm packages, R and its
+snapshot, and duckdb with the spatial extension's pin; Python, Node and uv each get their own.
+Security fixes come as soon as GitHub's advisories name them. The last two rows' tools are raised
+by hand, since a raise needs the new hash. A runner image raise must also change the Ubuntu codename
+in the R snapshot's URL in `clients.yml`. Check a change to `renovate.json` with
+`npx --yes --package renovate@44.143.0 -- renovate-config-validator --strict`.
+
+The Python version and the keyed libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles)
+are in the build's cache key, so raising one rebuilds every version, about four hours on main.
+Merge such a pull request on a day with no data pull request due.
 
 DuckDB serves its spatial extension for each release and can replace it within one, so we keep a
 copy of the build we use in R2, under `_toolchain/` in `publicdata-raw`, named by the DuckDB
@@ -378,11 +388,14 @@ differs or when the pin is for another DuckDB than the one installed. The datase
 extension are keyed on its build, and every job of a deploy checks that it has the same build as
 the plan.
 
-A raise of `duckdb` needs the extension for the new release. Once the pull request that raises it
-is open, a maintainer runs the Spatial extension workflow on main with that pull request's branch.
-It checks that the build DuckDB serves is the one DuckDB's own install fetches, copies it to R2 and
-commits the new pin to the branch. Until then the pull request's checks fail. A new build changes
-the key of every dataset that loads the extension, so those versions are built again.
+A raise of `duckdb` needs the extension for the new release. Renovate raises the release in the
+pin with the package, and its checks fail, naming the workflow, until the rest of the pin follows:
+a maintainer runs the Spatial extension workflow on main with that pull request's branch. It
+checks that the build DuckDB serves is the one DuckDB's own install fetches, copies it to R2 and
+commits the new pin to the branch. Renovate then leaves the branch alone, so merge it before the
+month's pipeline pull request, and run the workflow again if Renovate is asked to rebase it. A new
+build changes the key of every dataset that loads the extension, so those versions are built
+again.
 
 ## Licences that are not Creative Commons
 

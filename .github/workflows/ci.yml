@@ -215,6 +215,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       # The query builder's SQL runs against node:sqlite, the same engine D1 uses.
       - run: node --test functions/*.test.mjs scripts/*.test.mjs
 

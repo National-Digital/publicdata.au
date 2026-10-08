@@ -235,8 +235,9 @@ Schema and keys, and `schema.sql` with the CREATE TABLE statements, references a
 database has no JSON, CSV, Excel or SQLite files, no partitions, no query API and no explorer; its
 page lists the tables and shows how to attach the file from R, Python and DuckDB, and two versions
 are compared table by table by row count. The DuckDB file's bytes are not reproducible, since its
-storage picks a compression for each block by sampling, so CI compares DuckDB files by content
-(`python -m publicdata.dbcheck`) and everything else byte for byte.
+storage lays out and packs its blocks differently on each write, and its length can differ too. CI
+compares DuckDB files by content (`python -m publicdata.dbcheck`) and everything else byte for
+byte, and no page or catalogue states a DuckDB file's size.
 
 What shapes the defaults is the register: field types, `key` and `partition_by`. A table keyed by
 several fields with a count field is charted as the sum of that count; any other table counts its
@@ -307,7 +308,38 @@ rewritten when its SHA-256 changes. `_routes.json` runs the function only on `la
 archive, so a dataset page and its JSON are served as Pages files; split refuses a large file no
 route reaches. The Pages Function under `functions/d/` serves a static file
 when Pages has it, redirects `latest/` from `latest.json`, and otherwise streams the object from
-R2 with byte ranges, a sized HEAD and immutable caching. A dataset missing from `latest.json` (the register withheld it)
+R2 with a sized HEAD and immutable caching.
+
+A dated text file (CSV, NDJSON, JSON, GeoJSON, `schema.sql` and any other text over 1 KB) is
+stored in R2 gzipped: deterministic gzip at level 6 with no name and mtime 0, marked
+`Content-Encoding: gzip`, with the decoded size and SHA-256 as metadata (`size`, `sha256`).
+`dist-push` gzips them on upload, with botocore's checksums set to `when_required` so that an
+upload is never marked `aws-chunked`; readers still treat Content-Encoding as a list of tokens.
+The query layer's files under `_q/` are never gzipped. The function sends the stored bytes with
+`Content-Encoding: gzip` to a client that accepts gzip, which it reads from
+`request.cf.clientAcceptEncoding` because the runtime always asks for gzip itself, and decodes
+them with `DecompressionStream` for any other client. Such a response drops `no-transform`, so the
+edge, which caches whichever encoding it was sent first, can decode it for a client that cannot.
+A HEAD gives the size of what a GET would send.
+
+Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles,
+`data.csv.gz` and the publisher's file, which are stored as written. A range asked of a CSV,
+NDJSON, JSON or GeoJSON file is answered 200 with the whole file and `Accept-Ranges: none`, which
+a range client reads as a server without ranges. A reader that scans lazily or seeks, such as
+polars `scan_csv` or `scan_ndjson` or an fsspec file opened over HTTP, should read `data.parquet`
+or `data.csv.gz` instead.
+
+A version's `data.csv.gz` is the CSV gzipped the same way, so `dist-push` stores no separate copy
+of it once the CSV is stored gzipped: the function serves `data.csv.gz` from the stored CSV's
+bytes as `application/gzip`, with no `Content-Encoding` and with byte ranges. A replace writes an
+existing `data.csv.gz` again, because the function serves a stored key before the alias. Versions
+pushed before this keep their own `data.csv.gz`. `publicdata r2 restore-gzip` rewrites the text
+files stored before this in place. It checks every object's hash before and after, makes both
+the rewrite and any rollback conditional on the ETag it read, so a deploy writing the same key is
+never undone, is a dry run from the listing unless given `--apply`, and skips what is already
+gzipped; `--dedupe-csv-gz` also deletes an old `data.csv.gz` whose bytes the gzipped CSV now
+holds. A deployment whose function predates gzip at rest serves these objects wrongly, so once
+they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe. A dataset missing from `latest.json` (the register withheld it)
 answers 410 for every file R2 still holds, `latest/` included, and so does each path in
 `withheld.json`, the publisher's files of an entry with `source_withheld`, which the build stops
 writing but R2 kept. Query copies (`_q/<slug>/<version>.parquet`) go to `publicdata-dist` alone:
@@ -490,10 +522,11 @@ rowid agrees with the Parquet and the console. At most two versions per dataset 
 stays available as files. A version whose data.csv is over 500 MB, or a dataset whose entry sets
 `query: false`, is not loaded, and its page, OpenAPI and MCP resources leave the query API out;
 `d1.queryable` is the one rule both the build and the loader read. Every other version is for the
-Parquet engine, which reads the version's query copy in `publicdata-dist`, never its data.parquet. Up to four versions load at
+Parquet engine, which reads the version's query copy in `publicdata-dist` first. Up to four versions load at
 once, each one's parts in order. Filters follow PostgREST (`field=gte.2020`, `in.(a,b)`, `is.null`,
 `like.*x*`, `not.` to negate), every name is checked against the field list and every value is
-bound. Paging asks for one row more than the limit and returns a `next` URL on the version's own
+bound. `like` and `ilike` treat `*` as the wildcard and ignore case in ASCII letters only, as
+SQLite's LIKE does. Paging asks for one row more than the limit and returns a `next` URL on the version's own
 path. JSON responses carry the version, licence and attribution; CSV and NDJSON carry them in
 headers. Dated answers are cached at the edge for good, the newest for five minutes. Above 60
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
@@ -522,10 +555,112 @@ days, whose API answers come from the version before. Each deploy also drops the
 neither `_versions` nor `_loads` names, as a failed cleanup can leave. Only deploys of main load,
 one at a time.
 
+The MCP server's `query_rows` and `count_rows` answer from D1 for the versions it holds. Any
+other version, older than the two loaded, over the size limit or in an entry with `query: false`,
+is read from Parquet in R2 (`functions/_parquet.js`) with the same filters. The build writes a field list,
+`d/<slug>/fields.json`, for every dataset whose newest version has a data.parquet, from that file
+and whether or not D1 loads it, so `list_fields` answers for every dataset the row tools serve. The build writes a
+profile copy of every version, old ones included, at `_q/<slug>/<version>.parquet` in
+`publicdata-dist`, which no route serves, and the engine reads that first when its row count,
+version and source hash match the published file's footer. A failed read of the copy fails the
+call, so the published file never stands in for it by accident. Without a matching copy it reads
+the published `data.parquet`, but only when that file carries the profile's footer key
+`publicdata.profile` (ADR 0008). Otherwise the query is refused with DuckDB SQL that answers it
+from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
+benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A version
+written only as period parts has neither file, and the engine does not read parts yet, so the
+call says the version is stored as parts, links its manifest and gives DuckDB SQL over the part
+files the manifest lists. A sorted profile
+file has a page index, and one without is read a column chunk at a time. Each version's
+footer, and the page index of each column a query touches, are read once per isolate and held to
+the file's ETag. A query copy is written again in place when its entry's `sort`, `lookup` or
+`int32` changes, so every range read passes `onlyIf: { etagMatches }`; a read the copy refuses
+drops the footer, and the call reads it again once. A footer over a minute old is checked against
+the copy's ETag before it is used. Row-group
+statistics, and page statistics where there is a page index, rule out what cannot match, and
+rows that the statistics prove match are counted without being read. The pages left are fetched six at a time, ranges
+less than 256 KB apart read as one, and decoded with hyparquet a few row groups at a time.
+Before any data is read, the pages a query needs are priced from the page index, and a call may
+read 64 row groups, 8 MB, 4 million values and 160 ranges. An ordered page holds every row
+before it, so offset + limit, or the rows that can match where that is fewer, may come to at most
+100,000 rows there. Each candidate row of an order costs one more value for every eight levels of
+that heap, since it is compared once per level. An aggregate holds one bucket per distinct group
+and may hold 50,000. Each value a `like` pattern
+with a `*` is matched against counts once more for every eight characters of the pattern. A
+query that needs more is refused with the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, the
+suppressed flags joined by semicolons, and a 64-bit integer as a number while it is exact and as
+its digits beyond that. Sums and averages are compensated as SQLite's are, and `like` is matched
+without backtracking. Rows the statistics prove match are counted and paged by arithmetic, never
+one index per row. Without an order, and for ties, an answer from Parquet follows the file's own
+order: the declared sort, then the key, then the source position. D1 keeps the publisher's
+order, and the DuckDB SQL rebuilds the file's order from the published file with
+`file_row_number`. Footers are kept least recently used first. Answers are cached at the edge by
+version, engine version and the ETag of the file read, so a copy written again never answers from
+the cache of the one before. Each answer links the version's manifest, since the query API path
+answers only while D1 holds the version. A file with no `publicdata` provenance key is refused.
+
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
 then the endpoints answer 503 and point to the files. The query builder is tested against
 node:sqlite in CI.
+
+## Rollups
+
+The MCP tool `count_rows` answers from a version's rollup before it asks D1. A rollup is one
+gzipped JSON object in `publicdata-dist` under `_rollup/<slug>/<version>.json.gz`, outside the
+published tree, holding the version's counts and totals grouped several ways ("cubes"). It is a
+cache of answers the query API gives and is not offered as a download. It carries the version's
+provenance header. The build never imports `rollup.py`, so rollups shape no version and the build
+cache does not key on them.
+
+`publicdata rollup` runs after the D1 load and follows what D1 holds, which `_versions` lists, so
+a version too large or too wide for D1, an entry with `query: false` and a deploy with D1 off get
+no rollup. Each rollup is stored with the identity of the Parquet it was built from: the SHA-256
+the push stores with every object, or the ETag of one pushed before it did. A version whose
+published Parquet has another identity, or which `--replace` names, gets its rollup written
+again, and the rollups of versions D1 no longer holds are deleted. The Parquet is read from a
+built tree when the tree holds the same bytes, and from `publicdata-dist` otherwise, so a version
+this deploy took from the build cache still gets its rollup. DuckDB reads it on one thread with a
+float's NaN as null, as `data.sqlite` holds it, and totals floats with compensated summation, so
+the same Parquet always gives the same rollup. A version whose totals include an infinity has no
+JSON form and is left to D1.
+
+A published version keeps the schema it was built with, so a rollup takes its fields from the
+version. They are the fields `_versions` lists for it, or the register's when D1 lists none, kept
+only where the Parquet has the column and typed by the column when the stated type does not fit
+it. A version that fails for any other reason, such as a download error, is logged as a warning
+and skipped. Its rollup stays when it was built from the bytes R2 still publishes, the other
+versions are written and pushed, and the next deploy tries it again.
+
+A version gets a rollup when its table has at least 5,000 rows and its entry does not set
+`query: false`; a smaller table is answered at once by any engine. The candidate cubes are the
+field sets the entry's `example` and `chart` ask about, each field readers count by (at most
+1,000 values, or any date), and each pair of the 24 most likely such fields. They are taken
+greedily by the weight of questions each newly answers per byte (a register question 100, a
+count by one field 10, a pair 2) until 1 MB. A cube with more groups than half the rows is left
+out. Each cube totals up to four numeric fields, the register's example and chart measures
+first, as sum, non-null count, minimum and maximum, so counts, sums, averages, minima and
+maxima all come from it. The cap holds on the gzipped bytes: a rollup over it drops its
+last-chosen cubes and is built again.
+
+The function picks the smallest cube that holds every field a query filters or groups on and
+the field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the answer is
+the one `/aggregate` gives; `functions/_rollup.test.mjs` runs random queries through both on
+the fixture in `pipeline/tests/fixtures/rollup`, whose rollup the Python tests pin byte for
+byte. Each filter is decided once per distinct value, and LIKE patterns match without
+backtracking. `count_rows` orders equal totals by its groups, so its top groups are the same
+from either engine and from the query it cites. The function reads a rollup only while its
+stored identity matches the published Parquet's, and checks again after a minute. A query no
+cube holds, a version other than the two newest, a deploy without D1, and a withheld dataset
+fall through to D1. Answers name the version and its `/aggregate` URL.
+
+The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
+measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their
+Parquet, median 152 KB), which answer the fields of 84.5% of the register's example and chart
+questions, 98.2% of counts by one field and 78% of counts by one field filtered on another.
+Doubling the cap gains three points on pairs and doubles the parse time, while counts alone
+answer the same fields in a third of the bytes but none of the sums and averages most register
+questions ask for. In workerd a cold rollup answers in 6 to 25 ms and a warm one in about 1 ms.
 
 ## Catalogue
 

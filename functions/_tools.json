@@ -165,7 +165,7 @@
     {
       "name": "get_dataset",
       "title": "Read a dataset",
-      "description": "Read a served dataset's data package and full version history. Use it to download the whole table, check the licence, or find version dates for diff_versions and the version parameter.\nFor field names use list_fields. To answer a question from the rows use query_rows or count_rows, which need no download.\nslug is lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, such as au-road-deaths.\nThe whole history comes back in one answer, with no paging. It needs no key or sign-in, and costs nothing against the rate limit. A slug that is not served returns a 404 error.",
+      "description": "Read a served dataset's data package and full version history: licence, attribution, whole-table files and the version dates diff_versions and the version parameter take. It carries no rows. To answer from the rows use query_rows or count_rows, and for field names use list_fields.\nslug is lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, such as au-road-deaths.\nThe whole history comes back in one answer, with no paging. It needs no key or sign-in, and costs nothing against the rate limit. A slug that is not served returns a 404 error.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -319,7 +319,7 @@
     {
       "name": "list_partitions",
       "title": "List partition files",
-      "description": "List the download files that split a served dataset's newest version by one field, such as one file per year. Use it to hand someone a slice of the data as a file. To answer a question use query_rows or count_rows instead, and for the whole table use get_dataset. field must be one of the partition_by fields that list_fields names, and any other field returns a 404 error. Every value comes back in one answer, with no paging. The call costs nothing against the rate limit.",
+      "description": "List the download files that split a served dataset's newest version by one field, such as one file per year. Use it to hand someone a slice of the data as a file. It gives file links and no rows, so to answer a question use query_rows or count_rows instead, and for the whole table as one file use get_dataset. field must be one of the partition_by fields that list_fields names, and any other field returns a 404 error. Every value comes back in one answer, with no paging. The call costs nothing against the rate limit.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -388,7 +388,7 @@
     {
       "name": "query_rows",
       "title": "Query rows",
-      "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nOne page holds up to limit rows, and offset steps through the rest until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the 60 queries each address may make in 10 seconds.",
+      "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows, and for files use get_dataset or list_partitions.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion can be any date in the version history from get_dataset.\nOne page holds up to limit rows, and offset steps through the rest until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the 60 queries each address may make in 10 seconds.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -398,7 +398,7 @@
           },
           "where": {
             "type": "object",
-            "description": "Filters by field name, applied to the whole table. A value may be a scalar for an exact, case-sensitive match, a list of scalars to match any of them, null to match blank or suppressed cells, {\"min\": n, \"max\": n} for an inclusive range, or {\"like\": \"*text*\"} for a case-insensitive match where * is the wildcard. A blank cell never matches a scalar, a list or a range.",
+            "description": "Filters by field name, applied to the whole table. A value may be a scalar for an exact, case-sensitive match, a list of scalars to match any of them, null to match blank or suppressed cells, {\"min\": n, \"max\": n} for an inclusive range, or {\"like\": \"*text*\"} for a pattern where * is the wildcard and case is ignored in ASCII letters. A blank cell never matches a scalar, a list or a range.",
             "additionalProperties": true
           },
           "select": {
@@ -410,7 +410,7 @@
           },
           "order": {
             "type": "string",
-            "description": "field.asc or field.desc, comma-separated. The publisher's row order when absent."
+            "description": "field.asc or field.desc, comma-separated. When absent, and for ties, a version the query API loads keeps the publisher's order, and any other version the order of its Parquet file, which follows the dataset's declared sort where it has one."
           },
           "limit": {
             "type": "integer",
@@ -427,7 +427,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. The newest version loaded for queries when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent."
           }
         },
         "required": [
@@ -465,7 +465,15 @@
           },
           "query": {
             "type": "string",
-            "description": "The query API URL that gives the same answer"
+            "description": "The query API URL for the same query, which answers while the API has the version loaded"
+          },
+          "file": {
+            "type": "string",
+            "description": "The Parquet file the answer was read from, when it came from the file"
+          },
+          "manifest": {
+            "type": "string",
+            "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"
           },
           "attribution": {
             "type": [
@@ -495,7 +503,7 @@
     {
       "name": "count_rows",
       "title": "Count and sum rows",
-      "description": "Count, sum, average, minimum or maximum rows of a served dataset across the whole table, grouped by up to three fields. For the rows themselves use query_rows.\nField names and values for group_by and where come from list_fields.\nsum and avg need a numeric or true-or-false field. min and max take any field.\nversion must be one of the two newest versions.\nGroups come back largest first, and truncated means raise limit or narrow where. An unknown field or version returns an error naming it.\nEach call costs two of the 60 queries each address may make in 10 seconds.",
+      "description": "Count, sum, average, minimum or maximum rows of a served dataset across the whole table, grouped by up to three fields. For the rows themselves use query_rows.\nField names and values for group_by and where come from list_fields.\nsum and avg need a numeric or true-or-false field. min and max take any field.\nversion can be any date in the version history from get_dataset.\nGroups come back largest first, and truncated means raise limit or narrow where. An unknown field or version returns an error naming it.\nEach call costs two of the 60 queries each address may make in 10 seconds.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -518,7 +526,7 @@
           },
           "where": {
             "type": "object",
-            "description": "Filters by field name, applied to the whole table. A value may be a scalar for an exact, case-sensitive match, a list of scalars to match any of them, null to match blank or suppressed cells, {\"min\": n, \"max\": n} for an inclusive range, or {\"like\": \"*text*\"} for a case-insensitive match where * is the wildcard. A blank cell never matches a scalar, a list or a range.",
+            "description": "Filters by field name, applied to the whole table. A value may be a scalar for an exact, case-sensitive match, a list of scalars to match any of them, null to match blank or suppressed cells, {\"min\": n, \"max\": n} for an inclusive range, or {\"like\": \"*text*\"} for a pattern where * is the wildcard and case is ignored in ASCII letters. A blank cell never matches a scalar, a list or a range.",
             "additionalProperties": true
           },
           "limit": {
@@ -530,7 +538,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. The newest version loaded for queries when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent."
           }
         },
         "required": [
@@ -574,7 +582,15 @@
           },
           "query": {
             "type": "string",
-            "description": "The query API URL that gives the same answer"
+            "description": "The query API URL for the same query, which answers while the API has the version loaded"
+          },
+          "file": {
+            "type": "string",
+            "description": "The Parquet file the answer was read from, when it came from the file"
+          },
+          "manifest": {
+            "type": "string",
+            "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"
           },
           "attribution": {
             "type": [
@@ -975,7 +991,7 @@
     {
       "name": "upvote_dataset",
       "title": "Vote for a dataset",
-      "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, and a second vote from the same caller on the same day adds nothing. The answer gives the dataset's vote total after this call. The call costs nothing against the rate limit.",
+      "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, so a vote cannot be withdrawn, and a second vote from the same caller on the same day adds nothing. The answer gives the dataset's vote total after this call. The call costs nothing against the rate limit.",
       "inputSchema": {
         "type": "object",
         "properties": {

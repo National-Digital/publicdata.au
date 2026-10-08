@@ -731,7 +731,8 @@
       var alias = metric === 'count' ? 'count' : metric.replace('.', '_');
       return Promise.resolve().then(function () {
         slug = slugOf(input);
-        var qs = filters(input.where).concat(['metric=' + encValue(metric), 'order=' + encValue(alias + '.desc'), 'limit=' + limit]);
+        var order = [alias + '.desc'].concat(group.map(function (g) { return g + '.asc'; })).map(encValue).join(',');
+        var qs = filters(input.where).concat(['metric=' + encValue(metric), 'order=' + order, 'limit=' + limit]);
         if (group.length) qs.push('group=' + group.map(encValue).join(','));
         return api(slug, 'aggregate', input.version, qs);
       }).then(function (b) {

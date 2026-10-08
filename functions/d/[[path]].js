@@ -140,7 +140,20 @@ async function fromR2(request, env, url) {
   const key = path.endsWith('/') ? path + 'index.html' : path;
   const head = request.method === 'HEAD';
   const read = (bucket, k) => (head ? bucket.head(k) : bucket.get(k, { range: request.headers, onlyIf: request.headers }));
-  const obj = (await read(env.DIST, key)) || (await rawSource(env, url, key, read));
+  let obj = (await read(env.DIST, key)) || (await rawSource(env, url, key, read));
+  // A new version's data.csv.gz is not stored apart: its data.csv is stored as those very bytes.
+  let alias = false;
+  if (!obj && key.endsWith('.csv.gz') && DATED.test(key)) {
+    const csv = await read(env.DIST, key.slice(0, -3));
+    if (csv && gzipped(csv)) [obj, alias] = [csv, true];
+    else if (csv && csv.body) await csv.body.cancel();
+  }
+  // A text file is stored gzipped, so a range of its stored bytes means nothing to the client.
+  const decoded = obj && gzipped(obj) && !alias;
+  if (decoded && !head && obj.body && request.headers.has('range')) {
+    await obj.body.cancel();
+    obj = await env.DIST.get(key, { onlyIf: request.headers });
+  }
   if (!obj) {
     // A version page asked for without its trailing slash, as Pages would redirect it.
     if (DATED.test(url.pathname + '/') && !/\.[a-z0-9]+$/i.test(key) && (await env.DIST.head(key + '/index.html'))) {
@@ -163,18 +176,23 @@ async function fromR2(request, env, url) {
   }
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
+  headers.delete('content-encoding');
   const ext = key.split('.').pop();
   if (TYPES[ext]) headers.set('content-type', TYPES[ext]);
   if (key.endsWith('.csv-metadata.json')) headers.set('content-type', 'application/csvm+json');
   headers.set('etag', obj.httpEtag);
-  headers.set('accept-ranges', 'bytes');
+  headers.set('accept-ranges', decoded ? 'none' : 'bytes');
   headers.set('access-control-allow-origin', '*');
-  // no-transform keeps the edge from compressing the body, which would drop the byte range.
+  // no-transform keeps the edge from compressing the body, which would drop the byte range. A
+  // gzipped text file has no range to keep, and the edge must be free to decode it for a client
+  // that cannot, since it caches whichever encoding it was sent first.
   const page = PAGE.test('/' + key);
   headers.set('cache-control', DATED.test(key) && !page ? 'public, max-age=31536000, immutable, no-transform' : 'public, max-age=300, no-transform');
+  if (decoded) headers.set('cache-control', headers.get('cache-control').replace(', no-transform', ''));
   if (page) for (const [k, v] of Object.entries(await headersFor(env))) headers.set(k, v);
   const cd = disposition(key);
   if (cd) headers.set('content-disposition', cd);
+  if (decoded) return textResponse(request, obj, headers, head);
   // Range readers such as DuckDB size the file from HEAD before asking for bytes.
   if (head) {
     headers.set('content-length', String(obj.size));
@@ -193,6 +211,36 @@ async function fromR2(request, env, url) {
     return new Response(obj.body, { status, headers });
   }
   return new Response(null, { status: 304, headers });
+}
+
+// Content-Encoding is a list of tokens; an upload can leave aws-chunked beside gzip.
+const gzipped = (obj) => (obj.httpMetadata?.contentEncoding || '').split(',').some((t) => t.trim().toLowerCase() === 'gzip');
+
+// The Workers runtime always asks for gzip itself; what the client asked for is on cf.
+function acceptsGzip(request) {
+  const ae = (request.cf && request.cf.clientAcceptEncoding) ?? request.headers.get('accept-encoding') ?? '';
+  return ae.split(',').some((t) => {
+    const [coding, ...params] = t.trim().toLowerCase().split(';');
+    const q = params.map((p) => p.trim()).find((p) => p.startsWith('q='));
+    return (coding === 'gzip' || coding === 'x-gzip' || coding === '*') && !(q && Number(q.slice(2)) === 0);
+  });
+}
+
+// A stored gzipped text file goes out as stored to a client that takes gzip, and decoded
+// otherwise. Either way the client ends up with the same bytes, at the size its metadata records.
+function textResponse(request, obj, headers, head) {
+  headers.append('vary', 'Accept-Encoding');
+  const encoded = acceptsGzip(request);
+  if (encoded) headers.set('content-encoding', 'gzip');
+  else headers.set('etag', 'W/' + obj.httpEtag);
+  const size = encoded ? obj.size : (obj.customMetadata || {}).size;
+  if (head) {
+    if (size !== undefined) headers.set('content-length', String(size));
+    return new Response(null, { status: 200, headers });
+  }
+  if (!('body' in obj) || !obj.body) return new Response(null, { status: 304, headers });
+  if (encoded) return new Response(obj.body, { status: 200, headers, encodeBody: 'manual' });
+  return new Response(obj.body.pipeThrough(new DecompressionStream('gzip')), { status: 200, headers });
 }
 
 export const onRequestHead = onRequestGet;
