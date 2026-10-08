@@ -31,7 +31,7 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     assert _tree(a) == _tree(b)
     # A DuckDB file is compared by content, since its bytes are not reproducible.
     files = [f for f in _tree(a) if not f.endswith("data.duckdb")]
-    same, diff, err = filecmp.cmpfiles(a, b, files, shallow=False)
+    _same, diff, err = filecmp.cmpfiles(a, b, files, shallow=False)
     assert not diff
     assert not err
     assert compare(a, b) == []
@@ -79,7 +79,7 @@ def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
         build_dataset(ds, fixture_store, out)
         outs.append(out)
     a, b = outs
-    same, diff, err = filecmp.cmpfiles(a, b, _tree(a), shallow=False)
+    _same, diff, err = filecmp.cmpfiles(a, b, _tree(a), shallow=False)
     assert not diff
     assert not err
     vdir = a / "d" / ds.slug / "v" / "2026-04-24"
@@ -348,7 +348,7 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
         outs.append((out, build_dataset(ds, fixture_store, out)))
     (a, oa), (b, _) = outs
     files = [f for f in _tree(a) if not f.endswith("data.duckdb")]
-    same, diff, err = filecmp.cmpfiles(a, b, files, shallow=False)
+    _same, diff, err = filecmp.cmpfiles(a, b, files, shallow=False)
     assert not diff
     assert not err
     # The DuckDB files are compared by content, since their bytes are not reproducible.

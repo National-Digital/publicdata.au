@@ -153,7 +153,7 @@ def test_load_files_rebuild_the_latest_version_and_register_it(tmp_path, fixture
     assert [r[0] for r in db.execute(f'SELECT crash_year FROM "{tbl}" ORDER BY rowid')] == sorted(
         r[0] for r in src.execute("SELECT crash_year FROM records")
     )
-    slug, version, t, fields, rows, attribution, header = db.execute(
+    _slug, _version, t, fields, rows, attribution, header = db.execute(
         "SELECT * FROM _versions WHERE slug = 'qld-road-crash-locations'"
     ).fetchone()
     assert (t, rows) == (tbl, 300)
@@ -346,7 +346,7 @@ def test_a_part_that_did_not_apply_runs_again_and_the_load_goes_on_from_there(
 
 
 def test_a_version_that_never_loads_is_never_registered(fixture_site, tmp_path, monkeypatch):
-    folder, parts = parts_for(fixture_site, tmp_path, monkeypatch)
+    folder, _parts = parts_for(fixture_site, tmp_path, monkeypatch)
     fake = FakeD1(["ok", "error", "error"])  # the second part never applies
     assert d1.load(folder, fake, log=lambda *_: None, workers=1) == 1
     assert d1.registered(fake) == {}
@@ -355,7 +355,7 @@ def test_a_version_that_never_loads_is_never_registered(fixture_site, tmp_path, 
 
 
 def test_one_version_that_cannot_load_does_not_stop_the_next(fixture_site, tmp_path, monkeypatch):
-    folder, parts = parts_for(fixture_site, tmp_path, monkeypatch)
+    folder, _parts = parts_for(fixture_site, tmp_path, monkeypatch)
     _write_job(folder, "zz-other", "2026-01-01", 1)
     lines = []
     fake = FakeD1(broken=("qld-road-crash-locations@",))

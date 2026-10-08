@@ -497,7 +497,7 @@ def test_ala_splits_one_place_and_second_by_year_and_refuses_what_it_cannot_read
             for i in range(ALA_DEEP + 500)
         ]
     }
-    data, m, _ = ala(ds, tmp_path, _ala_session(rows))
+    data, _m, _ = ala(ds, tmp_path, _ala_session(rows))
     assert len(data.decode().splitlines()) == 1 + ALA_DEEP + 500
     rows["dr1"] = [
         (f"d{i:05d}", same[0], same[1], 1999, {"license": "CC0"}) for i in range(ALA_DEEP + 1)

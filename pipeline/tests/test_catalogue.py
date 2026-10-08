@@ -454,7 +454,7 @@ def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally
     councils = [p for p in catalogue.PORTALS if p.kind in ("ods", "hub")]
     recs = [{"portal": p.code, "org": p.code, "org_title": p.publisher} for p in councils]
     curated = load_curated(Path(__file__).parents[2] / "register" / "publishers")
-    pubs, by_org = resolve(recs, curated, {p.code: p.jurisdiction for p in catalogue.PORTALS})
+    _pubs, by_org = resolve(recs, curated, {p.code: p.jurisdiction for p in catalogue.PORTALS})
     for p in councils:
         pub = by_org[f"{p.code}:{p.code}"]
         assert pub.jurisdiction == PORTAL_JUR[p.jurisdiction], p.code

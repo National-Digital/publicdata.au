@@ -637,7 +637,7 @@ def test_a_notebook_refused_for_an_unverified_account_says_so(tmp_path):
 def test_kaggle_retries_a_throttled_settings_update(tmp_path, monkeypatch):
     monkeypatch.setattr(hubs.time, "sleep", lambda s: None)
     n = tmp_path / "n"
-    cli, _, kept = kaggle_cli(
+    cli, _, _kept = kaggle_cli(
         tmp_path,
         extra=f'if [ "$2" = "metadata" ] && [ "$3" != "o/qld-road-crash-factors" -o "$4" = "--update" ]; then '
         f"c=$(cat {n} 2>/dev/null || echo 0); echo $((c+1)) > {n}; "

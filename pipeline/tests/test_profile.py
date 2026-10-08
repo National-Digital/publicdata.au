@@ -233,7 +233,7 @@ def test_two_builds_of_a_sorted_layer_are_byte_identical(tmp_path):
     data = store.source_path(fixtures, m).read_bytes()
     outs = []
     for name in ("a", "b"):
-        _, vout = build_version(ds, m, data, tmp_path / name, fixtures)
+        _, _vout = build_version(ds, m, data, tmp_path / name, fixtures)
         outs.append(tmp_path / name / "d" / ds.slug / "v" / m.version / "data.parquet")
     a, b = outs
     assert a.read_bytes() == b.read_bytes()

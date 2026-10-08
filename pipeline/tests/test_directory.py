@@ -31,7 +31,9 @@ def test_organisations_resolve_to_publishers_by_curation_then_portal():
         rec("vic", "melb", "City of Melbourne"),
         rec("vic", "melb-2", "City of Melbourne Open Data"),
     ]
-    pubs, by_org = resolve(records, [tmr], {"qld": "qld", "gov": "cth", "nsw": "nsw", "vic": "vic"})
+    _pubs, by_org = resolve(
+        records, [tmr], {"qld": "qld", "gov": "cth", "nsw": "nsw", "vic": "vic"}
+    )
     assert by_org["gov:tmr"] is tmr
     assert by_org["qld:transport-and-main-roads"] is tmr
     hobart = by_org["gov:city-of-hobart-open-data"]

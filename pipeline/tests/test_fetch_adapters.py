@@ -104,7 +104,7 @@ def test_opendatasoft_exports_comma_separated_csv(tmp_path, monkeypatch):
         }
     }
     root = f"{base}/api/explore/v2.1/catalog/datasets/search-terms"
-    data, m, s = run(
+    _data, m, s = run(
         "opendatasoft",
         ds,
         {f"{root}/exports/csv": Resp(CSV), root: Resp(meta)},
@@ -444,7 +444,7 @@ def test_kiwis_values_are_one_csv_ordered_by_station_and_day_and_dated_by_the_ne
         "https://example.gov.au/waterdata/services": [Resp(STATIONS), Resp(SERIES), Resp(VALUES)],
         "https://example.gov.au/waterdata/": Resp(WATER_PAGE, ctype="text/html"),
     }
-    data, m, s = run("kiwis", kiwis_ds("values"), routes, tmp_path, monkeypatch)
+    data, m, _s = run("kiwis", kiwis_ds("values"), routes, tmp_path, monkeypatch)
     lines = data.decode().splitlines()
     assert lines[0] == "station_no,station_name,state,date,value,quality_code"
     assert lines[1:] == [
@@ -609,7 +609,7 @@ def test_zenodo_follows_the_concept_record_to_its_newest_version_and_licence(tmp
             resource_match=r"\.xlsx$",
         ),
     )
-    data, m, s = run("zenodo", ds, routes, tmp_path, monkeypatch)
+    data, m, _s = run("zenodo", ds, routes, tmp_path, monkeypatch)
     assert data == CSV
     assert m.version == "2026-09-03"
     assert m.as_at == "2026-09-02"
