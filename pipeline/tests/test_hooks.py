@@ -266,8 +266,19 @@ def test_pre_push_fails_when_mypy_is_missing(repo: Path, tmp_path: Path) -> None
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_pre_push_stops_a_failing_javascript_test(repo: Path, tmp_path: Path) -> None:
-    files = {"functions/x.test.mjs": "import { test } from 'node:test';\ntest('x', () => { throw new Error('no'); });\n"}  # fmt: skip
-    out = _push(repo, tmp_path, files, [_bin(tmp_path, node=NODE)])
+    path = [_bin(tmp_path, node=NODE)]
+    remote = tmp_path / "remote.git"
+    _run([GIT, "init", "-q", "--bare", str(remote)], tmp_path, path, check=True)
+    # The remote holds the repository already, so this push changes only the JavaScript.
+    _run([GIT, "push", "-q", "--no-verify", str(remote), "HEAD:main"], repo, path, check=True)
+    (repo / "functions").mkdir()
+    (repo / "functions" / "x.test.mjs").write_text(
+        "import { test } from 'node:test';\ntest('x', () => { throw new Error('no'); });\n",
+        encoding="utf-8",
+    )
+    _run([GIT, "add", "."], repo, path, check=True)
+    _run([GIT, "commit", "-q", "--no-verify", "-m", "test: js"], repo, path, check=True)
+    out = _run([GIT, "push", str(remote), "HEAD:main"], repo, path)
     assert out.returncode != 0
     assert "a check failed" in out.stdout + out.stderr
 
