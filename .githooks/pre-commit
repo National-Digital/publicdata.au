@@ -53,6 +53,36 @@ if [ -n "$(git diff --cached --name-only -- $wf_paths)" ]; then
   fi
 fi
 
+# ESLint and Prettier, as pinned in package-lock.json, on the staged JavaScript in the directories
+# their allow-lists open; the configs decide within them. A missing node_modules fails the commit
+# because CI always runs both. A failure lets the checks below run, and the EXIT trap then fails
+# the commit.
+js=$(git diff --cached --name-only --diff-filter=ACMR -- 'functions/*.js' 'functions/*.mjs' \
+  'scripts/*.js' 'scripts/*.mjs' 'explorer/*.js' 'explorer/*.mjs' \
+  'pipeline/publicdata/static/*.js' 'pipeline/publicdata/static/*.mjs' eslint.config.mjs)
+if [ -n "$js" ]; then
+  if [ ! -x node_modules/.bin/eslint ] || [ ! -x node_modules/.bin/prettier ] || ! command -v npx >/dev/null 2>&1; then
+    echo "pre-commit: JavaScript is staged but node or node_modules is missing (run: npm ci --ignore-scripts)"
+    trap 'exit 1' EXIT
+  else
+    jsfailed=0
+    IFS='
+'
+    for f in $js; do
+      git show ":$f" | npx --no-install eslint --max-warnings 0 --no-warn-ignored --stdin --stdin-filename "$f" || jsfailed=1
+      if ! git show ":$f" | npx --no-install prettier --check --stdin-filepath "$f" >/dev/null 2>&1; then
+        echo "$f: not formatted as Prettier would (run: npx prettier --write $f)"
+        jsfailed=1
+      fi
+    done
+    unset IFS
+    if [ "$jsfailed" -ne 0 ]; then
+      echo "pre-commit: ESLint or Prettier found problems; fix them or commit with --no-verify"
+      trap 'exit 1' EXIT
+    fi
+  fi
+fi
+
 files=$(git diff --cached --name-only --diff-filter=ACMR -- 'pipeline/*.py' 'clients/python/*.py')
 [ -n "$files" ] || exit 0
 

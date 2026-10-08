@@ -83,6 +83,10 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   The Workflow lint job in CI runs those too, so a commit the hook passes can still fail there.
   Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
   versions, when one differs, and runs it anyway.
+- `pre-commit` also runs ESLint with `--max-warnings 0` and `prettier --check` on the staged
+  content of each staged JavaScript file the two configs cover, using the versions in
+  `node_modules`. It names each file and rule that fails and stops the commit once the other
+  checks have run. A commit with no such file runs neither tool. Each file takes about a second.
 - `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
   and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
   It should take under a minute on a laptop.
@@ -93,14 +97,16 @@ and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI
 
 A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
 through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
-tests, and `node` for the JavaScript tests. The workflow check is the exception: a commit that
-stages `.github/` fails when actionlint, shellcheck or zizmor is missing, with a line naming the
-version CI pins and where to get it. To skip the hooks once, pass `--no-verify` to `git commit` or
-`git push`.
+tests, and `node` for the JavaScript tests. The workflow and JavaScript checks in `pre-commit` are
+the exceptions. A commit that stages `.github/` fails when actionlint, shellcheck or zizmor is
+missing, with a line naming the version CI pins and where to get it. A commit that stages
+JavaScript fails when `node_modules` is missing, with a line asking you to run
+`npm ci --ignore-scripts`, because CI always runs ESLint and Prettier. To skip the hooks once,
+pass `--no-verify` to `git commit` or `git push`.
 
 CI's pipeline job puts the same pinned actionlint, shellcheck and zizmor on its PATH, so the
-hook's tests in `pipeline/tests/test_hooks.py` run there. Locally they skip when a tool is not
-installed.
+hook's tests in `pipeline/tests/test_hooks.py` run there, and its `npm ci` gives the JavaScript
+check's tests their `node_modules`. Locally they skip when a tool is not installed.
 
 ## Private copies
 
