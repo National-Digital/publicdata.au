@@ -268,6 +268,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       deployed: ${{ steps.pages.outcome == 'success' }}
+      url: ${{ steps.pages.outputs.url }}
     steps:
       - name: Stop when the build failed
         # A check that did not pass, timed out or cancelled included, stops it, so no tag is cut
@@ -407,6 +408,7 @@ jobs:
         run: |
           npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
           grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
+          echo "url=$(cat url.txt)" >> "$GITHUB_OUTPUT"
       # A dated file is cached at the edge as immutable, so the versions a replace rewrote are
       # purged, or the edge serves the old files for a year.
       - name: Purge replaced versions from the edge
@@ -454,6 +456,59 @@ jobs:
           else
             gh pr comment "$PR" --body "$BODY"
           fi
+
+  # Holds the pull request's own preview deploy to the Lighthouse targets in
+  # scripts/lighthouse-checks.mjs: performance 90, every other category 100. A required check that is
+  # skipped counts as passed, so on a pull request it always runs, and fails when the deploy did. A
+  # fork's pull request has no preview to test, so it passes with a notice. Production is checked
+  # weekly through PageSpeed Insights (psi.yml).
+  lighthouse:
+    name: Lighthouse
+    needs: deploy
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      URL: ${{ needs.deploy.outputs.url }}
+    steps:
+      - name: Stop when the deploy failed
+        if: needs.deploy.result != 'success'
+        run: |
+          echo "::error::deploy ${{ needs.deploy.result }}, so there is no preview to test"
+          exit 1
+      - name: Note a pull request with no preview
+        if: needs.deploy.outputs.deployed != 'true' || env.URL == ''
+        run: echo "::notice::No preview was deployed for this pull request, so Lighthouse has nothing to test."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.URL != ''
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: env.URL != ''
+        with:
+          node-version-file: .node-version
+      - if: env.URL != ''
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      # The Chrome build the locked puppeteer-core names, the same one the accessibility job uses.
+      - name: Install the pinned Chrome
+        if: env.URL != ''
+        run: |
+          v=$(sed -n "s/^ *chrome: '\(.*\)',$/\1/p" node_modules/puppeteer-core/lib/puppeteer/revisions.js)
+          test -n "$v"
+          path=$(npx --no-install @puppeteer/browsers install "chrome@$v" --path "$RUNNER_TEMP/chrome" --format '{{path}}')
+          echo "CHROME_PATH=$path" >> "$GITHUB_ENV"
+      - name: Run Lighthouse against the preview
+        if: env.URL != ''
+        run: node scripts/lighthouse.mjs "$URL" | tee lighthouse.log
+      - name: Summarise
+        if: always() && env.URL != ''
+        run: |
+          { echo '```'; cat lighthouse.log 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && env.URL != ''
+        with:
+          name: lighthouse-reports
+          path: lighthouse-reports/
+          retention-days: 14
 
   # Tags the released version and cuts a GitHub release with generated notes, then publishes the
   # MCP Registry entry when what a client sees has changed. A separate job, so the write token never
