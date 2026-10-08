@@ -601,7 +601,7 @@ def cmd_dist_push(args) -> int:
 def cmd_purge(args) -> int:
     import os
 
-    from .edge import purge
+    from .edge import purge, with_answers
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
@@ -611,7 +611,7 @@ def cmd_purge(args) -> int:
     if not token:
         print("purge: CLOUDFLARE_PURGE_TOKEN is not set")
         return 2
-    print(f"purge: {purge(args.prefix, token)} prefix(es) purged from the edge")
+    print(f"purge: {purge(with_answers(args.prefix), token)} prefix(es) purged from the edge")
     return 0
 
 
@@ -927,7 +927,9 @@ def main(argv=None) -> int:
         help="where a cached version's Parquet is read back from, as the site lays it out",
     )
     b.set_defaults(fn=cmd_build)
-    pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
+    pg = sub.add_parser(
+        "purge", help="purge replaced versions and their query API answers from the edge cache"
+    )
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
     pg.set_defaults(fn=cmd_purge)
     sh = sub.add_parser("shards", help="split the versions the cache cannot serve over build jobs")

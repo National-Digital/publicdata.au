@@ -868,3 +868,29 @@ def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site):
         md.startswith("---\ntitle: Publishing a dataset at a stable URL\n")
         and "## A check list" in md
     )
+
+
+def test_a_version_page_shows_the_version_notes(fixture_site):
+    page = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "About this version" in page
+    assert "fixture: first 300 rows of the release" in page
+    md = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.md"
+    ).read_text(encoding="utf-8")
+    assert "## About this version" in md
+    assert "fixture: first 300 rows of the release" in md
+    assert "immutable: true" not in md
+
+
+def test_no_page_promises_a_version_never_changes(fixture_site):
+    """A correction can rebuild a version, so no page or API document may say otherwise."""
+    page = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "Immutable version" not in page
+    for name in ("openapi.json", "llms.txt", "index.html"):
+        text = (fixture_site / name).read_text(encoding="utf-8")
+        assert "versions never change" not in text.lower(), name
+        assert "immutable files" not in text, name

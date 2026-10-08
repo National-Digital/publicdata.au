@@ -56,7 +56,7 @@ values match any of them and `NA` matches a blank or suppressed cell. The filter
 `pd_lte()`, `pd_like()`, `pd_ilike()`, `pd_in()`, `pd_is_null()` and `pd_not()`.
 
 Without `.version` an answer comes from the newest version and changes when the publisher
-releases again. Pass a date from `pd_versions()` for an answer that never changes.
+releases again. Pass a date from `pd_versions()` for an answer from that version alone.
 
 ## Whole tables
 
@@ -73,7 +73,8 @@ CSV (gzip), NDJSON and DuckDB are on every version. Excel, JSON, GeoJSON and SQL
 table is over their size limits, and the version's page says why. Arrow files are only on versions
 fetched before the format change, whose manifest has no `caps` field.
 
-A version never changes once published, so a downloaded file can be kept and reused. Nothing is
+A version keeps its content once published, so a downloaded file can be kept and reused. A
+correction to a version is recorded in its notes, and `pd_cache_clear()` removes the old copy. Nothing is
 kept unless you ask:
 
 ```r
@@ -156,7 +157,7 @@ pd_provenance("au-road-deaths")                       # the source file, its che
 
 ## Reproducible work
 
-Pass a date from `pd_versions()` for an answer that never changes. `pd_url()` gives a file's fixed
+Pass a date from `pd_versions()` for an answer from that version alone. `pd_url()` gives a file's fixed
 address for another tool, or for a [targets](https://docs.ropensci.org/targets/) pipeline that
 reruns when the publisher releases again:
 
