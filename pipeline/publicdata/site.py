@@ -18,7 +18,15 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 from . import OPERATOR, REPO, SITE, abbreviations, brand, explorer, figures, published
 from . import api_text as at
 from . import ard as ardspec
-from .build import DatasetOut, VersionOut, dataset_url, part_dir, part_files, source_name, version_url
+from .build import (
+    DatasetOut,
+    VersionOut,
+    dataset_url,
+    part_dir,
+    part_files,
+    source_name,
+    version_url,
+)
 from .cache import BuildCache
 from .cost import fleet_from_build
 from .d1 import KEEP, parts_csv, queryable
@@ -3634,13 +3642,15 @@ def render_site(
         rows_path = rows_of(ds, latest)
         if rows_path.exists():
             hints = _console(ds, rows_path)
-        api = bool(QUERY_API and hints and queryable(ds, latest.files.get("data.csv")))
+        api = bool(
+            QUERY_API and hints and latest.whole and queryable(ds, latest.files.get("data.csv"))
+        )
         listed, served = hints, api
-        if listed is None and not latest.whole and latest.parts:
-            # A version stored as parts has no console, and the row tools answer it from its
-            # parts, so its field list is read from them. The query API loads it from them while
-            # their CSV is within its limit.
-            listed = _console(ds, part_files(out, ds.slug, m.version, latest.parts))
+        if not latest.whole and latest.parts:
+            # A version stored as parts has no console. The row tools answer it from its parts,
+            # and the query API loads it from them while their CSV is within its limit.
+            if listed is None:
+                listed = _console(ds, part_files(out, ds.slug, m.version, latest.parts))
             served = bool(QUERY_API and queryable(ds, parts_csv(latest.parts)))
             if served:
                 served_parts.append(o)
