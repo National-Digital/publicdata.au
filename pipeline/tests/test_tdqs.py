@@ -193,6 +193,13 @@ def test_an_inconsistent_name_fails_for_the_tool_and_a_duplicate_fails_the_set()
     )
 
 
+def test_a_tool_with_no_name_fails_naming_and_the_others_still_run() -> None:
+    ts = _tools()
+    del _by_name(ts, "diff_versions")["name"]
+    errors = tdqs.problems(ts)[0]
+    assert "None: naming: name None should be lowercase verb_object snake case" in errors[0]
+
+
 def test_similar_tools_must_name_each_other() -> None:
     ts = _tools()
     q, c = _by_name(ts, "query_rows"), _by_name(ts, "count_rows")

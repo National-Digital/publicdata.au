@@ -269,7 +269,7 @@ def problems(ts: Sequence[Tool]) -> tuple[list[str], list[str]]:
     report: list[str] = []
     all_names: list[str | None] = [t.get("name") for t in ts]
     for t in ts:
-        found = tool_problems(t, [n for n in all_names if n != t.get("name")])  # type: ignore[misc]  # BUG: a tool with no name passes None to names(), which raises
+        found = tool_problems(t, [n for n in all_names if n is not None and n != t.get("name")])
         errors += [f"{t.get('name')}: {q}: {m}" for q, m in found]
         report.append(
             f"{t.get('name')!s:18s} "
