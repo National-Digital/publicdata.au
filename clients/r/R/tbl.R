@@ -15,7 +15,7 @@
 #'   `dbplyr::remote_con(x)`, which carries the same `"publicdata"` attribute
 #'   as [pd_connect()].
 #' @family query
-#' @examplesIf interactive() && pd_available() && requireNamespace("dbplyr", quietly = TRUE) && requireNamespace("duckdb", quietly = TRUE)
+#' @examplesIf interactive() && pd_available() && rlang::is_installed(c("dbplyr", "duckdb"))
 #' library(dplyr)
 #' pd_tbl("au-road-deaths") |>
 #'   filter(year >= 2020) |>
@@ -32,22 +32,23 @@ pd_tbl <- function(slug, table = NULL, version = NULL, cache = NULL) {
     con <- pd_connect(slug, version, cache = cache)
     state$cons[[key]] <- con
   }
-  names <- DBI::dbGetQuery(
-    con, "SELECT table_name AS name FROM information_schema.tables WHERE table_catalog = current_database()"
-  )$name
+  tables <- DBI::dbGetQuery(con, paste(
+    "SELECT table_name AS name FROM information_schema.tables",
+    "WHERE table_catalog = current_database()"
+  ))$name
   if (!is.null(table) && is.character(table) && grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", table)) {
     pd_abort("\"", table, "\" is a version; pass it as version = \"", table, "\"")
   }
   if (is.null(table)) {
-    if (!"records" %in% names) {
-      pd_abort("'", slug, "' has several tables; name one of ", paste(sort(names), collapse = ", "))
+    if (!"records" %in% tables) {
+      pd_abort("'", slug, "' has several tables; name one of ", toString(sort(tables)))
     }
     table <- "records"
   }
-  if (!check_table(table) %in% names) {
+  if (!check_table(table) %in% tables) {
     pd_abort(
       "'", slug, "' has no table or view '", table, "'; its tables are ",
-      paste(sort(names), collapse = ", ")
+      toString(sort(tables))
     )
   }
   dplyr::tbl(con, table)

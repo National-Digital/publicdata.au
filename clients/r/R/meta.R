@@ -48,17 +48,20 @@ pd_provenance <- function(slug, version = NULL) {
 
 #' @export
 print.pd_provenance <- function(x, ...) {
-  line <- function(label, value) if (length(value) && !is.null(value) && nzchar(value)) cat(sprintf("%-12s %s\n", label, value))
+  entry <- function(label, value) {
+    if (length(value) && !is.null(value) && nzchar(value)) cat(sprintf("%-12s %s\n", label, value))
+  }
   cat("<pd_provenance> ", x$dataset, " ", x$version, "\n", sep = "")
-  line("Source", x$source$url)
-  line("File", x$filename)
-  line("Bytes", format(x$bytes, big.mark = ","))
-  line("SHA-256", x$sha256)
-  line("Fetched", x$fetched_at)
-  line("As at", x$as_at)
-  line("Licence", paste0(x$licence$title, if (!is.null(x$licence$read_at)) paste0(" (read ", x$licence$read_at, ")")))
-  line("Rows", format(x$rows, big.mark = ","))
-  line("Version", x$url)
+  entry("Source", x$source$url)
+  entry("File", x$filename)
+  entry("Bytes", format(x$bytes, big.mark = ","))
+  entry("SHA-256", x$sha256)
+  entry("Fetched", x$fetched_at)
+  entry("As at", x$as_at)
+  read_at <- if (!is.null(x$licence$read_at)) paste0(" (read ", x$licence$read_at, ")")
+  entry("Licence", paste0(x$licence$title, read_at))
+  entry("Rows", format(x$rows, big.mark = ","))
+  entry("Version", x$url)
   invisible(x)
 }
 
@@ -75,7 +78,8 @@ print.pd_provenance <- function(x, ...) {
 #' @export
 pd_browse <- function(slug, version = NULL) {
   check_slug(slug)
-  url <- paste0(pd_site(), "/d/", slug, "/", if (is.null(check_version(version))) "" else paste0("v/", version, "/"))
-  if (interactive()) utils::browseURL(url)
-  invisible(url)
+  at <- if (is.null(check_version(version))) "" else paste0("v/", version, "/")
+  page_url <- paste0(pd_site(), "/d/", slug, "/", at)
+  if (interactive()) utils::browseURL(page_url)
+  invisible(page_url)
 }

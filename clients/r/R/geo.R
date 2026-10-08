@@ -20,7 +20,8 @@ pd_sf <- function(slug, version = NULL, cache = NULL) {
     fetch_file(slug, "gpkg", version, cache = cache),
     httr2_http_404 = function(e) {
       pd_abort("'", slug, "' has no map layer: only datasets with a location or a shape have one. ",
-        "pd_datasets() lists what is served; a map layer shows as a GeoPackage file on the dataset's page.",
+        "pd_datasets() lists what is served; ",
+        "a map layer shows as a GeoPackage file on the dataset's page.",
         class = "publicdataau_no_layer"
       )
     }

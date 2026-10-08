@@ -22,7 +22,7 @@ pd_changes <- function(slug, from = NULL, to = NULL) {
   check_version(to)
   steps <- pd_get(paste0("/d/", check_slug(slug), "/changes.json"), simplify = FALSE)$changes
   num <- function(x) if (is.null(x)) NA_real_ else as.numeric(x)
-  names_of <- function(s, a, b) paste(unlist(c(s[[a]], s[[b]])), collapse = ", ")
+  names_of <- function(s, a, b) toString(unlist(c(s[[a]], s[[b]])))
   rows <- lapply(steps, function(s) {
     data.frame(
       from = s$from,
@@ -82,18 +82,18 @@ pd_diff <- function(slug, version = NULL) {
 #' @export
 print.pd_diff <- function(x, ...) {
   cat("<pd_diff> ", x$dataset, ": ", x$from, " to ", x$to, "\n", sep = "")
+  big <- function(n) format(n, big.mark = ",")
   if (!is.null(x$added)) {
-    cat(format(x$added, big.mark = ","), " added, ", format(x$removed, big.mark = ","), " removed, ",
-      format(x$changed, big.mark = ","), " changed, ", format(x$unchanged, big.mark = ","),
-      " unchanged\n",
+    cat(big(x$added), " added, ", big(x$removed), " removed, ", big(x$changed), " changed, ",
+      big(x$unchanged), " unchanged\n",
       sep = ""
     )
   } else {
-    cat("rows: ", format(x$rows_from, big.mark = ","), " to ", format(x$rows_to, big.mark = ","), "\n", sep = "")
+    cat("rows: ", big(x$rows_from), " to ", big(x$rows_to), "\n", sep = "")
   }
   for (k in c("fields_added", "fields_removed", "tables_added", "tables_removed")) {
     v <- unlist(x$schema[[k]])
-    if (length(v)) cat(sub("_", " ", k), ": ", paste(v, collapse = ", "), "\n", sep = "")
+    if (length(v)) cat(sub("_", " ", k, fixed = TRUE), ": ", toString(v), "\n", sep = "")
   }
   if (!is.null(x$note)) cat(x$note, "\n")
   invisible(x)

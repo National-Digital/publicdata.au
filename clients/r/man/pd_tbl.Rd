@@ -33,7 +33,7 @@ result into R. Calls for the same dataset and version share one
 connection.
 }
 \examples{
-\dontshow{if (interactive() && pd_available() && requireNamespace("dbplyr", quietly = TRUE) && requireNamespace("duckdb", quietly = TRUE)) withAutoprint(\{ # examplesIf}
+\dontshow{if (interactive() && pd_available() && rlang::is_installed(c("dbplyr", "duckdb"))) withAutoprint(\{ # examplesIf}
 library(dplyr)
 pd_tbl("au-road-deaths") |>
   filter(year >= 2020) |>

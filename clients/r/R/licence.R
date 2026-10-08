@@ -9,12 +9,15 @@ state$memo <- list()
 # answer in hand does not carry the licence.
 licence_condition <- function(slug, licence = NULL) {
   if (is.list(licence)) {
-    return(if (is.null(licence$condition)) "" else licence$condition)
+    return(licence$condition %||% "")
   }
   if (!is.null(state$conditions[[slug]])) {
     return(state$conditions[[slug]])
   }
-  dp <- tryCatch(pd_get(paste0("/d/", slug, "/datapackage.json"), simplify = FALSE), error = function(e) NULL)
+  dp <- tryCatch(
+    pd_get(paste0("/d/", slug, "/datapackage.json"), simplify = FALSE),
+    error = function(e) NULL
+  )
   if (is.null(dp)) {
     return("")
   }

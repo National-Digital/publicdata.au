@@ -1,5 +1,5 @@
 use_cache <- function(cache) {
-  isTRUE(if (is.null(cache)) getOption("publicdataau.cache", FALSE) else cache)
+  isTRUE(cache %||% getOption("publicdataau.cache", FALSE))
 }
 
 #' The download cache
@@ -37,9 +37,11 @@ pd_cache_dir <- function() {
 #' @export
 pd_cache_list <- function(slug = NULL, version = NULL) {
   root <- cache_root(slug, version)
-  files <- if (dir.exists(root)) list.files(root, recursive = TRUE, full.names = TRUE) else character()
-  files <- files[!grepl("\\.part$", files)]
-  rel <- substring(normalizePath(files, "/", FALSE), nchar(normalizePath(pd_cache_dir(), "/", FALSE)) + 2L)
+  files <- character()
+  if (dir.exists(root)) files <- list.files(root, recursive = TRUE, full.names = TRUE)
+  files <- files[!endsWith(files, ".part")]
+  prefix <- nchar(normalizePath(pd_cache_dir(), "/", FALSE))
+  rel <- substring(normalizePath(files, "/", FALSE), prefix + 2L)
   parts <- strsplit(rel, "/", fixed = TRUE)
   info <- file.info(files)
   tibble::tibble(
@@ -81,7 +83,11 @@ fetch_file <- function(slug, format, version = NULL, table = NULL, cache = NULL)
     return(list(path = tmp, version = got$version, temp = TRUE))
   }
   if (is.null(check_version(version))) version <- latest_version(slug)
-  name <- if (is.null(check_table(table))) paste0("data.", format) else file.path("tables", paste0(table, ".parquet"))
+  name <- if (is.null(check_table(table))) {
+    paste0("data.", format)
+  } else {
+    file.path("tables", paste0(table, ".parquet"))
+  }
   dest <- file.path(pd_cache_dir(), check_slug(slug), version, name)
   if (!file.exists(dest)) {
     dir.create(dirname(dest), recursive = TRUE, showWarnings = FALSE)
