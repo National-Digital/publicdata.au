@@ -88,10 +88,12 @@ def _is_writer(p: Path) -> bool:
 
 
 def code_files() -> list[Path]:
-    """build.py and everything it imports inside the package, except the format writers, which
-    are keyed one by one; the writers that shape a version are added back. These shape every
-    version's bytes but are not in its key: an edit to one is checked against real versions
-    (`publicdata verify`) and raises a rebuild number when it changes them.
+    """The build's code files: build.py and everything it imports inside the package.
+
+    The format writers are left out, since they are keyed one by one; the writers that shape a
+    version are added back. These shape every version's bytes but are not in its key: an edit to
+    one is checked against real versions (`publicdata verify`) and raises a rebuild number when
+    it changes them.
     """
     seen: set[Path] = set()
     todo = [PACKAGE / "build.py", PACKAGE / "__init__.py"]
@@ -128,8 +130,9 @@ def spatial_version() -> str:
 
 
 def spatial(ds) -> bool:
-    """Whether a dataset's build loads the spatial extension: a layer with geometry, or a dataset
-    joined to the place spine.
+    """Whether a dataset's build loads the spatial extension.
+
+    It does for a layer with geometry, or a dataset joined to the place spine.
     """
     return bool(ds.geometry or ds.enrich)
 
@@ -158,8 +161,10 @@ def _runtime(h) -> None:
 
 
 def environment_key() -> str:
-    """What every version's key shares: the global rebuild number, the writers that also make
-    the partition files, and the runtime and libraries.
+    """What every version's key shares.
+
+    That is the global rebuild number, the writers that also make the partition files, and the
+    runtime and libraries.
     """
     h = hashlib.sha256(f"rebuild={REBUILD}\0".encode())
     for w in ROW_WRITERS:
@@ -195,8 +200,10 @@ def _plain(v):
 
 
 def entry_key(ds) -> str:
-    """A register entry as its key reads it: the fields in its repr that differ from their
-    defaults, so a field added to the register changes no existing key.
+    """A register entry as its key reads it.
+
+    Only the fields in its repr that differ from their defaults count, so a field added to the
+    register changes no existing key.
     """
     return json.dumps(_plain(ds), ensure_ascii=False, separators=(",", ":"), default=str)
 
@@ -210,9 +217,11 @@ def digest(p: Path) -> str:
 
 
 def digests(root: Path, only=None, databases: bool = True) -> dict[str, str]:
-    """The SHA-256 of each file under root, or of those named in only. A DuckDB file's bytes
-    differ from one write to the next, so it gets a digest of its tables, rows and comments
-    instead, or none when databases is False, as for a database release of many gigabytes.
+    """The SHA-256 of each file under root, or of those named in only.
+
+    A DuckDB file's bytes differ from one write to the next, so it gets a digest of its tables,
+    rows and comments instead, or none when databases is False, as for a database release of
+    many gigabytes.
     """
     from .serialise import duckdb_digest
 
@@ -234,10 +243,11 @@ def digests(root: Path, only=None, databases: bool = True) -> dict[str, str]:
 
 
 def writer_files(fmt: str, shape: bool | None = None) -> list[Path]:
-    """The writer modules one format's file comes from: those its entry in WRITERS calls, those
-    of the formats it derives its file from, and the writer modules each of them imports. A
-    format with a writer for shape layers (WRITER_VARIANTS) reads only the one a dataset runs
-    when shape says which; None reads both.
+    """The writer modules one format's file comes from.
+
+    These are the modules its entry in WRITERS calls, those of the formats it derives its file
+    from, and the writer modules each of them imports. A format with a writer for shape layers
+    (WRITER_VARIANTS) reads only the one a dataset runs when shape says which; None reads both.
     """
     from .serialise import WRITER_DEPENDS, WRITER_VARIANTS, WRITERS
 
@@ -330,8 +340,10 @@ class BuildCache:
         keep=lambda rel: True,
         extra: dict[str, bytes] | None = None,
     ) -> None:
-        """Stores meta, the files under src that keep(relative path) accepts, and `extra`, files
-        beside meta.json by name. meta.json is written last, so an entry is whole when it has one.
+        """Stores meta, the files under src that keep(relative path) accepts, and `extra`.
+
+        The `extra` files go beside meta.json by name. meta.json is written last, so an entry is
+        whole when it has one.
         """
         entry = self.root / key
         tmp = self.root / f".{key}.tmp"
@@ -357,9 +369,10 @@ class BuildCache:
         self.used.add(key)
 
     def prune(self, keep: set[str] | None = None) -> int:
-        """Drop entries this build did not use, or with keep, every entry outside it. Pruning to
-        the keys a build can use before it starts means a code change, which misses every entry,
-        never holds the old cache and a whole new build on disk at once.
+        """Drop entries this build did not use, or with keep, every entry outside it.
+
+        Pruning to the keys a build can use before it starts means a code change, which misses
+        every entry, never holds the old cache and a whole new build on disk at once.
         """
         gone = 0
         if not self.root.is_dir():

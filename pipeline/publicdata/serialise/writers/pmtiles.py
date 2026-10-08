@@ -21,11 +21,12 @@ if TYPE_CHECKING:
 
 
 def write_pmtiles(tbl, header: dict, path: Path) -> None:
-    """Vector tiles of the layer from zoom 0 to geometry.maxzoom, one tile layer named by the
-    dataset, every field a property. Each zoom's shapes are simplified to a tile pixel first, and
-    a shape the publisher drew invalid is repaired for the tiles only. A repair can return a
-    collection, such as a polygon with a stray line, which a tile cannot hold, so only the parts of
-    the layer's own kind are kept.
+    """Vector tiles of the layer from zoom 0 to geometry.maxzoom.
+
+    There is one tile layer named by the dataset, and every field is a property. Each zoom's
+    shapes are simplified to a tile pixel first, and a shape the publisher drew invalid is
+    repaired for the tiles only. A repair can return a collection, such as a polygon with a stray
+    line, which a tile cannot hold, so only the parts of the layer's own kind are kept.
     """
     from pmtiles.tile import Compression, TileType, zxy_to_tileid
     from pmtiles.writer import Writer

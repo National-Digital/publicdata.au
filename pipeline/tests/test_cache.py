@@ -47,8 +47,9 @@ def _without_sources(src, dst):
 
 
 def _reading(monkeypatch, out, published_tree):
-    """A build into out reads a cached version's left-out files back from published_tree, as
-    the deploy reads them from R2.
+    """A build into out reads a cached version's left-out files back from published_tree.
+
+    This is how the deploy reads them from R2.
     """
     from publicdata import published
 
@@ -56,8 +57,10 @@ def _reading(monkeypatch, out, published_tree):
 
 
 def _matches_except_absent(full, slim, vouts, slug="t"):
-    """slim holds exactly full's files less each version's absent ones, byte for byte. A file
-    read back after the cache left it out is in slim, as the build's absent list counts it.
+    """The tree `slim` holds exactly the files of `full` less each version's absent ones.
+
+    The files match byte for byte. A file read back after the cache left it out is in `slim`, as
+    the build's absent list counts it.
     """
     absent = {f"d/{slug}/v/{v.manifest.version}/{rel}" for v in vouts for rel in v.absent}
     absent |= {v.query for v in vouts if v.query}  # a query copy is published once

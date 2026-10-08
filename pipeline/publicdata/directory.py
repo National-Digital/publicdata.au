@@ -216,9 +216,10 @@ PORTAL_HOSTS = {
 
 
 def locate(url: str) -> tuple[str, str, str] | None:
-    """What a pasted portal URL names: (host, "name", package name), (host, "id", record id) or
-    (host, "url", bare url). functions/_catalogue.js does the same and the tests hold them
-    together.
+    """What a pasted portal URL names.
+
+    The answer is (host, "name", package name), (host, "id", record id) or (host, "url", bare
+    url). functions/_catalogue.js does the same and the tests hold them together.
     """
     try:
         u = urlparse(url.strip())
@@ -260,8 +261,10 @@ def find(url, by_name, by_id, by_url, portal_by_host) -> dict | None:
 
 
 def search_rows(d: Directory) -> list[dict]:
-    """One row per listed catalogue record for the search index in D1. `vote` is the key a vote
-    goes under: the record's id, or the register slug when the record is already chosen.
+    """One row per listed catalogue record for the search index in D1.
+
+    `vote` is the key a vote goes under: the record's id, or the register slug when the record is
+    already chosen.
     """
     pub_by_path = {p.path: p for p in d.pubs.values()}
     out = []
@@ -382,6 +385,7 @@ def shard(record_id: str) -> str:
 
 def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -> list[str]:
     """Writes the browse page, one page per government and one per publisher, and their JSON.
+
     Returns the URLs that belong in the sitemap.
     """
     urls: list[str] = []
@@ -855,8 +859,10 @@ def _who(p: Publisher, jur: str) -> str:
 
 
 def _listing_note(rows: list[dict], live: list[dict]) -> str:
-    """What the listing holds: the topics served here, else the file types the portal lists
-    and when a listing last changed.
+    """What the listing holds.
+
+    That is the topics served here, else the file types the portal lists and when a listing last
+    changed.
     """
     # Only a dataset with a built version is served; a new entry waits for its first fetch.
     topics = sorted({t for x in live if x.get("live", True) for t in x.get("topics", [])})

@@ -31,8 +31,10 @@ def listing() -> dict:
 
 
 def problems() -> list[str]:
-    """Every scoring rule the server can meet. Tool naming is left out: Smithery wants dotted
-    names, which the Claude and OpenAI tool APIs refuse.
+    """Every scoring rule the server can meet.
+
+    Tool naming is left out: Smithery wants dotted names, which the Claude and OpenAI tool APIs
+    refuse.
     """
     out = []
     for t in mcp_spec()["tools"]:

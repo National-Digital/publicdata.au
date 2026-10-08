@@ -1,11 +1,12 @@
-"""The real-data check on a change to the build code. A version's key leaves the code out, so a
-deploy reuses every published version until a rebuild number is raised. This builds a sample of
-stored datasets from their sources with the code as it stands and compares each version, its
-query copy, diff and history archive whose key a deploy would reuse with the build cache entry it
-would reuse, file by file. A difference means the change alters published bytes without raising a
-rebuild number. The diffs, the history archive and a format grown into a reused version are made
-from the Parquet the site already serves, here as in a deploy, so old bytes in R2 are no
-difference.
+"""The real-data check on a change to the build code.
+
+A version's key leaves the code out, so a deploy reuses every published version until a rebuild
+number is raised. This builds a sample of stored datasets from their sources with the code as it
+stands and compares each version, its query copy, diff and history archive whose key a deploy
+would reuse with the build cache entry it would reuse, file by file. A difference means the
+change alters published bytes without raising a rebuild number. The diffs, the history archive
+and a format grown into a reused version are made from the Parquet the site already serves, here
+as in a deploy, so old bytes in R2 are no difference.
 """
 
 from __future__ import annotations
@@ -45,9 +46,10 @@ CAP = 60_000_000
 
 
 def unkeyed(changed: list[str]) -> list[str]:
-    """The changed paths, relative to the repository, that shape versions without being in
-    their key. A writer module in a format's writer key is keyed, so an edit to it writes that
-    format again; one no format's key reads is checked like the rest of the build code.
+    """The changed paths, relative to the repository, that shape versions outside their key.
+
+    A writer module in a format's writer key is keyed, so an edit to it writes that format again;
+    one no format's key reads is checked like the rest of the build code.
     """
     from .serialise import WRITERS
 
@@ -93,8 +95,9 @@ def _rebuild_number(src: str) -> str:
 
 
 def changed_defaults(before: Path) -> list[str]:
-    """The register fields whose default the change edits while REBUILD stays as it was. A
-    version's key leaves out every field at its default, so such an edit would reuse versions
+    """The register fields whose default the change edits while REBUILD stays as it was.
+
+    A version's key leaves out every field at its default, so such an edit would reuse versions
     the new default reshapes. before holds register.py and cache.py as the base had them.
     """
     old_reg, old_cache = before / "register.py", before / "cache.py"
@@ -109,9 +112,11 @@ def changed_defaults(before: Path) -> list[str]:
 
 
 def bumped(before: Path, datasets: list[Dataset]) -> list[str]:
-    """The datasets whose rebuild number the change moves. before holds the base's copy of each
-    changed register entry at its path in the repository. Two changes that raise the same number
-    merge without a conflict, so the later one is checked against the entries the earlier built.
+    """The datasets whose rebuild number the change moves.
+
+    before holds the base's copy of each changed register entry at its path in the repository.
+    Two changes that raise the same number merge without a conflict, so the later one is checked
+    against the entries the earlier built.
     """
     import yaml
 
@@ -129,9 +134,10 @@ def bumped(before: Path, datasets: list[Dataset]) -> list[str]:
 
 
 def checked_versions(ds: Dataset, store_dir: Path, cap: int = CAP) -> list:
-    """The versions the check builds: the newest ones whose source bytes fit in cap, and always
-    the newest. The spine layers a joined dataset reads are left out: every joined dataset shares
-    them, and a sample without one never checks the join.
+    """The versions the check builds: the newest ones whose source bytes fit in cap.
+
+    The newest is always built. The spine layers a joined dataset reads are left out: every
+    joined dataset shares them, and a sample without one never checks the join.
     """
     ms = store.manifests(store_dir, ds.slug) if ds.publishable else []
     out, total = [], 0
@@ -174,12 +180,14 @@ def sample(
     cap: int = CAP,
     forced: list[str] | tuple[str, ...] = (),
 ) -> list[str]:
-    """The datasets the check builds: those in forced, the cheapest of each stratum, so every
-    adapter and shape that fits is covered, then others in an order the seed picks, while the
-    budget lasts. Of each, the newest versions that fit in cap are built, with the diffs between
-    them. One dataset whose newest version alone is over cap is added, also picked by the seed
-    and from a stratum nothing else covers when there is one, so the largest datasets are
-    checked in turn. A database is left out, since the module only it runs is in its key.
+    """The datasets the check builds, while the budget lasts.
+
+    These are those in forced, the cheapest of each stratum, so every adapter and shape that fits
+    is covered, then others in an order the seed picks. Of each, the newest versions that fit in
+    cap are built, with the diffs between them. One dataset whose newest version alone is over
+    cap is added, also picked by the seed and from a stratum nothing else covers when there is
+    one, so the largest datasets are checked in turn. A database is left out, since the module
+    only it runs is in its key.
     """
     cost = {
         d.slug: c
@@ -238,8 +246,10 @@ def _plain(v):
 
 
 def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, rels: list[str]):
-    """The files a deploy grew into a reused version from the Parquet the site serves, made again
-    the same way with the code as it stands, by name, or None when that Parquet is gone.
+    """The files a deploy grew into a reused version, made again with the code as it stands.
+
+    The deploy grew them from the Parquet the site serves, and they are made again the same way,
+    by name. Returns None when that Parquet is gone.
     """
     from .build import _built_table, _source_order, prov_header, version_url, write_formats
     from .serialise import WRITERS
@@ -359,10 +369,12 @@ def _version(
 def check(
     ds: Dataset, store_dir: Path, cache: BuildCache, out: Path, cap: int = CAP
 ) -> tuple[list[str], int, int]:
-    """One dataset's newest versions that fit in cap built from their sources and compared with
-    the entries a deploy would reuse, with the diffs between them, and the history archive when
-    every version was built. Returns the differences, each naming its file, and how many
-    versions were compared and how many a deploy would build again anyway.
+    """One dataset's newest versions that fit in cap, built and compared with the cache.
+
+    Each is built from its source and compared with the entry a deploy would reuse, with the
+    diffs between them, and the history archive when every version was built. Returns the
+    differences, each naming its file, and how many versions were compared and how many a deploy
+    would build again anyway.
     """
     from .build import build_dataset, version_key
 

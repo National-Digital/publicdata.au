@@ -130,7 +130,7 @@ def _random_table(rng, key_type, extra, retype, rows):
 
 
 def _next_release(rng, ta, tnew):
-    """ta with some rows dropped, some edited and tnew's rows under ids ta lacks added."""
+    """The table `ta` with some rows dropped, some edited and rows of `tnew` added under new ids."""
     import pyarrow as pa
     import pyarrow.compute as pc
 

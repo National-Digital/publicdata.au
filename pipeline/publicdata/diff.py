@@ -44,8 +44,9 @@ def _flat(c: pa.ChunkedArray) -> pa.ChunkedArray:
 
 
 def _differs(x: pa.ChunkedArray, y: pa.ChunkedArray) -> pa.ChunkedArray:
-    """True where the two cells would serialise differently. Values of different types always
-    do, unless both are null.
+    """True where the two cells would serialise differently.
+
+    Values of different types always do, unless both are null.
     """
     if x.type != y.type:
         return pc.or_(pc.is_valid(x), pc.is_valid(y))
@@ -67,7 +68,7 @@ def _cap(items: list) -> tuple[list, bool]:
 
 
 def diff(a: Table, b: Table) -> dict:
-    """a is the older version, b the newer."""
+    """Compare `a`, the older version, with `b`, the newer, by the declared key."""
     key = a.dataset.key
     fa = {f.name: f.type for f in a.dataset.fields}
     fb = {f.name: f.type for f in b.dataset.fields}

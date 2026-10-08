@@ -1,8 +1,9 @@
-"""A version's rows for the build's own queries: DuckDB over its data.parquet, shaped as the
-records table of its data.sqlite. Dates are ISO text, booleans 1 and 0, the suppressed flags
-joined with ";", a float's NaN a null, a layer's shapes left out, and rowid is the row's place in
-the file. The pages' figures, the query console and the D1 load read the Parquet alone, and
-answer as SQLite did, in the Parquet's row order.
+"""A version's rows for the build's own queries: DuckDB over its data.parquet.
+
+The rows are shaped as the records table of its data.sqlite. Dates are ISO text, booleans 1 and
+0, the suppressed flags joined with ";", a float's NaN a null, a layer's shapes left out, and
+rowid is the row's place in the file. The pages' figures, the query console and the D1 load read
+the Parquet alone, and answer as SQLite did, in the Parquet's row order.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ def _column(name: str, t: pa.DataType) -> str:
 
 @lru_cache(maxsize=4096, typed=True)
 def _affinity(value, affinity: str):
-    """value as SQLite holds it in a column of that affinity."""
+    """The value as SQLite holds it in a column of that affinity."""
     with closing(sqlite3.connect(":memory:")) as s:
         s.execute(f"CREATE TABLE t (v {affinity})")
         s.execute("INSERT INTO t VALUES (?)", (value,))
@@ -63,8 +64,10 @@ def _affinity(value, affinity: str):
 
 
 class Records:
-    """A read-only connection whose `records` view holds one version's rows. A parameter compared
-    with a column goes through param, so it compares as it would against data.sqlite.
+    """A read-only connection whose `records` view holds one version's rows.
+
+    A parameter compared with a column goes through param, so it compares as it would against
+    data.sqlite.
     """
 
     def __init__(self, parquet: Path, names: list[str] | None = None):
@@ -114,10 +117,11 @@ class Records:
         return f"{fn.upper()}({c})"
 
     def param(self, name: str, value):
-        """value as SQLite compares it with the column: text that reads as a number becomes that
-        number against a numeric column, and a number becomes text against a text one. Text that
-        is not a number against a numeric column is refused, since SQLite would rank it above
-        every number.
+        """The value as SQLite compares it with the column.
+
+        Text that reads as a number becomes that number against a numeric column, and a number
+        becomes text against a text one. Text that is not a number against a numeric column is
+        refused, since SQLite would rank it above every number.
         """
         if value is None:
             return None

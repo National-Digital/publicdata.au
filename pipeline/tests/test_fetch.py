@@ -262,8 +262,9 @@ class _Resp:
 
 
 class _Session:
-    """Answers each URL from a table and records what was asked, so an adapter's reads are
-    checked without a network.
+    """Answers each URL from a table and records what was asked.
+
+    An adapter's reads are then checked without a network.
     """
 
     def __init__(self, table):
@@ -362,8 +363,9 @@ def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
 
 
 def _ala_session(rows, lat_of=lambda r: r[2]):
-    """A fake Atlas: rows per provider as (uuid, loaded, latitude, year, extra), filtered by the
-    fq conditions the adapter sends.
+    """A fake Atlas: rows per provider as (uuid, loaded, latitude, year, extra).
+
+    The rows are filtered by the fq conditions the adapter sends.
     """
     from publicdata.fetch import ALA_DEEP, ALA_PAGE
 

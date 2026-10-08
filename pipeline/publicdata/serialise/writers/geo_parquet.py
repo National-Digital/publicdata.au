@@ -32,8 +32,10 @@ def projjson(crs: str) -> dict:
 
 
 def write_shape_parquet(tbl, header: dict, path: Path, lay: dict | None = None) -> None:
-    """A layer's Parquet: the fields as data.parquet always holds them, then the WKB geometry in
-    GDA2020, with the GeoParquet metadata, so every other format of the layer can be made from it.
+    """A layer's Parquet: the fields as data.parquet always holds them, then the geometry.
+
+    The geometry is WKB in GDA2020, with the GeoParquet metadata, so every other format of the
+    layer can be made from it.
     """
     from publicdata.spine import DATUM
 

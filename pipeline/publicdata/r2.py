@@ -90,8 +90,10 @@ def versioned(key: str) -> bool:
 
 
 def dated_file(key: str) -> bool:
-    """A dated version's file, which never changes, or a version's query copy, which push
-    rewrites only when its layout changes. A dated page says whether it is the newest, so it may.
+    """Whether a key is a dated version's file or a version's query copy.
+
+    A dated version's file never changes, and push rewrites a query copy only when its layout
+    changes. A dated page says whether it is the newest, so it may.
     """
     if key.startswith("_q/"):
         return True
@@ -137,9 +139,11 @@ class _Ranged(io.RawIOBase):
 
 
 def _follows(s3, bucket: str, key: str, lay: dict, etags: dict[str, str]) -> bool | None:
-    """Whether the query copy R2 holds at key follows layout lay: True or False from the record
-    beside it, which the listing settles, or, for a copy written before records were kept, from
-    its footer, None meaning it follows but has no record yet.
+    """Whether the query copy R2 holds at key follows layout lay.
+
+    True or False comes from the record beside it, which the listing settles, or, for a copy
+    written before records were kept, from its footer, None meaning it follows but has no record
+    yet.
     """
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -174,10 +178,12 @@ def push(
     include: Callable[[str], bool] = lambda key: True,
     layouts: dict[str, dict] | None = None,
 ) -> int:
-    """Upload every file under root that include accepts. An existing immutable key is skipped unless it starts
-    with one of the replace prefixes, which name the versions whose serialisation was rebuilt on
-    purpose; the version notes for such a rebuild come from the pull request that made the fix. Every key in expect,
-    which a cached build left out, must already be in the bucket, or nothing is uploaded.
+    """Upload every file under root that include accepts.
+
+    An existing immutable key is skipped unless it starts with one of the replace prefixes, which
+    name the versions whose serialisation was rebuilt on purpose; the version notes for such a
+    rebuild come from the pull request that made the fix. Every key in expect, which a cached
+    build left out, must already be in the bucket, or nothing is uploaded.
 
     With layouts, each dataset's layout (`profile.layout`), a query copy is uploaded again only
     when the copy R2 holds follows another, and every query copy in expect must follow its
@@ -266,8 +272,10 @@ def _built_to(p: Path, lay: dict | None) -> bool:
 
 
 def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, etags: dict[str, str]) -> int:
-    """Upload a query copy unless R2's follows lay. The record is written after the upload, so it
-    never names a layout the copy in R2 does not follow.
+    """Upload a query copy unless R2's follows lay.
+
+    The record is written after the upload, so it never names a layout the copy in R2 does not
+    follow.
     """
     if key in etags and (ok := _follows(s3, bucket, key, lay, etags)) is not False:
         if ok is None:
@@ -306,9 +314,10 @@ def pull_store(
     only: tuple[str, ...] = (),
     skip: set[tuple[str, str]] = frozenset(),
 ) -> int:
-    """Fetch every source file a committed manifest names and is missing locally, except the
-    versions in skip, which the build takes from its cache. Only the newest catalogue snapshot is
-    needed to build.
+    """Fetch every source file a committed manifest names and is missing locally.
+
+    The versions in skip are left out, since the build takes them from its cache. Only the newest
+    catalogue snapshot is needed to build.
     """
     from . import store as st
     from .catalogue import SLUG as CATALOGUE
@@ -333,8 +342,9 @@ def pull_store(
 
 
 def downloader(bucket: str) -> Callable[[str, Path], bool]:
-    """download(key, path) for a bucket, False when the key is not there. One client serves every
-    thread.
+    """download(key, path) for a bucket, False when the key is not there.
+
+    One client serves every thread.
     """
     from botocore.exceptions import ClientError
 
@@ -367,10 +377,11 @@ def _missing(e) -> bool:
 
 
 def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = None) -> int:
-    """Copy the build cache down from R2 into root, each entry's meta.json last, so an entry whose
-    files did not all arrive is never taken for whole; an entry deleted while it was copied is
-    left out. With meta_only, the records alone, which is all a plan needs. With entries, only
-    those.
+    """Copy the build cache down from R2 into root, each entry's meta.json last.
+
+    An entry whose files did not all arrive is never taken for whole, and an entry deleted while
+    it was copied is left out. With meta_only, the records alone are copied, which is all a plan
+    needs. With entries, only those are copied.
     """
     from concurrent.futures import ThreadPoolExecutor
 
@@ -440,10 +451,12 @@ def _unused(s3) -> dict[str, str]:
 
 
 def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
-    """Upload the entries under root that R2 lacks or holds in another form, files before each
-    meta.json. With prune, R2's entries that root no longer holds are noted as unused, and those
-    a push noted GRACE_HOURS or more ago are deleted, meta.json first; so run it only from a build
-    that pruned root to the entries the store can use. Returns (uploaded, deleted).
+    """Upload the entries under root that R2 lacks or holds in another form.
+
+    Files go before each meta.json. With prune, R2's entries that root no longer holds are noted
+    as unused, and those a push noted GRACE_HOURS or more ago are deleted, meta.json first; so run
+    it only from a build that pruned root to the entries the store can use. Returns (uploaded,
+    deleted).
     """
     import json
     from concurrent.futures import ThreadPoolExecutor
@@ -507,8 +520,9 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
 
 
 def source_keys(root: Path) -> dict[str, str]:
-    """The raw store key of each publisher's file the versions under root list, by the URL path
-    the /d/ function serves it at.
+    """The raw store key of each publisher's file the versions under root list.
+
+    Each is keyed by the URL path the /d/ function serves it at.
     """
     import json
 
@@ -526,8 +540,9 @@ def source_keys(root: Path) -> dict[str, str]:
 
 
 def check_sources(roots: list[Path], bucket: str = "publicdata-raw") -> int:
-    """Every version under the roots has its publisher's file in the raw store, which is where
-    the site serves it from. Returns how many were checked.
+    """Check every version under the roots has its publisher's file in the raw store.
+
+    The raw store is where the site serves the file from. Returns how many were checked.
     """
     s3 = client()
     want = {}

@@ -138,8 +138,9 @@ def read_json(p: Path):
 
 
 def as_parquet(db: Path) -> Path:
-    """A hand-made data.sqlite's records table as the data.parquet beside it, typed from its
-    declared columns, which is what the build reads now.
+    """A hand-made data.sqlite's records table as the data.parquet beside it.
+
+    It is typed from its declared columns, which is what the build reads now.
     """
     import sqlite3
 

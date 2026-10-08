@@ -312,9 +312,10 @@ def test_a_sorted_version_without_its_order_is_built_again(tmp_path, monkeypatch
 
 
 def test_a_published_parquet_from_an_older_build_is_never_reordered(tmp_path, monkeypatch):
-    """The published tree holds an older, unsorted, unprofiled Parquet of the version: the order
-    the cache recorded belongs to another file, so the version is built again from its source
-    and its other formats keep the publisher's order.
+    """The published tree holds an older, unsorted, unprofiled Parquet of the version.
+
+    The order the cache recorded belongs to another file, so the version is built again from its
+    source and its other formats keep the publisher's order.
     """
     ds = _ds(sort=("year", "place"))
 

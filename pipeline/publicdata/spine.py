@@ -143,8 +143,10 @@ def _shape_path(data: bytes, ext: str, member: str, tmp: Path) -> str:
 
 
 def _read_layer(data: bytes, ext: str, member: str):
-    """The layer loaded into DuckDB as `src`: the connection, the geometry column, the attribute
-    columns cast to text, and the file's order.
+    """The layer loaded into DuckDB as `src`.
+
+    Returns the connection, the geometry column, the attribute columns cast to text, and the
+    file's order.
     """
     con = connect()
     with tempfile.TemporaryDirectory() as t:
@@ -159,8 +161,9 @@ def _read_layer(data: bytes, ext: str, member: str):
 
 
 def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table, pa.Array]:
-    """The layer's attributes as text, in the file's order, and each feature's geometry as WKB in
-    GDA2020. The publisher's datum is the register's `geometry.crs`.
+    """The layer's attributes as text, in the file's order, and each feature's geometry.
+
+    The geometry is WKB in GDA2020. The publisher's datum is the register's `geometry.crs`.
     """
     con, geom, text, order = _read_layer(data, ext, member)
     moved = (
@@ -177,8 +180,10 @@ def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table,
 
 
 def read_points(data: bytes, ext: str, member: str) -> pa.Table:
-    """A point layer's attributes as text and each point's coordinates as published, under the
-    longitude and latitude source names a GeoJSON point is read with.
+    """A point layer's attributes as text and each point's coordinates as published.
+
+    The coordinates go under the longitude and latitude source names a GeoJSON point is read
+    with.
     """
     from .register import LAT_SOURCE, LON_SOURCE
 
@@ -256,8 +261,10 @@ def _layer_entry(slug: str, register_dir: Path) -> str:
 
 
 def spine_versions(keys: tuple[str, ...], store_dir: Path, register_dir: Path) -> str:
-    """What the join reads, for the build cache: each layer's newest source hash and the register
-    entry the layer is normalised with, so a change to either rebuilds the datasets joined to it.
+    """What the join reads, for the build cache.
+
+    That is each layer's newest source hash and the register entry the layer is normalised with,
+    so a change to either rebuilds the datasets joined to it.
     """
     parts = []
     for k in keys:

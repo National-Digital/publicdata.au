@@ -1,6 +1,8 @@
-"""A database dataset: the publisher's archive of delimited tables becomes one DuckDB file, one
-Parquet file per table, a schema and a SQL script. Rows are typed and columns renamed as for a
-single table; nothing is joined, except in the views the publisher ships beside the tables.
+"""A database dataset built from the publisher's archive of delimited tables.
+
+The archive becomes one DuckDB file, one Parquet file per table, a schema and a SQL script. Rows
+are typed and columns renamed as for a single table; nothing is joined, except in the views the
+publisher ships beside the tables.
 
 The archive is read a table at a time through DuckDB, so a release of many gigabytes builds on
 a runner with a few gigabytes of memory.
@@ -56,8 +58,9 @@ def _lit(text: str) -> str:
 
 
 def members(ds: Dataset, names: list[str]) -> dict[str, list[str]]:
-    """The archive's members grouped by the upstream table the register's pattern names, in
-    archive order within each table.
+    """The archive's members grouped by the upstream table the register's pattern names.
+
+    Members keep archive order within each table.
     """
     rx = re.compile(ds.database.member_match)
     out: dict[str, list[str]] = {}
@@ -75,8 +78,9 @@ def _header(z: zipfile.ZipFile, member: str, encoding: str, delimiter: str) -> l
 
 
 def _expr(f: Field, dtype: str) -> str:
-    """The typed value of a text column, by the field's declared type. A value that cannot
-    take the type stops the build, as it does for a single table.
+    """The typed value of a text column, by the field's declared type.
+
+    A value that cannot take the type stops the build, as it does for a single table.
     """
     src = _ident(f.source)
     for v in f.null_values:
@@ -96,8 +100,10 @@ def _expr(f: Field, dtype: str) -> str:
 
 
 def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[str], tmp: Path):
-    """Create the typed table and load each of its members in turn, extracted one at a time so
-    the disk holds one member's text, not a whole table's. Members load in archive order.
+    """Create the typed table and load each of its members in turn.
+
+    Members are extracted one at a time so the disk holds one member's text, not a whole table's.
+    Members load in archive order.
     """
     db = ds.database
     cols = [f"{_ident(f.name)} {DUCKDB_TYPES[f.type]}" for f in t.fields]
@@ -118,8 +124,10 @@ def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[
 
 
 def _write_parquet(con, t: TableSpec, header: dict, path: Path, profiled: bool) -> None:
-    """One table in the publisher's order: under the Parquet profile, a row group at a time, for
-    a version fetched since, and else as the version was first published.
+    """One table in the publisher's order.
+
+    The table is read under the Parquet profile, a row group at a time, for a version fetched
+    since, and else as the version was first published.
     """
     size = profile.ROW_GROUP_ROWS if profiled else 65_536
     reader = con.execute(f"SELECT * FROM {_ident(t.name)}").to_arrow_reader(size)
@@ -183,8 +191,9 @@ def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict:
 
 
 def schema_sql(ds: Dataset, header: dict) -> str:
-    """CREATE TABLE for every table with its keys and references, the views, and how to load
-    the Parquet files, for PostgreSQL and most SQL dialects.
+    """CREATE TABLE for every table with its keys and references, and the views.
+
+    It also says how to load the Parquet files, for PostgreSQL and most SQL dialects.
     """
     files = header["url"].rsplit("/", 1)[0] + "/"
     lines = [
@@ -223,8 +232,9 @@ def schema_sql(ds: Dataset, header: dict) -> str:
 
 
 def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> DatabaseOut:
-    """Write data.duckdb, tables/<name>.parquet, schema.json and schema.sql into vdir. `hdr(rows,
-    rel)` gives the provenance header for a file. Tables load in register order.
+    """Write data.duckdb, tables/<name>.parquet, schema.json and schema.sql into vdir.
+
+    `hdr(rows, rel)` gives the provenance header for a file. Tables load in register order.
     """
     if m.ext != "zip":
         msg = f"{ds.slug}: a database source is a zip, not .{m.ext}"

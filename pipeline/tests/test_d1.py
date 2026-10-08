@@ -281,8 +281,10 @@ def test_every_part_carries_the_run_stamp(tmp_path, site_copy):
 
 
 class FakeD1:
-    """SQLite behind the two calls the loader makes. `plan` says what each file call does:
-    "ok", "error-applied" (applies, then reports an error) or "error" (applies nothing).
+    """SQLite behind the two calls the loader makes.
+
+    `plan` says what each file call does: "ok", "error-applied" (applies, then reports an error)
+    or "error" (applies nothing).
     """
 
     def __init__(self, plan=(), broken=()):
@@ -506,9 +508,11 @@ def test_a_catalogue_row_larger_than_d1_holds_skips_the_index_without_failing(tm
 
 
 def _write_job(folder, slug, version, rows, index=("a",), keep=d1.KEEP):
-    """A load of `rows` one-column rows: the table's creation in part 1, then a row per part,
-    then the part that indexes and registers it. The table is named for the row count, so the
-    same arguments give the same load in every deploy.
+    """A load of `rows` one-column rows.
+
+    The table's creation is in part 1, then a row per part, then the part that indexes and
+    registers it. The table is named for the row count, so the same arguments give the same load
+    in every deploy.
     """
     folder.mkdir(parents=True, exist_ok=True)
     tbl = d1.load_table(slug, version, rows)

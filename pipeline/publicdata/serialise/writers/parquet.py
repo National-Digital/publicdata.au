@@ -19,8 +19,8 @@ def write_parquet(
     lay: dict | None = None,
 ) -> None:
     """The version's Parquet under the layout its manifest records, or `lay` for a query copy.
-    A version fetched before the profile records none and keeps the writer it was published
-    with.
+
+    A version fetched before the profile records none and keeps the writer it was published with.
     """
     lay = tbl.manifest.parquet if lay is None else lay
     if not lay:

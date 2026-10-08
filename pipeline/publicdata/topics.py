@@ -1,5 +1,7 @@
-"""The topics a dataset can be filed under. A register entry names one or more, the home page
-offers them as the way in, and each has a page listing what is served under it.
+"""The topics a dataset can be filed under.
+
+A register entry names one or more, the home page offers them as the way in, and each has a page
+listing what is served under it.
 """
 
 TOPICS: dict[str, dict[str, str]] = {
