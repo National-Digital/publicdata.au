@@ -38,6 +38,12 @@ def repo(tmp_path) -> Path:
     shutil.copy(ROOT / "pipeline" / "pyproject.toml", r / "pipeline" / "pyproject.toml")
     (r / "clients" / "python").mkdir(parents=True)
     shutil.copy(ROOT / "clients" / "python" / "pyproject.toml", r / "clients" / "python")
+    # Each tree is a package, as in the repository, so a sample file meets INP001 and D104.
+    (r / "pipeline" / "publicdata").mkdir()
+    (r / "pipeline" / "publicdata" / "__init__.py").write_text('"""Pipeline."""\n')
+    client = r / "clients" / "python" / "src" / "publicdata_au"
+    client.mkdir(parents=True)
+    (client / "__init__.py").write_text('"""Client."""\n')
     path = [_bin(tmp_path)]
     for args in (
         ["init", "-q", "-b", "main"],
@@ -90,16 +96,17 @@ def test_pre_commit_stops_a_lint_error_in_the_python_client(repo, tmp_path):
 @needs_ruff
 def test_each_python_tree_is_checked_with_its_own_settings(repo, tmp_path):
     # UP017 needs Python 3.11, which the pipeline targets and the client does not.
-    code = "import datetime\n\nX = datetime.timezone.utc\n"
+    code = '"""UTC."""\n\nimport datetime\n\nX = datetime.timezone.utc\n'
     path = [_bin(tmp_path, ruff=RUFF)]
-    assert _commit(repo, {"clients/python/src/utc.py": code}, path).returncode == 0
+    out = _commit(repo, {"clients/python/src/publicdata_au/utc.py": code}, path)
+    assert out.returncode == 0, out.stdout + out.stderr
     out = _commit(repo, {"pipeline/publicdata/utc.py": code}, path)
     assert out.returncode != 0
     assert "UP017" in out.stdout + out.stderr
     # ruff's defaults leave UP out, so this fails only under the client's own settings.
     _run([GIT, "reset", "-q", "--hard"], repo, path, check=True)
-    old = "from typing import Optional\n\nX: Optional[int] = None\n"
-    out = _commit(repo, {"clients/python/src/old.py": old}, path)
+    old = '"""Old."""\n\nfrom typing import Optional\n\nX: Optional[int] = None\n'
+    out = _commit(repo, {"clients/python/src/publicdata_au/old.py": old}, path)
     assert out.returncode != 0
     assert "UP0" in out.stdout + out.stderr
 
@@ -108,7 +115,7 @@ def test_each_python_tree_is_checked_with_its_own_settings(repo, tmp_path):
 def test_pre_commit_checks_the_staged_content(repo, tmp_path):
     path = [_bin(tmp_path, ruff=RUFF)]
     f = repo / "pipeline" / "publicdata" / "bad.py"
-    f.parent.mkdir(parents=True)
+    f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("import os\n", encoding="utf-8")
     _run([GIT, "add", "."], repo, path, check=True)
     f.write_text("", encoding="utf-8")
@@ -118,7 +125,7 @@ def test_pre_commit_checks_the_staged_content(repo, tmp_path):
 @needs_ruff
 def test_a_clean_commit_passes_with_one_sign_off(repo, tmp_path):
     path = [_bin(tmp_path, ruff=RUFF)]
-    out = _commit(repo, {"pipeline/publicdata/good.py": "X = 1\n"}, path)
+    out = _commit(repo, {"pipeline/publicdata/good.py": '"""Good."""\n\nX = 1\n'}, path)
     assert out.returncode == 0, out.stdout + out.stderr
     _run([GIT, "commit", "-q", "-s", "--amend", "--no-edit"], repo, path, check=True)
     body = _run([GIT, "log", "-1", "--format=%B"], repo, path, check=True).stdout
