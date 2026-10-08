@@ -25,5 +25,3 @@ node_modules/
 .venv*/
 clients/*/dist/
 
-# Licensed for the site only; store pull fetches them from R2.
-pipeline/publicdata/static/fonts/

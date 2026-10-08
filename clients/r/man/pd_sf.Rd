@@ -12,7 +12,8 @@ pd_sf(slug, version = NULL, cache = NULL)
 \item{version}{A version date from [pd_versions()]. The newest when `NULL`.}
 
 \item{cache}{Keep the file in [pd_cache_dir()] and reuse it next time.
-Versions never change, so a kept file never goes stale. Off unless
+A correction to a version is recorded in its notes, and
+[pd_cache_clear()] removes the old copy. Off unless
 `options(publicdataau.cache = TRUE)` is set.}
 }
 \value{

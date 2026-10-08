@@ -171,7 +171,7 @@ def push(
 ) -> int:
     """Upload every file under root that include accepts. An existing immutable key is skipped unless it starts
     with one of the replace prefixes, which name the versions whose serialisation was rebuilt on
-    purpose; the version notes for such a rebuild are committed separately. Every key in expect,
+    purpose; the version notes for such a rebuild come from the pull request that made the fix. Every key in expect,
     which a cached build left out, must already be in the bucket, or nothing is uploaded.
 
     With layouts, each dataset's layout (`profile.layout`), a query copy is uploaded again only
@@ -349,25 +349,6 @@ def pull_store(
                 n += 1
             except Exception:  # noqa: BLE001 - absent until the feed's first quiet read
                 dest.unlink(missing_ok=True)
-    return n
-
-
-def pull_fonts(dest: Path, bucket: str = "publicdata-raw") -> int:
-    """Fetch the brand fonts the repository leaves out, checked against their pinned hashes."""
-    from .brand import FONT_KEY, FONT_SHA256
-
-    s3 = client()
-    dest.mkdir(parents=True, exist_ok=True)
-    n = 0
-    for name, sha in FONT_SHA256.items():
-        p = dest / name
-        if p.is_file() and _sha256(p) == sha:
-            continue
-        s3.download_file(bucket, FONT_KEY + name, str(p))
-        if _sha256(p) != sha:
-            p.unlink()
-            sys.exit(f"{bucket}/{FONT_KEY}{name} does not match its pinned SHA-256")
-        n += 1
     return n
 
 

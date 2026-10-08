@@ -47,7 +47,7 @@
 </div>
 
 <h2 id="get">{% if formats|length > 3 %}Download it as {{ formats[0].label }}, {{ formats[1].label }}, {{ formats[2].label }} and {{ format_count - 3 }} more formats{% else %}Download it as {{ formats|map(attribute='label')|join(' or ') }}{% endif %}</h2>
-<p>Pick a format and a version. {{ formats[0].label }} is picked first because it opens in the tools most offices have. The URL is yours to keep. A dated version never changes.</p>
+<p>Pick a format and a version. {{ formats[0].label }} is picked first because it opens in the tools most offices have. The URL is yours to keep. A dated version keeps its content.</p>
 <div class="getter" id="getter">
   <div class="row"><span class="lab" id="fmt-lab">Format</span>
     <div class="seg" role="group" aria-labelledby="fmt-lab" id="fmt-seg">
@@ -59,7 +59,7 @@
       <option value="latest">Latest ({{ latest.version }}{% if latest.as_at %}, as at {{ latest.as_at_long }}{% endif %})</option>
       {% for v in versions|reverse %}<option value="{{ v.version }}">{{ v.version }}{% if v.as_at %} · as at {{ v.as_at_long }}{% endif %}{% if v.backfilled %} (backfilled){% endif %}</option>{% endfor %}
     </select>
-    <span class="fmt-note">"Latest" redirects to the newest version and will change when the publisher releases again. A dated version never changes.</span>
+    <span class="fmt-note">"Latest" redirects to the newest version and will change when the publisher releases again. A dated version keeps its content.</span>
   </div>
   <div class="urlbox"><div class="path" id="url" tabindex="0">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}" download="{{ download_name(ds.slug, latest.version, formats[0].file) }}">Download</a></div>
   <p class="fmt-note" id="fmt-note"></p>

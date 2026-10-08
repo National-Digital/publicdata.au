@@ -72,7 +72,7 @@ rate <- pd_read("rba-cash-rate")
 tail(rate, 3)
 ```
 
-A version never changes once published, so a file can be kept and reused. Nothing is kept unless you ask, with `cache = TRUE` on a call or `options(publicdataau.cache = TRUE)` for every call; `pd_cache_list()` shows what is kept and `pd_cache_clear()` deletes it.
+A version keeps its content once published, so a file can be kept and reused. A correction to a version is recorded in its notes, and `pd_cache_clear()` removes the old copy. Nothing is kept unless you ask, with `cache = TRUE` on a call or `options(publicdataau.cache = TRUE)` for every call; `pd_cache_list()` shows what is kept and `pd_cache_clear()` deletes it.
 
 ## Query a version in place with dplyr
 
@@ -121,7 +121,7 @@ pd_provenance("act-road-crashes")
 
 ## Reproducible work
 
-An answer without a version comes from the newest one and changes when the publisher releases again. Pass a date from `pd_versions()` for one that never changes. `pd_url()` gives a fixed file address for another tool, such as a 'targets' pipeline with `format = "url"`.
+An answer without a version comes from the newest one and changes when the publisher releases again. Pass a date from `pd_versions()` for one from that version alone. `pd_url()` gives a fixed file address for another tool, such as a 'targets' pipeline with `format = "url"`.
 
 ```{r}
 pd_url("act-road-crashes", "parquet", pd_latest("act-road-crashes"))

@@ -490,8 +490,7 @@ def cmd_d1_load(args) -> int:
 
 
 def cmd_store(args) -> int:
-    from .brand import FONTS
-    from .r2 import pull_fonts, pull_store, push
+    from .r2 import pull_store, push
 
     store_dir = Path(args.store)
     if args.sub == "pull" and args.rolling:
@@ -505,10 +504,7 @@ def cmd_store(args) -> int:
     elif args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
-        fonts = pull_fonts(FONTS)
-        print(
-            f"store pull: {n} file(s), {fonts} font(s), {len(cached)} version(s) already built in the cache"
-        )
+        print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
     else:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)
@@ -604,10 +600,18 @@ VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
 def cmd_spine_install(args) -> int:
-    from .spine import install
+    from .extension import install
 
     install()
     print("spine: DuckDB spatial extension installed")
+    return 0
+
+
+def cmd_spine_mirror(args) -> int:
+    from .extension import mirror
+
+    pin = mirror(Path(args.pin))
+    print(f"spine: pinned {pin['url']} ({pin['sha256']})")
     return 0
 
 
@@ -645,7 +649,7 @@ def cmd_dist_push(args) -> int:
 def cmd_purge(args) -> int:
     import os
 
-    from .edge import purge
+    from .edge import purge, with_answers
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
@@ -655,7 +659,7 @@ def cmd_purge(args) -> int:
     if not token:
         print("purge: CLOUDFLARE_PURGE_TOKEN is not set")
         return 2
-    print(f"purge: {purge(args.prefix, token)} prefix(es) purged from the edge")
+    print(f"purge: {purge(with_answers(args.prefix), token)} prefix(es) purged from the edge")
     return 0
 
 
@@ -868,8 +872,11 @@ def cmd_cost(args) -> int:
             return 2
         base, paths = cost.changed_paths(args.base, root)
         entries = cost.changed_entries(register, paths, root)
-        changed |= set(entries)
-        fresh, reshaped = cost.entry_changes(root, base, entries)
+        priced = cost.costed(root, base, entries)
+        if same := sorted(set(entries) - priced):
+            print(f"cost: {', '.join(same)}: edited, but nothing the projection reads changed")
+        changed |= priced
+        fresh, reshaped = cost.entry_changes(root, base, {s: entries[s] for s in priced})
     approve = None
     if args.github_pr:
         repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
@@ -976,7 +983,9 @@ def main(argv=None) -> int:
         help="where a cached version's Parquet is read back from, as the site lays it out",
     )
     b.set_defaults(fn=cmd_build)
-    pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
+    pg = sub.add_parser(
+        "purge", help="purge replaced versions and their query API answers from the edge cache"
+    )
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
     pg.set_defaults(fn=cmd_purge)
     sh = sub.add_parser("shards", help="split the versions the cache cannot serve over build jobs")
@@ -1103,6 +1112,11 @@ def main(argv=None) -> int:
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
     ).set_defaults(fn=cmd_spine_install)
+    sm = sp.add_parser(
+        "mirror", help="copy the spatial extension for the installed DuckDB to R2 and pin it"
+    )
+    sm.add_argument("--pin", required=True, help="the spatial-extension.json to write")
+    sm.set_defaults(fn=cmd_spine_mirror)
     hb = sub.add_parser("hubs", help="copy each dataset's newest version to the data hubs")
     hb.add_argument("--site", default="https://publicdata.au")
     hb.add_argument("--hub", nargs="*", default=["huggingface", "zenodo", "kaggle"])

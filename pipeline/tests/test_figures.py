@@ -67,6 +67,72 @@ def test_a_part_year_is_left_out_and_named(tmp_path):
     assert fig["years"] == "2023 to 2024" and "<svg" in fig["spark"]
 
 
+def test_a_financial_year_is_drawn_and_named_as_the_publisher_writes_it(tmp_path):
+    db = tmp_path / "data.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE records (financial_year TEXT, grp TEXT, amount REAL)")
+    con.executemany(
+        "INSERT INTO records VALUES (?, ?, ?)",
+        [
+            ("2017-18", "Metallic", 4.0),
+            ("2017-18", "Energy", 1.0),
+            ("2018-19", "Metallic", 5.0),
+            ("2025-26", "Metallic", 2.0),
+            ("Total", "Metallic", 99.0),
+        ],
+    )
+    con.commit()
+    con.close()
+    db = as_parquet(db)
+    s = figures.series(db, "financial_year", "financial", "grp", "sum.amount", "2026-03-31")
+    # 2025-26 runs to June 2026, after the cut-off; a value that is no financial year is no year.
+    assert s["years"] == [2017, 2018] and s["partial"] == [2025]
+    assert s["values"][2017] == {"Energy": 1.0, "Metallic": 4.0}
+    assert figures.year_span(s) == "2017-18 to 2018-19"
+    assert ">2018-19</text>" in figures.stacked_svg(s, "Amount")
+    ds = make_dataset(
+        [
+            SimpleNamespace(name="financial_year", type="string", display="Financial year"),
+            SimpleNamespace(name="grp", type="string", display="Group"),
+            SimpleNamespace(name="amount", type="number", display="Amount"),
+        ],
+        chart={
+            "where": (),
+            "split": "grp",
+            "metric": "sum.amount",
+            "label": "Amount",
+            "year": "financial_year",
+        },
+    )
+    assert figures.year_field(ds) == ("financial_year", "financial")
+    m = SimpleNamespace(as_at="2026-03-31", fetched_at="2026-04-01T00:00:00+00:00")
+    fig = figures.dataset_figures(ds, m, None, db, tmp_path)
+    assert fig["chart_caption"].startswith(
+        "Amount per financial year by group, 2017-18 to 2018-19."
+    )
+    assert "2025-26 is not drawn" in fig["chart_caption"]
+
+
+def test_a_financial_year_is_read_however_the_publisher_writes_it():
+    starts = {
+        "2018-19": 2018,
+        "2011\u201312": 2011,
+        "2008/09": 2008,
+        "1931/1932": 1931,
+        "2011-2012": 2011,
+        "Detail Data 2008 - 2009": 2008,
+        "FY201213": 2012,
+        "FY24-25": 2024,
+        # Australia names a financial year by the year it ends.
+        "FY2010": 2009,
+        "1999-00": 1999,
+    }
+    for text, year in starts.items():
+        assert figures.financial_start(text) == year, text
+    for text in ("2015", "Total", "2011-13", "2010-2012", "FY24-26", "2019-20 to 2020-21", ""):
+        assert figures.financial_start(text) is None, text
+
+
 def test_the_year_comes_from_an_integer_year_field_before_a_date():
     ds = make_dataset(
         [
