@@ -38,8 +38,11 @@ jobs:
           activate-environment: true
       - run: uv pip install -e '.[pandas,duckdb,geo,dev]'
       - run: ruff check . && ruff format --check .
-      # pyproject.toml checks the types against Python 3.10, the oldest it claims.
+      # pyproject.toml checks the types against Python 3.10, the oldest it claims, which holds the
+      # client to 3.10's syntax and standard library. pandas-stubs reads as Any there, so a second
+      # run against 3.14 checks the pandas and geopandas code.
       - run: mypy
+      - run: mypy --python-version 3.14
       - run: pytest -q tests
       - name: The oldest Python pyproject.toml claims passes the tests too
         run: |

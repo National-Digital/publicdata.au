@@ -391,9 +391,11 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   fixes ruff is sure of. Since `ALL` means every rule the pinned version knows, a ruff upgrade
   goes in a pull request of its own that fixes the findings its new rules bring.
 - Both Python packages are type checked by mypy in strict mode, tests included. mypy, the stub
-  packages and its settings are pinned in each `pyproject.toml`. Run `mypy` in `pipeline/` or
-  `clients/python/`, as CI does. The client is checked against Python 3.10, the oldest it
-  supports. An ignore names its code and gives its reason on the same line, as in
+  packages and its settings are pinned in each `pyproject.toml`. Run `mypy` in `pipeline/`. The
+  client takes two runs in `clients/python/`, as CI does. `mypy` checks it against Python 3.10,
+  the oldest it supports, which holds it to 3.10's syntax and standard library; pandas-stubs
+  reads as Any there. `mypy --python-version 3.14` checks its pandas and geopandas code. An
+  ignore names its code and gives its reason on the same line, as in
   `# type: ignore[attr-defined]  # the stubs lack Table.sort_by`, and mypy fails one that is no
   longer needed.
 - Before writing a helper, search for one that already exists. Follow the conventions of the
