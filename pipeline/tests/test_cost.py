@@ -5,8 +5,11 @@ import io
 import json
 import subprocess
 import urllib.error
+import urllib.request
 import zipfile
 from dataclasses import replace
+from email.message import Message
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 import pytest
 
@@ -14,21 +17,25 @@ from publicdata import cache, cadence, cost, fetch
 from publicdata.__main__ import main
 from publicdata.build import _size
 from publicdata.d1 import queryable
-from publicdata.register import Field, Source, load
+from publicdata.register import Dataset, Field, Source, load
 
-from .conftest import ROOT, make_dataset, make_manifest
+from .conftest import ROOT, make_dataset, make_manifest, present
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+    from pathlib import Path
 
 TODAY = dt.date(2026, 10, 6)
 PAGES = {"index.html", "index.md"}
 GB = cost.GB
 
 
-def entry(slug, cadence="", **kw):
+def entry(slug: str, cadence: str = "", **kw: object) -> Dataset:
     src = Source(adapter="file", url=f"https://example.gov.au/{slug}.csv", cadence=cadence)
     return make_dataset([Field("a", "string")], **{"slug": slug, "source": src, **kw})
 
 
-def stored(root, slug, *versions, size=1000):
+def stored(root: Path, slug: str, *versions: str, size: int = 1000) -> None:
     for v in versions:
         d = root / slug / v
         d.mkdir(parents=True)
@@ -37,7 +44,7 @@ def stored(root, slug, *versions, size=1000):
         )
 
 
-def catalog(**sizes):
+def catalog(**sizes: dict[str, int]) -> dict[str, Any]:
     return {
         "dataset": [
             {
@@ -78,7 +85,7 @@ def catalog(**sizes):
         ("no new readings since April 2025", 0),
     ],
 )
-def test_a_declared_cadence_names_a_rate(text, n):
+def test_a_declared_cadence_names_a_rate(text: str, n: int) -> None:
     assert cadence.per_year(text, today=TODAY) == n
 
 
@@ -92,11 +99,11 @@ def test_a_declared_cadence_names_a_rate(text, n):
         ("monthly until 2025", 0),
     ],
 )
-def test_an_end_date_ends_the_rate_only_once_it_has_passed(text, n):
+def test_an_end_date_ends_the_rate_only_once_it_has_passed(text: str, n: int) -> None:
     assert cadence.per_year(text, today=TODAY) == n
 
 
-def test_the_rate_is_the_larger_of_declared_and_observed_and_capped():
+def test_the_rate_is_the_larger_of_declared_and_observed_and_capped() -> None:
     assert cadence.per_year("when the publisher updates the list") is None
     assert cadence.per_year("", feed=True) == 365
     ds = entry("t", "as required")
@@ -115,14 +122,14 @@ def test_the_rate_is_the_larger_of_declared_and_observed_and_capped():
     assert cost.versions_per_year(replace(ds, status="blocked"), [], TODAY)[0] == 0
 
 
-def test_a_new_entry_counts_at_least_one_version_a_year():
+def test_a_new_entry_counts_at_least_one_version_a_year() -> None:
     # Its first fetch stores a version whatever the cadence says.
     assert cost.versions_per_year(entry("t", "closed"), [], TODAY) == (1, "cadence")
     assert cost.versions_per_year(entry("t", "monthly until June 2024"), [], TODAY)[0] == 1
     assert cost.versions_per_year(entry("t", "weekly until 2030"), [], TODAY) == (52, "cadence")
 
 
-def test_an_ended_cadence_cannot_zero_a_stored_entry(tmp_path):
+def test_an_ended_cadence_cannot_zero_a_stored_entry(tmp_path: Path) -> None:
     # The fetch still stores a version when the file changes, and a moved source always does.
     for cad in ("closed", "no longer updated", "monthly until June 2024"):
         assert cost.versions_per_year(entry("t", cad), ["2024-01-01"], TODAY) == (1, "observed")
@@ -134,13 +141,13 @@ def test_an_ended_cadence_cannot_zero_a_stored_entry(tmp_path):
     assert out.over_budget
 
 
-def test_observed_versions_are_not_capped_at_one_a_week():
+def test_observed_versions_are_not_capped_at_one_a_week() -> None:
     # Manual and backfill runs stored six versions of one entry in a week.
     week = [f"2026-09-{d:02d}" for d in range(20, 26)] * 10
     assert cost.versions_per_year(entry("t", "weekly"), week, TODAY) == (60, "observed")
 
 
-def test_kaggle_frequency_reads_the_same_rate():
+def test_kaggle_frequency_reads_the_same_rate() -> None:
     assert [cadence.kaggle_frequency(c) for c in ("daily", "weekly", "monthly", "quarterly")] == [
         "daily",
         "weekly",
@@ -214,22 +221,22 @@ KAGGLE = {
 
 
 @pytest.mark.parametrize(("choice", "text"), [(k, t) for k, ts in KAGGLE.items() for t in ts])
-def test_each_register_cadence_keeps_its_kaggle_choice(choice, text):
+def test_each_register_cadence_keeps_its_kaggle_choice(choice: str, text: str) -> None:
     assert cadence.kaggle_frequency(text) == choice
 
 
-def test_measured_bytes_count_the_source_once_and_the_partitions():
+def test_measured_bytes_count_the_source_once_and_the_partitions() -> None:
     files = {"data.parquet": 10, "data.ndjson": 100, "data.geojson": 200}
     ds = entry("t")
     # The raw store holds the publisher's file once, withheld or not.
     assert cost.measured_bytes(ds, files, 5) == 315
     assert cost.measured_bytes(replace(ds, source_withheld="terms"), files, 5) == 315
     # A table too large for data.json still writes its partitions as JSON.
-    parted = replace(ds, partition_by=("a", "b"), geometry={"kind": "point"})
+    parted = replace(ds, partition_by=("a", "b"), geometry={"kind": "point", "crs": "EPSG:4326"})
     assert cost.measured_bytes(parted, files, 0) == 310 + 2 * 300
 
 
-def test_the_catalogue_is_summed_by_file_so_a_database_keeps_every_table():
+def test_the_catalogue_is_summed_by_file_so_a_database_keeps_every_table() -> None:
     rec = {
         "identifier": "db",
         "versionInfo": "2026-10-01",
@@ -245,7 +252,7 @@ def test_the_catalogue_is_summed_by_file_so_a_database_keeps_every_table():
     assert files == {"data.duckdb": 250_000_000, "tables/a.parquet": 7, "tables/b.parquet": 9}
 
 
-def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
+def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path: Path) -> None:
     stored(tmp_path, "served", "2026-10-01", size=GB)
     stored(tmp_path, "stored", "2026-10-01", size=GB)
     stored(tmp_path, "moved", "2026-10-01", size=1000)
@@ -255,7 +262,7 @@ def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
     ds = [entry(s, "monthly") for s in ("served", "stored", "probed", "new", "moved")]
     sized = {"probed": GB // 10, "moved": GB // 100}
 
-    def prober(d):
+    def prober(d: Dataset) -> cost.Sized:
         if d.slug not in sized:
             msg = "the socrata adapter's source is not sized ahead of a fetch"
             raise cost.Unsized(msg)
@@ -276,7 +283,9 @@ def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
     assert p["served"].over_budget
 
 
-def test_a_ckan_entry_is_probed_at_the_resource_it_resolves_to(monkeypatch):
+def test_a_ckan_entry_is_probed_at_the_resource_it_resolves_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     ds = make_dataset([Field("a", "string")], source=Source(adapter="ckan-resource",
         url="https://example.gov.au/dataset/p", portal="https://example.gov.au", package="p", resource="r1"))  # fmt: skip
     resources = [
@@ -297,16 +306,16 @@ def test_a_ckan_entry_is_probed_at_the_resource_it_resolves_to(monkeypatch):
 
 
 @pytest.mark.parametrize("cad", ["weekly until 2030", "closed", "Closed"])
-def test_a_new_entry_cannot_project_zero_from_its_cadence(tmp_path, cad):
+def test_a_new_entry_cannot_project_zero_from_its_cadence(tmp_path: Path, cad: str) -> None:
     ds = [entry("copy", cad)]
     out = cost.project(ds, tmp_path, {}, TODAY, frozenset({"copy"}), prober=lambda d: cost.Sized(GB),
                        probing=True)[0]  # fmt: skip
     assert out.per_year >= 1
-    assert out.gb_per_year >= 13
+    assert present(out.gb_per_year) >= 13
     assert out.over_budget
 
 
-def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
+def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path: Path) -> None:
     stored(tmp_path, "crime", "2026-10-01", size=GB // 10)
     sizes = cost.catalogue_sizes(catalog(crime={"parquet": 2 * GB}))
     ds = [entry("crime", "quarterly")]
@@ -318,7 +327,7 @@ def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
                        prober=lambda d: cost.Sized(GB), probing=True)[0]  # fmt: skip
     assert (big.bytes_per_version, big.basis) == (14 * GB, "estimate")
 
-    def lost_host(d):
+    def lost_host(d: Dataset) -> cost.Sized:
         msg = "the source could not be read (IncompleteRead)"
         raise cost.Unsized(msg)
 
@@ -330,11 +339,11 @@ def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
     assert "IncompleteRead" in lost.note
 
 
-def test_a_ckan_landing_page_edit_is_not_a_moved_source(tmp_path):
-    def git(*a):
+def test_a_ckan_landing_page_edit_is_not_a_moved_source(tmp_path: Path) -> None:
+    def git(*a: str) -> None:
         subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
 
-    def write(slug, url, resource="r1", adapter="ckan-resource"):
+    def write(slug: str, url: str, resource: str = "r1", adapter: str = "ckan-resource") -> None:
         (tmp_path / "register" / f"{slug}.yaml").write_text(
             f"source:\n  adapter: {adapter}\n  url: {url}\n  resource: {resource}\n", "utf-8"
         )
@@ -352,39 +361,41 @@ def test_a_ckan_landing_page_edit_is_not_a_moved_source(tmp_path):
     assert cost.entry_changes(tmp_path, "HEAD", entries)[0] == {"res", "file"}
 
 
-def test_a_host_that_refuses_head_is_sized_from_a_get_it_does_not_read(monkeypatch):
+def test_a_host_that_refuses_head_is_sized_from_a_get_it_does_not_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Resp:
-        def __init__(self, headers):
+        def __init__(self, headers: dict[str, str]) -> None:
             self.headers = headers
 
-        def geturl(self):
+        def geturl(self) -> str:
             return "https://bucket.example/f.csv?sig=1"
 
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, *a):
+        def __exit__(self, *a: object) -> Literal[False]:
             return False
 
-    seen = []
+    seen: list[tuple[str, str, str | None]] = []
 
-    def urlopen(req, timeout):
+    def urlopen(req: urllib.request.Request, timeout: float) -> Resp:
         seen.append((req.get_method(), req.full_url, req.get_header("Range")))
         if req.get_method() == "HEAD":
-            raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+            raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", Message(), None)
         if req.get_header("Range") is None:
             return Resp({"Content-Type": "text/csv"})
         return Resp({"Content-Range": "bytes 0-0/987654"})
 
-    monkeypatch.setattr(cost.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     url = "https://example.gov.au/f.csv"
     assert cost._size(url, 5) == (987654, "text/csv", "https://bucket.example/f.csv?sig=1")
     # The range goes to the file the redirect reached, never to the redirect itself.
     assert seen[-1] == ("GET", "https://bucket.example/f.csv?sig=1", "bytes=0-0")
 
 
-def _repo(tmp_path, files):
-    def git(*a):
+def _repo(tmp_path: Path, files: dict[str, str]) -> Callable[..., None]:
+    def git(*a: str) -> None:
         subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
 
     git("init", "-q")
@@ -421,7 +432,12 @@ fields:
         (BASE.replace("https://x/a", "https://x/b"), True, False),
     ],
 )
-def test_an_edit_to_what_a_version_publishes_counts_as_moved(tmp_path, edit, moved, reshaped):
+def test_an_edit_to_what_a_version_publishes_counts_as_moved(
+    tmp_path: Path,
+    edit: str,
+    moved: bool,  # noqa: FBT001 - pytest passes parametrized values by name
+    reshaped: bool,  # noqa: FBT001 - pytest passes parametrized values by name
+) -> None:
     _repo(tmp_path, {"register/a.yaml": BASE})
     (tmp_path / "register" / "a.yaml").write_text(edit, "utf-8")
     fresh, shaped = cost.entry_changes(tmp_path, "HEAD", {"a": "register/a.yaml"})
@@ -484,7 +500,7 @@ def test_the_gate_passes_a_copy_edit_to_an_entry_over_budget(tmp_path, capsys, m
     assert "OVER BUDGET" in capsys.readouterr().out
 
 
-def test_an_entry_moved_into_a_folder_is_compared_with_its_base_copy(tmp_path):
+def test_an_entry_moved_into_a_folder_is_compared_with_its_base_copy(tmp_path: Path) -> None:
     git = _repo(tmp_path, {"register/a.yaml": BASE, "register/b.yaml": BASE})
     (tmp_path / "register" / "qld").mkdir()
     git("mv", "register/a.yaml", "register/qld/a.yaml")
@@ -496,7 +512,7 @@ def test_an_entry_moved_into_a_folder_is_compared_with_its_base_copy(tmp_path):
     assert cost.entry_changes(tmp_path, "HEAD", {"c": "register/qld/a.yaml"})[0] == {"c"}
 
 
-def test_a_new_partition_counts_the_rebuild_of_every_stored_version(tmp_path):
+def test_a_new_partition_counts_the_rebuild_of_every_stored_version(tmp_path: Path) -> None:
     stored(tmp_path, "crime", *(f"2026-0{m}-01" for m in range(1, 10)), size=0)
     sizes = cost.catalogue_sizes(catalog(crime={"parquet": 10**8, "ndjson": 3 * 10**8}))
     ds = [replace(entry("crime", "yearly"), partition_by=("a",))]
@@ -513,8 +529,8 @@ def test_a_new_partition_counts_the_rebuild_of_every_stored_version(tmp_path):
     assert same.rebuild_bytes == 0
 
 
-def test_a_moved_source_is_found_against_the_base(tmp_path):
-    def git(*a):
+def test_a_moved_source_is_found_against_the_base(tmp_path: Path) -> None:
+    def git(*a: str) -> None:
         subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
 
     git("init", "-q")
@@ -531,14 +547,19 @@ def test_a_moved_source_is_found_against_the_base(tmp_path):
     assert cost.entry_changes(tmp_path, "HEAD", entries) == ({"a"}, {})
 
 
-def test_the_gate_fails_a_changed_entry_over_budget(tmp_path):
+def test_the_gate_fails_a_changed_entry_over_budget(tmp_path: Path) -> None:
     stored(tmp_path, "big", "2026-10-01", size=GB)
     stored(tmp_path, "small", "2026-10-01", size=1000)
     ds = [entry("big", "weekly"), entry("small", "weekly")]
     cat = tmp_path / "catalog.json"
     cat.write_text(json.dumps(catalog()), "utf-8")
     summary = tmp_path / "summary.md"
-    run = {"datasets": ds, "store_dir": tmp_path, "catalog_src": str(cat), "today": TODAY}
+    run: dict[str, Any] = {
+        "datasets": ds,
+        "store_dir": tmp_path,
+        "catalog_src": str(cat),
+        "today": TODAY,
+    }
     assert cost.run(changed={"big"}, summary=str(summary), rows={}, **run) == 1
     text = summary.read_text("utf-8")
     assert "| `big` | 14.000 (estimate) | 52 (cadence) | 0.000 | 728.000 | 3,640,000,000 | yes |" in text  # fmt: skip
@@ -550,7 +571,7 @@ def test_the_gate_fails_a_changed_entry_over_budget(tmp_path):
     assert cost.run(changed={"big"}, approve=lambda: (False, "author"), rows={}, **run) == 1
     assert cost.run(changed={"small"}, rows={}, **run) == 0
 
-    def never():
+    def never() -> tuple[bool, str]:
         msg = "an entry within budget needs no approval"
         raise AssertionError(msg)
 
@@ -559,7 +580,7 @@ def test_the_gate_fails_a_changed_entry_over_budget(tmp_path):
     assert cost.run(changed=set(), rows={}, **run) == 0
 
 
-def test_only_register_entries_count_as_changed(tmp_path):
+def test_only_register_entries_count_as_changed(tmp_path: Path) -> None:
     reg = tmp_path / "register"
     (reg / "publishers").mkdir(parents=True)
     (reg / "a.yaml").write_text("{}", "utf-8")
@@ -573,7 +594,9 @@ def test_only_register_entries_count_as_changed(tmp_path):
     assert cost.changed_entries(reg, paths, tmp_path) == {"a": "register/a.yaml"}
 
 
-def test_the_cli_reads_a_catalogue_file(tmp_path, capsys, monkeypatch):
+def test_the_cli_reads_a_catalogue_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     cat = tmp_path / "catalog.json"
     cat.write_text(json.dumps(catalog(**{"qld-road-casualties": {"parquet": 1}})), "utf-8")
     store = ROOT / "pipeline" / "tests" / "fixtures" / "store"
@@ -583,21 +606,25 @@ def test_the_cli_reads_a_catalogue_file(tmp_path, capsys, monkeypatch):
     assert "GB a year projected" in capsys.readouterr().out
 
 
-def test_an_unreadable_catalogue_fails_a_changed_entry_closed(tmp_path):
+def test_an_unreadable_catalogue_fails_a_changed_entry_closed(tmp_path: Path) -> None:
     stored(tmp_path, "t", "2026-10-01", size=1000)
     summary = tmp_path / "s.md"
-    run = {"store_dir": tmp_path, "catalog_src": str(tmp_path / "missing.json"), "today": TODAY}
+    run: dict[str, Any] = {
+        "store_dir": tmp_path,
+        "catalog_src": str(tmp_path / "missing.json"),
+        "today": TODAY,
+    }
     assert cost.run([entry("t", "yearly")], changed={"t"}, summary=str(summary), **run) == 1
     assert "could not be read" in summary.read_text("utf-8")
     assert cost.run([entry("t", "yearly")], changed=set(), **run) == 0
 
 
-def test_an_unknown_slug_is_refused(tmp_path):
+def test_an_unknown_slug_is_refused(tmp_path: Path) -> None:
     rc = cost.run([entry("t")], tmp_path, str(tmp_path / "c.json"), {"typo"}, TODAY)
     assert rc == 2
 
 
-def test_the_fleet_counts_storage_cumulatively_and_d1_rows():
+def test_the_fleet_counts_storage_cumulatively_and_d1_rows() -> None:
     p = cost.Projection("t", 20 * GB, "measured", 1, "cadence", 1, d1_loaded=True, d1_rows=5,
                         d1_indexes=2)  # fmt: skip
     f = cost.fleet([p])
@@ -605,12 +632,12 @@ def test_the_fleet_counts_storage_cumulatively_and_d1_rows():
     assert set(f.as_json()) == {"stored_bytes", "growth_bytes_per_year", "d1_rows_written_per_year"}
 
 
-def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
+def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site: Path) -> None:
     health = json.loads((fixture_site / "health.json").read_text("utf-8"))
     s = health["storage"]
     assert not any("usd" in k for k in s)
     stored = 0
-    latest = {}
+    latest: dict[str, tuple[int, int, Path]] = {}
     for vdir in sorted(fixture_site.glob("d/*/v/*")):
         # The version's pages are written by the site after the build counts its files.
         files = [
@@ -635,17 +662,17 @@ def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
     assert s["d1_rows_written_per_year"] >= floor > 0
 
 
-def test_the_cost_module_stays_out_of_the_build_cache_key():
+def test_the_cost_module_stays_out_of_the_build_cache_key() -> None:
     assert {"cost.py", "cadence.py"}.isdisjoint(p.name for p in cache.code_files())
 
 
 class Host:
     """Serves one file by HEAD and byte range, as urlopen would, counting requests."""
 
-    def __init__(self, body: bytes, *, ranges: bool = True, drops: int = 0):
+    def __init__(self, body: bytes, *, ranges: bool = True, drops: int = 0) -> None:
         self.body, self.ranges, self.drops, self.calls = body, ranges, drops, 0
 
-    def __call__(self, req, timeout):
+    def __call__(self, req: urllib.request.Request, timeout: float) -> _Resp:
         self.calls += 1
         if self.drops:
             self.drops -= 1
@@ -657,22 +684,22 @@ class Host:
         rng = req.get_header("Range")
         if not self.ranges or not rng:
             return _Resp(200, {}, self.body)
-        a, b = rng.split("=")[1].split("-")
-        a, b = int(a), min(int(b), n - 1)
+        first, last = rng.split("=")[1].split("-")
+        a, b = int(first), min(int(last), n - 1)
         return _Resp(206, {"Content-Range": f"bytes {a}-{b}/{n}"}, self.body[a : b + 1])
 
 
 class _Resp:
-    def __init__(self, status, headers, body):
+    def __init__(self, status: int, headers: dict[str, str], body: bytes) -> None:
         self.status, self.headers, self._b = status, headers, io.BytesIO(body)
 
-    def read(self, n=-1):
+    def read(self, n: int = -1) -> bytes:
         return self._b.read(n)
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *a):
+    def __exit__(self, *a: object) -> Literal[False]:
         return False
 
 
@@ -685,14 +712,16 @@ def _zip(members: dict[str, bytes]) -> bytes:
 
 
 @pytest.fixture
-def no_sleep(monkeypatch):
+def no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cost, "SLEEP", lambda s: None)
 
 
-def test_a_zip_is_sized_by_its_members_from_the_central_directory(monkeypatch, no_sleep):
+def test_a_zip_is_sized_by_its_members_from_the_central_directory(
+    monkeypatch: pytest.MonkeyPatch, no_sleep: None
+) -> None:
     body = _zip({"a.csv": b"x,y\n" * 200_000, "inner.zip": b"z" * 1000})
     host = Host(body)
-    monkeypatch.setattr(cost.urllib.request, "urlopen", host)
+    monkeypatch.setattr(urllib.request, "urlopen", host)
     s = cost._sized("https://example.gov.au/f.zip", 5)
     assert s.kind == "zip"
     assert s.bytes == len(body)
@@ -702,17 +731,19 @@ def test_a_zip_is_sized_by_its_members_from_the_central_directory(monkeypatch, n
     assert cost.estimate(entry("t"), s) == s.unpacked * 13 + len(body)
 
 
-def test_a_host_without_ranges_falls_back_to_the_compressed_multiplier(monkeypatch, no_sleep):
+def test_a_host_without_ranges_falls_back_to_the_compressed_multiplier(
+    monkeypatch: pytest.MonkeyPatch, no_sleep: None
+) -> None:
     body = _zip({"a.csv": b"x,y\n" * 1000})
-    monkeypatch.setattr(cost.urllib.request, "urlopen", Host(body, ranges=False))
+    monkeypatch.setattr(urllib.request, "urlopen", Host(body, ranges=False))
     s = cost._sized("https://example.gov.au/f.zip", 5)
     assert s == cost.Sized(len(body), "zip", None)
     assert cost.estimate(entry("t"), s) == len(body) * (cost.COMPRESSED_MULTIPLIER + 1)
 
 
-def test_a_gzip_is_sized_from_its_trailer(monkeypatch, no_sleep):
+def test_a_gzip_is_sized_from_its_trailer(monkeypatch: pytest.MonkeyPatch, no_sleep: None) -> None:
     body = gzip.compress(b"a,b\n" * 100_000)
-    monkeypatch.setattr(cost.urllib.request, "urlopen", Host(body))
+    monkeypatch.setattr(urllib.request, "urlopen", Host(body))
     assert cost.unpacked_bytes("https://example.gov.au/f.csv.gz", len(body), "gzip", 5) == 400_000
     # Past the trailer's range its size is ambiguous, so it is not read.
     assert cost.unpacked_bytes("u", cost.GZIP_TRAILER_MAX + 1, "gzip", 5) is None
@@ -734,29 +765,31 @@ def test_a_gzip_is_sized_from_its_trailer(monkeypatch, no_sleep):
         ("https://x/a.csv", "text/csv", "plain"),
     ],
 )
-def test_a_source_kind_is_read_from_its_name_or_type(name, ct, kind):
+def test_a_source_kind_is_read_from_its_name_or_type(name: str, ct: str, kind: str) -> None:
     assert cost.kind_of(name, ct) == kind
 
 
-def test_a_spatial_entry_or_a_spreadsheet_projects_more_formats():
+def test_a_spatial_entry_or_a_spreadsheet_projects_more_formats() -> None:
     geo = entry("t", geometry={"kind": "point"})
     assert cost.estimate(geo, cost.Sized(GB)) == 31 * GB
     assert cost.estimate(entry("t"), cost.Sized(GB, "spreadsheet")) == 91 * GB
 
 
-def test_a_dropped_connection_is_retried_then_fails_closed(monkeypatch, no_sleep):
+def test_a_dropped_connection_is_retried_then_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, no_sleep: None
+) -> None:
     body = b"a,b\n" * 10
     host = Host(body, drops=2)
-    monkeypatch.setattr(cost.urllib.request, "urlopen", host)
+    monkeypatch.setattr(urllib.request, "urlopen", host)
     assert cost._size("https://example.gov.au/f.csv", 5)[0] == len(body)
     assert host.calls == 3
-    monkeypatch.setattr(cost.urllib.request, "urlopen", Host(body, drops=99))
+    monkeypatch.setattr(urllib.request, "urlopen", Host(body, drops=99))
     ds = entry("t")
     with pytest.raises(cost.Unsized, match="IncompleteRead"):
         cost.probe(ds)
 
 
-def test_an_adapter_that_cannot_be_sized_says_how_to_approve(tmp_path):
+def test_an_adapter_that_cannot_be_sized_says_how_to_approve(tmp_path: Path) -> None:
     ds = entry("t", "monthly", source=Source(adapter="socrata", url="https://x/a", cadence="monthly"))  # fmt: skip
     with pytest.raises(cost.Unsized, match="socrata adapter"):
         cost.probe(ds)
@@ -771,7 +804,7 @@ def test_an_adapter_that_cannot_be_sized_says_how_to_approve(tmp_path):
     assert "cost-approved" in text
 
 
-def test_d1_rows_count_each_index_and_every_version(tmp_path):
+def test_d1_rows_count_each_index_and_every_version(tmp_path: Path) -> None:
     stored(tmp_path, "crashes", "2026-09-01", size=1000)
     stored(tmp_path, "big", "2026-09-01", size=1000)
     stored(tmp_path, "files", "2026-09-01", size=1000)
@@ -798,7 +831,7 @@ def test_d1_rows_count_each_index_and_every_version(tmp_path):
     assert again.d1_rows_per_year == 250_000 * 4 * 13
 
 
-def test_a_new_entry_estimates_its_rows_from_its_bytes(tmp_path):
+def test_a_new_entry_estimates_its_rows_from_its_bytes(tmp_path: Path) -> None:
     out = cost.project([entry("new", "twice a year")], tmp_path, {}, TODAY, frozenset({"new"}),
                        prober=lambda d: cost.Sized(10**8), probing=True)[0]  # fmt: skip
     assert out.d1_rows == 14 * 10**8 // cost.PUBLISHED_BYTES_PER_ROW
@@ -806,7 +839,9 @@ def test_a_new_entry_estimates_its_rows_from_its_bytes(tmp_path):
     assert not out.over_storage
 
 
-def test_live_rows_reads_the_newest_version_and_skips_failures(monkeypatch, no_sleep):
+def test_live_rows_reads_the_newest_version_and_skips_failures(
+    monkeypatch: pytest.MonkeyPatch, no_sleep: None
+) -> None:
     docs = {
         "a": {
             "latest": "2",
@@ -814,20 +849,28 @@ def test_live_rows_reads_the_newest_version_and_skips_failures(monkeypatch, no_s
         },
     }
 
-    def urlopen(req, timeout):
+    def urlopen(req: urllib.request.Request, timeout: float) -> _Resp:
         slug = req.full_url.split("/d/")[1].split("/")[0]
         if slug not in docs:
-            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", Message(), None)
         return _Resp(200, {}, json.dumps(docs[slug]).encode())
 
-    monkeypatch.setattr(cost.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     assert cost.live_rows(["a", "b"]) == {"a": 7}
 
 
-def _api(labels=("cost-approved",), events=(), perms=None, runs=(), author="alice", *, head="h2"):  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _api(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    labels: Iterable[str] = ("cost-approved",),
+    events: Iterable[dict[str, Any]] = (),
+    perms: dict[str, str] | None = None,
+    runs: Iterable[dict[str, Any]] = (),
+    author: str = "alice",
+    *,
+    head: str = "h2",
+) -> cost.Getter:
     perms = perms or {"maint": "maintain", "alice": "admin", "reader": "read"}
 
-    def get(path):
+    def get(path: str) -> object:
         if path.startswith("repos/o/r/pulls/"):
             return {
                 "labels": [{"name": n} for n in labels],
@@ -837,9 +880,9 @@ def _api(labels=("cost-approved",), events=(), perms=None, runs=(), author="alic
         if "/issues/" in path:
             return list(events) if "page=1" in path else []
         if "/collaborators/" in path:
-            who = path.split("/collaborators/")[1].split("/")[0]
+            who = path.split("/collaborators/")[1].split("/", maxsplit=1)[0]
             if who not in perms:
-                raise urllib.error.HTTPError(path, 404, "Not Found", {}, None)
+                raise urllib.error.HTTPError(path, 404, "Not Found", Message(), None)
             return {"role_name": perms[who], "permission": perms[who]}
         if "/runs" in path:
             return {"workflow_runs": list(runs) if "page=1" in path else []}
@@ -848,11 +891,11 @@ def _api(labels=("cost-approved",), events=(), perms=None, runs=(), author="alic
     return get
 
 
-def _run(sha, at, repo="o/r"):
+def _run(sha: str, at: str, repo: str = "o/r") -> dict[str, Any]:
     return {"head_sha": sha, "created_at": at, "head_repository": {"full_name": repo}}
 
 
-def _label(who, at, event="labeled"):
+def _label(who: str, at: str, event: str = "labeled") -> dict[str, Any]:
     return {"event": event, "actor": {"login": who}, "created_at": at, "label": {"name": "cost-approved"}}  # fmt: skip
 
 
@@ -898,20 +941,27 @@ RUNS = [_run("h2", "2026-10-07T11:05:00Z"), _run("h2", "2026-10-07T11:00:00Z"),
         ),
     ],
 )
-def test_an_approval_needs_another_writer_after_the_newest_commit(events, kw, ok, why):
+def test_an_approval_needs_another_writer_after_the_newest_commit(
+    events: list[dict[str, Any]],
+    kw: dict[str, Any],
+    ok: bool,  # noqa: FBT001 - pytest passes parametrized values by name
+    why: str,
+) -> None:
     got, reason = cost.approval("o/r", 50, _api(events=events, **{"runs": RUNS, **kw}))
     assert got is ok
     assert why in reason
 
 
-def test_a_head_pushed_back_counts_from_its_return():
+def test_a_head_pushed_back_counts_from_its_return() -> None:
     # h2, then h1, then h2 again at 12:00: a label from 11:30 approved h1, not this h2.
     runs = [_run("h2", "2026-10-07T12:00:00Z"), _run("h1", "2026-10-07T11:10:00Z"), *RUNS]
     events = [_label("maint", "2026-10-07T11:30:00Z")]
     assert cost.approval("o/r", 50, _api(events=events, runs=runs))[0] is False
 
 
-def test_symlinks_in_the_register_are_refused(tmp_path, capsys):
+def test_symlinks_in_the_register_are_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     git = _repo(tmp_path, {"register/a.yaml": BASE, "elsewhere/b.yaml": BASE})
     (tmp_path / "register" / "b.yaml").symlink_to("../elsewhere/b.yaml")
     assert cost.symlinks(tmp_path) == ["register/b.yaml"]
@@ -923,7 +973,7 @@ def test_symlinks_in_the_register_are_refused(tmp_path, capsys):
     assert "symbolic links: register/b.yaml" in capsys.readouterr().out
 
 
-def test_only_a_web_url_is_probed():
+def test_only_a_web_url_is_probed() -> None:
     ds = entry("t", source=Source(adapter="file", url="file:///proc/self/environ"))
     with pytest.raises(cost.Unsized, match="not an http or https URL"):
         cost.probe(ds)

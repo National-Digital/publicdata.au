@@ -18,7 +18,7 @@ import random
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -28,7 +28,6 @@ from .build import (
     _source_order,
     _want,
     build_dataset,
-    prov_header,
     version_key,
     write_formats,
 )
@@ -45,12 +44,17 @@ from .cache import (
     writer_files,
     writer_keys,
 )
+from .provenance import header as prov_header
 from .serialise import WRITERS
 from .serialise.geo import geo_kind
 from .serialise.profile import QUERY_DIR
 
 if TYPE_CHECKING:
+    from .build import VersionOut
     from .register import Dataset
+
+# What picks the code paths a dataset's build runs through (_stratum).
+type Stratum = tuple[str, str, str, str, bool, bool, bool, bool, bool, bool]
 
 REPO = PACKAGE.parents[1]
 # A pull request's check builds about this many source bytes, and of each dataset only the newest
@@ -76,7 +80,7 @@ def unkeyed(changed: list[str]) -> list[str]:
 
 def _defaults(src: str) -> dict[str, str]:
     """Each register dataclass field's default, as source text, by class and field."""
-    out = {}
+    out: dict[str, str] = {}
     for node in ast.parse(src).body:
         if not isinstance(node, ast.ClassDef):
             continue
@@ -88,11 +92,12 @@ def _defaults(src: str) -> dict[str, str]:
             v = st.value
             if isinstance(v, ast.Call) and getattr(v.func, "id", "") == "field":
                 kw = {k.arg: k.value for k in v.keywords}
-                if isinstance(kw.get("repr"), ast.Constant) and kw["repr"].value is False:
+                if isinstance(r := kw.get("repr"), ast.Constant) and r.value is False:
                     continue  # out of every key, as it shapes no version
-                v = kw.get("default") or kw.get("default_factory")
-                if v is None:
+                d = kw.get("default") or kw.get("default_factory")
+                if d is None:
                     continue
+                v = d
             out[f"{node.name}.{st.target.id}"] = ast.unparse(v)
     return out
 
@@ -130,7 +135,7 @@ def bumped(before: Path, datasets: list[Dataset]) -> list[str]:
     Two changes that raise the same number merge without a conflict, so the later one is checked
     against the entries the earlier built.
     """
-    out = []
+    out: list[str] = []
     for ds in datasets:
         if not ds.path or not Path(ds.path).is_relative_to(REPO):
             continue
@@ -143,14 +148,15 @@ def bumped(before: Path, datasets: list[Dataset]) -> list[str]:
     return sorted(out)
 
 
-def checked_versions(ds: Dataset, store_dir: Path, cap: int = CAP) -> list:
+def checked_versions(ds: Dataset, store_dir: Path, cap: int = CAP) -> list[store.Manifest]:
     """The versions the check builds: the newest ones whose source bytes fit in cap.
 
     The newest is always built. The spine layers a joined dataset reads are left out: every
     joined dataset shares them, and a sample without one never checks the join.
     """
     ms = store.manifests(store_dir, ds.slug) if ds.publishable else []
-    out, total = [], 0
+    out: list[store.Manifest] = []
+    total = 0
     for m in reversed(ms):
         total += max(m.bytes, 1)
         if out and total > cap:
@@ -164,7 +170,7 @@ def source_bytes(ds: Dataset, store_dir: Path, cap: int = CAP) -> int:
     return sum(max(m.bytes, 1) for m in checked_versions(ds, store_dir, cap))
 
 
-def _stratum(ds: Dataset) -> tuple:
+def _stratum(ds: Dataset) -> Stratum:
     """What picks the code paths a dataset's build runs through."""
     return (
         ds.kind,
@@ -204,7 +210,7 @@ def sample(  # noqa: PLR0913 - the options are keyword-only and named at each ca
         if d.kind != "database" and (c := source_bytes(d, store_dir, cap))
     }
     by = {d.slug: d for d in datasets if d.slug in cost}
-    strata: dict[tuple, list[str]] = {}
+    strata: dict[Stratum, list[str]] = {}
     for s in sorted(by):
         strata.setdefault(_stratum(by[s]), []).append(s)
     chosen = [s for s in sorted(set(forced)) if s in cost]
@@ -233,7 +239,7 @@ def sample(  # noqa: PLR0913 - the options are keyword-only and named at each ca
 
 def uncovered(datasets: list[Dataset], store_dir: Path, chosen: list[str]) -> list[str]:
     """The strata with a stored dataset and none in the sample, each with its datasets."""
-    by: dict[tuple, list[str]] = {}
+    by: dict[Stratum, list[str]] = {}
     for d in datasets:
         if d.kind != "database" and source_bytes(d, store_dir):
             by.setdefault(_stratum(d), []).append(d.slug)
@@ -245,16 +251,19 @@ def uncovered(datasets: list[Dataset], store_dir: Path, chosen: list[str]) -> li
     ]
 
 
-def _entry(cache: BuildCache, key: str) -> dict | None:
+def _entry(cache: BuildCache, key: str) -> dict[str, Any] | None:
     p = cache.root / key / "meta.json"
-    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
+    meta: dict[str, Any] | None = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
+    return meta
 
 
-def _plain(v):
+def _plain(v: object) -> object:
     return json.loads(json.dumps(v, ensure_ascii=False))
 
 
-def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, *, rels: list[str]):  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _regrown(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    ds: Dataset, m: store.Manifest, cache: BuildCache, key: str, out: Path, *, rels: list[str]
+) -> dict[str, str] | None:
     """The files a deploy grew into a reused version, made again with the code as it stands.
 
     The deploy grew them from the Parquet the site serves, and they are made again the same way,
@@ -266,9 +275,10 @@ def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, *, rels: li
         return None
     tbl = _built_table(ds, m, out, parquet)
     if m.parquet.get("sort"):
-        tbl = _source_order(tbl, cache, key, parquet)
-        if tbl is None:
+        ordered = _source_order(tbl, cache, key, parquet)
+        if ordered is None:
             return None
+        tbl = ordered
     base = build.version_url(ds.slug, m.version)
     names = {r[5:] for r in rels}
     with tempfile.TemporaryDirectory() as tmp:
@@ -278,14 +288,21 @@ def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, *, rels: li
         return digests(vdir, rels)
 
 
-def _unmeasured(p: Path) -> dict:
-    man = json.loads(p.read_text(encoding="utf-8"))
+def _unmeasured(p: Path) -> dict[str, Any]:
+    man: dict[str, Any] = json.loads(p.read_text(encoding="utf-8"))
     man.pop("measured_bytes", None)
     return man
 
 
 def _version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - one version's checks in order; the options are keyword-only
-    ds: Dataset, meta: dict, vout, out: Path, entry: Path, *, cache: BuildCache, key: str
+    ds: Dataset,
+    meta: dict[str, Any],
+    vout: VersionOut,
+    out: Path,
+    entry: Path,
+    *,
+    cache: BuildCache,
+    key: str,
 ) -> list[str]:
     """How a version built now differs from the cache entry a deploy would reuse for it."""
     vdir = out / "d" / ds.slug / "v" / vout.manifest.version
@@ -384,7 +401,7 @@ def check(
     fresh = build_dataset(ds, store_dir, out, newest=len(ms))
     problems: list[str] = []
     compared = rebuilt = 0
-    keys = []
+    keys: list[str] = []
     for v in fresh.versions:
         m = v.manifest
         key = version_key(cache, ds, m, store_dir)
@@ -416,7 +433,9 @@ def run(
     datasets: list[Dataset], store_dir: Path, cache_dir: Path, out: Path, cap: int = CAP
 ) -> int:
     cache = BuildCache(cache_dir)
-    problems, failed, compared, rebuilt = [], [], 0, 0
+    problems: list[tuple[Dataset, str]] = []
+    failed: list[str] = []
+    compared, rebuilt = 0, 0
     for ds in datasets:
         try:
             p, c, r = check(ds, store_dir, cache, out, cap)
@@ -464,8 +483,8 @@ def run(
             "number fixes it."
         )
     for slug, ds in named:
-        where = Path(ds.path or f"{slug}.yaml")
-        where = where.relative_to(REPO) if where.is_relative_to(REPO) else where.name
+        path = Path(ds.path or f"{slug}.yaml")
+        where = path.relative_to(REPO) if path.is_relative_to(REPO) else path.name
         how = ", ".join(str(x) for x in _stratum(ds))
         print(f"  {slug} ({where}, rebuild {ds.rebuild} now; built as {how})")
     return 1

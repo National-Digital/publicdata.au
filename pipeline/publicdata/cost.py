@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 import requests
 import yaml
@@ -31,7 +31,16 @@ from .cadence import FEED_MAX, per_year
 from .d1 import MAX_CSV, queryable
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+    from collections.abc import Set as AbstractSet
+
+    from .build import DatasetOut, VersionOut
     from .register import Dataset
+
+type Kind = Literal["plain", "zip", "gzip", "spreadsheet"]
+type Basis = Literal["measured", "estimate", "unknown"]
+# Reads a GitHub API path and gives back its JSON, an object or a list as the path decides.
+type Getter = Callable[[str], Any]
 
 GB = 10**9
 BUDGET_GB_YEAR = 5.0
@@ -65,7 +74,7 @@ class Unsized(Exception):  # noqa: N818 - named before the rule, and logs name i
     """Why a source could not be sized."""
 
 
-def retry(fn, attempts: int | None = None, wait: float = 1.0):
+def retry[T](fn: Callable[[], T], attempts: int | None = None, wait: float = 1.0) -> T:
     """Calls fn until it returns, backing off on a dropped connection.
 
     It also backs off on a truncated body, a 5xx or a 429; any other HTTP error is final.
@@ -94,7 +103,7 @@ class Sized:
     """
 
     bytes: int
-    kind: str = "plain"
+    kind: Kind = "plain"
     unpacked: int | None = None
 
 
@@ -116,7 +125,7 @@ def estimate(ds: Dataset, s: Sized) -> int:
     return published + s.bytes
 
 
-def kind_of(name: str, content_type: str = "") -> str:
+def kind_of(name: str, content_type: str = "") -> Kind:
     n = urllib.parse.urlsplit(name).path.lower() if "://" in name else name.lower()
     ct = content_type.lower()
     if n.endswith((".xlsx", ".xlsm", ".xls", ".ods")) or "spreadsheet" in ct or "excel" in ct:
@@ -132,7 +141,7 @@ def kind_of(name: str, content_type: str = "") -> str:
 class Projection:
     slug: str
     bytes_per_version: int | None
-    basis: str  # measured, estimate or unknown
+    basis: Basis
     per_year: float
     per_year_basis: str
     stored_versions: int
@@ -208,16 +217,17 @@ def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple
 def _upper(path: str, n: int) -> int:
     """A DuckDB file's size is published to one significant figure; count its upper bound."""
     if path.endswith(".duckdb") and n >= 10:  # noqa: PLR2004 - one digit is one significant figure
-        return n + 10 ** (len(str(n)) - 1) // 2
+        digit: int = 10 ** (len(str(n)) - 1)
+        return n + digit // 2
     return n
 
 
-def catalogue_sizes(catalog: dict) -> dict[str, dict[str, int]]:
+def catalogue_sizes(catalog: dict[str, Any]) -> dict[str, dict[str, int]]:
     """Bytes of each file of the newest version, by its path inside the version, per slug."""
-    out = {}
+    out: dict[str, dict[str, int]] = {}
     for rec in catalog.get("dataset", []):
         mark = f"/v/{rec.get('versionInfo', '')}/"
-        files = {}
+        files: dict[str, int] = {}
         for d in rec.get("distribution", []):
             url = d.get("downloadURL", "")
             if mark in url:
@@ -247,11 +257,12 @@ def d1_indexes(ds: Dataset) -> int:
     return len(dict.fromkeys((*ds.key, *ds.partition_by)))
 
 
-def _open(req: urllib.request.Request, timeout: float):
-    return urllib.request.urlopen(req, timeout=timeout)
+def _open(req: urllib.request.Request, timeout: float) -> http.client.HTTPResponse:
+    r: http.client.HTTPResponse = urllib.request.urlopen(req, timeout=timeout)
+    return r
 
 
-def _final(r, url: str) -> str:
+def _final(r: http.client.HTTPResponse, url: str) -> str:
     return r.geturl() if hasattr(r, "geturl") else url
 
 
@@ -302,7 +313,7 @@ def _range(url: str, start: int, end: int, timeout: float) -> bytes:
     """Bytes start..end inclusive. A host that answers with the whole file is refused unread."""
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Range": f"bytes={start}-{end}"})
 
-    def get():
+    def get() -> bytes:
         with _open(req, timeout) as r:
             if getattr(r, "status", HTTPStatus.PARTIAL_CONTENT) != HTTPStatus.PARTIAL_CONTENT:
                 msg = "the host does not serve byte ranges"
@@ -318,23 +329,23 @@ def _range(url: str, start: int, end: int, timeout: float) -> bytes:
 class _RangeFile(io.RawIOBase):
     """A remote file read by byte ranges, enough for zipfile to read the central directory."""
 
-    def __init__(self, url: str, size: int, timeout: float):
+    def __init__(self, url: str, size: int, timeout: float) -> None:
         self.url, self.size, self.timeout, self.pos = url, size, timeout, 0
 
-    def seekable(self):
+    def seekable(self) -> bool:
         return True
 
-    def readable(self):
+    def readable(self) -> bool:
         return True
 
-    def tell(self):
+    def tell(self) -> int:
         return self.pos
 
-    def seek(self, offset, whence=0):
+    def seek(self, offset: int, whence: int = 0) -> int:
         self.pos = {0: 0, 1: self.pos, 2: self.size}[whence] + offset
         return self.pos
 
-    def read(self, n=-1):
+    def read(self, n: int | None = -1) -> bytes:
         end = self.size if n is None or n < 0 else min(self.size, self.pos + n)
         if end - self.pos > ZIP_DIRECTORY_MAX:
             msg = "the zip's central directory is too large to read"
@@ -425,9 +436,10 @@ def live_rows(slugs: list[str], site: str = SITE, workers: int = 16) -> dict[str
     def one(slug: str) -> tuple[str, int | None]:
         req = urllib.request.Request(f"{site}/d/{slug}/versions.json", headers={"User-Agent": UA})
 
-        def get():
+        def get() -> dict[str, Any]:
             with _open(req, 60) as r:
-                return json.load(r)
+                doc: dict[str, Any] = json.load(r)
+                return doc
 
         try:
             doc = retry(get)
@@ -450,9 +462,9 @@ def project(  # noqa: C901, PLR0913 - one projection, read in order
     changed: frozenset[str] = frozenset(),
     *,
     fresh: frozenset[str] = frozenset(),
-    prober=probe,
+    prober: Callable[[Dataset], Sized] = probe,
     probing: bool = False,
-    reshaped: dict[str, dict] | None = None,
+    reshaped: dict[str, dict[str, Any]] | None = None,
     rows: dict[str, int] | None = None,
 ) -> list[Projection]:
     """The projected growth of each entry.
@@ -465,12 +477,14 @@ def project(  # noqa: C901, PLR0913 - one projection, read in order
     """
     reshaped = reshaped or {}
     rows = rows or {}
-    out = []
+    out: list[Projection] = []
     for ds in datasets:
         ms = store.manifests(store_dir, ds.slug)
         n, n_basis = versions_per_year(ds, [m.version for m in ms], today)
         newest = ms[-1] if ms else None
-        b, basis, note = None, "unknown", ""
+        b: int | None = None
+        basis: Basis = "unknown"
+        note = ""
         measured = None
         files = (sizes or {}).get(ds.slug) or {}
         if files:
@@ -492,7 +506,7 @@ def project(  # noqa: C901, PLR0913 - one projection, read in order
         elif newest is not None:
             b, basis = estimate(ds, Sized(newest.bytes, kind_of(newest.filename))), "estimate"
         rebuild = 0
-        if ds.slug in reshaped and ms and b is not None:
+        if ds.slug in reshaped and newest is not None and b is not None:
             old = reshaped[ds.slug]
             before = replace(
                 ds,
@@ -545,7 +559,7 @@ class Fleet:
     def gb_per_year(self) -> float:
         return self.bytes_per_year / GB
 
-    def as_json(self) -> dict:
+    def as_json(self) -> dict[str, int]:
         return {
             "stored_bytes": self.stored_bytes,
             "growth_bytes_per_year": self.bytes_per_year,
@@ -562,7 +576,7 @@ def fleet(projections: list[Projection]) -> Fleet:
     )
 
 
-def build_version_bytes(ds: Dataset, v) -> int:
+def build_version_bytes(ds: Dataset, v: VersionOut) -> int:
     """A built version's bytes in R2, counted from every file it lists.
 
     The publisher's file in the raw store counts too, which a withheld source keeps without
@@ -571,17 +585,20 @@ def build_version_bytes(ds: Dataset, v) -> int:
     return sum(v.files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
 
 
-def fleet_from_build(outs, today: dt.date) -> Fleet:
+def fleet_from_build(outs: Iterable[DatasetOut], today: dt.date) -> Fleet:
     """The same totals from a build, where every version's file sizes and rows are known."""
-    stored = growth = rows = 0
+    stored = 0
+    growth: float = 0
+    rows: float = 0
     for o in outs:
-        if not o.versions:
+        latest = o.latest
+        if latest is None:
             continue
         stored += sum(build_version_bytes(o.dataset, v) for v in o.versions)
         n, _ = versions_per_year(o.dataset, [v.manifest.version for v in o.versions], today)
-        growth += build_version_bytes(o.dataset, o.latest) * n
-        if queryable(o.dataset, o.latest.files.get("data.csv")):
-            rows += o.latest.rows * (1 + d1_indexes(o.dataset)) * n
+        growth += build_version_bytes(o.dataset, latest) * n
+        if queryable(o.dataset, latest.files.get("data.csv")):
+            rows += latest.rows * (1 + d1_indexes(o.dataset)) * n
     return Fleet(stored, round(growth), round(rows))
 
 
@@ -624,7 +641,7 @@ def changed_entries(register_dir: Path, paths: list[str], root: Path) -> dict[st
 
     Publishers, licences and deleted files are not entries.
     """
-    out = {}
+    out: dict[str, str] = {}
     for p in paths:
         full = (root / p).resolve()
         try:
@@ -647,7 +664,7 @@ QUIET_SOURCE_KEYS = ("cadence", "encoding", "as_at_regex")
 SHAPE_KEYS = ("unpivot", "wide", "enrich", "geometry", "kind", "database", "tables")
 
 
-def _source(raw: dict) -> dict:
+def _source(raw: dict[str, Any]) -> dict[str, Any]:
     src = dict(raw.get("source") or {})
     for k in QUIET_SOURCE_KEYS:
         src.pop(k, None)
@@ -657,7 +674,7 @@ def _source(raw: dict) -> dict:
     return src
 
 
-def _shape(raw: dict) -> dict:
+def _shape(raw: dict[str, Any]) -> dict[str, Any]:
     out = {k: raw.get(k) for k in SHAPE_KEYS}
     # A field's description or label leaves the bytes alone; its name, source and type do not.
     out["fields"] = [
@@ -669,7 +686,7 @@ def _shape(raw: dict) -> dict:
 
 def _base_paths(root: Path, base: str) -> dict[str, str]:
     """Entry paths in the base by slug, so a file moved into a folder still finds its copy."""
-    out = {}
+    out: dict[str, str] = {}
     for p in _git(root, "ls-tree", "-r", "--name-only", base, "--", "register").splitlines():
         parts = Path(p).parts
         if p.endswith(".yaml") and len(parts) > 1 and parts[1] not in ("publishers", "licences"):
@@ -679,13 +696,14 @@ def _base_paths(root: Path, base: str) -> dict[str, str]:
 
 def entry_changes(
     root: Path, base: str, entries: dict[str, str]
-) -> tuple[set[str], dict[str, dict]]:
+) -> tuple[set[str], dict[str, dict[str, Any]]]:
     """Changed entries whose source or output shape differs from the base's.
 
     For these the stored file no longer says how big a version will be. The base copy of each
     entry whose output shape changed comes back too. An entry with no base copy counts as moved.
     """
-    fresh, reshaped = set(), {}
+    fresh: set[str] = set()
+    reshaped: dict[str, dict[str, Any]] = {}
     base_paths = _base_paths(root, base)
     for slug, path in entries.items():
         new = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
@@ -735,19 +753,21 @@ def costed(root: Path, base: str, entries: dict[str, str]) -> set[str]:
     return out
 
 
-def load_catalog(where: str) -> dict:
+def load_catalog(where: str) -> dict[str, Any]:
     if where.startswith(("http://", "https://")):
         req = urllib.request.Request(where, headers={"User-Agent": UA})
 
-        def get():
+        def get() -> dict[str, Any]:
             with _open(req, 60) as r:
-                return json.load(r)
+                doc: dict[str, Any] = json.load(r)
+                return doc
 
         return retry(get)
-    return json.loads(Path(where).read_text(encoding="utf-8"))
+    doc: dict[str, Any] = json.loads(Path(where).read_text(encoding="utf-8"))
+    return doc
 
 
-def _github(path: str, token: str):
+def _github(path: str, token: str) -> Any:  # noqa: ANN401 - GitHub's JSON, an object or a list by path
     req = urllib.request.Request(
         f"{GITHUB_API}/{path}",
         headers={
@@ -758,7 +778,7 @@ def _github(path: str, token: str):
         },
     )
 
-    def get():
+    def get() -> Any:  # noqa: ANN401 - as _github
         with _open(req, 30) as r:
             return json.load(r)
 
@@ -769,8 +789,8 @@ def _github(path: str, token: str):
 PER_PAGE = 100
 
 
-def _pages(get, path: str, key: str | None = None, limit: int = 30) -> list:
-    out = []
+def _pages(get: Getter, path: str, key: str | None = None, limit: int = 30) -> list[Any]:
+    out: list[Any] = []
     sep = "&" if "?" in path else "?"
     for page in range(1, limit + 1):
         doc = get(f"{path}{sep}per_page={PER_PAGE}&page={page}")
@@ -784,7 +804,7 @@ def _pages(get, path: str, key: str | None = None, limit: int = 30) -> list:
 WRITE_ROLES = ("admin", "maintain", "write")
 
 
-def approval(repo: str, pr: int, get) -> tuple[bool, str]:  # noqa: C901, PLR0911 - one branch per way a pull request can be approved
+def approval(repo: str, pr: int, get: Getter) -> tuple[bool, str]:  # noqa: C901, PLR0911 - one branch per way a pull request can be approved
     """Whether the pull request's newest commit carries an approval.
 
     The label must be on, last added by someone with write access who did not open the pull
@@ -823,7 +843,9 @@ def approval(repo: str, pr: int, get) -> tuple[bool, str]:  # noqa: C901, PLR091
     return True, f"approved by {actor} for {head[:7]}"
 
 
-def head_since(repo: str, pull: dict, get, workflow: str = "cost.yml") -> str | None:
+def head_since(
+    repo: str, pull: dict[str, Any], get: Getter, workflow: str = "cost.yml"
+) -> str | None:
     """When the pull request's head became its current commit.
 
     That is the first of this check's runs in the unbroken run of runs on that commit, newest
@@ -871,7 +893,7 @@ HEAD = (
 
 def report(
     projections: list[Projection],
-    gated: set[str],
+    gated: AbstractSet[str],
     *,
     approved: bool,
     note: str = "",
@@ -951,17 +973,17 @@ def run(  # noqa: PLR0913 - the options are keyword-only and named at each call
     datasets: list[Dataset],
     store_dir: Path,
     catalog_src: str,
-    changed: set[str],
+    changed: AbstractSet[str],
     today: dt.date,
     *,
     approved: bool = False,
     probing: bool = False,
-    fresh: set[str] = frozenset(),
+    fresh: AbstractSet[str] = frozenset(),
     summary: str | None = None,
-    reshaped: dict[str, dict] | None = None,
-    approve=None,
+    reshaped: dict[str, dict[str, Any]] | None = None,
+    approve: Callable[[], tuple[bool, str]] | None = None,
     rows: dict[str, int] | None = None,
-    prober=probe,
+    prober: Callable[[Dataset], Sized] = probe,
 ) -> int:
     """Projects every entry and gates the changed ones, returning the exit status.
 

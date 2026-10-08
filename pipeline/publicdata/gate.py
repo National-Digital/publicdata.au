@@ -17,7 +17,10 @@ from .serialise.geo import geo_kind
 from .serialise.profile import query_key
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from pathlib import Path
+
+    from .register import Dataset
 
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
 PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.DOTALL)
@@ -37,7 +40,7 @@ def _partition_values(out: Path, slug: str) -> list[str]:
     return sorted(vals, key=len, reverse=True)
 
 
-def _without_publisher_values(text: str, page: Path, out: Path, cache: dict) -> str:
+def _without_publisher_values(text: str, page: Path, out: Path, cache: dict[str, list[str]]) -> str:
     parts = page.relative_to(out).parts
     if len(parts) <= 1 or parts[0] != "d":
         return text
@@ -125,7 +128,7 @@ def _manifest(out: Path) -> list[str]:
         for k in ("id", "name", "short_name", "start_url", "display")
         if not m.get(k)
     ]
-    seen = set()
+    seen: set[tuple[str | None, str]] = set()
     for icon in m.get("icons", []) + [
         i for s in m.get("shortcuts", []) for i in s.get("icons", [])
     ]:
@@ -173,14 +176,15 @@ QUERY_TILE = re.compile(
 )
 
 
-def examples(out: Path, datasets: dict) -> tuple[list[str], list[str]]:
+def examples(out: Path, datasets: dict[str, Dataset]) -> tuple[list[str], list[str]]:
     """Each dataset page's first query and what its tile answers.
 
     Each is marked by where the query came from: the register's example, or the build's pick for
     a reader to look over. A register example that answers nothing is an error, since a person
     chose it to be read.
     """
-    report, errors = [], []
+    report: list[str] = []
+    errors: list[str] = []
     for page in sorted((out / "d").glob("*/index.html")) if (out / "d").exists() else []:
         slug = page.parent.name
         ds = datasets.get(slug)
@@ -199,12 +203,14 @@ def examples(out: Path, datasets: dict) -> tuple[list[str], list[str]]:
     return report, errors
 
 
-def check(out: Path, register_dir: Path, absent: list[str] = (), *, site: bool = True) -> list[str]:
+def check(
+    out: Path, register_dir: Path, absent: Iterable[str] = (), *, site: bool = True
+) -> list[str]:
     return checked(out, register_dir, absent, site=site)[0]
 
 
 def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds a version to
-    out: Path, register_dir: Path, absent: list[str] = (), *, site: bool = True
+    out: Path, register_dir: Path, absent: Iterable[str] = (), *, site: bool = True
 ) -> tuple[list[str], list[str]]:
     """The gate's errors, and the list of every dataset page's first query.
 
@@ -272,7 +278,7 @@ def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds
         vdir = vman.parent
         rel = vdir.relative_to(out).as_posix()
 
-        def have(name: str, vdir=vdir, rel=rel) -> bool:
+        def have(name: str, vdir: Path = vdir, rel: str = rel) -> bool:
             return (vdir / name).exists() or f"{rel}/{name}" in absent
 
         if ds.kind == "database":
@@ -355,8 +361,8 @@ def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds
             )
         # A cached version's data.json was checked by the build that published it.
         if (vdir / "data.json").exists():
-            with (vdir / "data.json").open(encoding="utf-8") as f:
-                head = f.read(4000)
+            with (vdir / "data.json").open(encoding="utf-8") as fh:
+                head = fh.read(4000)
             errors.extend(
                 f"{slug}/{version}: data.json header lacks {needle}"
                 for needle in ('"attribution"', '"licence"', '"sha256"', '"not_endorsed"')
@@ -365,41 +371,43 @@ def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds
     if not site:
         return errors, []
     for page in sorted(ddir.glob("*/explore/index.html")) if ddir.exists() else []:
-        rel = page.relative_to(out)
+        erel = page.relative_to(out)
         m = re.search(r'id="ex-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.DOTALL)
         data = json.loads(m.group(1)) if m else None
         if not data:
-            errors.append(f"{rel}: no explorer data")
+            errors.append(f"{erel}: no explorer data")
             continue
         vdir = out / data["vendor"].strip("/")
-        errors += [f"{rel}: vendor lacks {f}" for f in explorer.REQUIRED if not (vdir / f).exists()]
         errors += [
-            f"{rel}: missing {v['parquet']}"
+            f"{erel}: vendor lacks {f}" for f in explorer.REQUIRED if not (vdir / f).exists()
+        ]
+        errors += [
+            f"{erel}: missing {v['parquet']}"
             for v in data["versions"]
             if not (out / v["parquet"].lstrip("/")).exists()
             and v["parquet"].lstrip("/") not in absent
         ]
         if not (page.parent.parent / "embed" / "index.html").exists():
-            errors.append(f"{rel}: no embed page beside it")
+            errors.append(f"{erel}: no embed page beside it")
         # The API saves a dashboard only for a version listed here.
         listed = page.parent / "versions.json"
         if not listed.exists() or json.loads(listed.read_text(encoding="utf-8")).get(
             "versions"
         ) != [v["version"] for v in data["versions"]]:
-            errors.append(f"{rel}: explore/versions.json missing or out of step")
+            errors.append(f"{erel}: explore/versions.json missing or out of step")
     report, wrong = examples(out, datasets)
     errors += wrong
     errors += _mcp_resources(out)
     errors += _mcp_listing(out)
     errors += _manifest(out)
-    pages = []
+    pages: list[tuple[str, str]] = []
     cache: dict[str, list[str]] = {}
     for html in sorted(out.rglob("*.html")):
-        page = html.read_text(encoding="utf-8")
-        pages.append((str(html.relative_to(out)), page))
-        errors += structured.check_page(page, pages[-1][0])
-        errors += _social_card(pages[-1][0], page, out)
-        text = _without_publisher_values(PORTAL_TEXT.sub("", page), html, out, cache)
+        body = html.read_text(encoding="utf-8")
+        pages.append((str(html.relative_to(out)), body))
+        errors += structured.check_page(body, pages[-1][0])
+        errors += _social_card(pages[-1][0], body, out)
+        text = _without_publisher_values(PORTAL_TEXT.sub("", body), html, out, cache)
         if (
             "not endorsed" not in text
             and "has not endorsed" not in text
@@ -412,7 +420,7 @@ def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds
     return errors, report
 
 
-def main(out: Path, register_dir: Path, absent: list[str] = (), *, site: bool = True) -> int:
+def main(out: Path, register_dir: Path, absent: Iterable[str] = (), *, site: bool = True) -> int:
     errors, report = checked(out, register_dir, absent, site=site)
     if site:
         picked = sum(1 for line in report if line.startswith("rules"))

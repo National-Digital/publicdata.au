@@ -9,9 +9,13 @@ import os
 import re
 from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, overload
 
 from . import OPERATOR, REPO, SITE
 from .provenance import OPERATOR_URL
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _PH = re.compile(r"\{([a-z_]+)\}")
 _CODE = re.compile(r"`([^`]+)`")
@@ -24,11 +28,17 @@ ICONS = [
 REPOSITORY = {"url": REPO, "source": "github"}
 
 
-def _num(v) -> str:
+def _num(v: object) -> str:
     return f"{v:,}" if isinstance(v, int) else str(v)
 
 
-def fill(v, values: dict):
+@overload
+def fill(v: str, values: Mapping[str, object]) -> str: ...
+@overload
+def fill(v: dict[str, Any], values: Mapping[str, object]) -> dict[str, Any]: ...
+@overload
+def fill(v: list[Any], values: Mapping[str, object]) -> list[Any]: ...
+def fill(v: object, values: Mapping[str, object]) -> object:
     """Fills {name} placeholders that values knows, anywhere in a nested value."""
     if isinstance(v, str):
         return _PH.sub(lambda m: _num(values[m[1]]) if m[1] in values else m[0], v)
@@ -40,13 +50,21 @@ def fill(v, values: dict):
 
 
 @cache
-def spec() -> dict:
-    raw = json.loads((Path(__file__).parent / "api.json").read_text(encoding="utf-8"))
+def spec() -> dict[str, Any]:
+    raw: dict[str, Any] = json.loads(
+        (Path(__file__).parent / "api.json").read_text(encoding="utf-8")
+    )
     raw.pop("_comment", None)
     return fill(raw, raw["limits"])
 
 
-def plain(v):
+@overload
+def plain(v: str) -> str: ...
+@overload
+def plain(v: dict[str, Any]) -> dict[str, Any]: ...
+@overload
+def plain(v: list[Any]) -> list[Any]: ...
+def plain(v: object) -> object:
     """Drops code marks, for tool schemas and anywhere Markdown is not read."""
     if isinstance(v, str):
         return _CODE.sub(r"\1", v)
@@ -69,12 +87,13 @@ def operator_list() -> str:
 
 
 def filter_help() -> str:
-    return spec()["api"]["filters"] + " " + operator_list()
+    filters: str = spec()["api"]["filters"]
+    return filters + " " + operator_list()
 
 
 def param_text(name: str) -> str:
     p = spec()["parameters"][name]
-    d = p["description"]
+    d: str = p["description"]
     return f"On `{p['on']}`, {d[0].lower()}{d[1:]}" if p.get("on") else d
 
 
@@ -87,7 +106,7 @@ def tool_names() -> list[str]:
     return list(spec()["webmcp"]["tools"])
 
 
-def browser_spec() -> dict:
+def browser_spec() -> dict[str, Any]:
     """What site.js needs: operator labels, parameter text and the tools, without code marks."""
     s = spec()
     return plain(
@@ -119,16 +138,15 @@ def release() -> str:
 
 
 def resource_text(title: str, publisher: str) -> str:
-    return (
-        plain(spec()["mcp"]["resource"]).replace("{title}", title).replace("{publisher}", publisher)
-    )
+    text: str = spec()["mcp"]["resource"]
+    return plain(text).replace("{title}", title).replace("{publisher}", publisher)
 
 
-def _input_schema(t: dict) -> dict:
+def _input_schema(t: dict[str, Any]) -> dict[str, Any]:
     """A tool's input schema for any dataset. site.js builds the same, then narrows it on a dataset page."""
     s = spec()
     w = s["webmcp"]
-    props = {}
+    props: dict[str, dict[str, Any]] = {}
     for k, p in t["input"].items():
         if p.get("api") == "filters":
             props[k] = {"type": "object", "description": w["where"], "additionalProperties": True}
@@ -147,13 +165,13 @@ def _input_schema(t: dict) -> dict:
     }
 
 
-def mcp_spec() -> dict:
+def mcp_spec() -> dict[str, Any]:
     """What the MCP server at /mcp answers initialize and tools/list with."""
     s = spec()
     m = s["mcp"]
-    tools = []
+    tools: list[dict[str, Any]] = []
     for name, t in s["webmcp"]["tools"].items():
-        d = {
+        d: dict[str, Any] = {
             "name": name,
             "title": t["title"],
             "description": t["description"],
@@ -205,11 +223,11 @@ def mcp_spec() -> dict:
     )
 
 
-def _remote() -> dict:
+def _remote() -> dict[str, str]:
     return {"type": "streamable-http", "url": SITE + "/mcp"}
 
 
-def server_card() -> dict:
+def server_card() -> dict[str, Any]:
     """The MCP server card, served at /mcp/server-card."""
     m = spec()["mcp"]
     return plain(
@@ -227,7 +245,7 @@ def server_card() -> dict:
     )
 
 
-def _registry_listing() -> dict:
+def _registry_listing() -> dict[str, Any]:
     m = spec()["mcp"]
     return plain(
         {
@@ -252,7 +270,7 @@ def surface() -> str:
     return hashlib.sha256(json.dumps(s, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def registry_server() -> dict:
+def registry_server() -> dict[str, Any]:
     """The official MCP Registry entry, published with mcp-publisher."""
     return {
         **_registry_listing(),
@@ -268,7 +286,8 @@ def prompts_note() -> str:
     """The prompts by name, as a sentence on the agents page."""
     names = [f"<code>{n}</code>" for n in spec()["mcp"]["prompts"]]
     joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
-    return spec()["mcp"]["prompts_note"].replace("{prompts}", joined)
+    note: str = spec()["mcp"]["prompts_note"]
+    return note.replace("{prompts}", joined)
 
 
 def listed_at() -> list[str]:
@@ -285,10 +304,11 @@ def listed_note() -> str:
     if not links:
         return ""
     joined = links[0] if len(links) == 1 else ", ".join(links[:-1]) + " and " + links[-1]
-    return spec()["mcp"]["listing"]["listed_note"].replace("{listings}", joined)
+    note: str = spec()["mcp"]["listing"]["listed_note"]
+    return note.replace("{listings}", joined)
 
 
-def directory_listing() -> dict:
+def directory_listing() -> dict[str, Any]:
     """Every field of a connector directory's listing form, from the text the site already uses."""
     s = spec()
     m = s["mcp"]
@@ -334,7 +354,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOLS_FILE = ROOT / "functions" / "_tools.json"
 
 
-def _dump(v) -> str:
+def _dump(v: object) -> str:
     return json.dumps(v, indent=2, ensure_ascii=False) + "\n"
 
 
