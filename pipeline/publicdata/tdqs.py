@@ -14,6 +14,7 @@ import itertools
 import os
 import re
 import sys
+from pathlib import Path
 
 from .api_text import mcp_spec
 
@@ -272,7 +273,7 @@ def check(ts: list[dict] | None = None) -> int:
     print("\n".join(report))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
-        with open(summary, "a", encoding="utf-8") as f:
+        with Path(summary).open("a", encoding="utf-8") as f:
             f.write("### Tool definitions\n\n```\n" + "\n".join(report + errors) + "\n```\n")
     for e in errors:
         print("tool definition: " + e, file=sys.stderr)

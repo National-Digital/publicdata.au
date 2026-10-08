@@ -1014,7 +1014,7 @@ def run(
             )
     path = summary or os.environ.get("GITHUB_STEP_SUMMARY")
     if path:
-        with open(path, "a", encoding="utf-8") as fh:
+        with Path(path).open("a", encoding="utf-8") as fh:
             fh.write(text)
     if over and not approved:
         print(

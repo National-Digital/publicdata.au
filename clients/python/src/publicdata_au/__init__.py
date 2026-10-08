@@ -764,7 +764,7 @@ class Client:
             dest = (
                 Path(path) if path else Path(f"{slug}-{got}{'-' + table if table else ''}.{format}")
             )
-            with open(dest, "wb") as f:
+            with dest.open("wb") as f:
                 shutil.copyfileobj(r, f, 1 << 20)
         return dest, got
 
@@ -1202,7 +1202,7 @@ class Client:
             part = dest.with_name(dest.name + ".part")
             try:
                 self._save(slug, format, version, part, table)
-                os.replace(part, dest)
+                part.replace(dest)
             finally:
                 part.unlink(missing_ok=True)
         return dest, version

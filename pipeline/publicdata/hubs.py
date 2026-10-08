@@ -846,7 +846,7 @@ def download(url: str, dest: Path, http=None) -> Path:
     http = http or _http()
     with http.get(url, stream=True, timeout=300) as r:
         r.raise_for_status()
-        with open(dest, "wb") as f:
+        with Path(dest).open("wb") as f:
             f.writelines(r.iter_content(1 << 20))
     return dest
 
@@ -945,7 +945,7 @@ class Zenodo:
         # A large upload sometimes meets a 502 or 504 from Zenodo's gateway; the file is sent again.
         for attempt in range(tries):
             try:
-                with open(p, "rb") as fh:
+                with Path(p).open("rb") as fh:
                     self._call(
                         "PUT",
                         url,

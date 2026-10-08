@@ -79,7 +79,7 @@ def _extension(name: str, sha: str) -> bytes:
         fd, tmp = tempfile.mkstemp(prefix=p.name + ".", dir=p.parent)
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        os.replace(tmp, p)
+        Path(tmp).replace(p)
     data = p.read_bytes()
     if hashlib.sha256(data).hexdigest() != sha:
         msg = f"cached DuckDB {name} extension does not match its pinned SHA-256"

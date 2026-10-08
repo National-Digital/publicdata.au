@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import sys
 from http import HTTPStatus
+from pathlib import Path
 from urllib.parse import quote
 
 import requests
@@ -111,7 +112,7 @@ def sync(key: str) -> list[str]:
 def _summary(line: str) -> None:
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if path:
-        with open(path, "a", encoding="utf-8") as f:
+        with Path(path).open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
 

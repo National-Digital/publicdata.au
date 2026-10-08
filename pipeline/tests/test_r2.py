@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -226,7 +227,7 @@ class Bucket(FakeS3):
 
     def upload_file(self, path, bucket, key, ExtraArgs):
         super().upload_file(path, bucket, key, ExtraArgs)
-        data = open(path, "rb").read()
+        data = Path(path).read_bytes()
         self.bytes[key] = data
         self.existing.add(key)
         self.etags[key] = hashlib.md5(data, usedforsecurity=False).hexdigest()
@@ -234,7 +235,7 @@ class Bucket(FakeS3):
     def download_file(self, bucket, key, dest):
         if key not in self.bytes:
             raise _missing()
-        open(dest, "wb").write(self.bytes[key])
+        Path(dest).write_bytes(self.bytes[key])
 
     def get_object(self, Bucket, Key):
         if Key not in self.bytes:

@@ -867,7 +867,7 @@ def cmd_hubs(args) -> int:
         merged = hubs.merge_record(old, found)
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", "utf-8")
-        os.replace(tmp, path)
+        tmp.replace(path)
         return merged
 
     found: dict = {}
