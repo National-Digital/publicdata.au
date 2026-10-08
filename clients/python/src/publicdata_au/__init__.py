@@ -113,6 +113,7 @@ class PublicDataError(Exception):
     """An answer from publicdata.au that was not a success."""
 
     def __init__(self, status: int, message: str, body: Any = None, url: str = ""):
+        """Keep the HTTP status, the decoded body and the URL that answered."""
         super().__init__(f"{status}: {message}" + (f" ({url})" if url else ""))
         self.status = status
         self.body = body
@@ -124,8 +125,10 @@ class SiteUnreachable(PublicDataError):
 
 
 class LicenceCondition(UserWarning):
-    """A dataset's licence sets a condition on its use beyond attribution, such as G-NAF's rule
-    on mail compilation. Shown once per dataset per process; silence it with
+    """A dataset's licence sets a condition on its use beyond attribution.
+
+    G-NAF's rule on mail compilation is one such condition. The warning is shown once per dataset
+    per process; silence it with
     `warnings.simplefilter("ignore", publicdata_au.LicenceCondition)`.
     """
 
@@ -134,18 +137,23 @@ class Filter:
     """One condition on a field, in the query API's `operator.value` form."""
 
     def __init__(self, expr: str):
+        """Hold the condition as the query API spells it, such as `gte.2020`."""
         self.expr = expr
 
     def __str__(self) -> str:
+        """The condition as the query API spells it."""
         return self.expr
 
     def __repr__(self) -> str:
+        """The constructor call that makes this filter again."""
         return f"Filter({self.expr!r})"
 
     def __eq__(self, other) -> bool:
+        """Whether another filter states the same condition."""
         return isinstance(other, Filter) and other.expr == self.expr
 
     def __hash__(self) -> int:
+        """A hash of the condition, so equal filters can share a set or dict key."""
         return hash(self.expr)
 
 
@@ -156,26 +164,32 @@ def _v(value) -> str:
 
 
 def eq(value) -> Filter:
+    """Match a field equal to `value`; a plain value in `where` means the same."""
     return Filter(f"eq.{_v(value)}")
 
 
 def neq(value) -> Filter:
+    """Match a field that differs from `value`."""
     return Filter(f"neq.{_v(value)}")
 
 
 def gt(value) -> Filter:
+    """Match a field greater than `value`."""
     return Filter(f"gt.{_v(value)}")
 
 
 def gte(value) -> Filter:
+    """Match a field greater than or equal to `value`."""
     return Filter(f"gte.{_v(value)}")
 
 
 def lt(value) -> Filter:
+    """Match a field less than `value`."""
     return Filter(f"lt.{_v(value)}")
 
 
 def lte(value) -> Filter:
+    """Match a field less than or equal to `value`."""
     return Filter(f"lte.{_v(value)}")
 
 
@@ -190,6 +204,10 @@ def ilike(pattern: str) -> Filter:
 
 
 def in_(*values) -> Filter:
+    """Match a field equal to any of the values, given one by one or as one list.
+
+    A value cannot contain a comma, since the query API separates the values with commas.
+    """
     if len(values) == 1 and isinstance(values[0], (list, tuple, set, frozenset)):
         values = tuple(values[0])
     if any("," in _v(v) for v in values):
@@ -204,6 +222,7 @@ def is_null() -> Filter:
 
 
 def not_(f: Filter) -> Filter:
+    """Match the rows another filter leaves out, such as `not_(is_null())`."""
     return Filter(f"not.{f.expr}")
 
 
@@ -225,33 +244,41 @@ class Rows(list):
     """
 
     def __init__(self, rows=(), meta: Mapping | None = None, page: Mapping | None = None):
+        """Hold the rows with the answer's provenance (`meta`) and its page details (`page`)."""
         super().__init__(rows)
         self.meta = dict(meta or {})
         self.page = dict(page or {})
 
     @property
     def version(self) -> str | None:
+        """The date of the version the rows were read from."""
         return self.meta.get("version")
 
     @property
     def attribution(self) -> str | None:
+        """The attribution the publisher asks for, to show with the rows."""
         return self.meta.get("attribution")
 
     @property
     def cite(self) -> str | None:
+        """A citation of the version the rows came from."""
         return self.meta.get("cite")
 
     @property
     def licence(self) -> dict | None:
+        """The licence the rows are published under, as the answer states it."""
         return self.meta.get("licence")
 
     @property
     def version_page(self) -> str | None:
+        """The URL of the version's page on the site, to link to as the source."""
         return self.page.get("version_page")
 
     def to_pandas(self):
-        """The rows as a DataFrame. Dates are already `datetime.date`; `df.attrs["fields"]` maps
-        each column to its field's description.
+        """The rows as a DataFrame.
+
+        Dates are already `datetime.date`; `df.attrs["fields"]` maps each column to its field's
+        description.
         """
         import pandas as pd
 
@@ -271,24 +298,31 @@ class Results(list):
 
 
 class Connection:
-    """A DuckDB connection from `connect()`: every method of the connection, plus `publicdata`,
-    which names the dataset, the version, the file's URL and its licence.
+    """A DuckDB connection from `connect()`, with the provenance of the file it attached.
+
+    Every method of the DuckDB connection works on it. `publicdata` names the dataset, the
+    version, the file's URL and its licence.
     """
 
     def __init__(self, con, publicdata: dict):
+        """Wrap a DuckDB connection with the provenance of the file it attached."""
         self._con = con
         self.publicdata = publicdata
 
     def __getattr__(self, name: str):
+        """Hand any other attribute to the DuckDB connection."""
         return getattr(self._con, name)
 
     def __enter__(self):
+        """Use the connection in a `with` block, which closes it at the end."""
         return self
 
     def __exit__(self, *exc):
+        """Close the DuckDB connection."""
         self._con.close()
 
     def __repr__(self) -> str:
+        """The dataset and version the connection reads."""
         return f"Connection({self.publicdata['dataset']!r}, {self.publicdata['version']!r})"
 
 
@@ -305,6 +339,11 @@ class Client:
         cache: bool | None = None,
         cache_dir: str | os.PathLike | None = None,
     ):
+        """Set the site, the timeout and retries for each request, and whether files are cached.
+
+        `site` defaults to PUBLICDATA_SITE or https://publicdata.au, and `cache` to
+        PUBLICDATA_CACHE.
+        """
         self.site = (site or os.environ.get("PUBLICDATA_SITE") or SITE).rstrip("/")
         self.timeout = timeout
         self.retries = retries
@@ -325,9 +364,11 @@ class Client:
         self._relations.clear()
 
     def __enter__(self):
+        """Use the client in a `with` block, which closes its connections at the end."""
         return self
 
     def __exit__(self, *exc):
+        """Close the DuckDB connections `relation()` opened."""
         self.close()
 
     def _open(self, url: str):
@@ -383,6 +424,7 @@ class Client:
         jurisdiction: str | None = None,
     ) -> list[dict]:
         """Datasets the site serves, each with slug, title, publisher, licence and page URL.
+
         `q` searches titles, summaries, publishers, keywords and field names. `publisher` is
         part of a publisher's name, `topic` a topic such as "roads" or "crime", and
         `jurisdiction` a code such as "Qld" or a name such as "Queensland", all ignoring case.
@@ -433,8 +475,9 @@ class Client:
         return {e["identifier"] for e in keep}
 
     def dataset(self, slug: str) -> dict:
-        """The dataset's Frictionless data package: title, licence, attribution, fields and
-        every file of the newest version.
+        """The dataset's Frictionless data package.
+
+        It holds the title, licence, attribution, fields and every file of the newest version.
         """
         return self._json(f"/d/{_slug(slug)}/datapackage.json")
 
@@ -447,14 +490,17 @@ class Client:
         return self._json(f"/d/{_slug(slug)}/versions.json")["latest"]
 
     def schema(self, slug: str, version: str | None = None) -> dict:
-        """A version's schema.json: the fields of a table, or every table of a database with
-        its fields, keys and references, and the views.
+        """A version's schema.json.
+
+        For a table it holds the fields. For a database it holds every table with its fields,
+        keys and references, and the views.
         """
         at = f"v/{_date(version)}" if version else "latest"
         return self._json(f"/d/{_slug(slug)}/{at}/schema.json")
 
     def tables(self, slug: str, version: str | None = None) -> list[dict]:
         """The tables of a database, each with its name, description, rows, fields and keys.
+
         A dataset that is one table has one entry, `records`.
         """
         s = self.schema(slug, version)
@@ -476,9 +522,10 @@ class Client:
         name: str | None = None,
         cache: bool | None = None,
     ):
-        """A DuckDB connection with the version's DuckDB file attached read-only over HTTPS and
-        made the current database, so every table and view is queried by name. Only the blocks
-        a query touches are read. Needs the duckdb package.
+        """A DuckDB connection with the version's DuckDB file attached read-only over HTTPS.
+
+        The file is made the current database, so every table and view is queried by name. Only
+        the blocks a query touches are read. Needs the duckdb package.
 
         For a database such as G-NAF the file holds every table, the keys between them and the
         publisher's views; for a single table it holds `records`. `con.publicdata` names the
@@ -524,11 +571,13 @@ class Client:
         *,
         cache: bool | None = None,
     ):
-        """One table or view as a lazy DuckDB relation over the attached file: `.filter()`,
-        `.aggregate()`, `.project()` and `.order()` build SQL that runs only when `.df()`,
-        `.arrow()` or `.fetchall()` asks, reading only the blocks it needs. `table` defaults to
-        `records`, the one table of most datasets; a database such as G-NAF needs a table or
-        view name from `tables()`. Calls for the same dataset and version share a connection.
+        """One table or view as a lazy DuckDB relation over the attached file.
+
+        `.filter()`, `.aggregate()`, `.project()` and `.order()` build SQL that runs only when
+        `.df()`, `.arrow()` or `.fetchall()` asks, reading only the blocks it needs. `table`
+        defaults to `records`, the one table of most datasets; a database such as G-NAF needs a
+        table or view name from `tables()`. Calls for the same dataset and version share a
+        connection.
         """
         version = _date(version) if version else self.latest(slug)
         key = (_slug(slug), version, self._caching(cache))
@@ -627,11 +676,13 @@ class Client:
         return self._typed(slug, out, version)
 
     def fields(self, slug: str, version: str | None = None) -> list[dict]:
-        """Each field's name, type ("string", "integer", "number", "boolean", "date" or
-        "datetime") and description, with `min` and `max` for a number or date and `values`
-        when it holds few. For a database such as G-NAF each entry also names its `table`.
-        Without `version` the fields are the newest version's; a pinned version is described by
-        its schema, without ranges or values.
+        """Each field's name, type and description.
+
+        The type is "string", "integer", "number", "boolean", "date" or "datetime". A number or
+        date also has `min` and `max`, and a field that holds few values has `values`. For a
+        database such as G-NAF each entry also names its `table`. Without `version` the fields
+        are the newest version's; a pinned version is described by its schema, without ranges or
+        values.
         """
         if not version:
             try:
@@ -656,8 +707,10 @@ class Client:
         return self._memo[key]
 
     def _typed(self, slug: str, out: Rows, version: str | None = None) -> Rows:
-        """Values as the fields of the version they came from say: the API sends dates as text
-        and booleans as 0 or 1. A value that does not parse is left as it came.
+        """Values typed as the fields of the version they came from say.
+
+        The API sends dates as text and booleans as 0 or 1. A value that does not parse is left
+        as it came.
         """
         fields = self._field_types(slug, version)
         out.page["fields"] = {
@@ -681,8 +734,10 @@ class Client:
         version: str | None = None,
         table: str | None = None,
     ) -> str:
-        """The URL of a version's file: data.<format>, or with `table` one table of a database
-        as tables/<table>.parquet.
+        """The URL of a version's file.
+
+        The file is data.<format>, or with `table` one table of a database as
+        tables/<table>.parquet.
         """
         if format not in FORMATS:
             msg = f"format must be one of {', '.join(FORMATS)}"
@@ -722,10 +777,11 @@ class Client:
         table: str | None = None,
         cache: bool | None = None,
     ) -> Path:
-        """Saves one version's file, the newest by default, and returns where. Without `path`
-        the file is named `<slug>-<version>.<format>` in the working directory, or with the
-        cache on it is the kept file in `cache_dir()`. `table` saves one table of a database,
-        as Parquet. Files have no rate limit.
+        """Saves one version's file, the newest by default, and returns where.
+
+        Without `path` the file is named `<slug>-<version>.<format>` in the working directory,
+        or with the cache on it is the kept file in `cache_dir()`. `table` saves one table of a
+        database, as Parquet. Files have no rate limit.
         """
         if self._caching(cache):
             kept = self._fetch(slug, format, version, table, cache=True)[0]
@@ -748,11 +804,12 @@ class Client:
         cache: bool | None = None,
         columns: list[str] | None = None,
     ):
-        """The whole table as a pandas DataFrame, read from the version's Parquet file, or with
-        `table` one table of a database. `columns` reads only those fields. `df.attrs["publicdata"]`
-        is the provenance header the file itself carries: version, licence, attribution,
-        citation and source. Without pyarrow the table is read from the gzipped CSV instead,
-        typed by the version's fields.
+        """The whole table as a pandas DataFrame, read from the version's Parquet file.
+
+        With `table` it reads one table of a database. `columns` reads only those fields.
+        `df.attrs["publicdata"]` is the provenance header the file itself carries: version,
+        licence, attribution, citation and source. Without pyarrow the table is read from the
+        gzipped CSV instead, typed by the version's fields.
         """
         if columns is not None and (isinstance(columns, str) or not columns):
             msg = "columns must be a list of field names, as fields() lists them"
@@ -805,8 +862,10 @@ class Client:
         return df
 
     def _file_header(self, slug: str, version: str | None) -> dict:
-        """The provenance header every file of a version carries, from the first line of its
-        NDJSON, read with a range request so the rest is not downloaded.
+        """The provenance header every file of a version carries.
+
+        It is the first line of the version's NDJSON, read with a range request so the rest is
+        not downloaded.
         """
         url = self.file_url(slug, "ndjson", version if version != "latest" else None)
         req = urllib.request.Request(
@@ -820,10 +879,11 @@ class Client:
             return {}
 
     def read_geo(self, slug: str, version: str | None = None, *, cache: bool | None = None):
-        """A dataset's map layer as a geopandas GeoDataFrame, read from the version's
-        GeoPackage. Datasets with a location or a shape have one; the coordinates are in the
-        reference system the publisher used, usually GDA2020 (EPSG:7844). Needs the [geo]
-        extra. `gdf.attrs["publicdata"]` is the provenance the file carries.
+        """A dataset's map layer as a geopandas GeoDataFrame, read from the version's GeoPackage.
+
+        Datasets with a location or a shape have one; the coordinates are in the reference
+        system the publisher used, usually GDA2020 (EPSG:7844). Needs the [geo] extra.
+        `gdf.attrs["publicdata"]` is the provenance the file carries.
         """
         import geopandas as gpd
 
@@ -853,10 +913,11 @@ class Client:
         return gdf
 
     def changes(self, slug: str, since: str | None = None, until: str | None = None) -> list[dict]:
-        """Every comparison of a version with the one before it, oldest first: the two
-        versions, their rows, rows added, removed, changed and unchanged, the schema changes
-        and the URL of the full comparison. `since` and `until` bound the versions compared.
-        A database is compared by each table's row count.
+        """Every comparison of a version with the one before it, oldest first.
+
+        Each names the two versions, their rows, the rows added, removed, changed and unchanged,
+        the schema changes and the URL of the full comparison. `since` and `until` bound the
+        versions compared. A database is compared by each table's row count.
         """
         out = self._json(f"/d/{_slug(slug)}/changes.json")["changes"]
         if since:
@@ -866,9 +927,10 @@ class Client:
         return out
 
     def diff(self, slug: str, version: str | None = None) -> dict:
-        """The full comparison of `version`, the newest by default, with the version before
-        it: the counts, the keys of the rows added, removed and changed (up to 50,000 of each,
-        `truncated` says when there were more) and up to ten changed rows field by field.
+        """The full comparison of `version`, the newest by default, with the version before it.
+
+        It holds the counts, the keys of the rows added, removed and changed (up to 50,000 of
+        each, `truncated` says when there were more) and up to ten changed rows field by field.
         """
         version = _date(version) if version else self.latest(slug)
         for c in self.changes(slug):
@@ -881,9 +943,10 @@ class Client:
         raise ValueError(msg)
 
     def cite(self, slug: str, version: str | None = None, *, format: str = "text") -> str:
-        """How to cite one version, the newest by default: `format="text"` for the citation
-        the site gives, with the attribution the licence requires, or `"bibtex"` for a
-        reference manager.
+        """How to cite one version, the newest by default.
+
+        `format="text"` gives the citation the site gives, with the attribution the licence
+        requires, and `"bibtex"` gives an entry for a reference manager.
         """
         if format not in ("text", "bibtex"):
             msg = 'format must be "text" or "bibtex"'
@@ -918,9 +981,11 @@ class Client:
         return f"@misc{{{slug}-{version},\n{body}\n}}"
 
     def provenance(self, slug: str, version: str | None = None) -> dict:
-        """The record kept with a version: the publisher's file it was read from, with its
-        address, name, size and SHA-256, when it was fetched, the licence as the publisher stated
-        it and when that was read, and the rows and fields it holds.
+        """The record kept with a version.
+
+        It names the publisher's file the version was read from, with its address, name, size
+        and SHA-256, when it was fetched, the licence as the publisher stated it and when that
+        was read, and the rows and fields it holds.
         """
         at = f"v/{_date(version)}" if version else "latest"
         return self._json(f"/d/{_slug(slug)}/{at}/manifest.json")
@@ -942,11 +1007,13 @@ class Client:
         limit: int = 20,
         offset: int = 0,
     ) -> Results:
-        """Every dataset on the government portals, well over a hundred thousand, of which the
-        site serves a small part. Each record has its `id`, `title`, `summary`, `publisher`,
-        `jurisdiction`, portal `url`, `licence`, `formats`, `modified`, `status` ("served",
-        "votable", "chosen" or "closed"), the site's `page` when served and the `reason` when
-        closed. `jurisdiction` is a code such as "qld" or a name such as "Queensland".
+        """Every dataset on the government portals, of which the site serves a small part.
+
+        The portals list well over a hundred thousand. Each record has its `id`, `title`,
+        `summary`, `publisher`, `jurisdiction`, portal `url`, `licence`, `formats`, `modified`,
+        `status` ("served", "votable", "chosen" or "closed"), the site's `page` when served and
+        the `reason` when closed. `jurisdiction` is a code such as "qld" or a name such as
+        "Queensland".
         """
         jur = None
         if jurisdiction is not None:
@@ -966,9 +1033,11 @@ class Client:
         return Results(rows, body.get("total"), body.get("next_offset"))
 
     def boundary_layers(self) -> list[dict]:
-        """The ABS boundary layers rows join to: council areas, SA2s, suburbs, postal areas and
-        state and federal electorates, each with its `key`, `slug`, `title`, the `code` and
-        `name` fields that identify an area, and the `version` served.
+        """The ABS boundary layers rows join to.
+
+        They are council areas, SA2s, suburbs, postal areas and state and federal electorates,
+        each with its `key`, `slug`, `title`, the `code` and `name` fields that identify an
+        area, and the `version` served.
         """
         if "places" not in self._memo:
             self._memo["places"] = self._json("/places.json")["layers"]
@@ -984,20 +1053,24 @@ class Client:
         raise ValueError(msg)
 
     def boundaries(self, layer: str, *, cache: bool | None = None):
-        """A boundary layer, such as "lga", "sa2", "suburb", "postcode", "state_electorate" or
-        "federal_electorate", as a GeoDataFrame in GDA2020 (EPSG:7844). Needs the [geo] extra.
+        """A boundary layer as a GeoDataFrame in GDA2020 (EPSG:7844).
+
+        `layer` is a key such as "lga", "sa2", "suburb", "postcode", "state_electorate" or
+        "federal_electorate". Needs the [geo] extra.
         """
         return self.read_geo(self._layer(layer)["slug"], cache=cache)
 
     def join_boundaries(
         self, df, layer: str | None = None, by: str | None = None, *, cache: bool | None = None
     ):
-        """`df` with the boundary of the area each row names, by its ABS code, as a GeoDataFrame
-        in the order of `df`. The layer is found from a column such as `lga_2025_code` when
-        `layer` is None; `by` names the column of codes when it is called something else.
-        Numeric codes are compared as text with leading zeros restored, so postcode 800 matches
-        "0800". A row whose code matches no area gets no geometry. Aggregate first: 500 council
-        areas draw faster than 80,000 rows each carrying its area's shape.
+        """`df` with the boundary of the area each row names by its ABS code, as a GeoDataFrame.
+
+        The rows keep the order of `df`. The layer is found from a column such as
+        `lga_2025_code` when `layer` is None; `by` names the column of codes when it is called
+        something else. Numeric codes are compared as text with leading zeros restored, so
+        postcode 800 matches "0800". A row whose code matches no area gets no geometry.
+        Aggregate first: 500 council areas draw faster than 80,000 rows each carrying its area's
+        shape.
         """
         import geopandas as gpd
         import pandas as pd
@@ -1086,8 +1159,10 @@ class Client:
         return out
 
     def cache_clear(self, slug: str | None = None, version: str | None = None) -> int:
-        """Deletes kept files, every one or one dataset's or one version's, and returns the
-        bytes freed.
+        """Deletes kept files and returns the bytes freed.
+
+        With no arguments every kept file goes; `slug` keeps the deletion to one dataset, and
+        `slug` with `version` to one version.
         """
         root = self._cache_root(slug, version)
         if not root.is_dir():
@@ -1169,10 +1244,12 @@ def _parquet_module():
 
 
 def _csv_column(col, kind):
-    """One column of the gzipped CSV, typed as pyarrow types the Parquet file's column: numbers
-    as int64 or float64 (float64 when a whole number is missing), "nan" as NaN, dates as
-    datetime.date, timestamps as datetime64 or datetime when out of its range, booleans as bool
-    or objects when some are missing, and the suppressed names as arrays.
+    """One column of the gzipped CSV, typed as pyarrow types the Parquet file's column.
+
+    Numbers become int64 or float64 (float64 when a whole number is missing), "nan" becomes NaN,
+    dates become datetime.date, timestamps become datetime64 or datetime when out of its range,
+    booleans become bool or objects when some are missing, and the suppressed names become
+    arrays.
     """
     import numpy as np
     import pandas as pd
@@ -1271,8 +1348,9 @@ _JUR_CODES = {
 
 
 def _norm_codes(col, ref) -> list:
-    """Codes as text, with the leading zeros a number lost restored when every code has one
-    width.
+    """Codes as text, with the leading zeros a number lost put back.
+
+    The zeros come back only when every code in `ref` has one width.
     """
     import pandas as pd
 
@@ -1360,22 +1438,27 @@ _default = Client()
 
 
 def datasets(q: str | None = None, **kw) -> list[dict]:
+    """Datasets the site serves, each with slug, title, publisher, licence and page URL."""
     return _default.datasets(q, **kw)
 
 
 def dataset(slug: str) -> dict:
+    """The dataset's Frictionless data package."""
     return _default.dataset(slug)
 
 
 def versions(slug: str) -> list[dict]:
+    """Every version kept, newest first, each with its date, rows, fields and source hash."""
     return _default.versions(slug)
 
 
 def rows(slug: str, where: Mapping[str, Any] | None = None, **kw) -> Rows:
+    """Rows of a dataset from the query API."""
     return _default.rows(slug, where, **kw)
 
 
 def aggregate(slug: str, group=None, metric="count", where=None, **kw) -> Rows:
+    """Counts, sums, averages, minimums and maximums by group, from the query API."""
     return _default.aggregate(slug, group, metric, where, **kw)
 
 
@@ -1386,90 +1469,112 @@ def download(
     path=None,
     **kw,
 ) -> Path:
+    """Saves one version's file, the newest by default, and returns where."""
     return _default.download(slug, format, version, path, **kw)
 
 
 def read(slug: str, version: str | None = None, **kw):
+    """The whole table as a pandas DataFrame, read from the version's Parquet file."""
     return _default.read(slug, version, **kw)
 
 
 def read_geo(slug: str, version: str | None = None, **kw):
+    """A dataset's map layer as a GeoDataFrame, read from the version's GeoPackage."""
     return _default.read_geo(slug, version, **kw)
 
 
 def relation(slug: str, table: str | None = None, version: str | None = None, **kw):
+    """One table or view as a lazy DuckDB relation over the attached file."""
     return _default.relation(slug, table, version, **kw)
 
 
 def latest(slug: str) -> str:
+    """The date of the newest version."""
     return _default.latest(slug)
 
 
 def changes(slug: str, since: str | None = None, until: str | None = None) -> list[dict]:
+    """Every comparison of a version with the one before it, oldest first."""
     return _default.changes(slug, since, until)
 
 
 def diff(slug: str, version: str | None = None) -> dict:
+    """The full comparison of `version`, the newest by default, with the version before it."""
     return _default.diff(slug, version)
 
 
 def cite(slug: str, version: str | None = None, **kw) -> str:
+    """How to cite one version, the newest by default."""
     return _default.cite(slug, version, **kw)
 
 
 def fields(slug: str, version: str | None = None) -> list[dict]:
+    """Each field's name, type and description."""
     return _default.fields(slug, version)
 
 
 def file_url(slug: str, format: str = "parquet", version: str | None = None, table=None) -> str:
+    """The URL of a version's file."""
     return _default.file_url(slug, format, version, table)
 
 
 def provenance(slug: str, version: str | None = None) -> dict:
+    """The record kept with a version."""
     return _default.provenance(slug, version)
 
 
 def browse(slug: str, version: str | None = None) -> str:
+    """Opens the dataset's page, or one version's, in the browser and returns its URL."""
     return _default.browse(slug, version)
 
 
 def catalogue(q: str | None = None, **kw) -> Results:
+    """Every dataset on the government portals, of which the site serves a small part."""
     return _default.catalogue(q, **kw)
 
 
 def boundary_layers() -> list[dict]:
+    """The ABS boundary layers rows join to."""
     return _default.boundary_layers()
 
 
 def boundaries(layer: str, **kw):
+    """A boundary layer as a GeoDataFrame in GDA2020 (EPSG:7844)."""
     return _default.boundaries(layer, **kw)
 
 
 def join_boundaries(df, layer: str | None = None, by: str | None = None, **kw):
+    """`df` with the boundary of the area each row names, as a GeoDataFrame."""
     return _default.join_boundaries(df, layer, by, **kw)
 
 
 def cache_dir() -> Path:
+    """Where kept files go: PUBLICDATA_CACHE_DIR, else the platform's user cache folder."""
     return _default.cache_dir()
 
 
 def cache_list(slug: str | None = None, version: str | None = None) -> list[dict]:
+    """Every kept file: its dataset, version, file, bytes and when it was saved."""
     return _default.cache_list(slug, version)
 
 
 def cache_clear(slug: str | None = None, version: str | None = None) -> int:
+    """Deletes kept files and returns the bytes freed."""
     return _default.cache_clear(slug, version)
 
 
 def schema(slug: str, version: str | None = None) -> dict:
+    """A version's schema.json."""
     return _default.schema(slug, version)
 
 
 def tables(slug: str, version: str | None = None) -> list[dict]:
+    """The tables of a database, each with its name, description, rows, fields and keys."""
     return _default.tables(slug, version)
 
 
 def connect(slug: str, version: str | None = None, **kw):
+    """A DuckDB connection with the version's DuckDB file attached read-only over HTTPS."""
     return _default.connect(slug, version, **kw)
 
 
