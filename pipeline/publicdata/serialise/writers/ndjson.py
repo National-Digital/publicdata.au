@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...normalise import Table
-from .. import dumps, iter_rows, json_view
+from publicdata.normalise import Table
+from publicdata.serialise import dumps, iter_rows, json_view
 
 
 def write_ndjson(tbl: Table, header: dict, path: Path) -> None:

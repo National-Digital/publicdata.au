@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from ...normalise import Table
-from .. import dumps, iter_rows, json_view, table_schema
+from publicdata.normalise import Table
+from publicdata.serialise import dumps, iter_rows, json_view, table_schema
 
 
 def write_json(tbl: Table, header: dict, path: Path, rows: pa.Table | None = None) -> None:

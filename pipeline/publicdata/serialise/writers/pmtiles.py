@@ -4,8 +4,8 @@ import gzip
 import json
 from pathlib import Path
 
-from .. import dumps
-from ..geo import (
+from publicdata.serialise import dumps
+from publicdata.serialise.geo import (
     MAXZOOM,
     MVT_TYPES,
     TILE_EXTENT,

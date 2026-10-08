@@ -5,8 +5,8 @@ from pathlib import Path
 
 import xlsxwriter
 
-from ...normalise import Table
-from .. import _fixed_zip, dumps, field_rows
+from publicdata.normalise import Table
+from publicdata.serialise import _fixed_zip, dumps, field_rows
 
 
 def write_xlsx(tbl: Table, header: dict, path: Path) -> None:

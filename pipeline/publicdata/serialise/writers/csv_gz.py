@@ -4,7 +4,7 @@ import gzip
 import shutil
 from pathlib import Path
 
-from ...normalise import Table
+from publicdata.normalise import Table
 from .csv import write_csv
 
 

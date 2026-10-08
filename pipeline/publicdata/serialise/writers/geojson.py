@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from ...normalise import Table
-from .. import dumps, iter_rows, json_view
-from ..geo import _connect, _with_geometry, geo_kind
+from publicdata.normalise import Table
+from publicdata.serialise import dumps, iter_rows, json_view
+from publicdata.serialise.geo import _connect, _with_geometry, geo_kind
 
 
 def write_geojson(tbl: Table, header: dict, path: Path, rows: pa.Table | None = None) -> None:

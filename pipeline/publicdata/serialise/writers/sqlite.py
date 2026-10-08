@@ -3,8 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from ...normalise import Table
-from .. import SQLITE_TYPES, _meta_tables, json_view
+from publicdata.normalise import Table
+from publicdata.serialise import SQLITE_TYPES, _meta_tables, json_view
 
 
 def write_sqlite(tbl: Table, header: dict, path: Path) -> None:

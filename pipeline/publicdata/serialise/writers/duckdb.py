@@ -4,8 +4,15 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from ...normalise import Table
-from .. import DUCKDB_TYPES, duckdb_comment, duckdb_connect, duckdb_meta, field_rows, profile
+from publicdata.normalise import Table
+from publicdata.serialise import (
+    DUCKDB_TYPES,
+    duckdb_comment,
+    duckdb_connect,
+    duckdb_meta,
+    field_rows,
+    profile,
+)
 
 
 def write_duckdb(tbl: Table, header: dict, path: Path) -> None:

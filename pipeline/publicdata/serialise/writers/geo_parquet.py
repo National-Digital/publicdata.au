@@ -6,8 +6,8 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .. import dumps, profile
-from ..geo import _connect, _with_geometry
+from publicdata.serialise import dumps, profile
+from publicdata.serialise.geo import _connect, _with_geometry
 
 _PROJJSON: dict[str, dict] = {}
 
@@ -32,7 +32,7 @@ def write_shape_parquet(tbl, header: dict, path: Path, lay: dict | None = None) 
     """A layer's Parquet: the fields as data.parquet always holds them, then the WKB geometry in
     GDA2020, with the GeoParquet metadata, so every other format of the layer can be made from it.
     """
-    from ...spine import DATUM
+    from publicdata.spine import DATUM
 
     t = tbl.table.append_column("geometry", tbl.geometry.cast(pa.binary()))
     kinds = (

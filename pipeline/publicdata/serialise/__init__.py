@@ -18,7 +18,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import xlsxwriter
 
-from ..normalise import Table
+from publicdata.normalise import Table
 
 # Every whole-table format, in the order the site lists them. A version whose store manifest has
 # no `caps` stamp keeps the set it was built with, Arrow included.
@@ -205,7 +205,7 @@ def iter_rows(t: pa.Table, batch: int = 20_000):
 
 
 def table_schema(tbl: Table) -> dict:
-    from ..spine import LAYERS, is_spine
+    from publicdata.spine import LAYERS, is_spine
 
     ds = tbl.dataset
     used = {p["layer"]: p for p in tbl.places}
@@ -245,7 +245,7 @@ def table_schema(tbl: Table) -> dict:
     if ds.suppression:
         schema["publicdata:suppressionTokens"] = list(ds.suppression)
     if ds.geometry:
-        from ..spine import DATUM
+        from publicdata.spine import DATUM
 
         kind = ds.geometry["kind"]
         schema["publicdata:geometry"] = {

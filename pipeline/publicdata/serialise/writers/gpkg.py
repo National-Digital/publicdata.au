@@ -4,9 +4,9 @@ import sqlite3
 import struct
 from pathlib import Path
 
-from ...normalise import Table
-from .. import SQLITE_TYPES, _meta_tables, json_view
-from ..geo import _connect, _with_geometry, geo_kind
+from publicdata.normalise import Table
+from publicdata.serialise import SQLITE_TYPES, _meta_tables, json_view
+from publicdata.serialise.geo import _connect, _with_geometry, geo_kind
 
 # OGC WKT 1 for the CRSs the register may declare. Each resolves to its EPSG code under GDAL 3.
 GPKG_SRS = {

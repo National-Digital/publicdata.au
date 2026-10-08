@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from ...normalise import Table
-from .. import dumps, profile
+from publicdata.normalise import Table
+from publicdata.serialise import dumps, profile
 
 
 def write_parquet(

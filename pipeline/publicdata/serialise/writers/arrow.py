@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from ...normalise import Table
-from .. import dumps
+from publicdata.normalise import Table
+from publicdata.serialise import dumps
 
 
 def write_arrow(tbl: Table, header: dict, path: Path) -> None:

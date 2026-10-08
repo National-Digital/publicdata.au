@@ -5,7 +5,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.csv as pcsv
 
-from ...normalise import Table
+from publicdata.normalise import Table
 
 
 def write_csv(tbl: Table, path: Path) -> None:

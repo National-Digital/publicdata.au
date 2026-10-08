@@ -18,7 +18,7 @@ def geo_kind(ds) -> str:
 
 
 def _connect():
-    from ..spine import connect
+    from publicdata.spine import connect
 
     con = connect()
     # One thread: an aggregate's input order, and so each file's bytes, are then the same each run.
@@ -28,7 +28,7 @@ def _connect():
 
 
 def _crs(ds) -> str:
-    from ..spine import DATUM
+    from publicdata.spine import DATUM
 
     return DATUM if geo_kind(ds) != "point" else str(ds.geometry.get("crs") or DATUM)
 
