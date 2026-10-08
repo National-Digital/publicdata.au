@@ -46,7 +46,7 @@ ZIP_DIRECTORY_MAX = 64 * 10**6
 PUBLISHED_BYTES_PER_ROW = 200
 DEFAULT_PER_YEAR = 52
 # A DuckDB file's length differs from one write to the next, so the catalogue gives none and its
-# bound is counted. Of 3,358 built tables none was over 1.25 times its CSV plus 600 KB of blocks,
+# bound is counted. Of 3,358 table builds none was over 1.25 times its CSV plus 600 KB of blocks,
 # and the one database's file was 1.3 times its Parquet tables.
 DUCKDB_PER_CSV = 1.25
 DUCKDB_PER_TABLES = 2
