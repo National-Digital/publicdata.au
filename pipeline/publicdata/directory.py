@@ -397,8 +397,7 @@ def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -
     live_by_pub: dict[str, list[dict]] = defaultdict(list)
     for slug, row in live_rows.items():
         p = d.ds_pub[slug]
-        row = {**row, "publisher_path": p.path}
-        live_by_pub[p.path].append(row)
+        live_by_pub[p.path].append({**row, "publisher_path": p.path})
     as_at_long = _long(d.as_at)
     pub_index = []
     jur_pubs: dict[str, list[dict]] = defaultdict(list)

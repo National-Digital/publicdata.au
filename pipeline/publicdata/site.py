@@ -4260,9 +4260,9 @@ def render_site(
 
     # Prose pages.
     publishers = sorted({o.dataset.publisher.name for o in live})
-    for slug, (heading, desc, body) in PROSE.items():
+    for slug, (heading, desc, template) in PROSE.items():
         body = (
-            body.replace("{publishers}", ", ".join(publishers))
+            template.replace("{publishers}", ", ".join(publishers))
             .replace("{query_api}", _agents_query_api())
             .replace("{webmcp}", _agents_webmcp())
             .replace("{mcp}", _agents_mcp())
@@ -4529,28 +4529,33 @@ def render_site(
                 + ", ".join(f"{p} ({vb}by/{p}/index.json)" for p in ds.partition_by)
             )
     for doc, name in ((llms, "llms.txt"), (full, "llms-full.txt")):
-        doc += ["", "## Backlog", ""] + [
-            f"- {d.title} ({d.publisher.name}, {d.licence.title}): {STATUS_LABEL.get(d.status, d.status)}"
-            for d in datasets
-            if d.slug not in live_slugs
-        ]
-        doc += [
-            "",
-            "## Pages",
-            "",
-            f"- {SITE}/backlog/index.md",
-            f"- {SITE}/publishers/index.md",
-            f"- {SITE}/publishers/stable-urls/index.md",
-            f"- {SITE}/government/index.md",
-            f"- {SITE}/agents/index.md",
-            f"- {SITE}/about/index.md",
-            f"- {SITE}/contribute/index.md",
-            "",
-            "## Source",
-            "",
-            f"- {REPO}: the code, under the AGPL. Contributions are welcome as pull requests.",
-            "",
-        ]
+        doc.extend(
+            ["", "## Backlog", ""]
+            + [
+                f"- {d.title} ({d.publisher.name}, {d.licence.title}): {STATUS_LABEL.get(d.status, d.status)}"
+                for d in datasets
+                if d.slug not in live_slugs
+            ]
+        )
+        doc.extend(
+            [
+                "",
+                "## Pages",
+                "",
+                f"- {SITE}/backlog/index.md",
+                f"- {SITE}/publishers/index.md",
+                f"- {SITE}/publishers/stable-urls/index.md",
+                f"- {SITE}/government/index.md",
+                f"- {SITE}/agents/index.md",
+                f"- {SITE}/about/index.md",
+                f"- {SITE}/contribute/index.md",
+                "",
+                "## Source",
+                "",
+                f"- {REPO}: the code, under the AGPL. Contributions are welcome as pull requests.",
+                "",
+            ]
+        )
         _write(out, name, "\n".join(doc))
     urn = lambda ns, n: f"urn:air:{HOST}:{ns}:{n}"  # noqa: E731
     ard = {

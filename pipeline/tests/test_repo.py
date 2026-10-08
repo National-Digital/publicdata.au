@@ -56,9 +56,9 @@ def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential():
             if not any("create-github-app-token" in str(s.get("uses", "")) for s in steps):
                 continue
             for s in steps:
-                if "actions/checkout" in str(s.get("uses", "")):
-                    if (s.get("with") or {}).get("persist-credentials") is not False:
-                        wrong.append(f"{f.name}: {name}")
+                checkout = "actions/checkout" in str(s.get("uses", ""))
+                if checkout and (s.get("with") or {}).get("persist-credentials") is not False:
+                    wrong.append(f"{f.name}: {name}")
     assert wrong == []
 
 

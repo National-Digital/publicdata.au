@@ -894,9 +894,13 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
         j.attempts = int(row["attempts"]) if row else 0
         if row and row["version"] == j.version:
             part, done = int(row["part"]), int(row["rows"])
-            if row["tbl"] == j.tbl and j.resumable and 0 < part <= len(j.cum):
-                if j.cum[part - 1] == done:
-                    j.start = part
+            if (
+                row["tbl"] == j.tbl
+                and j.resumable
+                and 0 < part <= len(j.cum)
+                and j.cum[part - 1] == done
+            ):
+                j.start = part
         if j.attempts >= MAX_FAILURES and not ({"all", j.slug} & retry):
             j.outcome = "skipped"
             j.note = f"failed in {j.attempts} deploys: {(row or {}).get('error') or ''}"[:300]

@@ -974,13 +974,12 @@ def _where(raw, by: dict[str, Field], ctx: str) -> tuple[dict, ...]:
                 raise RegisterError(msg)
             # A list under neq leaves out each value, such as a total and its percentage row.
             values = value if op == "neq" and isinstance(value, list) and value else [value]
-            for value in values:
-                if value is None or isinstance(value, (dict, list)):
+            for v in values:
+                if v is None or isinstance(v, (dict, list)):
                     msg = f"{ctx}: where.{name}.{op} needs a single value"
                     raise RegisterError(msg)
-                if isinstance(value, bool):
-                    value = "true" if value else "false"
-                out.append({"field": str(name), "op": op, "value": str(value)})
+                text = ("true" if v else "false") if isinstance(v, bool) else str(v)
+                out.append({"field": str(name), "op": op, "value": text})
     return tuple(out)
 
 

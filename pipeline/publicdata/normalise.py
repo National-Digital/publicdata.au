@@ -80,9 +80,9 @@ def detect_encoding(data: bytes, preferred: str = "") -> str:
             continue
         try:
             data.decode(enc)
-            return enc
         except UnicodeDecodeError:
             continue
+        return enc
     return "latin-1"
 
 
@@ -138,8 +138,9 @@ def _pad_rows(text: str, sep: str, width: int) -> tuple[str, int]:
     for row in csv.reader(io.StringIO(text), delimiter=sep):
         if len(row) < width:
             n += 1
-            row = row + [""] * (width - len(row))
-        w.writerow(row)
+            w.writerow(row + [""] * (width - len(row)))
+        else:
+            w.writerow(row)
     return out.getvalue(), n
 
 

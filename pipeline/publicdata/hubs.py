@@ -706,8 +706,8 @@ def cover_image(card: Path, dest: Path) -> Path:
     """
     from PIL import Image
 
-    with Image.open(card) as im:
-        im = im.convert("RGB")
+    with Image.open(card) as src:
+        im = src.convert("RGB")
         w, h = im.size
         if w / h > COVER_ASPECT:
             nw = h * 2
@@ -953,11 +953,12 @@ class Zenodo:
                         headers={"Content-Type": "application/octet-stream"},
                         timeout=1800,
                     )
-                return
             except RuntimeError as err:
                 if attempt + 1 == tries or not re.search(r"answered 5\d\d", str(err)):
                     raise
                 time.sleep(self.pause * (attempt + 1))
+            else:
+                return
 
     def records(self) -> list[dict]:
         if self._records is None:
@@ -1109,7 +1110,12 @@ class Kaggle:
         env = {**os.environ, "KAGGLE_API_TOKEN": self.token}
         for attempt in range(tries):
             r = subprocess.run(
-                [self.cli, *args], capture_output=True, text=True, timeout=3600, env=env
+                [self.cli, *args],
+                capture_output=True,
+                text=True,
+                timeout=3600,
+                env=env,
+                check=False,
             )
             if not self._throttled(r) or attempt == tries - 1:
                 return r

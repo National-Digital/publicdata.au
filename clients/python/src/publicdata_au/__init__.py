@@ -25,6 +25,7 @@ version is recorded in its notes, and `cache_clear()` removes the old copy.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
 import os
@@ -722,10 +723,8 @@ class Client:
             for name in conv.keys() & row.keys():
                 v = row[name]
                 if v is not None:
-                    try:
+                    with contextlib.suppress(TypeError, ValueError):
                         row[name] = conv[name](v)
-                    except (TypeError, ValueError):
-                        pass
         return out
 
     def file_url(
@@ -1373,12 +1372,10 @@ def _header(kv) -> dict:
     """A file's publicdata table: one row per key, with any value that is not text held as JSON."""
     out = {}
     for k, v in kv:
-        if isinstance(v, str) and v[:1] in ("{", "["):
-            try:
-                v = json.loads(v)
-            except ValueError:
-                pass
         out[k] = v
+        if isinstance(v, str) and v[:1] in ("{", "["):
+            with contextlib.suppress(ValueError):
+                out[k] = json.loads(v)
     return out
 
 

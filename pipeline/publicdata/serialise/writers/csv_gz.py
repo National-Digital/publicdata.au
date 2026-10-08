@@ -21,6 +21,9 @@ def write_csv_gz(tbl: Table, path: Path, vdir: Path | None = None) -> None:
     csv_path = (vdir or path.parent) / "data.csv"
     if not csv_path.exists():
         write_csv(tbl, csv_path)
-    with csv_path.open("rb") as src, path.open("wb") as raw:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=6) as gz:
-            shutil.copyfileobj(src, gz, 1 << 20)
+    with (
+        csv_path.open("rb") as src,
+        path.open("wb") as raw,
+        gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=6) as gz,
+    ):
+        shutil.copyfileobj(src, gz, 1 << 20)

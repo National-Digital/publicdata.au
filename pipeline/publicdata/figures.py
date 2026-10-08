@@ -842,9 +842,7 @@ def sample_rows(
             return {"fields": [], "rows": []}
         conds = []
         for w in [where] if isinstance(where, dict) else list(where or ()):
-            if w["value"] == "newest":
-                w = {**w, "value": newest(con, w["field"])}
-            conds.append(w)
+            conds.append({**w, "value": newest(con, w["field"])} if w["value"] == "newest" else w)
         cond, params = _conditions(conds, con)
         terms = [(_q(f), " DESC" if desc else "") for f, desc in order if f in have]
         by = ", ".join([*(f + d for f, d in terms), "rowid"])
