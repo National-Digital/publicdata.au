@@ -226,7 +226,7 @@ def test_int32_is_declared_per_field(tmp_path: Path) -> None:
     assert narrowed.schema.field("m").type == pa.int64()
 
 
-def test_a_datetime_read_back_is_typed_as_normalise_types_it(tmp_path):
+def test_a_datetime_read_back_is_typed_as_normalise_types_it(tmp_path: Path) -> None:
     # Parquet stores seconds as milliseconds, which would print as 06:00:00.000 in a diff.
     t = pa.table({"at": pa.array([0, 3600], pa.timestamp("s"))})
     pq.write_table(t, tmp_path / "t.parquet")

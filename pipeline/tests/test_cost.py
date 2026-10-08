@@ -445,7 +445,7 @@ def test_an_edit_to_what_a_version_publishes_counts_as_moved(
 
 
 @pytest.mark.parametrize(
-    "edit, priced",
+    ("edit", "priced"),
     [
         (BASE.replace("description: one", "description: two"), False),
         (BASE + "title: Another title\n", False),
@@ -462,7 +462,11 @@ def test_an_edit_to_what_a_version_publishes_counts_as_moved(
         (BASE.replace("type: string", "type: integer"), True),
     ],
 )
-def test_only_an_edit_to_what_an_entry_costs_is_priced(tmp_path, edit, priced):
+def test_only_an_edit_to_what_an_entry_costs_is_priced(
+    tmp_path: Path,
+    edit: str,
+    priced: bool,  # noqa: FBT001 - pytest passes parametrized values by name
+) -> None:
     _repo(tmp_path, {"register/a.yaml": BASE})
     (tmp_path / "register" / "a.yaml").write_text(edit, "utf-8")
     assert ("a" in cost.costed(tmp_path, "HEAD", {"a": "register/a.yaml"})) is priced
@@ -470,7 +474,9 @@ def test_only_an_edit_to_what_an_entry_costs_is_priced(tmp_path, edit, priced):
     assert cost.costed(tmp_path, "HEAD", {"new": "register/a.yaml"}) == {"new"}
 
 
-def test_the_gate_passes_a_copy_edit_to_an_entry_over_budget(tmp_path, capsys, monkeypatch):
+def test_the_gate_passes_a_copy_edit_to_an_entry_over_budget(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     real = (ROOT / "register" / "qld-fuel-prices.yaml").read_text("utf-8")
     files = {"register/qld-fuel-prices.yaml": real}
     for sub in ("publishers", "licences"):
@@ -485,7 +491,7 @@ def test_the_gate_passes_a_copy_edit_to_an_entry_over_budget(tmp_path, capsys, m
             "--catalog", str(tmp_path / "c.json"), "--today", "2026-10-06",
             "--summary", str(tmp_path / "s.md")]  # fmt: skip
 
-    def commit(text):
+    def commit(text: str) -> None:
         (tmp_path / "register" / "qld-fuel-prices.yaml").write_text(text, "utf-8")
         git("-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qam", "edit")
 

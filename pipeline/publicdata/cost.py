@@ -724,7 +724,7 @@ def entry_changes(
 COST_KEYS = ("partition_by", "key", "query", "status", "licence")
 
 
-def _costs(raw: dict) -> tuple:
+def _costs(raw: dict[str, Any]) -> tuple[object, ...]:
     src = raw.get("source") or {}
     return (
         _source(raw),
@@ -736,11 +736,13 @@ def _costs(raw: dict) -> tuple:
 
 
 def costed(root: Path, base: str, entries: dict[str, str]) -> set[str]:
-    """Changed entries whose edit can move what they cost: new ones, and those whose source,
-    cadence, shape or a key in COST_KEYS differs from the base's. A description, a label or a
-    raised rebuild number leaves the projection as it was, so the gate does not ask for an
-    approval it already had."""
-    out = set()
+    """Changed entries whose edit can move what they cost.
+
+    Those are new ones, and those whose source, cadence, shape or a key in COST_KEYS differs from
+    the base's. A description, a label or a raised rebuild number leaves the projection as it
+    was, so the gate does not ask for an approval it already had.
+    """
+    out: set[str] = set()
     base_paths = _base_paths(root, base)
     for slug, path in entries.items():
         if slug not in base_paths:

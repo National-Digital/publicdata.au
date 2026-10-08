@@ -6,8 +6,6 @@ import shutil
 import subprocess
 from typing import TYPE_CHECKING
 
-import pytest
-
 from publicdata import brand, store
 from publicdata.__main__ import main
 from publicdata.cache import BuildCache
@@ -17,6 +15,8 @@ from .conftest import ROOT, present
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 
 def test_the_site_fonts_load_from_woff2() -> None:

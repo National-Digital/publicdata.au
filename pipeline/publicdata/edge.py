@@ -30,9 +30,11 @@ VERSION = re.compile(r"^d/([a-z0-9][a-z0-9-]*)/v/(\d{4}-\d{2}-\d{2})/$")
 
 
 def with_answers(prefixes: list[str]) -> list[str]:
-    """Each d/<slug>/v/<date>/ prefix and the query API answers of that version, which the API
-    caches for a year as well."""
-    out = []
+    """Each d/<slug>/v/<date>/ prefix and the query API answers of that version.
+
+    The API caches those answers for a year as well.
+    """
+    out: list[str] = []
     for p in prefixes:
         out.append(p)
         if m := VERSION.match(p):

@@ -199,8 +199,10 @@ def _normalised(t: pa.DataType) -> pa.DataType:
 
 
 def widen(t: pa.Table) -> pa.Table:
-    """A Parquet file's rows typed as normalise types them: every integer 64 bits and every
-    datetime in seconds."""
+    """A Parquet file's rows typed as normalise types them.
+
+    Every integer is 64 bits and every datetime is in seconds.
+    """
     if all(_normalised(f.type) == f.type for f in t.schema):
         return t
     schema = pa.schema(
