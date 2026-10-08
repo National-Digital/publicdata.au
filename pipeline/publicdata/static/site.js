@@ -2,9 +2,9 @@
   'use strict';
   // The build replaces this exact text (API_SLOT in site.py).
   // prettier-ignore
-  const SPEC = /*API_SPEC*/null;
-  const toast = document.getElementById('toast');
-  let tt;
+  var SPEC = /*API_SPEC*/null;
+  var toast = document.getElementById('toast'),
+    tt;
   function say(m) {
     if (!toast) {
       return;
@@ -19,8 +19,8 @@
 
   document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      const el = document.getElementById(btn.dataset.copyTarget);
-      const txt = (el.value !== undefined ? el.value : el.textContent).trim();
+      var el = document.getElementById(btn.dataset.copyTarget);
+      var txt = (el.value !== undefined ? el.value : el.textContent).trim();
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(txt).then(
           function () {
@@ -28,7 +28,7 @@
           },
           function () {
             say('Select and copy');
-          },
+          }
         );
       } else {
         say('Select and copy');
@@ -37,24 +37,24 @@
   });
 
   // Dataset page: format, version, URL, per-tool snippets.
-  const getter = document.getElementById('getter');
+  var getter = document.getElementById('getter');
   if (getter) {
-    const D = JSON.parse(document.getElementById('ds-data').textContent);
-    const seg = document.getElementById('fmt-seg'),
+    var D = JSON.parse(document.getElementById('ds-data').textContent);
+    var seg = document.getElementById('fmt-seg'),
       ver = document.getElementById('ver');
-    let curTool = 'curl';
+    var curTool = 'curl';
     function fmt() {
       return seg.querySelector('[aria-pressed="true"]').dataset.fmt;
     }
     function url() {
-      const v = ver ? ver.value : 'latest',
+      var v = ver ? ver.value : 'latest',
         f = fmt();
-      const file = D.formats[f].file;
+      var file = D.formats[f].file;
       return D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
     }
     // download_name() in site.py and functions/_download.js.
     function saveAs() {
-      const v = ver ? ver.value : 'latest',
+      var v = ver ? ver.value : 'latest',
         file = D.formats[fmt()].file;
       return (
         D.slug +
@@ -63,11 +63,11 @@
         (file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_'))
       );
     }
-    function q(s) {
+    function quote(s) {
       return '"' + s + '"';
     }
     function tools(f, u) {
-      const t = {},
+      var t = {},
         name = u.split('/').pop(),
         tbl = D.slug.replace(/-/g, '_'),
         key = D.example_field;
@@ -75,32 +75,32 @@
       if (f === 'json' || f === 'partition') {
         t['Python'] =
           'import requests\nr = requests.get(' +
-          q(u) +
+          quote(u) +
           ').json()\nrows = r["records"]\nprint(r["publicdata"]["attribution"])';
       }
       if (f === 'csv') {
-        t['Python'] = 'import pandas as pd\ndf = pd.read_csv(' + q(u) + ')\ndf.head()';
+        t['Python'] = 'import pandas as pd\ndf = pd.read_csv(' + quote(u) + ')\ndf.head()';
       }
       if (f === 'parquet') {
         t['Python'] =
           'import pandas as pd\ndf = pd.read_parquet(' +
-          q(u) +
+          quote(u) +
           ')\ndf.groupby(' +
-          q(key) +
+          quote(key) +
           ').size()';
       }
       if (f === 'ndjson') {
         t['Python'] =
-          'import pandas as pd\ndf = pd.read_json(' + q(u) + ', lines=True, skiprows=1)';
+          'import pandas as pd\ndf = pd.read_json(' + quote(u) + ', lines=True, skiprows=1)';
       }
       if (f === 'sqlite') {
         t['Python'] =
           'import sqlite3, urllib.request\nurllib.request.urlretrieve(' +
-          q(u) +
+          quote(u) +
           ', ' +
-          q(tbl + '.sqlite') +
+          quote(tbl + '.sqlite') +
           ')\ncon = sqlite3.connect(' +
-          q(tbl + '.sqlite') +
+          quote(tbl + '.sqlite') +
           ')\ncon.execute("select ' +
           key +
           ', count(*) from records group by 1").fetchall()';
@@ -118,27 +118,31 @@
           '.records group by 1 order by 2 desc").df()';
       }
       if (f === 'geojson') {
-        t['Python'] = 'import geopandas as gpd\ngdf = gpd.read_file(' + q(u) + ')\ngdf.plot()';
+        t['Python'] = 'import geopandas as gpd\ngdf = gpd.read_file(' + quote(u) + ')\ngdf.plot()';
       }
       if (f === 'gpkg') {
         t['Python'] =
-          'import geopandas as gpd\ngdf = gpd.read_file(' + q(u) + ', layer="records")\ngdf.plot()';
+          'import geopandas as gpd\ngdf = gpd.read_file(' +
+          quote(u) +
+          ', layer="records")\ngdf.plot()';
       }
       if (f === 'xlsx') {
         t['Python'] =
-          'import pandas as pd\ndf = pd.read_excel(' + q(u) + ', sheet_name="records")\ndf.head()';
+          'import pandas as pd\ndf = pd.read_excel(' +
+          quote(u) +
+          ', sheet_name="records")\ndf.head()';
       }
       if (f === 'arrow') {
         t['Python'] =
           'import polars as pl\ndf = pl.read_ipc(' +
-          q(u) +
+          quote(u) +
           ')\n# or: import pyarrow.feather as pf; t = pf.read_table("' +
           name +
           '")';
       }
       if (f === 'csv.gz') {
         t['Python'] =
-          'import pandas as pd\ndf = pd.read_csv(' + q(u) + ', compression="gzip")\ndf.head()';
+          'import pandas as pd\ndf = pd.read_csv(' + quote(u) + ', compression="gzip")\ndf.head()';
       }
       if (f === 'parquet') {
         t['DuckDB'] =
@@ -201,13 +205,13 @@
       if (f === 'arrow') {
         t['JavaScript'] =
           'import { tableFromIPC } from "apache-arrow";\nconst table = tableFromIPC(await fetch(' +
-          q(u) +
+          quote(u) +
           ').then(r => r.arrayBuffer()));\nconsole.log(table.numRows, table.schema.metadata.get("publicdata"));';
       }
       if (f === 'json' || f === 'partition' || f === 'ndjson' || f === 'csv' || f === 'geojson') {
         t['JavaScript'] =
           'const res = await fetch(' +
-          q(u) +
+          quote(u) +
           ');\n' +
           (f === 'csv'
             ? 'const text = await res.text(); // parse with d3-dsv or PapaParse'
@@ -218,35 +222,35 @@
                 : 'const data = await res.json();\nconsole.log(data.publicdata.attribution, data.records.length);');
       }
       if (f === 'csv') {
-        t['R'] = 'df <- read.csv(' + q(u) + ')';
+        t['R'] = 'df <- read.csv(' + quote(u) + ')';
       }
       if (f === 'parquet') {
-        t['R'] = 'library(arrow)\ndf <- read_parquet(' + q(u) + ')';
+        t['R'] = 'library(arrow)\ndf <- read_parquet(' + quote(u) + ')';
       }
       if (f === 'json' || f === 'partition') {
-        t['R'] = 'library(jsonlite)\nx <- fromJSON(' + q(u) + ')\ndf <- x$records';
+        t['R'] = 'library(jsonlite)\nx <- fromJSON(' + quote(u) + ')\ndf <- x$records';
       }
       if (f === 'geojson') {
-        t['R'] = 'library(sf)\nshapes <- st_read(' + q(u) + ')';
+        t['R'] = 'library(sf)\nshapes <- st_read(' + quote(u) + ')';
       }
       if (f === 'gpkg') {
-        t['R'] = 'library(sf)\nshapes <- st_read(' + q(u) + ', layer = "records")';
+        t['R'] = 'library(sf)\nshapes <- st_read(' + quote(u) + ', layer = "records")';
       }
       if (f === 'arrow') {
-        t['R'] = 'library(arrow)\ndf <- read_feather(' + q(u) + ')';
+        t['R'] = 'library(arrow)\ndf <- read_feather(' + quote(u) + ')';
       }
       if (f === 'xlsx') {
         t['R'] =
           'library(readxl)\ndownload.file(' +
-          q(u) +
+          quote(u) +
           ', ' +
-          q(name) +
+          quote(name) +
           ')\ndf <- read_excel(' +
-          q(name) +
+          quote(name) +
           ', sheet = "records")';
       }
       if (f === 'csv.gz') {
-        t['R'] = 'df <- read.csv(gzcon(url(' + q(u) + ')))';
+        t['R'] = 'df <- read.csv(gzcon(url(' + quote(u) + ')))';
       }
       if (f === 'duckdb') {
         t['R'] =
@@ -265,7 +269,7 @@
       if (f === 'csv') {
         t['Excel, Sheets, Power BI'] =
           'Excel and Power BI: Data > Get Data > From Web, paste the URL.\nGoogle Sheets: =IMPORTDATA(' +
-          q(u) +
+          quote(u) +
           ')';
       }
       if (f === 'xlsx') {
@@ -286,21 +290,21 @@
       return t;
     }
     function render() {
-      const f = fmt(),
+      var f = fmt(),
         u = url();
       document.getElementById('url').textContent = u;
       document.getElementById('dl').setAttribute('href', u);
       document.getElementById('dl').setAttribute('download', saveAs());
       document.getElementById('fmt-note').innerHTML = D.formats[f].note;
-      const t = tools(f, u),
+      var t = tools(f, u),
         names = Object.keys(t);
       if (names.indexOf(curTool) < 0) {
         curTool = names[0];
       }
-      const tb = document.getElementById('tools');
+      var tb = document.getElementById('tools');
       tb.innerHTML = '';
       names.forEach(function (n) {
-        const b = document.createElement('button');
+        var b = document.createElement('button');
         b.setAttribute('role', 'tab');
         b.type = 'button';
         b.textContent = n;
@@ -329,21 +333,21 @@
   }
 
   // Dataset page: a query builder over the query API. Nothing is fetched until Run.
-  const qc = document.getElementById('console');
-  const QC = qc && JSON.parse(document.getElementById('ds-data').textContent).console;
+  var qc = document.getElementById('console');
+  var QC = qc && JSON.parse(document.getElementById('ds-data').textContent).console;
   if (QC) {
-    const F = {};
+    var F = {};
     QC.fields.forEach(function (f) {
       F[f.name] = f;
     });
-    const NUM = { integer: 1, number: 1, date: 1, datetime: 1 };
-    const OPL = {};
+    var NUM = { integer: 1, number: 1, date: 1, datetime: 1 };
+    var OPL = {};
     Object.keys(SPEC.operators).forEach(function (k) {
       OPL[k] = SPEC.operators[k].label;
     });
     OPL.nul = SPEC.operators['is.null'].label;
     OPL.notnul = SPEC.operators['is.null'].not_label;
-    const opsFor = function (t) {
+    var opsFor = function (t) {
       if (t === 'boolean') {
         return ['eq', 'nul', 'notnul'];
       }
@@ -352,9 +356,9 @@
       }
       return ['eq', 'neq', 'ilike', 'in', 'nul', 'notnul'];
     };
-    const el = function (tag, props, kids) {
-      const n = document.createElement(tag);
-      for (const k in props || {}) {
+    var el = function (tag, props, kids) {
+      var n = document.createElement(tag);
+      for (var k in props || {}) {
         if (k === 'text') {
           n.textContent = props[k];
         } else if (k === 'class') {
@@ -370,17 +374,17 @@
       });
       return n;
     };
-    const options = function (sel, list, cur) {
+    var options = function (sel, list, cur) {
       sel.innerHTML = '';
       list.forEach(function (o) {
-        const x = el('option', { value: o[0], text: o[1] });
+        var x = el('option', { value: o[0], text: o[1] });
         if (o[0] === cur) {
           x.selected = true;
         }
         sel.appendChild(x);
       });
     };
-    const S = {
+    var S = {
       mode: 'rows',
       version: '',
       format: 'json',
@@ -396,10 +400,10 @@
       metric: QC.example.metric,
       aggOrder: '',
     };
-    const numeric = QC.fields.filter(function (f) {
+    var numeric = QC.fields.filter(function (f) {
       return f.type === 'integer' || f.type === 'number' || f.type === 'boolean';
     });
-    const groupable = QC.fields.filter(function (f) {
+    var groupable = QC.fields.filter(function (f) {
       return f.values || QC.example.group.indexOf(f.name) >= 0;
     });
 
@@ -407,22 +411,22 @@
       if (!f.values) {
         return;
       }
-      const dl = el('datalist', { id: 'qv-' + f.name });
+      var dl = el('datalist', { id: 'qv-' + f.name });
       f.values.forEach(function (v) {
         dl.appendChild(el('option', { value: String(v) }));
       });
       qc.appendChild(dl);
     });
 
-    const row = function (label, body) {
+    var row = function (label, body) {
       return el('div', { class: 'row' }, [el('span', { class: 'lab', text: label }), body]);
     };
-    const modeSeg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Ask for' });
+    var modeSeg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Ask for' });
     [
       ['rows', 'Rows'],
       ['aggregate', 'Counts and sums'],
     ].forEach(function (m) {
-      const b = el('button', {
+      var b = el('button', {
         type: 'button',
         'data-mode': m[0],
         'aria-pressed': m[0] === S.mode ? 'true' : 'false',
@@ -434,26 +438,26 @@
       });
       modeSeg.appendChild(b);
     });
-    const frows = el('div', { class: 'frows' });
-    const addF = el('button', { type: 'button', class: 'copy', text: 'Add a filter' });
+    var frows = el('div', { class: 'frows' });
+    var addF = el('button', { type: 'button', class: 'copy', text: 'Add a filter' });
     addF.addEventListener('click', function () {
       S.filters.push({ field: QC.fields[0].name, op: 'eq', value: '' });
       paintFilters();
       update();
-      const i = frows.querySelectorAll('select');
+      var i = frows.querySelectorAll('select');
       if (i.length) {
         i[i.length - 2].focus();
       }
     });
 
-    const colsBox = el('details', { class: 'cols-box' });
-    const colsSum = el('summary', {});
+    var colsBox = el('details', { class: 'cols-box' });
+    var colsSum = el('summary', {});
     colsBox.appendChild(colsSum);
-    const cols = el('div', { class: 'cols' });
+    var cols = el('div', { class: 'cols' });
     colsBox.appendChild(cols);
-    const clearB = el('button', { type: 'button', class: 'copy', text: 'Clear every tick' }),
+    var clearB = el('button', { type: 'button', class: 'copy', text: 'Clear every tick' }),
       allB = el('button', { type: 'button', class: 'copy', text: 'Tick every field' });
-    const tickAll = function (on) {
+    var tickAll = function (on) {
       cols.querySelectorAll('input').forEach(function (x) {
         x.checked = on;
       });
@@ -467,20 +471,20 @@
     });
     colsBox.appendChild(el('div', { class: 'frow', style: 'margin-top:8px' }, [allB, clearB]));
     QC.fields.forEach(function (f) {
-      const c = el('input', { type: 'checkbox', value: f.name });
+      var c = el('input', { type: 'checkbox', value: f.name });
       c.checked = true;
       cols.appendChild(el('label', {}, [c, el('span', { class: 'mono', text: f.name })]));
     });
-    const orderSel = el('select', { 'aria-label': 'Order by' }),
+    var orderSel = el('select', { 'aria-label': 'Order by' }),
       dirSel = el('select', { 'aria-label': 'Direction' });
     options(
       orderSel,
       [['', "Publisher's order"]].concat(
         QC.fields.map(function (f) {
           return [f.name, f.name];
-        }),
+        })
       ),
-      '',
+      ''
     );
     options(
       dirSel,
@@ -488,7 +492,7 @@
         ['asc', 'Ascending'],
         ['desc', 'Descending'],
       ],
-      'asc',
+      'asc'
     );
     orderSel.addEventListener('change', function () {
       S.order = orderSel.value;
@@ -500,7 +504,7 @@
       update();
     });
     dirSel.hidden = true;
-    const limitIn = el('input', {
+    var limitIn = el('input', {
       type: 'number',
       min: '1',
       max: '10000',
@@ -509,7 +513,7 @@
       class: 'num',
     });
     limitIn.addEventListener('input', function () {
-      const n = parseInt(limitIn.value, 10);
+      var n = parseInt(limitIn.value, 10);
       if (n >= 1 && n <= 10000) {
         if (S.mode === 'rows') {
           S.rowsLimit = n;
@@ -520,9 +524,9 @@
       }
     });
 
-    const g1 = el('select', { 'aria-label': 'Group by' }),
+    var g1 = el('select', { 'aria-label': 'Group by' }),
       g2 = el('select', { 'aria-label': 'Then by' });
-    const gOpts = groupable.map(function (f) {
+    var gOpts = groupable.map(function (f) {
       return [f.name, f.name];
     });
     options(g1, [['', 'Nothing (one total)']].concat(gOpts), S.group[0] || '');
@@ -531,11 +535,11 @@
       [['', 'and nothing else']].concat(
         gOpts.map(function (o) {
           return [o[0], 'then ' + o[1]];
-        }),
+        })
       ),
-      S.group[1] || '',
+      S.group[1] || ''
     );
-    const regroup = function () {
+    var regroup = function () {
       S.group = [g1.value, g2.value].filter(function (v, i, a) {
         return v && a.indexOf(v) === i;
       });
@@ -545,9 +549,9 @@
     g1.addEventListener('change', regroup);
     g2.addEventListener('change', regroup);
     g2.hidden = !g1.value;
-    const fnSel = el('select', { 'aria-label': 'Measure' }),
+    var fnSel = el('select', { 'aria-label': 'Measure' }),
       mfSel = el('select', { 'aria-label': 'Of field' });
-    const m0 = S.metric.split('.');
+    var m0 = S.metric.split('.');
     options(
       fnSel,
       [
@@ -557,19 +561,19 @@
         ['min', 'Minimum of'],
         ['max', 'Maximum of'],
       ],
-      m0[0],
+      m0[0]
     );
     options(
       mfSel,
       numeric.map(function (f) {
         return [f.name, f.name];
       }),
-      m0[1] || (numeric[0] && numeric[0].name),
+      m0[1] || (numeric[0] && numeric[0].name)
     );
     if (!numeric.length) {
       fnSel.disabled = true;
     }
-    const remetric = function () {
+    var remetric = function () {
       mfSel.hidden = fnSel.value === 'count';
       S.metric = fnSel.value === 'count' ? 'count' : fnSel.value + '.' + mfSel.value;
       update();
@@ -577,7 +581,7 @@
     fnSel.addEventListener('change', remetric);
     mfSel.addEventListener('change', remetric);
     mfSel.hidden = fnSel.value === 'count';
-    const aggOrd = el('select', { 'aria-label': 'Order groups' });
+    var aggOrd = el('select', { 'aria-label': 'Order groups' });
     options(
       aggOrd,
       [
@@ -585,23 +589,23 @@
         ['desc', 'Largest first'],
         ['asc', 'Smallest first'],
       ],
-      '',
+      ''
     );
     aggOrd.addEventListener('change', function () {
       S.aggOrder = aggOrd.value;
       update();
     });
 
-    const verSel = el('select', { 'aria-label': 'Version' }),
+    var verSel = el('select', { 'aria-label': 'Version' }),
       fmtSel = el('select', { 'aria-label': 'Format' });
     options(
       verSel,
       [['', 'Newest loaded']].concat(
         QC.versions.map(function (v) {
           return [v, v + ' (pinned)'];
-        }),
+        })
       ),
-      '',
+      ''
     );
     options(
       fmtSel,
@@ -610,7 +614,7 @@
         ['csv', 'CSV'],
         ['ndjson', 'NDJSON'],
       ],
-      'json',
+      'json'
     );
     verSel.addEventListener('change', function () {
       S.version = verSel.value;
@@ -621,12 +625,12 @@
       update();
     });
 
-    const urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0' });
-    const runB = el('button', { type: 'button', class: 'btn', text: 'Run' });
-    const openA = el('a', { class: 'btn ghost', text: 'Open', rel: 'nofollow' });
-    const copyB = el('button', { type: 'button', class: 'copy', text: 'Copy URL' });
+    var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0' });
+    var runB = el('button', { type: 'button', class: 'btn', text: 'Run' });
+    var openA = el('a', { class: 'btn ghost', text: 'Open', rel: 'nofollow' });
+    var copyB = el('button', { type: 'button', class: 'copy', text: 'Copy URL' });
     copyB.addEventListener('click', function () {
-      const t = urlBox.textContent;
+      var t = urlBox.textContent;
       if (navigator.clipboard) {
         navigator.clipboard.writeText(t).then(
           function () {
@@ -634,15 +638,15 @@
           },
           function () {
             say('Select and copy');
-          },
+          }
         );
       } else {
         say('Select and copy');
       }
     });
-    const tabs = el('div', { class: 'tools', role: 'tablist', 'aria-label': 'Query code' });
-    const code = el('code', { id: 'q-code' });
-    const copyC = el('button', { type: 'button', class: 'copy abs', text: 'Copy' });
+    var tabs = el('div', { class: 'tools', role: 'tablist', 'aria-label': 'Query code' });
+    var code = el('code', { id: 'q-code' });
+    var copyC = el('button', { type: 'button', class: 'copy abs', text: 'Copy' });
     copyC.addEventListener('click', function () {
       if (navigator.clipboard) {
         navigator.clipboard.writeText(code.textContent).then(
@@ -651,25 +655,25 @@
           },
           function () {
             say('Select and copy');
-          },
+          }
         );
       } else {
         say('Select and copy');
       }
     });
-    const status = el('p', { class: 'fmt-note', role: 'status', 'aria-live': 'polite' });
-    const result = el('div', { class: 'tbl qres', hidden: '' });
+    var status = el('p', { class: 'fmt-note', role: 'status', 'aria-live': 'polite' });
+    var result = el('div', { class: 'tbl qres', hidden: '' });
 
-    const rowsOnly = [
+    var rowsOnly = [
       row('Fields', colsBox),
       row('Order', el('div', { class: 'frow' }, [orderSel, dirSel])),
     ];
-    const aggOnly = [
+    var aggOnly = [
       row('Group by', el('div', { class: 'frow' }, [g1, g2])),
       row('Measure', el('div', { class: 'frow' }, [fnSel, mfSel])),
       row('Order', aggOrd),
     ];
-    const st = document.getElementById('q-static');
+    var st = document.getElementById('q-static');
     if (st) {
       st.remove();
     }
@@ -687,19 +691,19 @@
         qc.appendChild(n);
       });
 
-    const fieldOpts = QC.fields.map(function (f) {
+    var fieldOpts = QC.fields.map(function (f) {
       return [f.name, f.name];
     });
-    const paintFilters = function () {
+    var paintFilters = function () {
       frows.innerHTML = '';
       if (!S.filters.length) {
         frows.appendChild(el('span', { class: 'fmt-note', text: 'None. Every row counts.' }));
       }
       S.filters.forEach(function (f, i) {
-        const fs = el('select', { 'aria-label': 'Filter ' + (i + 1) + ' field' }),
+        var fs = el('select', { 'aria-label': 'Filter ' + (i + 1) + ' field' }),
           os = el('select', { 'aria-label': 'Filter ' + (i + 1) + ' test' });
         options(fs, fieldOpts, f.field);
-        const t = F[f.field].type,
+        var t = F[f.field].type,
           ops = opsFor(t);
         if (ops.indexOf(f.op) < 0) {
           f.op = ops[0];
@@ -709,9 +713,9 @@
           ops.map(function (o) {
             return [o, OPL[o]];
           }),
-          f.op,
+          f.op
         );
-        let v;
+        var v;
         if (t === 'boolean') {
           v = el('select', { 'aria-label': 'Filter ' + (i + 1) + ' value' });
           options(
@@ -720,11 +724,11 @@
               ['true', 'true'],
               ['false', 'false'],
             ],
-            f.value === 'false' ? 'false' : 'true',
+            f.value === 'false' ? 'false' : 'true'
           );
           f.value = v.value;
         } else {
-          const fd = F[f.field];
+          var fd = F[f.field];
           v = el('input', {
             type: 'text',
             value: f.value,
@@ -745,7 +749,7 @@
           }
         }
         v.hidden = f.op === 'nul' || f.op === 'notnul';
-        const rm = el('button', {
+        var rm = el('button', {
           type: 'button',
           class: 'copy',
           'aria-label': 'Remove filter ' + (i + 1),
@@ -776,11 +780,11 @@
       });
     };
 
-    const enc = function (s) {
+    var enc = function (s) {
       return encodeURIComponent(s).replace(/%2C/g, ',').replace(/%3A/g, ':');
     };
-    const params = function (fmt) {
-      const p = [];
+    var params = function (format) {
+      var p = [];
       if (S.mode === 'aggregate') {
         if (S.group.length) {
           p.push(['group', S.group.join(',')]);
@@ -790,7 +794,7 @@
         p.push(['select', S.select.join(',')]);
       }
       S.filters.forEach(function (f) {
-        let v;
+        var v;
         if (f.op === 'nul') {
           v = 'is.null';
         } else if (f.op === 'notnul') {
@@ -813,12 +817,12 @@
         p.push(['order', S.metric.replace('.', '_') + '.' + S.aggOrder]);
       }
       p.push(['limit', String(S.mode === 'rows' ? S.rowsLimit : S.aggLimit)]);
-      if (fmt && fmt !== 'json') {
-        p.push(['format', fmt]);
+      if (format && format !== 'json') {
+        p.push(['format', format]);
       }
       return p;
     };
-    const path = function (p) {
+    var path = function (p) {
       return (
         QC.api +
         (S.version ? 'versions/' + S.version + '/' : '') +
@@ -833,9 +837,9 @@
           : '')
       );
     };
-    let curTab = 'curl';
-    const snippets = function () {
-      const u = QC.site + path(params(S.format)),
+    var curTab = 'curl';
+    var snippets = function () {
+      var u = QC.site + path(params(S.format)),
         csv = QC.site + path(params('csv')),
         s = {},
         qq = function (x) {
@@ -863,15 +867,15 @@
       s['Sheets'] = '=IMPORTDATA(' + qq(csv) + ')';
       return s;
     };
-    const update = function () {
-      const u = path(params(S.format));
+    var update = function () {
+      var u = path(params(S.format));
       urlBox.textContent = QC.site + u;
       openA.setAttribute('href', u);
-      const s = snippets(),
+      var s = snippets(),
         names = Object.keys(s);
       tabs.innerHTML = '';
       names.forEach(function (n) {
-        const b = el('button', {
+        var b = el('button', {
           type: 'button',
           role: 'tab',
           'aria-selected': n === curTab ? 'true' : 'false',
@@ -885,7 +889,7 @@
       });
       code.textContent = s[curTab];
     };
-    const paint = function () {
+    var paint = function () {
       modeSeg.querySelectorAll('button').forEach(function (b) {
         b.setAttribute('aria-pressed', b.dataset.mode === S.mode ? 'true' : 'false');
       });
@@ -899,8 +903,8 @@
       colsSum.textContent = colsLabel();
       update();
     };
-    const colsLabel = function () {
-      const n = cols.querySelectorAll('input:checked').length;
+    var colsLabel = function () {
+      var n = cols.querySelectorAll('input:checked').length;
       return n === QC.fields.length
         ? 'All ' + n + ' fields'
         : n
@@ -922,53 +926,53 @@
       update();
     });
 
-    const SHOW = 200;
-    let busy = false;
-    const table = function (rows) {
+    var SHOW = 200,
+      busy = false;
+    var table = function (rows) {
       result.innerHTML = '';
       if (!rows.length) {
         result.hidden = true;
         return;
       }
-      const keys = Object.keys(rows[0]);
-      const thead = el('thead', {}, [
+      var keys = Object.keys(rows[0]);
+      var thead = el('thead', {}, [
         el(
           'tr',
           {},
           keys.map(function (k) {
             return el('th', { text: k });
-          }),
+          })
         ),
       ]);
-      const tbody = el('tbody');
+      var tbody = el('tbody');
       rows.slice(0, SHOW).forEach(function (r) {
         tbody.appendChild(
           el(
             'tr',
             {},
             keys.map(function (k) {
-              const v = r[k];
+              var v = r[k];
               return v === null || v === undefined
                 ? el('td', { class: 'nul', text: 'null' })
                 : el('td', { class: typeof v === 'number' ? 'n' : '', text: String(v) });
-            }),
-          ),
+            })
+          )
         );
       });
       result.appendChild(el('table', { class: 'ledger' }, [thead, tbody]));
       result.hidden = false;
     };
-    const run = function (offset) {
+    var run = function (offset) {
       if (busy) {
         return;
       }
       busy = true;
       runB.disabled = true;
-      const p = params('json');
+      var p = params('json');
       if (offset) {
         p.push(['offset', String(offset)]);
       }
-      const t0 = Date.now();
+      var t0 = Date.now();
       status.textContent = 'Running the query.';
       fetch(path(p))
         .then(function (r) {
@@ -978,16 +982,16 @@
               return {};
             })
             .then(function (b) {
-              return { r, b };
+              return { r: r, b: b };
             });
         })
         .then(function (x) {
-          const r = x.r,
+          var r = x.r,
             b = x.b,
             ms = Date.now() - t0;
           status.innerHTML = '';
           if (r.status === 429) {
-            const wait = r.headers.get('Retry-After') || b.block_seconds || 10;
+            var wait = r.headers.get('Retry-After') || b.block_seconds || 10;
             status.textContent =
               'Too many requests from this address. Run again in ' + wait + ' seconds.';
             return;
@@ -999,10 +1003,10 @@
               (b.error || 'The query API answered ' + r.status + '.');
             return;
           }
-          const rows = b.rows || [];
+          var rows = b.rows || [];
           table(rows);
-          const v = r.headers.get('X-Publicdata-Version') || (b.publicdata && b.publicdata.version);
-          const msg = rows.length
+          var v = r.headers.get('X-Publicdata-Version') || (b.publicdata && b.publicdata.version);
+          var msg = rows.length
             ? rows.length.toLocaleString('en-AU') +
               (S.mode === 'rows'
                 ? rows.length === 1
@@ -1023,8 +1027,8 @@
             : 'No rows match. Loosen a filter and run again.';
           status.appendChild(document.createTextNode(msg + ' '));
           if (b.next) {
-            const nb = el('button', { type: 'button', class: 'copy', text: 'Next page' });
-            const lim = S.mode === 'rows' ? S.rowsLimit : S.aggLimit;
+            var nb = el('button', { type: 'button', class: 'copy', text: 'Next page' });
+            var lim = S.mode === 'rows' ? S.rowsLimit : S.aggLimit;
             nb.addEventListener('click', function () {
               run((offset || 0) + lim);
             });
@@ -1053,9 +1057,9 @@
   }
 
   // Citation card: four forms of one sentence.
-  const citeData = document.getElementById('cite-data');
+  var citeData = document.getElementById('cite-data');
   if (citeData) {
-    const forms = JSON.parse(citeData.textContent);
+    var forms = JSON.parse(citeData.textContent);
     document.querySelectorAll('.cite-tabs button').forEach(function (b) {
       b.addEventListener('click', function () {
         document.querySelectorAll('.cite-tabs button').forEach(function (x) {
@@ -1069,26 +1073,26 @@
   }
 
   // The header on a narrow screen: the menu button shows and hides the site links.
-  const menu = document.querySelector('.menu');
+  var menu = document.querySelector('.menu');
   if (menu) {
     menu.addEventListener('click', function () {
-      const on = menu.getAttribute('aria-expanded') !== 'true';
+      var on = menu.getAttribute('aria-expanded') !== 'true';
       menu.setAttribute('aria-expanded', on ? 'true' : 'false');
       menu.closest('header').classList.toggle('open', on);
     });
   }
 
   // Home search: the cards filter in place as you type, and submit searches the whole catalogue.
-  const q = document.getElementById('q'),
+  var q = document.getElementById('q'),
     ledger = document.getElementById('ledger');
   if (q && ledger) {
-    const cards = ledger.querySelectorAll('[data-card]'),
+    var cards = ledger.querySelectorAll('[data-card]'),
       none = document.getElementById('ledger-none');
-    const more = document.getElementById('ledger-more');
-    let all = false;
-    const filter = function () {
-      const s = q.value.trim().toLowerCase();
-      let any = false;
+    var more = document.getElementById('ledger-more'),
+      all = false;
+    var filter = function () {
+      var s = q.value.trim().toLowerCase(),
+        any = false;
       cards.forEach(function (c) {
         c.hidden = s
           ? c.textContent.toLowerCase().indexOf(s) < 0
@@ -1114,22 +1118,22 @@
         filter();
       });
     }
-    const params = new URLSearchParams(location.search);
-    if (params.get('q')) {
-      q.value = params.get('q');
+    var search = new URLSearchParams(location.search);
+    if (search.get('q')) {
+      q.value = search.get('q');
       filter();
     }
   }
 
   // Tabs: a row of buttons that each show one pane.
-  document.querySelectorAll('[data-tabs]').forEach(function (box) {
-    const tabs = box.querySelectorAll('[role=tab]');
-    tabs.forEach(function (tab) {
+  document.querySelectorAll('[data-tabList]').forEach(function (box) {
+    var tabList = box.querySelectorAll('[role=tab]');
+    tabList.forEach(function (tab) {
       tab.addEventListener('click', function () {
-        tabs.forEach(function (t) {
-          const on = t === tab;
+        tabList.forEach(function (t) {
+          var on = t === tab;
           t.setAttribute('aria-selected', on ? 'true' : 'false');
-          const pane = document.getElementById(t.getAttribute('aria-controls'));
+          var pane = document.getElementById(t.getAttribute('aria-controls'));
           if (pane) {
             pane.hidden = !on;
           }
@@ -1139,15 +1143,15 @@
   });
 
   // Votes: one click, no identity. The server counts one per browser per day.
-  let mine = {};
+  var mine = {};
   try {
     mine = JSON.parse(localStorage.getItem('pd-votes') || '{}');
-  } catch {
+  } catch (e) {
     // Storage is blocked, so votes count without being remembered here.
   }
-  let countsP = null;
+  var countsP = null;
   function counts() {
-    const get = function (u) {
+    var get = function (u) {
       return fetch(u)
         .then(function (r) {
           return r.ok ? r.json() : {};
@@ -1166,7 +1170,7 @@
             }
           });
           return a[0];
-        },
+        }
       );
     }
     return countsP;
@@ -1177,12 +1181,12 @@
     b.querySelector('span').textContent = on ? 'voted' : 'vote';
   }
   function bindVote(b) {
-    const k = b.dataset.vote;
+    var k = b.dataset.vote;
     counts().then(function (c) {
       paintVote(b, c[k] || 0, !!mine[k]);
     });
     b.addEventListener('click', function () {
-      const on = b.getAttribute('aria-pressed') === 'true';
+      var on = b.getAttribute('aria-pressed') === 'true';
       fetch('/api/v1/votes/' + encodeURIComponent(k), { method: on ? 'DELETE' : 'POST' })
         .then(function (r) {
           return r.json();
@@ -1206,7 +1210,7 @@
           }
           try {
             localStorage.setItem('pd-votes', JSON.stringify(mine));
-          } catch {
+          } catch (e) {
             // Storage is blocked; the vote is counted all the same.
           }
           paintVote(b, d.votes, !on);
@@ -1221,14 +1225,14 @@
 
   // A table filtered by the words typed above it.
   document.querySelectorAll('input[data-filter]').forEach(function (i) {
-    const rows = document.querySelectorAll(i.dataset.filter + ' tbody tr');
+    var rows = document.querySelectorAll(i.dataset.filter + ' tbody tr');
     if (i.form) {
       i.form.addEventListener('submit', function (e) {
         e.preventDefault();
       });
     }
     i.addEventListener('input', function () {
-      const w = i.value.toLowerCase().trim();
+      var w = i.value.toLowerCase().trim();
       rows.forEach(function (r) {
         r.hidden = !!w && r.textContent.toLowerCase().indexOf(w) < 0;
       });
@@ -1236,7 +1240,7 @@
   });
 
   // The catalogue: every dataset on the portals, searched through /api/v1/catalogue.
-  const JUR = {
+  var JUR = {
     cth: 'Cth',
     nsw: 'NSW',
     vic: 'Vic',
@@ -1248,7 +1252,7 @@
     nt: 'NT',
   };
   function elem(tag, cls, text) {
-    const e = document.createElement(tag);
+    var e = document.createElement(tag);
     if (cls) {
       e.className = cls;
     }
@@ -1258,8 +1262,8 @@
     return e;
   }
   function catRow(r) {
-    const tr = elem('tr', r.state === 'closed' ? 'closed' : '');
-    const t = elem('td', 't'),
+    var tr = elem('tr', r.state === 'closed' ? 'closed' : '');
+    var t = elem('td', 't'),
       a = elem('a', '', r.title);
     a.href = r.page || r.url;
     if (!r.page) {
@@ -1269,9 +1273,9 @@
     if (r.summary) {
       t.appendChild(elem('span', 'sub', r.summary));
     }
-    const p = elem('td');
+    var p = elem('td');
     if (r.publisher_path) {
-      const pa = elem('a', '', r.publisher);
+      var pa = elem('a', '', r.publisher);
       pa.href = r.publisher_path;
       p.appendChild(pa);
     } else {
@@ -1279,19 +1283,19 @@
     }
     p.appendChild(document.createTextNode(' '));
     p.appendChild(elem('span', 'chip jur', JUR[r.jur] || r.jur));
-    const l = elem('td', 't', r.licence);
+    var l = elem('td', 't', r.licence);
     if (r.formats) {
       l.appendChild(elem('span', 'sub', r.formats));
     }
-    const v = elem('td');
+    var v = elem('td');
     if (r.state === 'served') {
-      const sv = elem('a', 'chip live', 'served');
+      var sv = elem('a', 'chip live', 'served');
       sv.href = r.page;
       v.appendChild(sv);
     } else if (r.state === 'closed') {
       v.appendChild(elem('span', 'why', r.reason));
     } else {
-      const b = elem('button', 'vote');
+      var b = elem('button', 'vote');
       b.type = 'button';
       b.dataset.vote = r.vote;
       b.innerHTML = '<b>0</b><span>vote</span>';
@@ -1304,16 +1308,16 @@
     tr.appendChild(v);
     return tr;
   }
-  const cs = document.getElementById('cat-search');
+  var cs = document.getElementById('cat-search');
   if (cs) {
-    const cres = document.getElementById('cat-results'),
+    var cres = document.getElementById('cat-results'),
       cbody = cres.querySelector('tbody'),
       cmore = document.getElementById('cat-more'),
-      ccount = document.getElementById('cat-count');
-    let cnext = null,
+      ccount = document.getElementById('cat-count'),
+      cnext = null,
       ctext = '';
-    const cparams = function (off) {
-      const p = new URLSearchParams(),
+    var cparams = function (off) {
+      var p = new URLSearchParams(),
         words = cs.q.value.trim();
       if (words) {
         p.set('q', words);
@@ -1329,11 +1333,11 @@
       }
       return p;
     };
-    const crun = function (off) {
-      const p = cparams(off);
+    var crun = function (off) {
+      var p = cparams(off);
       try {
         history.replaceState(null, '', location.pathname + (p.toString() ? '?' + cparams(0) : ''));
-      } catch {
+      } catch (e) {
         // The address bar is a convenience; the search runs without it.
       }
       if (!off) {
@@ -1360,7 +1364,7 @@
             ccount.textContent = ctext;
             return;
           }
-          const grey = cbody.querySelector('tr.closed');
+          var grey = cbody.querySelector('tr.closed');
           ccount.textContent = d.total
             ? d.total.toLocaleString('en-AU') +
               (d.total === 1 ? ' dataset matches.' : ' datasets match.') +
@@ -1381,7 +1385,7 @@
     cmore.addEventListener('click', function () {
       crun(cnext);
     });
-    const cu = new URLSearchParams(location.search);
+    var cu = new URLSearchParams(location.search);
     if (cu.get('q') || cu.get('jur')) {
       cs.q.value = cu.get('q') || '';
       cs.jur.value = cu.get('jur') || '';
@@ -1392,9 +1396,9 @@
 
   // The most-voted datasets, from the register and the catalogue alike. The page's own rows stay
   // until there are votes to show.
-  const mw = document.getElementById('most-wanted');
+  var mw = document.getElementById('most-wanted');
   if (mw) {
-    const mlimit = Number(mw.dataset.limit) || 5;
+    var mlimit = Number(mw.dataset.limit) || 5;
     Promise.all([
       counts(),
       fetch('/backlog.json')
@@ -1405,14 +1409,14 @@
           return { entries: [] };
         }),
     ]).then(function (a) {
-      const c = a[0],
+      var c = a[0],
         reg = {};
       (a[1].entries || []).forEach(function (e) {
         reg[e.slug] = e;
       });
-      const keys = Object.keys(c)
+      var keys = Object.keys(c)
         .filter(function (k) {
-          const e = reg[k];
+          var e = reg[k];
           return !e || (e.status !== 'live' && e.status !== 'building');
         })
         .sort(function (x, y) {
@@ -1422,10 +1426,10 @@
       if (!keys.length) {
         return;
       }
-      const ids = keys.filter(function (k) {
+      var ids = keys.filter(function (k) {
         return !reg[k];
       });
-      const got = ids.length
+      var got = ids.length
         ? fetch('/api/v1/catalogue?ids=' + ids.map(encodeURIComponent).join(','))
             .then(function (r) {
               return r.ok ? r.json() : { rows: [] };
@@ -1435,17 +1439,17 @@
             })
         : Promise.resolve({ rows: [] });
       got.then(function (d) {
-        const by = {};
+        var by = {};
         d.rows.forEach(function (r) {
           by[r.id] = r;
           if (r.vote && !by[r.vote]) {
             by[r.vote] = r;
           }
         });
-        const rows = [];
+        var rows = [];
         keys.forEach(function (k) {
-          const e = reg[k];
-          const r = e
+          var e = reg[k];
+          var r = e
             ? {
                 title: e.title,
                 summary: e.summary,
@@ -1465,7 +1469,7 @@
         if (!rows.length) {
           return;
         }
-        const body = mw.querySelector('tbody');
+        var body = mw.querySelector('tbody');
         body.textContent = '';
         rows.forEach(function (r) {
           body.appendChild(r);
@@ -1475,16 +1479,16 @@
   }
 
   // A pasted portal link becomes a vote for the dataset it names.
-  const sug = document.getElementById('suggest');
+  var sug = document.getElementById('suggest');
   if (sug) {
-    const sout = document.getElementById('sug-result');
-    const tell = function (parts) {
+    var sout = document.getElementById('sug-result');
+    var tell = function (parts) {
       sout.textContent = '';
       parts.forEach(function (x) {
         if (typeof x === 'string') {
           sout.appendChild(document.createTextNode(x));
         } else {
-          const a = elem('a', '', x.text);
+          var a = elem('a', '', x.text);
           a.href = x.href;
           if (x.ext) {
             a.rel = 'noopener';
@@ -1496,7 +1500,7 @@
     };
     sug.addEventListener('submit', function (e) {
       e.preventDefault();
-      const i = document.getElementById('sug');
+      var i = document.getElementById('sug');
       if (!i.value) {
         say('Paste a dataset URL first');
         return;
@@ -1511,14 +1515,14 @@
           return r.json();
         })
         .then(function (d) {
-          const r = d.record;
+          var r = d.record;
           if (d.error) {
             tell([d.error]);
           } else if (d.status === 'voted') {
             mine[r.vote] = 1;
             try {
               localStorage.setItem('pd-votes', JSON.stringify(mine));
-            } catch {
+            } catch (e2) {
               // Storage is blocked; the vote is counted all the same.
             }
             tell([
@@ -1553,22 +1557,22 @@
 
   // WebMCP: in-page tools for agents driving a browser that exposes navigator.modelContext.
   // Names, descriptions and schemas come from api.json at build; only the calls live here.
-  const mc = navigator.modelContext || document.modelContext;
+  var mc = navigator.modelContext || document.modelContext;
   if (mc && typeof mc.registerTool === 'function' && SPEC) {
-    const W = SPEC.webmcp;
-    const dsEl = document.getElementById('ds-data');
-    let DS = null;
+    var W = SPEC.webmcp;
+    var dsEl = document.getElementById('ds-data');
+    var DS = null;
     try {
       DS = dsEl && JSON.parse(dsEl.textContent);
-    } catch {
+    } catch (e) {
       // Unreadable page data leaves the tools without a page of their own.
     }
-    const PAGE =
+    var PAGE =
       DS && DS.console ? { slug: DS.slug, title: DS.title, fields: DS.console.fields } : null;
-    const text = function (v) {
+    var text = function (v) {
       return typeof v === 'string' ? v : JSON.stringify(v);
     };
-    const getJSON = function (u) {
+    var getJSON = function (u) {
       return fetch(u).then(function (r) {
         if (!r.ok) {
           throw new Error(r.status + ' for ' + u);
@@ -1576,10 +1580,10 @@
         return r.json();
       });
     };
-    const catalog = function () {
+    var catalog = function () {
       return getJSON('/catalog.json');
     };
-    const latest = function (slug) {
+    var latest = function (slug) {
       return getJSON('/latest.json').then(function (m) {
         if (!m[slug]) {
           throw new Error('no live dataset with slug ' + slug);
@@ -1587,12 +1591,12 @@
         return m[slug];
       });
     };
-    const vbase = function (slug) {
+    var vbase = function (slug) {
       return latest(slug).then(function (v) {
         return '/d/' + encodeURIComponent(slug) + '/v/' + v + '/';
       });
     };
-    const partitionIndex = function (slug, field) {
+    var partitionIndex = function (slug, field) {
       return vbase(slug).then(function (b) {
         return getJSON(b + 'by/' + encodeURIComponent(field) + '/index.json').then(function (ix) {
           ix.base = b;
@@ -1600,14 +1604,14 @@
         });
       });
     };
-    const API = '/api/v1/datasets/';
-    const encValue = function (v) {
+    var API = '/api/v1/datasets/';
+    var encValue = function (v) {
       return encodeURIComponent(String(v));
     };
-    const filters = function (where) {
-      const out = [];
+    var filters = function (where) {
+      var out = [];
       Object.keys(where || {}).forEach(function (k) {
-        const w = where[k],
+        var w = where[k],
           f = encValue(k);
         if (w === null) {
           out.push(f + '=is.null');
@@ -1618,7 +1622,7 @@
             })
           ) {
             throw new Error(
-              'a list value cannot contain a comma; filter ' + k + ' on one value at a time',
+              'a list value cannot contain a comma; filter ' + k + ' on one value at a time'
             );
           }
           out.push(f + '=in.' + encValue('(' + w.join(',') + ')'));
@@ -1638,8 +1642,8 @@
       });
       return out;
     };
-    const api = function (slug, op, version, qs) {
-      const u =
+    var api = function (slug, op, version, qs) {
+      var u =
         API +
         encValue(slug) +
         '/' +
@@ -1657,7 +1661,7 @@
               throw new Error(
                 'rate limited; wait ' +
                   (r.headers.get('retry-after') || '10') +
-                  ' seconds and call again',
+                  ' seconds and call again'
               );
             }
             if (!r.ok) {
@@ -1669,26 +1673,26 @@
           });
       });
     };
-    const total = function (slug, version, where) {
+    var total = function (slug, version, where) {
       return api(slug, 'aggregate', version, filters(where)).then(function (b) {
         return b.rows[0] ? b.rows[0].count : 0;
       });
     };
-    const slugOf = function (input) {
-      const s = input.slug || (PAGE && PAGE.slug);
+    var slugOf = function (input) {
+      var s = input.slug || (PAGE && PAGE.slug);
       if (!s) {
         throw new Error('slug is required; find one with search_datasets');
       }
       return s;
     };
 
-    const JT = { integer: 'integer', number: 'number', boolean: 'boolean' };
-    const fieldSchema = function (f) {
-      let d = (f.description ? f.description + ' ' : '') + 'Type ' + f.type + '.';
+    var JT = { integer: 'integer', number: 'number', boolean: 'boolean' };
+    var fieldSchema = function (f) {
+      var d = (f.description ? f.description + ' ' : '') + 'Type ' + f.type + '.';
       if (f.min !== undefined) {
         d += ' From ' + f.min + ' to ' + f.max + '.';
       }
-      const one = f.values ? { enum: f.values } : { type: JT[f.type] || 'string' };
+      var one = f.values ? { enum: f.values } : { type: JT[f.type] || 'string' };
       return {
         description: d,
         anyOf: [
@@ -1703,8 +1707,8 @@
         ],
       };
     };
-    const whereSchema = function () {
-      const s = { type: 'object', description: W.where, additionalProperties: true };
+    var whereSchema = function () {
+      var s = { type: 'object', description: W.where, additionalProperties: true };
       if (PAGE) {
         s.properties = {};
         PAGE.fields.forEach(function (f) {
@@ -1713,10 +1717,10 @@
       }
       return s;
     };
-    const schemaFor = function (t) {
-      const props = {};
+    var schemaFor = function (t) {
+      var props = {};
       Object.keys(t.input).forEach(function (k) {
-        const p = t.input[k],
+        var p = t.input[k],
           o = {};
         if (p.api === 'filters') {
           props[k] = whereSchema();
@@ -1734,7 +1738,7 @@
         }
         props[k] = o;
       });
-      let req = t.required.slice();
+      var req = t.required.slice();
       if (PAGE && t.api && props.slug) {
         props.slug = {
           type: 'string',
@@ -1751,12 +1755,12 @@
       return { type: 'object', properties: props, required: req, additionalProperties: false };
     };
 
-    const EXEC = {};
+    var EXEC = {};
     EXEC.search_datasets = function (input) {
-      const s = input.query || '';
+      var s = input.query || '';
       return getJSON('/api/v1/datasets?q=' + encodeURIComponent(s)).then(text, function () {
         return catalog().then(function (c) {
-          const l = s.toLowerCase();
+          var l = s.toLowerCase();
           return text({
             results: (c.dataset || [])
               .filter(function (d) {
@@ -1777,7 +1781,7 @@
       });
     };
     EXEC.get_dataset = function (input) {
-      const base = '/d/' + encodeURIComponent(input.slug) + '/';
+      var base = '/d/' + encodeURIComponent(input.slug) + '/';
       return Promise.all([
         getJSON(base + 'datapackage.json'),
         getJSON(base + 'versions.json'),
@@ -1786,7 +1790,7 @@
       });
     };
     EXEC.list_fields = function (input) {
-      let slug;
+      var slug;
       return Promise.resolve()
         .then(function () {
           slug = slugOf(input);
@@ -1797,7 +1801,7 @@
             throw e;
           }
           throw new Error(
-            'no queryable dataset with slug ' + slug + '; search_datasets names them',
+            'no queryable dataset with slug ' + slug + '; search_datasets names them'
           );
         });
     };
@@ -1813,13 +1817,13 @@
       });
     };
     EXEC.query_rows = function (input) {
-      const limit = input.limit || 50,
-        offset = input.offset || 0;
-      let slug;
+      var limit = input.limit || 50,
+        offset = input.offset || 0,
+        slug;
       return Promise.resolve()
         .then(function () {
           slug = slugOf(input);
-          const qs = filters(input.where).concat(['limit=' + limit, 'offset=' + offset]);
+          var qs = filters(input.where).concat(['limit=' + limit, 'offset=' + offset]);
           if (input.select && input.select.length) {
             qs.push('select=' + input.select.map(encValue).join(','));
           }
@@ -1842,15 +1846,15 @@
         });
     };
     EXEC.count_rows = function (input) {
-      const metric = input.metric || 'count',
+      var metric = input.metric || 'count',
         limit = input.limit || 100,
-        group = input.group_by || [];
-      let slug;
-      const alias = metric === 'count' ? 'count' : metric.replace('.', '_');
+        group = input.group_by || [],
+        slug;
+      var alias = metric === 'count' ? 'count' : metric.replace('.', '_');
       return Promise.resolve()
         .then(function () {
           slug = slugOf(input);
-          const qs = filters(input.where).concat([
+          var qs = filters(input.where).concat([
             'metric=' + encValue(metric),
             'order=' + encValue(alias + '.desc'),
             'limit=' + limit,
@@ -1865,7 +1869,7 @@
             return text({
               version: b.version,
               group_by: group,
-              metric,
+              metric: metric,
               groups: b.rows,
               truncated: !!b.next,
               matched: n,
@@ -1877,11 +1881,11 @@
     };
     EXEC.diff_versions = function (input) {
       return getJSON(
-        '/d/' + encodeURIComponent(input.slug) + '/diff/' + input.from + '..' + input.to + '.json',
+        '/d/' + encodeURIComponent(input.slug) + '/diff/' + input.from + '..' + input.to + '.json'
       ).then(text);
     };
     EXEC.search_catalogue = function (input) {
-      const qs = new URLSearchParams({ q: input.query || '', limit: '20' });
+      var qs = new URLSearchParams({ q: input.query || '', limit: '20' });
       if (input.jurisdiction) {
         qs.set('jur', input.jurisdiction);
       }
@@ -1893,15 +1897,18 @@
       }
       return getJSON('/api/v1/catalogue?' + qs).then(text);
     };
-    const backlog = function (register, votes) {
-      const byVotes = function (a, b) {
+    var orNull = function (v) {
+      return v === undefined || v === null ? null : v;
+    };
+    var backlog = function (register, votes) {
+      var byVotes = function (a, b) {
         return b.votes - a.votes || ((a.slug || a.vote) < (b.slug || b.vote) ? -1 : 1);
       };
-      const known = {};
+      var known = {};
       register.entries.forEach(function (e) {
         known[e.slug] = 1;
       });
-      const entries = register.entries
+      var entries = register.entries
         .filter(function (e) {
           return e.status !== 'live';
         })
@@ -1912,12 +1919,12 @@
             publisher: e.publisher ? e.publisher.name : null,
             status: e.status,
             votes: votes[e.slug] || 0,
-            summary: e.summary ?? null,
-            source: e.source ?? null,
-            blocked_reason: e.blocked_reason ?? null,
+            summary: orNull(e.summary),
+            source: orNull(e.source),
+            blocked_reason: orNull(e.blocked_reason),
           };
         });
-      const cv = Object.keys(votes)
+      var cv = Object.keys(votes)
         .filter(function (k) {
           return !known[k];
         })
@@ -1940,9 +1947,9 @@
     };
 
     Object.keys(W.tools).forEach(function (name) {
-      const t = W.tools[name];
-      const d = {
-        name,
+      var t = W.tools[name];
+      var d = {
+        name: name,
         title: t.title,
         annotations: Object.assign({ title: t.title }, t.annotations),
         description:
@@ -1954,11 +1961,11 @@
         execute: EXEC[name],
       };
       try {
-        const p = mc.registerTool(d);
+        var p = mc.registerTool(d);
         if (p && p.catch) {
           p.catch(function () {});
         }
-      } catch {
+      } catch (e) {
         // A tool the browser refuses leaves the others registered.
       }
     });

@@ -85,12 +85,31 @@ export default [
     files: ['scripts/**/*.mjs'],
     rules: { 'no-console': 'off' },
   },
+  // site.js runs on every page as written, so it keeps the ES5 syntax older browsers parse. The
+  // rules that need later syntax are off for it.
   {
     files: ['pipeline/publicdata/static/site.js'],
-    languageOptions: { sourceType: 'script', globals: globals.browser },
+    languageOptions: {
+      ecmaVersion: 5,
+      sourceType: 'script',
+      globals: { ...globals.browser, Promise: 'readonly' },
+    },
+    rules: {
+      'no-unused-vars': ['error', { args: 'all', caughtErrors: 'none', ignoreRestSiblings: false }],
+      'no-var': 'off',
+      'object-shorthand': 'off',
+      'prefer-const': 'off',
+      'prefer-rest-params': 'off',
+      'prefer-spread': 'off',
+    },
   },
   {
-    files: ['pipeline/publicdata/static/explorer.js', 'explorer/**/*.js'],
-    languageOptions: { globals: globals.browser },
+    files: ['pipeline/publicdata/static/explorer.js'],
+    languageOptions: { ecmaVersion: 2020, globals: globals.browser },
+  },
+  // esbuild bundles this for es2022.
+  {
+    files: ['explorer/**/*.js'],
+    languageOptions: { ecmaVersion: 2022, globals: globals.browser },
   },
 ];
