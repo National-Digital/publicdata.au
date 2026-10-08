@@ -198,7 +198,7 @@
     verSel.addEventListener('change', function () { S.version = verSel.value; update(); });
     fmtSel.addEventListener('change', function () { S.format = fmtSel.value; update(); });
 
-    var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0' });
+    var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0', role: 'region', 'aria-label': 'Query URL' });
     var runB = el('button', { type: 'button', class: 'btn', text: 'Run' });
     var openA = el('a', { class: 'btn ghost', text: 'Open the result', rel: 'nofollow' });
     var copyB = el('button', { type: 'button', class: 'copy', text: 'Copy URL' });

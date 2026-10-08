@@ -102,7 +102,7 @@ pre .c{color:var(--muted)}
 .strip h3{margin-bottom:6px}
 .strip p{font-size:0.9375rem;color:var(--muted);margin:0}
 footer{margin-top:48px;background:var(--band);color:var(--band-ink);border-radius:8px;padding:24px;font-size:0.875rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
-footer p{margin:4px 0;max-width:none;opacity:.9}
+footer p,.foot-mark{margin:4px 0;max-width:none;opacity:.9}
 footer a{color:var(--band-ink)}
 footer .wordmark{color:var(--band-ink);font-size:1.0625rem}
 .crumbs{font-size:0.875rem;color:var(--muted);padding-top:18px}
@@ -454,7 +454,7 @@ h2.big{margin-top:0;font-size:1.75rem;font-weight:800;letter-spacing:-.015em}
 .srcfile .glyph::after{content:"FILE";position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:0.75rem;font-weight:500;color:var(--muted);letter-spacing:.06em}
 .srcfile dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:0.875rem}
 .srcfile dt{color:var(--muted)}.srcfile dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.arrow{align-self:center;color:var(--primary);font-size:1.625rem;text-align:center}
+.arrow{align-self:center;color:var(--primary-text);font-size:1.625rem;text-align:center}
 .outs{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
 .out{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px 14px;display:grid;gap:6px;align-content:start;min-width:0;text-decoration:none;color:var(--ink)}
 .out:hover{border-color:var(--primary)}

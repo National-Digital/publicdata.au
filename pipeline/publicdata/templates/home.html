@@ -22,7 +22,7 @@
         <figcaption><span class="k">Example dataset</span> <b>{{ hero_map.lede }}</b>{% if hero_map.gap_count %} {{ hero_map.covered }} {{ 'has' if hero_map.covered.count(' and ') == 0 and ',' not in hero_map.covered else 'have' }} located records. {{ hero_map.gaps }} {{ 'does' if hero_map.gap_count == 1 else 'do' }} not, so {{ 'it is' if hero_map.gap_count == 1 else 'they are' }} hatched.{% endif %} Each picture here is drawn from the same file you can download. <a href="{{ hero_map.explore }}">{{ hero_map.explore_label }}</a> {{ hero_map.outlines }}</figcaption>
       </figure>{% endif %}
     </div>
-    {% if newest %}<div class="ticker" aria-label="Newest versions" data-conformance="aa">
+    {% if newest %}<div class="ticker" data-conformance="aa">
       <span class="lab">Newest versions</span>
       {% for n in newest %}<a class="v" href="/d/{{ n.slug }}/v/{{ n.version }}/"><b>{{ n.version }}</b> {{ n.slug }} <i>{{ n.rows }} rows</i>{% if n.as_at_long %} <i>as at {{ n.as_at_long }}</i>{% endif %}{% if n.new %} <em>new dataset</em>{% elif n.change.added is defined %} <span class="chg">+{{ n.change.added }} added · {{ n.change.changed }} changed</span>{% endif %}</a>{% endfor %}
     </div>{% endif %}
@@ -42,7 +42,7 @@
     <span class="tblurb">{{ t.blurb }}</span>
     {% if t.coming %}<span class="tn">Next to build, in vote order</span>
     <ul class="tcoming" data-conformance="aa">{% for c in t.coming %}<li><span>{{ c.title }}</span><button class="vote small" type="button" data-vote="{{ c.slug }}"><b>0</b><span>vote</span></button></li>{% endfor %}</ul>
-    {% else %}<span class="tn">Nothing chosen yet. <a href="{{ t.search }}">Search the portals</a> and vote for one.</span>{% endif %}
+    {% else %}<span class="tn">Nothing chosen yet. <a href="{{ t.search }}">Search the portals for {{ t.name|lower }}</a> and vote for one.</span>{% endif %}
   </div>{% endif %}{% endfor %}
 </div>
 
@@ -180,7 +180,7 @@
         {% for f in demo.formats %}<button type="button" aria-pressed="{{ 'true' if loop.first else 'false' }}" data-fmt="{{ f.key }}">{{ f.label }}<span class="sz">{{ f.size }}</span></button>{% endfor %}
       </div>
     </div>
-    <div class="urlbox"><div class="path" id="url" tabindex="0">{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}" download="{{ download_name(demo.slug, demo.version, demo.formats[0].file) }}">Download this file</a></div>
+    <div class="urlbox"><div class="path" id="url" tabindex="0" role="region" aria-label="Latest file URL">{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}" download="{{ download_name(demo.slug, demo.version, demo.formats[0].file) }}">Download this file</a></div>
     <p class="fmt-note" id="fmt-note"></p>
     <div>
       <div class="tools" role="tablist" aria-label="How to use" id="tools"></div>
@@ -195,9 +195,9 @@
     <p class="eyebrow">Explorer</p>
     <h2>Chart every row in your browser</h2>
     <p>The explorer loads a version's Parquet file into DuckDB inside the browser and draws a dashboard over it. Click a bar to filter the other panels, add charts, and share the dashboard as a link or a frame. Nothing leaves the browser until you save a link, and there is no rate limit because there is no server in the way.</p>
-    <p><a class="btn ghost" href="{{ preview.explore }}">Open the explorer</a></p>
+    <p><a class="btn ghost" href="{{ preview.explore }}" aria-label="Open the explorer over {{ preview.title }}">Open the explorer</a></p>
   </div>
-  <a class="feat-demo dash" data-conformance="aa" href="{{ preview.explore }}" aria-label="Open the explorer over {{ preview.title }}">
+  <a class="feat-demo dash" data-conformance="aa" href="{{ preview.explore }}" tabindex="-1" aria-hidden="true">
     <div class="xbar"><span class="mono">{{ preview.explore }}</span><span class="xbtns"><i>Add a chart</i><i>Copy link</i><i>Save a short link</i><i>Embed</i></span></div>
     <div class="panels">
       <div class="panel p1"><div class="ptitle">{{ preview.chart_title }} <span class="muted">click to filter the others</span></div>{{ preview.chart|safe }}</div>
@@ -229,7 +229,7 @@
 <div class="wanted">
   {% if catalogue_total %}<form class="catsearch" action="/backlog/" method="get" role="search" aria-label="Catalogue search"><label for="cat-q-home" class="vh">Search every dataset</label><input id="cat-q-home" name="q" type="search" placeholder="Search by topic, title or publisher, such as school enrolments"><button class="btn" type="submit">Search</button></form>{% endif %}
   <p class="muted" style="margin-top:12px">The datasets people have voted for most, which we build in this order. One click adds a vote, and nobody has to say who they are.</p>
-  <div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger catlist" id="most-wanted" data-limit="5">
+  <div class="tbl" tabindex="0" role="region" aria-label="Most wanted datasets" data-conformance="aa"><table class="ledger catlist" id="most-wanted" data-limit="5">
   <thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead>
   <tbody>
   {% for d in backlog_preview %}

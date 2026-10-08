@@ -25,14 +25,14 @@
 <section id="cat-results" hidden>
 <div class="sec-head"><h2 id="cat-heading">Results</h2></div>
 <p class="muted" id="cat-count" aria-live="polite" style="margin-top:0"></p>
-<div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger catlist"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody></tbody></table></div>
+<div class="tbl" tabindex="0" role="region" aria-label="Search results" data-conformance="aa"><table class="ledger catlist"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody></tbody></table></div>
 <p><button class="btn ghost" type="button" id="cat-more" hidden>Show more</button></p>
 </section>
 
 <section id="top-voted">
 <div class="sec-head"><h2>Most wanted</h2>{% if catalogue_total %}<a href="/browse/">Browse by government</a>{% endif %}</div>
 <p class="muted" style="margin-top:0">The datasets with the most votes, which we build in this order.</p>
-<div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger catlist" id="most-wanted" data-limit="25"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody>
+<div class="tbl" tabindex="0" role="region" aria-label="Most wanted datasets" data-conformance="aa"><table class="ledger catlist" id="most-wanted" data-limit="25"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody>
 {% for d in rows if d.status not in ('live', 'building') %}
 <tr><td class="t">{{ d.title }}<span class="sub">{{ d.summary }}</span></td><td>{{ d.publisher }} <span class="chip jur">{{ d.jur }}</span></td><td>{{ d.licence }}</td><td><button class="vote" type="button" data-vote="{{ d.slug }}"><b>0</b><span>vote</span></button></td></tr>
 {% endfor %}
@@ -42,7 +42,7 @@
 <div class="sec-head"><h2>Chosen for building</h2></div>
 <p class="muted" style="margin-top:0">Datasets we have read the licence of and planned. Each has a status.</p>
 <div class="legend" style="margin-top:0;margin-bottom:12px"><span class="chip live">live</span> served now <span class="chip building">building</span> licence cleared and in progress <span class="chip backlog">backlog</span> waiting on votes <span class="chip blocked">blocked</span> the licence does not allow it</div>
-<div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger">
+<div class="tbl" tabindex="0" role="region" aria-label="Datasets chosen for building" data-conformance="aa"><table class="ledger">
 <thead><tr><th>Dataset</th><th>Publisher</th><th>Licence</th><th>Status</th><th>Votes</th></tr></thead>
 <tbody>
 {% for d in rows %}

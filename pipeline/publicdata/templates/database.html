@@ -48,11 +48,11 @@
 <ul class="files">
   <li><a href="{{ db.duckdb }}" class="mono">data.duckdb</a><span>{{ db.duckdb_size }} · every table and view, with the provenance in a <span class="mono">publicdata</span> table</span></li>
   <li><a href="{{ db.schema_sql }}" class="mono">schema.sql</a><span><code>CREATE TABLE</code> for every table with keys and references, and the views, for PostgreSQL and most SQL dialects</span></li>
-  <li><a href="{{ db.schema_json }}" class="mono">schema.json</a><span>every table as a Frictionless Table Schema, with primary and foreign keys</span></li>
+  <li><a href="{{ db.schema_json }}" class="mono" aria-label="schema.json for version {{ latest.version }}">schema.json</a><span>every table as a Frictionless Table Schema, with primary and foreign keys</span></li>
   <li><a href="{{ db.source }}" class="mono">source.{{ latest.ext }}</a><span>{{ db.source_size }} · the publisher's archive, byte for byte as fetched</span></li>
 </ul>
 <p>One Parquet file per table, {{ db.parquet_size }} in all, under <span class="mono">tables/</span>. Each carries the provenance header in its metadata.</p>
-<div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger schema">
+<div class="tbl" tabindex="0" role="region" aria-label="Tables in the database" data-conformance="aa"><table class="ledger schema">
 <thead><tr><th>Table</th><th>Rows</th><th>Key</th><th>Refers to</th><th>Parquet</th></tr></thead>
 <tbody>
 {% for t in db.tables %}<tr><td><a href="#t-{{ t.name }}" class="mono">{{ t.name }}</a></td><td>{{ t.rows_fmt }}</td><td class="mono">{{ t.key|join(', ') }}</td><td class="mono">{{ t.refs|join(', ') }}</td><td><a href="{{ t.parquet }}" aria-label="Parquet, {{ t.name }}">Parquet</a> <span class="muted">{{ t.size }}</span></td></tr>
@@ -65,7 +65,7 @@
   {% for t in db.tables %}
   <details class="faq qref" id="t-{{ t.name }}"{% if t.name == db.largest.name %} open{% endif %}><summary><span class="mono">{{ t.name }}</span> <span class="muted">{{ t.rows_fmt }} rows, {{ t.fields|length }} fields</span></summary>
   <p>{{ t.description }}{% if t.key %} The key is <span class="mono">{{ t.key|join(', ') }}</span>.{% endif %} Publisher's table <span class="mono">{{ t.source }}</span>. <a href="{{ t.parquet }}" class="mono">{{ t.name }}.parquet</a> ({{ t.size }}).</p>
-  <div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger schema">
+  <div class="tbl" tabindex="0" role="region" aria-label="Columns of {{ t.name }}" data-conformance="aa"><table class="ledger schema">
   <thead><tr><th>Field</th><th>Type</th><th>Publisher's header</th><th>Note</th></tr></thead>
   <tbody>
   {% for f in t.fields %}<tr><td>{{ f.name }}</td><td class="ty">{{ f.type }}</td><td>{{ f.source }}</td><td>{{ f.description }}{% if f.references %} <span class="muted">Refers to <span class="mono">{{ f.references }}</span>.</span>{% endif %}</td></tr>{% endfor %}

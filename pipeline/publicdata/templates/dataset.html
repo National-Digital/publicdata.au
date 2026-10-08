@@ -61,7 +61,7 @@
     </select>
     <span class="fmt-note">"Latest" redirects to the newest version and will change when the publisher releases again. A dated version never changes.</span>
   </div>
-  <div class="urlbox"><div class="path" id="url" tabindex="0">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}" download="{{ download_name(ds.slug, latest.version, formats[0].file) }}">Download this file</a></div>
+  <div class="urlbox"><div class="path" id="url" tabindex="0" role="region" aria-label="Latest file URL">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}" download="{{ download_name(ds.slug, latest.version, formats[0].file) }}">Download this file</a></div>
   <p class="fmt-note" id="fmt-note"></p>
   {% if left_out %}<p class="fmt-note">{{ left_out|join(' ') }}</p>{% endif %}
   <div>
@@ -86,7 +86,7 @@
 <div>
   <h2>What is in it</h2>
   <p>Column names are made <span class="mono">snake_case</span> and the publisher's original header is kept beside each one. Blank cells are <span class="mono">null</span>. Nothing is added, removed, ranked or summarised.{% if ds.note %} {{ ds.note }}{% endif %}</p>
-  <div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger schema">
+  <div class="tbl" tabindex="0" role="region" aria-label="Columns" data-conformance="aa"><table class="ledger schema">
   <thead><tr><th>Field</th><th>Type</th><th>Publisher's header</th><th>Note</th></tr></thead>
   <tbody>
   {% for f in ds.fields %}<tr><td>{{ f.name }}</td><td class="ty">{{ f.type }}</td><td>{{ f.source }}</td><td>{{ f.description }}</td></tr>{% endfor %}
@@ -115,12 +115,12 @@
   </div>
   <details class="faq qref"><summary>How filters work</summary>
   <p>{{ api_doc.filters|safe }}</p>
-  <div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger schema">
+  <div class="tbl" tabindex="0" role="region" aria-label="Filter operators" data-conformance="aa"><table class="ledger schema">
   <thead><tr><th>Operator</th><th>What it matches</th></tr></thead>
   <tbody>
   {% for syntax, desc in api_doc.operators %}<tr><td class="mono">{{ syntax }}</td><td>{{ desc|safe }}</td></tr>
   {% endfor %}</tbody></table></div>
-  <div class="tbl" tabindex="0" role="group" aria-label="Table, scrolls sideways" data-conformance="aa"><table class="ledger schema">
+  <div class="tbl" tabindex="0" role="region" aria-label="Query parameters" data-conformance="aa"><table class="ledger schema">
   <thead><tr><th>Parameter</th><th>What it does</th></tr></thead>
   <tbody>
   {% for name, desc in api_doc.params %}<tr><td>{{ name }}</td><td>{{ desc|safe }}</td></tr>

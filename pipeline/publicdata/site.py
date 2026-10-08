@@ -1769,7 +1769,7 @@ PROSE = {
 <li>The dataset page states the licence, the attribution and a contact, and carries the change log.</li>
 </ol>
 <h2>What this site does with it</h2>
-<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. <a href="https://nationaldigital.com.au/contact/">National Digital</a>, which runs this site, will talk through a layout with any agency that asks. No government agency has endorsed this site.</p>
+<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. National Digital, which runs this site, will talk through a layout with any agency that asks on its <a href="https://nationaldigital.com.au/contact/">contact page</a>. No government agency has endorsed this site.</p>
 <h2>Further reading</h2>
 <ul>
 <li><a href="https://www.w3.org/TR/dwbp/">Data on the Web Best Practices</a> from the W3C, in particular the practices on persistent URIs, version indicators and version history.</li>
@@ -1912,7 +1912,7 @@ PROSE = {
 <h2>Hosting</h2>
 <p>Cloudflare hosts the site and handles every request, including the address it came from, to deliver it and to block abuse. The <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare privacy policy</a> covers that handling.</p>
 <h2>Contact</h2>
-<p>Questions about privacy go to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+<p>Questions about privacy go to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
 """,
     ),
     "accessibility": (
@@ -1956,7 +1956,7 @@ PROSE = {
 <li>A map shows its values by shading. Its description and the dataset's files give the numbers.</li>
 </ul>
 <h2>Report a barrier or ask for another format</h2>
-<p>If part of the site is hard to use, tell us the page, what you were trying to do and, if you are comfortable saying, the browser or assistive technology you use. You can also ask for a dataset in a format the site does not offer. Write to <a href="https://nationaldigital.com.au/contact/">National Digital</a> or open an issue <a href="{repo}/issues">on GitHub</a>.</p>
+<p>If part of the site is hard to use, tell us the page, what you were trying to do and, if you are comfortable saying, the browser or assistive technology you use. You can also ask for a dataset in a format the site does not offer. Write to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a> or open an issue <a href="{repo}/issues">on GitHub</a>.</p>
 <p>When a report shows a barrier a machine can detect, we add a check for it to the gate so it cannot come back.</p>
 <h2>If you are not satisfied</h2>
 <p>We will try to resolve a concern with you directly. You can also make a complaint to the <a href="https://humanrights.gov.au/complaints">Australian Human Rights Commission</a>.</p>
@@ -1992,7 +1992,7 @@ PROSE = {
 <h2>Governing law</h2>
 <p>These terms are governed by the law of Queensland. The courts of Queensland, and federal courts sitting in Queensland, may hear any dispute about them. This does not stop you from relying on the Australian Consumer Law. If part of these terms cannot be enforced, the rest still applies.</p>
 <h2>Concerns and contact</h2>
-<p>To raise a copyright or privacy concern about a dataset, or to ask us to remove one, write to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Errors in the serialisation go through <a href="/about/#corrections">corrections</a>.</p>
+<p>To raise a copyright or privacy concern about a dataset, or to ask us to remove one, write to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Errors in the serialisation go through <a href="/about/#corrections">corrections</a>.</p>
 """,
     ),
 }
@@ -2001,8 +2001,8 @@ PROSE = {
 # The date the terms last changed, and a hash of their text. The gate fails when the text changes
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
-    "6 October 2026",
-    "4ce25a2e3b856f96612c6da5b55ae9aa3b21bcac9bddcaca5d4a417a61f9f8bd",
+    "8 October 2026",
+    "b040c7b7dad9c95e90e75e1a63d5d06508bf1ae46d329cb35b2704586281a72f",
 )
 
 
