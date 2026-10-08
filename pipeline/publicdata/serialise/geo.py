@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import duckdb
 
     from publicdata.normalise import Table
-    from publicdata.register import Dataset, Geometry
+    from publicdata.register import Dataset
 
 WEB_MERCATOR = 20037508.342789244
 TILE_EXTENT = 4096
@@ -38,7 +38,7 @@ def _connect() -> duckdb.DuckDBPyConnection:
 
 
 def _crs(ds: Dataset) -> str:
-    return DATUM if geo_kind(ds) != "point" else str(ds.geometry.get("crs") or DATUM)  # type: ignore[union-attr]  # a point layer has its geometry
+    return DATUM if geo_kind(ds) != "point" else str(ds.geometry_spec().get("crs") or DATUM)
 
 
 def _with_geometry(con: duckdb.DuckDBPyConnection, tbl: Table) -> None:
@@ -47,13 +47,13 @@ def _with_geometry(con: duckdb.DuckDBPyConnection, tbl: Table) -> None:
     t = json_view(tbl.table)
     if geo_kind(ds) == "point":
         con.register("rows_in", t)
-        g: Geometry = ds.geometry  # type: ignore[assignment]  # a point layer has its geometry
+        g = ds.geometry_spec()
         geom = (
             f'CASE WHEN "{g["lon"]}" IS NULL OR "{g["lat"]}" IS NULL THEN NULL '
             f'ELSE ST_Point("{g["lon"]}", "{g["lat"]}") END'
         )
     else:
-        con.register("rows_in", t.append_column("__wkb", tbl.geometry))  # type: ignore[arg-type]  # a shape layer is read with its geometry
+        con.register("rows_in", t.append_column("__wkb", tbl.shapes()))
         geom = "ST_GeomFromWKB(__wkb)"
     cols = ", ".join(f'"{c}"' for c in t.column_names)
     con.execute(

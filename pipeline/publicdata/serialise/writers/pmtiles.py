@@ -35,7 +35,7 @@ def write_pmtiles(tbl: Table, header: Header, path: Path) -> None:
     line, which a tile cannot hold, so only the parts of the layer's own kind are kept.
     """
     ds = tbl.dataset
-    maxzoom = int(ds.geometry.get("maxzoom", MAXZOOM))  # type: ignore[union-attr]  # a shape layer has its geometry
+    maxzoom = int(ds.geometry_spec().get("maxzoom", MAXZOOM))
     con = _connect()
     _with_geometry(con, tbl)
     names = [f.name for f in ds.fields]

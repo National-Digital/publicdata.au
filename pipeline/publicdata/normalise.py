@@ -83,6 +83,13 @@ class Table:
     def rows(self) -> int:
         return self.table.num_rows
 
+    def shapes(self) -> pa.Array[Any]:
+        """The geometry column, for code that runs only for a polygon or line layer."""
+        if self.geometry is None:
+            msg = f"{self.dataset.slug}: the table was read without its geometry"
+            raise ValueError(msg)
+        return self.geometry
+
 
 def detect_encoding(data: bytes, preferred: str = "") -> str:
     for enc in [preferred, "utf-8-sig", "cp1252"]:

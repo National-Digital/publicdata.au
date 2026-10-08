@@ -401,6 +401,20 @@ class Dataset:
                 return t
         raise KeyError(name)
 
+    def geometry_spec(self) -> Geometry:
+        """The geometry, for code that runs only for a layer that declares one."""
+        if self.geometry is None:
+            msg = f"{self.slug}: the entry declares no geometry"
+            raise RegisterError(msg)
+        return self.geometry
+
+    def database_spec(self) -> Database:
+        """The archive layout, for code that runs only for a database entry."""
+        if self.database is None:
+            msg = f"{self.slug}: the entry declares no database"
+            raise RegisterError(msg)
+        return self.database
+
 
 def _bool(v: object, ctx: str) -> bool:
     if not isinstance(v, bool):

@@ -12,13 +12,12 @@ if TYPE_CHECKING:
 
     from publicdata.normalise import Table
     from publicdata.provenance import Header
-    from publicdata.register import Geometry
 
 
 def write_geojson(tbl: Table, header: Header, path: Path, rows: pa.Table | None = None) -> None:
     if geo_kind(tbl.dataset) in ("polygon", "line"):
         return _write_shapes(tbl, header, path)
-    g: Geometry = tbl.dataset.geometry  # type: ignore[assignment]  # a point layer has its geometry
+    g = tbl.dataset.geometry_spec()
     t = json_view(rows if rows is not None else tbl.table)
     lon, lat = g["lon"], g["lat"]
     with path.open("w", encoding="utf-8", newline="\n") as f:
@@ -57,7 +56,7 @@ def _write_shapes(tbl: Table, header: Header, path: Path) -> None:
     with path.open("w", encoding="utf-8", newline="\n") as f:
         f.write('{"type":"FeatureCollection","publicdata":')
         f.write(dumps(header))
-        f.write(',"crs_note":' + dumps(tbl.dataset.geometry.get("crs_note", "")))  # type: ignore[union-attr]  # a shape layer has its geometry
+        f.write(',"crs_note":' + dumps(tbl.dataset.geometry_spec().get("crs_note", "")))
         f.write(',"features":[')
         first = True
         for b in rows.to_batches(5_000):

@@ -4,7 +4,6 @@ import json
 import re
 import zipfile
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, ClassVar, Never, Self
 
 import duckdb
@@ -16,18 +15,17 @@ import yaml
 from publicdata import serialise, spine, store
 from publicdata.build import build_version, version_key
 from publicdata.cache import BuildCache
-from publicdata.normalise import normalise
-from publicdata.register import LAT_SOURCE, LON_SOURCE, RegisterError, parse
+from publicdata.normalise import Table, normalise
+from publicdata.register import LAT_SOURCE, LON_SOURCE, Field, RegisterError, parse
 from publicdata.serialise import formats_for
 from publicdata.serialise.geo import _connect
 from publicdata.serialise.writers.pmtiles import write_pmtiles
 from publicdata.site import _faq
 
-from .conftest import present
+from .conftest import make_dataset, make_manifest, present
 
 if TYPE_CHECKING:
     from publicdata.build import VersionOut
-    from publicdata.normalise import Table
     from publicdata.register import Dataset
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -304,18 +302,17 @@ def test_a_polygon_whose_repair_leaves_a_stray_line_still_makes_tiles(tmp_path: 
     )
     row = _connect().execute(f"SELECT ST_AsWKB(ST_GeomFromText('{spiked}'))").fetchone()
     wkb = bytes(present(row)[0])
-    ds = SimpleNamespace(
-        slug="t",
+    ds = make_dataset(
+        [Field("code", "code")],
         title="T",
-        summary="",
-        geometry={"kind": "polygon", "maxzoom": 4},
-        fields=[SimpleNamespace(name="code", type="string")],
+        geometry={"kind": "polygon", "crs": "EPSG:7844", "maxzoom": 4},
     )
-    tbl = SimpleNamespace(
+    tbl = Table(
         dataset=ds,
+        manifest=make_manifest(b""),
         table=pa.table({"code": ["1"]}),
-        geometry=pa.chunked_array([pa.array([wkb], pa.binary())]),
+        geometry=pa.array([wkb], pa.binary()),
     )
     path = tmp_path / "data.pmtiles"
-    write_pmtiles(tbl, {"attribution": "A"}, path)  # type: ignore[arg-type]  # a Table stand-in
+    write_pmtiles(tbl, {"attribution": "A"}, path)
     assert path.stat().st_size > 0

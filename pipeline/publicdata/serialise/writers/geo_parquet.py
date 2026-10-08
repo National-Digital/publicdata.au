@@ -41,10 +41,10 @@ def write_shape_parquet(tbl: Table, header: Header, path: Path, lay: Layout | No
     The geometry is WKB in GDA2020, with the GeoParquet metadata, so every other format of the
     layer can be made from it.
     """
-    t = tbl.table.append_column("geometry", tbl.geometry.cast(pa.binary()))  # type: ignore[union-attr]  # a shape layer has its geometry
+    t = tbl.table.append_column("geometry", tbl.shapes().cast(pa.binary()))
     kinds = (
         ["Polygon", "MultiPolygon"]
-        if tbl.dataset.geometry["kind"] == "polygon"  # type: ignore[index]  # a shape layer has its geometry
+        if tbl.dataset.geometry_spec()["kind"] == "polygon"
         else ["LineString", "MultiLineString"]
     )
     geo = {

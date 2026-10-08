@@ -240,7 +240,7 @@ def layer_shapes(layer: Layer, store_dir: Path, register_dir: Path) -> Shapes:
             m.sha256,
             tbl.table.column(layer.code[0]).to_pylist(),
             tbl.table.column(layer.name[0]).to_pylist(),
-            tbl.geometry,  # type: ignore[arg-type]  # a spine layer is a polygon layer, read with its geometry
+            tbl.shapes(),
         )
     return _LOADED[key]
 

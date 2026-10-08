@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     import duckdb
 
     from .provenance import Header
-    from .register import Database, Dataset, Field, TableSpec
+    from .register import Dataset, Field, TableSpec
     from .store import Manifest
 
 # What a build may hold in memory while loading one table. The runner has more, and the rest is
@@ -67,7 +67,7 @@ def members(ds: Dataset, names: list[str]) -> dict[str, list[str]]:
 
     Members keep archive order within each table.
     """
-    rx = re.compile(ds.database.member_match)  # type: ignore[union-attr]  # a database entry has its archive layout
+    rx = re.compile(ds.database_spec().member_match)
     out: dict[str, list[str]] = {}
     for n in names:
         m = rx.search(n)
@@ -118,7 +118,7 @@ def _load_table(  # noqa: PLR0913 - the options are keyword-only and named at ea
     Members are extracted one at a time so the disk holds one member's text, not a whole table's.
     Members load in archive order.
     """
-    db: Database = ds.database  # type: ignore[assignment]  # a database entry has its archive layout
+    db = ds.database_spec()
     cols = [f"{_ident(f.name)} {DUCKDB_TYPES[f.type]}" for f in t.fields]
     con.execute(f"CREATE TABLE {_ident(t.name)} ({', '.join(cols)})")
     exprs = ", ".join(f"{_expr(f, DUCKDB_TYPES[f.type])} AS {_ident(f.name)}" for f in t.fields)
@@ -256,7 +256,7 @@ def build_database(  # noqa: PLR0915 - a database's build steps, read in order
     if m.ext != "zip":
         msg = f"{ds.slug}: a database source is a zip, not .{m.ext}"
         raise NormaliseError(msg)
-    db: Database = ds.database  # type: ignore[assignment]  # a database entry has its archive layout
+    db = ds.database_spec()
     (vdir / "tables").mkdir(parents=True, exist_ok=True)
     out = DatabaseOut(0, {})
     with zipfile.ZipFile(src) as z, tempfile.TemporaryDirectory(prefix="publicdata-db-") as tmpdir:

@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 
     from publicdata.normalise import Table
     from publicdata.provenance import Header
-    from publicdata.register import Geometry
 
 # OGC WKT 1 for the CRSs the register may declare. Each resolves to its EPSG code under GDAL 3.
 GPKG_SRS = {
@@ -95,7 +94,7 @@ def write_gpkg(tbl: Table, header: Header, path: Path) -> None:
     if geo_kind(tbl.dataset) in ("polygon", "line"):
         return _write_shapes(tbl, header, path)
     ds = tbl.dataset
-    g: Geometry = ds.geometry  # type: ignore[assignment]  # a point layer has its geometry
+    g = ds.geometry_spec()
     srs = int(str(g.get("crs", "EPSG:7844")).split(":")[-1])
     if srs not in GPKG_SRS:
         msg = f"{ds.slug}: no GeoPackage definition for EPSG:{srs}"
@@ -171,7 +170,7 @@ def _write_shapes(tbl: Table, header: Header, path: Path) -> None:
     names = [f.name for f in ds.fields]
     cols = [f'"{f.name}" {SQLITE_TYPES[f.type]}' for f in ds.fields]
     db = sqlite3.connect(path)
-    gpkg_schema(db, srs, ds.geometry.get("crs_note", ""))  # type: ignore[union-attr]  # a shape layer has its geometry
+    gpkg_schema(db, srs, ds.geometry_spec().get("crs_note", ""))
     db.execute(
         f"CREATE TABLE records (fid INTEGER PRIMARY KEY AUTOINCREMENT, geom GEOMETRY, {', '.join(cols)})"
     )
