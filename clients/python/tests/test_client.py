@@ -1,3 +1,4 @@
+import copy
 import datetime as dt
 import gzip
 import io
@@ -12,7 +13,7 @@ import time
 import typing
 import urllib.parse
 import warnings
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -851,3 +852,36 @@ def test_every_public_hint_resolves_at_runtime(
             pytest.fail(f"{name}: {e!r}")
         seen += 1
     assert seen > 30
+
+
+EXTRAS = ("pandas", "geopandas", "duckdb", "pyarrow", "pyarrow.parquet", "pyarrow.csv", "numpy")
+
+
+def test_without_the_extras_each_method_that_needs_one_raises_import_error(
+    client: pd_au.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for mod in EXTRAS:
+        monkeypatch.setitem(sys.modules, mod, None)
+    calls: dict[str, Callable[[], object]] = {
+        "Rows.to_pandas": lambda: pd_au.Rows([{"a": 1}]).to_pandas(),
+        "read": lambda: client.read("a"),
+        "read_geo": lambda: client.read_geo("a"),
+        "relation": lambda: client.relation("a"),
+        "connect": lambda: client.connect("a"),
+        "boundaries": lambda: client.boundaries("postcode"),
+        "join_boundaries": lambda: client.join_boundaries([{"poa_2021_code": "0800"}]),
+    }
+    for name, call in calls.items():
+        try:
+            call()
+        except ImportError:
+            continue
+        pytest.fail(f"{name} ran without its extra")
+
+
+def test_the_hint_stand_ins_answer_only_for_the_extras_public_names() -> None:
+    stand_in = vars(pd_au)["_pd"]
+    assert not hasattr(stand_in, "__wrapped__")
+    assert copy.copy(stand_in) is not stand_in
+    assert copy.deepcopy(stand_in) is not stand_in
+    assert typing.get_type_hints(pd_au._csv_column)["col"] is typing.Any

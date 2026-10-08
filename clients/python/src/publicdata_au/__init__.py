@@ -50,25 +50,35 @@ from types import ModuleType  # noqa: TC003 - get_type_hints reads the hints at 
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
-    import duckdb
-    import geopandas as gpd
-    import pandas as pd
-    from typing_extensions import Self, Unpack
-elif sys.version_info >= (3, 11):
-    from typing import Self, Unpack
-else:
-    # Python 3.10's typing has neither, so a tool that reads the hints sees Any in their place.
-    Self = Any
+    from typing import TypeAlias
 
-    class Unpack:
-        def __class_getitem__(cls, item: object) -> object:
-            return Any
+    # The extras' types, named apart from the pd, gpd and duckdb that each function imports for
+    # itself, so a function that leaves out its import fails on the undefined name.
+    import duckdb as _duckdb
+    import geopandas as _gpd
+    import pandas as _pd  # noqa: ICN001 - named apart from the pd each function imports
+    from typing_extensions import Self, Unpack
+
+    _Column: TypeAlias = "_pd.Series[Any]"
+else:
+    if sys.version_info >= (3, 11):
+        from typing import Self, Unpack
+    else:
+        # Python 3.10's typing has neither, so a tool that reads the hints sees Any in their place.
+        Self = Any
+
+        class Unpack:
+            def __class_getitem__(cls, item: object) -> object:
+                return Any
+
+    # pandas' Series takes no subscript at runtime, so a tool that reads the hints sees Any.
+    _Column = Any
 
 
 class _Extra:
     """An optional extra named in the hints, imported only when a tool reads them.
 
-    typing.get_type_hints resolves pd.DataFrame through this, to the real class when the extra
+    typing.get_type_hints resolves _pd.DataFrame through this, to the real class when the extra
     is installed and to Any when it is not.
     """
 
@@ -76,16 +86,20 @@ class _Extra:
         self._name = name
 
     def __getattr__(self, attr: str) -> object:
+        # Only the extra's public names: copy, pickle and hasattr ask for dunders and private
+        # names, which must not import the extra or answer for it.
+        if attr.startswith("_"):
+            raise AttributeError(attr)
         try:
-            return getattr(importlib.import_module(self._name), attr)
+            return getattr(importlib.import_module(object.__getattribute__(self, "_name")), attr)
         except ImportError:
             return Any
 
 
 if not TYPE_CHECKING:
-    duckdb = _Extra("duckdb")
-    gpd = _Extra("geopandas")
-    pd = _Extra("pandas")
+    _duckdb = _Extra("duckdb")
+    _gpd = _Extra("geopandas")
+    _pd = _Extra("pandas")
 
 
 class _DatasetsOptions(TypedDict, total=False):
@@ -389,7 +403,7 @@ class Rows(list[dict[str, Any]]):
         v: str | None = self.page.get("version_page")
         return v
 
-    def to_pandas(self) -> pd.DataFrame:
+    def to_pandas(self) -> _pd.DataFrame:
         """The rows as a DataFrame.
 
         Dates are already `datetime.date`; `df.attrs["fields"]` maps each column to its field's
@@ -397,7 +411,7 @@ class Rows(list[dict[str, Any]]):
         """
         import pandas as pd  # noqa: PLC0415 - an optional extra
 
-        df: pd.DataFrame = pd.DataFrame(list(self))
+        df: _pd.DataFrame = pd.DataFrame(list(self))
         df.attrs["publicdata"] = self.meta
         df.attrs["fields"] = dict(self.page.get("fields") or {})
         return df
@@ -424,7 +438,7 @@ class Connection:
     version, the file's URL and its licence.
     """
 
-    def __init__(self, con: duckdb.DuckDBPyConnection, publicdata: dict[str, Any]) -> None:
+    def __init__(self, con: _duckdb.DuckDBPyConnection, publicdata: dict[str, Any]) -> None:
         """Wrap a DuckDB connection with the provenance of the file it attached."""
         self._con = con
         self.publicdata = publicdata
@@ -705,7 +719,7 @@ class Client:
         version: str | None = None,
         *,
         cache: bool | None = None,
-    ) -> duckdb.DuckDBPyRelation:
+    ) -> _duckdb.DuckDBPyRelation:
         """One table or view as a lazy DuckDB relation over the attached file.
 
         `.filter()`, `.aggregate()`, `.project()` and `.order()` build SQL that runs only when
@@ -737,7 +751,7 @@ class Client:
         if _table(table) not in names:
             msg = f"{slug!r} has no table or view {table!r}; its tables are {', '.join(sorted(names))}"
             raise ValueError(msg)
-        rel: duckdb.DuckDBPyRelation = con.table(table)
+        rel: _duckdb.DuckDBPyRelation = con.table(table)
         return rel
 
     def _query(
@@ -955,7 +969,7 @@ class Client:
         table: str | None = None,
         cache: bool | None = None,
         columns: list[str] | None = None,
-    ) -> pd.DataFrame:
+    ) -> _pd.DataFrame:
         """The whole table as a pandas DataFrame, read from the version's Parquet file.
 
         With `table` it reads one table of a database. `columns` reads only those fields.
@@ -979,7 +993,7 @@ class Client:
             p, _ = self._fetch(slug, "parquet", version, table, cache, tmp=Path(d))
             tbl = pq.read_table(p, columns=list(columns) if columns else None)
         header = (tbl.schema.metadata or {}).get(b"publicdata")
-        df: pd.DataFrame = tbl.to_pandas()
+        df: _pd.DataFrame = tbl.to_pandas()
         df.attrs["publicdata"] = json.loads(header) if header else {}
         self._notice(slug, df.attrs["publicdata"].get("licence"))
         return df
@@ -990,7 +1004,7 @@ class Client:
         version: str | None,
         cache: bool | None,  # noqa: FBT001 - read() passes its keyword on in place
         columns: list[str] | None,
-    ) -> pd.DataFrame:
+    ) -> _pd.DataFrame:
         import pandas as pd  # noqa: PLC0415 - an optional extra
 
         fields = self._field_types(slug, version)
@@ -1040,7 +1054,7 @@ class Client:
 
     def read_geo(
         self, slug: str, version: str | None = None, *, cache: bool | None = None
-    ) -> gpd.GeoDataFrame:
+    ) -> _gpd.GeoDataFrame:
         """A dataset's map layer as a geopandas GeoDataFrame, read from the version's GeoPackage.
 
         Datasets with a location or a shape have one; the coordinates are in the reference
@@ -1212,7 +1226,7 @@ class Client:
         msg = f"no boundary layer {layer!r}; the layers are {keys}"
         raise ValueError(msg)
 
-    def boundaries(self, layer: str, *, cache: bool | None = None) -> gpd.GeoDataFrame:
+    def boundaries(self, layer: str, *, cache: bool | None = None) -> _gpd.GeoDataFrame:
         """A boundary layer as a GeoDataFrame in GDA2020 (EPSG:7844).
 
         `layer` is a key such as "lga", "sa2", "suburb", "postcode", "state_electorate" or
@@ -1222,12 +1236,12 @@ class Client:
 
     def join_boundaries(
         self,
-        df: pd.DataFrame | Iterable[Mapping[str, Any]],
+        df: _pd.DataFrame | Iterable[Mapping[str, Any]],
         layer: str | None = None,
         by: str | None = None,
         *,
         cache: bool | None = None,
-    ) -> gpd.GeoDataFrame:
+    ) -> _gpd.GeoDataFrame:
         """`df` with the boundary of the area each row names by its ABS code, as a GeoDataFrame.
 
         The rows keep the order of `df`. The layer is found from a column such as
@@ -1425,7 +1439,7 @@ def _parquet_module() -> ModuleType | None:
     return pq
 
 
-def _csv_column(col: pd.Series[Any], kind: str | None) -> pd.Series[Any]:  # noqa: PLR0911 - one return per field type
+def _csv_column(col: _Column, kind: str | None) -> _Column:  # noqa: PLR0911 - one return per field type
     """One column of the gzipped CSV, typed as pyarrow types the Parquet file's column.
 
     Numbers become int64 or float64 (float64 when a whole number is missing), "nan" becomes NaN,
@@ -1438,7 +1452,7 @@ def _csv_column(col: pd.Series[Any], kind: str | None) -> pd.Series[Any]:  # noq
 
     present = col.notna()
 
-    def each(f: Callable[[Any], object]) -> pd.Series[Any]:
+    def each(f: Callable[[Any], object]) -> _Column:
         return pd.Series(
             [f(v) if ok else None for v, ok in zip(col, present, strict=True)],
             index=col.index,
@@ -1450,7 +1464,7 @@ def _csv_column(col: pd.Series[Any], kind: str | None) -> pd.Series[Any]:  # noq
     if kind in ("integer", "number"):
         # float() reads "nan" and "inf" as the CSV writer writes them, and round-trips every double.
         conv = float if kind == "number" else int
-        numbers: pd.Series[Any] = pd.Series(
+        numbers: _Column = pd.Series(
             [conv(v) if ok else float("nan") for v, ok in zip(col, present, strict=True)],
             index=col.index,
             dtype="float64",
@@ -1462,9 +1476,7 @@ def _csv_column(col: pd.Series[Any], kind: str | None) -> pd.Series[Any]:  # noq
         # The Parquet file stores milliseconds, which pyarrow 14 and later keep in pandas.
         try:
             stamps = [v if ok else "NaT" for v, ok in zip(col, present, strict=True)]
-            times: pd.Series[Any] = pd.Series(
-                np.array(stamps, dtype="datetime64[ms]"), index=col.index
-            )
+            times: _Column = pd.Series(np.array(stamps, dtype="datetime64[ms]"), index=col.index)
         except ValueError:
             return each(dt.datetime.fromisoformat)
         else:
@@ -1673,19 +1685,21 @@ def download(
     return _default.download(slug, format, version, path, **kw)
 
 
-def read(slug: str, version: str | None = None, **kw: Unpack[_ReadOptions]) -> pd.DataFrame:
+def read(slug: str, version: str | None = None, **kw: Unpack[_ReadOptions]) -> _pd.DataFrame:
     """The whole table as a pandas DataFrame, read from the version's Parquet file."""
     return _default.read(slug, version, **kw)
 
 
-def read_geo(slug: str, version: str | None = None, **kw: Unpack[_CacheOption]) -> gpd.GeoDataFrame:
+def read_geo(
+    slug: str, version: str | None = None, **kw: Unpack[_CacheOption]
+) -> _gpd.GeoDataFrame:
     """A dataset's map layer as a GeoDataFrame, read from the version's GeoPackage."""
     return _default.read_geo(slug, version, **kw)
 
 
 def relation(
     slug: str, table: str | None = None, version: str | None = None, **kw: Unpack[_CacheOption]
-) -> duckdb.DuckDBPyRelation:
+) -> _duckdb.DuckDBPyRelation:
     """One table or view as a lazy DuckDB relation over the attached file."""
     return _default.relation(slug, table, version, **kw)
 
@@ -1742,17 +1756,17 @@ def boundary_layers() -> list[dict[str, Any]]:
     return _default.boundary_layers()
 
 
-def boundaries(layer: str, **kw: Unpack[_CacheOption]) -> gpd.GeoDataFrame:
+def boundaries(layer: str, **kw: Unpack[_CacheOption]) -> _gpd.GeoDataFrame:
     """A boundary layer as a GeoDataFrame in GDA2020 (EPSG:7844)."""
     return _default.boundaries(layer, **kw)
 
 
 def join_boundaries(
-    df: pd.DataFrame | Iterable[Mapping[str, Any]],
+    df: _pd.DataFrame | Iterable[Mapping[str, Any]],
     layer: str | None = None,
     by: str | None = None,
     **kw: Unpack[_CacheOption],
-) -> gpd.GeoDataFrame:
+) -> _gpd.GeoDataFrame:
     """`df` with the boundary of the area each row names, as a GeoDataFrame."""
     return _default.join_boundaries(df, layer, by, **kw)
 
