@@ -266,7 +266,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", u.path.replace("/latest/", "/v/2026-08-07/"))
             self.send_header("Content-Length", "0")
             self.end_headers()
-            return
+            return None
         if u.path == "/d/a/v/2026-08-07/data.csv":
             return self.send(200, b"n\n1\n", "text/csv")
         if u.path == "/d/g/v/2026-08-07/schema.json":

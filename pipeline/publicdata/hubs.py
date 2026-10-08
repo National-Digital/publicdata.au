@@ -784,8 +784,7 @@ def download(url: str, dest: Path, http=None) -> Path:
     with http.get(url, stream=True, timeout=300) as r:
         r.raise_for_status()
         with open(dest, "wb") as f:
-            for chunk in r.iter_content(1 << 20):
-                f.write(chunk)
+            f.writelines(r.iter_content(1 << 20))
     return dest
 
 

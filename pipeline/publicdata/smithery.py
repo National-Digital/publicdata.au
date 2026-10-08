@@ -66,7 +66,11 @@ def live(s: requests.Session) -> dict:
     r.raise_for_status()
     got = r.json()
     # Only the search listing carries the homepage.
-    r = s.get(f"{API}/servers", params={"q": NAME, "namespace": NAME.split("/")[0]}, timeout=30)
+    r = s.get(
+        f"{API}/servers",
+        params={"q": NAME, "namespace": NAME.split("/", maxsplit=1)[0]},
+        timeout=30,
+    )
     r.raise_for_status()
     row = next((x for x in r.json()["servers"] if x["qualifiedName"] == NAME), {})
     return {**got, "homepage": row.get("homepage")}

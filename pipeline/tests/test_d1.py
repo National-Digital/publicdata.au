@@ -481,7 +481,7 @@ def test_a_loaded_version_whose_fields_changed_is_loaded_again(tmp_path):
 
 
 def test_a_catalogue_row_larger_than_d1_holds_skips_the_index_without_failing(tmp_path):
-    row = {f: "x" for f in d1.CATALOGUE_FIELDS} | {"summary": "x" * (d1.MAX_ROW + 1)}
+    row = dict.fromkeys(d1.CATALOGUE_FIELDS, "x") | {"summary": "x" * (d1.MAX_ROW + 1)}
     path = tmp_path / "catalogue.sqlite"
     d1.catalogue_sqlite(path, [row], "2026-10-03")
     assert d1.catalogue_loads(path, [], tmp_path / "out") == []
@@ -724,7 +724,7 @@ class Watch(FakeD1):
         if what == "error":
             return False
         for stmt in path.read_text().split(";\n"):
-            if stmt.strip() and not stmt.startswith("-- load") or "\n" in stmt.strip():
+            if (stmt.strip() and not stmt.startswith("-- load")) or "\n" in stmt.strip():
                 self.db.executescript(stmt + ";")
                 self.check()
         return what == "ok"

@@ -76,7 +76,6 @@ def test_one_failing_dataset_does_not_stop_the_others(monkeypatch, capsys):
     def fake(ds, store_dir):
         if ds.slug == "qld-road-casualties":
             raise f.FetchError("qld-road-casualties: returned no bytes")
-        return None
 
     monkeypatch.setattr(f, "fetch", fake)
     assert cli.main(["fetch", "qld-road-casualties", "qld-road-crash-factors"]) == 0

@@ -354,6 +354,6 @@ def int32_fields(console: dict) -> list[str]:
         for e in console["fields"]
         if e["type"] == "integer"
         and e.get("min") is not None
-        and -INT32 <= e["min"]
+        and e["min"] >= -INT32
         and e["max"] < INT32
     ]

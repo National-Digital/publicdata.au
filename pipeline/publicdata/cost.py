@@ -110,7 +110,7 @@ def kind_of(name: str, content_type: str = "") -> str:
     ct = content_type.lower()
     if n.endswith((".xlsx", ".xlsm", ".xls", ".ods")) or "spreadsheet" in ct or "excel" in ct:
         return "spreadsheet"
-    if n.endswith((".zip", ".shz", ".kmz")) or "zip" in ct and "gzip" not in ct:
+    if n.endswith((".zip", ".shz", ".kmz")) or ("zip" in ct and "gzip" not in ct):
         return "zip"
     if n.endswith((".gz", ".tgz")) or "gzip" in ct:
         return "gzip"

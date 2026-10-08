@@ -76,7 +76,7 @@ def test_a_version_whose_writer_changed_is_still_to_build(fixture_store, tmp_pat
     metas = [p for p in cache.glob("*/meta.json") if "writers" in json.loads(p.read_text())]
     meta = next(p for p in metas if json.loads(p.read_text())["writers"])
     m = json.loads(meta.read_text())
-    m["writers"] = {f: "old" for f in m["writers"]}
+    m["writers"] = dict.fromkeys(m["writers"], "old")
     meta.chmod(0o644)
     meta.write_text(json.dumps(m))
     w = shards.weights(load(register_dir), fixture_store, cache)
