@@ -17,7 +17,7 @@ import re
 import time
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 from urllib.parse import quote, urlparse
 
 import requests
@@ -25,7 +25,21 @@ import requests
 from . import store
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
     from pathlib import Path
+
+    # A catalogue record, keyed as _record writes it and as the snapshot reads back.
+    type Record = dict[str, Any]
+    type Log = Callable[[str], object]
+
+
+class _Headers(TypedDict, total=False):
+    headers: dict[str, str]
+
+
+class _GetOptions(_Headers, total=False):
+    timeout: float
+
 
 UA = "publicdata.au catalogue (+https://publicdata.au/about/)"
 SLUG = "catalogue"
@@ -53,7 +67,9 @@ class Portal:
         return f"{self.api.removesuffix('/api/3/action')}/dataset/{name}"
 
 
-def _council(code, host, jur, kind, publisher, *, replaces=()):  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _council(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    code: str, host: str, jur: str, kind: str, publisher: str, *, replaces: Iterable[str] = ()
+) -> Portal:
     return Portal(code, host, f"https://{host}", jur, kind, publisher, tuple(replaces))
 
 
@@ -138,8 +154,14 @@ RETRYABLE = (requests.ConnectionError, requests.Timeout)
 GET_ATTEMPTS = 5
 
 
-def _get(s: requests.Session, url: str, params: dict | None = None, **kw) -> requests.Response:
-    timeout = kw.pop("timeout", 180)
+def _get(
+    s: requests.Session,
+    url: str,
+    params: dict[str, Any] | None = None,
+    *,
+    timeout: float = 180,
+    **kw: Unpack[_Headers],
+) -> requests.Response:
     for attempt in range(GET_ATTEMPTS):
         try:
             r = s.get(url, params=params, timeout=timeout, **kw)
@@ -161,7 +183,9 @@ class PortalError(RuntimeError):
     pass
 
 
-def get_json(s: requests.Session, url: str, params: dict | None = None, **kw):
+def get_json(
+    s: requests.Session, url: str, params: dict[str, Any] | None = None, **kw: Unpack[_GetOptions]
+) -> Any:  # noqa: ANN401 - a portal's parsed JSON, whose shape each caller reads
     r = _get(s, url, params, **kw)
     try:
         return r.json()
@@ -255,8 +279,8 @@ def is_open(lic: str) -> bool | None:
     return False
 
 
-def formats(raw) -> list[str]:
-    out = set()
+def formats(raw: Iterable[object] | None) -> list[str]:
+    out: set[str] = set()
     for f in raw or []:
         for part in re.split(r"[,/;]", str(f)):
             p = part.strip().upper().lstrip(".")
@@ -294,7 +318,7 @@ def record_id(portal: str, source_id: str) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", f"{portal}-{source_id}".lower()).strip("-")[:64]
 
 
-def _record(portal: Portal, **kw) -> dict:
+def _record(portal: Portal, **kw: Any) -> Record:  # noqa: ANN401 - the record's fields, each a JSON value
     fmts = kw.pop("formats")
     lic = kw.pop("licence")
     rec = {
@@ -310,7 +334,7 @@ def _record(portal: Portal, **kw) -> dict:
     return dict(sorted(rec.items()))
 
 
-def ckan(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
+def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     lic_titles = {
         x["id"]: x.get("title") or x["id"]
         for x in get_json(s, f"{portal.api}/license_list")["result"]
@@ -387,7 +411,7 @@ def ckan(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], in
     return out, dropped
 
 
-def socrata(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
+def socrata(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     out, off, after = [], 0, ""
     while True:
         # scroll_id pages in id order, starting from an empty one, and stays stable while the
@@ -426,7 +450,7 @@ def socrata(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict],
     return out, 0
 
 
-def sdmx(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
+def sdmx(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """ABS dataflows. The ABS states CC BY 4.0 for its statistics unless a release says otherwise."""
     flows = get_json(
         s,
@@ -460,7 +484,7 @@ def sdmx(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], in
     return out, 0
 
 
-def _council_record(portal: Portal, **kw) -> dict:
+def _council_record(portal: Portal, **kw: Any) -> Record:  # noqa: ANN401 - the record's fields, each a JSON value
     return _record(
         portal,
         org=portal.code,
@@ -476,7 +500,7 @@ def _council_record(portal: Portal, **kw) -> dict:
 ODS_PAGING_LIMIT = 10_000
 
 
-def ods(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
+def ods(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """An Opendatasoft portal.
 
     A dataset with records can be exported in every format the platform offers; one without is a
@@ -545,7 +569,7 @@ HUB_FORMATS = {
 }
 
 
-def _epoch_day(ms) -> str:
+def _epoch_day(ms: object) -> str:
     s = str(ms if ms is not None else "").strip()
     if not s.isdigit():
         return ""
@@ -555,7 +579,7 @@ def _epoch_day(ms) -> str:
         return ""
 
 
-def hub_licence(x: dict) -> tuple[str, str]:
+def hub_licence(x: dict[str, Any]) -> tuple[str, str]:
     """The licence an ArcGIS Hub dataset states.
 
     Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
@@ -573,10 +597,11 @@ def hub_licence(x: dict) -> tuple[str, str]:
     return (named if named != text else "custom"), text
 
 
-def hub(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
+def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """An ArcGIS Hub site, read through its OGC Records search of the site's own catalogue."""
     out, n = [], 0
-    url, params = f"{portal.api}/api/search/v1/collections/dataset/items", {"limit": 100}
+    url = f"{portal.api}/api/search/v1/collections/dataset/items"
+    params: dict[str, Any] | None = {"limit": 100}
     while True:
         res = get_json(s, url, params)
         feats = res.get("features") or []
@@ -612,8 +637,11 @@ HARVESTERS = {"ckan": ckan, "socrata": socrata, "sdmx": sdmx, "ods": ods, "hub":
 
 
 def harvest(
-    portals=PORTALS, log=print, previous: list[dict] | None = None, previous_version: str = ""
-) -> tuple[list[dict], dict]:
+    portals: Iterable[Portal] = PORTALS,
+    log: Log = print,
+    previous: list[Record] | None = None,
+    previous_version: str = "",
+) -> tuple[list[Record], dict[str, dict[str, Any]]]:
     """A portal that cannot be read keeps its records from the previous snapshot.
 
     The stats say so, so an outage never reads as datasets withdrawn. With no previous snapshot
@@ -621,7 +649,8 @@ def harvest(
     """
     s = requests.Session()
     s.headers["User-Agent"] = UA
-    records, stats = [], {}
+    records: list[Record] = []
+    stats: dict[str, dict[str, Any]] = {}
     for p in portals:
         try:
             recs, dropped = HARVESTERS[p.kind](p, s, log)
@@ -646,7 +675,8 @@ def harvest(
         records += recs
         stats[p.code] = {"records": len(recs), "dropped_duplicates": dropped}
     records = _drop_copies(records, portals, stats)
-    seen, unique = set(), []
+    seen: set[str] = set()
+    unique: list[Record] = []
     for r in sorted(records, key=lambda r: r["id"]):
         if r["id"] not in seen:
             seen.add(r["id"])
@@ -658,7 +688,9 @@ def _title_key(title: str) -> str:
     return re.sub(r"[^a-z0-9]", "", title.lower())
 
 
-def _drop_copies(records: list[dict], portals, stats: dict) -> list[dict]:
+def _drop_copies(
+    records: list[Record], portals: Iterable[Portal], stats: dict[str, dict[str, Any]]
+) -> list[Record]:
     """Drop the copies of records that a council portal now lists itself.
 
     A record in an organisation a council portal replaces is dropped when the council portal
@@ -673,7 +705,7 @@ def _drop_copies(records: list[dict], portals, stats: dict) -> list[dict]:
     for r in records:
         if r["portal"] in {p.code for p in scope.values()}:
             titles.setdefault(r["portal"], set()).add(_title_key(r["title"]))
-    kept = []
+    kept: list[Record] = []
     for r in records:
         p = scope.get(f"{r['portal']}:{r['org'] or 'unknown'}")
         if p and (
@@ -687,12 +719,12 @@ def _drop_copies(records: list[dict], portals, stats: dict) -> list[dict]:
     return kept
 
 
-def encode(records: list[dict]) -> bytes:
+def encode(records: Iterable[Record]) -> bytes:
     body = "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in records)
     return gzip.compress(body.encode("utf-8"), compresslevel=9, mtime=0)
 
 
-def decode(data: bytes) -> list[dict]:
+def decode(data: bytes) -> list[Record]:
     return [json.loads(line) for line in gzip.decompress(data).decode("utf-8").splitlines() if line]
 
 
@@ -701,7 +733,7 @@ def latest(store_dir: Path) -> store.Manifest | None:
     return ms[-1] if ms else None
 
 
-def load(store_dir: Path) -> list[dict]:
+def load(store_dir: Path) -> list[Record]:
     m = latest(store_dir)
     if not m:
         return []
@@ -710,7 +742,10 @@ def load(store_dir: Path) -> list[dict]:
 
 
 def fetch(
-    store_dir: Path, log=print, portals=PORTALS, today: str | None = None
+    store_dir: Path,
+    log: Log = print,
+    portals: Iterable[Portal] = PORTALS,
+    today: str | None = None,
 ) -> store.Manifest | None:
     prev = latest(store_dir)
     previous = load(store_dir) if prev and store.source_path(store_dir, prev).exists() else None

@@ -12,6 +12,14 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+    from .build import DatasetOut
+    from .cache import BuildCache
+    from .register import Dataset
 
 from . import REPO, SITE
 
@@ -22,7 +30,7 @@ STORE = ROOT / "store"
 FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
 
 
-def cmd_register(args) -> int:
+def cmd_register(args: argparse.Namespace) -> int:
     from . import store  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
     from .validate import int32_misfits  # noqa: PLC0415 - CLI start-up
@@ -56,7 +64,7 @@ def cmd_register(args) -> int:
     return 1 if bad else 0
 
 
-def cmd_labels(args) -> int:  # noqa: C901 - one pass that drafts, reports and writes
+def cmd_labels(args: argparse.Namespace) -> int:  # noqa: C901 - one pass that drafts, reports and writes
     """Draft a label for every field that has none.
 
     The label is the one another entry already gives a field of the same name, or else one
@@ -65,7 +73,7 @@ def cmd_labels(args) -> int:  # noqa: C901 - one pass that drafts, reports and w
     from .register import draft_label, load  # noqa: PLC0415 - CLI start-up
 
     datasets = load(REGISTER)
-    known = {}
+    known: dict[str, str] = {}
     for d in datasets:
         for f in d.fields:
             if f.label:
@@ -96,7 +104,7 @@ def cmd_labels(args) -> int:  # noqa: C901 - one pass that drafts, reports and w
     return 0
 
 
-def cmd_draft(args) -> int:
+def cmd_draft(args: argparse.Namespace) -> int:
     """Write a first register entry for a CKAN portal dataset, for a person to review."""
     import requests  # noqa: PLC0415 - CLI start-up
 
@@ -126,7 +134,7 @@ def cmd_draft(args) -> int:
     return 0
 
 
-def cmd_fetch(args) -> int:  # noqa: C901 - the fetch command's cases, read in order
+def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901 - the fetch command's cases, read in order
     import requests  # noqa: PLC0415 - CLI start-up
 
     from . import fetch  # noqa: PLC0415 - CLI start-up
@@ -183,7 +191,7 @@ def cmd_fetch(args) -> int:  # noqa: C901 - the fetch command's cases, read in o
 R2 = "r2://"
 
 
-def cmd_build(args) -> int:
+def cmd_build(args: argparse.Namespace) -> int:
     from . import published, serialise  # noqa: PLC0415 - CLI start-up
     from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
     from .r2 import downloader  # noqa: PLC0415 - CLI start-up
@@ -207,7 +215,7 @@ def cmd_build(args) -> int:
         shutil.rmtree(out)
     out.mkdir(parents=True)
     datasets = load(REGISTER)
-    cache = None
+    cache: BuildCache | None = None
     if args.cache and not args.absent:
         sys.exit(
             "--cache needs --absent: a cached version leaves out files that are already published"
@@ -229,7 +237,13 @@ def cmd_build(args) -> int:
         published.current = None
 
 
-def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
+def _build(
+    args: argparse.Namespace,
+    out: Path,
+    store_dir: Path,
+    datasets: Iterable[Dataset],
+    cache: BuildCache | None,
+) -> int:
     from . import published  # noqa: PLC0415 - CLI start-up
     from .build import build_dataset, take_built  # noqa: PLC0415 - CLI start-up
     from .catalogue import latest as catalogue_latest  # noqa: PLC0415 - CLI start-up
@@ -237,14 +251,14 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
     from .publishers import load_curated  # noqa: PLC0415 - CLI start-up
     from .site import render_site  # noqa: PLC0415 - CLI start-up
 
-    outs = []
+    outs: list[DatasetOut] = []
     for d in datasets:
         if args.slug and d.slug not in args.slug:
             continue
         o = build_dataset(d, store_dir, out, cache)
         if o.versions:
             print(
-                f"{d.slug}: {len(o.versions)} version(s), latest {o.latest.manifest.version}, {o.latest.rows} rows"
+                f"{d.slug}: {len(o.versions)} version(s), latest {o.versions[-1].manifest.version}, {o.versions[-1].rows} rows"
             )
         outs.append(o)
     if args.built:
@@ -262,7 +276,13 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             if "data.parquet" in v.absent
         ]
         missing = [
-            r for r, p in zip(want, published.current.paths(want), strict=True) if not p.exists()
+            r
+            for r, p in zip(
+                want,
+                published.current.paths(want),  # type: ignore[union-attr]  # cmd_build sets it around every call
+                strict=True,
+            )
+            if not p.exists()
         ]
         if missing:
             sys.exit(
@@ -307,7 +327,7 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
     return 0
 
 
-def cmd_gate(args) -> int:
+def cmd_gate(args: argparse.Namespace) -> int:
     from . import gate  # noqa: PLC0415 - CLI start-up
 
     return gate.main(Path(args.out), REGISTER, _absent(args.absent), site=not args.versions_only)
@@ -320,7 +340,7 @@ def _absent(path: str | None) -> list[str]:
 VERSIONED_FILE = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/")
 
 
-def cmd_split(args) -> int:
+def cmd_split(args: argparse.Namespace) -> int:
     """Move files that R2 serves into a sibling tree.
 
     These are anything over the Pages per-file limit and, with --versioned, every file of a dated
@@ -364,7 +384,7 @@ def cmd_split(args) -> int:
     return 1 if stranded else 0
 
 
-def cmd_catalogue(args) -> int:
+def cmd_catalogue(args: argparse.Namespace) -> int:
     import requests  # noqa: PLC0415 - CLI start-up
 
     from . import catalogue  # noqa: PLC0415 - CLI start-up
@@ -378,7 +398,7 @@ def cmd_catalogue(args) -> int:
     return 0
 
 
-def cmd_catalogue_publishers(args) -> int:
+def cmd_catalogue_publishers(args: argparse.Namespace) -> int:
     """Print proposed curation for data.gov.au organisations no curated publisher claims yet."""
     import requests  # noqa: PLC0415 - CLI start-up
     import yaml  # noqa: PLC0415 - CLI start-up
@@ -405,7 +425,7 @@ def cmd_catalogue_publishers(args) -> int:
     return 0
 
 
-def cmd_d1(args) -> int:
+def cmd_d1(args: argparse.Namespace) -> int:
     """Write one SQL file per live dataset whose latest version the query API has not loaded."""
     from .d1 import (  # noqa: PLC0415 - CLI start-up
         CATALOGUE,
@@ -463,7 +483,7 @@ def _rows_written(text: str) -> int:
         raise argparse.ArgumentTypeError(str(e)) from e
 
 
-def cmd_d1_load(args) -> int:
+def cmd_d1_load(args: argparse.Namespace) -> int:
     from .d1 import BUDGET, Wrangler  # noqa: PLC0415 - CLI start-up
     from .d1 import load as load_d1  # noqa: PLC0415 - CLI start-up
 
@@ -478,7 +498,7 @@ def cmd_d1_load(args) -> int:
     return 1 if failed else 0
 
 
-def cmd_store(args) -> int:
+def cmd_store(args: argparse.Namespace) -> int:
     from .r2 import pull_store, push  # noqa: PLC0415 - CLI start-up
 
     store_dir = Path(args.store)
@@ -492,17 +512,16 @@ def cmd_store(args) -> int:
         n = 0
         for src in sorted(store_dir.glob("*/*/source.*")):
             v = (src.parts[-3], src.parts[-2])
-            n += push(
-                src.parent,
-                "publicdata-raw",
-                f"{v[0]}/{v[1]}/",
-                immutable=lambda _key, v=v: v in committed,
-            )
+
+            def immutable(_key: str, v: tuple[str, str] = v) -> bool:
+                return v in committed
+
+            n += push(src.parent, "publicdata-raw", f"{v[0]}/{v[1]}/", immutable=immutable)
         print(f"store push: {n} file(s)")
     return 0
 
 
-def _committed_versions(store_dir: Path) -> set[tuple[str, str]]:
+def _committed_versions(store_dir: Path) -> set[tuple[str, ...]]:
     """The versions whose manifest git tracks; outside a checkout, every version on disk."""
     found = [p.relative_to(store_dir) for p in store_dir.glob("*/*/manifest.json")]
     try:
@@ -671,7 +690,7 @@ def cmd_purge(args) -> int:
     return 0
 
 
-def _prune_unusable(cache, datasets, store_dir: Path) -> int:
+def _prune_unusable(cache: BuildCache, datasets: Iterable[Dataset], store_dir: Path) -> int:
     """Removes the entries no version in the store keys to, which reads the manifests only."""
     from .brand import CARD_PREFIX  # noqa: PLC0415 - CLI start-up
     from .build import cache_keys  # noqa: PLC0415 - CLI start-up
@@ -682,7 +701,7 @@ def _prune_unusable(cache, datasets, store_dir: Path) -> int:
     return cache.prune(usable)
 
 
-def cmd_cache_prune(args) -> int:
+def cmd_cache_prune(args: argparse.Namespace) -> int:
     from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
 
@@ -691,7 +710,7 @@ def cmd_cache_prune(args) -> int:
     return 0
 
 
-def cmd_cache(args) -> int:
+def cmd_cache(args: argparse.Namespace) -> int:
     from . import r2  # noqa: PLC0415 - CLI start-up
     from .build import cache_keys  # noqa: PLC0415 - CLI start-up
     from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
@@ -700,7 +719,7 @@ def cmd_cache(args) -> int:
 
     root = Path(args.cache)
     if args.sub == "pull":
-        entries = None
+        entries: set[str] | None = None
         if args.only:
             if not args.store:
                 print("cache pull: --only needs --store")
@@ -723,7 +742,7 @@ def cmd_cache(args) -> int:
     return 0
 
 
-def cmd_verify(args) -> int:  # noqa: C901, PLR0911, PLR0912 - the plan and run subcommands share their setup
+def cmd_verify(args: argparse.Namespace) -> int:  # noqa: C901, PLR0911, PLR0912 - the plan and run subcommands share their setup
     """Plan or run the real-data check.
 
     plan prints the datasets the check builds, or nothing when no changed path shapes versions
@@ -738,7 +757,7 @@ def cmd_verify(args) -> int:  # noqa: C901, PLR0911, PLR0912 - the plan and run 
     mb = 1_000_000
     cap = args.cap_mb * mb if args.cap_mb is not None else verify.CAP
     if args.sub == "plan":
-        changed = []
+        changed: list[str] = []
         if args.changed:
             changed = Path(args.changed).read_text(encoding="utf-8").splitlines()
         if args.before and (moved := verify.changed_defaults(Path(args.before))):
@@ -801,7 +820,7 @@ def cmd_verify(args) -> int:  # noqa: C901, PLR0911, PLR0912 - the plan and run 
         published.current = None
 
 
-def cmd_shards(args) -> int:
+def cmd_shards(args: argparse.Namespace) -> int:
     """Prints a JSON list of build jobs, each a space-separated list of dataset slugs."""
     from .register import load  # noqa: PLC0415 - CLI start-up
     from .shards import plan, weights  # noqa: PLC0415 - CLI start-up
@@ -815,10 +834,13 @@ def cmd_shards(args) -> int:
     return 0
 
 
-def _hubs_record(store_dir: Path) -> dict:
+def _hubs_record(store_dir: Path) -> dict[str, Any]:
     """Where the Hubs job found each copy, committed beside the manifests."""
     path = store_dir / "hubs.json"
-    return json.loads(path.read_text("utf-8")) if path.exists() else {}
+    if not path.exists():
+        return {}
+    record: dict[str, Any] = json.loads(path.read_text("utf-8"))
+    return record
 
 
 def _tasks(path: str | None) -> dict[str, int]:
@@ -847,16 +869,16 @@ def cmd_hubs(args) -> int:
     path = Path(args.record) if args.record else None
     old = json.loads(path.read_text("utf-8")) if path and path.exists() else {}
 
-    def save(found: dict) -> dict:
+    def save(found: dict[str, Any]) -> dict[str, Any]:
         # Written after every dataset, so a run stopped part way keeps what it recorded, and
         # swapped into place whole, so a stop mid-write leaves the last good record.
         merged = hubs.merge_record(old, found)
-        tmp = path.with_name(path.name + ".tmp")
+        tmp = path.with_name(path.name + ".tmp")  # type: ignore[union-attr]  # save runs only when path is set
         tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", "utf-8")
-        tmp.replace(path)
+        tmp.replace(path)  # type: ignore[arg-type]  # save runs only when path is set
         return merged
 
-    found: dict = {}
+    found: dict[str, Any] = {}
     failures = hubs.run(
         chosen, entries, refresh=args.refresh, record=found, on_record=save if path else None
     )
@@ -909,7 +931,9 @@ def cmd_cost(args) -> int:
 
     root = Path(args.root).resolve() if args.root else ROOT
     register = root / "register"
-    changed, fresh, reshaped = set(args.slug), set(), {}
+    changed: set[str] = set(args.slug)
+    fresh: set[str] = set()
+    reshaped: dict[str, dict[str, Any]] = {}
     if args.base:
         if links := cost.symlinks(root):
             print(f"cost: the register may not hold symbolic links: {', '.join(links)}")
@@ -941,7 +965,7 @@ def cmd_cost(args) -> int:
     )
 
 
-def main(argv=None) -> int:  # noqa: PLR0915 - the parser declares every command in one place
+def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parser declares every command in one place
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("register").add_subparsers(dest="sub", required=True)
@@ -1226,7 +1250,8 @@ def main(argv=None) -> int:  # noqa: PLR0915 - the parser declares every command
     )
     co.set_defaults(fn=cmd_cost)
     args = ap.parse_args(argv)
-    return args.fn(args)
+    rc: int = args.fn(args)
+    return rc
 
 
 if __name__ == "__main__":

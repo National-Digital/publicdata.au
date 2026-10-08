@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import duckdb
 import pyarrow.feather as pf
@@ -31,14 +32,17 @@ from publicdata.store import Manifest
 
 from .conftest import make_manifest, read_json
 
+if TYPE_CHECKING:
+    import pytest
 
-def _tree(root):
+
+def _tree(root: Path) -> list[str]:
     return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
 
 
 def test_fixture_build_is_deterministic_and_carries_provenance(
-    register_dir, fixture_store, tmp_path
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path
+) -> None:
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-factors"]
     outs = []
     for name in ("a", "b"):
@@ -64,6 +68,7 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     assert len(data["records"]) == data["publicdata"]["rows"] == 300
     assert data["records"][0]["involving_drink_driving"] in (True, False)
     meta = pq.read_metadata(vdir / "data.parquet").metadata
+    assert meta is not None
     assert json.loads(meta[b"publicdata"])["dataset"] == ds.slug
     con = sqlite3.connect(vdir / "data.sqlite")
     assert con.execute("select count(*) from records").fetchone()[0] == 300
@@ -73,7 +78,9 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     )
     # The publisher's file is served from the raw store, so the tree lists it and holds none.
     assert not (vdir / "source.csv").exists()
-    assert built.latest.files["source.csv"] == built.latest.manifest.bytes > 0
+    latest = built.latest
+    assert latest is not None
+    assert latest.files["source.csv"] == latest.manifest.bytes > 0
     versions = read_json(a / "d" / ds.slug / "versions.json")
     assert versions["latest"] == "2026-04-24"
     assert versions["versions"][0]["rows"] == 300
@@ -85,8 +92,8 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
 
 
 def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
-    register_dir, fixture_store, tmp_path
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path
+) -> None:
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
     outs = []
     for name in ("a", "b"):
@@ -143,14 +150,14 @@ def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
     assert csvw["url"] == "data.csv"
     assert csvw["tableSchema"]["primaryKey"] == ["crash_ref_number"]
     dp = read_json(a / "d" / ds.slug / "datapackage.json")
-    names = {r["name"] for r in dp["resources"]}
-    assert names >= {"xlsx", "gpkg", "geo.parquet", "csv.gz", "schema-sql", "csvw"}
-    assert "arrow" not in names
+    resources = {r["name"] for r in dp["resources"]}
+    assert resources >= {"xlsx", "gpkg", "geo.parquet", "csv.gz", "schema-sql", "csvw"}
+    assert "arrow" not in resources
 
 
 def test_a_version_fetched_before_the_caps_keeps_its_arrow_file(
-    register_dir, fixture_store, tmp_path
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path
+) -> None:
     ds = {d.slug: d for d in load(register_dir)}["qld-road-casualties"]
     build_dataset(ds, fixture_store, tmp_path)
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
@@ -164,7 +171,9 @@ def test_a_version_fetched_before_the_caps_keeps_its_arrow_file(
     assert "arrow" in {r["name"] for r in dp["resources"]}
 
 
-def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_path, monkeypatch):
+def test_excel_is_skipped_above_the_row_limit(
+    register_dir: Path, fixture_store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(serialise, "EXCEL_MAX_ROWS", 100)
     assert "xlsx" not in formats_for(300, geometry=False)
     assert "xlsx" in formats_for(100, geometry=False)
@@ -178,7 +187,9 @@ def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_p
     assert not [e for e in check(tmp_path, register_dir) if "xlsx" in e]
 
 
-def test_json_and_geojson_skip_the_row_limit_before_the_caps(monkeypatch):
+def test_json_and_geojson_skip_the_row_limit_before_the_caps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(serialise, "JSON_MAX_ROWS", 100)
     assert {"json", "geojson"} & set(formats_for(300, geometry=True)) == set()
     assert {"json", "geojson", "gpkg", "arrow"} <= set(formats_for(100, geometry=True))
@@ -186,7 +197,7 @@ def test_json_and_geojson_skip_the_row_limit_before_the_caps(monkeypatch):
     assert set(legacy_left_out(300, geometry=False)) == {"json"}
 
 
-def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
+def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set() -> None:
     assert cappable(geometry=False) == ["sqlite", "xlsx", "json"]
     assert cappable(geometry=True) == ["sqlite", "geojson", "xlsx", "json"]
     assert cappable("polygon") == ["sqlite", "geojson", "xlsx", "json"]
@@ -194,10 +205,10 @@ def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
         assert over_cap(f, 10, limit) is None
         assert over_cap(f, 10, limit + 1)
     # Just over a limit reads in bytes, so the size never looks equal to the limit.
-    assert over_cap("xlsx", 10, CAPS["xlsx"][1] + 1).startswith(
+    assert (over_cap("xlsx", 10, CAPS["xlsx"][1] + 1) or "").startswith(
         "Excel is not offered because the table is 50,000,001 bytes as CSV, over the 50 MB limit"
     )
-    assert over_cap("xlsx", 10, 60_000_000).startswith(
+    assert (over_cap("xlsx", 10, 60_000_000) or "").startswith(
         "Excel is not offered because the table is 60.0 MB as CSV, over the 50 MB limit"
     )
     assert over_cap("geojson", 10, 7_800_000_000) == (
@@ -222,8 +233,8 @@ def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
 
 
 def test_a_layers_geojson_is_measured_on_its_own_bytes(
-    register_dir, fixture_store, tmp_path, monkeypatch
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = {d.slug: d for d in load(register_dir)}["abs-lga-2025"]
     build_dataset(ds, fixture_store, tmp_path)
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-05-14"
@@ -247,8 +258,8 @@ def test_a_layers_geojson_is_measured_on_its_own_bytes(
 
 
 def test_a_published_versions_format_set_never_moves(
-    register_dir, fixture_store, tmp_path, monkeypatch
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
     build_dataset(ds, fixture_store, tmp_path)
@@ -259,12 +270,14 @@ def test_a_published_versions_format_set_never_moves(
     monkeypatch.setitem(serialise.CAPS, "json", ("ndjson", 1_000))
     out = build_dataset(ds, fixture_store, tmp_path)
     assert (vdir / "data.json").exists()
+    assert out.latest is not None
     assert out.latest.left_out == {}
     assert read_json(vdir / "manifest.json") == first
     # A new version, with nothing published, takes the cap.
     fresh = tmp_path / "fresh"
     out = build_dataset(ds, fixture_store, fresh)
-    assert set(out.latest.left_out) == {"json"}
+    assert out.latest is not None
+    assert set(out.latest.left_out or ()) == {"json"}
     assert not (fresh / "d" / ds.slug / "v" / "2026-04-24" / "data.json").exists()
     # The gate holds the record to the files beside it.
     man = read_json(vdir / "manifest.json")
@@ -277,8 +290,8 @@ def test_a_published_versions_format_set_never_moves(
 
 
 def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
-    register_dir, fixture_store, tmp_path, monkeypatch
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setitem(serialise.CAPS, "json", ("ndjson", 1_000))
     monkeypatch.setitem(serialise.CAPS, "geojson", ("geojson", 1_000))
     out = tmp_path / "dist"
@@ -332,8 +345,8 @@ def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
 
 
 def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(  # noqa: PLR0915 - one fixture build, checked file by file
-    register_dir, fixture_store, tmp_path
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path
+) -> None:
     ds = {d.slug: d for d in load(register_dir)}["gnaf"]
     outs = []
     for name in ("a", "b"):
@@ -349,6 +362,7 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(  # noqa: 
     assert compare(a, b) == []
     vdir = a / "d" / ds.slug / "v" / "2026-08-17"
     v = oa.latest
+    assert v is not None
     assert v.tables["address_detail"] == 40
     assert len(v.tables) == 37
     assert v.rows == sum(v.tables.values())
@@ -358,13 +372,14 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(  # noqa: 
         assert (vdir / "tables" / f"{t.name}.parquet").exists()
     meta = pq.read_metadata(vdir / "tables" / "address_detail.parquet")
     assert meta.num_rows == 40
+    assert meta.metadata is not None
     assert json.loads(meta.metadata[b"publicdata"])["licence"]["condition"].startswith(
         "You must not"
     )
     con = duckdb.connect()
     con.execute(f"ATTACH '{vdir / 'data.duckdb'}' AS g (READ_ONLY)")
-    assert con.execute("SELECT count(*) FROM g.address_view").fetchone()[0] == 38
-    assert con.execute("SELECT count(*) FROM g.state").fetchone()[0] == 1
+    assert con.execute("SELECT count(*) FROM g.address_view").fetchall()[0][0] == 38
+    assert con.execute("SELECT count(*) FROM g.state").fetchall()[0][0] == 1
     typed = dict(
         con.execute(
             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'address_detail'"
@@ -372,10 +387,10 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(  # noqa: 
     )
     assert typed["date_created"] == "DATE"
     assert typed["confidence"] == "BIGINT"
-    assert con.execute("SELECT count(*) FROM g.relations").fetchone()[0] == 47
+    assert con.execute("SELECT count(*) FROM g.relations").fetchall()[0][0] == 47
     assert (
         json.loads(
-            con.execute("SELECT value FROM g.publicdata WHERE key = 'licence'").fetchone()[0]
+            con.execute("SELECT value FROM g.publicdata WHERE key = 'licence'").fetchall()[0][0]
         )["id"]
         == "OPEN-GNAF-EULA"
     )
@@ -406,14 +421,14 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(  # noqa: 
 
 
 def test_a_table_version_carries_a_duckdb_file_with_typed_columns_and_provenance(
-    register_dir, fixture_store, tmp_path
-):
+    register_dir: Path, fixture_store: Path, tmp_path: Path
+) -> None:
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-factors"]
     build_dataset(ds, fixture_store, tmp_path)
     path = tmp_path / "d" / ds.slug / "v" / "2026-04-24" / "data.duckdb"
     con = duckdb.connect()
     con.execute(f"ATTACH '{path}' AS q (READ_ONLY)")
-    assert con.execute("SELECT count(*) FROM q.records").fetchone()[0] == 300
+    assert con.execute("SELECT count(*) FROM q.records").fetchall()[0][0] == 300
     types = dict(
         con.execute(
             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'records'"
@@ -422,17 +437,17 @@ def test_a_table_version_carries_a_duckdb_file_with_typed_columns_and_provenance
     assert types["crash_year"] == "BIGINT"
     assert types["involving_drink_driving"] == "BOOLEAN"
     assert (
-        con.execute("SELECT value FROM q.publicdata WHERE key = 'version'").fetchone()[0]
+        con.execute("SELECT value FROM q.publicdata WHERE key = 'version'").fetchall()[0][0]
         == "2026-04-24"
     )
-    assert con.execute("SELECT count(*) FROM q.fields").fetchone()[0] == len(ds.fields)
+    assert con.execute("SELECT count(*) FROM q.fields").fetchall()[0][0] == len(ds.fields)
     con.close()
     # A small table is written with 16 KB blocks, so the file is small.
     assert path.stat().st_size < 1_000_000
     assert duckdb_digest(path) == duckdb_digest(path)
 
 
-def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_path):
+def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_path: Path) -> None:
     raw = {
         "slug": "tabbed",
         "kind": "database",
@@ -466,6 +481,7 @@ def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_pat
         ],
     }
     ds = parse(raw, "tabbed")
+    assert ds.database is not None
     assert ds.database.delimiter == "\t"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -495,13 +511,13 @@ def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_pat
     assert (
         con.execute(
             "SELECT block_size FROM pragma_database_size() WHERE database_name = 't'"
-        ).fetchone()[0]
+        ).fetchall()[0][0]
         == 262144
     )
     con.close()
 
 
-def test_a_manifest_with_a_field_this_code_does_not_know_still_reads(tmp_path):
+def test_a_manifest_with_a_field_this_code_does_not_know_still_reads(tmp_path: Path) -> None:
     src = Path(__file__).parent / "fixtures" / "store" / "qld-road-crash-factors" / "2026-04-24"
     d = read_json(src / "manifest.json")
     (tmp_path / "manifest.json").write_text(json.dumps({**d, "later": 2}), encoding="utf-8")
@@ -510,7 +526,9 @@ def test_a_manifest_with_a_field_this_code_does_not_know_still_reads(tmp_path):
     assert not hasattr(m, "later")
 
 
-def test_a_limited_build_measures_what_it_does_not_keep(register_dir, fixture_store, tmp_path):
+def test_a_limited_build_measures_what_it_does_not_keep(
+    register_dir: Path, fixture_store: Path, tmp_path: Path
+) -> None:
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
     serialise.LIMIT = {"ndjson", "parquet"}
     try:

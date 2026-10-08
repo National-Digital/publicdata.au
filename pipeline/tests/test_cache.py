@@ -2,28 +2,36 @@ import filecmp
 import json
 import re
 import shutil
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from publicdata import build, cache, published, r2, serialise, store
 from publicdata import cache as cache_mod
 from publicdata.__main__ import main
-from publicdata.build import build_dataset, cache_keys
+from publicdata.build import VersionOut, build_dataset, cache_keys
 from publicdata.cache import PACKAGE, BuildCache, code_files
 from publicdata.dbcheck import compare
 from publicdata.gate import check
-from publicdata.register import Field, load
+from publicdata.register import Dataset, Field, load
 
 from .conftest import ROOT, make_dataset, make_manifest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+    from pathlib import Path
+
+    from publicdata.normalise import Table
+    from publicdata.store import Manifest
 
 F = [Field("id", "Id", "integer"), Field("v", "V")]
 
 
-def _tree(root):
+def _tree(root: Path) -> list[str]:
     return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
 
 
-def _same(a, b):
+def _same(a: Path, b: Path) -> None:
     assert _tree(a) == _tree(b)
     # A DuckDB file's bytes are not reproducible, so those are compared by content.
     files = [f for f in _tree(a) if not f.endswith("data.duckdb")]
@@ -34,21 +42,21 @@ def _same(a, b):
 
 
 @pytest.fixture
-def two_versions(tmp_path):
+def two_versions(tmp_path: Path) -> Path:
     s = tmp_path / "store"
     for version, csv in (("2026-01-01", b"Id,V\n1,a\n2,b\n"), ("2026-02-01", b"Id,V\n2,B\n3,c\n")):
         store.write(s, make_manifest(csv, version=version), csv)
     return s
 
 
-def _without_sources(src, dst):
+def _without_sources(src: Path, dst: Path) -> Path:
     shutil.copytree(src, dst)
     for p in dst.rglob("source.*"):
         p.unlink()
     return dst
 
 
-def _reading(monkeypatch, out, published_tree):
+def _reading(monkeypatch: pytest.MonkeyPatch, out: Path, published_tree: Path) -> None:
     """A build into out reads a cached version's left-out files back from published_tree.
 
     This is how the deploy reads them from R2.
@@ -56,7 +64,9 @@ def _reading(monkeypatch, out, published_tree):
     monkeypatch.setattr(published, "current", published.Published(out, source=published_tree))
 
 
-def _matches_except_absent(full, slim, vouts, slug="t"):
+def _matches_except_absent(
+    full: Path, slim: Path, vouts: Sequence[VersionOut], slug: str = "t"
+) -> set[str]:
     """The tree `slim` holds exactly the files of `full` less each version's absent ones.
 
     The files match byte for byte. A file read back after the cache left it out is in `slim`, as
@@ -73,8 +83,8 @@ def _matches_except_absent(full, slim, vouts, slug="t"):
 
 
 def test_a_warm_build_needs_no_source_bytes_and_matches_less_the_published_formats(
-    two_versions, tmp_path
-):
+    two_versions: Path, tmp_path: Path
+) -> None:
     ds = make_dataset(F, key=("id",))
     plain, cold, warm = (tmp_path / n for n in ("plain", "cold", "warm"))
     build_dataset(ds, two_versions, plain)
@@ -86,6 +96,7 @@ def test_a_warm_build_needs_no_source_bytes_and_matches_less_the_published_forma
     out = build_dataset(ds, _without_sources(two_versions, tmp_path / "bare"), warm, cache)
     assert (cache.hits, cache.misses) == (4, 0)
     assert out.changes[0]["changed"] == 1
+    assert out.latest is not None
     assert out.latest.rows == 2
     absent = _matches_except_absent(plain, warm, out.versions)
     names = {a.rsplit("/", 1)[1] for a in absent}
@@ -96,7 +107,9 @@ def test_a_warm_build_needs_no_source_bytes_and_matches_less_the_published_forma
     assert out.latest.first == '{"id":2,"v":"B"}'
 
 
-def test_a_new_version_diffs_against_the_cached_one_without_its_source(tmp_path, monkeypatch):
+def test_a_new_version_diffs_against_the_cached_one_without_its_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = make_dataset(F, key=("id",))
     one, both = tmp_path / "one", tmp_path / "both"
     first = (b"Id,V\n1,a\n2,b\n", "2026-01-01")
@@ -119,7 +132,9 @@ def test_a_new_version_diffs_against_the_cached_one_without_its_source(tmp_path,
     assert all("/2026-01-01/" in a or a == "_q/t/2026-01-01.parquet" for a in absent)
 
 
-def test_a_register_change_rebuilds_and_prune_drops_the_old_entry(two_versions, tmp_path):
+def test_a_register_change_rebuilds_and_prune_drops_the_old_entry(
+    two_versions: Path, tmp_path: Path
+) -> None:
     root = tmp_path / "cache"
     build_dataset(make_dataset(F, key=("id",)), two_versions, tmp_path / "a", BuildCache(root))
     cache = BuildCache(root)
@@ -131,7 +146,7 @@ def test_a_register_change_rebuilds_and_prune_drops_the_old_entry(two_versions, 
     assert len(list(root.iterdir())) == 4
 
 
-def test_cached_files_are_read_only(two_versions, tmp_path):
+def test_cached_files_are_read_only(two_versions: Path, tmp_path: Path) -> None:
     build_dataset(
         make_dataset(F, key=("id",)), two_versions, tmp_path / "a", BuildCache(tmp_path / "c")
     )
@@ -139,7 +154,7 @@ def test_cached_files_are_read_only(two_versions, tmp_path):
         (tmp_path / "a" / "d" / "t" / "v" / "2026-01-01" / "manifest.json").write_bytes(b"x")
 
 
-def test_the_check_covers_every_module_the_version_build_imports():
+def test_the_check_covers_every_module_the_version_build_imports() -> None:
     names = {str(p.relative_to(PACKAGE)) for p in code_files()}
     assert {"build.py", "normalise.py", "serialise/__init__.py", "provenance.py"} <= names
     assert "site.py" not in names
@@ -147,7 +162,9 @@ def test_the_check_covers_every_module_the_version_build_imports():
     assert not {"fetch.py", "catalogue.py", "browser.py"} & names
 
 
-def test_absolute_package_imports_are_followed(tmp_path, monkeypatch):
+def test_absolute_package_imports_are_followed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     (tmp_path / "__init__.py").write_text("")
     (tmp_path / "build.py").write_text("import publicdata.a\nfrom publicdata.b import x\n")
     (tmp_path / "a.py").write_text("")
@@ -160,8 +177,8 @@ def test_absolute_package_imports_are_followed(tmp_path, monkeypatch):
 
 
 def test_a_warm_site_build_from_manifests_alone_matches_and_passes_the_gate(
-    fixture_store, fixture_builds, register_dir, tmp_path
-):
+    fixture_store: Path, fixture_builds: tuple[Path, Path, Path], register_dir: Path, tmp_path: Path
+) -> None:
     s = tmp_path / "store"
     shutil.copytree(fixture_store, s)
     plain = fixture_builds[0]
@@ -184,7 +201,7 @@ def test_a_warm_site_build_from_manifests_alone_matches_and_passes_the_gate(
     assert any("missing data.json" in e for e in check(warm, register_dir))
 
 
-def test_the_push_refuses_when_a_left_out_file_is_not_in_r2():
+def test_the_push_refuses_when_a_left_out_file_is_not_in_r2() -> None:
     r2.check_expected(["d/x/v/2026-01-01/data.json"], {"d/x/v/2026-01-01/data.json"})
     with pytest.raises(SystemExit, match="not in R2"):
         r2.check_expected(["d/x/v/2026-01-01/data.json"], set())
@@ -196,7 +213,9 @@ def test_the_push_refuses_when_a_left_out_file_is_not_in_r2():
         )
 
 
-def test_a_rebuild_prunes_the_old_entries_before_it_builds(two_versions, tmp_path):
+def test_a_rebuild_prunes_the_old_entries_before_it_builds(
+    two_versions: Path, tmp_path: Path
+) -> None:
     ds = make_dataset(F, key=("id",))
     root = tmp_path / "cache"
     build_dataset(ds, two_versions, tmp_path / "a", BuildCache(root))
@@ -207,7 +226,12 @@ def test_a_rebuild_prunes_the_old_entries_before_it_builds(two_versions, tmp_pat
     assert not list(root.iterdir())
 
 
-def _plain_and_cached(fixture_store, fixture_builds, tmp_path, formats=None):
+def _plain_and_cached(
+    fixture_store: Path,
+    fixture_builds: tuple[Path, Path, Path],
+    tmp_path: Path,
+    formats: str | None = None,
+) -> tuple[Path, Path, Path, Callable[..., Any]]:
     plain, cold, shared = fixture_builds
     cache = tmp_path / "cache"
     if formats:
@@ -220,8 +244,12 @@ def _plain_and_cached(fixture_store, fixture_builds, tmp_path, formats=None):
 
 
 def test_a_cached_version_grows_into_new_formats_from_its_parquet(
-    fixture_store, fixture_builds, tmp_path, monkeypatch, capsys
-):
+    fixture_store: Path,
+    fixture_builds: tuple[Path, Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     plain, _cold, cache, _ = _plain_and_cached(
         fixture_store, fixture_builds, tmp_path, "ndjson,csv,parquet,sqlite,geojson"
     )
@@ -262,8 +290,12 @@ def test_a_cached_version_grows_into_new_formats_from_its_parquet(
 
 
 def test_a_changed_writer_rewrites_only_its_own_file(
-    fixture_store, fixture_builds, tmp_path, monkeypatch, capsys
-):
+    fixture_store: Path,
+    fixture_builds: tuple[Path, Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     plain, cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     real = cache_mod.writer_key
     monkeypatch.setattr(
@@ -294,8 +326,12 @@ def test_a_changed_writer_rewrites_only_its_own_file(
 
 
 def test_a_changed_parquet_writer_rebuilds_the_version(
-    fixture_store, fixture_builds, register_dir, tmp_path, monkeypatch
-):
+    fixture_store: Path,
+    fixture_builds: tuple[Path, Path, Path],
+    register_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _plain, _cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     real = cache_mod.writer_key
     monkeypatch.setattr(
@@ -304,12 +340,16 @@ def test_a_changed_parquet_writer_rebuilds_the_version(
         lambda fmt, shape=False: "changed" if fmt == "parquet" else real(fmt, shape=shape),
     )
     # The summary counts a hit before the entry is found stale, so the rebuilds are counted here.
-    rebuilt, real_build = [], build.build_version
-    monkeypatch.setattr(
-        build,
-        "build_version",
-        lambda ds, *a, **k: rebuilt.append(ds.slug) or real_build(ds, *a, **k),
-    )
+    rebuilt: list[str] = []
+    real_build = build.build_version
+
+    def counted(
+        ds: Dataset, m: Manifest, data: bytes, out: Path, store_dir: Path | None = None
+    ) -> tuple[Table, VersionOut]:
+        rebuilt.append(ds.slug)
+        return real_build(ds, m, data, out, store_dir)
+
+    monkeypatch.setattr(build, "build_version", counted)
     grown = tmp_path / "grown"
     assert main(["build", "--store", str(fixture_store), "--out", str(grown), "--cache", str(cache), "--absent", str(tmp_path / "grown.json")]) == 0  # fmt: skip
     kinds = {d.slug: d.kind for d in load(register_dir)}
@@ -317,7 +357,7 @@ def test_a_changed_parquet_writer_rebuilds_the_version(
     assert set(rebuilt) == {s for s in tables if kinds[s] != "database"}
 
 
-def test_the_rows_key_leaves_the_writers_out_but_keeps_the_partition_writers():
+def test_the_rows_key_leaves_the_writers_out_but_keeps_the_partition_writers() -> None:
     files = {p.relative_to(cache_mod.PACKAGE).as_posix() for p in cache_mod.code_files()}
     assert "serialise/writers/json.py" in files
     assert "serialise/writers/geojson.py" in files
@@ -346,7 +386,9 @@ def test_the_rows_key_leaves_the_writers_out_but_keeps_the_partition_writers():
     assert len(set(keys.values())) == len(keys)
 
 
-def test_a_derived_formats_key_takes_in_the_writer_it_reads(tmp_path, monkeypatch):
+def test_a_derived_formats_key_takes_in_the_writer_it_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     before = cache_mod.writer_key("csv.gz")
     shadow = tmp_path / "writers"
     shutil.copytree(cache_mod._writers_dir(), shadow)
@@ -355,7 +397,9 @@ def test_a_derived_formats_key_takes_in_the_writer_it_reads(tmp_path, monkeypatc
     assert cache_mod.writer_key("csv.gz") != before
 
 
-def test_formats_must_be_known_and_keep_what_the_build_reads_back(fixture_store, tmp_path):
+def test_formats_must_be_known_and_keep_what_the_build_reads_back(
+    fixture_store: Path, tmp_path: Path
+) -> None:
     run = ["build", "--store", str(fixture_store), "--out", str(tmp_path / "o")]
     with pytest.raises(SystemExit, match="unknown"):
         main([*run, "--formats", "ndjson,parquet,docx"])
@@ -364,8 +408,11 @@ def test_formats_must_be_known_and_keep_what_the_build_reads_back(fixture_store,
 
 
 def test_a_limited_build_never_shrinks_a_full_entry(
-    fixture_store, fixture_builds, tmp_path, capsys
-):
+    fixture_store: Path,
+    fixture_builds: tuple[Path, Path, Path],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     _plain, cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     run = ["build", "--store", str(fixture_store), "--cache", str(cache), "--published", str(cold)]
     assert main([*run, "--out", str(tmp_path / "few"), "--absent", str(tmp_path / "few.json"), "--formats", "ndjson,parquet"]) == 0  # fmt: skip
@@ -379,8 +426,8 @@ def test_a_limited_build_never_shrinks_a_full_entry(
 
 
 def test_cache_prune_drops_only_what_no_stored_version_uses(
-    fixture_store, fixture_builds, tmp_path
-):
+    fixture_store: Path, fixture_builds: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
     cache = tmp_path / "cache"
     shutil.copytree(fixture_builds[2], cache)
     kept = sorted(p.name for p in cache.iterdir())

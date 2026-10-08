@@ -4,6 +4,7 @@ import sqlite3
 import unittest.mock
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Never
 
 import duckdb
 import pyarrow as pa
@@ -12,12 +13,12 @@ import pytest
 
 from publicdata import build, d1, fetch, normalise, serialise, store
 from publicdata.__main__ import main
-from publicdata.build import build_dataset, build_version
+from publicdata.build import VersionOut, build_dataset, build_version
 from publicdata.cache import BuildCache
 from publicdata.gate import check
 from publicdata.r2 import dated_file
-from publicdata.register import Field, RegisterError, Source, load, parse
-from publicdata.serialise import profile
+from publicdata.register import Dataset, Field, RegisterError, Source, load, parse
+from publicdata.serialise import duckdb_connect, profile
 from publicdata.serialise.writers import duckdb as writer
 from publicdata.site import _sample
 from publicdata.validate import _parquet_misfits, int32_misfits
@@ -25,6 +26,13 @@ from publicdata.validate import _parquet_misfits, int32_misfits
 from .conftest import ROOT, make_dataset, make_manifest
 from .test_cache import _reading
 from .test_register import _raw
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from publicdata.normalise import Table
+    from publicdata.serialise.profile import Layout
+    from publicdata.store import Manifest
 
 F = [
     Field("id", "Id", "integer"),
@@ -47,29 +55,32 @@ SOURCE = [6, 5, 4, 3, 2, 1]
 SORTED = [2, 1, 5, 4, 6, 3]
 
 
-def _ds(**kw):
+def _ds(**kw: object) -> Dataset:
     return make_dataset(F, key=("id",), **kw)
 
 
-def _m(ds, csv=CSV, *, legacy=False, **kw):
+def _m(ds: Dataset, csv: bytes = CSV, *, legacy: bool = False, **kw: object) -> Manifest:
     return make_manifest(csv, parquet={} if legacy else profile.layout(ds), **kw)
 
 
-def _build(tmp_path, ds, *, legacy=False):
+def _build(tmp_path: Path, ds: Dataset, *, legacy: bool = False) -> tuple[Path, VersionOut]:
     m = _m(ds, legacy=legacy)
     _, vout = build_version(ds, m, CSV, tmp_path)
     return tmp_path / "d" / "t" / "v" / m.version, vout
 
 
-def _ids(path):
+def _ids(path: Path) -> list[Any]:
     return pq.read_table(path).column("id").to_pylist()
 
 
-def test_a_sorted_parquet_follows_the_sort_then_the_key_and_names_its_profile(tmp_path):
+def test_a_sorted_parquet_follows_the_sort_then_the_key_and_names_its_profile(
+    tmp_path: Path,
+) -> None:
     vdir, _ = _build(tmp_path, _ds(sort=("year", "place")))
     # Nulls last, then the key breaks the ties the sort leaves.
     assert _ids(vdir / "data.parquet") == SORTED
     meta = pq.read_metadata(vdir / "data.parquet")
+    assert meta.metadata is not None
     assert meta.metadata[profile.KEY.encode()] == profile.VERSION.encode()
     assert json.loads(meta.metadata[b"publicdata"])["dataset"] == "t"
     names = [meta.schema.column(c.column_index).name for c in meta.row_group(0).sorting_columns]
@@ -82,12 +93,14 @@ def test_a_sorted_parquet_follows_the_sort_then_the_key_and_names_its_profile(tm
     assert profile.signature(vdir / "data.parquet") == "year,place,id"
 
 
-def test_ties_after_the_key_keep_the_source_position():
+def test_ties_after_the_key_keep_the_source_position() -> None:
     t = pa.table({"id": [1, 2, 3, 4], "place": ["b", "a", "b", "a"]})
     assert profile.ordered(t, ("place",), ()).column("id").to_pylist() == [2, 4, 1, 3]
 
 
-def test_the_other_formats_keep_the_source_order_and_duckdb_follows_the_parquet(tmp_path):
+def test_the_other_formats_keep_the_source_order_and_duckdb_follows_the_parquet(
+    tmp_path: Path,
+) -> None:
     vdir, _ = _build(tmp_path, _ds(sort=("year", "place")))
     lines = (vdir / "data.csv").read_text().splitlines()[1:]
     assert [int(r.split(",")[0]) for r in lines] == SOURCE
@@ -101,23 +114,27 @@ def test_the_other_formats_keep_the_source_order_and_duckdb_follows_the_parquet(
 
 
 @pytest.mark.parametrize("legacy", [False, True])
-def test_the_duckdb_file_is_written_in_one_insert(tmp_path, monkeypatch, legacy):
+def test_the_duckdb_file_is_written_in_one_insert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy: bool,  # noqa: FBT001 - pytest passes parametrized values by name
+) -> None:
     # DuckDB writes a larger file when the rows arrive in several inserts, so the slices a sort
     # reads in are streamed into one.
 
-    real_chunks, real_connect = profile.chunks, writer.duckdb_connect
+    real_chunks, real_connect = profile.chunks, duckdb_connect
     monkeypatch.setattr(profile, "chunks", lambda t, perm, rows=2: real_chunks(t, perm, rows))
-    inserts = []
+    inserts: list[str] = []
 
     class Counting:
-        def __init__(self, con):
+        def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
             self.con = con
 
-        def execute(self, sql, *a):
+        def execute(self, sql: str, *a: object) -> duckdb.DuckDBPyConnection:
             inserts.extend([sql] if sql.startswith("INSERT INTO records") else [])
             return self.con.execute(sql, *a)
 
-        def __getattr__(self, name):
+        def __getattr__(self, name: str) -> object:
             return getattr(self.con, name)
 
     monkeypatch.setattr(writer, "duckdb_connect", lambda *a: Counting(real_connect(*a)))
@@ -128,30 +145,39 @@ def test_the_duckdb_file_is_written_in_one_insert(tmp_path, monkeypatch, legacy)
     assert ids == (SOURCE if legacy else SORTED)
 
 
-def test_the_build_sorts_a_version_once(tmp_path, monkeypatch):
-    calls = []
+def test_the_build_sorts_a_version_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
     real = profile.permutation
-    monkeypatch.setattr(profile, "permutation", lambda *a: calls.append(1) or real(*a))
+
+    def counted(t: pa.Table, sort: list[str], key: list[str]) -> pa.Array[Any] | None:
+        calls.append(1)
+        return real(t, sort, key)
+
+    monkeypatch.setattr(profile, "permutation", counted)
 
     monkeypatch.setattr(build, "permutation", profile.permutation)
     _build(tmp_path, _ds(sort=("year", "place")))
     assert len(calls) == 1
 
 
-def test_without_a_sort_the_rows_keep_the_source_order_and_no_page_index(tmp_path):
+def test_without_a_sort_the_rows_keep_the_source_order_and_no_page_index(tmp_path: Path) -> None:
     vdir, _ = _build(tmp_path, _ds())
     assert _ids(vdir / "data.parquet") == SOURCE
     meta = pq.read_metadata(vdir / "data.parquet")
+    assert meta.metadata is not None
     assert meta.metadata[profile.KEY.encode()] == profile.VERSION.encode()
     assert not meta.row_group(0).sorting_columns
     assert not meta.row_group(0).column(0).has_column_index
     assert profile.signature(vdir / "data.parquet") == ""
 
 
-def test_a_version_fetched_before_the_profile_keeps_its_writer_and_gets_a_query_copy(tmp_path):
+def test_a_version_fetched_before_the_profile_keeps_its_writer_and_gets_a_query_copy(
+    tmp_path: Path,
+) -> None:
     ds = _ds(sort=("year", "place"), int32=("id",))
     vdir, vout = _build(tmp_path, ds, legacy=True)
     meta = pq.read_metadata(vdir / "data.parquet")
+    assert meta.metadata is not None
     assert profile.KEY.encode() not in meta.metadata
     assert pq.read_schema(vdir / "data.parquet").field("id").type == pa.int64()
     assert _ids(vdir / "data.parquet") == SOURCE
@@ -163,16 +189,18 @@ def test_a_version_fetched_before_the_profile_keeps_its_writer_and_gets_a_query_
     assert profile.signature(q) == "year,place,id"
     assert pq.read_schema(q).field("id").type == pa.int32()
     # The query copy carries the version's own provenance, which names its data.parquet.
-    assert pq.read_metadata(q).metadata[b"publicdata"] == meta.metadata[b"publicdata"]
+    q_meta = pq.read_metadata(q).metadata
+    assert q_meta is not None
+    assert q_meta[b"publicdata"] == meta.metadata[b"publicdata"]
 
 
-def test_a_profile_versions_query_copy_is_its_data_parquet(tmp_path):
+def test_a_profile_versions_query_copy_is_its_data_parquet(tmp_path: Path) -> None:
     vdir, vout = _build(tmp_path, _ds(sort=("place",)))
     q = tmp_path / vout.query
     assert q.read_bytes() == (vdir / "data.parquet").read_bytes()
 
 
-def test_a_version_keeps_the_layout_it_was_fetched_with(tmp_path):
+def test_a_version_keeps_the_layout_it_was_fetched_with(tmp_path: Path) -> None:
     old = _ds(sort=("place",))
     m = _m(old)
     now = _ds(sort=("year", "place"))
@@ -182,7 +210,7 @@ def test_a_version_keeps_the_layout_it_was_fetched_with(tmp_path):
     assert _ids(tmp_path / vout.query) == SORTED
 
 
-def test_int32_is_declared_per_field(tmp_path):
+def test_int32_is_declared_per_field(tmp_path: Path) -> None:
     vdir, _ = _build(tmp_path, _ds(int32=("id", "year")))
     schema = pq.read_schema(vdir / "data.parquet")
     assert schema.field("id").type == pa.int32()
@@ -207,12 +235,12 @@ def test_a_datetime_read_back_is_typed_as_normalise_types_it(tmp_path):
     assert profile.widen(back).equals(t)
 
 
-def test_a_version_that_overflows_an_int32_field_stops_the_build(tmp_path):
+def test_a_version_that_overflows_an_int32_field_stops_the_build(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="big holds 1 to 5000000000, outside 32 bits"):
         _build(tmp_path, _ds(int32=("big",)))
 
 
-def test_lookup_fields_get_bloom_filters(tmp_path):
+def test_lookup_fields_get_bloom_filters(tmp_path: Path) -> None:
     vdir, _ = _build(tmp_path, _ds(lookup=("place",)))
     rows = duckdb.sql(
         f"SELECT path_in_schema, bloom_filter_offset IS NOT NULL FROM parquet_metadata('{vdir / 'data.parquet'}')"
@@ -220,7 +248,9 @@ def test_lookup_fields_get_bloom_filters(tmp_path):
     assert {p for p, has in rows if has} == {"place"}
 
 
-def test_two_builds_of_a_sorted_version_with_a_blank_sort_value_are_byte_identical(tmp_path):
+def test_two_builds_of_a_sorted_version_with_a_blank_sort_value_are_byte_identical(
+    tmp_path: Path,
+) -> None:
     ds = _ds(sort=("year", "place"), lookup=("id",), int32=("id",))
     for name in ("a", "b"):
         (tmp_path / name).mkdir()
@@ -229,7 +259,7 @@ def test_two_builds_of_a_sorted_version_with_a_blank_sort_value_are_byte_identic
         assert (tmp_path / "a" / rel).read_bytes() == (tmp_path / "b" / rel).read_bytes()
 
 
-def test_two_builds_of_a_sorted_layer_are_byte_identical(tmp_path):
+def test_two_builds_of_a_sorted_layer_are_byte_identical(tmp_path: Path) -> None:
     reg = {d.slug: d for d in load(ROOT / "register")}
     ds = replace(reg["abs-lga-2025"], sort=("state_name",))
     fixtures = ROOT / "pipeline" / "tests" / "fixtures" / "store"
@@ -242,12 +272,14 @@ def test_two_builds_of_a_sorted_layer_are_byte_identical(tmp_path):
         outs.append(tmp_path / name / "d" / ds.slug / "v" / m.version / "data.parquet")
     a, b = outs
     assert a.read_bytes() == b.read_bytes()
-    names = pq.read_table(a).column("state_name").to_pylist()
+    col = pq.read_table(a).column("state_name")
+    names = [n for n in col.to_pylist() if isinstance(n, str)]
+    assert len(names) == len(col)
     assert names == sorted(names)
-    assert b"geo" in pq.read_metadata(a).metadata
+    assert b"geo" in (pq.read_metadata(a).metadata or {})
 
 
-def test_a_re_sort_cuts_no_new_version():
+def test_a_re_sort_cuts_no_new_version() -> None:
     lines = CSV.splitlines(keepends=True)
     rows = lines[1:]
     random.Random(7).shuffle(rows)  # noqa: S311 - a seeded shuffle, repeatable on purpose
@@ -260,17 +292,25 @@ def test_a_re_sort_cuts_no_new_version():
     assert fetch.rows_digest(sorted_, make_manifest(CSV), CSV) == digest
 
 
-def test_a_fetch_records_the_layout_its_version_keeps(tmp_path, monkeypatch):
+def test_a_fetch_records_the_layout_its_version_keeps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = _ds(sort=("place",), source=Source(adapter="file", url="https://e/f.csv"))
     lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
     m = make_manifest(CSV, dataset="t", version="2026-10-01")
     monkeypatch.setitem(fetch.ADAPTERS, "file", lambda d, s: (CSV, m, lic))
     got = fetch.fetch(ds, tmp_path)
+    assert got is not None
     assert got.parquet == profile.layout(ds)
     assert store.manifests(tmp_path, "t")[0].parquet["sort"] == ["place"]
 
 
-def _few_then_grown(tmp_path, monkeypatch, ds, stale_published=None):
+def _few_then_grown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ds: Dataset,
+    stale_published: Callable[[Path], None] | None = None,
+) -> tuple[Path, Path, list[int]]:
     s = tmp_path / "store"
     store.write(s, _m(ds), CSV)
     cache = BuildCache(tmp_path / "cache")
@@ -282,16 +322,25 @@ def _few_then_grown(tmp_path, monkeypatch, ds, stale_published=None):
         stale_published(few / "d" / "t" / "v" / "2026-01-02" / "data.parquet")
     plain = tmp_path / "plain"
     build_dataset(ds, s, plain)
-    rebuilt = []
+    rebuilt: list[int] = []
     real = build.build_version
-    monkeypatch.setattr(build, "build_version", lambda *a, **k: rebuilt.append(1) or real(*a, **k))
+
+    def counted(
+        ds: Dataset, m: Manifest, data: bytes, out: Path, store_dir: Path | None = None
+    ) -> tuple[Table, VersionOut]:
+        rebuilt.append(1)
+        return real(ds, m, data, out, store_dir)
+
+    monkeypatch.setattr(build, "build_version", counted)
     grown = tmp_path / "grown"
     _reading(monkeypatch, grown, few)
     build_dataset(ds, s, grown, BuildCache(tmp_path / "cache"))
     return grown, plain, rebuilt
 
 
-def test_a_cached_sorted_version_grows_formats_in_the_source_order(tmp_path, monkeypatch):
+def test_a_cached_sorted_version_grows_formats_in_the_source_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     grown, plain, rebuilt = _few_then_grown(tmp_path, monkeypatch, _ds(sort=("year", "place")))
     assert not rebuilt
     rel = "d/t/v/2026-01-02"
@@ -301,10 +350,12 @@ def test_a_cached_sorted_version_grows_formats_in_the_source_order(tmp_path, mon
         assert (grown / rel / f).read_bytes() == (plain / rel / f).read_bytes(), f
 
 
-def test_a_sorted_version_without_its_order_is_built_again(tmp_path, monkeypatch):
+def test_a_sorted_version_without_its_order_is_built_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = _ds(sort=("place",))
 
-    def drop(_):
+    def drop(_: Path) -> None:
         for p in (tmp_path / "cache").glob(f"*/{build.ORDER}"):
             p.unlink()
 
@@ -312,7 +363,9 @@ def test_a_sorted_version_without_its_order_is_built_again(tmp_path, monkeypatch
     assert rebuilt
 
 
-def test_a_published_parquet_from_an_older_build_is_never_reordered(tmp_path, monkeypatch):
+def test_a_published_parquet_from_an_older_build_is_never_reordered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The published tree holds an older, unsorted, unprofiled Parquet of the version.
 
     The order the cache recorded belongs to another file, so the version is built again from its
@@ -320,8 +373,9 @@ def test_a_published_parquet_from_an_older_build_is_never_reordered(tmp_path, mo
     """
     ds = _ds(sort=("year", "place"))
 
-    def older(p):
+    def older(p: Path) -> None:
         t = pq.read_table(p)
+        assert t.schema.metadata is not None
         p.unlink()
         pq.write_table(
             profile.widen(profile.apply(t, pa.array(pc_sort_back(t)))).replace_schema_metadata(
@@ -340,13 +394,17 @@ def test_a_published_parquet_from_an_older_build_is_never_reordered(tmp_path, mo
         assert (grown / rel / f).read_bytes() == (plain / rel / f).read_bytes(), f
 
 
-def pc_sort_back(t):
+def pc_sort_back(t: pa.Table) -> list[int]:
     """Positions that put a sorted table's rows back in id order, descending, as published."""
-    ids = t.column("id").to_pylist()
+    col = t.column("id")
+    ids = [x for x in col.to_pylist() if isinstance(x, int)]
+    assert len(ids) == len(col)
     return sorted(range(len(ids)), key=lambda i: -ids[i])
 
 
-def test_d1_loads_a_version_again_when_its_rows_were_taken_in_another_order(fixture_site, tmp_path):
+def test_d1_loads_a_version_again_when_its_rows_were_taken_in_another_order(
+    fixture_site: Path, tmp_path: Path
+) -> None:
     slug, version = "qld-road-crash-locations", "2026-04-24"
     ds = {d.slug: d for d in load(ROOT / "register")}[slug]
     src = fixture_site / "d" / slug / "v" / version / "data.parquet"
@@ -364,7 +422,7 @@ def test_d1_loads_a_version_again_when_its_rows_were_taken_in_another_order(fixt
     assert "INSERT OR REPLACE INTO _orders SELECT 'qld-road-crash-locations'" in text
 
 
-def test_the_gate_wants_every_table_version_to_have_its_query_copy(site_copy):
+def test_the_gate_wants_every_table_version_to_have_its_query_copy(site_copy: Path) -> None:
     q = "_q/qld-road-crash-factors/2026-04-24.parquet"
     assert (site_copy / q).is_file()
     (site_copy / q).unlink()
@@ -373,7 +431,7 @@ def test_the_gate_wants_every_table_version_to_have_its_query_copy(site_copy):
     assert check(site_copy, ROOT / "register", [q]) == []
 
 
-def test_query_copies_go_to_r2_alone(tmp_path):
+def test_query_copies_go_to_r2_alone(tmp_path: Path) -> None:
     out, large = tmp_path / "dist", tmp_path / "large"
     (out / "_q" / "x").mkdir(parents=True)
     (out / "_q" / "x" / "2026-04-24.parquet").write_text("x")
@@ -393,7 +451,7 @@ def test_query_copies_go_to_r2_alone(tmp_path):
         ({"int32": ["a"]}, "int32 field 'a' is not an integer"),
     ],
 )
-def test_sort_lookup_and_int32_name_declared_fields(over, match):
+def test_sort_lookup_and_int32_name_declared_fields(over: dict[str, object], match: str) -> None:
     fields = [
         {"name": "a", "source": "A"},
         {"name": "n", "source": "N", "type": "integer"},
@@ -405,7 +463,9 @@ def test_sort_lookup_and_int32_name_declared_fields(over, match):
     assert (ds.sort, ds.lookup, ds.int32) == (("a",), ("a",), ("n",))
 
 
-def test_a_fetch_holds_a_version_that_does_not_fit_an_int32_field(tmp_path, monkeypatch):
+def test_a_fetch_holds_a_version_that_does_not_fit_an_int32_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = _ds(int32=("big",), source=Source(adapter="file", url="https://e/f.csv"))
     lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
     m = make_manifest(CSV, dataset="t", version="2026-10-01")
@@ -415,7 +475,7 @@ def test_a_fetch_holds_a_version_that_does_not_fit_an_int32_field(tmp_path, monk
     assert store.manifests(tmp_path, "t") == []
 
 
-def test_register_validate_checks_int32_against_the_versions_at_hand(tmp_path):
+def test_register_validate_checks_int32_against_the_versions_at_hand(tmp_path: Path) -> None:
     s = tmp_path / "store"
     plain = _ds()
     m = _m(plain)
@@ -432,18 +492,20 @@ def test_register_validate_checks_int32_against_the_versions_at_hand(tmp_path):
     assert int32_misfits(declared, m, s, []) is None
 
 
-def test_validate_reads_every_column_when_a_file_has_no_statistics(tmp_path):
+def test_validate_reads_every_column_when_a_file_has_no_statistics(tmp_path: Path) -> None:
     path = tmp_path / "x.parquet"
     pq.write_table(pa.table({"a": [1, 2], "b": [1, 2**40]}), path, write_statistics=False)
     assert _parquet_misfits(path, ("a", "b")) == _parquet_misfits(path, ("b",)) != []
 
 
-def test_validate_reports_a_source_that_no_longer_normalises(tmp_path, monkeypatch):
+def test_validate_reports_a_source_that_no_longer_normalises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s = tmp_path / "store"
     m = _m(_ds())
     store.write(s, m, CSV)
 
-    def broken(*a, **k):
+    def broken(*a: object, **k: object) -> Never:
         msg = "bad row"
         raise ValueError(msg)
 
@@ -453,29 +515,38 @@ def test_validate_reports_a_source_that_no_longer_normalises(tmp_path, monkeypat
     ]
 
 
-def test_the_order_file_is_in_the_entry_before_its_record(tmp_path):
+def test_the_order_file_is_in_the_entry_before_its_record(tmp_path: Path) -> None:
     cache = BuildCache(tmp_path / "cache")
-    seen = []
+    seen: list[bool] = []
     real = Path.write_text
 
-    def spy(self, *a, **k):
+    def spy(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
         if self.name == "meta.json":
             seen.append((self.parent / "order.parquet").is_file())
-        return real(self, *a, **k)
+        return real(self, data, encoding=encoding, errors=errors, newline=newline)
 
     with unittest.mock.patch.object(Path, "write_text", spy):
         cache.put("k", {}, extra={"order.parquet": b"x"})
     assert seen == [True]
 
 
-def test_sort_or_int32_on_a_database_names_the_rule():
+def test_sort_or_int32_on_a_database_names_the_rule() -> None:
     for name in ("sort", "int32"):
         with pytest.raises(RegisterError, match=f"{name} is for a table entry"):
             parse(_raw(kind="database", **{name: ["a"]}), "x")
 
 
 @pytest.mark.parametrize("legacy", [False, True])
-def test_the_sample_note_names_the_order_the_rows_are_in(tmp_path, legacy):
+def test_the_sample_note_names_the_order_the_rows_are_in(
+    tmp_path: Path,
+    legacy: bool,  # noqa: FBT001 - pytest passes parametrized values by name
+) -> None:
     ds = _ds(sort=("year", "place"))
     vdir, _ = _build(tmp_path, ds, legacy=legacy)
     note = json.dumps(_sample(ds, vdir / "data.parquet"))
@@ -487,12 +558,18 @@ def test_the_sample_note_names_the_order_the_rows_are_in(tmp_path, legacy):
         assert "publisher's order" not in note
 
 
-def test_a_footer_shows_the_layout_it_was_written_with(tmp_path):
+def test_a_footer_shows_the_layout_it_was_written_with(tmp_path: Path) -> None:
     ds = _ds(sort=("year", "place"), lookup=("place",), int32=("id",))
     vdir, vout = _build(tmp_path, ds, legacy=True)
     lay = profile.layout(ds)
     assert profile.follows(pq.read_metadata(tmp_path / vout.query), lay)
     assert not profile.follows(pq.read_metadata(vdir / "data.parquet"), lay)
-    for edit in ({"sort": ["place"]}, {"lookup": []}, {"int32": ["id", "year"]}, {"key": []}):
+    edits: list[Layout] = [
+        {"sort": ["place"]},
+        {"lookup": []},
+        {"int32": ["id", "year"]},
+        {"key": []},
+    ]
+    for edit in edits:
         assert not profile.follows(pq.read_metadata(tmp_path / vout.query), lay | edit)
     assert profile.layout_key(vout.query) == "_q/t/2026-01-02.layout.json"

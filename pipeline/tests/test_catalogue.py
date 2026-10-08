@@ -1,32 +1,45 @@
 import json
 import re
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Never, cast
+
+import requests
 
 from publicdata import __main__ as cli
 from publicdata import catalogue, store
 from publicdata.publishers import PORTAL_JUR, load_curated, resolve
 
+if TYPE_CHECKING:
+    import pytest
+
 
 class Resp:
-    def __init__(self, body):
+    def __init__(self, body: object) -> None:
         self.body = body
         self.status_code = 200
 
-    def json(self):
+    def json(self) -> object:
         return self.body
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         pass
 
 
 class FakeSession:
     """Answers the three CKAN actions, the Socrata catalogue and the ABS dataflow list."""
 
-    def __init__(self, packages):
+    def __init__(self, packages: list[dict[str, object]]) -> None:
         self.packages = packages
-        self.headers = {}
+        self.headers: dict[str, str] = {}
 
-    def get(self, url, params=None, timeout=None, headers=None):
+    def get(
+        self,
+        url: str,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Resp:
         params = params or {}
         if url.endswith("/license_list"):
             return Resp(
@@ -71,7 +84,12 @@ class FakeSession:
         raise AssertionError(url)
 
 
-def pkg(i, **kw):
+# The fakes answer only the calls the harvesters make.
+def session(fake: FakeSession | FixtureSession) -> requests.Session:
+    return cast("requests.Session", fake)
+
+
+def pkg(i: int, **kw: object) -> dict[str, object]:
     return {
         "id": f"0000000{i}-aaaa-bbbb-cccc-dddddddddddd",
         "name": f"crash-data-{i}",
@@ -88,7 +106,7 @@ def pkg(i, **kw):
     }
 
 
-def test_licence_titles_map_onto_register_ids():
+def test_licence_titles_map_onto_register_ids() -> None:
     assert catalogue.licence_id("Creative Commons Attribution 3.0 Australia") == "CC-BY-3.0-AU"
     assert catalogue.licence_id("Creative Commons Attribution 4.0 International") == "CC-BY-4.0"
     assert catalogue.licence_id("Creative Commons Attribution 2.5 Australia") == "CC-BY-2.5-AU"
@@ -138,7 +156,7 @@ def test_licence_titles_map_onto_register_ids():
     assert catalogue.is_open("") is None
 
 
-def test_formats_and_summary_are_tidied_not_rewritten():
+def test_formats_and_summary_are_tidied_not_rewritten() -> None:
     assert catalogue.formats(["csv", "Excel (.xlsx)", "SHP, TAB, KMZ", ".json"]) == [
         "CSV", "JSON", "KMZ", "SHP", "TAB", "XLSX",
     ]  # fmt: skip
@@ -152,7 +170,7 @@ def test_formats_and_summary_are_tidied_not_rewritten():
     assert len(s) <= catalogue.SUMMARY_CHARS + 1
 
 
-def test_ckan_drops_copies_of_portals_read_directly():
+def test_ckan_drops_copies_of_portals_read_directly() -> None:
     # data.gov.au returns the origin under this key, as a JSON string, when asked for
     # extras_original_harvest_source (checked against the live API on 28 Sep 2026).
     copy = pkg(2, original_harvest_source=json.dumps({"site_url": "https://data.nsw.gov.au/data/"}))
@@ -174,7 +192,7 @@ def test_ckan_drops_copies_of_portals_read_directly():
         ),
     )
     s = FakeSession([pkg(1), copy, science, prefixed, own])
-    recs, dropped = catalogue.ckan(catalogue.BY_CODE["gov"], s, log=lambda *_: None)
+    recs, dropped = catalogue.ckan(catalogue.BY_CODE["gov"], session(s), log=lambda *_: None)
     assert dropped == 2
     assert [r["id"] for r in recs] == [
         "gov-00000001-aaaa-bbbb-cccc-dddddddddddd",
@@ -193,10 +211,10 @@ def test_ckan_drops_copies_of_portals_read_directly():
     assert recs[1]["harvested_from"] == "catalogue.aodn.org.au"
 
 
-def test_socrata_and_sdmx_records_fit_the_same_shape_and_vote_keys():
+def test_socrata_and_sdmx_records_fit_the_same_shape_and_vote_keys() -> None:
     s = FakeSession([])
-    act, _ = catalogue.socrata(catalogue.BY_CODE["act"], s, log=lambda *_: None)
-    abs_, _ = catalogue.sdmx(catalogue.BY_CODE["abs"], s, log=lambda *_: None)
+    act, _ = catalogue.socrata(catalogue.BY_CODE["act"], session(s), log=lambda *_: None)
+    abs_, _ = catalogue.sdmx(catalogue.BY_CODE["abs"], session(s), log=lambda *_: None)
     assert act[0]["id"] == "act-426s-vdu4"
     assert act[0]["org_title"] == "Access Canberra"
     assert act[0]["licence"] == "CC-BY-4.0"
@@ -207,9 +225,9 @@ def test_socrata_and_sdmx_records_fit_the_same_shape_and_vote_keys():
     assert all(re.match(r"^[a-z0-9][a-z0-9-]{1,63}$", r["id"]) for r in act + abs_)
 
 
-def test_sdmx_dataflow_url_points_at_the_live_abs_data_explorer():
+def test_sdmx_dataflow_url_points_at_the_live_abs_data_explorer() -> None:
     s = FakeSession([])
-    abs_, _ = catalogue.sdmx(catalogue.BY_CODE["abs"], s, log=lambda *_: None)
+    abs_, _ = catalogue.sdmx(catalogue.BY_CODE["abs"], session(s), log=lambda *_: None)
     # ABS serves the Data Explorer from dataexplorer.abs.gov.au; the old
     # explore.data.abs.gov.au host no longer resolves (see issue #26).
     assert (
@@ -219,9 +237,11 @@ def test_sdmx_dataflow_url_points_at_the_live_abs_data_explorer():
     assert "explore.data.abs.gov.au" not in abs_[0]["url"]
 
 
-def test_snapshot_is_deterministic_and_unchanged_bytes_make_no_version(tmp_path, monkeypatch):
+def test_snapshot_is_deterministic_and_unchanged_bytes_make_no_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s = FakeSession([pkg(1), pkg(2)])
-    monkeypatch.setattr(catalogue.requests, "Session", lambda: s)
+    monkeypatch.setattr(requests, "Session", lambda: s)
     portals = (catalogue.BY_CODE["qld"],)
     m = catalogue.fetch(tmp_path, log=lambda *_: None, portals=portals, today="2026-09-28")
     assert m
@@ -240,39 +260,60 @@ def test_snapshot_is_deterministic_and_unchanged_bytes_make_no_version(tmp_path,
     assert store.source_path(tmp_path, m).read_bytes() == first  # the stored version is untouched
 
 
+class NotJson(Resp):
+    def __init__(self) -> None:
+        super().__init__(None)
+        self.content = b""
+        self.headers = {"Content-Type": "text/html"}
+
+    def json(self) -> Never:
+        msg = "empty"
+        raise ValueError(msg)
+
+
 class Down(FakeSession):
-    def get(self, url, params=None, timeout=None, headers=None):
+    def get(
+        self,
+        url: str,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Resp:
         if "socrata" in url:
-            r = Resp(None)
-            r.content, r.headers = b"", {"Content-Type": "text/html"}
-            r.json = lambda: (_ for _ in ()).throw(ValueError("empty"))
-            return r
+            return NotJson()
         return super().get(url, params, timeout, headers)
 
 
-def test_an_unreadable_portal_keeps_its_last_records_and_says_so(tmp_path, monkeypatch):
+def test_an_unreadable_portal_keeps_its_last_records_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     portals = (catalogue.BY_CODE["qld"], catalogue.BY_CODE["act"])
-    monkeypatch.setattr(catalogue.requests, "Session", lambda: FakeSession([pkg(1)]))
+    monkeypatch.setattr(requests, "Session", lambda: FakeSession([pkg(1)]))
     first = catalogue.fetch(tmp_path, log=lambda *_: None, portals=portals, today="2026-09-21")
     assert {r["portal"] for r in catalogue.load(tmp_path)} == {"qld", "act"}
-    monkeypatch.setattr(catalogue.requests, "Session", lambda: Down([pkg(1), pkg(2)]))
-    lines = []
+    monkeypatch.setattr(requests, "Session", lambda: Down([pkg(1), pkg(2)]))
+    lines: list[str] = []
     m = catalogue.fetch(tmp_path, log=lines.append, portals=portals, today="2026-09-28")
+    assert m is not None
     assert m.source["stats"]["act"]["carried_from"] == "2026-09-21"
     assert "not JSON" in m.source["stats"]["act"]["error"]
     assert [r["id"] for r in catalogue.load(tmp_path) if r["portal"] == "act"] == ["act-426s-vdu4"]
     assert any("could not be read" in x for x in lines)
     # Without the earlier snapshot's bytes nothing can be carried, so the harvest stops.
+    assert first is not None
     store.source_path(tmp_path, first).unlink()
     store.source_path(tmp_path, m).unlink()
     with __import__("pytest").raises(catalogue.PortalError, match="store pull --only catalogue"):
         catalogue.fetch(tmp_path, log=lambda *_: None, portals=portals, today="2026-10-05")
 
 
-def test_a_first_harvest_marks_an_unreadable_portal_as_not_read(tmp_path, monkeypatch):
-    monkeypatch.setattr(catalogue.requests, "Session", lambda: Down([pkg(1)]))
+def test_a_first_harvest_marks_an_unreadable_portal_as_not_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(requests, "Session", lambda: Down([pkg(1)]))
     portals = (catalogue.BY_CODE["qld"], catalogue.BY_CODE["act"])
     m = catalogue.fetch(tmp_path, log=lambda *_: None, portals=portals, today="2026-09-28")
+    assert m is not None
     assert m.source["stats"]["act"] == {
         "records": 0,
         "error": m.source["stats"]["act"]["error"],
@@ -282,9 +323,9 @@ def test_a_first_harvest_marks_an_unreadable_portal_as_not_read(tmp_path, monkey
 
 
 def test_a_harvest_that_cannot_finish_reports_failed_and_exits_non_zero(
-    tmp_path, monkeypatch, capsys
-):
-    def boom(store_dir):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(store_dir: Path) -> Never:
         msg = "snapshot not in the store"
         raise catalogue.PortalError(msg)
 
@@ -299,14 +340,21 @@ FIX = Path(__file__).parent / "fixtures" / "catalogue"
 class FixtureSession:
     """Serves recorded Opendatasoft and ArcGIS Hub answers (Ballarat and Sydney, 29 Sep 2026)."""
 
-    def __init__(self):
-        self.headers = {}
-        self.calls = []
+    def __init__(self) -> None:
+        self.headers: dict[str, str] = {}
+        self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def get(self, url, params=None, timeout=None, headers=None):
+    def get(
+        self,
+        url: str,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Resp:
         self.calls.append((url, dict(params or {})))
         if "/api/explore/v2.1/catalog/datasets" in url:
             body = json.loads((FIX / "ods-ballarat.json").read_text(encoding="utf-8"))
+            assert params is not None
             if params["offset"]:
                 body["results"] = []
             return Resp(body)
@@ -316,9 +364,9 @@ class FixtureSession:
         raise AssertionError(url)
 
 
-def test_opendatasoft_records_are_the_council_s_own_with_formats_from_the_platform():
+def test_opendatasoft_records_are_the_council_s_own_with_formats_from_the_platform() -> None:
     recs, dropped = catalogue.ods(
-        catalogue.BY_CODE["ballarat"], FixtureSession(), log=lambda *_: None
+        catalogue.BY_CODE["ballarat"], session(FixtureSession()), log=lambda *_: None
     )
     assert dropped == 0
     by = {r["name"]: r for r in recs}
@@ -343,12 +391,14 @@ def test_opendatasoft_records_are_the_council_s_own_with_formats_from_the_platfo
     assert by["libraries"]["licence"] == ""
     assert by["libraries"]["open"] is None
     assert "GEOJSON" not in by["local-workers-occupation-by-industry"]["formats"]
-    assert set(recs[0]) == set(catalogue.socrata(catalogue.BY_CODE["act"], FakeSession([]))[0][0])
+    assert set(recs[0]) == set(
+        catalogue.socrata(catalogue.BY_CODE["act"], session(FakeSession([])))[0][0]
+    )
 
 
-def test_hub_pages_until_there_is_no_next_link_and_reads_licences_from_the_terms():
+def test_hub_pages_until_there_is_no_next_link_and_reads_licences_from_the_terms() -> None:
     s = FixtureSession()
-    recs, _ = catalogue.hub(catalogue.BY_CODE["sydney"], s, log=lambda *_: None)
+    recs, _ = catalogue.hub(catalogue.BY_CODE["sydney"], session(s), log=lambda *_: None)
     # The second page is the next link as Hub gives it.
     assert [u.rsplit("/", 1)[-1] for u, _ in s.calls] == ["items", "items?limit=2&startindex=3"]
     by = {r["title"]: r for r in recs}
@@ -373,14 +423,14 @@ def test_hub_pages_until_there_is_no_next_link_and_reads_licences_from_the_terms
     )
 
 
-def test_a_council_portal_replaces_only_the_copies_it_lists():
+def test_a_council_portal_replaces_only_the_copies_it_lists() -> None:
     ballarat = catalogue.BY_CODE["ballarat"]
     own = catalogue._record(ballarat, source_id="da_1", name="toilets", title="Public Toilets",
                             org="ballarat", org_title="City of Ballarat", kind="dataset", licence="CC-BY-4.0",
                             licence_title="", formats=["CSV"], created="", modified="", url="", summary="",
                             harvested_from="")  # fmt: skip
 
-    def copy(portal, i, title, host=""):
+    def copy(portal: str, i: int, title: str, host: str = "") -> dict[str, Any]:
         return catalogue._record(catalogue.BY_CODE[portal], source_id=f"c{i}", name=f"c{i}", title=title,
                                  org="city-of-ballarat", org_title="City of Ballarat", kind="dataset",
                                  licence="CC-BY-4.0", licence_title="", formats=["CSV"], created="",
@@ -390,7 +440,7 @@ def test_a_council_portal_replaces_only_the_copies_it_lists():
     same_source = copy("vic", 2, "Old name", "data.ballarat.vic.gov.au")
     elsewhere = copy("gov", 3, "Heritage status")
     other_org = {**copy("vic", 4, "Public Toilets"), "org": "someone-else"}
-    stats = {"vic": {}, "gov": {}}
+    stats: dict[str, dict[str, Any]] = {"vic": {}, "gov": {}}
     kept = catalogue._drop_copies(
         [own, same_title, same_source, elsewhere, other_org], catalogue.PORTALS, stats
     )
@@ -400,16 +450,24 @@ def test_a_council_portal_replaces_only_the_copies_it_lists():
     assert len(catalogue._drop_copies([same_title, elsewhere], catalogue.PORTALS, {})) == 2
 
 
-def test_a_flaky_council_keeps_its_last_records_and_never_stops_the_harvest(monkeypatch):
+def test_a_flaky_council_keeps_its_last_records_and_never_stops_the_harvest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Broken(FixtureSession):
-        def get(self, url, params=None, timeout=None, headers=None):
+        def get(
+            self,
+            url: str,
+            params: dict[str, Any] | None = None,
+            timeout: float | None = None,
+            headers: dict[str, str] | None = None,
+        ) -> Resp:
             if "ballarat" in url:
                 msg = "down"
-                raise catalogue.requests.ConnectionError(msg)
+                raise requests.ConnectionError(msg)
             return super().get(url, params, timeout, headers)
 
-    monkeypatch.setattr(catalogue.requests, "Session", Broken)
-    monkeypatch.setattr(catalogue.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(requests, "Session", Broken)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
     before = {"id": "ballarat-da-old", "portal": "ballarat", "title": "Kept", "org": "ballarat"}
     recs, stats = catalogue.harvest(
         (catalogue.BY_CODE["ballarat"], catalogue.BY_CODE["sydney"]),
@@ -423,14 +481,22 @@ def test_a_flaky_council_keeps_its_last_records_and_never_stops_the_harvest(monk
     assert sum(r["portal"] == "sydney" for r in recs) == 4
 
 
-def test_a_portal_answering_an_odd_shape_is_kept_from_the_last_snapshot(monkeypatch):
+def test_a_portal_answering_an_odd_shape_is_kept_from_the_last_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Odd(FixtureSession):
-        def get(self, url, params=None, timeout=None, headers=None):
+        def get(
+            self,
+            url: str,
+            params: dict[str, Any] | None = None,
+            timeout: float | None = None,
+            headers: dict[str, str] | None = None,
+        ) -> Resp:
             if "ballarat" in url:
                 return Resp({"total_count": 1, "results": [None]})
             return super().get(url, params, timeout, headers)
 
-    monkeypatch.setattr(catalogue.requests, "Session", Odd)
+    monkeypatch.setattr(requests, "Session", Odd)
     before = {"id": "ballarat-da-old", "portal": "ballarat", "title": "Kept", "org": "ballarat"}
     recs, stats = catalogue.harvest(
         (catalogue.BY_CODE["ballarat"],),
@@ -442,7 +508,7 @@ def test_a_portal_answering_an_odd_shape_is_kept_from_the_last_snapshot(monkeypa
     assert "error" in stats["ballarat"]
 
 
-def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally():
+def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally() -> None:
     assert all(re.fullmatch(r"[a-z]+", p.code) for p in catalogue.PORTALS)
     assert len({p.code for p in catalogue.PORTALS}) == len(catalogue.PORTALS)
     replaced = [o for p in catalogue.PORTALS for o in p.replaces]

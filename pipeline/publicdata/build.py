@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -69,7 +69,12 @@ from .serialise.writers.parquet import write_parquet
 from .spine import enrich, spine_versions
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .register import Dataset
+    from .serialise.profile import Layout
+
+    type HeaderFor = Callable[[int, str], dict[str, Any]]
 
 REGISTER_DIR = Path(__file__).resolve().parents[2] / "register"
 
@@ -81,7 +86,7 @@ class VersionOut:
     files: dict[str, int]  # relative path -> bytes
     unknown_columns: list[str]
     suppressed_cells: int
-    partitions: dict
+    partitions: dict[str, Any]
     first: str = ""  # the first row of data.ndjson, which the dataset page shows
     absent: tuple[str, ...] = ()  # files a cached build left out; already published
     tables: dict[str, int] = field(default_factory=dict)  # a database's tables and their rows
@@ -119,7 +124,7 @@ def kept(rel: str) -> bool:
 class DatasetOut:
     dataset: Dataset
     versions: list[VersionOut] = field(default_factory=list)
-    changes: list[dict] = field(default_factory=list)
+    changes: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def latest(self) -> VersionOut | None:
@@ -144,7 +149,7 @@ def _size(p: Path) -> int:
     n = p.stat().st_size
     if p.name != "data.duckdb" or n < 10:  # noqa: PLR2004 - one digit is one significant figure
         return n
-    scale = 10 ** (len(str(n)) - 1)
+    scale: int = 10 ** (len(str(n)) - 1)
     return round(n / scale) * scale
 
 
@@ -170,7 +175,7 @@ def build_database_version(
     vdir.mkdir(parents=True)
     base = version_url(ds.slug, m.version)
 
-    def hdr(rows: int, rel: str) -> dict:
+    def hdr(rows: int, rel: str) -> dict[str, Any]:
         return prov_header(ds, m, rows, base + rel)
 
     db = build_database(ds, m, src, vdir, hdr)
@@ -197,7 +202,7 @@ def build_database_version(
     )
 
 
-def write_formats(tbl: Table, fmts: list[str], hdr, vdir: Path) -> None:
+def write_formats(tbl: Table, fmts: list[str], hdr: HeaderFor, vdir: Path) -> None:
     """Each format's file, in the order FORMATS lists them, so the gzip finds the CSV."""
     for fmt in fmts:
         WRITERS[fmt](tbl, hdr(tbl.rows, f"data.{fmt}"), vdir / f"data.{fmt}", vdir)
@@ -220,10 +225,11 @@ def build_version(  # noqa: C901 - a version's build steps, read in order
     vdir.mkdir(parents=True)
     base = version_url(ds.slug, m.version)
 
-    def hdr(rows: int, rel: str) -> dict:
+    def hdr(rows: int, rel: str) -> dict[str, Any]:
         return prov_header(ds, m, rows, base + rel)
 
-    gone = measured = None
+    gone: dict[str, str] | None = None
+    measured: dict[str, int] | None = None
     written: list[str] = []
     if capped(m):
         gone, measured, written = _cap(tbl, ds, record, hdr, vdir)
@@ -270,7 +276,7 @@ def build_version(  # noqa: C901 - a version's build steps, read in order
     )
 
 
-def _sorted_once(tbl: Table, lay: dict) -> Table:
+def _sorted_once(tbl: Table, lay: Layout) -> Table:
     """The table `tbl` carrying its permutation under layout `lay`, for every writer that sorts."""
     if not lay or not lay.get("sort"):
         return tbl
@@ -278,7 +284,7 @@ def _sorted_once(tbl: Table, lay: dict) -> Table:
     return replace(tbl, order=(tbl.table, (tuple(lay["sort"]), tuple(lay["key"])), perm))
 
 
-def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
+def _query_copy(tbl: Table, header: dict[str, Any], vdir: Path, out: Path) -> str:
     """The version's query copy under the current profile and register entry, at its internal key.
 
     This is the version's own data.parquet when that already follows them, else it is written
@@ -298,7 +304,7 @@ def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
     return rel
 
 
-def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict | None:
+def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict[str, Any] | None:
     """The format record of a capped version already published.
 
     The record is its manifest's formats_left_out and measured_bytes, which no later build
@@ -313,7 +319,9 @@ def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict | None:
     return {"left_out": man["formats_left_out"], "measured": man.get("measured_bytes") or {}}
 
 
-def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
+def _cap(
+    tbl: Table, ds: Dataset, record: dict[str, Any] | None, hdr: HeaderFor, vdir: Path
+) -> tuple[dict[str, str], dict[str, int], list[str]]:
     """A capped version's formats_left_out, its measured_bytes and the files left written.
 
     The NDJSON and CSV are written first and measured, and a format measured on itself is
@@ -326,7 +334,7 @@ def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
     probe = [*MEASURED, *(f for f in selfish if record is None or f not in record["left_out"])]
     write_formats(tbl, probe, hdr, vdir)
     sizes = {f"data.{f}": _size(vdir / f"data.{f}") for f in probe}
-    gone = dict(record["left_out"]) if record is not None else {}
+    gone: dict[str, str] = dict(record["left_out"]) if record is not None else {}
     if record is None:
         for f in cappable(kind):
             if why := over_cap(f, tbl.rows, sizes[f"data.{CAPS[f][0]}"]):
@@ -379,12 +387,12 @@ def _history(dout: DatasetOut, out: Path, cache: BuildCache | None, keys: list[s
             cache.put(key, {}, Path(tmp))
 
 
-def _datapackage(dout: DatasetOut) -> dict:
-    ds, v = dout.dataset, dout.latest
+def _datapackage(dout: DatasetOut) -> dict[str, Any]:
+    ds, v = dout.dataset, dout.versions[-1]
     m = v.manifest
     base = version_url(ds.slug, m.version)
     h = prov_header(ds, m, v.rows, base)
-    resources = []
+    resources: list[dict[str, Any]] = []
     if ds.kind == "database":
         resources.append(
             {
@@ -524,7 +532,7 @@ def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
     return {*keys, *diffs, *([cache.key(*keys, "history")] if keys else [])}
 
 
-def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> VersionOut:
+def _from_cache(ds: Dataset, m: store.Manifest, hit: dict[str, Any], vdir: Path) -> VersionOut:
     return VersionOut(
         m,
         hit["rows"],
@@ -542,7 +550,7 @@ def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> Versio
     )
 
 
-def _meta(ds: Dataset, vout: VersionOut, writers: dict[str, str], vdir: Path) -> dict:
+def _meta(ds: Dataset, vout: VersionOut, writers: dict[str, str], vdir: Path) -> dict[str, Any]:
     query = vdir.parents[3] / vout.query if vout.query else None
     return {
         "sha256": digests(vdir, databases=ds.kind != "database"),
@@ -564,7 +572,7 @@ def _want(ds: Dataset, rows: int, gone: dict[str, str] | None) -> list[str]:
     return formats_for(rows, geo_kind(ds), gone)
 
 
-def current(ds: Dataset, hit: dict, now: dict[str, str]) -> bool:
+def current(ds: Dataset, hit: dict[str, Any], now: dict[str, str]) -> bool:
     """Whether a cached version already holds every format the current writers would make."""
     if ds.kind == "database":
         return True
@@ -619,8 +627,8 @@ def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
 
 
 def grow_cached(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a cached version's growth steps, read in order
-    ds: Dataset, m: store.Manifest, hit: dict, vdir: Path, cache: BuildCache, *, key: str
-) -> dict | None:
+    ds: Dataset, m: store.Manifest, hit: dict[str, Any], vdir: Path, cache: BuildCache, *, key: str
+) -> dict[str, Any] | None:
     """A cached table version brought up to the current writers.
 
     A format whose writer the entry has not seen, or saw in another form, is written again from
@@ -648,14 +656,15 @@ def grow_cached(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a cached version's g
         return None
     base = version_url(ds.slug, m.version)
 
-    def hdr(rows: int, rel: str) -> dict:
+    def hdr(rows: int, rel: str) -> dict[str, Any]:
         return prov_header(ds, m, rows, base + rel)
 
     tbl = _built_table(ds, m, out, parquet)
     if m.parquet.get("sort"):
-        tbl = _source_order(tbl, cache, key, parquet)
-        if tbl is None:
+        back = _source_order(tbl, cache, key, parquet)
+        if back is None:
             return None
+        tbl = back
     if "csv.gz" in stale and "csv" not in stale and not (vdir / "data.csv").exists():
         stale = ["csv", *stale]  # the gzip reads the CSV, written here and not kept
     for p in [vdir / f"data.{f}" for f in stale]:
@@ -806,7 +815,7 @@ def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Tab
     )
 
 
-def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:
+def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict[str, Any]:
     """Two versions of a database compared table by table, by row count.
 
     The tables are not read back: a release of a hundred million rows is compared by what each
@@ -875,8 +884,8 @@ def build_dataset(
     dout = DatasetOut(ds)
     if not ds.publishable:
         return dout
-    prev = None  # (manifest, table or None, cache key)
-    keys = []
+    prev: tuple[store.Manifest, Table | None, str] | None = None
+    keys: list[str] = []
     ms = store.manifests(store_dir, ds.slug)
     for m in ms[-newest:] if newest else ms:
         key = version_key(cache, ds, m, store_dir) if cache else ""
@@ -887,7 +896,7 @@ def build_dataset(
             pm, ptbl, pkey = prev
             path = out / "d" / ds.slug / "diff" / f"{pm.version}..{m.version}.json"
             dkey = cache.key(pkey, key, "diff") if cache else ""
-            d = cache.get(dkey) if cache else None
+            d: dict[str, Any] | None = cache.get(dkey) if cache else None
             if d is None:
                 if ds.kind == "database":
                     d = diff_database(ds, dout.versions[-2], vout)
@@ -909,7 +918,7 @@ def build_dataset(
         pretty(
             {
                 "dataset": ds.slug,
-                "latest": dout.latest.manifest.version,
+                "latest": dout.versions[-1].manifest.version,
                 "versions": [
                     {
                         "version": v.manifest.version,
@@ -936,7 +945,9 @@ def build_dataset(
         pretty({"dataset": ds.slug, "changes": dout.changes}), encoding="utf-8"
     )
     (ddir / "schema.json").write_text(
-        (ddir / "v" / dout.latest.manifest.version / "schema.json").read_text(encoding="utf-8"),
+        (ddir / "v" / dout.versions[-1].manifest.version / "schema.json").read_text(
+            encoding="utf-8"
+        ),
         encoding="utf-8",
     )
     (ddir / "datapackage.json").write_text(pretty(_datapackage(dout)), encoding="utf-8")
