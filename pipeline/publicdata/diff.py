@@ -21,7 +21,8 @@ def _indexed(t: pa.Table, key: tuple[str, ...]) -> pa.Table:
     dup = counts.filter(pc.greater(counts[f"{ROW}_count"], 1))
     if dup.num_rows:
         k = tuple(dup.slice(0, 1).select(list(key)).to_pylist()[0].values())
-        raise ValueError(f"key {key} is not unique: {k} appears twice")
+        msg = f"key {key} is not unique: {k} appears twice"
+        raise ValueError(msg)
     return v
 
 

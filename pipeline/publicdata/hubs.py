@@ -125,18 +125,21 @@ def entry(
     """
     lic = LICENCES.get(record.get("license") or "")
     if lic is None:
-        raise Refused(f"licence {record.get('license')!r} has no hub mapping")
+        msg = f"licence {record.get('license')!r} has no hub mapping"
+        raise Refused(msg)
     version = record["versionInfo"]
     row = next((v for v in versions.get("versions", []) if v["version"] == version), None)
     if row is None:
-        raise Refused(f"version {version} is not in versions.json")
+        msg = f"version {version} is not in versions.json"
+        raise Refused(msg)
     files = {
         d["format"]: d["downloadURL"]
         for d in record.get("distribution", [])
         if f"/v/{version}/" in d.get("downloadURL", "")
     }
     if "parquet" not in files:
-        raise Refused(f"version {version} has no parquet file")
+        msg = f"version {version} has no parquet file"
+        raise Refused(msg)
     pub = record.get("publisher") or {}
     fields = tuple(_described(schema.get("fields") or (), registered))
     return Entry(
@@ -192,24 +195,24 @@ def authorised(record: dict, registered) -> None:
     """
     slug = record.get("identifier", "")
     if registered is None:
-        raise Refused(f"{slug} is in the catalogue but not in the register")
+        msg = f"{slug} is in the catalogue but not in the register"
+        raise Refused(msg)
     if getattr(registered, "status", "") != "live":
-        raise Refused(
-            f"{slug} is {getattr(registered, 'status', 'unknown')} in the register, not live"
-        )
+        msg = f"{slug} is {getattr(registered, 'status', 'unknown')} in the register, not live"
+        raise Refused(msg)
     lid = registered.licence.id
     if lid not in OPEN_LICENCES:
-        raise Refused(f"{slug}: register licence {lid} is not open")
+        msg = f"{slug}: register licence {lid} is not open"
+        raise Refused(msg)
     if lid in LICENCE_CONDITIONS:
-        raise Excluded(
-            f"{slug}: licence {lid} carries a condition of use that no hub can state, so it is not copied"
-        )
+        msg = f"{slug}: licence {lid} carries a condition of use that no hub can state, so it is not copied"
+        raise Excluded(msg)
     if getattr(registered, "kind", "table") == "database":
-        raise Excluded(f"{slug}: a database is served here only, not copied to the hubs")
+        msg = f"{slug}: a database is served here only, not copied to the hubs"
+        raise Excluded(msg)
     if OPEN_LICENCES[lid][1] != record.get("license"):
-        raise Refused(
-            f"{slug}: the catalogue states {record.get('license')!r}, the register {OPEN_LICENCES[lid][1]!r}"
-        )
+        msg = f"{slug}: the catalogue states {record.get('license')!r}, the register {OPEN_LICENCES[lid][1]!r}"
+        raise Refused(msg)
 
 
 def provenance(e: Entry) -> dict:
@@ -438,7 +441,8 @@ def kaggle_formats(e: Entry) -> list[str]:
 
 def kaggle_metadata(e: Entry, owner: str) -> dict:
     if not 3 <= len(e.slug) <= 50:
-        raise Refused(f"slug {e.slug!r} is outside Kaggle's 3 to 50 characters")
+        msg = f"slug {e.slug!r} is outside Kaggle's 3 to 50 characters"
+        raise Refused(msg)
     subtitle = _clip(f"{e.publisher}, republished by publicdata.au", 80)
     if len(subtitle) < 20:
         subtitle = _clip(f"{subtitle}, Australian government open data", 80)
@@ -512,7 +516,8 @@ KAGGLE_SETTINGS_LICENCE = {
 def kaggle_settings_licence(e: Entry) -> str:
     name = KAGGLE_SETTINGS_LICENCE.get(e.licence.kaggle)
     if name is None:
-        raise Refused(f"no Kaggle settings name has been verified for {e.licence.kaggle}")
+        msg = f"no Kaggle settings name has been verified for {e.licence.kaggle}"
+        raise Refused(msg)
     return name
 
 
@@ -870,7 +875,8 @@ class Zenodo:
         url = path if path.startswith("http") else f"{self.base}/api{path}"
         r = self.http.request(method, url, timeout=kw.pop("timeout", 120), **kw)
         if r.status_code >= 400:
-            raise RuntimeError(f"Zenodo {method} {url} answered {r.status_code}: {r.text[:500]}")
+            msg = f"Zenodo {method} {url} answered {r.status_code}: {r.text[:500]}"
+            raise RuntimeError(msg)
         return r.json() if r.content else {}
 
     def _put_file(self, url: str, p: Path, tries: int = 4) -> None:
@@ -1055,11 +1061,13 @@ class Kaggle:
                 )
                 out = (r.stdout + r.stderr).strip()
                 if self._throttled(r):
-                    raise RuntimeError(f"Kaggle kept refusing the dataset list: {out[:300]}")
+                    msg = f"Kaggle kept refusing the dataset list: {out[:300]}"
+                    raise RuntimeError(msg)
                 if r.returncode != 0 or re.search(
                     r"\b(401|403)\b|forbidden|unauthori[sz]ed", out, re.IGNORECASE
                 ):
-                    raise RuntimeError(f"Kaggle refused the credentials: {out[:300]}")
+                    msg = f"Kaggle refused the credentials: {out[:300]}"
+                    raise RuntimeError(msg)
                 refs = [
                     row["ref"]
                     for row in csv.DictReader(io.StringIO(r.stdout))
@@ -1089,7 +1097,8 @@ class Kaggle:
         r = self._run("datasets", "status", ref)
         # A throttled answer says nothing, and taking it as absent re-creates a dataset we hold.
         if self._throttled(r):
-            raise RuntimeError(f"Kaggle kept refusing the status of {ref}")
+            msg = f"Kaggle kept refusing the status of {ref}"
+            raise RuntimeError(msg)
         return r.returncode == 0 and (r.stdout + r.stderr).strip().lower().endswith("ready")
 
     def held(self, e: Entry) -> set[str]:
@@ -1102,7 +1111,8 @@ class Kaggle:
                 shutil.unpack_archive(z, d)
             if r.returncode != 0 or not (Path(d) / "publicdata.json").exists():
                 out = (r.stdout + r.stderr).strip()
-                raise RuntimeError(f"Kaggle could not read publicdata.json in {ref}: {out[:500]}")
+                msg = f"Kaggle could not read publicdata.json in {ref}: {out[:500]}"
+                raise RuntimeError(msg)
             return {json.loads((Path(d) / "publicdata.json").read_text("utf-8"))["version"]}
 
     def files(self, e: Entry, work: Path, fetch: Callable) -> list[Path]:
@@ -1225,7 +1235,8 @@ class Kaggle:
                 return False
             if attempt < 3:
                 time.sleep(self.pause * (attempt + 1))
-        raise RuntimeError(f"Kaggle could not say whether {ref} exists: {out.strip()[:300]}")
+        msg = f"Kaggle could not say whether {ref} exists: {out.strip()[:300]}"
+        raise RuntimeError(msg)
 
     def ensure(self, e: Entry, work: Path, fetch: Callable) -> str | None:
         """Pushes the starter notebook a held dataset lacks, such as one Kaggle's limit on saving
@@ -1269,11 +1280,12 @@ class Kaggle:
                 break
             time.sleep(self.pause * (attempt + 1))
         if r.returncode != 0 and re.search(r"403 .*SaveKernel", r.stdout + r.stderr):
-            raise RuntimeError(
+            msg = (
                 f"Kaggle refused the notebook for {e.slug} with 403. An account must be phone "
                 "verified before it can save notebooks; the dataset and its settings are in place, "
                 "and a --refresh run adds the notebook once the account is verified."
             )
+            raise RuntimeError(msg)
         self._check(r, f"Kaggle refused the notebook for {e.slug}")
         return True
 
@@ -1290,9 +1302,11 @@ class Kaggle:
                 time.sleep(pause)
                 continue
             if r.returncode != 0 or "error" in out or "failed" in out:
-                raise RuntimeError(f"Kaggle could not process {ref}: {out[:300]}")
+                msg = f"Kaggle could not process {ref}: {out[:300]}"
+                raise RuntimeError(msg)
             time.sleep(pause)
-        raise RuntimeError(f"Kaggle was still processing {ref} after {tries * pause:.0f} seconds")
+        msg = f"Kaggle was still processing {ref} after {tries * pause:.0f} seconds"
+        raise RuntimeError(msg)
 
     @staticmethod
     def _throttled(r: subprocess.CompletedProcess) -> bool:
@@ -1320,7 +1334,8 @@ class Kaggle:
     def _check(r: subprocess.CompletedProcess, what: str) -> None:
         out = (r.stdout + r.stderr).strip()
         if r.returncode != 0 or re.search(r"\berror\b", out, re.IGNORECASE):
-            raise RuntimeError(f"{what}: {out[:500]}")
+            msg = f"{what}: {out[:500]}"
+            raise RuntimeError(msg)
 
 
 def _write_json(path: Path, data) -> None:

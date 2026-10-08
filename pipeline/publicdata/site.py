@@ -2283,7 +2283,8 @@ def _register_example(ds: Dataset, con, by: dict) -> dict:
     measured = [ex["metric"].split(".", 1)[1]] if ex["metric"] != "count" else []
     for name in (*(f["field"] for f in ex["filters"]), *ex["group"], *measured):
         if name not in by:
-            raise ValueError(f"{ds.slug}: the example names {name}, which the version lacks")
+            msg = f"{ds.slug}: the example names {name}, which the version lacks"
+            raise ValueError(msg)
     filters = []
     for f in ex["filters"]:
         value = f["value"]

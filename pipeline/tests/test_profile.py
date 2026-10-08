@@ -448,7 +448,8 @@ def test_validate_reports_a_source_that_no_longer_normalises(tmp_path, monkeypat
     store.write(s, m, CSV)
 
     def broken(*a, **k):
-        raise ValueError("bad row")
+        msg = "bad row"
+        raise ValueError(msg)
 
     monkeypatch.setattr(normalise, "normalise", broken)
     assert int32_misfits(_ds(int32=("id",)), m, s, []) == [

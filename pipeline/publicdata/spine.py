@@ -120,9 +120,10 @@ def connect():
     try:
         con.load_extension("spatial")
     except duckdb.Error as e:
-        raise SpineError(
+        msg = (
             "DuckDB's spatial extension is not installed; run `python -m publicdata spine install`"
-        ) from e
+        )
+        raise SpineError(msg) from e
     return con
 
 
@@ -136,7 +137,8 @@ def _shape_path(data: bytes, ext: str, member: str, tmp: Path) -> str:
         names = [n for n in z.namelist() if n.lower().endswith((".shp", ".gpkg", ".geojson"))]
     name = member or (names[0] if len(names) == 1 else "")
     if not name or name not in names:
-        raise SpineError(f"name the layer's file in source.member, one of {names}")
+        msg = f"name the layer's file in source.member, one of {names}"
+        raise SpineError(msg)
     return f"/vsizip/{src}/{name}"
 
 
@@ -210,13 +212,15 @@ def layer_shapes(layer: Layer, store_dir: Path, register_dir: Path) -> Shapes:
 
     ms = store.manifests(store_dir, layer.slug)
     if not ms:
-        raise SpineError(f"the place spine needs {layer.slug} in the store, and it has no version")
+        msg = f"the place spine needs {layer.slug} in the store, and it has no version"
+        raise SpineError(msg)
     m = ms[-1]
     key = (layer.slug, m.sha256)
     if key not in _LOADED:
         ds = next((d for d in load(register_dir) if d.slug == layer.slug), None)
         if ds is None:
-            raise SpineError(f"{layer.slug} is not in the register")
+            msg = f"{layer.slug} is not in the register"
+            raise SpineError(msg)
         tbl = normalise(ds, m, store.source_path(store_dir, m).read_bytes())
         _LOADED[key] = Shapes(
             layer,

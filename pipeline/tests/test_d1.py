@@ -83,7 +83,8 @@ def test_a_row_larger_than_d1_holds_keeps_the_version_files_only(tmp_path):
         list(d1.version_sql(db, "t", "v", ()))
     except d1.TooWide:
         return
-    raise AssertionError("expected TooWide")
+    msg = "expected TooWide"
+    raise AssertionError(msg)
 
 
 def test_load_files_rebuild_the_latest_version_and_register_it(tmp_path, fixture_site):
@@ -627,7 +628,8 @@ class Flaky(FakeD1):
 
     def query(self, sql):
         if self.down and "COUNT(*)" in sql:
-            raise RuntimeError("D1 query failed: rate limited")
+            msg = "D1 query failed: rate limited"
+            raise RuntimeError(msg)
         return super().query(sql)
 
 
@@ -720,7 +722,8 @@ class Watch(FakeD1):
             what = "error"
         self.files.append(path.name)
         if what == "crash":
-            raise OSError("the runner stopped")
+            msg = "the runner stopped"
+            raise OSError(msg)
         if what == "error":
             return False
         for stmt in path.read_text().split(";\n"):

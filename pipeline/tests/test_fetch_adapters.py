@@ -35,7 +35,8 @@ class Portal:
         for prefix, answer in self.routes.items():
             if url.startswith(prefix):
                 return answer.pop(0) if isinstance(answer, list) else answer
-        raise AssertionError(f"unexpected {url}")
+        msg = f"unexpected {url}"
+        raise AssertionError(msg)
 
 
 def ds_for(adapter, portal, package, licence="CC-BY-4.0", resource=""):
@@ -716,9 +717,8 @@ def test_kiwis_splits_a_batch_the_service_refuses_as_too_large(monkeypatch):
         ids = params["ts_id"].split(",")
         calls.append(ids)
         if len(ids) > 1:
-            raise f.FetchError(
-                "KiWIS getTimeseriesValues refused: TooManyResults: narrow your request"
-            )
+            msg = "KiWIS getTimeseriesValues refused: TooManyResults: narrow your request"
+            raise f.FetchError(msg)
         return [{"station_no": ids[0], "ts_id": ids[0], "data": []}]
 
     monkeypatch.setattr(f, "_kiwis_query", fake_query)

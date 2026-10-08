@@ -85,9 +85,8 @@ def cmd_labels(args) -> int:
                     out.append(f"  label: {drafts[m.group(1)]}")
                     done.add(m.group(1))
             if done != set(drafts):
-                raise SystemExit(
-                    f"{path.name}: could not place a label for {', '.join(sorted(set(drafts) - done))}"
-                )
+                msg = f"{path.name}: could not place a label for {', '.join(sorted(set(drafts) - done))}"
+                raise SystemExit(msg)
             path.write_text("\n".join(out), encoding="utf-8")
     return 0
 

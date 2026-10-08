@@ -29,7 +29,8 @@ def _run(ts):
 
 def test_the_current_tool_definitions_pass_offline(monkeypatch):
     def refuse(*a, **k):
-        raise AssertionError("the check opened a connection")
+        msg = "the check opened a connection"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)

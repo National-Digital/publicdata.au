@@ -437,7 +437,8 @@ def write_partitions(tbl: Table, header_for, out: Path) -> dict:
         for v in values:
             s = slugify(v)
             if s in seen and seen[s] != v:
-                raise ValueError(f"{fname}: '{v}' and '{seen[s]}' both slugify to {s}")
+                msg = f"{fname}: '{v}' and '{seen[s]}' both slugify to {s}"
+                raise ValueError(msg)
             seen[s] = v
             mask = pc.is_null(col) if v is None else pc.equal(col, v)
             part = tbl.table.filter(mask)

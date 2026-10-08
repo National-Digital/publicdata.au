@@ -343,29 +343,34 @@ class Dataset:
 
 def _bool(v, ctx: str) -> bool:
     if not isinstance(v, bool):
-        raise RegisterError(f"{ctx}: must be true or false")
+        msg = f"{ctx}: must be true or false"
+        raise RegisterError(msg)
     return v
 
 
 def _rebuild(v, ctx: str) -> int:
     if isinstance(v, bool) or not isinstance(v, int) or v < 0:
-        raise RegisterError(f"{ctx}: rebuild is a whole number, 0 or more")
+        msg = f"{ctx}: rebuild is a whole number, 0 or more"
+        raise RegisterError(msg)
     return v
 
 
 def _req(d: dict, key: str, ctx: str) -> object:
     if key not in d or d[key] in (None, ""):
-        raise RegisterError(f"{ctx}: missing '{key}'")
+        msg = f"{ctx}: missing '{key}'"
+        raise RegisterError(msg)
     return d[key]
 
 
 def parse(raw: dict, ctx: str) -> Dataset:
     slug = str(_req(raw, "slug", ctx))
     if not SLUG_RE.match(slug):
-        raise RegisterError(f"{ctx}: bad slug '{slug}'")
+        msg = f"{ctx}: bad slug '{slug}'"
+        raise RegisterError(msg)
     status = str(_req(raw, "status", ctx))
     if status not in STATUSES:
-        raise RegisterError(f"{ctx}: status '{status}' not one of {STATUSES}")
+        msg = f"{ctx}: status '{status}' not one of {STATUSES}"
+        raise RegisterError(msg)
     pub = raw.get("publisher") or {}
     publisher = Publisher(
         name=str(_req(pub, "name", f"{ctx}.publisher")),
@@ -374,7 +379,8 @@ def parse(raw: dict, ctx: str) -> Dataset:
         url=str(pub.get("url", "")),
     )
     if publisher.jurisdiction not in JURISDICTIONS:
-        raise RegisterError(f"{ctx}: jurisdiction '{publisher.jurisdiction}' unknown")
+        msg = f"{ctx}: jurisdiction '{publisher.jurisdiction}' unknown"
+        raise RegisterError(msg)
     lic = raw.get("licence") or {}
     licence = Licence(
         id=str(_req(lic, "id", f"{ctx}.licence")),
@@ -385,7 +391,8 @@ def parse(raw: dict, ctx: str) -> Dataset:
         reviewed=str(lic.get("reviewed", "")),
     )
     if licence.reviewed and not DATE_RE.match(licence.reviewed):
-        raise RegisterError(f"{ctx}: licence.reviewed is a date, YYYY-MM-DD")
+        msg = f"{ctx}: licence.reviewed is a date, YYYY-MM-DD"
+        raise RegisterError(msg)
     src = raw.get("source") or {}
     source = Source(
         adapter=str(src.get("adapter", "none")),
@@ -417,23 +424,27 @@ def parse(raw: dict, ctx: str) -> Dataset:
         page_size=int(src.get("page_size", 0)),
     )
     if source.manual and source.adapter not in ("ckan-resource", "ckan-stack"):
-        raise RegisterError(
-            f"{ctx}: source.manual needs a ckan-resource or ckan-stack, whose portal records date it"
-        )
+        msg = f"{ctx}: source.manual needs a ckan-resource or ckan-stack, whose portal records date it"
+        raise RegisterError(msg)
     if "browser" in src:
-        raise RegisterError(f"{ctx}: source.browser is now source.manual")
+        msg = f"{ctx}: source.browser is now source.manual"
+        raise RegisterError(msg)
     if source.delimiter and source.delimiter != "tab" and len(source.delimiter) != 1:
-        raise RegisterError(f"{ctx}: source.delimiter is 'tab' or one character")
+        msg = f"{ctx}: source.delimiter is 'tab' or one character"
+        raise RegisterError(msg)
     for k in ("package_match", "resource_match", "section_match", "group_match", "file_match"):
         try:
             re.compile(getattr(source, k))
         except re.error as e:
-            raise RegisterError(f"{ctx}: source.{k} is not a valid pattern: {e}") from e
+            msg = f"{ctx}: source.{k} is not a valid pattern: {e}"
+            raise RegisterError(msg) from e
     if "chart_where" in raw:
-        raise RegisterError(f"{ctx}: chart_where is now chart.where")
+        msg = f"{ctx}: chart_where is now chart.where"
+        raise RegisterError(msg)
     kind = str(raw.get("kind", "table"))
     if kind not in KINDS:
-        raise RegisterError(f"{ctx}: kind '{kind}' not one of {KINDS}")
+        msg = f"{ctx}: kind '{kind}' not one of {KINDS}"
+        raise RegisterError(msg)
     fields = _fields(raw.get("fields") or [], ctx)
     seen = {f.name for f in fields}
     geometry = _geometry(raw.get("geometry"), seen, ctx)
@@ -442,23 +453,21 @@ def parse(raw: dict, ctx: str) -> Dataset:
         from .spine import LAYERS, SOURCE_PREFIX
 
         if not geometry or geometry["kind"] != "point":
-            raise RegisterError(
-                f"{ctx}: enrich joins points to the place spine; declare point geometry"
-            )
+            msg = f"{ctx}: enrich joins points to the place spine; declare point geometry"
+            raise RegisterError(msg)
         for k in enrich:
             if k not in LAYERS:
-                raise RegisterError(
-                    f"{ctx}: enrich '{k}' is not a spine layer, one of {sorted(LAYERS)}"
-                )
+                msg = f"{ctx}: enrich '{k}' is not a spine layer, one of {sorted(LAYERS)}"
+                raise RegisterError(msg)
         if len(set(enrich)) < len(enrich):
-            raise RegisterError(f"{ctx}: enrich names a layer twice")
+            msg = f"{ctx}: enrich names a layer twice"
+            raise RegisterError(msg)
         for k in enrich:
             layer = LAYERS[k]
             for name, label in (layer.code, layer.name):
                 if name in seen:
-                    raise RegisterError(
-                        f"{ctx}: field '{name}' is the spine's; rename the publisher's"
-                    )
+                    msg = f"{ctx}: field '{name}' is the spine's; rename the publisher's"
+                    raise RegisterError(msg)
                 fields.append(
                     Field(
                         name=name,
@@ -472,18 +481,20 @@ def parse(raw: dict, ctx: str) -> Dataset:
     partition_by = tuple(raw.get("partition_by") or ())
     for k in (*key, *partition_by):
         if k not in seen:
-            raise RegisterError(f"{ctx}: key/partition field '{k}' is not a declared field")
+            msg = f"{ctx}: key/partition field '{k}' is not a declared field"
+            raise RegisterError(msg)
     unpivot = str((raw.get("unpivot") or {}).get("headers", "")) if raw.get("unpivot") else ""
     if unpivot and raw.get("wide"):
-        raise RegisterError(f"{ctx}: a table is read as wide or unpivoted, not both")
+        msg = f"{ctx}: a table is read as wide or unpivoted, not both"
+        raise RegisterError(msg)
     if unpivot:
         if unpivot not in UNPIVOT_HEADERS:
-            raise RegisterError(f"{ctx}: unpivot.headers '{unpivot}' not one of {UNPIVOT_HEADERS}")
+            msg = f"{ctx}: unpivot.headers '{unpivot}' not one of {UNPIVOT_HEADERS}"
+            raise RegisterError(msg)
         for marker in (HEADER_SOURCE, CELL_SOURCE):
             if sum(1 for f in fields if f.source == marker) != 1:
-                raise RegisterError(
-                    f"{ctx}: unpivot needs exactly one field with source '{marker}'"
-                )
+                msg = f"{ctx}: unpivot needs exactly one field with source '{marker}'"
+                raise RegisterError(msg)
     wide = _wide(raw.get("wide"), fields, ctx) if raw.get("wide") else None
     ds = Dataset(
         slug=slug,
@@ -547,36 +558,42 @@ def parse(raw: dict, ctx: str) -> Dataset:
             "omit",
         ):
             if raw.get(k):
-                raise RegisterError(f"{ctx}: a database has no top-level {k}; it goes on a table")
+                msg = f"{ctx}: a database has no top-level {k}; it goes on a table"
+                raise RegisterError(msg)
         # A database's cells are typed by DuckDB with no suppressed flag, so a release that
         # suppresses cells is not a database until that is built.
         if raw.get("suppression"):
-            raise RegisterError(f"{ctx}: a database does not support suppression")
+            msg = f"{ctx}: a database does not support suppression"
+            raise RegisterError(msg)
         # The archive is linked whole, so there is no source file to leave out.
         if raw.get("source_withheld"):
-            raise RegisterError(f"{ctx}: a database does not support source_withheld")
+            msg = f"{ctx}: a database does not support source_withheld"
+            raise RegisterError(msg)
     labels = [f.display for f in ds.fields]
     if len(set(labels)) < len(labels):
-        raise RegisterError(f"{ctx}: a spine column's label is also a publisher field's label")
+        msg = f"{ctx}: a spine column's label is also a publisher field's label"
+        raise RegisterError(msg)
     if ds.place_field and ds.place_field not in partition_by:
-        raise RegisterError(f"{ctx}: place_field '{ds.place_field}' is not a partition_by field")
+        msg = f"{ctx}: place_field '{ds.place_field}' is not a partition_by field"
+        raise RegisterError(msg)
     if ds.collection_search_title and not ds.collection_description:
-        raise RegisterError(
-            f"{ctx}: collection_search_title goes on the entry with collection_description"
-        )
+        msg = f"{ctx}: collection_search_title goes on the entry with collection_description"
+        raise RegisterError(msg)
     if ds.source.adapter == "ala" and not (ds.source.search and ds.source.providers):
-        raise RegisterError(f"{ctx}: an ala source needs a search and providers")
+        msg = f"{ctx}: an ala source needs a search and providers"
+        raise RegisterError(msg)
     if ds.status in ("live", "building"):
         if not ds.licence.open:
-            raise RegisterError(
-                f"{ctx}: status '{ds.status}' needs an open licence, got {ds.licence.id}"
-            )
+            msg = f"{ctx}: status '{ds.status}' needs an open licence, got {ds.licence.id}"
+            raise RegisterError(msg)
         # A draft is built for review before a person has read the licence; a live entry has been.
         for k in ("evidence", "attribution", *(("reviewed",) if ds.status == "live" else ())):
             if not getattr(ds.licence, k):
-                raise RegisterError(f"{ctx}: status '{ds.status}' needs licence.{k}")
+                msg = f"{ctx}: status '{ds.status}' needs licence.{k}"
+                raise RegisterError(msg)
         if ds.status == "live" and not (ds.tables if kind == "database" else ds.fields):
-            raise RegisterError(f"{ctx}: a live dataset needs a field allow-list")
+            msg = f"{ctx}: a live dataset needs a field allow-list"
+            raise RegisterError(msg)
         if ds.status == "live":
             # The search-facing text is part of publishing, so a live entry cannot skip it.
             for k, n in (("search_title", 1), ("also_known_as", 2), ("keywords", 3), ("faq", 1)):
@@ -588,65 +605,70 @@ def parse(raw: dict, ctx: str) -> Dataset:
                     )
 
         if ds.status == "live" and ds.source.adapter == "none":
-            raise RegisterError(f"{ctx}: a live dataset needs a fetch adapter")
+            msg = f"{ctx}: a live dataset needs a fetch adapter"
+            raise RegisterError(msg)
         # A topic is how the home page and the topic pages find a served entry.
         if ds.status == "live" and not ds.topics:
-            raise RegisterError(f"{ctx}: a live dataset needs at least one topic")
+            msg = f"{ctx}: a live dataset needs at least one topic"
+            raise RegisterError(msg)
         if (
             ds.source.adapter in ("file", "file-stack", "kiwis", "aihw")
             and not ds.licence.statement
         ):
-            raise RegisterError(
-                f"{ctx}: a {ds.source.adapter} source needs licence.statement, the evidence page's own words"
-            )
+            msg = f"{ctx}: a {ds.source.adapter} source needs licence.statement, the evidence page's own words"
+            raise RegisterError(msg)
         if ds.source.adapter == "aihw" and not ds.source.resource_match:
-            raise RegisterError(
-                f"{ctx}: an aihw source needs resource_match, the file's listed title"
-            )
+            msg = f"{ctx}: an aihw source needs resource_match, the file's listed title"
+            raise RegisterError(msg)
         if ds.source.adapter == "zenodo" and not (ds.source.package and ds.source.resource_match):
-            raise RegisterError(
-                f"{ctx}: a zenodo source needs package (the concept record id) and resource_match"
-            )
+            msg = f"{ctx}: a zenodo source needs package (the concept record id) and resource_match"
+            raise RegisterError(msg)
         if ds.source.adapter == "kiwis" and not (
             ds.source.search and ds.source.package and ds.source.resource in ("stations", "values")
         ):
-            raise RegisterError(
+            msg = (
                 f"{ctx}: a kiwis source needs search (the parameter), package (the series name) "
                 "and resource, stations or values"
             )
+            raise RegisterError(msg)
         if ds.source.adapter == "ckan-stack" and not (
             ds.source.portal
             and ds.source.package
             and ds.source.package_match
             and ds.source.header_match
         ):
-            raise RegisterError(
+            msg = (
                 f"{ctx}: a ckan-stack source needs portal, package (the search text), package_match "
                 "and header_match"
             )
+            raise RegisterError(msg)
         if ds.source.adapter == "file-stack" and not (
             ds.source.resource_match and ds.source.header_match
         ):
-            raise RegisterError(
+            msg = (
                 f"{ctx}: a file-stack source needs resource_match (the pattern each file's link "
                 "matches) and header_match"
             )
+            raise RegisterError(msg)
         if ds.source.adapter == "ckan-resource":
             # With package_match, package is the search text; a blank search would see only the
             # portal's newest page of packages.
             if not ds.source.package:
-                raise RegisterError(
-                    f"{ctx}: source needs package, the search text for package_match"
-                )
+                msg = f"{ctx}: source needs package, the search text for package_match"
+                raise RegisterError(msg)
             if not (ds.source.resource or ds.source.resource_match):
-                raise RegisterError(f"{ctx}: source needs resource or resource_match")
+                msg = f"{ctx}: source needs resource or resource_match"
+                raise RegisterError(msg)
     for topic in ds.topics:
         if topic not in TOPICS:
-            raise RegisterError(f"{ctx}: unknown topic '{topic}', the topics are {sorted(TOPICS)}")
+            msg = f"{ctx}: unknown topic '{topic}', the topics are {sorted(TOPICS)}"
+            raise RegisterError(msg)
     if ds.licence.id in CLOSED_LICENCES and ds.status != "blocked":
-        raise RegisterError(f"{ctx}: licence {ds.licence.id} must be status 'blocked'")
+        msg = f"{ctx}: licence {ds.licence.id} must be status 'blocked'"
+        raise RegisterError(msg)
     if ds.status == "blocked" and not ds.blocked_reason:
-        raise RegisterError(f"{ctx}: blocked needs blocked_reason")
+        msg = f"{ctx}: blocked needs blocked_reason"
+        raise RegisterError(msg)
     return ds
 
 
@@ -660,21 +682,25 @@ def _profile(raw: dict, fields: list[Field], kind: str, ctx: str) -> dict:
         val = raw.get(name) or []
         if val and kind == "database":
             # A database's tables keep the publisher's order and DuckDB's types.
-            raise RegisterError(
-                f"{ctx}: {name} is for a table entry; a kind: database entry takes none"
-            )
+            msg = f"{ctx}: {name} is for a table entry; a kind: database entry takes none"
+            raise RegisterError(msg)
         if not isinstance(val, list):
-            raise RegisterError(f"{ctx}: {name} is a list of fields")
+            msg = f"{ctx}: {name} is a list of fields"
+            raise RegisterError(msg)
         names = tuple(str(v) for v in val)
         if len(set(names)) < len(names):
-            raise RegisterError(f"{ctx}: {name} names a field twice")
+            msg = f"{ctx}: {name} names a field twice"
+            raise RegisterError(msg)
         for n in names:
             if n not in by:
-                raise RegisterError(f"{ctx}: {name} field '{n}' is not a declared field")
+                msg = f"{ctx}: {name} field '{n}' is not a declared field"
+                raise RegisterError(msg)
             if name == "lookup" and by[n].type == "boolean":
-                raise RegisterError(f"{ctx}: lookup field '{n}' is a boolean")
+                msg = f"{ctx}: lookup field '{n}' is a boolean"
+                raise RegisterError(msg)
             if name == "int32" and by[n].type != "integer":
-                raise RegisterError(f"{ctx}: int32 field '{n}' is not an integer")
+                msg = f"{ctx}: int32 field '{n}' is not an integer"
+                raise RegisterError(msg)
         out[name] = names
     return out
 
@@ -686,13 +712,16 @@ def _fields(raw: list, ctx: str) -> list[Field]:
         fctx = f"{ctx}.fields[{i}]"
         name = str(_req(f, "name", fctx))
         if not FIELD_RE.match(name):
-            raise RegisterError(f"{fctx}: bad field name '{name}'")
+            msg = f"{fctx}: bad field name '{name}'"
+            raise RegisterError(msg)
         if name in seen:
-            raise RegisterError(f"{fctx}: duplicate field '{name}'")
+            msg = f"{fctx}: duplicate field '{name}'"
+            raise RegisterError(msg)
         seen.add(name)
         ftype = str(f.get("type", "string"))
         if ftype not in TYPES:
-            raise RegisterError(f"{fctx}: type '{ftype}' not one of {TYPES}")
+            msg = f"{fctx}: type '{ftype}' not one of {TYPES}"
+            raise RegisterError(msg)
         fields.append(
             Field(
                 name=name,
@@ -711,10 +740,12 @@ def _fields(raw: list, ctx: str) -> list[Field]:
     labels = [f.display for f in fields]
     for f in fields:
         if len(f.label) > 60:
-            raise RegisterError(f"{ctx}: label for '{f.name}' is over 60 characters")
+            msg = f"{ctx}: label for '{f.name}' is over 60 characters"
+            raise RegisterError(msg)
         # The explorer names its columns by label, so a label must not be another field's name.
         if labels.count(f.display) > 1 or f.label in seen:
-            raise RegisterError(f"{ctx}: label '{f.display}' is not unique")
+            msg = f"{ctx}: label '{f.display}' is not unique"
+            raise RegisterError(msg)
     return fields
 
 
@@ -724,14 +755,17 @@ def _database(raw: dict, ctx: str) -> dict:
     match = str(_req(db, "member_match", f"{ctx}.database"))
     try:
         if "table" not in re.compile(match).groupindex:
-            raise RegisterError(f"{ctx}: database.member_match needs a (?P<table>...) group")
+            msg = f"{ctx}: database.member_match needs a (?P<table>...) group"
+            raise RegisterError(msg)
     except re.error as e:
-        raise RegisterError(f"{ctx}: database.member_match is not a valid pattern: {e}") from e
+        msg = f"{ctx}: database.member_match is not a valid pattern: {e}"
+        raise RegisterError(msg) from e
     delimiter = str(db.get("delimiter", ","))
     if delimiter == "tab":
         delimiter = "\t"
     if len(delimiter) != 1:
-        raise RegisterError(f"{ctx}: database.delimiter is 'tab' or one character")
+        msg = f"{ctx}: database.delimiter is 'tab' or one character"
+        raise RegisterError(msg)
     tables = []
     names: set[str] = set()
     sources: set[str] = set()
@@ -739,22 +773,27 @@ def _database(raw: dict, ctx: str) -> dict:
         tctx = f"{ctx}.tables[{i}]"
         name = str(_req(t, "name", tctx))
         if not FIELD_RE.match(name):
-            raise RegisterError(f"{tctx}: bad table name '{name}'")
+            msg = f"{tctx}: bad table name '{name}'"
+            raise RegisterError(msg)
         if name in names:
-            raise RegisterError(f"{tctx}: duplicate table '{name}'")
+            msg = f"{tctx}: duplicate table '{name}'"
+            raise RegisterError(msg)
         names.add(name)
         source = str(_req(t, "source", tctx))
         if source in sources:
-            raise RegisterError(f"{tctx}: two tables read the upstream table '{source}'")
+            msg = f"{tctx}: two tables read the upstream table '{source}'"
+            raise RegisterError(msg)
         sources.add(source)
         fields = _fields(t.get("fields") or [], tctx)
         if not fields:
-            raise RegisterError(f"{tctx}: a table needs a field allow-list")
+            msg = f"{tctx}: a table needs a field allow-list"
+            raise RegisterError(msg)
         key = tuple(str(k) for k in t.get("key") or ())
         declared = {f.name for f in fields}
         for k in key:
             if k not in declared:
-                raise RegisterError(f"{tctx}: key field '{k}' is not a declared field")
+                msg = f"{tctx}: key field '{k}' is not a declared field"
+                raise RegisterError(msg)
         tables.append(
             TableSpec(
                 name=name,
@@ -771,15 +810,15 @@ def _database(raw: dict, ctx: str) -> dict:
                 continue
             target, _, column = f.references.partition(".")
             if target not in by_name or column not in {x.name for x in by_name[target].fields}:
-                raise RegisterError(
-                    f"{ctx}.tables: {t.name}.{f.name} references '{f.references}', which is not a table.field here"
-                )
+                msg = f"{ctx}.tables: {t.name}.{f.name} references '{f.references}', which is not a table.field here"
+                raise RegisterError(msg)
     views = []
     for i, v in enumerate(raw.get("views") or []):
         vctx = f"{ctx}.views[{i}]"
         name = str(_req(v, "name", vctx))
         if not FIELD_RE.match(name) or name in names:
-            raise RegisterError(f"{vctx}: bad or duplicate view name '{name}'")
+            msg = f"{vctx}: bad or duplicate view name '{name}'"
+            raise RegisterError(msg)
         names.add(name)
         views.append(
             View(
@@ -801,7 +840,8 @@ def _database(raw: dict, ctx: str) -> dict:
 def _wide(raw: dict, fields: list[Field], ctx: str) -> dict:
     unknown = set(raw) - WIDE_KEYS
     if unknown:
-        raise RegisterError(f"{ctx}: wide has unknown keys {sorted(unknown)}")
+        msg = f"{ctx}: wide has unknown keys {sorted(unknown)}"
+        raise RegisterError(msg)
     w = {
         "sheets": [str(x) for x in raw.get("sheets") or ()],
         "header_row": int(raw.get("header_row", 1)),
@@ -819,17 +859,19 @@ def _wide(raw: dict, fields: list[Field], ctx: str) -> dict:
         try:
             re.compile(w[k])
         except re.error as e:
-            raise RegisterError(f"{ctx}: wide.{k} is not a valid pattern: {e}") from e
+            msg = f"{ctx}: wide.{k} is not a valid pattern: {e}"
+            raise RegisterError(msg) from e
     if w["sheets"] and w["sheet_match"]:
-        raise RegisterError(f"{ctx}: wide names sheets or a sheet_match, not both")
+        msg = f"{ctx}: wide names sheets or a sheet_match, not both"
+        raise RegisterError(msg)
     if min(w["header_row"], w["header_rows"], w["first_column"]) < 1 or w["row_headers"] < 0:
-        raise RegisterError(f"{ctx}: wide rows and columns count from 1")
+        msg = f"{ctx}: wide rows and columns count from 1"
+        raise RegisterError(msg)
     cells = [f for f in fields if f.source == CELL_SOURCE]
     measures = [f for f in fields if CELL_OF_RE.match(f.source)]
     if bool(cells) == bool(measures) or len(cells) > 1:
-        raise RegisterError(
-            f"{ctx}: wide needs one field with source '{CELL_SOURCE}' or fields with '(cell: <header>)'"
-        )
+        msg = f"{ctx}: wide needs one field with source '{CELL_SOURCE}' or fields with '(cell: <header>)'"
+        raise RegisterError(msg)
     # With one cell per value of the last header row, that row names fields instead of a value.
     levels = w["header_rows"] - 1 if measures else w["header_rows"]
     for f in fields:
@@ -841,14 +883,15 @@ def _wide(raw: dict, fields: list[Field], ctx: str) -> dict:
             or (cm and 1 <= int(cm.group(1)) <= levels)
         )
         if not ok:
-            raise RegisterError(
-                f"{ctx}: field '{f.name}' source '{f.source}' is not in the wide table"
-            )
+            msg = f"{ctx}: field '{f.name}' source '{f.source}' is not in the wide table"
+            raise RegisterError(msg)
     sources = [f.source for f in fields]
     if len(set(sources)) < len(sources):
-        raise RegisterError(f"{ctx}: two fields of a wide table read the same source")
+        msg = f"{ctx}: two fields of a wide table read the same source"
+        raise RegisterError(msg)
     if any(not 1 <= p <= w["row_headers"] for p in w["fill_down"]):
-        raise RegisterError(f"{ctx}: wide.fill_down names a row header that is not there")
+        msg = f"{ctx}: wide.fill_down names a row header that is not there"
+        raise RegisterError(msg)
     return w
 
 
@@ -865,15 +908,19 @@ def _geometry(raw, seen: set[str], ctx: str) -> dict | None:
     g = dict(raw)
     g["kind"] = str(g.get("kind", "point"))
     if g["kind"] not in GEOMETRY_KINDS:
-        raise RegisterError(f"{ctx}: geometry.kind '{g['kind']}' not one of {GEOMETRY_KINDS}")
+        msg = f"{ctx}: geometry.kind '{g['kind']}' not one of {GEOMETRY_KINDS}"
+        raise RegisterError(msg)
     if not re.match(r"^EPSG:\d+$", str(g.get("crs", ""))):
-        raise RegisterError(f"{ctx}: geometry.crs is the publisher's datum, such as EPSG:7844")
+        msg = f"{ctx}: geometry.crs is the publisher's datum, such as EPSG:7844"
+        raise RegisterError(msg)
     if g["kind"] == "point":
         for k in ("lon", "lat"):
             if g.get(k) not in seen:
-                raise RegisterError(f"{ctx}: geometry.{k} is not a declared field")
+                msg = f"{ctx}: geometry.{k} is not a declared field"
+                raise RegisterError(msg)
     elif g.get("lon") or g.get("lat"):
-        raise RegisterError(f"{ctx}: a {g['kind']} layer carries its geometry, not lon and lat")
+        msg = f"{ctx}: a {g['kind']} layer carries its geometry, not lon and lat"
+        raise RegisterError(msg)
     return g
 
 
@@ -881,11 +928,13 @@ def _omit(raw, fields: list[Field], ctx: str) -> dict[str, str]:
     if raw is None:
         return {}
     if not isinstance(raw, dict) or not all(isinstance(v, str) and v.strip() for v in raw.values()):
-        raise RegisterError(f"{ctx}: omit maps each left-out upstream column to its reason")
+        msg = f"{ctx}: omit maps each left-out upstream column to its reason"
+        raise RegisterError(msg)
     declared = {f.source for f in fields}
     for col in raw:
         if col in declared:
-            raise RegisterError(f"{ctx}: omit names '{col}', which a field reads")
+            msg = f"{ctx}: omit names '{col}', which a field reads"
+            raise RegisterError(msg)
     return {str(k): str(v).strip() for k, v in raw.items()}
 
 
@@ -901,21 +950,23 @@ def _where(raw, by: dict[str, Field], ctx: str) -> tuple[dict, ...]:
     operators, where neq may take a list.
     """
     if not isinstance(raw, dict):
-        raise RegisterError(f"{ctx}: where maps each field to a value")
+        msg = f"{ctx}: where maps each field to a value"
+        raise RegisterError(msg)
     out = []
     for name, cond in raw.items():
         if name not in by:
-            raise RegisterError(f"{ctx}: where names '{name}', not a declared field")
+            msg = f"{ctx}: where names '{name}', not a declared field"
+            raise RegisterError(msg)
         for op, value in cond.items() if isinstance(cond, dict) else [("eq", cond)]:
             if op not in WHERE_OPS:
-                raise RegisterError(
-                    f"{ctx}: where.{name} operator '{op}' not one of {list(WHERE_OPS)}"
-                )
+                msg = f"{ctx}: where.{name} operator '{op}' not one of {list(WHERE_OPS)}"
+                raise RegisterError(msg)
             # A list under neq leaves out each value, such as a total and its percentage row.
             values = value if op == "neq" and isinstance(value, list) and value else [value]
             for value in values:
                 if value is None or isinstance(value, (dict, list)):
-                    raise RegisterError(f"{ctx}: where.{name}.{op} needs a single value")
+                    msg = f"{ctx}: where.{name}.{op} needs a single value"
+                    raise RegisterError(msg)
                 if isinstance(value, bool):
                     value = "true" if value else "false"
                 out.append({"field": str(name), "op": op, "value": str(value)})
@@ -928,9 +979,11 @@ def _metric(raw, by: dict[str, Field], ctx: str) -> str:
         return metric
     fn, _, name = metric.partition(".")
     if fn not in AGGREGATES or name not in by:
-        raise RegisterError(f"{ctx}: metric is count or one of {AGGREGATES}.<field>")
+        msg = f"{ctx}: metric is count or one of {AGGREGATES}.<field>"
+        raise RegisterError(msg)
     if by[name].type not in ("integer", "number"):
-        raise RegisterError(f"{ctx}: metric {metric} needs a numeric field")
+        msg = f"{ctx}: metric {metric} needs a numeric field"
+        raise RegisterError(msg)
     return metric
 
 
@@ -943,11 +996,13 @@ def _example(raw, fields: list[Field], ctx: str) -> dict | None:
         return None
     ctx = f"{ctx}: example"
     if not isinstance(raw, dict) or not set(raw) <= {"where", "group", "metric", "label"}:
-        raise RegisterError(f"{ctx} takes where, group, metric and label")
+        msg = f"{ctx} takes where, group, metric and label"
+        raise RegisterError(msg)
     by = {f.name: f for f in fields}
     # The tile shows the groups, so an example without one would answer with nothing to read.
     if raw.get("group") not in by:
-        raise RegisterError(f"{ctx}.group must name a declared field")
+        msg = f"{ctx}.group must name a declared field"
+        raise RegisterError(msg)
     return {
         "filters": _where(raw.get("where") or {}, by, ctx),
         "group": (str(raw["group"]),),
@@ -969,17 +1024,20 @@ def _chart(raw, fields: list[Field], ctx: str) -> dict | None:
     if raw == "none":
         return {"off": True, "where": (), "split": None, "metric": "", "label": "", "year": ""}
     if not isinstance(raw, dict) or not set(raw) <= {"where", "split", "metric", "label", "year"}:
-        raise RegisterError(f"{ctx} takes where, split, metric, label and year, or is none")
+        msg = f"{ctx} takes where, split, metric, label and year, or is none"
+        raise RegisterError(msg)
     by = {f.name: f for f in fields}
     year = str(raw.get("year", ""))
     if year and (year not in by or by[year].type not in ("integer", "date", "datetime", "string")):
         raise RegisterError(f"{ctx}.year must name an integer, date or financial-year field")
     where = _where(raw.get("where") or {}, by, ctx)
     if any(w["value"] == NEWEST for w in where):
-        raise RegisterError(f"{ctx}.where cannot use {NEWEST}; the chart draws every year")
+        msg = f"{ctx}.where cannot use {NEWEST}; the chart draws every year"
+        raise RegisterError(msg)
     split = raw.get("split")
     if split is not None and split != "none" and split not in by:
-        raise RegisterError(f"{ctx}.split must name a declared field, or none")
+        msg = f"{ctx}.split must name a declared field, or none"
+        raise RegisterError(msg)
     return {
         "where": tuple({**w, "op": WHERE_OPS[w["op"]]} for w in where),
         "split": None if split is None else ("" if split == "none" else str(split)),
@@ -998,20 +1056,24 @@ def _sample(raw, fields: list[Field], ctx: str) -> dict | None:
         return None
     ctx = f"{ctx}: sample"
     if not isinstance(raw, dict) or not set(raw) <= {"where", "order", "spread", "label"}:
-        raise RegisterError(f"{ctx} takes where, order, spread and label")
+        msg = f"{ctx} takes where, order, spread and label"
+        raise RegisterError(msg)
     by = {f.name: f for f in fields}
     order = []
     for term in raw.get("order") or ():
         name, _, way = str(term).partition(".")
         if name not in by or way not in ("", "asc", "desc"):
-            raise RegisterError(f"{ctx}.order term '{term}' is not field, field.asc or field.desc")
+            msg = f"{ctx}.order term '{term}' is not field, field.asc or field.desc"
+            raise RegisterError(msg)
         order.append((name, way == "desc"))
     spread = raw.get("spread")
     if spread is not None and spread != "none" and spread not in by:
-        raise RegisterError(f"{ctx}.spread must name a declared field, or none")
+        msg = f"{ctx}.spread must name a declared field, or none"
+        raise RegisterError(msg)
     where = _where(raw.get("where") or {}, by, ctx)
     if (raw.get("where") or raw.get("order")) and not str(raw.get("label", "")).strip():
-        raise RegisterError(f"{ctx} needs a label that says which rows its where and order pick")
+        msg = f"{ctx} needs a label that says which rows its where and order pick"
+        raise RegisterError(msg)
     return {
         "where": tuple({**w, "op": WHERE_OPS[w["op"]]} for w in where),
         "order": tuple(order),
@@ -1036,25 +1098,29 @@ class Grant:
 def parse_grant(raw: dict, ctx: str, root: Path) -> Grant:
     gid = str(_req(raw, "id", ctx))
     if gid in CC_LICENCES or gid in CLOSED_LICENCES:
-        raise RegisterError(f"{ctx}: {gid} is a Creative Commons id, not a grant")
+        msg = f"{ctx}: {gid} is a Creative Commons id, not a grant"
+        raise RegisterError(msg)
     kind = str(_req(raw, "kind", ctx))
     if kind not in GRANT_KINDS:
-        raise RegisterError(f"{ctx}: kind '{kind}' not one of {GRANT_KINDS}")
+        msg = f"{ctx}: kind '{kind}' not one of {GRANT_KINDS}"
+        raise RegisterError(msg)
     read = str(_req(raw, "read", ctx))
     if not DATE_RE.match(read):
-        raise RegisterError(f"{ctx}: read is the date the words were read, YYYY-MM-DD")
+        msg = f"{ctx}: read is the date the words were read, YYYY-MM-DD"
+        raise RegisterError(msg)
     words = raw.get("grants") or {}
     for test in GRANT_TESTS:
         if not str(words.get(test) or "").strip():
-            raise RegisterError(
-                f"{ctx}: a grant must quote the publisher on '{test}'; one that cannot is not admitted"
-            )
+            msg = f"{ctx}: a grant must quote the publisher on '{test}'; one that cannot is not admitted"
+            raise RegisterError(msg)
     letter = str(raw.get("letter", ""))
     if kind == "permission":
         if not PERMISSION_RE.match(gid):
-            raise RegisterError(f"{ctx}: a permission's id is <AGENCY>-PERMISSION-<year>")
+            msg = f"{ctx}: a permission's id is <AGENCY>-PERMISSION-<year>"
+            raise RegisterError(msg)
         if not letter or not (root / letter).is_file():
-            raise RegisterError(f"{ctx}: a permission names the stored reply in letter")
+            msg = f"{ctx}: a permission names the stored reply in letter"
+            raise RegisterError(msg)
     return Grant(
         id=gid,
         title=str(_req(raw, "title", ctx)),
@@ -1073,7 +1139,8 @@ def load_grants(root: Path = GRANTS_DIR) -> dict[str, Grant]:
     for p in sorted(root.glob("*.yaml")) if root.is_dir() else ():
         g = parse_grant(yaml.safe_load(p.read_text(encoding="utf-8")) or {}, p.name, root)
         if g.id != p.stem:
-            raise RegisterError(f"{p.name}: id '{g.id}' does not match the filename")
+            msg = f"{p.name}: id '{g.id}' does not match the filename"
+            raise RegisterError(msg)
         out[g.id] = g
     return out
 
@@ -1093,16 +1160,17 @@ def load(register_dir: Path) -> list[Dataset]:
         raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         ds = parse(raw, name)
         if ds.slug != p.stem:
-            raise RegisterError(f"{name}: slug '{ds.slug}' does not match filename")
+            msg = f"{name}: slug '{ds.slug}' does not match filename"
+            raise RegisterError(msg)
         if ds.slug in slugs:
-            raise RegisterError(f"{name}: duplicate slug, also in {slugs[ds.slug]}")
+            msg = f"{name}: duplicate slug, also in {slugs[ds.slug]}"
+            raise RegisterError(msg)
         slugs[ds.slug] = name
         out.append(replace(ds, path=str(p)))
     for coll in sorted({d.collection for d in out if d.collection and d.status == "live"}):
         if not any(d.collection_description for d in out if d.collection == coll):
-            raise RegisterError(
-                f"collection '{coll}' needs collection_description on one of its entries"
-            )
+            msg = f"collection '{coll}' needs collection_description on one of its entries"
+            raise RegisterError(msg)
     # One search phrase, one page: a title tag shared by two pages splits the ranking.
     phrases: dict[str, str] = {}
     for d in out:
@@ -1111,9 +1179,8 @@ def load(register_dir: Path) -> list[Dataset]:
             if not key:
                 continue
             if key in phrases and phrases[key] != d.slug:
-                raise RegisterError(
-                    f"{slugs[d.slug]}: search title '{phrase}' is also used by {phrases[key]}"
-                )
+                msg = f"{slugs[d.slug]}: search title '{phrase}' is also used by {phrases[key]}"
+                raise RegisterError(msg)
             phrases[key] = d.slug
     out.sort(key=lambda d: (d.order, d.collection or d.slug, d.slug))
     return out

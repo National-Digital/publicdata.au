@@ -218,7 +218,8 @@ def read_xlsx(data: bytes, sheet: str, header_row: int) -> pa.Table:
 
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
     if sheet and sheet not in wb.sheetnames:
-        raise NormaliseError(f"sheet '{sheet}' not in workbook: {wb.sheetnames}")
+        msg = f"sheet '{sheet}' not in workbook: {wb.sheetnames}"
+        raise NormaliseError(msg)
     ws = wb[sheet] if sheet else wb.worksheets[0]
     rows = ws.iter_rows(min_row=header_row, values_only=True)
     header = _distinct([_cell(h).strip() for h in next(rows)])
@@ -250,12 +251,12 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
     if w.get("sheet_match"):
         sheets = [n for n in wb.sheetnames if re.search(w["sheet_match"], n)]
         if not sheets:
-            raise NormaliseError(
-                f"{ds.slug}: no sheet matches '{w['sheet_match']}' in {wb.sheetnames}"
-            )
+            msg = f"{ds.slug}: no sheet matches '{w['sheet_match']}' in {wb.sheetnames}"
+            raise NormaliseError(msg)
     missing = [n for n in sheets if n not in wb.sheetnames]
     if missing:
-        raise NormaliseError(f"{ds.slug}: sheets {missing} not in workbook: {wb.sheetnames}")
+        msg = f"{ds.slug}: sheets {missing} not in workbook: {wb.sheetnames}"
+        raise NormaliseError(msg)
     measures = {m.group(1): f.source for f in ds.fields if (m := CELL_OF_RE.match(f.source))}
     n, k, first = w["header_rows"], w["row_headers"], w["first_column"] - 1
     levels = n - 1 if measures else n
@@ -270,7 +271,8 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
         rows = [r + [""] * (width - len(r)) for r in rows]
         head = [r[first + k :] for r in rows[:n]]
         if len(head) < n:
-            raise NormaliseError(f"{ds.slug}: sheet '{name}' has fewer than {n} header rows")
+            msg = f"{ds.slug}: sheet '{name}' has fewer than {n} header rows"
+            raise NormaliseError(msg)
         for r in head[:-1]:
             for j in range(1, len(r)):
                 r[j] = r[j] or r[j - 1]
@@ -292,13 +294,13 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
             else:
                 groups[tuple(h[j] for h in head)] = {CELL_SOURCE: j}
         if not groups:
-            raise NormaliseError(f"{ds.slug}: sheet '{name}' has no columns to read")
+            msg = f"{ds.slug}: sheet '{name}' has no columns to read"
+            raise NormaliseError(msg)
         found = {src for g in groups.values() for src in g}
         absent = [h for h, src in measures.items() if src not in found]
         if absent:
-            raise NormaliseError(
-                f"{ds.slug}: sheet '{name}' has no columns headed {absent}, which the register names"
-            )
+            msg = f"{ds.slug}: sheet '{name}' has no columns headed {absent}, which the register names"
+            raise NormaliseError(msg)
         cols = [j for g in groups.values() for j in g.values()]
         above = [""] * k
         for r in rows[n:]:
@@ -365,10 +367,12 @@ def read_xml(data: bytes, record: str) -> pa.Table:
     root = ET.fromstring(data.decode("utf-8-sig").encode("utf-8"))
     records = [e for e in root.iter() if _local(e.tag) == record]
     if not records:
-        raise NormaliseError(f"the XML holds no <{record}> element")
+        msg = f"the XML holds no <{record}> element"
+        raise NormaliseError(msg)
     # A record inside a record would be read twice, once as a row and once as a child.
     if any(_local(x.tag) == record for e in records for x in e.iter() if x is not e):
-        raise NormaliseError(f"a <{record}> element holds another <{record}>; name the outer one")
+        msg = f"a <{record}> element holds another <{record}>; name the outer one"
+        raise NormaliseError(msg)
     header: list[str] = []
     rows: list[dict[str, list[str]]] = []
     for e in records:
@@ -397,7 +401,8 @@ def unwrap(data: bytes, ext: str, member: str) -> tuple[bytes, str]:
         names = [n for n in z.namelist() if not n.endswith("/")]
         if member:
             if member not in names:
-                raise NormaliseError(f"'{member}' is not in the zip: {names}")
+                msg = f"'{member}' is not in the zip: {names}"
+                raise NormaliseError(msg)
             name = member
         else:
             data_names = [
@@ -408,9 +413,8 @@ def unwrap(data: bytes, ext: str, member: str) -> tuple[bytes, str]:
                 )
             ]
             if len(data_names) != 1:
-                raise NormaliseError(
-                    f"the zip holds {len(data_names)} data files; name one: {names}"
-                )
+                msg = f"the zip holds {len(data_names)} data files; name one: {names}"
+                raise NormaliseError(msg)
             name = data_names[0]
         return z.read(name), name.rsplit(".", 1)[-1].lower()
 
@@ -426,16 +430,14 @@ def unpivot(raw: pa.Table, ds: Dataset) -> tuple[pa.Table, list[str]]:
     names = {c.strip(): c for c in raw.column_names}
     missing = [k for k in keep if k not in names]
     if missing:
-        raise NormaliseError(
-            f"{ds.slug}: columns named in the register are absent upstream: {missing}"
-        )
+        msg = f"{ds.slug}: columns named in the register are absent upstream: {missing}"
+        raise NormaliseError(msg)
     wide = [c for c in raw.column_names if c.strip() not in keep]
     dated = [c for c in wide if DATE_HEADER.match(c.strip())]
     held = [c for c in wide if not DATE_HEADER.match(c.strip())]
     if not dated:
-        raise NormaliseError(
-            f"{ds.slug}: no dated columns to unpivot; the header format may have changed"
-        )
+        msg = f"{ds.slug}: no dated columns to unpivot; the header format may have changed"
+        raise NormaliseError(msg)
     n, m = raw.num_rows, len(dated)
     order = pa.array([j * n + i for i in range(n) for j in range(m)], pa.int64())
     cols = {
@@ -486,9 +488,8 @@ def _strptime(arr: pa.ChunkedArray, f: Field) -> pa.ChunkedArray:
         out = got if out is None else pc.coalesce(out, got)
     bad = pc.and_(pc.is_valid(arr), pc.is_null(out))
     if pc.any(bad).as_py():
-        raise NormaliseError(
-            f"{f.name}: values in none of the formats {formats}: {_examples(arr, bad)}"
-        )
+        msg = f"{f.name}: values in none of the formats {formats}: {_examples(arr, bad)}"
+        raise NormaliseError(msg)
     return out
 
 
@@ -515,9 +516,8 @@ def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):
             fl = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(f.false_values))), False)
             bad = pc.and_(pc.is_valid(arr), pc.invert(pc.or_(t, fl)))
             if pc.any(bad).as_py():
-                raise NormaliseError(
-                    f"{f.name}: values outside true/false sets: {_examples(arr, bad)}"
-                )
+                msg = f"{f.name}: values outside true/false sets: {_examples(arr, bad)}"
+                raise NormaliseError(msg)
             return pc.if_else(t, True, pc.if_else(fl, False, pa.scalar(None, pa.bool_()))), sup
         if f.type in ("date", "datetime"):
             if f.date_format == "epoch_ms":
@@ -528,8 +528,10 @@ def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):
                 ts = _strptime(arr, f)
             return (pc.cast(ts, pa.date32()) if f.type == "date" else ts), sup
     except pa.ArrowInvalid as e:
-        raise NormaliseError(f"{f.name}: cannot type as {f.type}: {e}") from e
-    raise NormaliseError(f"{f.name}: unknown type {f.type}")
+        msg = f"{f.name}: cannot type as {f.type}: {e}"
+        raise NormaliseError(msg) from e
+    msg = f"{f.name}: unknown type {f.type}"
+    raise NormaliseError(msg)
 
 
 def _is_shapefile(ext: str, member: str) -> bool:
@@ -555,7 +557,8 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
             data, ext = xls_to_xlsx(data), "xlsx"
         if ds.wide:
             if ext not in ("xlsx", "xlsm"):
-                raise NormaliseError(f"{ds.slug}: a wide table is read from a workbook, got {ext}")
+                msg = f"{ds.slug}: a wide table is read from a workbook, got {ext}"
+                raise NormaliseError(msg)
             raw, held = read_wide(data, ds)
         elif ext in ("xlsx", "xlsm"):
             raw = read_xlsx(data, ds.source.sheet, ds.source.header_row)
@@ -563,9 +566,8 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
             raw = read_geojson(data)
         elif ext == "xml":
             if not ds.source.record:
-                raise NormaliseError(
-                    f"{ds.slug}: an XML source names its record element in source.record"
-                )
+                msg = f"{ds.slug}: an XML source names its record element in source.record"
+                raise NormaliseError(msg)
             raw = read_xml(data, ds.source.record)
         else:
             enc = m.encoding if m.ext != "zip" else detect_encoding(data, ds.source.encoding)
@@ -578,9 +580,8 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
     own = [f for f in ds.fields if not is_spine(f.source)]
     missing = [f.source for f in own if f.source not in upstream]
     if missing:
-        raise NormaliseError(
-            f"{ds.slug}: columns named in the register are absent upstream: {missing}"
-        )
+        msg = f"{ds.slug}: columns named in the register are absent upstream: {missing}"
+        raise NormaliseError(msg)
     declared = {f.source for f in own}
     extra = [c for c in upstream if c not in declared] + held
     unknown = [c for c in extra if c not in ds.omit]

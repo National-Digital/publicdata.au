@@ -58,7 +58,8 @@ def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
     try:
         return ImageFont.truetype(str(FONTS / name), size)
     except OSError as e:
-        raise RuntimeError(f"{name}: Pillow's FreeType cannot read WOFF2 (needs Brotli)") from e
+        msg = f"{name}: Pillow's FreeType cannot read WOFF2 (needs Brotli)"
+        raise RuntimeError(msg) from e
 
 
 def _icon(size: int, *, rounded: bool, dot: float = DOT_R / GRID) -> Image.Image:

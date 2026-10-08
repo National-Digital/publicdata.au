@@ -181,7 +181,8 @@ def test_a_dataset_the_new_code_cannot_build_fails_the_check(two_datasets, tmp_p
 
     def normalise(ds, m, data):
         if ds.slug == "t":
-            raise ValueError("broken")
+            msg = "broken"
+            raise ValueError(msg)
         return real(ds, m, data)
 
     monkeypatch.setattr(build, "normalise", normalise)

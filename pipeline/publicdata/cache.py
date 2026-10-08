@@ -122,9 +122,8 @@ def spatial_version() -> str:
     # The extension is fetched per runner, so every job of a deploy must key on the same build.
     want = os.environ.get("PUBLICDATA_SPATIAL", "")
     if want and want != got:
-        raise RuntimeError(
-            f"DuckDB spatial extension {got} is installed, and the plan keyed on {want}"
-        )
+        msg = f"DuckDB spatial extension {got} is installed, and the plan keyed on {want}"
+        raise RuntimeError(msg)
     return got
 
 

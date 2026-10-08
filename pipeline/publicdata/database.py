@@ -224,7 +224,8 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
     rel)` gives the provenance header for a file. Tables load in register order.
     """
     if m.ext != "zip":
-        raise NormaliseError(f"{ds.slug}: a database source is a zip, not .{m.ext}")
+        msg = f"{ds.slug}: a database source is a zip, not .{m.ext}"
+        raise NormaliseError(msg)
     db = ds.database
     (vdir / "tables").mkdir(parents=True, exist_ok=True)
     out = DatabaseOut(0, {})
@@ -235,7 +236,8 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
         out.unknown_tables = sorted(s for s in by_source if s not in declared)
         missing = [t.source for t in ds.tables if t.source not in by_source]
         if missing:
-            raise NormaliseError(f"{ds.slug}: the archive has no member for {missing}")
+            msg = f"{ds.slug}: the archive has no member for {missing}"
+            raise NormaliseError(msg)
         con = duckdb_connect(vdir / "data.duckdb", None, threads=None)
         try:
             con.execute(f"SET memory_limit = '{MEMORY_LIMIT}'")
@@ -245,11 +247,13 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
                 allow = {f.source for f in t.fields}
                 headers = {tuple(_header(z, f, db.encoding, db.delimiter)) for f in files}
                 if len(headers) != 1:
-                    raise NormaliseError(f"{ds.slug}: {t.name}: members have different headers")
+                    msg = f"{ds.slug}: {t.name}: members have different headers"
+                    raise NormaliseError(msg)
                 header = list(next(iter(headers)))
                 lacking = sorted(allow - set(header))
                 if lacking:
-                    raise NormaliseError(f"{ds.slug}: {t.name}: columns not in the file: {lacking}")
+                    msg = f"{ds.slug}: {t.name}: columns not in the file: {lacking}"
+                    raise NormaliseError(msg)
                 unknown = [h for h in header if h not in allow]
                 if unknown:
                     out.unknown_columns[t.name] = unknown

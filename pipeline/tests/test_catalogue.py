@@ -276,7 +276,8 @@ def test_a_harvest_that_cannot_finish_reports_failed_and_exits_non_zero(
     from publicdata import __main__ as cli
 
     def boom(store_dir):
-        raise catalogue.PortalError("snapshot not in the store")
+        msg = "snapshot not in the store"
+        raise catalogue.PortalError(msg)
 
     monkeypatch.setattr(catalogue, "fetch", boom)
     assert cli.main(["catalogue", "fetch", "--store", str(tmp_path)]) == 1
@@ -384,7 +385,8 @@ def test_a_flaky_council_keeps_its_last_records_and_never_stops_the_harvest(monk
     class Broken(FixtureSession):
         def get(self, url, params=None, timeout=None, headers=None):
             if "ballarat" in url:
-                raise catalogue.requests.ConnectionError("down")
+                msg = "down"
+                raise catalogue.requests.ConnectionError(msg)
             return super().get(url, params, timeout, headers)
 
     monkeypatch.setattr(catalogue.requests, "Session", Broken)

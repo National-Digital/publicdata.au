@@ -288,7 +288,8 @@ def _range(url: str, start: int, end: int, timeout: float) -> bytes:
     def get():
         with _open(req, timeout) as r:
             if getattr(r, "status", 206) != 206:
-                raise Unsized("the host does not serve byte ranges")
+                msg = "the host does not serve byte ranges"
+                raise Unsized(msg)
             body = r.read(end - start + 1)
             if len(body) != end - start + 1:
                 raise http.client.IncompleteRead(body, end - start + 1 - len(body))
@@ -319,7 +320,8 @@ class _RangeFile(io.RawIOBase):
     def read(self, n=-1):
         end = self.size if n is None or n < 0 else min(self.size, self.pos + n)
         if end - self.pos > ZIP_DIRECTORY_MAX:
-            raise Unsized("the zip's central directory is too large to read")
+            msg = "the zip's central directory is too large to read"
+            raise Unsized(msg)
         if end <= self.pos:
             return b""
         body = _range(self.url, self.pos, end - 1, self.timeout)
@@ -354,10 +356,12 @@ def unpacked_bytes(url: str, size: int, kind: str, timeout: float = 30) -> int |
 def _sized(url: str, timeout: float, hint: str = "") -> Sized:
     # urllib would also open a file: URL on the runner.
     if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
-        raise Unsized(f"{url} is not an http or https URL")
+        msg = f"{url} is not an http or https URL"
+        raise Unsized(msg)
     n, ct, final = _size(url, timeout)
     if not n:
-        raise Unsized(f"{url} gave no size")
+        msg = f"{url} gave no size"
+        raise Unsized(msg)
     kind = kind_of(hint) if kind_of(hint) != "plain" else kind_of(url, ct)
     return Sized(n, kind, unpacked_bytes(final, n, kind, timeout) if kind != "plain" else None)
 
@@ -387,8 +391,10 @@ def probe(ds: Dataset, timeout: float = 30) -> Sized:
     except Unsized:
         raise
     except Exception as e:  # noqa: BLE001
-        raise Unsized(f"the source could not be read ({type(e).__name__}: {e})") from e
-    raise Unsized(f"the {ds.source.adapter} adapter's source is not sized ahead of a fetch")
+        msg = f"the source could not be read ({type(e).__name__}: {e})"
+        raise Unsized(msg) from e
+    msg = f"the {ds.source.adapter} adapter's source is not sized ahead of a fetch"
+    raise Unsized(msg)
 
 
 def live_rows(slugs: list[str], site: str = SITE, workers: int = 16) -> dict[str, int]:

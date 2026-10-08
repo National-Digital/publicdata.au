@@ -32,12 +32,14 @@ def purge(prefixes: list[str], token: str, host: str = HOST, session=requests) -
     r.raise_for_status()
     zones = r.json().get("result") or []
     if not zones:
-        raise RuntimeError(f"no zone named {host} for this token")
+        msg = f"no zone named {host} for this token"
+        raise RuntimeError(msg)
     url = f"{API}/zones/{zones[0]['id']}/purge_cache"
     full = [f"{host}/{p.lstrip('/')}" for p in prefixes]
     for i in range(0, len(full), BATCH):
         r = session.post(url, json={"prefixes": full[i : i + BATCH]}, headers=auth, timeout=30)
         body = r.json()
         if not r.ok or not body.get("success"):
-            raise RuntimeError(f"purge refused: {body.get('errors') or r.status_code}")
+            msg = f"purge refused: {body.get('errors') or r.status_code}"
+            raise RuntimeError(msg)
     return len(full)

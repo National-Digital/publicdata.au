@@ -138,25 +138,32 @@ def load_curated(folder: Path) -> list[Publisher]:
         ctx = f"publishers/{fname}[{i}]"
         for k in ("slug", "name", "jurisdiction"):
             if not e.get(k):
-                raise RegisterError(f"{ctx}: {k} is required")
+                msg = f"{ctx}: {k} is required"
+                raise RegisterError(msg)
         jur = str(e["jurisdiction"])
         if jur not in JUR_SEGMENT:
-            raise RegisterError(f"{ctx}: jurisdiction '{jur}' is not one of {list(JUR_SEGMENT)}")
+            msg = f"{ctx}: jurisdiction '{jur}' is not one of {list(JUR_SEGMENT)}"
+            raise RegisterError(msg)
         slug = str(e["slug"])
         if slug != slugify(slug):
-            raise RegisterError(f"{ctx}: slug '{slug}' must be lower case words and hyphens")
+            msg = f"{ctx}: slug '{slug}' must be lower case words and hyphens"
+            raise RegisterError(msg)
         if (jur, slug) in seen_slug:
-            raise RegisterError(f"{ctx}: {jur}/{slug} appears twice")
+            msg = f"{ctx}: {jur}/{slug} appears twice"
+            raise RegisterError(msg)
         seen_slug.add((jur, slug))
         level = str(e.get("level") or ("federal" if jur == "Cth" else "state"))
         if level not in LEVELS:
-            raise RegisterError(f"{ctx}: level '{level}' is not one of {LEVELS}")
+            msg = f"{ctx}: level '{level}' is not one of {LEVELS}"
+            raise RegisterError(msg)
         orgs = [str(o) for o in e.get("orgs") or []]
         for o in orgs:
             if not re.match(r"^[a-z]+:[^\s]+$", o):
-                raise RegisterError(f"{ctx}: org '{o}' must be portal:organisation")
+                msg = f"{ctx}: org '{o}' must be portal:organisation"
+                raise RegisterError(msg)
             if o in seen_org:
-                raise RegisterError(f"{ctx}: org '{o}' is already under {seen_org[o]}")
+                msg = f"{ctx}: org '{o}' is already under {seen_org[o]}"
+                raise RegisterError(msg)
             seen_org[o] = slug
         out.append(
             Publisher(

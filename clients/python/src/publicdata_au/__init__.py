@@ -193,7 +193,8 @@ def in_(*values) -> Filter:
     if len(values) == 1 and isinstance(values[0], (list, tuple, set, frozenset)):
         values = tuple(values[0])
     if any("," in _v(v) for v in values):
-        raise ValueError("a value in in_() cannot contain a comma")
+        msg = "a value in in_() cannot contain a comma"
+        raise ValueError(msg)
     return Filter(f"in.({','.join(_v(v) for v in values)})")
 
 
@@ -396,7 +397,8 @@ class Client:
     def _catalogue_match(self, publisher, topic, jurisdiction) -> set[str]:
         for what, v in (("publisher", publisher), ("topic", topic), ("jurisdiction", jurisdiction)):
             if v is not None and (not isinstance(v, str) or not v):
-                raise ValueError(f"{what} must be one piece of text")
+                msg = f"{what} must be one piece of text"
+                raise ValueError(msg)
         entries = self._json("/catalog.json")["dataset"]
         keep = entries
         if publisher is not None:
@@ -405,11 +407,11 @@ class Client:
         if topic is not None:
             known = sorted({t.lower() for e in entries for t in e.get("publicdata:topics") or ()})
             if not known:
-                raise ValueError("the site's catalogue does not list topics yet")
+                msg = "the site's catalogue does not list topics yet"
+                raise ValueError(msg)
             if topic.lower() not in known:
-                raise ValueError(
-                    f"no datasets are filed under topic {topic!r}; the topics are {', '.join(known)}"
-                )
+                msg = f"no datasets are filed under topic {topic!r}; the topics are {', '.join(known)}"
+                raise ValueError(msg)
             keep = [
                 e
                 for e in keep
@@ -541,17 +543,16 @@ class Client:
             ).fetchall()
         }
         if table is not None and _is_date(table):
-            raise ValueError(f"{table!r} is a version; pass it as version={table!r}")
+            msg = f"{table!r} is a version; pass it as version={table!r}"
+            raise ValueError(msg)
         if table is None:
             if "records" not in names:
-                raise ValueError(
-                    f"{slug!r} has several tables; name one of {', '.join(sorted(names))}"
-                )
+                msg = f"{slug!r} has several tables; name one of {', '.join(sorted(names))}"
+                raise ValueError(msg)
             table = "records"
         if _table(table) not in names:
-            raise ValueError(
-                f"{slug!r} has no table or view {table!r}; its tables are {', '.join(sorted(names))}"
-            )
+            msg = f"{slug!r} has no table or view {table!r}; its tables are {', '.join(sorted(names))}"
+            raise ValueError(msg)
         return con.table(table)
 
     def _query(self, slug, kind, where, version, params) -> dict:
@@ -684,11 +685,13 @@ class Client:
         as tables/<table>.parquet.
         """
         if format not in FORMATS:
-            raise ValueError(f"format must be one of {', '.join(FORMATS)}")
+            msg = f"format must be one of {', '.join(FORMATS)}"
+            raise ValueError(msg)
         at = f"v/{_date(version)}" if version else "latest"
         if table:
             if format != "parquet":
-                raise ValueError("a table of a database is served as parquet")
+                msg = "a table of a database is served as parquet"
+                raise ValueError(msg)
             return f"{self.site}/d/{_slug(slug)}/{at}/tables/{_table(table)}.parquet"
         return f"{self.site}/d/{_slug(slug)}/{at}/data.{format}"
 
@@ -752,14 +755,16 @@ class Client:
         typed by the version's fields.
         """
         if columns is not None and (isinstance(columns, str) or not columns):
-            raise ValueError("columns must be a list of field names, as fields() lists them")
+            msg = "columns must be a list of field names, as fields() lists them"
+            raise ValueError(msg)
         pq = _parquet_module()
         if pq is None:
             if table:
-                raise ImportError(
+                msg = (
                     "a table of a database is served only as Parquet, which needs pyarrow: "
                     "pip install 'publicdata-au[pandas]'"
-                ) from None
+                )
+                raise ImportError(msg) from None
             return self._read_csv(slug, version, cache, columns)
         with tempfile.TemporaryDirectory() as d:
             p, _ = self._fetch(slug, "parquet", version, table, cache, Path(d))
@@ -777,7 +782,8 @@ class Client:
         if columns:
             unknown = [c for c in columns if fields and c not in fields]
             if unknown:
-                raise ValueError(f"unknown fields: {', '.join(unknown)}")
+                msg = f"unknown fields: {', '.join(unknown)}"
+                raise ValueError(msg)
         with tempfile.TemporaryDirectory() as d:
             p, got = self._fetch(slug, "csv.gz", version, None, cache, Path(d))
             # Every column as text, then typed as the Parquet path types it.
@@ -868,10 +874,11 @@ class Client:
         for c in self.changes(slug):
             if c["to"] == version:
                 return self._json(c["url"])
-        raise ValueError(
+        msg = (
             f"no comparison ends at {version} for {slug!r}: it is the first version kept, "
             "or not a version; changes() lists them"
         )
+        raise ValueError(msg)
 
     def cite(self, slug: str, version: str | None = None, *, format: str = "text") -> str:
         """How to cite one version, the newest by default: `format="text"` for the citation
@@ -879,7 +886,8 @@ class Client:
         reference manager.
         """
         if format not in ("text", "bibtex"):
-            raise ValueError('format must be "text" or "bibtex"')
+            msg = 'format must be "text" or "bibtex"'
+            raise ValueError(msg)
         dp = self._json(f"/d/{_slug(slug)}/datapackage.json")
         version = _date(version) if version else dp["version"]
         url = f"{self.site}/d/{slug}/v/{version}/"
@@ -944,9 +952,8 @@ class Client:
         if jurisdiction is not None:
             jur = _JUR_CODES.get(str(jurisdiction).lower())
             if not jur:
-                raise ValueError(
-                    f"jurisdiction is one of {', '.join(sorted(set(_JUR_CODES.values())))}"
-                )
+                msg = f"jurisdiction is one of {', '.join(sorted(set(_JUR_CODES.values())))}"
+                raise ValueError(msg)
         params = {"q": q, "jur": jur, "state": _list(status), "limit": limit, "offset": offset}
         body = self._json("/api/v1/catalogue", params)
         rows = [
@@ -973,7 +980,8 @@ class Client:
             if want in (lay["key"].lower(), lay["slug"].lower(), lay["code"].lower()):
                 return lay
         keys = ", ".join(lay["key"] for lay in self.boundary_layers())
-        raise ValueError(f"no boundary layer {layer!r}; the layers are {keys}")
+        msg = f"no boundary layer {layer!r}; the layers are {keys}"
+        raise ValueError(msg)
 
     def boundaries(self, layer: str, *, cache: bool | None = None):
         """A boundary layer, such as "lga", "sa2", "suburb", "postcode", "state_electorate" or
@@ -995,27 +1003,29 @@ class Client:
         import pandas as pd
 
         if isinstance(df, gpd.GeoDataFrame):
-            raise ValueError("df already has a geometry; drop it first")
+            msg = "df already has a geometry; drop it first"
+            raise ValueError(msg)
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(list(df))
         if layer is None:
             hits = [lay for lay in self.boundary_layers() if lay["code"] in df.columns]
             if not hits:
                 codes = ", ".join(lay["code"] for lay in self.boundary_layers())
-                raise ValueError(
+                msg = (
                     f"df has no column named for a boundary code ({codes}); "
                     'pass layer= and by=, as in layer="lga", by="council_code"'
                 )
+                raise ValueError(msg)
             if len(hits) > 1:
-                raise ValueError(
-                    f"df has codes for several layers ({', '.join(h['key'] for h in hits)}); choose one with layer="
-                )
+                msg = f"df has codes for several layers ({', '.join(h['key'] for h in hits)}); choose one with layer="
+                raise ValueError(msg)
             lay = hits[0]
         else:
             lay = self._layer(layer)
         col = by or lay["code"]
         if col not in df.columns:
-            raise ValueError(f"df has no column {col!r}")
+            msg = f"df has no column {col!r}"
+            raise ValueError(msg)
         b = self.boundaries(lay["key"], cache=cache)
         ref = b[lay["code"]].astype(str)
         codes = _norm_codes(df[col], ref)
@@ -1088,7 +1098,8 @@ class Client:
 
     def _cache_root(self, slug, version) -> Path:
         if version and not slug:
-            raise ValueError("a version needs its dataset's slug")
+            msg = "a version needs its dataset's slug"
+            raise ValueError(msg)
         root = self.cache_dir()
         if slug:
             root = root / _slug(slug)
@@ -1102,7 +1113,8 @@ class Client:
     def _fetch(self, slug, format, version=None, table=None, cache=None, tmp: Path | None = None):
         """One version's file: the kept copy when caching, else a download into `tmp`."""
         if format not in FORMATS:
-            raise ValueError(f"format must be one of {', '.join(FORMATS)}")
+            msg = f"format must be one of {', '.join(FORMATS)}"
+            raise ValueError(msg)
         if not self._caching(cache):
             name = f"tables-{table}.parquet" if table else f"data.{format}"
             return self._save(slug, format, version, tmp / name, table)
@@ -1301,7 +1313,8 @@ def _is_date(v) -> bool:
 
 def _slug(slug: str) -> str:
     if not slug or not all(c.isalnum() or c == "-" for c in slug):
-        raise ValueError(f"not a dataset slug: {slug!r}")
+        msg = f"not a dataset slug: {slug!r}"
+        raise ValueError(msg)
     return slug
 
 
@@ -1311,20 +1324,23 @@ def _ident(name: str) -> str:
         or not (name[0].isalpha() or name[0] == "_")
         or not all(c.isalnum() or c == "_" for c in name)
     ):
-        raise ValueError(f"not a database name: {name!r}")
+        msg = f"not a database name: {name!r}"
+        raise ValueError(msg)
     return name
 
 
 def _table(table: str) -> str:
     if not table or not all(c.isalnum() or c == "_" for c in table):
-        raise ValueError(f"not a table name: {table!r}")
+        msg = f"not a table name: {table!r}"
+        raise ValueError(msg)
     return table
 
 
 def _date(version: str) -> str:
     v = str(version)
     if len(v) != 10 or v[4] != "-" or v[7] != "-" or not (v[:4] + v[5:7] + v[8:]).isdigit():
-        raise ValueError(f"a version is a date such as 2026-08-07, not {version!r}")
+        msg = f"a version is a date such as 2026-08-07, not {version!r}"
+        raise ValueError(msg)
     return v
 
 

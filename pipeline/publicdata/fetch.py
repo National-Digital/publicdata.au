@@ -177,13 +177,15 @@ def _package(ds: Dataset, s: requests.Session, api: str) -> dict:
             timeout=60,
         ).json()
         if not found.get("success"):
-            raise RuntimeError(f"{ds.slug}: package_search failed: {found.get('error')}")
+            msg = f"{ds.slug}: package_search failed: {found.get('error')}"
+            raise RuntimeError(msg)
         name = pick_package(ds, found["result"]["results"])
     else:
         name = ds.source.package
     pkg = s.get(f"{api}/package_show", params={"id": name}, timeout=60).json()
     if not pkg.get("success"):
-        raise RuntimeError(f"{ds.slug}: package_show failed: {pkg.get('error')}")
+        msg = f"{ds.slug}: package_show failed: {pkg.get('error')}"
+        raise RuntimeError(msg)
     return pkg["result"]
 
 
@@ -192,7 +194,8 @@ def pick_package(ds: Dataset, packages: list[dict]) -> str:
     rx = re.compile(ds.source.package_match)
     hits = [p for p in packages if rx.search(p.get("name", ""))]
     if not hits:
-        raise FetchError(f"{ds.slug}: no package matches '{ds.source.package_match}'")
+        msg = f"{ds.slug}: no package matches '{ds.source.package_match}'"
+        raise FetchError(msg)
     return max(hits, key=lambda p: p.get("metadata_created") or "")["name"]
 
 
@@ -203,7 +206,8 @@ def pick_resource(ds: Dataset, resources: list[dict]) -> dict:
     if not ds.source.resource_match:
         res = next((r for r in resources if r["id"] == ds.source.resource), None)
         if res is None:
-            raise RuntimeError(f"{ds.slug}: resource {ds.source.resource} not in package")
+            msg = f"{ds.slug}: resource {ds.source.resource} not in package"
+            raise RuntimeError(msg)
         return res
     rx = re.compile(ds.source.resource_match)
     hits = [
@@ -212,7 +216,8 @@ def pick_resource(ds: Dataset, resources: list[dict]) -> dict:
         if rx.search((r.get("name") or "").strip())
     ]
     if not hits:
-        raise FetchError(f"{ds.slug}: no resource matches '{ds.source.resource_match}'")
+        msg = f"{ds.slug}: no resource matches '{ds.source.resource_match}'"
+        raise FetchError(msg)
     # A re-import gives every resource one creation date; its file's change date then decides.
     return max(hits, key=lambda h: h[:3])[3]
 
@@ -294,13 +299,15 @@ def _download(ds: Dataset, s: requests.Session, url: str):
     """
     if ds.source.manual:
         if ds.slug not in MANUAL:
-            raise ManualDue(f"{ds.slug}: download {url} and run the fetch with --file")
+            msg = f"{ds.slug}: download {url} and run the fetch with --file"
+            raise ManualDue(msg)
         got = MANUAL[ds.slug]
         if got.is_dir():
             # A stack's files are given as one folder, each under the name its address ends in.
             got = got / urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1])
             if not got.is_file():
-                raise FetchError(f"{ds.slug}: {got.name} is not in {MANUAL[ds.slug]}")
+                msg = f"{ds.slug}: {got.name} is not in {MANUAL[ds.slug]}"
+                raise FetchError(msg)
         return Fetched(got.read_bytes(), {})
     r = s.get(url, timeout=600, allow_redirects=True)
     r.raise_for_status()
@@ -317,7 +324,8 @@ def _changed(ds: Dataset, value, unit: int = 0) -> str:
             return dt.datetime.fromtimestamp(int(value) / unit, dt.UTC).isoformat()
         return _normal_iso(str(value))
     except UNREADABLE_DATE as e:
-        raise FetchError(f"{ds.slug}: the portal states no change date ({value!r})") from e
+        msg = f"{ds.slug}: the portal states no change date ({value!r})"
+        raise FetchError(msg) from e
 
 
 def _licence(
@@ -366,7 +374,8 @@ def _portal_version(
         r = s.get(url, timeout=600, allow_redirects=True)
     r.raise_for_status()
     if r.status_code != 200:
-        raise FetchError(f"{ds.slug}: {url} answered HTTP {r.status_code} without the file")
+        msg = f"{ds.slug}: {url} answered HTTP {r.status_code} without the file"
+        raise FetchError(msg)
     data = r.content
     expect_page(ds, url, r, data)
     digest = hashlib.sha256(data).hexdigest()
@@ -515,7 +524,8 @@ def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | Non
     layer = ds.source.url.rstrip("/")
     info = catalogue.get_json(s, layer, {"f": "pjson"})
     if "fields" not in info:
-        raise FetchError(f"{ds.slug}: {layer} is not a feature layer: {str(info)[:200]}")
+        msg = f"{ds.slug}: {layer} is not a feature layer: {str(info)[:200]}"
+        raise FetchError(msg)
     oid = info.get("objectIdField") or next(
         (f["name"] for f in info["fields"] if f["type"] == "esriFieldTypeOID"), "OBJECTID"
     )
@@ -538,13 +548,15 @@ def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | Non
             timeout=300,
         )
         if "features" not in got:
-            raise FetchError(f"{ds.slug}: page at {offset} is not GeoJSON: {str(got)[:200]}")
+            msg = f"{ds.slug}: page at {offset} is not GeoJSON: {str(got)[:200]}"
+            raise FetchError(msg)
         feats.extend(got["features"])
         if len(got["features"]) < page:
             break
         offset += page
     if not feats:
-        raise FetchError(f"{ds.slug}: {layer} returned no features")
+        msg = f"{ds.slug}: {layer} returned no features"
+        raise FetchError(msg)
     lines = ",\n".join(json.dumps(f, sort_keys=True, separators=(",", ":")) for f in feats)
     data = f'{{"type":"FeatureCollection","features":[\n{lines}\n]}}\n'.encode()
     digest = hashlib.sha256(data).hexdigest()
@@ -652,7 +664,8 @@ ALA_NOTE = (
 def _ala_count(s, base: str, q: str, fq: list[str]) -> int:
     got = catalogue.get_json(s, base, {"q": q, "fq": fq, "pageSize": 0}, timeout=120)
     if "totalRecords" not in got:
-        raise FetchError(f"ALA count failed: {str(got)[:200]}")
+        msg = f"ALA count failed: {str(got)[:200]}"
+        raise FetchError(msg)
     return int(got["totalRecords"])
 
 
@@ -676,7 +689,8 @@ def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
         )
         rows = got.get("occurrences")
         if rows is None:
-            raise FetchError(f"ALA page at {start} failed: {str(got)[:200]}")
+            msg = f"ALA page at {start} failed: {str(got)[:200]}"
+            raise FetchError(msg)
         yield from rows
         if len(rows) < ALA_PAGE:
             break
@@ -711,7 +725,8 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: floa
         ]
     elif field == "year":
         if hi - lo <= 1:
-            raise FetchError(f"ALA: {n} rows in one place and year cannot be read: {fq}")
+            msg = f"ALA: {n} rows in one place and year cannot be read: {fq}"
+            raise FetchError(msg)
         mid = int(lo + (hi - lo) / 2)
         halves = [(f"year:[{int(lo)} TO {mid}}}", lo, mid), (f"year:[{mid} TO {int(hi)}]", mid, hi)]
     else:
@@ -742,7 +757,8 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
     s = _session(session)
     base = ds.source.url.rstrip("/")
     if not ds.source.search or not ds.source.providers:
-        raise FetchError(f"{ds.slug}: an ala source needs a search and providers")
+        msg = f"{ds.slug}: an ala source needs a search and providers"
+        raise FetchError(msg)
     common = [
         "country:Australia",
         "license:(" + " OR ".join(f'"{x}"' for x in ALA_LICENCES) + ")",
@@ -760,10 +776,11 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
         # Fewer open rows from a provider whose rows did not fall means it changed a licence.
         was = before.get(uid) or {}
         if was and n < was.get("open", 0) and every >= was.get("all", 0):
-            raise LicenceDrift(
+            msg = (
                 f"{ds.slug}: {uid} had {was['open']} rows under an open licence and now has {n}"
                 f" of {every}. Its licence has changed; review before fetching again."
             )
+            raise LicenceDrift(msg)
         got = 0
         for r in _ala_slices(s, base, ds.source.search, fq, n, 0, now, 0):
             key = r.get("uuid") or r.get("id")
@@ -771,9 +788,11 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
                 rows[key] = r
                 got += 1
         if got != n:
-            raise FetchError(f"{ds.slug}: {uid} has {n} rows and {got} were read")
+            msg = f"{ds.slug}: {uid} has {n} rows and {got} were read"
+            raise FetchError(msg)
     if not rows:
-        raise FetchError(f"{ds.slug}: the query matched no rows")
+        msg = f"{ds.slug}: the query matched no rows"
+        raise FetchError(msg)
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
     w.writerow(ALA_COLUMNS)
@@ -814,7 +833,8 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
         default="",
     )
     if not newest:
-        raise FetchError(f"{ds.slug}: no row states a load date")
+        msg = f"{ds.slug}: no row states a load date"
+        raise FetchError(msg)
     changed = _changed(ds, newest[:19] + "+00:00")
     today = dt.datetime.now(TZ).date()
     version, note = free_version(_date_local(changed), {m.version for m in existing}, today)
@@ -856,10 +876,11 @@ def statement_licence(ds: Dataset, s: requests.Session) -> dict:
     r.raise_for_status()
     body = r.content
     if ds.licence.statement not in page_text(body):
-        raise LicenceDrift(
+        msg = (
             f"{ds.slug}: {ds.licence.evidence} no longer says '{ds.licence.statement[:80]}'; "
             "review the licence before fetching again"
         )
+        raise LicenceDrift(msg)
     return {
         "id": ds.licence.id,
         "stated": ds.licence.statement,
@@ -889,7 +910,8 @@ def _wfs_pages(ds: Dataset, s: requests.Session):
         if len(got) < ds.source.page_size:
             break
     else:
-        raise FetchError(f"{ds.slug}: more than {WFS_PAGES} pages of features")
+        msg = f"{ds.slug}: more than {WFS_PAGES} pages of features"
+        raise FetchError(msg)
     lines = ",\n".join(json.dumps(x, sort_keys=True, separators=(",", ":")) for x in feats)
     return r, f'{{"type":"FeatureCollection","features":[\n{lines}\n]}}\n'.encode()
 
@@ -1010,12 +1032,12 @@ def _kiwis_query(s: requests.Session, base: str, request: str, **params):
         except ValueError:
             said = None
         if isinstance(said, dict) and said.get("code"):
-            raise FetchError(
-                f"KiWIS {request} refused: {said.get('code')}: {said.get('message')}"
-            ) from e
+            msg = f"KiWIS {request} refused: {said.get('code')}: {said.get('message')}"
+            raise FetchError(msg) from e
         raise
     if isinstance(got, dict):
-        raise FetchError(f"KiWIS {request} failed: {str(got)[:200]}")
+        msg = f"KiWIS {request} failed: {str(got)[:200]}"
+        raise FetchError(msg)
     return got
 
 
@@ -1057,7 +1079,8 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
     if not (
         ds.source.search and ds.source.package and ds.source.resource in ("stations", "values")
     ):
-        raise FetchError(f"{ds.slug}: a kiwis source needs search, package and resource")
+        msg = f"{ds.slug}: a kiwis source needs search, package and resource"
+        raise FetchError(msg)
     licence = statement_licence(ds, s)
     base = ds.source.url
     raw = _kiwis_query(
@@ -1095,7 +1118,8 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
         )
         dated = [dict(zip(series[0], r, strict=True)) for r in series[1:] if r[3] and r[4]]
         if not dated:
-            raise FetchError(f"{ds.slug}: no station has a dated {ds.source.package} series")
+            msg = f"{ds.slug}: no station has a dated {ds.source.package} series"
+            raise FetchError(msg)
         values: dict[str, list] = {}
         for batch in _kiwis_batches(dated):
             for ts in _kiwis_values(s, base, batch):
@@ -1109,7 +1133,8 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
                 newest = max(newest, stamp)
                 w.writerow([no, st.get("station_name", ""), state, stamp[:10], value, quality])
         if not newest:
-            raise FetchError(f"{ds.slug}: the series hold no values")
+            msg = f"{ds.slug}: the series hold no values"
+            raise FetchError(msg)
         changed, notes = _changed(ds, newest), [KIWIS_NOTE]
         source |= {"series": ds.source.package, "series_read": len(values), "newest": newest}
     data = out.getvalue().encode("utf-8")
@@ -1167,7 +1192,8 @@ def _aihw_listing(page: bytes) -> dict:
         d = dict(re.findall(r'data-([a-z-]+)="([^"]*)"', m.group(1)))
         if "report-node-guid" in d:
             return _aihw_query(d)
-    raise FetchError("the page has no downloadable resources list")
+    msg = "the page has no downloadable resources list"
+    raise FetchError(msg)
 
 
 def _aihw_query(d: dict) -> dict:
@@ -1230,10 +1256,11 @@ def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
     rx = re.compile(ds.source.resource_match or ".")
     hits = [x for x in results if rx.search(x.get("resultTitle") or "")]
     if not hits:
-        raise FetchError(
+        msg = (
             f"{ds.slug}: no listed file matches '{ds.source.resource_match}' among "
             f"{[x.get('resultTitle') for x in results][:8]}"
         )
+        raise FetchError(msg)
     hit = max(
         hits, key=lambda x: (x.get("resultDateTimeFormatted") or "", x.get("resultUrl") or "")
     )
@@ -1299,7 +1326,8 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
     )
     hits = (got.get("hits") or {}).get("hits") or []
     if not hits:
-        raise FetchError(f"{ds.slug}: no Zenodo record has concept id {ds.source.package}")
+        msg = f"{ds.slug}: no Zenodo record has concept id {ds.source.package}"
+        raise FetchError(msg)
     rec = hits[0]
     meta = rec.get("metadata") or {}
     stated = str((meta.get("license") or {}).get("id") or "")
@@ -1314,9 +1342,8 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
     rx = re.compile(ds.source.resource_match or ".")
     files = [f for f in rec.get("files") or [] if rx.search(f.get("key") or "")]
     if len(files) != 1:
-        raise FetchError(
-            f"{ds.slug}: {len(files)} files match '{ds.source.resource_match}' in record {rec.get('id')}"
-        )
+        msg = f"{ds.slug}: {len(files)} files match '{ds.source.resource_match}' in record {rec.get('id')}"
+        raise FetchError(msg)
     f = files[0]
     url = f["links"]["self"]
     existing = store.manifests(store_dir, ds.slug)
@@ -1397,9 +1424,10 @@ def _stack_rows(
         rows = iter(list(csv.reader(io.StringIO(text))))
         close = None
     else:
-        raise FetchError(
+        msg = (
             f"{filename}: a stack reads workbooks and CSV files, not {filename.rsplit('.', 1)[-1]}"
         )
+        raise FetchError(msg)
     if section_match:
         out = _section_rows(rows, filename, header_match, section_match)
         if close:
@@ -1418,7 +1446,8 @@ def _stack_rows(
                 header.pop()
             break
     if not header:
-        raise FetchError(f"{filename}: no row starts with '{header_match}'")
+        msg = f"{filename}: no row starts with '{header_match}'"
+        raise FetchError(msg)
     out = []
     group = ""
     for r in rows:
@@ -1457,7 +1486,8 @@ def _section_rows(rows, filename: str, header_match: str, section_match: str) ->
             header = []
         elif vals[0] == header_match:
             if not section:
-                raise FetchError(f"{filename}: a '{header_match}' header has no title above it")
+                msg = f"{filename}: a '{header_match}' header has no title above it"
+                raise FetchError(msg)
             header = vals
         elif header and any(vals[1:]):
             # A row with its first cell alone is a footnote.
@@ -1467,7 +1497,8 @@ def _section_rows(rows, filename: str, header_match: str, section_match: str) ->
                 if v and header[i]
             )
     if not out:
-        raise FetchError(f"{filename}: no table under a title matching '{section_match}'")
+        msg = f"{filename}: no table under a title matching '{section_match}'"
+        raise FetchError(msg)
     return out
 
 
@@ -1501,12 +1532,14 @@ def _stack(
             if ds.source.file_match:
                 hit = re.search(ds.source.file_match, label)
                 if not hit:
-                    raise FetchError(f"{ds.slug}: '{label}' does not match the file_match pattern")
+                    msg = f"{ds.slug}: '{label}' does not match the file_match pattern"
+                    raise FetchError(msg)
                 label = hit[1] if hit.groups() else hit[0]
             h = [*h, FILE_SOURCE]
             body = [[*row, label] for row in body]
         if header and sorted(h) != sorted(header):
-            raise FetchError(f"{ds.slug}: {f['filename']} has columns {h}, the first file {header}")
+            msg = f"{ds.slug}: {f['filename']} has columns {h}, the first file {header}"
+            raise FetchError(msg)
         header = header or h
         if h != header:
             at = [h.index(c) for c in header]
@@ -1571,20 +1604,23 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         s, f"{api}/package_search", {"q": ds.source.package, "rows": 1000}, timeout=120
     )
     if not found.get("success"):
-        raise FetchError(f"{ds.slug}: package_search failed: {found.get('error')}")
+        msg = f"{ds.slug}: package_search failed: {found.get('error')}"
+        raise FetchError(msg)
     rx = re.compile(ds.source.package_match)
     packages = sorted(
         (p for p in found["result"]["results"] if rx.search(p.get("name", ""))),
         key=lambda p: p["name"],
     )
     if not packages:
-        raise FetchError(f"{ds.slug}: no package matches '{ds.source.package_match}'")
+        msg = f"{ds.slug}: no package matches '{ds.source.package_match}'"
+        raise FetchError(msg)
     stated = {
         (p.get("license_id", ""), p.get("license_title", ""), p.get("license_url", ""))
         for p in packages
     }
     if len(stated) != 1:
-        raise LicenceDrift(f"{ds.slug}: the packages state different licences: {sorted(stated)}")
+        msg = f"{ds.slug}: the packages state different licences: {sorted(stated)}"
+        raise LicenceDrift(msg)
     lic_id, lic_title, lic_url = next(iter(stated))
     licence = _licence(
         ds,
@@ -1605,7 +1641,8 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
                 continue
             resources.append((p, r))
     if not resources:
-        raise FetchError(f"{ds.slug}: the packages hold no workbooks to read")
+        msg = f"{ds.slug}: the packages hold no workbooks to read"
+        raise FetchError(msg)
     resources.sort(key=lambda pr: (pr[1].get("created") or "", pr[1]["id"]))
     files = [
         {
@@ -1628,10 +1665,11 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
             w["resource"] for w in was.get("workbooks", [])
         ) == sorted(f["resource"] for f in files):
             return None, existing[-1], licence
-        raise ManualDue(
+        msg = (
             f"{ds.slug}: download {ds.source.url} (each of its {len(files)} files, into one folder) "
             "and run the fetch with --file"
         )
+        raise ManualDue(msg)
     data, read, n, repeated = _stack(ds, s, files)
     source = {
         "url": ds.source.url,
@@ -1673,9 +1711,8 @@ def file_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
     page = _download(ds, s, ds.source.url)
     links = page_links(page.content, ds.source.url, ds.source.resource_match)
     if not links:
-        raise FetchError(
-            f"{ds.slug}: {ds.source.url} links to no file matching '{ds.source.resource_match}'"
-        )
+        msg = f"{ds.slug}: {ds.source.url} links to no file matching '{ds.source.resource_match}'"
+        raise FetchError(msg)
     files = [
         {"url": u, "filename": urllib.parse.unquote(u.split("?", 1)[0].rsplit("/", 1)[-1])}
         for u in links
@@ -1732,14 +1769,12 @@ def expect_page(ds: Dataset, url: str, r, data: bytes) -> None:
     ctype = r.headers.get("Content-Type", "") if r.headers else ""
     status = getattr(r, "status_code", "?")
     if not data:
-        raise FetchError(
-            f"{ds.slug}: {url} returned no bytes (HTTP {status}, {ctype or 'no content type'})"
-        )
+        msg = f"{ds.slug}: {url} returned no bytes (HTTP {status}, {ctype or 'no content type'})"
+        raise FetchError(msg)
     name = url.split("?", 1)[0].lower()
     if "html" in ctype.lower() and not name.endswith((".html", ".htm")):
-        raise FetchError(
-            f"{ds.slug}: {url} returned an HTML page instead of the file (HTTP {status}): {data[:120]!r}"
-        )
+        msg = f"{ds.slug}: {url} returned an HTML page instead of the file (HTTP {status}): {data[:120]!r}"
+        raise FetchError(msg)
 
 
 # What each portal's own licence codes mean, from the portal's license_list. A generic code such
@@ -1827,15 +1862,17 @@ def check_licence(ds: Dataset, licence: dict) -> None:
     if ds.licence.portal_id:
         defined = portal_defines(ds.licence.portal_id, getattr(ds.source, "portal", ""))
         if defined and defined != ds.licence.id:
-            raise LicenceDrift(
+            msg = (
                 f"{ds.slug}: {portal_host(ds.source.portal)} defines '{ds.licence.portal_id}' as "
                 f"{defined}, but the register says {ds.licence.id}"
             )
+            raise LicenceDrift(msg)
         if licence.get("id", "") != ds.licence.portal_id:
-            raise LicenceDrift(
+            msg = (
                 f"{ds.slug}: portal states licence '{licence.get('id')}' ({licence.get('title')}) "
                 f"but the register expects '{ds.licence.portal_id}'; review before publishing"
             )
+            raise LicenceDrift(msg)
         return
     # An adapter that worked the id out from the portal's words has it in final form already.
     found = (
@@ -1844,26 +1881,30 @@ def check_licence(ds: Dataset, licence: dict) -> None:
         else normalise_licence_id(licence.get("id", ""), ds.source.portal)
     )
     if not found:
-        raise LicenceDrift(
+        msg = (
             f"{ds.slug}: the portal states '{licence.get('id')}' ({licence.get('title')}), which names "
             "no licence version there; read the version on the dataset page and set licence.portal_id"
         )
+        raise LicenceDrift(msg)
     if found != ds.licence.id.upper():
-        raise LicenceDrift(
+        msg = (
             f"{ds.slug}: portal states licence '{licence.get('id')}' ({licence.get('title')}) "
             f"but the register says {ds.licence.id}; review before publishing"
         )
+        raise LicenceDrift(msg)
 
 
 def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
     """Fetch one dataset into the store. Returns the new manifest, or None if unchanged."""
     if ds.source.adapter not in ADAPTERS:
-        raise RuntimeError(f"{ds.slug}: no adapter '{ds.source.adapter}'")
+        msg = f"{ds.slug}: no adapter '{ds.source.adapter}'"
+        raise RuntimeError(msg)
     data, m, licence = ADAPTERS[ds.source.adapter](ds, store_dir)
     # Every version records where and when its licence was read, so the record can be audited.
     for k in ("read_from", "read_at"):
         if not licence.get(k):
-            raise FetchError(f"{ds.slug}: the {ds.source.adapter} adapter did not record {k}")
+            msg = f"{ds.slug}: the {ds.source.adapter} adapter did not record {k}"
+            raise FetchError(msg)
     check_licence(ds, licence)
     if data is None:
         return None
@@ -1876,13 +1917,15 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
         return None
     # Portals sometimes serve an export with its header and nothing else for a while.
     if n == 0 and existing:
-        raise FetchError(f"{ds.slug}: the portal served no rows; the newest version has some")
+        msg = f"{ds.slug}: the portal served no rows; the newest version has some"
+        raise FetchError(msg)
     if misfit:
         # Held here, so one release that outgrows a declared INT32 field never stops a deploy.
-        raise FetchError(
+        msg = (
             f"{ds.slug}: {'; '.join(misfit)}; take the field out of int32 before this version "
             "is stored"
         )
+        raise FetchError(msg)
     if ds.source.feed:
         m = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
         if m is None:

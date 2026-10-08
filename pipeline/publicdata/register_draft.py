@@ -67,14 +67,16 @@ def portal_for(url: str) -> tuple[catalogue.Portal, str, str]:
     """The CKAN portal, package name and any resource id a dataset URL names."""
     hit = locate(url)
     if not hit or hit[1] != "name":
-        raise DraftError(f"{url} does not name a dataset on a portal page")
+        msg = f"{url} does not name a dataset on a portal page"
+        raise DraftError(msg)
     host, _, name = hit
     portal = next(
         (p for p in catalogue.PORTALS if p.host.removeprefix("www.") == host and p.kind == "ckan"),
         None,
     )
     if portal is None:
-        raise DraftError(f"{host} is not a CKAN portal the catalogue reads")
+        msg = f"{host} is not a CKAN portal the catalogue reads"
+        raise DraftError(msg)
     m = re.search(r"/resource/([0-9a-f-]{36})", url)
     return portal, name, m.group(1) if m else ""
 
@@ -139,13 +141,15 @@ def sample_table(data: bytes, kind: str, cut: bool, sheet: str = "", header_row:
     try:
         return _sample_table(data, kind, cut, sheet, header_row)
     except UNFIT as e:
-        raise DraftError(f"the file could not be read as {kind.upper()}: {e}") from e
+        msg = f"the file could not be read as {kind.upper()}: {e}"
+        raise DraftError(msg) from e
 
 
 def _sample_table(data: bytes, kind: str, cut: bool, sheet: str, header_row: int):
     if kind in ("xlsx", "xls"):
         if cut:
-            raise DraftError("the workbook is larger than a draft reads; draft it by hand")
+            msg = "the workbook is larger than a draft reads; draft it by hand"
+            raise DraftError(msg)
         if kind == "xls":
             data = xls_to_xlsx(data)
         return read_xlsx(data, sheet, header_row), "xlsx"
@@ -198,20 +202,22 @@ def draft(
     portal, name, in_url = portal_for(url)
     pkg = catalogue.get_json(s, f"{portal.api}/package_show", {"id": name})
     if not pkg.get("success"):
-        raise DraftError(f"{portal.host}: package_show found no dataset {name}")
+        msg = f"{portal.host}: package_show found no dataset {name}"
+        raise DraftError(msg)
     p = pkg["result"]
     want = resource or in_url
     tabular = [r for r in p.get("resources") or [] if (r.get("format") or "").upper() in TABULAR]
     res = next((r for r in p["resources"] if r["id"] == want), None) if want else None
     if want and res is None:
-        raise DraftError(f"resource {want} is not in {name}")
+        msg = f"resource {want} is not in {name}"
+        raise DraftError(msg)
     if res is not None and (res.get("format") or "").upper() not in TABULAR:
-        raise DraftError(
-            f"resource {want} is {res.get('format') or 'of no stated format'}, not CSV or Excel"
-        )
+        msg = f"resource {want} is {res.get('format') or 'of no stated format'}, not CSV or Excel"
+        raise DraftError(msg)
     if res is None:
         if not tabular:
-            raise DraftError(f"{name} has no CSV or Excel resource")
+            msg = f"{name} has no CSV or Excel resource"
+            raise DraftError(msg)
         res = next((r for r in tabular if r["format"].upper() == "CSV"), tabular[0])
     notes = []
     if len(tabular) > 1:
@@ -336,6 +342,7 @@ def to_yaml(entry: dict) -> str:
 def write(register_dir: Path, slug: str, text: str) -> Path:
     path = register_dir / f"{slug}.yaml"
     if path.exists():
-        raise DraftError(f"{path.name} already exists")
+        msg = f"{path.name} already exists"
+        raise DraftError(msg)
     path.write_text(text, encoding="utf-8")
     return path

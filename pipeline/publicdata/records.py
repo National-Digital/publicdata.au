@@ -122,7 +122,8 @@ class Records:
             return _affinity(value, "TEXT")
         v = _affinity(value, "NUMERIC")
         if isinstance(v, str):
-            raise ValueError(f"{name} holds numbers, so it cannot be compared with {value!r}")
+            msg = f"{name} holds numbers, so it cannot be compared with {value!r}"
+            raise ValueError(msg)
         return v
 
     def execute(self, sql: str, params=()) -> Records:

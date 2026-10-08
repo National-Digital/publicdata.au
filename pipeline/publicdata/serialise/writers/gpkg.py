@@ -92,7 +92,8 @@ def write_gpkg(tbl: Table, header: dict, path: Path) -> None:
     g = ds.geometry
     srs = int(str(g.get("crs", "EPSG:7844")).split(":")[-1])
     if srs not in GPKG_SRS:
-        raise ValueError(f"{ds.slug}: no GeoPackage definition for EPSG:{srs}")
+        msg = f"{ds.slug}: no GeoPackage definition for EPSG:{srs}"
+        raise ValueError(msg)
     lon, lat = g["lon"], g["lat"]
     names = [f.name for f in ds.fields]
     cols = [f'"{f.name}" {SQLITE_TYPES[f.type]}' for f in ds.fields]

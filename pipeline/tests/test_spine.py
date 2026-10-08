@@ -232,7 +232,8 @@ def test_the_spine_needs_its_extension_installed_not_fetched_at_build(monkeypatc
             return self
 
         def load_extension(self, name):
-            raise duckdb.IOException("not installed")
+            msg = "not installed"
+            raise duckdb.IOException(msg)
 
     monkeypatch.setattr(duckdb, "connect", lambda *a, **k: Con())
     with pytest.raises(spine.SpineError, match="spine install"):

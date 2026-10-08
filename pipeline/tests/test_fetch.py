@@ -75,7 +75,8 @@ def test_one_failing_dataset_does_not_stop_the_others(monkeypatch, capsys):
 
     def fake(ds, store_dir):
         if ds.slug == "qld-road-casualties":
-            raise f.FetchError("qld-road-casualties: returned no bytes")
+            msg = "qld-road-casualties: returned no bytes"
+            raise f.FetchError(msg)
 
     monkeypatch.setattr(f, "fetch", fake)
     assert cli.main(["fetch", "qld-road-casualties", "qld-road-crash-factors"]) == 0
@@ -111,7 +112,8 @@ def test_new_versions_are_grouped_by_government_for_their_own_pull_requests(monk
 
     def fake(ds, store_dir):
         if ds.slug == "qld-road-crash-factors":
-            raise f.FetchError("qld-road-crash-factors: returned no bytes")
+            msg = "qld-road-crash-factors: returned no bytes"
+            raise f.FetchError(msg)
 
         class M:
             version, bytes, encoding, sha256 = "2026-10-01", 1, "utf-8", "0" * 64
@@ -269,7 +271,8 @@ class _Session:
         for key, fn in self.table.items():
             if url.startswith(key):
                 return fn(params or {})
-        raise AssertionError(f"unexpected url {url}")
+        msg = f"unexpected url {url}"
+        raise AssertionError(msg)
 
 
 def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):

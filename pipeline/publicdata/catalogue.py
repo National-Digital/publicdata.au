@@ -158,10 +158,11 @@ def get_json(s: requests.Session, url: str, params: dict | None = None, **kw):
     try:
         return r.json()
     except ValueError:
-        raise PortalError(
+        msg = (
             f"{url}: HTTP {r.status_code}, {r.headers.get('Content-Type') or 'no content type'}, "
             f"{len(r.content)} bytes, not JSON: {r.content[:120]!r}"
-        ) from None
+        )
+        raise PortalError(msg) from None
 
 
 # CKAN's default licence register, by title. Checked before any pattern so a title such as
@@ -468,7 +469,8 @@ def ods(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int
         )
         total = res["total_count"]
         if total > 10_000:
-            raise PortalError(f"{portal.host}: {total} datasets is past the paging limit")
+            msg = f"{portal.host}: {total} datasets is past the paging limit"
+            raise PortalError(msg)
         for x in res["results"]:
             # A dataset federated from another portal carries that portal's name after an @.
             if "@" in x["dataset_id"]:
@@ -602,10 +604,11 @@ def harvest(
             recs, dropped = HARVESTERS[p.kind](p, s, log)
         except (requests.RequestException, PortalError, KeyError, ValueError, TypeError) as e:
             if previous is None and previous_version:
-                raise PortalError(
+                msg = (
                     f"{p.host} could not be read and the {previous_version} snapshot is not in the "
                     "store to carry its records forward; run `publicdata store pull --only catalogue`"
-                ) from e
+                )
+                raise PortalError(msg) from e
             kept = [r for r in previous or [] if r["portal"] == p.code]
             records += kept
             stats[p.code] = {

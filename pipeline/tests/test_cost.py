@@ -249,7 +249,8 @@ def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
 
     def prober(d):
         if d.slug not in sized:
-            raise cost.Unsized("the socrata adapter's source is not sized ahead of a fetch")
+            msg = "the socrata adapter's source is not sized ahead of a fetch"
+            raise cost.Unsized(msg)
         return cost.Sized(sized[d.slug])
 
     out = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"probed", "new", "moved"}),
@@ -308,7 +309,8 @@ def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
     assert (big.bytes_per_version, big.basis) == (14 * GB, "estimate")
 
     def lost_host(d):
-        raise cost.Unsized("the source could not be read (IncompleteRead)")
+        msg = "the source could not be read (IncompleteRead)"
+        raise cost.Unsized(msg)
 
     # A moved source the probe cannot size stays unknown and fails closed.
     lost = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), frozenset({"crime"}),
@@ -533,7 +535,8 @@ def test_the_gate_fails_a_changed_entry_over_budget(tmp_path):
     assert cost.run(changed={"small"}, rows={}, **run) == 0
 
     def never():
-        raise AssertionError("an entry within budget needs no approval")
+        msg = "an entry within budget needs no approval"
+        raise AssertionError(msg)
 
     assert cost.run(changed={"small"}, approve=never, rows={}, **run) == 0
     # A fetch PR changes no entry, so an entry already over budget cannot block it.
@@ -636,7 +639,8 @@ class Host:
         self.calls += 1
         if self.drops:
             self.drops -= 1
-            raise http.client.IncompleteRead(b"", 10)
+            msg = b""
+            raise http.client.IncompleteRead(msg, 10)
         n = len(self.body)
         if req.get_method() == "HEAD":
             return _Resp(200, {"Content-Length": str(n), "Content-Type": "application/zip"}, b"")

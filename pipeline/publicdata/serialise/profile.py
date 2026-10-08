@@ -223,7 +223,8 @@ def write(
     """
     if lay.get("profile") != VERSION:
         # A version keeps the profile it was published under, so a later one keeps this writer.
-        raise ValueError(f"no writer for Parquet profile {lay.get('profile')!r}")
+        msg = f"no writer for Parquet profile {lay.get('profile')!r}"
+        raise ValueError(msg)
     sort, key = lay.get("sort", ()), lay.get("key", ())
     if perm is None:
         perm = permutation(t, sort, key)

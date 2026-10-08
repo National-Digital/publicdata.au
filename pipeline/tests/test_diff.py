@@ -50,7 +50,8 @@ def _reference(a, b):
         for row in iter_rows(json_view(t)):
             k = tuple(row[c] for c in key)
             if k in out:
-                raise ValueError(f"key {key} is not unique: {k} appears twice")
+                msg = f"key {key} is not unique: {k} appears twice"
+                raise ValueError(msg)
             out[k] = hashlib.sha256(
                 json.dumps(row, sort_keys=True, default=str).encode()
             ).hexdigest()

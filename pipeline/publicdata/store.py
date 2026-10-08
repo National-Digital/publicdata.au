@@ -107,7 +107,9 @@ def write(store: Path, m: Manifest, data: bytes) -> Path:
 def verify(store: Path, m: Manifest) -> None:
     p = source_path(store, m)
     if not p.exists():
-        raise FileNotFoundError(f"{p} is missing; run `publicdata store pull {m.dataset}`")
+        msg = f"{p} is missing; run `publicdata store pull {m.dataset}`"
+        raise FileNotFoundError(msg)
     got = sha256_file(p)
     if got != m.sha256:
-        raise ValueError(f"{p}: sha256 {got} does not match manifest {m.sha256}")
+        msg = f"{p}: sha256 {got} does not match manifest {m.sha256}"
+        raise ValueError(msg)

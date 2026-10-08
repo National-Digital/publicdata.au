@@ -187,7 +187,8 @@ def build_version(
         from .spine import enrich
 
         if store_dir is None:
-            raise ValueError(f"{ds.slug}: joining the place spine needs the store")
+            msg = f"{ds.slug}: joining the place spine needs the store"
+            raise ValueError(msg)
         tbl = enrich(tbl, store_dir, REGISTER_DIR)
     tbl = _sorted_once(tbl, m.parquet)
     vdir = out / "d" / ds.slug / "v" / m.version
@@ -206,7 +207,8 @@ def build_version(
         gone, measured, written = _cap(tbl, ds, record, hdr, vdir)
     fmts = formats_for(tbl.rows, geo_kind(ds), gone)
     if "ndjson" not in fmts:
-        raise ValueError("every build writes data.ndjson, which the dataset page reads back")
+        msg = "every build writes data.ndjson, which the dataset page reads back"
+        raise ValueError(msg)
     write_formats(tbl, [f for f in fmts if f not in written], hdr, vdir)
     query = _query_copy(tbl, hdr(tbl.rows, "data.parquet"), vdir, out)
     partitions = write_partitions(tbl, hdr, vdir)
@@ -487,7 +489,8 @@ def version_key(
         from .spine import spine_versions
 
         if store_dir is None:
-            raise ValueError(f"{ds.slug}: a spine-joined version's key needs the store")
+            msg = f"{ds.slug}: a spine-joined version's key needs the store"
+            raise ValueError(msg)
         layers = spine_versions(ds.enrich, store_dir, REGISTER_DIR)
         return cache.key(entry_key(ds), m.to_json(), layers, *extra, "version")
     return cache.key(entry_key(ds), m.to_json(), *extra, "version")

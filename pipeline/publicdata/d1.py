@@ -281,9 +281,10 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
     register = f"INSERT OR REPLACE INTO _versions SELECT {values} WHERE {' AND '.join(holds)};"
     if len(register.encode()) > MAX_STATEMENT:
         # Raised once every row is read and before any part is written.
-        raise TooWide(
+        msg = (
             f"its registration check is {len(register.encode()):,} bytes, over D1's statement limit"
         )
+        raise TooWide(msg)
     yield "register", register, 0
 
 
@@ -305,14 +306,16 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict
     the row is the `rowid`th. Records the row's bytes in `wide` for the check at registration.
     """
     if sum(_raw_size(v) for v in row) > MAX_ROW:
-        raise TooWide(f"row {rowid} is larger than D1 holds")
+        msg = f"row {rowid} is larger than D1 holds"
+        raise TooWide(msg)
     lits = [literal(v) for v in row]
     later = []
     for i in sorted(range(len(row)), key=lambda i: -len(lits[i].encode())):
         if len(head.encode()) + sum(len(x.encode()) for x in lits) + len(lits) + 2 <= MAX_STATEMENT:
             break
         if not isinstance(row[i], (str, bytes)):
-            raise TooWide(f"row {rowid} is too long for one statement")
+            msg = f"row {rowid} is too long for one statement"
+            raise TooWide(msg)
         lits[i] = "''" if isinstance(row[i], str) else "X''"
         later.append(i)
     yield "insert", head + "(" + ",".join(lits) + ");", 1
@@ -380,7 +383,8 @@ def rows_written(text: str) -> int:
     """A count of rows as a dispatch input gives it: 10000000, 10_000,000, 10M, 500k or 1G."""
     m = re.fullmatch(r"\s*(\d[\d_,]*)\s*([kKmMgG]?)\s*", text or "")
     if not m:
-        raise ValueError(f"{text!r} is not a count of rows, such as 10000000 or 10M")
+        msg = f"{text!r} is not a count of rows, such as 10000000 or 10M"
+        raise ValueError(msg)
     n = int(m[1].replace("_", "").replace(",", ""))
     return n * {"": 1, "k": 10**3, "m": 10**6, "g": 10**9}[m[2].lower()]
 
@@ -721,7 +725,8 @@ class Wrangler:
         except ValueError:
             out = {}
         if r.returncode != 0 or isinstance(out, dict):
-            raise RuntimeError(f"D1 query failed: {sql[:80]}: {r.stdout[:300]} {r.stderr[:300]}")
+            msg = f"D1 query failed: {sql[:80]}: {r.stdout[:300]} {r.stderr[:300]}"
+            raise RuntimeError(msg)
         return [row for part in out for row in part.get("results", [])]
 
 
@@ -742,7 +747,8 @@ def _ask(db, sql: str) -> list[dict]:
             if _absent(e) or i == ASKS - 1:
                 raise
             time.sleep(ASK_DELAY)
-    raise AssertionError("unreachable")
+    msg = "unreachable"
+    raise AssertionError(msg)
 
 
 def _registry(db) -> dict[tuple[str, str], dict]:
@@ -768,7 +774,8 @@ def _count(db, tbl: str) -> int | None:
             return None
         raise Unknown(str(e)) from e
     except (LookupError, TypeError, ValueError) as e:
-        raise Unknown(f"no count for {tbl}: {e}") from e
+        msg = f"no count for {tbl}: {e}"
+        raise Unknown(msg) from e
 
 
 def holds(db, tbl: str, expected: int) -> bool:
@@ -959,7 +966,8 @@ class _Budget:
     def reserve(self, j: Job, need: int) -> None:
         with self.lock:
             if not j.first and self.spent + need > self.cap:
-                raise _Defer(f"{self.spent:,} of the {self.cap:,} rows written already spent")
+                msg = f"{self.spent:,} of the {self.cap:,} rows written already spent"
+                raise _Defer(msg)
             self.spent += need
             j.charged += need
 

@@ -57,9 +57,8 @@ INT32 = 2**31
 
 def _need_node_modules() -> None:
     if not (NODE_MODULES / "@perspective-dev" / "viewer" / "package.json").exists():
-        raise SystemExit(
-            "The explorer needs its browser libraries: run `npm ci` at the repository root."
-        )
+        msg = "The explorer needs its browser libraries: run `npm ci` at the repository root."
+        raise SystemExit(msg)
 
 
 def _extension(name: str, sha: str) -> bytes:
@@ -72,7 +71,8 @@ def _extension(name: str, sha: str) -> bytes:
         with urllib.request.urlopen(req, timeout=120) as r:
             data = r.read()
         if hashlib.sha256(data).hexdigest() != sha:
-            raise SystemExit(f"DuckDB {name} extension does not match its pinned SHA-256")
+            msg = f"DuckDB {name} extension does not match its pinned SHA-256"
+            raise SystemExit(msg)
         p.parent.mkdir(parents=True, exist_ok=True)
         # A parallel build may fetch the same file, so each writes its own and swaps it in whole.
         fd, tmp = tempfile.mkstemp(prefix=p.name + ".", dir=p.parent)
@@ -81,7 +81,8 @@ def _extension(name: str, sha: str) -> bytes:
         os.replace(tmp, p)
     data = p.read_bytes()
     if hashlib.sha256(data).hexdigest() != sha:
-        raise SystemExit(f"cached DuckDB {name} extension does not match its pinned SHA-256")
+        msg = f"cached DuckDB {name} extension does not match its pinned SHA-256"
+        raise SystemExit(msg)
     return data
 
 

@@ -208,7 +208,8 @@ class FakeHub:
 
     def publish(self, e, work, fetch):
         if self.fail:
-            raise RuntimeError("boom")
+            msg = "boom"
+            raise RuntimeError(msg)
         fetch(e.files["parquet"], work / "data.parquet")
         assert (work / "data.parquet").read_bytes() == b"PAR1"
         self.published.append(e.version)
@@ -382,7 +383,8 @@ def test_a_failed_draft_cleanup_never_hides_the_original_error(tmp_path):
 
     def flaky(method, url, timeout=None, **kw):
         if method == "DELETE":
-            raise ConnectionError("network down")
+            msg = "network down"
+            raise ConnectionError(msg)
         return real(method, url, timeout=timeout, **kw)
 
     z.http.request = flaky
@@ -838,7 +840,8 @@ class FakeSiteHttp:
 
             def raise_for_status(self):
                 if status >= 400:
-                    raise requests.HTTPError(f"{status} for {url}")
+                    msg = f"{status} for {url}"
+                    raise requests.HTTPError(msg)
 
             def json(self):
                 return body
