@@ -1,0 +1,17 @@
+linters: all_linters(
+    packages = "lintr",
+    # The repository's Python sets 100 too.
+    line_length_linter(100L),
+    # The paths this package pastes are URLs, which file.path() is not for.
+    paste_linter(allow_file_path = "always"),
+    # structure() is how the package builds its S3 objects and conditions.
+    undesirable_function_linter(
+      fun = modify_defaults(defaults = default_undesirable_functions, structure = NULL)
+    ),
+    # These read URL paths and MIME types as file paths.
+    absolute_path_linter = NULL,
+    nonportable_path_linter = NULL,
+    # The package needs R 4.1, where stringsAsFactors is FALSE by default.
+    strings_as_factors_linter = NULL
+  )
+encoding: "UTF-8"
