@@ -275,9 +275,11 @@ This site is the version history the portals do not keep. The archive role has i
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
-- Raw bytes are kept for every version in append-only object storage with versioning on, and
-  a `history` branch in git holds every manifest and diff report, so the archive can be
-  rebuilt from either.
+- Raw bytes are kept for every version in the R2 bucket `publicdata-raw`, and a `history`
+  branch in git holds every manifest and diff report, so the archive can be rebuilt from
+  either. R2 keeps no earlier copies of an object, so the push keeps the bucket append-only:
+  `publicdata store push` skips any object that already exists under a version whose manifest
+  is committed, and it takes no option to replace one.
 - Any two versions can be compared: `/d/<slug>/diff/<a>..<b>.json` lists added, removed and
   changed rows by the declared key, and field-level schema differences. `changes.json` is
   the same for consecutive pairs.
