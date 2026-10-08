@@ -175,7 +175,7 @@ tr.closed td a{color:var(--muted)}
 .toast.show{opacity:1}
 @media (prefers-reduced-motion: reduce){.toast{transition:none}}
 .files{list-style:none;padding:0;margin:12px 0 0;display:grid;gap:6px;font-size:0.9062rem}
-.files li{display:flex;gap:12px;justify-content:space-between;align-items:center;min-height:2.75rem;border-bottom:1px solid var(--rule-soft);padding:2px 0}.files li a{display:inline-flex;align-items:center;min-height:2.75rem}
+.files li{display:flex;gap:12px;justify-content:space-between;align-items:center;min-height:2.75rem;border-bottom:1px solid var(--rule-soft);padding:2px 0}.files li a{display:inline-flex;align-items:center;min-height:2.75rem;flex:none}
 .files li span{color:var(--muted)}
 .faq details{border-bottom:1px solid var(--rule-soft);padding:10px 0}
 .faq summary{cursor:pointer;font-weight:500;font-size:1rem;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px}
