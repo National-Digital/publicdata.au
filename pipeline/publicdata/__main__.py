@@ -589,23 +589,23 @@ LGA_CODE_DIGITS = 5
 VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
-def cmd_spine_install(args) -> int:
-    from .extension import install
+def cmd_spine_install(_args: argparse.Namespace) -> int:
+    from .extension import install  # noqa: PLC0415 - CLI start-up
 
     install()
     print("spine: DuckDB spatial extension installed")
     return 0
 
 
-def cmd_spine_mirror(args) -> int:
-    from .extension import mirror
+def cmd_spine_mirror(args: argparse.Namespace) -> int:
+    from .extension import mirror  # noqa: PLC0415 - CLI start-up
 
     pin = mirror(Path(args.pin))
     print(f"spine: pinned {pin['url']} ({pin['sha256']})")
     return 0
 
 
-def cmd_dist_push(args) -> int:
+def cmd_dist_push(args: argparse.Namespace) -> int:
     from .r2 import check_sources, dated_file, push  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
     from .serialise.profile import layout  # noqa: PLC0415 - CLI start-up
@@ -635,9 +635,15 @@ def cmd_dist_push(args) -> int:
     return 0
 
 
-def cmd_checksums(args) -> int:
-    from .checksums import KEY, slugs_in, slugs_in_bucket, update, write_subjects
-    from .r2 import client
+def cmd_checksums(args: argparse.Namespace) -> int:
+    from .checksums import (  # noqa: PLC0415 - CLI start-up
+        KEY,
+        slugs_in,
+        slugs_in_bucket,
+        update,
+        write_subjects,
+    )
+    from .r2 import client  # noqa: PLC0415 - CLI start-up
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
@@ -666,7 +672,11 @@ def cmd_checksums(args) -> int:
     # A dated file changes only under a replace, which writes the list again. Anything else
     # breaks that rule, so it is reported and the version's list keeps what it was first given.
     for key in changed:
-        slug, version, _ = KEY.match(key).groups()
+        # update names only keys under d/<slug>/v/<date>/, which KEY matches.
+        m = KEY.match(key)
+        if m is None:
+            continue
+        slug, version, _ = m.groups()
         prefix = f"d/{slug}/v/{version}/"
         print(
             f"::warning::{key} was written after {prefix}SHA256SUMS, outside a replace. "
@@ -680,7 +690,7 @@ def cmd_checksums(args) -> int:
     return 0
 
 
-def cmd_purge(args) -> int:
+def cmd_purge(args: argparse.Namespace) -> int:
     from .edge import purge, with_answers  # noqa: PLC0415 - CLI start-up
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]

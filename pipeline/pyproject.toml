@@ -84,11 +84,11 @@ convention = "google"
   "S603",
 ]
 "tests/test_{brand,cost,r2}.py" = ["S607"]
-# The fake S3 client takes boto3's keyword names.
-"tests/test_r2.py" = ["N803"]
+# The fake S3 clients take boto3's keyword names.
+"tests/test_{checksums,r2}.py" = ["N803"]
 # The command line, the commands it hands to (gate.main, cost.run, verify.run) and the modules run
 # with python -m report to the terminal.
-"publicdata/{__main__,cost,dbcheck,gate,smithery,tdqs,verify}.py" = ["T201"]
+"publicdata/{__main__,checksums,cost,dbcheck,extension,gate,smithery,tdqs,verify}.py" = ["T201"]
 # SQL is built from table and column names the register declares, quoted, with each value bound
 # as a parameter or written by a literal helper. These modules write the DuckDB, SQLite and D1
 # statements, and their tests read them back.

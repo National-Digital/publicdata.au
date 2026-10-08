@@ -116,7 +116,7 @@ def is_spine(source: str) -> bool:
     return source.startswith(SOURCE_PREFIX)
 
 
-def connect():
+def connect() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     con.execute("SET enable_progress_bar = false")
     # Each connection is held to a share of the machine, since the build opens several in turn

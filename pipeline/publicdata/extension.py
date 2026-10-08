@@ -14,6 +14,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from .records import one_row
 from .store import sha256_file
 
 PIN = Path(__file__).with_name("spatial-extension.json")
@@ -25,13 +26,16 @@ class ExtensionError(RuntimeError):
     pass
 
 
-def _pin(path: Path = PIN) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+def _pin(path: Path = PIN) -> dict[str, str]:
+    pin: dict[str, str] = json.loads(path.read_text(encoding="utf-8"))
+    return pin
 
 
-def footer(path: Path) -> dict:
-    """The build, DuckDB release and platform a DuckDB extension file declares in its footer,
-    which DuckDB itself reads (and signs) before it loads one."""
+def footer(path: Path) -> dict[str, str]:
+    """The build, DuckDB release and platform a DuckDB extension file declares in its footer.
+
+    DuckDB itself reads (and signs) the footer before it loads an extension.
+    """
     with path.open("rb") as f:
         f.seek(-512, os.SEEK_END)
         meta = f.read(256)
@@ -46,7 +50,7 @@ def _gunzip(src: Path, dest: Path) -> Path:
 
 
 def _download(url: str, dest: Path) -> None:
-    import requests
+    import requests  # noqa: PLC0415 - imported when the command runs
 
     with requests.get(url, stream=True, timeout=300) as r:
         r.raise_for_status()
@@ -63,21 +67,25 @@ def _r2_credentials() -> bool:
 
 
 def install() -> None:
-    """Install the spatial extension build pinned in spatial-extension.json, checked against its
-    SHA-256 and DuckDB release, once, so that a build only loads it and stays offline. A runner
-    with the R2 credentials takes our copy; anyone else takes the same bytes from DuckDB."""
-    import duckdb
+    """Install the spatial extension build pinned in spatial-extension.json.
+
+    It is checked against its SHA-256 and DuckDB release, once, so that a build only loads it and
+    stays offline. A runner with the R2 credentials takes our copy; anyone else takes the same
+    bytes from DuckDB.
+    """
+    import duckdb  # noqa: PLC0415 - imported when the command runs
 
     pin = _pin()
     if pin["duckdb"] != duckdb.__version__ or f"/v{pin['duckdb']}/" not in pin["upstream"]:
-        raise ExtensionError(
+        msg = (
             f"{PIN.name} pins the spatial extension for DuckDB {pin['duckdb']}, and "
             f"DuckDB {duckdb.__version__} is installed; run the Spatial extension workflow"
         )
+        raise ExtensionError(msg)
     with tempfile.TemporaryDirectory() as tmp:
         gz = Path(tmp) / "spatial.duckdb_extension.gz"
         if _r2_credentials():
-            from .r2 import client
+            from .r2 import client  # noqa: PLC0415 - the deploy extra
 
             bucket, key = pin["url"].removeprefix("r2://").split("/", 1)
             client().download_file(bucket, key, str(gz))
@@ -87,28 +95,33 @@ def install() -> None:
             print(f"spine: fetched {pin['upstream']}")
         got = sha256_file(gz)
         if got != pin["sha256"]:
-            raise ExtensionError(
+            msg = (
                 f"the spatial extension fetched has SHA-256 {got}, and {PIN.name} pins "
                 f"{pin['sha256']}"
             )
+            raise ExtensionError(msg)
         ext = _gunzip(gz, Path(tmp) / "spatial.duckdb_extension")
         meta = footer(ext)
         want = {k: pin[k] for k in meta}
         if meta != want:
-            raise ExtensionError(f"the spatial extension fetched is {meta}, not {want}")
+            msg = f"the spatial extension fetched is {meta}, not {want}"
+            raise ExtensionError(msg)
         duckdb.connect().install_extension(str(ext), force_install=True)
 
 
-def mirror(pin_path: Path = PIN) -> dict:
-    """Copy the spatial extension DuckDB serves for the installed release to R2 and pin it,
-    after checking the download is byte for byte what DuckDB's own INSTALL fetches and loads."""
-    import duckdb
-    from botocore.exceptions import ClientError
+def mirror(pin_path: Path = PIN) -> dict[str, str]:
+    """Copy the spatial extension DuckDB serves for the installed release to R2 and pin it.
 
-    from .r2 import client
+    The download is first checked byte for byte against what DuckDB's own INSTALL fetches and
+    loads.
+    """
+    import duckdb  # noqa: PLC0415 - imported when the command runs
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
+
+    from .r2 import client  # noqa: PLC0415 - the deploy extra
 
     con = duckdb.connect()
-    platform = con.execute("PRAGMA platform").fetchone()[0]
+    platform: str = one_row(con.execute("PRAGMA platform"))[0]
     release = duckdb.__version__
     upstream = f"{REPOSITORY}/v{release}/{platform}/spatial.duckdb_extension.gz"
     with tempfile.TemporaryDirectory() as tmp:
@@ -119,16 +132,20 @@ def mirror(pin_path: Path = PIN) -> dict:
         own = duckdb.connect(config={"extension_directory": str(t / "duckdb")})
         own.install_extension("spatial")
         own.load_extension("spatial")
-        (installed,) = own.execute(
-            "SELECT install_path FROM duckdb_extensions() WHERE extension_name = 'spatial'"
-        ).fetchone()
+        (installed,) = one_row(
+            own.execute(
+                "SELECT install_path FROM duckdb_extensions() WHERE extension_name = 'spatial'"
+            )
+        )
         if sha256_file(ext) != sha256_file(Path(installed)):
-            raise ExtensionError(f"{upstream} is not the build DuckDB's own INSTALL fetched")
+            msg = f"{upstream} is not the build DuckDB's own INSTALL fetched"
+            raise ExtensionError(msg)
         meta = footer(ext)
         if (meta["duckdb"], meta["platform"]) != (release, platform) or not re.fullmatch(
             r"[0-9a-f]{7,40}", meta["build"]
         ):
-            raise ExtensionError(f"{upstream} declares {meta}")
+            msg = f"{upstream} declares {meta}"
+            raise ExtensionError(msg)
         sha = sha256_file(gz)
         key = f"_toolchain/duckdb/v{release}/{platform}/{meta['build']}/spatial.duckdb_extension.gz"
         s3 = client()
@@ -147,7 +164,8 @@ def mirror(pin_path: Path = PIN) -> dict:
             )
             print(f"spine: put {BUCKET}/{key}")
         elif held != sha:
-            raise ExtensionError(f"{BUCKET}/{key} holds other bytes ({held}); not replaced")
+            msg = f"{BUCKET}/{key} holds other bytes ({held}); not replaced"
+            raise ExtensionError(msg)
     pin = {
         "duckdb": release,
         "platform": platform,
