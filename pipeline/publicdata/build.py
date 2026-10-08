@@ -68,6 +68,12 @@ class VersionOut:
     # A capped version's formats_left_out, fixed when it was first built; None without the stamp.
     left_out: dict[str, str] | None = None
 
+    def size(self, rel: str) -> int | None:
+        """A file's size as a page or catalogue states it. A DuckDB file's length differs from
+        one write of the same rows to the next, so none is stated and two builds of one snapshot
+        agree."""
+        return None if rel == "data.duckdb" else self.files.get(rel)
+
 
 # What a cached version keeps: the small files a later build reads back, for the gate and the
 # dataset schema. The rest are written once to R2 by the build that made them, and the Parquet
@@ -111,14 +117,7 @@ def version_url(slug: str, version: str) -> str:
 
 
 def _size(p: Path) -> int:
-    """A file's size in bytes. A DuckDB file's size differs from one write to the next, since
-    its storage lays out blocks by sampling, so it is given to one significant figure and two
-    builds of one snapshot still agree."""
-    n = p.stat().st_size
-    if p.name != "data.duckdb" or n < 10:
-        return n
-    scale = 10 ** (len(str(n)) - 1)
-    return round(n / scale) * scale
+    return p.stat().st_size
 
 
 def _sizes(root: Path) -> dict[str, int]:
@@ -362,9 +361,8 @@ def _datapackage(dout: DatasetOut) -> dict:
                 "path": base + "data.duckdb",
                 "format": "duckdb",
                 "mediatype": MEDIA["duckdb"],
-                "bytes": v.files.get("data.duckdb"),
                 "schema": f"{base}schema.json",
-                "description": f"Every table and view in one DuckDB database. Attach it read-only over HTTPS or download it. {len(ds.tables)} tables. The size is to one significant figure.",
+                "description": f"Every table and view in one DuckDB database. Attach it read-only over HTTPS or download it. {len(ds.tables)} tables.",
             }
         )
         for t in ds.tables:
@@ -375,7 +373,7 @@ def _datapackage(dout: DatasetOut) -> dict:
                     "path": base + name,
                     "format": "parquet",
                     "mediatype": MEDIA["parquet"],
-                    "bytes": v.files.get(name),
+                    "bytes": v.size(name),
                     "schema": f"{base}schema.json#/tables/{t.name}",
                     "description": t.description or t.source,
                     "publicdata:rows": v.tables.get(t.name),
@@ -390,7 +388,7 @@ def _datapackage(dout: DatasetOut) -> dict:
                     "path": base + name,
                     "format": fmt,
                     "mediatype": MEDIA[fmt],
-                    "bytes": v.files.get(name),
+                    **({"bytes": n} if (n := v.size(name)) is not None else {}),
                     "schema": f"{base}schema.json",
                 }
             )
