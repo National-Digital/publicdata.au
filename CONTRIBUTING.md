@@ -398,6 +398,14 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   ignore names its code and gives its reason on the same line, as in
   `# type: ignore[attr-defined]  # the stubs lack Table.sort_by`, and mypy fails one that is no
   longer needed.
+- Neither package writes `Any`. mypy refuses it in an annotation, a decorated function, a generic
+  left without its parameters and a type from an unstubbed module. A value that arrives as Any,
+  from `json.loads`, `yaml.safe_load` or a library without stubs, is given its type once where it
+  is parsed: a TypedDict for a shape the code reads by key, the `JSON` alias in
+  `publicdata/jsontypes.py` for one whose keys vary, or `object` narrowed where it is used. mypy's
+  check of every Any expression stays off, since it would flag each such value before that
+  narrowing. The few places a library's own types leave no choice carry
+  `# type: ignore[explicit-any]` with the reason.
 - Before writing a helper, search for one that already exists. Follow the conventions of the
   neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
