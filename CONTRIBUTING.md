@@ -1,9 +1,9 @@
 # Contributing
 
-publicdata.au republishes Australian government open data as dated versions that never change.
-Contributions are welcome: a new dataset, a fix to an entry, a new output format, an adapter for a
-portal we cannot read yet, or a bug fix. This guide covers the routine changes step by step, then
-the rules every change is held to.
+publicdata.au republishes Australian government open data as dated versions that keep their
+content. Contributions are welcome: a new dataset, a fix to an entry, a new output format, an
+adapter for a portal we cannot read yet, or a bug fix. This guide covers the routine changes step
+by step, then the rules every change is held to.
 
 By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues
 privately as [SECURITY.md](SECURITY.md) describes.
@@ -47,9 +47,9 @@ python -m publicdata gate /tmp/pd
 The raw bytes of every published version are kept in a private bucket that only the deploy reads.
 The manifests in `store/` record each one's URL, hash and fetch time.
 
-The site's typeface is licensed to National Digital and is not in the repository. Without it,
-pages use system fonts and the social cards use Pillow's bundled Aileron; nothing else changes.
-`store pull` fetches it from the same private bucket for the deploy.
+The site's typeface, Random Grotesque, is in `pipeline/publicdata/static/fonts/` under its own
+licence, not the AGPL. Only styles from its free package may be added there; see
+`THIRD-PARTY-NOTICES.md`.
 
 ## Git hooks
 
@@ -165,6 +165,15 @@ The pipeline package in `pipeline/` is not published, so it makes no versioning 
    example query; if it reads poorly, set `example` and `chart` in the entry.
 6. Set `status: live` and open a pull request titled `data(register): add <what it is>`. Say where
    the licence evidence is and what you checked.
+7. The Storage cost check projects what the entry adds in a year: the bytes one version stores
+   in R2 times the versions its cadence implies, plus a rebuild of every stored version when an
+   edit changes what a version publishes, and the rows its versions write to D1, once for the
+   table and once for each index. An entry over 5 GB or 10,000,000 D1 rows a year fails it until
+   a maintainer other than the pull request's author adds the `cost-approved` label. The label
+   approves the commit it was added on: a later push, reopening the pull request or changing its
+   base needs it added again. The check runs the base branch's code against the pull request's
+   register, so a change to the check takes effect once it is merged. Run
+   `python -m publicdata cost <slug>` to see the figures first.
 
 A dataset that cannot be published yet keeps its entry at `backlog`, `assessing` or `blocked`, with
 the reason, so the site can say why.
@@ -172,9 +181,10 @@ the reason, so the site can say why.
 ## Change or fix a dataset entry
 
 Edit `register/<slug>.yaml` and open a `fix(register): ...` pull request. A field the publisher
-renamed, a resource that moved or a header that changed row are the usual causes. A change that
-would alter a published version's bytes is not possible: versions are immutable, so the fix applies
-from the next version. When the publisher changes its licence, the fetch stops that dataset until a
+renamed, a resource that moved or a header that changed row are the usual causes. The fix applies
+from the next version. When a fault in our conversion or a wrong attribution has already reached
+published versions, those versions are rebuilt as [docs/CORRECTIONS.md](docs/CORRECTIONS.md)
+describes. When the publisher changes its licence, the fetch stops that dataset until a
 person has read the new licence and updated `licence` and `licence.reviewed`.
 
 ## Manual sources
@@ -280,7 +290,7 @@ module the build imports leaves every published version as it was.
 ## Toolchain versions
 
 Every tool and library CI, the deploy and the fetch runner use is pinned to an exact version, and
-each version lives in one file that the workflows read:
+each version lives in one file that the workflows or the pipeline read:
 
 | What | File |
 |---|---|
@@ -293,16 +303,28 @@ each version lives in one file that the workflows read:
 | GitHub Actions | the commit SHA in each `uses:` |
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
 | R and its CRAN snapshot date | `.github/workflows/clients.yml` |
+| DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
 
 An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
-npm packages and the Actions; raise the others by hand. The Python version and the keyed
+npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed
 libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles) are in the build's cache key, so
 raising one rebuilds every version, about four hours on main. Merge such a pull request on a day
 with no data pull request due.
 
-DuckDB's spatial extension is the one exception: DuckDB serves it for each release and can replace
-it within one. The datasets that load it are keyed on the build installed, and every job of a
-deploy checks that it has the same build as the plan.
+DuckDB serves its spatial extension for each release and can replace it within one, so we keep a
+copy of the build we use in R2, under `_toolchain/` in `publicdata-raw`, named by the DuckDB
+release, the platform and the build. `spatial-extension.json` pins its URL and SHA-256.
+`python -m publicdata spine install` takes our copy when it has the R2 credentials, as the deploy
+does, and otherwise the same bytes from DuckDB, as CI and a working copy do. It stops when the hash
+differs or when the pin is for another DuckDB than the one installed. The datasets that load the
+extension are keyed on its build, and every job of a deploy checks that it has the same build as
+the plan.
+
+A raise of `duckdb` needs the extension for the new release. Once the pull request that raises it
+is open, a maintainer runs the Spatial extension workflow on main with that pull request's branch.
+It checks that the build DuckDB serves is the one DuckDB's own install fetches, copies it to R2 and
+commits the new pin to the branch. Until then the pull request's checks fail. A new build changes
+the key of every dataset that loads the extension, so those versions are built again.
 
 ## Licences that are not Creative Commons
 
@@ -313,17 +335,8 @@ such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 
 ## Withdraw a dataset or correct published files
 
-- When a publisher withdraws a source, the entry stays and the versions already published stay
-  where they are. Set the entry's status and the reason, and no new versions are made.
-- When a licence turns out not to allow publication, a maintainer withholds the dataset or the
-  affected columns, as `source_withheld` and the omitted fields do. The build stops making those
-  files and the site says why.
-- A legal takedown is the only time a published file is removed. It is recorded in `changes.json`
-  as a tombstone that keeps the manifest and hash.
-- To rebuild files a bug wrote wrongly, a maintainer runs the Deploy workflow with `replace` set
-  to the version prefixes, which also purges them from the edge cache. The pull request that fixed
-  the bug says which versions it affects and raises their rebuild number (see Change the build
-  code).
+[docs/CORRECTIONS.md](docs/CORRECTIONS.md) covers a correction from the report to the log, and a
+withdrawal, withholding or removal, which change what a version's URL serves.
 
 ## Change the API or the MCP tools
 
@@ -391,7 +404,8 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   the code and name of the area each point falls in, joined by location against each layer's newest version.
   The columns are marked as joined in `schema.json` with the layer version, the ABS attribution is in every
   file's header, and the published coordinates are never changed. The joins and tiles need DuckDB's spatial
-  extension, which `python -m publicdata spine install` fetches once so the build stays offline.
+  extension, which `python -m publicdata spine install` fetches once, as pinned in
+  `pipeline/publicdata/spatial-extension.json`, so the build stays offline.
 - Workbooks may be `.xlsx`, `.xlsm` or legacy `.xls`, which is converted cell for cell before it is read.
   A header that repeats a name numbers each repeat, `Count (2)`. In a stack, a field whose source is
   `(file)` holds the name of the file each row came from, which is often its period; `ckan-stack` stacks
@@ -417,7 +431,11 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   marked `register` or `rules`, so the picks can be read and the poor ones replaced. A register
   example that answers no rows fails the gate. `chart` sets what the yearly chart and the card's
   sparkline draw: `where` (the same form), `split` (a field, or `none`), `metric` and `label`,
-  each falling back to the example's.
+  each falling back to the example's, and `year`, the field that dates a row. A text `year` is
+  a financial year in any common form (`2018-19`, `2018–19`, `2018/19`, `2018-2019`, `FY201819`,
+  `FY18-19`, or `FY2019` for the year that ends in June 2019), and the chart names each bar as the
+  publisher wrote it. A value that is not a financial year is left out. `chart: none`
+  draws no chart, for a table with no year worth drawing.
 - `search_title` is the phrase a dataset's title tag targets and no two entries may share one;
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,
@@ -438,10 +456,10 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   fit 32 bits, such as a year, a count or a short identifier. A new version holding a larger
   value is held at its fetch, so leave out anything that can grow past 2,147,483,647.
 - A version keeps the `sort`, `lookup` and `int32` its fetch found, so an edit to them changes
-  the files of later versions and the query copies not yet written. A query copy already in R2
-  keeps the order it was written in, since its key names only the profile version; each copy
-  records its own order in its footer (`sorting_columns`), so a reader takes the order from the
-  file. None of the three applies to a `kind: database` entry.
+  the files of later versions and never a published one. The query copy of every version
+  follows the edit from the next deploy, which writes each copy again in R2. Each copy records
+  its own order in its footer (`sorting_columns`), so a reader takes the order from the file.
+  None of the three applies to a `kind: database` entry.
 - The fetch checks every `int32` field against a new version before it stores it, and holds the
   dataset with an error naming the field when a value does not fit. Before declaring `int32` on
   a field, run `python -m publicdata register validate`, which checks the stored versions whose

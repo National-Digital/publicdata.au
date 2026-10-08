@@ -3,6 +3,22 @@ title: Mineral production by commodity, Northern Territory, 2010-11 to 2018-19
 status: live
 topics:
 - economy
+example:
+  where: {financial_year: newest, commodity: {neq: [Total Minerals Value, Metallic Minerals Value, Gemstones Value, Non-Metallic Minerals Value]}}
+  group: commodity
+  metric: sum.amount_sold_aud
+  label: Dollars paid for each mineral sold in the newest financial year
+chart:
+  year: financial_year
+  where: {commodity: {neq: [Total Minerals Value, Metallic Minerals Value, Gemstones Value, Non-Metallic Minerals Value]}}
+  split: group
+  metric: sum.amount_sold_aud
+  label: Dollars paid for minerals sold
+sample:
+  where: {financial_year: newest, commodity: {neq: [Total Minerals Value, Metallic Minerals Value, Gemstones Value, Non-Metallic Minerals Value]}}
+  order: [amount_sold_aud.desc]
+  spread: none
+  label: The minerals sold in the newest financial year, the highest amount first, without the publisher's totals.
 order: 72
 publisher:
   name: Department of Mining and Energy

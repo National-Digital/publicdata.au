@@ -1,0 +1,107 @@
+Random Grotesque
+Copyright (c) 2023, RandomMaerks (Bao Nguyen) <rmforbusiness@gmail.com>
+https://randommaerks.gumroad.com/l/rm_randomgrotesque
+
+These files come from the free package "Package 1A [Desktop + Webfont] - 12 Free",
+update 2.1 (font version 2.000), licensed to National Digital under the RandomMaerks
+End-User License Agreement, License type "Commercial" (050424 RM-EULA Type-C),
+reproduced below.
+Clause 4.3 allows the free font software to be redistributed with attribution;
+this notice is that attribution. Paid Random Grotesque styles are not covered by
+clause 4.3 and must not be added here.
+
+The latest version of the agreement is at
+https://randommaerks.gumroad.com/p/rm-eula-type-c
+
+------------------------------------------------------------------------------
+
+RandomMaerks' End-User License Agreement
+LICENSE TYPE: COMMERCIAL
+Copyright (c) 2024, RandomMaerks (Bao Nguyen) (rmforbusiness@gmail.com)
+Date created: 06/09/2022
+Last modified: 05/04/2024
+
+This is a .pdf copy of the 05/04/24 version of RandomMaerks' End-User License
+Agreement, License type "Commercial". Please go to
+randommaerks.gumroad.com/p/rm-eula-type-c for the latest version of the
+RM-EULA Type-C.
+
+[A] INTRODUCTION
+
+This End-User License Agreement (EULA) is a legal agreement between 'you' as an
+end user ('the Licensee') and RandomMaerks ('the Licensor').
+
+This is License type "Commercial" of the RandomMaerks' End-User License Agreement
+last modified in April 5, 2024 and can be referred to as the "050424 RM-EULA
+Type-C".
+
+[B] DEFINITIONS
+
+- 'Font software' or 'font file(s)' refer to the set of files provided to the end
+  user. The font file formats are usually .ttf, .otf, .woff, or .woff2.
+- 'Authors' refers to whoever created or contributed to the font software.
+- 'Free' font software means a specific font software has been distributed for
+  free and without additional charges.
+- 'Paid' font software means a specific font software has been sold for a set
+  price.
+- If a statement doesn't include both the terms 'free' and 'paid', it means both
+  terms are mentioned.
+
+[C] TERMS
+
+By purchasing or downloading a product/package from RandomMaerks or their
+Authors, you must oblige to the following terms:
+
+[1] Usage
+1.1. You can use the font software to create graphical designs, such as logos,
+     mockups, and portfolios.
+1.2. You can use the font software to create physical products or designs for
+     the products, such as postcards, business cards, and signs.
+1.3. You can use the font software to create websites or website templates.
+1.4. You can use the font software to create mobile or desktop applications.
+1.5. You can use the font software to create digital or physical books,
+     newspapers, or magazines.
+1.6. You can use the font software to create advertisements.
+
+[2] Purpose of Use
+2.1. You must not use the font software to create designs or messages that
+     promotes discrimination against certain races, disabilities, skin colours,
+     genders, religions, etc.
+
+[3] Modification
+3.1. You may add or modify the vector outlines of the design using any software.
+3.2. You may not change the file extension of the font software.
+
+[4] Redistribution
+4.1. You must not re-sell the font software.
+4.2. You must not claim ownership of the font software.
+4.3. You may re-distribute the free font software. Attribution is required.
+4.4. You may not re-distribute the paid font software, unless given
+     RandomMaerks' or the Authors' consent.
+
+[D] TERMINATION
+
+If you fail to comply with or do not agree to the Terms above, you must remove
+all copies of the related font software from all devices.
+
+[E] WARRANTY AND LIABILITY
+
+The font software is provided 'as is' without a warranty of any kind, express or
+implied, including but not limited to any warranties of merchantability, fitness
+for a particular purpose and noninfringement of copyright, patent, trademark, or
+other rights.
+
+RandomMaerks and/or their Authors are not liable for any claims or damages,
+including general, special, indirect, incidental, or consequential damages,
+whether in an action of contract, tort or otherwise, arising from, out of the use
+or inability to use the font software or from other dealings in the font
+software.
+
+[F] ADDITIONAL KNOWLEDGE
+
+- The RM-EULA Type-C can change at any time, and previous customers/licensees
+  will be notified of the changes.
+- End users cannot choose which version of the RM-EULA Type-C to comply with.
+  They can only agree to, comply with, or disagree with the latest version.
+- Previous RM-EULA Type-C versions will become defective and void. However,
+  previous customers will not need to purchase an additional license.

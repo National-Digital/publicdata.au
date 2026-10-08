@@ -142,3 +142,4 @@ fields:
   description: Decimal degrees, WGS84, from the point geometry.
 note: Cells were typed and headers were made snake_case. The point geometry became longitude and
   latitude fields. Rows were left alone.
+rebuild: 1

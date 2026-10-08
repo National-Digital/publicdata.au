@@ -113,3 +113,4 @@ fields:
   null_values:
   - Facility closed
 note: Cells were typed and headers were made snake_case. Rows were left alone.
+rebuild: 1

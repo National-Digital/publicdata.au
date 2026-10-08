@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | r2 restore-gzip | hubs."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip | hubs | cost."""
 
 from __future__ import annotations
 
@@ -444,26 +444,39 @@ def cmd_d1(args) -> int:
     return 0
 
 
-def cmd_d1_load(args) -> int:
-    from .d1 import Wrangler, load
+def _rows_written(text: str) -> int:
+    import argparse
 
-    failed = load(Path(args.dir), Wrangler())
+    from .d1 import rows_written
+
+    try:
+        return rows_written(text or "0")
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
+def cmd_d1_load(args) -> int:
+    from .d1 import BUDGET, Wrangler, load
+
+    failed = load(
+        Path(args.dir),
+        Wrangler(),
+        budget=args.budget or BUDGET,
+        retry=set(args.retry.split()),
+        summary=Path(args.summary) if args.summary else None,
+    )
     print(f"d1 load: {failed} version(s) did not load")
     return 1 if failed else 0
 
 
 def cmd_store(args) -> int:
-    from .brand import FONTS
-    from .r2 import pull_fonts, pull_store, push
+    from .r2 import pull_store, push
 
     store_dir = Path(args.store)
     if args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
-        fonts = pull_fonts(FONTS)
-        print(
-            f"store pull: {n} file(s), {fonts} font(s), {len(cached)} version(s) already built in the cache"
-        )
+        print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
     else:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)
@@ -543,10 +556,18 @@ VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
 def cmd_spine_install(args) -> int:
-    from .spine import install
+    from .extension import install
 
     install()
     print("spine: DuckDB spatial extension installed")
+    return 0
+
+
+def cmd_spine_mirror(args) -> int:
+    from .extension import mirror
+
+    pin = mirror(Path(args.pin))
+    print(f"spine: pinned {pin['url']} ({pin['sha256']})")
     return 0
 
 
@@ -558,16 +579,21 @@ def cmd_dist_push(args) -> int:
         print(f"dist push: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
     from .r2 import check_sources
+    from .register import load
+    from .serialise.profile import layout
 
     # Before anything goes up, so a version whose source the site cannot serve is never published.
     found = check_sources([Path(args.large)])
+    expect = _absent(args.expect)
+    queries = (Path(args.large) / "_q").is_dir() or any(k.startswith("_q/") for k in expect)
     n = push(
         Path(args.large),
         "publicdata-dist",
         replace=tuple(args.replace),
         immutable=dated_file,
-        expect=_absent(args.expect),
+        expect=expect,
         include=dated_file if args.dated_only else lambda key: True,
+        layouts={ds.slug: layout(ds) for ds in load(REGISTER)} if queries else None,
     )
     print(
         f"dist push: {n} file(s){' (replacing under ' + ', '.join(args.replace) + ')' if args.replace else ''}"
@@ -588,10 +614,55 @@ def cmd_r2_restore_gzip(args) -> int:
     return 1 if t["failed"] else 0
 
 
+def cmd_checksums(args) -> int:
+    from .checksums import KEY, slugs_in, slugs_in_bucket, update, write_subjects
+    from .r2 import client
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"checksums: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    if not args.all and not args.root:
+        print("checksums: name the built trees with --root, or pass --all")
+        return 2
+    s3 = client()
+    slugs = slugs_in_bucket(s3) if args.all else slugs_in(Path(r) for r in args.root)
+    lists: dict[str, str] = {}
+    n, held, changed = update(
+        slugs,
+        replace=tuple(args.replace),
+        download=args.download,
+        s3=s3,
+        lists=lists,
+        every=args.resign,
+    )
+    print(f"checksums: {n} SHA256SUMS written over {len(slugs)} dataset(s)")
+    if args.subjects:
+        parts = write_subjects(lists, Path(args.subjects))
+        print(f"checksums: {len(lists)} list(s) to attest in {len(parts)} part(s)")
+    for prefix in held:
+        print(f"::warning::{prefix}SHA256SUMS not written: a file has no stored SHA-256")
+    # A dated file changes only under a replace, which writes the list again. Anything else
+    # breaks that rule, so it is reported and the version's list keeps what it was first given.
+    for key in changed:
+        slug, version, _ = KEY.match(key).groups()
+        prefix = f"d/{slug}/v/{version}/"
+        print(
+            f"::warning::{key} was written after {prefix}SHA256SUMS, outside a replace. "
+            "A dated version's files never change, so its list is left as it is"
+        )
+    if held:
+        print(
+            f"checksums: {len(held)} version(s) left without one; "
+            "run the Checksums workflow to hash their files from R2 and sign the lists"
+        )
+    return 0
+
+
 def cmd_purge(args) -> int:
     import os
 
-    from .edge import purge
+    from .edge import purge, with_answers
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
@@ -601,7 +672,7 @@ def cmd_purge(args) -> int:
     if not token:
         print("purge: CLOUDFLARE_PURGE_TOKEN is not set")
         return 2
-    print(f"purge: {purge(args.prefix, token)} prefix(es) purged from the edge")
+    print(f"purge: {purge(with_answers(args.prefix), token)} prefix(es) purged from the edge")
     return 0
 
 
@@ -799,6 +870,46 @@ def cmd_hubs(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_cost(args) -> int:
+    import datetime as dt
+
+    from . import cost
+    from .register import load
+
+    root = Path(args.root).resolve() if args.root else ROOT
+    register = root / "register"
+    changed, fresh, reshaped = set(args.slug), set(), {}
+    if args.base:
+        if links := cost.symlinks(root):
+            print(f"cost: the register may not hold symbolic links: {', '.join(links)}")
+            return 2
+        base, paths = cost.changed_paths(args.base, root)
+        entries = cost.changed_entries(register, paths, root)
+        priced = cost.costed(root, base, entries)
+        if same := sorted(set(entries) - priced):
+            print(f"cost: {', '.join(same)}: edited, but nothing the projection reads changed")
+        changed |= priced
+        fresh, reshaped = cost.entry_changes(root, base, {s: entries[s] for s in priced})
+    approve = None
+    if args.github_pr:
+        repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
+        approve = lambda: cost.approval(repo, args.github_pr, lambda p: cost._github(p, token))  # noqa: E731
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    return cost.run(
+        load(register),
+        Path(args.store),
+        args.catalog or cost.CATALOG,
+        changed,
+        today,
+        approved=args.approved,
+        probing=args.probe,
+        fresh=fresh,
+        summary=args.summary,
+        reshaped=reshaped,
+        approve=approve,
+    )
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -877,7 +988,35 @@ def main(argv=None) -> int:
         help="where a cached version's Parquet is read back from, as the site lays it out",
     )
     b.set_defaults(fn=cmd_build)
-    pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
+    ck = sub.add_parser("checksums", help="write SHA256SUMS beside each dated version in R2")
+    ck.add_argument(
+        "--root", action="append", default=[], help="a built tree whose datasets to cover; repeat"
+    )
+    ck.add_argument("--all", action="store_true", help="every dataset R2 holds, as a backfill")
+    ck.add_argument(
+        "--download",
+        action="store_true",
+        help="read and hash a file R2 stored without its SHA-256, instead of skipping its version",
+    )
+    ck.add_argument(
+        "--replace",
+        nargs="*",
+        default=[],
+        metavar="PREFIX",
+        help="versions a replace deploy rewrote, whose lists are made again from scratch",
+    )
+    ck.add_argument(
+        "--subjects", metavar="DIR", help="write the lists to attest here, 1.sha256 and on"
+    )
+    ck.add_argument(
+        "--resign",
+        action="store_true",
+        help="add every list left as it is to --subjects, to attest it again; no list is rewritten",
+    )
+    ck.set_defaults(fn=cmd_checksums)
+    pg = sub.add_parser(
+        "purge", help="purge replaced versions and their query API answers from the edge cache"
+    )
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
     pg.set_defaults(fn=cmd_purge)
     sh = sub.add_parser("shards", help="split the versions the cache cannot serve over build jobs")
@@ -956,6 +1095,16 @@ def main(argv=None) -> int:
     d1s.set_defaults(fn=cmd_d1)
     d1l = d1.add_parser("load", help="run the load files against D1, verify and retry")
     d1l.add_argument("--dir", required=True)
+    d1l.add_argument(
+        "--budget",
+        type=_rows_written,
+        default=0,
+        help="rows written this deploy may plan, such as 10M (0: the default)",
+    )
+    d1l.add_argument(
+        "--retry", default="", help="dataset slugs, or all, to load again past their failures"
+    )
+    d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])
@@ -1001,6 +1150,11 @@ def main(argv=None) -> int:
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
     ).set_defaults(fn=cmd_spine_install)
+    sm = sp.add_parser(
+        "mirror", help="copy the spatial extension for the installed DuckDB to R2 and pin it"
+    )
+    sm.add_argument("--pin", required=True, help="the spatial-extension.json to write")
+    sm.set_defaults(fn=cmd_spine_mirror)
     hb = sub.add_parser("hubs", help="copy each dataset's newest version to the data hubs")
     hb.add_argument("--site", default="https://publicdata.au")
     hb.add_argument("--hub", nargs="*", default=["huggingface", "zenodo", "kaggle"])
@@ -1015,6 +1169,30 @@ def main(argv=None) -> int:
         help="re-apply cards, page settings and notebooks to versions a hub already holds",
     )
     hb.set_defaults(fn=cmd_hubs)
+    co = sub.add_parser(
+        "cost", help="project each entry's storage growth and D1 writes and gate changed ones"
+    )
+    co.add_argument("slug", nargs="*", help="entries to gate, as well as those --base finds")
+    co.add_argument("--base", help="gate the register entries changed since this ref")
+    co.add_argument("--store", default=str(STORE))
+    co.add_argument(
+        "--root", help="the checkout whose register and history are read (default this one)"
+    )
+    co.add_argument("--catalog", help="a catalog.json path or URL (default the live site's)")
+    co.add_argument("--today", help="the date versions are counted back from (YYYY-MM-DD)")
+    co.add_argument(
+        "--approved", action="store_true", help="treat an over-budget entry as approved"
+    )
+    co.add_argument(
+        "--github-pr", type=int, help="read this pull request's cost-approved label from GitHub"
+    )
+    co.add_argument(
+        "--probe", action="store_true", help="size a new or moved source from its portal or host"
+    )
+    co.add_argument(
+        "--summary", help="append the Markdown table here (default GITHUB_STEP_SUMMARY)"
+    )
+    co.set_defaults(fn=cmd_cost)
     args = ap.parse_args(argv)
     return args.fn(args)
 

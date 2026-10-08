@@ -299,11 +299,16 @@ def test_the_search_index_holds_every_listed_record_and_loads_once_per_harvest(s
     assert states["served"] >= 1 and states["votable"] >= 1 and states["closed"] >= 1
     parts = catalogue_loads(path, ["2020-01-01"], tmp_path, "run1")
     sql = "".join(p.read_text() for p in parts)
-    tbl = f"v__catalogue_{version.replace('-', '')}"
+    tbl = json.loads((tmp_path / f"_catalogue@{version}.json").read_text())["tbl"]
+    assert tbl.startswith(f"v__catalogue_{version.replace('-', '')}_")
     assert f'CREATE VIRTUAL TABLE "{tbl}_fts" USING fts5' in sql
-    assert sql.index("INSERT OR REPLACE INTO _versions") < sql.index(
-        'DROP TABLE IF EXISTS "v__catalogue_20200101_fts"'
-    )
+    # The older index is dropped by the loader, only once this one is registered.
+    assert "20200101" not in sql
+    mem = sqlite3.connect(":memory:")
+    for p in parts:
+        mem.executescript(p.read_text())
+    (rows,) = mem.execute("SELECT rows FROM _versions WHERE tbl = ?", (tbl,)).fetchone()
+    assert rows == sum(states.values())
     assert catalogue_loads(path, [version], tmp_path / "again") == []
     home = (site / "backlog" / "index.html").read_text(encoding="utf-8")
     assert 'id="cat-search"' in home and '<option value="qld">Queensland</option>' in home

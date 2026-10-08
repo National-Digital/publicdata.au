@@ -31,7 +31,7 @@ build-backend = "setuptools.build_meta"
 include = ["publicdata*"]
 
 [tool.setuptools.package-data]
-publicdata = ["templates/*", "static/*", "static/fonts/*", "schemaorg.json", "api.json", "au_states.json"]
+publicdata = ["templates/*", "static/*", "static/fonts/*", "schemaorg.json", "api.json", "au_states.json", "spatial-extension.json"]
 
 [tool.ruff]
 line-length = 100

@@ -173,3 +173,4 @@ fields:
   source: CustomAlertMessage
   type: string
 note: Cells were typed and headers were made snake_case. Rows were left alone.
+rebuild: 1

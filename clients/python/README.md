@@ -54,7 +54,7 @@ of its values and None matches a blank or suppressed cell. The filters are `eq`,
 `is_null` and `not_`.
 
 Without `version=` an answer comes from the newest version and changes when the publisher
-releases again. Pass a date from `versions()` for an answer that never changes.
+releases again. Pass a date from `versions()` for an answer from that version alone.
 
 ## Whole tables
 
@@ -73,7 +73,8 @@ pyarrow. Parquet, CSV, CSV (gzip), NDJSON and DuckDB are on every version. Excel
 limits, and the version's page says why. Arrow files are only on versions fetched before the format
 change, whose manifest has no `caps` field.
 
-A version never changes once published, so a downloaded file can be kept and reused. Nothing is
+A version keeps its content once published, so a downloaded file can be kept and reused. A
+correction to a version is recorded in its notes, and `cache_clear()` removes the old copy. Nothing is
 kept unless you ask, with `cache=True` on a call or `PUBLICDATA_CACHE=1` for every call:
 
 ```python

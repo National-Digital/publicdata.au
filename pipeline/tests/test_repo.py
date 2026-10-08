@@ -10,6 +10,7 @@ CHECKS = {
     "ci.yml": "*",
     "clients.yml": {"python", "r"},
     "codeql.yml": "*",
+    "cost.yml": "*",
     "dco.yml": "*",
     "dependency-review.yml": "*",
     "pr-title.yml": "*",

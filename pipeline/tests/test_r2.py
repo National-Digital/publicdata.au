@@ -15,12 +15,14 @@ class FakeS3:
         self.etags = etags or {}
         self.puts = []
         self.heads = []
+        self.listed = []
 
     def get_paginator(self, name):
         fake = self
 
         class P:
             def paginate(self, Bucket, Prefix):
+                fake.listed.append(Prefix)
                 yield {
                     "Contents": [
                         {"Key": k, "ETag": f'"{fake.etags.get(k, "")}"'}
@@ -418,9 +420,13 @@ def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
         v.mkdir(parents=True)
         (v / "manifest.json").write_text(json.dumps(man))
     assert r2.source_keys(tmp_path) == {"d/x/v/2026-10-01/source.csv": "x/2026-10-01/source.csv"}
-    monkeypatch.setattr(r2, "client", lambda: FakeS3({"x/2026-10-01/source.csv"}))
+    held = FakeS3({"x/2026-10-01/source.csv"})
+    monkeypatch.setattr(r2, "client", lambda: held)
     assert r2.check_sources([tmp_path]) == 1
-    monkeypatch.setattr(r2, "client", lambda: FakeS3({"x/2026-09-01/source.csv"}))
+    # Only the published dataset's keys are listed, never the cache or the rest of the store.
+    assert held.listed == ["x/"]
+    other = {"x/2026-09-01/source.csv", "x-y/2026-10-01/source.csv"}
+    monkeypatch.setattr(r2, "client", lambda: FakeS3(other))
     with pytest.raises(SystemExit, match="d/x/v/2026-10-01/source.csv"):
         r2.check_sources([tmp_path])
 
@@ -758,3 +764,181 @@ def test_restore_gzip_deletes_a_matching_csv_gz_only_when_asked(tmp_path, monkey
     monkeypatch.setattr(r2, "client", lambda: other)
     r2.restore_gzip(apply=True, dedupe_csv_gz=True)
     assert other.deleted == []
+
+
+class Dist(Bucket):
+    """A bucket that answers byte ranges and lists each object's MD5, as R2 does for one part."""
+
+    def __init__(self):
+        super().__init__()
+        self.ops = []
+
+    def upload_file(self, path, bucket, key, ExtraArgs):
+        super().upload_file(path, bucket, key, ExtraArgs)
+        self.ops.append(("upload", key))
+
+    def put_object(self, Bucket, Key, Body, ContentType):
+        super().put_object(Bucket, Key, Body, ContentType)
+        self.etags[Key] = hashlib.md5(Body).hexdigest()
+        self.ops.append(("put", Key, Body))
+
+    def head_object(self, Bucket, Key):
+        super().head_object(Bucket, Key)
+        return {"ContentLength": len(self.bytes[Key]), "Metadata": {}}
+
+    def get_object(self, Bucket, Key, Range=None):
+        import io
+
+        a, b = (int(x) for x in Range.removeprefix("bytes=").split("-"))
+        self.ops.append(("get", Key))
+        return {"Body": io.BytesIO(self.bytes[Key][a : b + 1])}
+
+
+Q = "_q/t/2026-01-02.parquet"
+MARK = "_q/t/2026-01-02.layout.json"
+
+
+def _lay(**kw):
+    from publicdata.serialise import profile
+
+    return {"profile": profile.VERSION, "sort": [], "key": ["id"], "lookup": [], "int32": []} | kw
+
+
+def _copy(path, lay):
+    import pyarrow as pa
+
+    from publicdata.serialise import profile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    t = pa.table({"id": [3, 1, 2], "year": [2024, 2023, 2024], "place": ["b", "a", "c"]})
+    profile.write(t, {}, path, lay)
+    return path
+
+
+def _held(tmp_path, lay, marked=True):
+    """A bucket holding the version's dated file and its query copy under lay."""
+    from publicdata.serialise import profile
+
+    fake = Dist()
+    for key, p in (
+        ("d/t/v/2026-01-02/data.parquet", _copy(tmp_path / "old" / "data.parquet", _lay())),
+        (Q, _copy(tmp_path / "old" / "q.parquet", lay)),
+    ):
+        fake.upload_file(str(p), "b", key, {"ContentType": "x"})
+    if marked:
+        fake.put_object("b", MARK, profile.layout_body(lay), "application/json")
+    fake.ops.clear()
+    fake.puts.clear()
+    return fake
+
+
+def _remote(fake, key=Q):
+    import io
+
+    import pyarrow.parquet as pq
+
+    return pq.read_metadata(io.BytesIO(fake.bytes[key]))
+
+
+def test_a_query_push_lists_only_the_query_copies(tmp_path, monkeypatch):
+    _copy(tmp_path / "t" / Q, _lay())
+    fake = Dist()
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path / "t", "b", immutable=r2.dated_file, layouts={"t": _lay()}) == 1
+    assert fake.listed == ["_q/"]
+
+
+def test_a_layout_edit_reaches_the_query_copies_r2_holds(tmp_path, monkeypatch):
+    from publicdata.serialise import profile
+
+    for old, new in (
+        (_lay(), _lay(sort=["year"])),
+        (_lay(sort=["year"]), _lay(sort=["place"], lookup=["place"])),
+        (_lay(int32=["id"]), _lay(int32=["id", "year"])),
+        (_lay(int32=["id", "year"]), _lay()),
+    ):
+        fake = _held(tmp_path, old)
+        dated = fake.bytes["d/t/v/2026-01-02/data.parquet"]
+        root = tmp_path / "tree"
+        _copy(root / Q, new)
+        _copy(root / "d/t/v/2026-01-02/data.parquet", new)
+        monkeypatch.setattr(r2, "client", lambda fake=fake: fake)
+        assert r2.push(root, "b", immutable=r2.dated_file, layouts={"t": new}) == 1
+        assert profile.follows(_remote(fake), new) and not profile.follows(_remote(fake), old)
+        assert fake.bytes[MARK] == profile.layout_body(new)
+        assert fake.bytes["d/t/v/2026-01-02/data.parquet"] == dated
+        # The record follows the upload, so it never names a layout the copy does not have.
+        assert [o[:2] for o in fake.ops] == [("upload", Q), ("put", MARK)]
+        fake.ops.clear()
+        assert r2.push(root, "b", immutable=r2.dated_file, layouts={"t": new}) == 0
+        assert fake.ops == []
+
+
+def test_an_unchanged_layout_uploads_no_query_copy(tmp_path, monkeypatch):
+    lay = _lay(sort=["year"], int32=["id"])
+    fake = _held(tmp_path, lay)
+    _copy(tmp_path / "tree" / Q, lay)
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 0
+    assert fake.ops == [] and fake.heads == []
+
+
+def test_a_copy_without_a_record_is_judged_by_its_footer(tmp_path, monkeypatch):
+    from publicdata.serialise import profile
+
+    lay = _lay(sort=["year"])
+    fake = _held(tmp_path, lay, marked=False)
+    _copy(tmp_path / "tree" / Q, lay)
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 0
+    assert ("upload", Q) not in fake.ops and fake.bytes[MARK] == profile.layout_body(lay)
+    stale = _held(tmp_path, _lay(), marked=False)
+    monkeypatch.setattr(r2, "client", lambda: stale)
+    assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 1
+    assert profile.follows(_remote(stale), lay) and stale.bytes[MARK] == profile.layout_body(lay)
+
+
+def test_an_unreadable_copy_is_written_again(tmp_path, monkeypatch):
+    from publicdata.serialise import profile
+
+    lay = _lay(sort=["year"])
+    fake = _held(tmp_path, lay, marked=False)
+    fake.bytes[Q] = b"not parquet"
+    _copy(tmp_path / "tree" / Q, lay)
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 1
+    assert profile.follows(_remote(fake), lay)
+
+
+def test_a_cached_query_copy_must_follow_the_entry_in_r2(tmp_path, monkeypatch):
+    import pytest
+
+    from publicdata.serialise import profile
+
+    lay = _lay(sort=["year"])
+    (tmp_path / "tree").mkdir()
+    for held, ok in ((lay, True), (_lay(), False)):
+        for marked in (True, False):
+            fake = _held(tmp_path, held, marked=marked)
+            monkeypatch.setattr(r2, "client", lambda fake=fake: fake)
+            args = (tmp_path / "tree", "b")
+            kw = dict(immutable=r2.dated_file, expect=[Q], layouts={"t": lay})
+            if ok:
+                assert r2.push(*args, **kw) == 0
+                assert fake.bytes[MARK] == profile.layout_body(lay)
+            else:
+                with pytest.raises(SystemExit, match=Q):
+                    r2.push(*args, **kw)
+                assert fake.ops == [] or fake.ops == [("get", Q)] * len(fake.ops)
+
+
+def test_a_query_copy_the_build_wrote_otherwise_stops_the_push(tmp_path, monkeypatch):
+    import pytest
+
+    _copy(tmp_path / "tree" / Q, _lay())
+    _copy(tmp_path / "tree" / "d/t/v/2026-01-02/data.parquet", _lay())
+    fake = Dist()
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    with pytest.raises(SystemExit, match=Q):
+        r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": _lay(sort=["year"])})
+    assert fake.ops == []

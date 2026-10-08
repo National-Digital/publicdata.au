@@ -966,8 +966,8 @@ def _chart(raw, fields: list[Field], ctx: str) -> dict | None:
         raise RegisterError(f"{ctx} takes where, split, metric, label and year, or is none")
     by = {f.name: f for f in fields}
     year = str(raw.get("year", ""))
-    if year and (year not in by or by[year].type not in ("integer", "date", "datetime")):
-        raise RegisterError(f"{ctx}.year must name an integer or date field")
+    if year and (year not in by or by[year].type not in ("integer", "date", "datetime", "string")):
+        raise RegisterError(f"{ctx}.year must name an integer, date or financial-year field")
     where = _where(raw.get("where") or {}, by, ctx)
     if any(w["value"] == NEWEST for w in where):
         raise RegisterError(f"{ctx}.where cannot use {NEWEST}; the chart draws every year")
