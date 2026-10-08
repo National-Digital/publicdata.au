@@ -250,22 +250,22 @@ def test_a_delimiter_is_tab_or_one_character():
 
 
 def test_a_live_file_source_quotes_the_licence_pages_words():
-    live = dict(
-        status="live",
-        licence={
+    live = {
+        "status": "live",
+        "licence": {
             "id": "CC-BY-4.0",
             "evidence": "https://e",
             "attribution": "a",
             "reviewed": "2026-10-01",
         },
-        source={"adapter": "file", "url": "https://example.gov.au/f.csv"},
-        fields=[{"name": "a", "source": "a"}],
-        topics=["roads"],
-        search_title="t",
-        also_known_as=["a", "b"],
-        keywords=["a", "b", "c"],
-        faq=[{"q": "q", "a": "a"}],
-    )
+        "source": {"adapter": "file", "url": "https://example.gov.au/f.csv"},
+        "fields": [{"name": "a", "source": "a"}],
+        "topics": ["roads"],
+        "search_title": "t",
+        "also_known_as": ["a", "b"],
+        "keywords": ["a", "b", "c"],
+        "faq": [{"q": "q", "a": "a"}],
+    }
     with pytest.raises(RegisterError, match="licence.statement"):
         parse(_raw(**live), "x")
     live["licence"] = {**live["licence"], "statement": "licensed  under\n CC BY 4.0"}

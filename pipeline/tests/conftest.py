@@ -97,19 +97,19 @@ def fixture_builds(tmp_path_factory, fixture_site):
 
 
 def make_dataset(fields, **kw) -> Dataset:
-    base = dict(
-        slug="t",
-        title="Test",
-        status="live",
-        publisher=Publisher("Test Agency", "Test", "Qld", "https://example.gov.au/"),
-        licence=Licence(
+    base = {
+        "slug": "t",
+        "title": "Test",
+        "status": "live",
+        "publisher": Publisher("Test Agency", "Test", "Qld", "https://example.gov.au/"),
+        "licence": Licence(
             "CC-BY-4.0",
             "https://example.gov.au/data",
             "Test Agency, Test, sourced {sourced}. CC BY 4.0.",
         ),
-        source=Source(adapter="ckan-resource", url="https://example.gov.au/data"),
-        fields=tuple(fields),
-    )
+        "source": Source(adapter="ckan-resource", url="https://example.gov.au/data"),
+        "fields": tuple(fields),
+    }
     base.update(kw)
     return Dataset(**base)
 
@@ -117,18 +117,18 @@ def make_dataset(fields, **kw) -> Dataset:
 def make_manifest(data: bytes, **kw) -> Manifest:
     import hashlib
 
-    base = dict(
-        dataset="t",
-        version="2026-01-02",
-        as_at="2025-12-31",
-        fetched_at="2026-01-02T01:00:00+00:00",
-        sha256=hashlib.sha256(data).hexdigest(),
-        bytes=len(data),
-        filename="source.csv",
-        encoding="utf-8",
-        source={"url": "https://example.gov.au/file.csv"},
-        licence={"id": "CC-BY-4.0", "title": "Creative Commons Attribution 4.0"},
-    )
+    base = {
+        "dataset": "t",
+        "version": "2026-01-02",
+        "as_at": "2025-12-31",
+        "fetched_at": "2026-01-02T01:00:00+00:00",
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "bytes": len(data),
+        "filename": "source.csv",
+        "encoding": "utf-8",
+        "source": {"url": "https://example.gov.au/file.csv"},
+        "licence": {"id": "CC-BY-4.0", "title": "Creative Commons Attribution 4.0"},
+    }
     base.update(kw)
     return Manifest(**base)
 

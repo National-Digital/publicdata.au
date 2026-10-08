@@ -125,7 +125,7 @@ def _write_parquet(con, t: TableSpec, header: dict, path: Path, profiled: bool) 
     reader = con.execute(f"SELECT * FROM {_ident(t.name)}").to_arrow_reader(size)
     if not profiled:
         schema = reader.schema.with_metadata({"publicdata": dumps(header)})
-        opts = dict(compression="zstd", write_statistics=True)
+        opts = {"compression": "zstd", "write_statistics": True}
     else:
         schema = reader.schema.with_metadata(profile.metadata(header))
         opts = profile.options(schema)

@@ -524,7 +524,7 @@ def test_the_gate_fails_a_changed_entry_over_budget(tmp_path):
     cat = tmp_path / "catalog.json"
     cat.write_text(json.dumps(catalog()), "utf-8")
     summary = tmp_path / "summary.md"
-    run = dict(datasets=ds, store_dir=tmp_path, catalog_src=str(cat), today=TODAY)
+    run = {"datasets": ds, "store_dir": tmp_path, "catalog_src": str(cat), "today": TODAY}
     assert cost.run(changed={"big"}, summary=str(summary), rows={}, **run) == 1
     text = summary.read_text("utf-8")
     assert "| `big` | 14.000 (estimate) | 52 (cadence) | 0.000 | 728.000 | 3,640,000,000 | yes |" in text  # fmt: skip
@@ -570,7 +570,7 @@ def test_the_cli_reads_a_catalogue_file(tmp_path, capsys, monkeypatch):
 def test_an_unreadable_catalogue_fails_a_changed_entry_closed(tmp_path):
     stored(tmp_path, "t", "2026-10-01", size=1000)
     summary = tmp_path / "s.md"
-    run = dict(store_dir=tmp_path, catalog_src=str(tmp_path / "missing.json"), today=TODAY)
+    run = {"store_dir": tmp_path, "catalog_src": str(tmp_path / "missing.json"), "today": TODAY}
     assert cost.run([entry("t", "yearly")], changed={"t"}, summary=str(summary), **run) == 1
     assert "could not be read" in summary.read_text("utf-8")
     assert cost.run([entry("t", "yearly")], changed=set(), **run) == 0

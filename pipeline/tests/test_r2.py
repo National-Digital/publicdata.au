@@ -584,7 +584,7 @@ def test_a_cached_query_copy_must_follow_the_entry_in_r2(tmp_path, monkeypatch):
             fake = _held(tmp_path, held, marked=marked)
             monkeypatch.setattr(r2, "client", lambda fake=fake: fake)
             args = (tmp_path / "tree", "b")
-            kw = dict(immutable=r2.dated_file, expect=[Q], layouts={"t": lay})
+            kw = {"immutable": r2.dated_file, "expect": [Q], "layouts": {"t": lay}}
             if ok:
                 assert r2.push(*args, **kw) == 0
                 assert fake.bytes[MARK] == profile.layout_body(lay)

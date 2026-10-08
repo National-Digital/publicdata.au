@@ -190,14 +190,14 @@ def options(
     `sorted_by` names the columns a sorted file is ordered by, and `lookup` maps each lookup
     field to its count of distinct values.
     """
-    opts = dict(
-        compression="zstd",
-        use_dictionary=True,
-        write_statistics=True,
-        max_rows_per_page=PAGE_ROWS,
-        data_page_size=PAGE_BYTES,
-        write_page_index=bool(sorted_by),
-    )
+    opts = {
+        "compression": "zstd",
+        "use_dictionary": True,
+        "write_statistics": True,
+        "max_rows_per_page": PAGE_ROWS,
+        "data_page_size": PAGE_BYTES,
+        "write_page_index": bool(sorted_by),
+    }
     if sorted_by:
         opts["sorting_columns"] = pq.SortingColumn.from_ordering(
             schema, [(c, "ascending") for c in sorted_by], null_placement="at_end"
