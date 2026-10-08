@@ -50,8 +50,6 @@ ignore = [
   "CPY",
   # ruff format owns line length.
   "E501",
-  # Exceptions are named for what happened (SiteUnreachable), and their names are public API.
-  "N818",
 ]
 
 [tool.ruff.lint.pydocstyle]

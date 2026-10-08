@@ -110,7 +110,7 @@ class Entry:
         return self.publisher_url
 
 
-class Refused(Exception):
+class Refused(Exception):  # noqa: N818 - named before the rule, and logs name it
     """A dataset this job will not copy, with the reason."""
 
 

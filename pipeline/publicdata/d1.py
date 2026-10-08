@@ -313,7 +313,7 @@ def _table_sql(slug, version, index_fields, cols, header, *, fields, rows, tbl=N
     yield "register", register, 0
 
 
-class TooWide(ValueError):
+class TooWide(ValueError):  # noqa: N818 - named before the rule, and logs name it
     """A row larger than D1 holds; its version stays files-only."""
 
 
@@ -769,7 +769,7 @@ class Wrangler:
         return [row for part in out for row in part.get("results", [])]
 
 
-class Unknown(RuntimeError):
+class Unknown(RuntimeError):  # noqa: N818 - named before the rule, and logs name it
     """D1 did not answer a check, so what a table holds is not known. Never read as absent."""
 
 
@@ -993,11 +993,11 @@ def _note_pending(db, jobs: list[Job], state: dict[str, dict], served: set[str],
             return
 
 
-class _Skip(Exception):
+class _Skip(Exception):  # noqa: N818 - a signal that skips this deploy
     """Nothing was written, and this deploy cannot tell where the load stands."""
 
 
-class _Defer(Exception):
+class _Defer(Exception):  # noqa: N818 - a signal that waits for the next deploy
     """The deploy's budget is spent; nothing of this load was written."""
 
 
@@ -1026,7 +1026,7 @@ class _Budget:
             j.charged += rows
 
 
-class _Failed(Exception):
+class _Failed(Exception):  # noqa: N818 - a signal the load records
     def __init__(self, done: int, why: str):
         super().__init__(why)
         self.done = done

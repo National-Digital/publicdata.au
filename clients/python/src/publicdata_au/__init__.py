@@ -126,7 +126,7 @@ class PublicDataError(Exception):
         self.url = url
 
 
-class SiteUnreachable(PublicDataError):
+class SiteUnreachable(PublicDataError):  # noqa: N818 - a public name callers catch
     """The site could not be reached: no connection, a DNS failure or a timeout."""
 
 

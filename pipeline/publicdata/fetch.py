@@ -302,7 +302,7 @@ class Fetched:
 MANUAL: dict[str, Path] = {}
 
 
-class ManualDue(RuntimeError):
+class ManualDue(RuntimeError):  # noqa: N818 - a signal that a person must fetch
     pass
 
 
@@ -1805,7 +1805,7 @@ ADAPTERS = {
 }
 
 
-class LicenceDrift(RuntimeError):
+class LicenceDrift(RuntimeError):  # noqa: N818 - named before the rule, and logs name it
     pass
 
 

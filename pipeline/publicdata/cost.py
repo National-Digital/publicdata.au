@@ -61,7 +61,7 @@ ATTEMPTS = 4
 SLEEP = time.sleep
 
 
-class Unsized(Exception):
+class Unsized(Exception):  # noqa: N818 - named before the rule, and logs name it
     """Why a source could not be sized."""
 
 
