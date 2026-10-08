@@ -136,8 +136,9 @@ jobs:
           for f in register.py cache.py; do
             git show "$base:pipeline/publicdata/$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
           done
-          # The base's copy of each changed register entry, to find the rebuild numbers raised.
-          { grep -E '^register/.*\.yaml$' "$RUNNER_TEMP/changed.txt" || true; } | while read -r f; do
+          # The base's copy of each changed register entry, to find the rebuild numbers raised, and
+          # of each changed manifest, to find the notes a partition_by edit must add.
+          { grep -E '^(register/.*\.yaml|store/.*/manifest\.json)$' "$RUNNER_TEMP/changed.txt" || true; } | while read -r f; do
             mkdir -p "$before/$(dirname "$f")"
             git show "$base:$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
           done

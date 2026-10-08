@@ -462,7 +462,10 @@ cancelled stops the deploy too. A fork's pull request has no access to the store
 first checked on the push to main, and a failure there stops every deploy until it is fixed. The reference is the cache entry because it records
 what the build made when the version was last built, which is what a reuse stands for. A dated
 file in R2 is never overwritten outside a replace dispatch, so it keeps the bytes of the version's
-first build, and a raised number alone does not change it. The diffs and the history archive are
+first build, and a raised number alone does not change it. Outside a replace, a push also adds no
+partition file to a version whose manifest R2 holds. An edit to `partition_by` builds every
+stored version again, and `dist-push` stops before it writes the new `by/` files and names the
+versions for a replace dispatch ([CORRECTIONS.md](CORRECTIONS.md#a-change-to-partition_by)). The diffs and the history archive are
 therefore made from the published copy of each version's Parquet and manifest wherever R2 holds
 one, in a deploy and in the check alike (`published.served`), so they describe the files the site
 serves and old bytes in R2 are no difference. When the sampled datasets that differ are more than
