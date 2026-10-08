@@ -397,6 +397,13 @@ def test_pre_commit_checks_the_staged_javascript(repo, tmp_path):
 
 
 @needs_node_modules
+def test_pre_commit_stops_a_prettier_config_prettier_would_reformat(repo, tmp_path):
+    out = _commit(repo, {".prettierrc.json": '{"printWidth":100,\n\n"x":1}'}, _node(repo, tmp_path))
+    assert out.returncode != 0
+    assert ".prettierrc.json: not formatted" in out.stdout + out.stderr
+
+
+@needs_node_modules
 def test_a_clean_javascript_commit_passes(repo, tmp_path):
     files = {"functions/good.js": "export const x = { a: 1 };\n"}
     out = _commit(repo, files, _node(repo, tmp_path))

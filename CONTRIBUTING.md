@@ -84,8 +84,8 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
   versions, when one differs, and runs it anyway.
 - `pre-commit` also runs ESLint with `--max-warnings 0` and `prettier --check` on the staged
-  content of each staged JavaScript file the two configs cover, using the versions in
-  `node_modules`. It names each file and rule that fails and stops the commit once the other
+  content of each staged JavaScript file the two configs cover and of `.prettierrc.json`, using
+  the versions in `node_modules`. It names each file and rule that fails and stops the commit once the other
   checks have run. A commit with no such file runs neither tool. Each file takes about a second.
 - `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
   and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.

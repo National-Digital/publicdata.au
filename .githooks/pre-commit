@@ -54,12 +54,13 @@ if [ -n "$(git diff --cached --name-only -- $wf_paths)" ]; then
 fi
 
 # ESLint and Prettier, as pinned in package-lock.json, on the staged JavaScript in the directories
-# their allow-lists open; the configs decide within them. A missing node_modules fails the commit
-# because CI always runs both. A failure lets the checks below run, and the EXIT trap then fails
-# the commit.
+# their allow-lists open and on the two tools' own config; the configs decide within them. A
+# missing node_modules fails the commit because CI always runs both. A failure lets the checks
+# below run, and the EXIT trap then fails the commit.
 js=$(git diff --cached --name-only --diff-filter=ACMR -- 'functions/*.js' 'functions/*.mjs' \
   'scripts/*.js' 'scripts/*.mjs' 'explorer/*.js' 'explorer/*.mjs' \
-  'pipeline/publicdata/static/*.js' 'pipeline/publicdata/static/*.mjs' eslint.config.mjs)
+  'pipeline/publicdata/static/*.js' 'pipeline/publicdata/static/*.mjs' eslint.config.mjs \
+  .prettierrc.json)
 if [ -n "$js" ]; then
   if [ ! -x node_modules/.bin/eslint ] || [ ! -x node_modules/.bin/prettier ] || ! command -v npx >/dev/null 2>&1; then
     echo "pre-commit: JavaScript is staged but node or node_modules is missing (run: npm ci --ignore-scripts)"
