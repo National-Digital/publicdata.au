@@ -9,7 +9,7 @@ import { join } from "node:path";
 import lighthouse from "lighthouse";
 import desktopConfig from "lighthouse/core/config/desktop-config.js";
 import puppeteer from "puppeteer-core";
-import { NOINDEX, PAGES, PREVIEW_SKIPS, TARGETS, assess, isPreview, medianRun } from "./lighthouse-checks.mjs";
+import { NOINDEX, PAGES, PREVIEW_SKIPS, TARGETS, ardManifest, assess, isPreview, medianRun } from "./lighthouse-checks.mjs";
 
 const RUNS = Number(process.env.LIGHTHOUSE_RUNS || 3);
 const FORMS = { mobile: undefined, desktop: desktopConfig };
@@ -23,6 +23,17 @@ const out = process.env.LIGHTHOUSE_OUT || "lighthouse-reports";
 await mkdir(out, { recursive: true });
 const preview = isPreview(base);
 if (preview) console.log(`${new URL(base).hostname} is a preview, served noindex, so ${PREVIEW_SKIPS.join(", ")} is not held here; production is.`);
+
+// ard-schema audits the manifest the page points to. When that is on another host, as when the
+// build names production in absolute URLs, the audit is not about this deploy, so it is left to the
+// production run (psi.yml) and the output says so. llms-txt always reads /llms.txt on the page's
+// own host, so it is held here.
+const robotsTxt = await fetch(new URL("/robots.txt", base)).then((r) => (r.ok ? r.text() : ""), () => "");
+async function offHostSkips(url) {
+  const res = await fetch(url);
+  const manifest = ardManifest(url, { robotsTxt, html: await res.text(), linkHeader: res.headers.get("link") || "" });
+  return new URL(manifest).host === new URL(url).host ? { skip: [], manifest } : { skip: ["ard-schema"], manifest };
+}
 
 // A fresh browser per run, so no run inherits another's cache.
 async function once(url, config) {
@@ -43,6 +54,8 @@ const summary = { base, preview, skipped: preview ? PREVIEW_SKIPS : [], targets:
 let failed = 0;
 for (const path of paths.length ? paths : PAGES) {
   const url = new URL(path, base).href;
+  const { skip, manifest } = await offHostSkips(url);
+  if (skip.length) console.log(`${path}: ard-schema reads ${manifest}, another host's manifest, so it is left to the production run.`);
   for (const [form, config] of Object.entries(FORMS)) {
     const runs = [];
     for (let i = 0; i < RUNS; i++) runs.push(await once(url, config));
@@ -51,9 +64,9 @@ for (const path of paths.length ? paths : PAGES) {
     summary.lighthouse = lhr.lighthouseVersion;
     const name = `${form}${path.replace(/[^a-z0-9]+/gi, "_")}`.replace(/_$/, "");
     await writeFile(join(out, `${name}.html`), html);
-    const { scores, failures } = assess(lhr, { preview, noindex: NOINDEX.has(path) });
+    const { scores, failures } = assess(lhr, { preview, noindex: NOINDEX.has(path), skip });
     const perfRuns = runs.map((r) => r.lhr.categories.performance?.score);
-    summary.pages.push({ path, form, scores, performanceRuns: perfRuns, failures, report: `${name}.html` });
+    summary.pages.push({ path, form, scores, performanceRuns: perfRuns, failures, ardManifest: manifest, notHeld: skip, report: `${name}.html` });
     const line = Object.entries(scores).map(([k, v]) => `${k} ${v === null ? "none" : Math.round(v * 100)}`).join(", ");
     if (failures.length) failed++;
     console.log(`${failures.length ? "✗" : "✓"} ${path} (${form}): ${line}; performance runs ${perfRuns.map((s) => Math.round(s * 100)).join("/")}`);

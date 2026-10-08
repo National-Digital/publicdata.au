@@ -30,10 +30,11 @@ export const isPreview = (url) => new URL(url).hostname.endsWith(".pages.dev");
 
 const UNSCORED = new Set(["notApplicable", "manual", "informative", "error"]);
 
+// `skip` names further audits not to hold, such as one that read another host's file.
 // Returns { scores, failures, skipped }. Performance is held to its category score. Every other
 // category is held audit by audit, so a skipped audit cannot drag its category down and a category
 // missing from the result fails rather than passing unseen.
-export function assess(lhr, { preview = isPreview(lhr.finalDisplayedUrl || lhr.requestedUrl), noindex = NOINDEX.has(new URL(lhr.requestedUrl).pathname) } = {}) {
+export function assess(lhr, { preview = isPreview(lhr.finalDisplayedUrl || lhr.requestedUrl), noindex = NOINDEX.has(new URL(lhr.requestedUrl).pathname), skip = [] } = {}) {
   const scores = {};
   const failures = [];
   const skipped = [];
@@ -64,7 +65,7 @@ export function assess(lhr, { preview = isPreview(lhr.finalDisplayedUrl || lhr.r
         continue;
       }
       if (UNSCORED.has(a.scoreDisplayMode) || a.score === null || a.score >= 1) continue;
-      if ((preview || noindex) && PREVIEW_SKIPS.includes(ref.id)) {
+      if (((preview || noindex) && PREVIEW_SKIPS.includes(ref.id)) || skip.includes(ref.id)) {
         skipped.push(ref.id);
         continue;
       }
@@ -81,6 +82,16 @@ function items(a) {
   if (!list.length) return "";
   const show = list.slice(0, 3).map((i) => String(i.node?.snippet || i.href || i.url || (i.element && i.issue ? `${i.element}: ${i.issue}` : i.element || i.issue) || i.text || JSON.stringify(i)).slice(0, 160));
   return `: ${show.join(" | ")}${list.length > 3 ? ` and ${list.length - 3} more` : ""}`;
+}
+
+// The ARD manifest Lighthouse 13.5's gatherer reads for a page, found in its order: the robots.txt
+// Agentmap line, then <link rel="ai-catalog">, then a Link header, then the well-known path. Each is
+// resolved against the page, so an absolute URL in any of them can point a preview at production.
+export function ardManifest(pageUrl, { robotsTxt = "", html = "", linkHeader = "" } = {}) {
+  const agentmap = robotsTxt.match(/^\s*Agentmap:\s*(\S+)/im)?.[1];
+  const link = html.match(/<link\b[^>]*\brel=["']?[^"'>]*\bai-catalog\b[^>]*>/i)?.[0]?.match(/\bhref=["']?([^"'\s>]+)/i)?.[1];
+  const header = linkHeader.match(/<([^>]+)>\s*;[^,]*\brel="?[^",]*\bai-catalog\b/i)?.[1];
+  return new URL(agentmap || link || header || "/.well-known/ai-catalog.json", pageUrl).href;
 }
 
 // The run with the median performance score, as Lighthouse's own variability guidance advises.

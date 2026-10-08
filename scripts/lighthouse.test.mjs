@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assess, isPreview, medianRun } from "./lighthouse-checks.mjs";
+import { ardManifest, assess, isPreview, medianRun } from "./lighthouse-checks.mjs";
 
 // A result shaped as Lighthouse writes one, every target met unless a test changes it.
 function lhr(url, { scores = {}, audits = {} } = {}) {
@@ -82,4 +82,19 @@ test("is-crawlable is skipped on production only for a page named noindex on pur
   const noindex = { audits: { "is-crawlable": { id: "is-crawlable", title: "crawlable", score: 0, scoreDisplayMode: "binary" } } };
   assert.deepEqual(assess(lhr(`${PROD}d/qld-road-crash-locations/explore/`, noindex)).failures, []);
   assert.deepEqual(failed(assess(lhr(`${PROD}d/qld-road-crash-locations/`, noindex))), ["is-crawlable"]);
+});
+
+test("the ARD manifest is found in the gatherer's order and resolved against the page", () => {
+  const page = `${PREVIEW}d/x/`;
+  assert.equal(ardManifest(page), `${PREVIEW}.well-known/ai-catalog.json`);
+  assert.equal(ardManifest(page, { linkHeader: '</cat.json>; rel="ai-catalog"' }), `${PREVIEW}cat.json`);
+  const html = '<head><link rel="ai-catalog" href="https://publicdata.au/.well-known/ai-catalog.json"></head>';
+  assert.equal(ardManifest(page, { html, linkHeader: '</cat.json>; rel="ai-catalog"' }), "https://publicdata.au/.well-known/ai-catalog.json");
+  assert.equal(ardManifest(page, { robotsTxt: "User-Agent: *\nAgentmap: /.well-known/ai-catalog.json\n", html }), `${PREVIEW}.well-known/ai-catalog.json`);
+});
+
+test("an audit named in skip is not held", () => {
+  const bad = { audits: { "ard-schema": { id: "ard-schema", title: "ARD", score: 0.9, scoreDisplayMode: "numeric" } } };
+  assert.deepEqual(assess(lhr(PREVIEW, bad), { skip: ["ard-schema"] }).failures, []);
+  assert.deepEqual(failed(assess(lhr(PREVIEW, bad))), ["ard-schema"]);
 });
