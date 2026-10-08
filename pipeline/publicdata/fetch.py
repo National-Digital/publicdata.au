@@ -770,10 +770,9 @@ def _ala_slices(  # noqa: C901, PLR0913 - the slicing rule in one place; the opt
                     yield from _ala_slices(s, base, q, sub, m, lo=start, hi=end, dim=d)
             return
         mid = lo + (hi - lo) / 2
-
-        def fmt(t: float) -> str:
-            return dt.datetime.fromtimestamp(t, dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
+        fmt: Callable[[float], str] = lambda t: dt.datetime.fromtimestamp(t, dt.UTC).strftime(  # noqa: E731
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
         halves = [
             (f"{field}:[{fmt(lo)} TO {fmt(mid)}}}", lo, mid),
             (f"{field}:[{fmt(mid)} TO {fmt(hi)}]", mid, hi),

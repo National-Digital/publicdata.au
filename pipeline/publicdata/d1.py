@@ -26,7 +26,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pyarrow.parquet as pq
 
@@ -371,7 +371,7 @@ def _raw_size(v: object) -> int:
     return 0
 
 
-def _wide_row(  # noqa: C901, PLR0913 - one branch per kind of long value; the options are keyword-only
+def _wide_row(  # noqa: PLR0913 - the options are keyword-only and named at each call
     tbl: str,
     head: str,
     names: list[str],
@@ -414,14 +414,15 @@ def _wide_row(  # noqa: C901, PLR0913 - one branch per kind of long value; the o
                     0,
                 )
             continue
-        if isinstance(v, str):
-            a = 0
-            while a < len(v):
-                k = room
-                while len(literal(v[a : a + k]).encode()) > room:
-                    k = max(1, k * room // len(literal(v[a : a + k]).encode()) - 1)
-                yield "update", f'{stem}"{col}" || {literal(v[a : a + k])}{tail}', 0
-                a += k
+        # Only text and bytes are put off, and bytes went above.
+        v = cast("str", v)
+        a = 0
+        while a < len(v):
+            k = room
+            while len(literal(v[a : a + k]).encode()) > room:
+                k = max(1, k * room // len(literal(v[a : a + k]).encode()) - 1)
+            yield "update", f'{stem}"{col}" || {literal(v[a : a + k])}{tail}', 0
+            a += k
     wide[rowid] = sum(_raw_size(v) for v in row)
 
 
