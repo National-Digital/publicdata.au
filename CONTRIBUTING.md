@@ -301,7 +301,7 @@ each version lives in one file that the workflows read:
 | npm packages, wrangler, and the Chrome build the accessibility check runs (from `puppeteer-core`) | `package-lock.json` |
 | GitHub Actions | the commit SHA in each `uses:` |
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
-| R and its CRAN snapshot date | `.github/workflows/clients.yml` |
+| R, its CRAN snapshot date and the R client's lint tools | `.github/workflows/clients.yml` |
 
 An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
 npm packages and the Actions; raise the others by hand. The Python version and the keyed

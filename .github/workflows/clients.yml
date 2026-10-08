@@ -67,7 +67,10 @@ jobs:
       - uses: r-lib/actions/setup-r-dependencies@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
         with:
           working-directory: clients/r
-          extra-packages: any::rcmdcheck, any::roxygen2, any::lintr, any::cyclocomp, any::styler, local::.
+          # Exact versions, since .lintr turns on every linter and a new release would fail
+          # unrelated pull requests. Raise them in a pull request of their own.
+          extra-packages: >-
+            any::rcmdcheck, any::roxygen2, lintr@3.4.0, cyclocomp@1.1.2, styler@1.11.0, local::.
           needs: check
       # lintr reads the installed package to resolve its internal functions; .lintr says which
       # linters are off and why.
