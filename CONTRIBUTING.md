@@ -47,9 +47,9 @@ python -m publicdata gate /tmp/pd
 The raw bytes of every published version are kept in a private bucket that only the deploy reads.
 The manifests in `store/` record each one's URL, hash and fetch time.
 
-The site's typeface is licensed to National Digital and is not in the repository. Without it,
-pages use system fonts and the social cards use Pillow's bundled Aileron; nothing else changes.
-`store pull` fetches it from the same private bucket for the deploy.
+The site's typeface, Random Grotesque, is in `pipeline/publicdata/static/fonts/` under its own
+licence, not the AGPL. Only styles from its free package may be added there; see
+`THIRD-PARTY-NOTICES.md`.
 
 ## Git hooks
 
@@ -313,7 +313,7 @@ module the build imports leaves every published version as it was.
 ## Toolchain versions
 
 Every tool and library CI, the deploy and the fetch runner use is pinned to an exact version, and
-each version lives in one file that the workflows read:
+each version lives in one file that the workflows or the pipeline read:
 
 | What | File |
 |---|---|
@@ -326,16 +326,28 @@ each version lives in one file that the workflows read:
 | GitHub Actions | the commit SHA in each `uses:` |
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
 | R and its CRAN snapshot date | `.github/workflows/clients.yml` |
+| DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
 
 An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
-npm packages and the Actions; raise the others by hand. The Python version and the keyed
+npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed
 libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles) are in the build's cache key, so
 raising one rebuilds every version, about four hours on main. Merge such a pull request on a day
 with no data pull request due.
 
-DuckDB's spatial extension is the one exception: DuckDB serves it for each release and can replace
-it within one. The datasets that load it are keyed on the build installed, and every job of a
-deploy checks that it has the same build as the plan.
+DuckDB serves its spatial extension for each release and can replace it within one, so we keep a
+copy of the build we use in R2, under `_toolchain/` in `publicdata-raw`, named by the DuckDB
+release, the platform and the build. `spatial-extension.json` pins its URL and SHA-256.
+`python -m publicdata spine install` takes our copy when it has the R2 credentials, as the deploy
+does, and otherwise the same bytes from DuckDB, as CI and a working copy do. It stops when the hash
+differs or when the pin is for another DuckDB than the one installed. The datasets that load the
+extension are keyed on its build, and every job of a deploy checks that it has the same build as
+the plan.
+
+A raise of `duckdb` needs the extension for the new release. Once the pull request that raises it
+is open, a maintainer runs the Spatial extension workflow on main with that pull request's branch.
+It checks that the build DuckDB serves is the one DuckDB's own install fetches, copies it to R2 and
+commits the new pin to the branch. Until then the pull request's checks fail. A new build changes
+the key of every dataset that loads the extension, so those versions are built again.
 
 ## Licences that are not Creative Commons
 
@@ -415,7 +427,8 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   the code and name of the area each point falls in, joined by location against each layer's newest version.
   The columns are marked as joined in `schema.json` with the layer version, the ABS attribution is in every
   file's header, and the published coordinates are never changed. The joins and tiles need DuckDB's spatial
-  extension, which `python -m publicdata spine install` fetches once so the build stays offline.
+  extension, which `python -m publicdata spine install` fetches once, as pinned in
+  `pipeline/publicdata/spatial-extension.json`, so the build stays offline.
 - Workbooks may be `.xlsx`, `.xlsm` or legacy `.xls`, which is converted cell for cell before it is read.
   A header that repeats a name numbers each repeat, `Count (2)`. In a stack, a field whose source is
   `(file)` holds the name of the file each row came from, which is often its period; `ckan-stack` stacks
@@ -441,7 +454,11 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   marked `register` or `rules`, so the picks can be read and the poor ones replaced. A register
   example that answers no rows fails the gate. `chart` sets what the yearly chart and the card's
   sparkline draw: `where` (the same form), `split` (a field, or `none`), `metric` and `label`,
-  each falling back to the example's.
+  each falling back to the example's, and `year`, the field that dates a row. A text `year` is
+  a financial year in any common form (`2018-19`, `2018–19`, `2018/19`, `2018-2019`, `FY201819`,
+  `FY18-19`, or `FY2019` for the year that ends in June 2019), and the chart names each bar as the
+  publisher wrote it. A value that is not a financial year is left out. `chart: none`
+  draws no chart, for a table with no year worth drawing.
 - `search_title` is the phrase a dataset's title tag targets and no two entries may share one;
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,

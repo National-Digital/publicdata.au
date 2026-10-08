@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs | contribute | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | hubs | contribute | cost."""
 
 from __future__ import annotations
 
@@ -473,17 +473,13 @@ def cmd_d1_load(args) -> int:
 
 
 def cmd_store(args) -> int:
-    from .brand import FONTS
-    from .r2 import pull_fonts, pull_store, push
+    from .r2 import pull_store, push
 
     store_dir = Path(args.store)
     if args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
-        fonts = pull_fonts(FONTS)
-        print(
-            f"store pull: {n} file(s), {fonts} font(s), {len(cached)} version(s) already built in the cache"
-        )
+        print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
     else:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)
@@ -563,10 +559,18 @@ VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
 def cmd_spine_install(args) -> int:
-    from .spine import install
+    from .extension import install
 
     install()
     print("spine: DuckDB spatial extension installed")
+    return 0
+
+
+def cmd_spine_mirror(args) -> int:
+    from .extension import mirror
+
+    pin = mirror(Path(args.pin))
+    print(f"spine: pinned {pin['url']} ({pin['sha256']})")
     return 0
 
 
@@ -598,6 +602,51 @@ def cmd_dist_push(args) -> int:
         f"dist push: {n} file(s){' (replacing under ' + ', '.join(args.replace) + ')' if args.replace else ''}"
     )
     print(f"dist push: {found} publisher's file(s) found in the raw store")
+    return 0
+
+
+def cmd_checksums(args) -> int:
+    from .checksums import KEY, slugs_in, slugs_in_bucket, update, write_subjects
+    from .r2 import client
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"checksums: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    if not args.all and not args.root:
+        print("checksums: name the built trees with --root, or pass --all")
+        return 2
+    s3 = client()
+    slugs = slugs_in_bucket(s3) if args.all else slugs_in(Path(r) for r in args.root)
+    lists: dict[str, str] = {}
+    n, held, changed = update(
+        slugs,
+        replace=tuple(args.replace),
+        download=args.download,
+        s3=s3,
+        lists=lists,
+        every=args.resign,
+    )
+    print(f"checksums: {n} SHA256SUMS written over {len(slugs)} dataset(s)")
+    if args.subjects:
+        parts = write_subjects(lists, Path(args.subjects))
+        print(f"checksums: {len(lists)} list(s) to attest in {len(parts)} part(s)")
+    for prefix in held:
+        print(f"::warning::{prefix}SHA256SUMS not written: a file has no stored SHA-256")
+    # A dated file changes only under a replace, which writes the list again. Anything else
+    # breaks that rule, so it is reported and the version's list keeps what it was first given.
+    for key in changed:
+        slug, version, _ = KEY.match(key).groups()
+        prefix = f"d/{slug}/v/{version}/"
+        print(
+            f"::warning::{key} was written after {prefix}SHA256SUMS, outside a replace. "
+            "A dated version's files never change, so its list is left as it is"
+        )
+    if held:
+        print(
+            f"checksums: {len(held)} version(s) left without one; "
+            "run the Checksums workflow to hash their files from R2 and sign the lists"
+        )
     return 0
 
 
@@ -978,6 +1027,32 @@ def main(argv=None) -> int:
         help="where a cached version's Parquet is read back from, as the site lays it out",
     )
     b.set_defaults(fn=cmd_build)
+    ck = sub.add_parser("checksums", help="write SHA256SUMS beside each dated version in R2")
+    ck.add_argument(
+        "--root", action="append", default=[], help="a built tree whose datasets to cover; repeat"
+    )
+    ck.add_argument("--all", action="store_true", help="every dataset R2 holds, as a backfill")
+    ck.add_argument(
+        "--download",
+        action="store_true",
+        help="read and hash a file R2 stored without its SHA-256, instead of skipping its version",
+    )
+    ck.add_argument(
+        "--replace",
+        nargs="*",
+        default=[],
+        metavar="PREFIX",
+        help="versions a replace deploy rewrote, whose lists are made again from scratch",
+    )
+    ck.add_argument(
+        "--subjects", metavar="DIR", help="write the lists to attest here, 1.sha256 and on"
+    )
+    ck.add_argument(
+        "--resign",
+        action="store_true",
+        help="add every list left as it is to --subjects, to attest it again; no list is rewritten",
+    )
+    ck.set_defaults(fn=cmd_checksums)
     pg = sub.add_parser(
         "purge", help="purge replaced versions and their query API answers from the edge cache"
     )
@@ -1100,6 +1175,11 @@ def main(argv=None) -> int:
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
     ).set_defaults(fn=cmd_spine_install)
+    sm = sp.add_parser(
+        "mirror", help="copy the spatial extension for the installed DuckDB to R2 and pin it"
+    )
+    sm.add_argument("--pin", required=True, help="the spatial-extension.json to write")
+    sm.set_defaults(fn=cmd_spine_mirror)
     hb = sub.add_parser("hubs", help="copy each dataset's newest version to the data hubs")
     hb.add_argument("--site", default="https://publicdata.au")
     hb.add_argument("--hub", nargs="*", default=["huggingface", "zenodo", "kaggle"])

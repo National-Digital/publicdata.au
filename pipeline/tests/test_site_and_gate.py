@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from publicdata import brand
 from publicdata.gate import check
 
 from .conftest import ROOT
@@ -24,9 +23,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     assert '<meta http-equiv="origin-trial" content="AjNME/' in home
     assert home.index("origin-trial") < home.index("<script")
     assert "<style>" in home and 'rel="stylesheet"' not in home
-    preload = 'rel="preload" href="/static/fonts/RG-StandardBook.woff2"' in home
-    assert preload == brand.has_fonts()
-    assert ('"Random Grotesque";font-weight:300' in home) == brand.has_fonts()
+    assert 'rel="preload" href="/static/fonts/RG-StandardRegular.woff2"' in home
+    assert '"Random Grotesque";font-weight:300' in home
     assert ">all formats<" in home and ">more<" not in home
     assert 'toolname="find_dataset_page"' in home
     # Every dataset link on the home page reaches a built page: the explorer is only built for
