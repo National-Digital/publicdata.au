@@ -698,6 +698,7 @@ def cmd_checksums(args) -> int:
             f"checksums: {len(held)} version(s) left without one; "
             "run the Checksums workflow to hash their files from R2 and sign the lists"
         )
+    return 0
 
 
 def cmd_r2_shared_report(args) -> int:
