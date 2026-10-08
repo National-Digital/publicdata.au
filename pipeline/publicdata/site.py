@@ -1916,7 +1916,7 @@ PROSE = {
 # The date the terms last changed, and a hash of their text. The gate fails when the text changes
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
-    "7 October 2026",
+    "8 October 2026",
     "9c980b65ff9a94242796d36470ef0ea4558f56c1ab299c5829c6d2443003bfec",
 )
 
