@@ -50,6 +50,15 @@ ignore = [
   "CPY",
   # ruff format owns line length.
   "E501",
+  # Counts of branches, returns, statements and arguments. Review judges length here, as it does
+  # in the pipeline.
+  "C901",
+  "PLR0911",
+  "PLR0912",
+  "PLR0913",
+  "PLR0915",
+  # Exceptions are named for what happened (SiteUnreachable), and their names are public API.
+  "N818",
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -59,5 +68,9 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 # pytest asserts with assert, and an expected value reads more plainly as a literal. The tests
-# are not a package, and only the public API in src/ needs docstrings.
-"tests/**" = ["S101", "PLR2004", "D1", "INP001"]
+# are not a package, and only the public API in src/ needs docstrings. A stand-in takes the
+# signature of what it replaces, and a test may call the private helper it tests.
+"tests/**" = ["S101", "PLR2004", "D1", "INP001", "ARG", "SLF001"]
+# The public keyword arguments format= and all= read as the words a caller means, and renaming
+# them would break callers.
+"src/publicdata_au/__init__.py" = ["A002"]

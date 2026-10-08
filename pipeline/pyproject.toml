@@ -52,6 +52,16 @@ ignore = [
   # Outside the client's public API a docstring is optional and holds a why, as CONTRIBUTING.md
   # says; a forced one would be filler.
   "D1",
+  # Counts of branches, returns, statements and arguments. A build step reads top to bottom in
+  # one function, and splitting it to meet a count scatters it; review judges length.
+  "C901",
+  "PLR0911",
+  "PLR0912",
+  "PLR0913",
+  "PLR0915",
+  # Exceptions are named for what happened (Refused, LicenceDrift), some are signals rather than
+  # errors (d1's _Skip and _Defer), and the names appear in logs.
+  "N818",
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -61,13 +71,22 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-# pytest asserts with assert, and an expected value reads more plainly as a literal.
-"tests/**" = ["S101", "PLR2004"]
-# The command line and the modules run with python -m report to the terminal.
-"publicdata/__main__.py" = ["T201"]
-"publicdata/dbcheck.py" = ["T201"]
-"publicdata/smithery.py" = ["T201"]
-"publicdata/tdqs.py" = ["T201"]
+# pytest asserts with assert, and an expected value reads more plainly as a literal. A stand-in
+# takes the signature of what it replaces, a fixture can be asked for only for its effect, and a
+# test may call the private helper it tests.
+"tests/**" = ["S101", "PLR2004", "ARG", "SLF001"]
+# The fake S3 client takes boto3's keyword names.
+"tests/test_r2.py" = ["N803"]
+# The command line, the commands it hands to (gate.main, cost.run, verify.run) and the modules run
+# with python -m report to the terminal.
+"publicdata/{__main__,cost,dbcheck,gate,smithery,tdqs,verify}.py" = ["T201"]
+# SQL is built from table and column names the register declares, quoted, with each value bound
+# as a parameter or written by a literal helper. These modules write the DuckDB, SQLite and D1
+# statements, and their tests read them back.
+"publicdata/{d1,database,figures,records,site,spine}.py" = ["S608"]
+"publicdata/serialise/{__init__,geo,profile}.py" = ["S608"]
+"publicdata/serialise/writers/{gpkg,pmtiles,sqlite}.py" = ["S608"]
+"tests/test_{d1,directory,profile,records}.py" = ["S608"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
