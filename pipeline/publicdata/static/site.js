@@ -394,13 +394,20 @@
     });
   }
 
-  // The header on a narrow screen: the menu button shows and hides the site links.
+  // The header on a narrow screen: the menu button shows and hides the site links, and Escape
+  // closes them and returns focus to the button.
   var menu = document.querySelector('.menu');
   if (menu) {
-    menu.addEventListener('click', function () {
-      var on = menu.getAttribute('aria-expanded') !== 'true';
+    var header = menu.closest('header');
+    var setMenu = function (on) {
       menu.setAttribute('aria-expanded', on ? 'true' : 'false');
-      menu.closest('header').classList.toggle('open', on);
+      header.classList.toggle('open', on);
+    };
+    menu.addEventListener('click', function () { setMenu(menu.getAttribute('aria-expanded') !== 'true'); });
+    header.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || menu.getAttribute('aria-expanded') !== 'true') return;
+      setMenu(false);
+      menu.focus();
     });
   }
 

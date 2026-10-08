@@ -33,14 +33,16 @@ header.top{display:flex;gap:20px;align-items:center;flex-wrap:wrap;padding-block
 .byline a{color:var(--muted);text-decoration:none}
 nav.main{display:flex;gap:18px;flex-wrap:wrap;font-size:0.9375rem}
 .menu{display:none;font-size:0.875rem;padding:6px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--panel);color:var(--ink);cursor:pointer;margin-left:auto}
+.menu::after{content:"";width:.45em;height:.45em;margin-left:.6em;border:solid currentColor;border-width:0 2px 2px 0;transform:translateY(-.15em) rotate(45deg)}.menu[aria-expanded="true"]{background:var(--code-bg);border-color:var(--ink)}.menu[aria-expanded="true"]::after{transform:translateY(.1em) rotate(-135deg)}
 .disclaimer .short{display:none}
-@media (max-width:720px){header.top{gap:12px}.menu{display:inline-flex}nav.main{display:none;flex-basis:100%;flex-direction:column;gap:2px;border-top:1px solid var(--rule-soft);padding-top:8px}header.top.open nav.main{display:flex}nav.main a{padding:8px 0}.search{margin-left:0;flex-basis:100%}.search input{width:100%}.disclaimer .long{display:none}.disclaimer .short{display:inline}}
+@media (max-width:720px){header.top{gap:12px}.menu{display:inline-flex;align-items:center}nav.main{display:none;flex-basis:100%;flex-direction:column;gap:2px;border-top:1px solid var(--rule-soft);padding-top:8px}header.top.open nav.main{display:flex}header.top nav.main a{padding:8px 0;justify-content:flex-start}.search{margin-left:0;flex-basis:100%}.search input{width:100%}.disclaimer .long{display:none}.disclaimer .short{display:inline}}
 nav.main a{color:var(--ink);text-decoration:none;padding:4px 0;min-height:2.75rem;min-width:2.75rem;justify-content:center;display:inline-flex;align-items:center;border-bottom:2px solid transparent;font-weight:300}
 nav.main a[aria-current="page"]{border-bottom-color:var(--primary);font-weight:500}
 .search{margin-left:auto;display:flex;gap:6px;align-items:center}
 .gh-top{display:inline-flex;align-items:center;justify-content:center;min-width:2.75rem;min-height:2.75rem;color:var(--ink);margin-left:-8px}
 .gh-top:hover{color:var(--link)}
 @media (max-width:720px){.gh-top{display:none}}
+@media (max-width:720px) and (scripting:none){.menu{display:none}nav.main{display:flex}}
 .gh{display:inline-flex;align-items:center;gap:8px;font-weight:500;min-height:2.75rem}
 .gh svg{flex:none}
 .search input{font:inherit;font-size:0.9375rem;padding:8px 12px;border:1px solid var(--rule);border-radius:6px;background:var(--panel);color:var(--ink);width:min(300px,62vw)}
