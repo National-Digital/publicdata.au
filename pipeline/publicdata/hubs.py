@@ -1279,7 +1279,7 @@ class Kaggle:
         msg = f"Kaggle could not say whether {ref} exists: {out.strip()[:300]}"
         raise RuntimeError(msg)
 
-    def ensure(self, e: Entry, work: Path, fetch: Callable) -> str | None:
+    def ensure(self, e: Entry, work: Path, fetch: Callable) -> str | None:  # noqa: ARG002 - takes what refresh takes
         """Pushes the starter notebook a held dataset lacks.
 
         Such a dataset may be one Kaggle's limit on saving notebooks turned away. Returns what was

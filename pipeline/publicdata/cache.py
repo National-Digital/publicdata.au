@@ -337,7 +337,7 @@ class BuildCache:
         key: str,
         meta: dict,
         src: Path | None = None,
-        keep=lambda rel: True,
+        keep=lambda _rel: True,
         extra: dict[str, bytes] | None = None,
     ) -> None:
         """Stores meta, the files under src that keep(relative path) accepts, and `extra`.

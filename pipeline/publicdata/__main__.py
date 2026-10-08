@@ -495,7 +495,7 @@ def cmd_store(args) -> int:
                 src.parent,
                 "publicdata-raw",
                 f"{v[0]}/{v[1]}/",
-                immutable=lambda key, v=v: v in committed,
+                immutable=lambda _key, v=v: v in committed,
             )
         print(f"store push: {n} file(s)")
     return 0
@@ -600,7 +600,7 @@ def cmd_dist_push(args) -> int:
         replace=tuple(args.replace),
         immutable=dated_file,
         expect=expect,
-        include=dated_file if args.dated_only else lambda key: True,
+        include=dated_file if args.dated_only else lambda _key: True,
         layouts={ds.slug: layout(ds) for ds in load(REGISTER)} if queries else None,
     )
     print(

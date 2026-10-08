@@ -1354,7 +1354,7 @@ def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict]:
     ]
 
 
-def _db_seo_title(ds: Dataset, v: VersionOut) -> str:
+def _db_seo_title(ds: Dataset) -> str:
     lead = ds.search_title or ds.title
     return f"{lead}: DuckDB and Parquet | {HOST}"
 
@@ -3320,7 +3320,7 @@ def render_site(
                 f"d/{ds.slug}/index.html",
                 "database.html",
                 _md_twin_database(ds, o, views, faq, citation, related),
-                title=_db_seo_title(ds, latest),
+                title=_db_seo_title(ds),
                 description=_db_seo_description(ds, latest),
                 nav="datasets",
                 og=card,

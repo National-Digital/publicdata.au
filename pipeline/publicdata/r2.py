@@ -173,9 +173,9 @@ def push(
     bucket: str,
     prefix: str = "",
     replace: tuple[str, ...] = (),
-    immutable: Callable[[str], bool] = lambda key: True,
+    immutable: Callable[[str], bool] = lambda _key: True,
     expect: list[str] = (),
-    include: Callable[[str], bool] = lambda key: True,
+    include: Callable[[str], bool] = lambda _key: True,
     layouts: dict[str, dict] | None = None,
 ) -> int:
     """Upload every file under root that include accepts.

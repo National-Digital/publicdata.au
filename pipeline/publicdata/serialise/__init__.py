@@ -655,23 +655,23 @@ from .writers.sqlite import write_sqlite  # noqa: E402
 from .writers.xlsx import write_xlsx  # noqa: E402
 
 WRITERS = {
-    "json": lambda tbl, header, path, vdir: write_json(tbl, header, path),
-    "ndjson": lambda tbl, header, path, vdir: write_ndjson(tbl, header, path),
-    "csv": lambda tbl, header, path, vdir: write_csv(tbl, path),
-    "parquet": lambda tbl, header, path, vdir: (
+    "json": lambda tbl, header, path, _vdir: write_json(tbl, header, path),
+    "ndjson": lambda tbl, header, path, _vdir: write_ndjson(tbl, header, path),
+    "csv": lambda tbl, _header, path, _vdir: write_csv(tbl, path),
+    "parquet": lambda tbl, header, path, _vdir: (
         write_shape_parquet(tbl, header, path)
         if tbl.geometry is not None
         else write_parquet(tbl, header, path)
     ),
-    "sqlite": lambda tbl, header, path, vdir: write_sqlite(tbl, header, path),
-    "duckdb": lambda tbl, header, path, vdir: write_duckdb(tbl, header, path),
-    "xlsx": lambda tbl, header, path, vdir: write_xlsx(tbl, header, path),
-    "arrow": lambda tbl, header, path, vdir: write_arrow(tbl, header, path),
-    "csv.gz": lambda tbl, header, path, vdir: write_csv_gz(tbl, path, vdir),
-    "geojson": lambda tbl, header, path, vdir: write_geojson(tbl, header, path),
-    "gpkg": lambda tbl, header, path, vdir: write_gpkg(tbl, header, path),
-    "geo.parquet": lambda tbl, header, path, vdir: write_geo_parquet(tbl, header, path),
-    "pmtiles": lambda tbl, header, path, vdir: write_pmtiles(tbl, header, path),
+    "sqlite": lambda tbl, header, path, _vdir: write_sqlite(tbl, header, path),
+    "duckdb": lambda tbl, header, path, _vdir: write_duckdb(tbl, header, path),
+    "xlsx": lambda tbl, header, path, _vdir: write_xlsx(tbl, header, path),
+    "arrow": lambda tbl, header, path, _vdir: write_arrow(tbl, header, path),
+    "csv.gz": lambda tbl, _header, path, vdir: write_csv_gz(tbl, path, vdir),
+    "geojson": lambda tbl, header, path, _vdir: write_geojson(tbl, header, path),
+    "gpkg": lambda tbl, header, path, _vdir: write_gpkg(tbl, header, path),
+    "geo.parquet": lambda tbl, header, path, _vdir: write_geo_parquet(tbl, header, path),
+    "pmtiles": lambda tbl, header, path, _vdir: write_pmtiles(tbl, header, path),
 }
 assert set(WRITERS) == {*LEGACY_FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}
 # The module that writes each format, for the cache's writer keys, and the formats a writer
