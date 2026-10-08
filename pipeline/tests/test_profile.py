@@ -357,7 +357,7 @@ def test_the_gate_wants_every_table_version_to_have_its_query_copy(site_copy):
     assert check(site_copy, ROOT / "register", [q]) == []
 
 
-def test_query_copies_go_to_r2_alone_and_are_written_once(tmp_path):
+def test_query_copies_go_to_r2_alone(tmp_path):
     from publicdata.__main__ import main
     from publicdata.r2 import dated_file
 
@@ -480,3 +480,14 @@ def test_the_sample_note_names_the_order_the_rows_are_in(tmp_path, legacy):
         assert "in the publisher's order" in note and "sorted by" not in note
     else:
         assert "sorted by year, then place" in note and "publisher's order" not in note
+
+
+def test_a_footer_shows_the_layout_it_was_written_with(tmp_path):
+    ds = _ds(sort=("year", "place"), lookup=("place",), int32=("id",))
+    vdir, vout = _build(tmp_path, ds, legacy=True)
+    lay = profile.layout(ds)
+    assert profile.follows(pq.read_metadata(tmp_path / vout.query), lay)
+    assert not profile.follows(pq.read_metadata(vdir / "data.parquet"), lay)
+    for edit in ({"sort": ["place"]}, {"lookup": []}, {"int32": ["id", "year"]}, {"key": []}):
+        assert not profile.follows(pq.read_metadata(tmp_path / vout.query), lay | edit)
+    assert profile.layout_key(vout.query) == "_q/t/2026-01-02.layout.json"

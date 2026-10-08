@@ -575,16 +575,21 @@ def cmd_dist_push(args) -> int:
         print(f"dist push: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
     from .r2 import check_sources
+    from .register import load
+    from .serialise.profile import layout
 
     # Before anything goes up, so a version whose source the site cannot serve is never published.
     found = check_sources([Path(args.large)])
+    expect = _absent(args.expect)
+    queries = (Path(args.large) / "_q").is_dir() or any(k.startswith("_q/") for k in expect)
     n = push(
         Path(args.large),
         "publicdata-dist",
         replace=tuple(args.replace),
         immutable=dated_file,
-        expect=_absent(args.expect),
+        expect=expect,
         include=dated_file if args.dated_only else lambda key: True,
+        layouts={ds.slug: layout(ds) for ds in load(REGISTER)} if queries else None,
     )
     print(
         f"dist push: {n} file(s){' (replacing under ' + ', '.join(args.replace) + ')' if args.replace else ''}"

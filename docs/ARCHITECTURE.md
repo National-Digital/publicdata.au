@@ -298,11 +298,20 @@ answers 410 for every file R2 still holds, `latest/` included, and so does each 
 writing but R2 kept. Query copies (`_q/<slug>/<version>.parquet`) go to `publicdata-dist` alone:
 split moves every one into the R2 tree whatever its size, no route or page reaches them, and
 nothing links them. They are stored as plain bytes, never gzipped, so a reader can take byte
-ranges. A query copy is written once like a dated file. A missing one is uploaded, which is how
-the versions published before the profile get theirs on the first deploy after it; a later
-profile writes beside them (`<version>.p<N>.parquet`), and an edit to `sort`, `lookup` or
-`int32` reaches the copies of versions that have none yet. The gate wants every table version's
-query copy in the tree or among the files a cached build left out (`dist-push --expect`). The edge caches nothing over 512 MB
+ranges. Beside each copy R2 holds a record of the layout it follows
+(`profile.layout_key`, `<version>.layout.json`), and the push lists `_q/` alone to read them. A
+missing copy is uploaded, which is how the versions published before the profile get theirs on
+the first deploy after it, and a later profile writes beside them (`<version>.p<N>.parquet`). A
+copy whose record names the entry's current layout is never uploaded again; one whose record
+names another is, so an edit to `sort`, `lookup` or `int32`, which builds the entry's versions
+again, reaches every version's copy on that deploy. The record is written after the upload, so
+it never names a layout the copy does not follow. A copy written before the records were kept,
+or one that cannot be read, is judged from its footer (`profile.follows`) and gets its record
+once the push's checks pass. The push stops before any upload when a copy in the tree does not
+follow its entry's layout. The gate
+wants every table version's query copy in the tree or among the files a cached build left out,
+and `dist-push --expect` wants each of those in R2 under a record of the entry's layout, so a
+cached version is never published beside a copy in another layout. The edge caches nothing over 512 MB
 and, until it learns a file is too large, answers a byte range with the whole file, so a dated
 file over 500 MB is redirected to its URL with `?edge=bypass`; a zone Cache Rule placed after
 "Dated version trees" bypasses the cache for that query, and without it large files fall back to
@@ -317,7 +326,7 @@ entry, its manifest and the rebuild numbers. The build code is not among them. T
 files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
 the deploy that built them, so a cached build lists them in `absent.json` instead of writing them,
 the gate counts them as present, and `dist-push --expect` stops the deploy if R2 lacks any of
-them. The Parquet a diff, the history archive or a page reads is read back from
+them or holds one of their query copies in another layout. The Parquet a diff, the history archive or a page reads is read back from
 `publicdata-dist` when needed (`build --published`). The build never reads a data.sqlite: its
 figures, query console and D1 load query the Parquet through DuckDB (`records.connect`), as a
 view shaped like the SQLite file's records table, with SQLite's tie order, NaN read as null and
@@ -528,7 +537,8 @@ votable record ids so the vote endpoint reads one small file per check.
 not; they live in the R2 bucket `publicdata-raw` under the same path and are pulled by hash
 before every build (`publicdata store pull`). No built tree holds them: the `/d/` function serves
 a version's `source.<ext>` from `publicdata-raw`, only once that version's manifest is published,
-and `dist-push` stops the deploy if a published version's file is missing there. A committed manifest with no matching object is a
+and `dist-push` stops the deploy if a published version's file is missing there, listing only
+the directories of the datasets it publishes. A committed manifest with no matching object is a
 build failure, never a silent skip. A download that is empty, or an HTML page where a data file should be, is
 refused and reported; it never becomes a version. One dataset that cannot be fetched does not
 stop the others, and the fetch workflow ends red when anything failed. The scheduled fetch workflow pushes new bytes and opens one
