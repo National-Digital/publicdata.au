@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -91,7 +92,7 @@ def test_a_draft_cannot_go_live_until_its_search_copy_is_written():
     _, entry, _ = rd.draft(URL, [], Portal())
     live = yaml.safe_load(rd.to_yaml(entry)) | {"status": "live"}
     # A person reads the licence before anything else: the draft leaves the date blank.
-    with pytest.raises(RegisterError, match="licence.reviewed"):
+    with pytest.raises(RegisterError, match=re.escape("licence.reviewed")):
         parse(live, "draft")
     live["licence"]["reviewed"] = "2026-10-01"
     with pytest.raises(RegisterError, match="search_title"):

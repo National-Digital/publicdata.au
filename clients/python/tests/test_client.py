@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -412,7 +413,7 @@ def test_an_error_names_the_status_and_the_apis_message(client):
 
 
 def test_a_bad_slug_never_reaches_the_network(client):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not a dataset slug"):
         client.rows("../etc")
     assert Handler.hits == []
 
@@ -480,7 +481,9 @@ def test_a_far_timestamp_is_never_made_a_null():
 
 
 def test_a_format_a_version_leaves_out_says_why(client, tmp_path):
-    with pytest.raises(pd_au.PublicDataError, match="has no data.xlsx in this version") as err:
+    with pytest.raises(
+        pd_au.PublicDataError, match=re.escape("has no data.xlsx in this version")
+    ) as err:
         client.download("a", "xlsx", "2026-08-07", tmp_path / "x.xlsx")
     assert err.value.status == 404
     assert "size limits" in str(err.value)
@@ -542,9 +545,9 @@ def test_a_table_of_a_database_is_read_as_parquet(client):
     assert client.file_url("db", version="2026-08-07", table="thing").endswith(
         "/d/db/v/2026-08-07/tables/thing.parquet"
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="served as parquet"):
         client.file_url("db", "csv", "2026-08-07", table="thing")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not a table name"):
         client.file_url("db", table="../x")
 
 

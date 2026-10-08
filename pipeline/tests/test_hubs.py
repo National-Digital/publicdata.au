@@ -131,7 +131,7 @@ def test_an_unmapped_licence_is_refused():
 
 
 def test_a_version_missing_from_versions_json_is_refused():
-    with pytest.raises(hubs.Refused, match="versions.json"):
+    with pytest.raises(hubs.Refused, match=re.escape("versions.json")):
         make(versionInfo="2030-01-01")
 
 

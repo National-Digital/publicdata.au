@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import re
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -76,7 +77,7 @@ def test_a_polygon_layer_declares_its_kind_and_datum_and_no_coordinates():
     assert parse(raw, "lga").geometry["kind"] == "polygon"
     with pytest.raises(RegisterError, match="carries its geometry"):
         parse(raw | {"geometry": raw["geometry"] | {"lon": "x"}}, "lga")
-    with pytest.raises(RegisterError, match="geometry.kind"):
+    with pytest.raises(RegisterError, match=re.escape("geometry.kind")):
         parse(raw | {"geometry": raw["geometry"] | {"kind": "raster"}}, "lga")
     with pytest.raises(RegisterError, match="datum"):
         parse(raw | {"geometry": {"kind": "polygon"}}, "lga")

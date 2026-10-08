@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from datetime import UTC, datetime, timedelta
 
 from publicdata import r2
@@ -427,7 +428,7 @@ def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
     assert held.listed == ["x/"]
     other = {"x/2026-09-01/source.csv", "x-y/2026-10-01/source.csv"}
     monkeypatch.setattr(r2, "client", lambda: FakeS3(other))
-    with pytest.raises(SystemExit, match="d/x/v/2026-10-01/source.csv"):
+    with pytest.raises(SystemExit, match=re.escape("d/x/v/2026-10-01/source.csv")):
         r2.check_sources([tmp_path])
 
 

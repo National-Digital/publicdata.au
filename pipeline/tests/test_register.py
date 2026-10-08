@@ -158,7 +158,7 @@ def test_entries_load_from_folders_but_not_publishers(tmp_path):
     assert {d.slug for d in got} == {"x-y", "a-b"}
     assert next(d for d in got if d.slug == "x-y").path == str(tmp_path / "qld" / "x-y.yaml")
     (tmp_path / "x-y.yaml").write_text(yaml.safe_dump(_raw()))
-    with pytest.raises(RegisterError, match="duplicate slug, also in qld/x-y.yaml"):
+    with pytest.raises(RegisterError, match=re.escape("duplicate slug, also in qld/x-y.yaml")):
         load(tmp_path)
 
 
@@ -268,7 +268,7 @@ def test_a_live_file_source_quotes_the_licence_pages_words():
         "keywords": ["a", "b", "c"],
         "faq": [{"q": "q", "a": "a"}],
     }
-    with pytest.raises(RegisterError, match="licence.statement"):
+    with pytest.raises(RegisterError, match=re.escape("licence.statement")):
         parse(_raw(**live), "x")
     live["licence"] = {**live["licence"], "statement": "licensed  under\n CC BY 4.0"}
     assert parse(_raw(**live), "x").licence.statement == "licensed under CC BY 4.0"
@@ -390,7 +390,7 @@ def test_a_database_entry_is_checked_for_its_pattern_references_and_shape():
             parse(_database(**over), "x")
     bad = _database()
     bad["tables"][0]["fields"][1]["references"] = "nowhere.code"
-    with pytest.raises(RegisterError, match="not a table.field"):
+    with pytest.raises(RegisterError, match=re.escape("not a table.field")):
         parse(bad, "x")
     bad = _database()
     bad["tables"][0]["key"] = ["missing"]
@@ -512,7 +512,7 @@ def test_a_chart_keeps_its_rows_and_names_its_split_and_measure():
         parse(_fielded(chart={"where": {"year": "newest"}}), "x")
     with pytest.raises(RegisterError, match="split must name"):
         parse(_fielded(chart={"split": "nope"}), "x")
-    with pytest.raises(RegisterError, match="chart_where is now chart.where"):
+    with pytest.raises(RegisterError, match=re.escape("chart_where is now chart.where")):
         parse(_fielded(chart_where={"field": "unit", "op": "=", "value": "Number"}), "x")
 
 
@@ -541,7 +541,7 @@ def test_a_sample_reads_its_order_and_spread_and_needs_words_for_a_pick():
     assert parse(_fielded(), "x").sample is None
     with pytest.raises(RegisterError, match="needs a label"):
         parse(_fielded(sample={"order": ["value"]}), "x")
-    with pytest.raises(RegisterError, match="order term 'value.up'"):
+    with pytest.raises(RegisterError, match=re.escape("order term 'value.up'")):
         parse(_fielded(sample={"order": ["value.up"], "label": "x"}), "x")
     with pytest.raises(RegisterError, match="spread must name"):
         parse(_fielded(sample={"spread": "nope"}), "x")

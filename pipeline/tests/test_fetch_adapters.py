@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import re
 
 import pytest
 
@@ -339,7 +340,7 @@ def run_manual(modified, store_dir):
 
 def test_a_manual_source_is_never_downloaded_and_a_new_one_is_due(tmp_path, monkeypatch):
     monkeypatch.setattr(f, "MANUAL", {})
-    with pytest.raises(f.ManualDue, match="download https://p.example/t.csv"):
+    with pytest.raises(f.ManualDue, match=re.escape("download https://p.example/t.csv")):
         run_manual("2026-09-01T00:00:00", tmp_path)
 
 
@@ -747,12 +748,12 @@ def test_kiwis_splits_a_batch_the_service_refuses_as_too_large(monkeypatch):
     got = f._kiwis_values(None, "b", ["1", "2", "3"])
     assert [g["ts_id"] for g in got] == ["1", "2", "3"]
     assert calls == [["1", "2", "3"], ["1"], ["2", "3"], ["2"], ["3"]]
+    monkeypatch.setattr(
+        f,
+        "_kiwis_query",
+        lambda *a, **k: (_ for _ in ()).throw(f.FetchError("x TooManyResults")),
+    )
     with pytest.raises(f.FetchError, match="TooManyResults"):
-        monkeypatch.setattr(
-            f,
-            "_kiwis_query",
-            lambda *a, **k: (_ for _ in ()).throw(f.FetchError("x TooManyResults")),
-        )
         f._kiwis_values(None, "b", ["9"])
 
 
@@ -803,7 +804,7 @@ def test_a_manual_stack_reads_a_folder_of_downloads_then_waits_for_the_records_t
     )
     search = "https://p.example/api/3/action/package_search"
     monkeypatch.setattr(f, "MANUAL", {})
-    with pytest.raises(f.ManualDue, match="download https://p.example/d "):
+    with pytest.raises(f.ManualDue, match=re.escape("download https://p.example/d ")):
         run("ckan-stack", ds, {search: Resp(portal("2023-02-03T00:00:00"))}, tmp_path, monkeypatch)
 
     got = tmp_path / "downloads"

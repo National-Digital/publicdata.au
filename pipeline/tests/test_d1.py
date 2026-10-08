@@ -913,7 +913,7 @@ def test_a_budget_reads_as_a_count_with_a_suffix():
     assert d1.rows_written("12_000,000") == 12_000_000
     assert d1.rows_written(" 7 ") == 7
     for bad in ("ten", "10MB", "-1", ""):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not a count of rows"):
             d1.rows_written(bad)
 
 

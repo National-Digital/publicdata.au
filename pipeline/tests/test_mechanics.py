@@ -1,5 +1,6 @@
 import datetime as dt
 import io
+import re
 
 import pytest
 import yaml
@@ -94,7 +95,7 @@ def _live(**licence):
 
 
 def test_a_live_entry_records_when_a_person_reviewed_its_licence():
-    with pytest.raises(RegisterError, match="licence.reviewed"):
+    with pytest.raises(RegisterError, match=re.escape("licence.reviewed")):
         parse(_live(), "x")
     with pytest.raises(RegisterError, match="YYYY-MM-DD"):
         parse(_live(reviewed="1 Oct 2026"), "x")
@@ -111,7 +112,7 @@ def test_an_entry_that_misreads_a_portals_version_is_stopped():
             adapter="ckan-resource", url="https://e", portal="https://data.sa.gov.au/data"
         ),
     )
-    with pytest.raises(f.LicenceDrift, match="defines 'cc-by' as CC-BY-4.0"):
+    with pytest.raises(f.LicenceDrift, match=re.escape("defines 'cc-by' as CC-BY-4.0")):
         f.check_licence(ds, {"id": "cc-by"})
     ok = make_dataset(
         [Field("a", "a")],
