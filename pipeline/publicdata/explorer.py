@@ -65,11 +65,11 @@ def _need_node_modules() -> None:
 def _extension(name: str, sha: str) -> bytes:
     p = CACHE / "extensions" / DUCKDB_VERSION / f"{name}.duckdb_extension.wasm"
     if not p.exists():
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310 - a fixed https URL, checked by its hash
             EXTENSION_URL.format(v=DUCKDB_VERSION, name=name),
             headers={"User-Agent": "publicdata.au build"},
         )
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310 - a fixed https URL
             data = r.read()
         if hashlib.sha256(data).hexdigest() != sha:
             msg = f"DuckDB {name} extension does not match its pinned SHA-256"

@@ -72,5 +72,6 @@ convention = "google"
 # signature of what it replaces, and a test may call the private helper it tests.
 "tests/**" = ["S101", "PLR2004", "D1", "INP001", "ARG", "SLF001"]
 # The public keyword arguments format= and all= read as the words a caller means, and renaming
-# them would break callers.
-"src/publicdata_au/__init__.py" = ["A002"]
+# them would break callers. Every URL the client opens is built on its base URL, which is
+# https://publicdata.au unless the caller names another.
+"src/publicdata_au/__init__.py" = ["A002", "S310"]

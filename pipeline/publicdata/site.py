@@ -3177,7 +3177,7 @@ def render_site(
 
     css = (static_src / "site.css").read_text(encoding="utf-8").strip()
     js = (static_src / "site.js").read_text(encoding="utf-8")
-    assert js.count(API_SLOT) == 1
+    assert js.count(API_SLOT) == 1  # noqa: S101 - site.js holds one slot, as the repository ships it
     js = js.replace(API_SLOT, json.dumps(at.browser_spec(), ensure_ascii=False, sort_keys=True))
     _write(out, "static/site.js", js)
     common = {

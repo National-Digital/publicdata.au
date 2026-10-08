@@ -157,12 +157,17 @@ def test_a_version_page_is_uploaded_again_only_when_it_changes(tmp_path, monkeyp
     (v / "index.html").write_text("newest")
     (v / "data.csv").write_text("a\n1\n")
     keys = {"d/x/v/2026-04-24/index.html", "d/x/v/2026-04-24/data.csv"}
-    md5 = hashlib.md5(b"newest").hexdigest()
+    md5 = hashlib.md5(b"newest", usedforsecurity=False).hexdigest()
     same = FakeS3(keys, etags={"d/x/v/2026-04-24/index.html": md5})
     monkeypatch.setattr(r2, "client", lambda: same)
     assert r2.push(tmp_path, "b", immutable=r2.dated_file) == 0
     assert same.heads == []
-    old = FakeS3(keys, etags={"d/x/v/2026-04-24/index.html": hashlib.md5(b"old").hexdigest()})
+    old = FakeS3(
+        keys,
+        etags={
+            "d/x/v/2026-04-24/index.html": hashlib.md5(b"old", usedforsecurity=False).hexdigest()
+        },
+    )
     monkeypatch.setattr(r2, "client", lambda: old)
     assert r2.push(tmp_path, "b", immutable=r2.dated_file) == 1
     assert [k for k, _ in old.puts] == ["d/x/v/2026-04-24/index.html"]
@@ -224,7 +229,7 @@ class Bucket(FakeS3):
         data = open(path, "rb").read()
         self.bytes[key] = data
         self.existing.add(key)
-        self.etags[key] = hashlib.md5(data).hexdigest()
+        self.etags[key] = hashlib.md5(data, usedforsecurity=False).hexdigest()
 
     def download_file(self, bucket, key, dest):
         if key not in self.bytes:
@@ -445,7 +450,7 @@ class Dist(Bucket):
 
     def put_object(self, Bucket, Key, Body, ContentType):
         super().put_object(Bucket, Key, Body, ContentType)
-        self.etags[Key] = hashlib.md5(Body).hexdigest()
+        self.etags[Key] = hashlib.md5(Body, usedforsecurity=False).hexdigest()
         self.ops.append(("put", Key, Body))
 
     def head_object(self, Bucket, Key):

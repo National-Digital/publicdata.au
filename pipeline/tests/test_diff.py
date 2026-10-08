@@ -148,7 +148,7 @@ def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions():
     from publicdata.normalise import Table
     from publicdata.register import Field as F2
 
-    rng = random.Random(7)
+    rng = random.Random(7)  # noqa: S311 - a seeded sample, repeatable on purpose
     for trial in range(60):
         key = ("id",) if trial % 3 else ("region", "id")
         fields = [F2(n, n) for n in ("id", "region", "n", "x", "day", "ok")]

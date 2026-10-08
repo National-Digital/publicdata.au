@@ -7,6 +7,7 @@ holds, and a dataset is uploaded only when the site has a newer one.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import hashlib
 import io
@@ -1076,10 +1077,8 @@ class Zenodo:
                 done = self._call("GET", f"/deposit/depositions/{draft['id']}")
         except Exception:
             # The original error is the one worth reporting; a failed cleanup must not replace it.
-            try:
+            with contextlib.suppress(Exception):
                 self._call("DELETE", f"/deposit/depositions/{draft['id']}")
-            except Exception:  # noqa: BLE001
-                pass
             self._remember(forget=dropped)
             raise
         self._remember(done, forget=dropped)

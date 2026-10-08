@@ -62,6 +62,11 @@ ignore = [
   # Exceptions are named for what happened (Refused, LicenceDrift), some are signals rather than
   # errors (d1's _Skip and _Defer), and the names appear in logs.
   "N818",
+  # Every subprocess call passes an argument list with no shell, and its arguments come from the
+  # repository and the register; S603 flags each call whatever it runs. git and npx are found on
+  # PATH, as CI installs them.
+  "S603",
+  "S607",
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -87,6 +92,9 @@ convention = "google"
 "publicdata/serialise/{__init__,geo,profile}.py" = ["S608"]
 "publicdata/serialise/writers/{gpkg,pmtiles,sqlite}.py" = ["S608"]
 "tests/test_{d1,directory,profile,records}.py" = ["S608"]
+# cost reads a publisher URL only once _sized has checked it is http or https, and otherwise
+# reads the site and GitHub's API.
+"publicdata/cost.py" = ["S310"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -245,7 +245,7 @@ def test_two_builds_of_a_sorted_layer_are_byte_identical(tmp_path):
 def test_a_re_sort_cuts_no_new_version():
     lines = CSV.splitlines(keepends=True)
     rows = lines[1:]
-    random.Random(7).shuffle(rows)
+    random.Random(7).shuffle(rows)  # noqa: S311 - a seeded shuffle, repeatable on purpose
     shuffled = lines[0] + b"".join(rows)
     plain = _ds()
     sorted_ = _ds(sort=("year", "place"), lookup=("place",), int32=("id",))

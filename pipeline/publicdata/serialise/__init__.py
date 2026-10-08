@@ -673,7 +673,7 @@ WRITERS = {
     "geo.parquet": lambda tbl, header, path, _vdir: write_geo_parquet(tbl, header, path),
     "pmtiles": lambda tbl, header, path, _vdir: write_pmtiles(tbl, header, path),
 }
-assert set(WRITERS) == {*LEGACY_FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}
+assert set(WRITERS) == {*LEGACY_FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}  # noqa: S101 - the module's own tables agree
 # The module that writes each format, for the cache's writer keys, and the formats a writer
 # derives its file from, whose modules its key takes in too.
 WRITER_MODULES = {fmt: fmt.replace(".", "_") for fmt in WRITERS}

@@ -210,7 +210,7 @@ def sample(
     for key in sorted(strata, key=repr):
         take(min(strata[key], key=lambda s: (cost[s], s)))
     rest = sorted(set(by) - set(chosen))
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # noqa: S311 - a seeded sample, repeatable on purpose
     rng.shuffle(rest)
     for s in rest:
         take(s)
