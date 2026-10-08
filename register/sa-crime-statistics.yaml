@@ -35,8 +35,8 @@ faq:
   a: The financial year of the newest file South Australia Police has released, 2025-26 at the first version.
     SAPOL replaces the year's file as each quarter is added and starts a new file each July, and each file
     becomes a version here. The earlier years back to 2010-11 stay on the portal.
-- q: What does NOT DISCLOSED mean in the postcode column?
-  a: The publisher writes NOT DISCLOSED where it does not give the postcode of an incident, and leaves some
+- q: What does `NOT DISCLOSED` mean in the postcode column?
+  a: The publisher writes `NOT DISCLOSED` where it does not give the postcode of an incident, and leaves some
     suburbs and postcodes blank. Both are kept as published.
 - q: Can I add these to the family and domestic abuse figures?
   a: No. The family and domestic abuse-related offences are a subset of these offences, so the publisher warns

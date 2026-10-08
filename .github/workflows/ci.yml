@@ -227,8 +227,11 @@ jobs:
           test -n "$v"
           path=$(npx --no-install @puppeteer/browsers install "chrome@$v" --path "$RUNNER_TEMP/chrome" --format '{{path}}')
           echo "CHROME_PATH=$path" >> "$GITHUB_ENV"
-      # Every representative page, in light and in dark, must pass axe's WCAG 2.2 AA rules.
+      # Every representative page must pass WCAG 2.2 AAA: axe's rules in light and in dark, and the
+      # house checks on type size, line length, target size, link names, reflow and text spacing
+      # (docs/ACCESSIBILITY.md). The checks are first proven to fire on pages built to fail them.
       - run: |
+          node --test scripts/a11y.test.mjs
           python -m publicdata build --fixtures --out dist
           node scripts/a11y.mjs dist
 

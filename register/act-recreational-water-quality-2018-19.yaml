@@ -43,7 +43,7 @@ faq:
   a: One weekly sample at one swimming site during the 2018-19 season, with the site code and name, the
     intestinal enterococci result per 100 millilitres, whether it met the guideline, the algae result and
     final compliance where recorded, any comment, and the site's coordinates.
-- q: What do NS and NR mean in the result?
+- q: What do `NS` and `NR` mean in the result?
   a: They are the publisher's codes for a site not sampled or a result not recorded that week. A result
     above or below the laboratory's range is written with a greater than or less than sign. The result is
     kept as text so these survive. The publisher marks some unsampled weeks as meeting the guideline and

@@ -48,7 +48,7 @@ faq:
   a: The beaches and their coordinates are in the companion table of Beach Report sites, which joins on
     the site number.
 - q: Why does one beach appear under more than one name?
-  a: The publisher renamed some sites and misspelt others, so site 99170 is Frankston LSC, Frankston Life
+  a: The publisher renamed some sites and misspelt others, so site 99170 is `Frankston LSC`, Frankston Life
     Saving Club and Frankston Surf Life Saving Club, and site 99700 is also Wiliamstown. Group by the site
     number to count a beach across the whole record.
 summary: Every enterococci water sample EPA Victoria has taken at Port Phillip Bay beaches since December

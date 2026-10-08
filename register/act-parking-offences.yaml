@@ -33,8 +33,8 @@ faq:
   a: One parking offence on one day in one suburb or place, with the infringement type, the number of
     infringements and the sum of their penalties in dollars.
 - q: What do the infringement types mean?
-  a: They are the publisher's codes for the way the notice was issued. PIN is a parking infringement
-    notice, PIN_LPR one detected by a licence plate recognition vehicle and PIN_MAO one issued for a
+  a: They are the publisher's codes for the way the notice was issued. `PIN` is a parking infringement
+    notice, `PIN_LPR` one detected by a licence plate recognition vehicle and `PIN_MAO` one issued for a
     mobility parking or other permit offence.
 summary: Parking infringements issued in the ACT since July 2021, one row per offence, day and place,
   with the number of infringements and the penalty total.

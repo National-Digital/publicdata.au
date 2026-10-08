@@ -24,7 +24,7 @@ faq:
   a: Each row is one animal caught by the Shark Control Program, with the year and month, area, beach, gear,
     marine park, species, whether it was alive or deceased, its fate, its length in metres and its sex.
 - q: What do the sex codes mean?
-  a: F is female, M is male and U is unknown. The publisher writes NULL where no sex was recorded, which is
+  a: F is female, M is male and U is unknown. The publisher writes `NULL` where no sex was recorded, which is
     null here.
 summary: The length and sex of each shark and other animal caught by Queensland's shark nets and drumlines
   since 1996.
@@ -34,7 +34,7 @@ description: 'One row per animal caught by the Queensland Shark Control Program'
   the animal was alive or deceased, its fate and the reason, its length in metres and its sex.
 
 
-  The cells the publisher writes as NULL are null here.
+  The cells the publisher writes as `NULL` are null here.
 
   '
 publisher:

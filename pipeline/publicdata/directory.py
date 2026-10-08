@@ -848,6 +848,37 @@ def _who(p: Publisher, jur: str) -> str:
     return f"{p.name} is {noun}{site}."
 
 
+# A portal's format codes as words a reader knows; the glossary explains the abbreviations kept, and
+# a code not listed here is written in lower case, as a word rather than an abbreviation.
+FORMAT_WORDS = {
+    "API": "API",
+    "ARCGIS GEOSERVICES REST API": "ArcGIS REST API",
+    "CSV": "CSV",
+    "DOC": "Word",
+    "DOCX": "Word",
+    "ESRI REST": "ArcGIS REST API",
+    "GEOJSON": "GeoJSON",
+    "GEOTIFF": "GeoTIFF",
+    "GML": "GML",
+    "GPKG": "GeoPackage",
+    "HTML": "HTML",
+    "JSON": "JSON",
+    "KML": "KML",
+    "KMZ": "KMZ",
+    "PDF": "PDF",
+    "SHP": "Shapefile",
+    "TIFF": "TIFF",
+    "TSV": "TSV",
+    "TXT": "text",
+    "WFS": "WFS",
+    "WMS": "WMS",
+    "XLS": "Excel",
+    "XLSX": "Excel",
+    "XML": "XML",
+    "ZIP": "ZIP",
+}
+
+
 def _listing_note(rows: list[dict], live: list[dict]) -> str:
     """What the listing holds: the topics served here, else the file types the portal lists
     and when a listing last changed."""
@@ -859,7 +890,7 @@ def _listing_note(rows: list[dict], live: list[dict]) -> str:
     newest = max((r.get("modified") or "" for r in rows), default="")
     parts = []
     if fmts:
-        top = [f for f, _ in fmts.most_common(3)]
+        top = [FORMAT_WORDS.get(f.upper(), f.lower()) for f, _ in fmts.most_common(3)]
         parts.append(f"Most of its files are {join(top)}")
     if newest:
         parts.append(f"the newest listing changed on {_long(newest)}")

@@ -37,7 +37,7 @@ faq:
     on one ticket type, that began at one stop and ended at another. The stop numbers match the stop_id column
     of the origin-destination stops table.
 - q: Why do some trips have no origin or destination stop?
-  a: About one row in ten has a blank stop, and some stops have codes starting DH. The publisher records what
+  a: About one row in ten has a blank stop, and some stops have codes starting `DH`. The publisher records what
     its ticketing system logged, and its readme on the portal page explains these cases. They are kept as published.
 - q: Which month does this cover?
   a: The publisher adds one file per month. This entry holds July 2026, the newest month at review. Earlier

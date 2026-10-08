@@ -14,7 +14,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import OPERATOR, REPO, SITE, brand, explorer, figures
+from . import OPERATOR, REPO, SITE, abbreviations, brand, explorer, figures
 from . import api_text as at
 from . import ard as ardspec
 from .build import DatasetOut, VersionOut, dataset_url, source_name, version_url
@@ -140,12 +140,12 @@ def fmt_int(n: int) -> str:
 
 
 URL_RE = re.compile(r"https://[^\s<>\"]+")
+# A code or a publisher's value quoted in copy: register text and the site's own answers.
+CODE_RE = re.compile(r"`([^`\n]+)`")
 
 
-def linkify(text: str) -> str:
-    """Escape the prose and link each bare https URL. Trailing punctuation stays outside the link."""
+def _links(text: str) -> str:
     out, pos = [], 0
-    text = str(text)
     for m in URL_RE.finditer(text):
         url = m.group(0).rstrip(".,;:)")
         out.append(html.escape(text[pos : m.start()]))
@@ -156,6 +156,29 @@ def linkify(text: str) -> str:
     return "".join(out)
 
 
+def linkify(text: str) -> str:
+    """Escape the prose, set each code in backticks as code and link each bare https URL.
+    Trailing punctuation stays outside the link."""
+    out, pos = [], 0
+    text = str(text)
+    for m in CODE_RE.finditer(text):
+        out.append(_links(text[pos : m.start()]))
+        out.append(f"<code>{html.escape(m.group(1))}</code>")
+        pos = m.end()
+    out.append(_links(text[pos:]))
+    return "".join(out)
+
+
+def quoting(text: str, *values) -> str:
+    """Escape text and mark the publisher's values in it as quoted, so the abbreviation check reads
+    past a place name such as BRISBANE - EAST or a filter such as BOTH DIRECTIONS."""
+    out = html.escape(str(text))
+    vs = sorted({html.escape(str(v)) for v in values if str(v)}, key=len, reverse=True)
+    if not vs:
+        return out
+    return re.sub("|".join(map(re.escape, vs)), r"<span data-quoted>\g<0></span>", out)
+
+
 def env() -> Environment:
     e = Environment(
         loader=PackageLoader("publicdata", "templates"),
@@ -164,6 +187,8 @@ def env() -> Environment:
         lstrip_blocks=True,
     )
     e.filters["linkify"] = linkify
+    e.filters["code"] = inline_code
+    e.filters["quoting"] = quoting
     e.globals["cadence_words"] = cadence_words
     e.globals["download_name"] = download_name
     return e
@@ -361,6 +386,11 @@ def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
     return [gone[f] for f in SITE_ORDER if f in gone]
 
 
+def inline_code(text: str) -> str:
+    """Register copy escaped for HTML, with a publisher's code in backticks set as code."""
+    return CODE_RE.sub(r"<code>\1</code>", html.escape(text, quote=False))
+
+
 def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
     return [FORMAT_LABEL[f] for f in _fmts(ds, v) if f != "csv.gz"]
 
@@ -513,9 +543,9 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
         out.append(
             (
                 f"How do I get only the rows for one {pf.replace('_', ' ')}?",
-                f"Every version has one JSON file per value of {pf}, {len(entries)} files in the current version, listed with row counts at {vbase}by/{pf}/index.json."
+                f"Every version has one JSON file per value of `{pf}`, {len(entries)} files in the current version, listed with row counts at {vbase}by/{pf}/index.json."
                 + (
-                    f" For example {vbase}{ex['json']} holds the {fmt_int(ex['rows'])} rows where {pf} is {ex['value']}."
+                    f" For example {vbase}{ex['json']} holds the {fmt_int(ex['rows'])} rows where `{pf}` is `{ex['value']}`."
                     if ex
                     else ""
                 )
@@ -677,7 +707,11 @@ def _faq_jsonld(faq: list[tuple[str, str]]) -> dict:
         "@context": "https://schema.org",
         "@type": "FAQPage",
         "mainEntity": [
-            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}}
+            {
+                "@type": "Question",
+                "name": CODE_RE.sub(r"\1", q),
+                "acceptedAnswer": {"@type": "Answer", "text": CODE_RE.sub(r"\1", a)},
+            }
             for q, a in faq
         ],
     }
@@ -1499,7 +1533,7 @@ def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict]:
             "label": "DuckDB",
             "kind": "command",
             "value": f"INSTALL httpfs; LOAD httpfs;\nATTACH '{vb}data.duckdb' AS {name} (READ_ONLY);\nSELECT {key}, count(*) FROM {name}.records GROUP BY 1 ORDER BY 2 DESC;",
-            "note": "The DuckDB file attaches read-only over HTTPS and only the blocks a query touches are read. Parquet works the same way: FROM read_parquet(url).",
+            "note": "The DuckDB file attaches read-only over HTTPS and only the blocks a query touches are read. Parquet works the same way: <code>FROM read_parquet(url)</code>.",
         },
         *script,
     ]
@@ -1533,7 +1567,7 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
         (
             f"How do I get one table of {short}?",
             f"Every table is a Parquet file under {vbase}tables/, for example {vbase}tables/{ds.tables[0].name}.parquet, which pandas, R, Polars, Spark and DuckDB read directly. "
-            f"{vbase}schema.sql has the CREATE TABLE statements with the keys and references, and {vbase}schema.json the same as Table Schema.",
+            f"{vbase}schema.sql has the SQL that creates every table, with the keys and references, and {vbase}schema.json the same as Table Schema.",
         ),
     ]
     if ds.source.cadence:
@@ -1935,7 +1969,7 @@ PROSE = {
 <li>The dataset page states the licence, the attribution and a contact, and carries the change log.</li>
 </ol>
 <h2>What this site does with it</h2>
-<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. <a href="https://nationaldigital.com.au/contact/">National Digital</a>, which runs this site, will talk through a layout with any agency that asks. No government agency has endorsed this site.</p>
+<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. National Digital, which runs this site, will talk through a layout with any agency that asks on its <a href="https://nationaldigital.com.au/contact/">contact page</a>. No government agency has endorsed this site.</p>
 <h2>Further reading</h2>
 <ul>
 <li><a href="https://www.w3.org/TR/dwbp/">Data on the Web Best Practices</a> from the W3C, in particular the practices on persistent URIs, version indicators and version history.</li>
@@ -1992,7 +2026,7 @@ PROSE = {
 <h2>Per dataset</h2>
 <ul>
 <li><code>/d/&lt;slug&gt;/datapackage.json</code> is a Frictionless data package pointing at the latest version.</li>
-<li><code>/d/&lt;slug&gt;/schema.json</code> is a Table Schema. Types are string, integer, number, boolean, date and datetime. Beside each version, <code>schema.sql</code> is the same as a CREATE TABLE and <code>data.csv-metadata.json</code> is W3C CSV on the Web metadata.</li>
+<li><code>/d/&lt;slug&gt;/schema.json</code> is a Table Schema. Types are string, integer, number, boolean, date and datetime. Beside each version, <code>schema.sql</code> is the same as a <code>CREATE TABLE</code> and <code>data.csv-metadata.json</code> is W3C CSV on the Web metadata.</li>
 <li><code>/d/&lt;slug&gt;/fields.json</code> lists each queryable field with its type, the publisher's description, its range and the values it holds when it has few. The MCP server offers it as a resource.</li>
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
@@ -2037,6 +2071,14 @@ PROSE = {
 <p>The disclosure policy is at <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
 """,
     ),
+    "glossary": (
+        "Glossary",
+        "Every abbreviation publicdata.au uses in its own words, with what it stands for.",
+        """
+<p>Every abbreviation this site uses in its own words is listed here with what it stands for. Publishers' own titles, codes and cell values are quoted as published, so they can hold abbreviations this list does not explain.</p>
+{glossary}
+""",
+    ),
     "contribute": (
         "Contribute",
         "How to add a dataset, a file format or a fix to publicdata.au, and how a change is reviewed and released.",
@@ -2076,7 +2118,58 @@ PROSE = {
 <h2>Hosting</h2>
 <p>Cloudflare hosts the site and handles every request, including the address it came from, to deliver it and to block abuse. The <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare privacy policy</a> covers that handling.</p>
 <h2>Contact</h2>
-<p>Questions about privacy go to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+<p>Questions about privacy go to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+""",
+    ),
+    "accessibility": (
+        "Accessibility",
+        "How publicdata.au is built and checked so people who use assistive technology can use it, and how to report a barrier.",
+        """
+<p>Last updated 8 October 2026.</p>
+<h2>Our commitment</h2>
+<p>We want everyone to be able to use publicdata.au and its data, whatever their disability, device or assistive technology. We aim to provide equal access consistently with the Disability Discrimination Act 1992. Meeting a standard supports that aim. We will still respond to any barrier a person meets and offer a reasonable alternative where one is needed.</p>
+<h2>The standard the site is held to</h2>
+<p>The site is built to the Web Content Accessibility Guidelines (WCAG) 2.2 at level AAA, the highest of its three levels. Dense data regions, which are long tables, dataset listings and the data explorer, are held to level AA for the size of targets and type, and to AAA for everything else. A table of many rows cannot give every cell a large target and still work as a table.</p>
+<p>We do not claim that every page conforms. The automated checks below run on a fixed set of pages that covers every kind of page the site builds. Some criteria have no reliable automated test and are met by design and checked in review.</p>
+<h2>How it is checked</h2>
+<p>Every change to the site has to pass these checks before it can be merged. Each runs in the light and in the dark colour scheme.</p>
+<ul>
+<li>The axe-core rules for WCAG 2.2 at levels A, AA and AAA, including its experimental rules, which include text contrast of at least 7 to 1.</li>
+<li>Any result axe cannot decide fails the build until it is settled. Contrast over a gradient, an image or a chart is settled by measuring the colours painted behind the text, and anything else a person reviews and records with the reason.</li>
+<li>A menu on a narrow screen that opens and closes from the keyboard and shows its links without script.</li>
+<li>Text of at least 0.875rem where it is read and 0.75rem elsewhere. The base size grows on wide screens and follows the size set in your browser.</li>
+<li>Paragraphs and lists of no more than 80 characters a line.</li>
+<li>Links, buttons and fields of at least 44 by 44 pixels, or 24 by 24 inside a dense data region.</li>
+<li>Link text that says where the link goes.</li>
+<li>A visible focus outline on everything you can reach with the keyboard.</li>
+<li>No sideways scrolling at 320 pixels wide, or with line, letter, word and paragraph spacing increased.</li>
+<li>Every abbreviation in the site's own text spelt out on the page or listed in the <a href="/glossary/">glossary</a>.</li>
+</ul>
+<p>Each check is first run against a page built to fail it, so a check that stops working fails the build. The abbreviation rule also runs on every page of every deploy and on the text of each new or changed dataset entry.</p>
+<h2>What the site provides</h2>
+<ul>
+<li>A skip link, labelled navigation and search, one main heading on every page and section headings in order.</li>
+<li>Charts and maps with a text description worked out from the values they show. The same numbers are in the dataset's files.</li>
+<li>Tables that scroll with the keyboard and are named for screen readers.</li>
+<li>Every dataset's rows as a CSV file, which opens in a spreadsheet or a text editor, and in most cases as Excel and JSON as well.</li>
+<li>A plain Markdown copy of every page, linked at the foot of the page.</li>
+<li>Colours that give way to your browser's forced-colours mode or your own style sheet, and light and dark schemes that follow your device's setting.</li>
+<li>Nothing timed. The only animation is the explorer's loading indicator, which stops when your device asks for reduced motion.</li>
+</ul>
+<h2>Known limitations</h2>
+<ul>
+<li>The data explorer is built on Perspective, a third-party component, and needs JavaScript and a recent browser. Its region is held to level AA, and we cannot change how the component itself works. The dataset page has every file and the query API as alternatives.</li>
+<li>Titles, descriptions and field names quoted from a publisher stay in the publisher's words, so they can hold abbreviations or terms the site does not expand.</li>
+<li>The publisher's own file is served as it was published. When it is a document or spreadsheet that is hard to use, the converted files usually work better.</li>
+<li>A map shows its values by shading. Its description and the dataset's files give the numbers.</li>
+</ul>
+<h2>Report a barrier or ask for another format</h2>
+<p>If part of the site is hard to use, tell us the page, what you were trying to do and, if you are comfortable saying, the browser or assistive technology you use. You can also ask for a dataset in a format the site does not offer. Write to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a> or open an issue <a href="{repo}/issues">on GitHub</a>.</p>
+<p>When a report shows a barrier a machine can detect, we add a check for it to the gate so it cannot come back.</p>
+<h2>If you are not satisfied</h2>
+<p>We will try to resolve a concern with you directly. You can also make a complaint to the <a href="https://humanrights.gov.au/complaints">Australian Human Rights Commission</a>.</p>
+<h2>Review</h2>
+<p>This statement changes when the checks change. The checks are in the site's source, and <a href="{repo}/blob/main/docs/ACCESSIBILITY.md">the accessibility record</a> lists each criterion, the regions held to AA and how the criteria with no automated test are met.</p>
 """,
     ),
     "terms": (
@@ -2107,7 +2200,7 @@ PROSE = {
 <h2>Governing law</h2>
 <p>These terms are governed by the law of Queensland. The courts of Queensland, and federal courts sitting in Queensland, may hear any dispute about them. This does not stop you from relying on the Australian Consumer Law. If part of these terms cannot be enforced, the rest still applies.</p>
 <h2>Concerns and contact</h2>
-<p>To raise a copyright or privacy concern about a dataset, or to ask us to remove one, write to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Errors in the serialisation go through <a href="/about/#corrections">corrections</a>.</p>
+<p>To raise a copyright or privacy concern about a dataset, or to ask us to remove one, write to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Errors in the serialisation go through <a href="/about/#corrections">corrections</a>.</p>
 """,
     ),
 }
@@ -2117,7 +2210,7 @@ PROSE = {
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
     "8 October 2026",
-    "9c980b65ff9a94242796d36470ef0ea4558f56c1ab299c5829c6d2443003bfec",
+    "f44f36158e75c29067d5959f0ba918826872c1331369d4d53f89efc93d32a1e5",
 )
 
 
@@ -3494,7 +3587,9 @@ def render_site(
                 use_tabs=_use_tabs(ds, latest),
                 mcp_add=at.spec()["mcp"]["add_command"],
                 jur_long=JUR_LONG[ds.publisher.jurisdiction],
-                description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
+                description_paras=[
+                    inline_code(p) for p in ds.description.split("\n\n") if p.strip()
+                ],
                 history_size=fmt_size((out / "d" / ds.slug / "history.tar.zst").stat().st_size),
                 attribution=attribution(ds, m),
                 portal_host=(m.source.get("url") or "").split("/")[2]
@@ -3658,6 +3753,7 @@ def render_site(
             fig=fig,
             example_rows=[(k, figures.fmt(v)) for k, v in example],
             example_words=(_example_title(ds, console) if example else ""),
+            example_values=[f["value"] for f in console["example"]["filters"]] if example else [],
             rows_example=_example_query(ds.slug, console, "rows") if console else "",
             aggregate_example=_example_query(ds.slug, console, "aggregate") if console else "",
             format_count=len(formats) - (1 if fmt_data.get("partition") else 0),
@@ -3670,7 +3766,7 @@ def render_site(
             partitions=partitions,
             siblings=siblings,
             jur_long=JUR_LONG[ds.publisher.jurisdiction],
-            description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
+            description_paras=[inline_code(p) for p in ds.description.split("\n\n") if p.strip()],
             has_suppressed=bool(ds.suppression),
             update_note=checks_words(ds) if ds.update != "release" else "",
             no_query="" if console else _no_query(ds, latest),
@@ -4403,7 +4499,10 @@ def render_site(
             .replace("{skill_path}", SKILL_PATH)
             .replace("{repo}", REPO)
             .replace("{gh}", GH_MARK)
+            .replace("{glossary}", abbreviations.render(abbreviations.glossary()))
         )
+        if left := re.findall(r"\{[a-z_]+\}", body):
+            raise ValueError(f"{slug}: placeholder {', '.join(left)} was never filled")
         md = "\n".join(
             [
                 "---",
@@ -4707,6 +4806,7 @@ def render_site(
             f"- {SITE}/government/index.md",
             f"- {SITE}/agents/index.md",
             f"- {SITE}/about/index.md",
+            f"- {SITE}/glossary/index.md",
             f"- {SITE}/contribute/index.md",
             "",
             "## Source",
@@ -4922,6 +5022,7 @@ def render_site(
         f"{SITE}/agents/",
         f"{SITE}/about/",
         f"{SITE}/contribute/",
+        f"{SITE}/accessibility/",
         f"{SITE}/privacy/",
         f"{SITE}/terms/",
     ]
