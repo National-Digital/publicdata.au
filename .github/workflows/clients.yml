@@ -51,6 +51,8 @@ jobs:
           PUBLICDATA_LIVE: "1"
         run: pytest -q tests -k live
       - run: uv build
+      - name: The wheel tells type checkers the package is typed
+        run: python -m zipfile -l dist/*.whl | grep -q 'publicdata_au/py.typed' || { echo "::error::the wheel has no publicdata_au/py.typed"; exit 1; }
       - name: The version in the package matches pyproject.toml
         run: |
           want=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
