@@ -22,7 +22,7 @@ pd_changes <- function(slug, from = NULL, to = NULL) {
   check_version(to)
   steps <- pd_get(paste0("/d/", check_slug(slug), "/changes.json"), simplify = FALSE)$changes
   num <- function(x) if (is.null(x)) NA_real_ else as.numeric(x)
-  names_of <- function(s, a, b) paste(unlist(c(s[[a]], s[[b]])), collapse = ", ")
+  names_of <- function(s, a, b) toString(unlist(c(s[[a]], s[[b]])))
   rows <- lapply(steps, function(s) {
     data.frame(
       from = s$from,
@@ -40,12 +40,16 @@ pd_changes <- function(slug, from = NULL, to = NULL) {
       stringsAsFactors = FALSE
     )
   })
-  out <- if (length(rows)) do.call(rbind, rows) else data.frame(
-    from = character(), to = character(), rows_from = numeric(), rows_to = numeric(),
-    added = numeric(), removed = numeric(), changed = numeric(), unchanged = numeric(),
-    fields_added = character(), fields_removed = character(), truncated = logical(),
-    url = character(), stringsAsFactors = FALSE
-  )
+  out <- if (length(rows)) {
+    do.call(rbind, rows)
+  } else {
+    data.frame(
+      from = character(), to = character(), rows_from = numeric(), rows_to = numeric(),
+      added = numeric(), removed = numeric(), changed = numeric(), unchanged = numeric(),
+      fields_added = character(), fields_removed = character(), truncated = logical(),
+      url = character(), stringsAsFactors = FALSE
+    )
+  }
   if (!is.null(from)) out <- out[out$from >= from, , drop = FALSE]
   if (!is.null(to)) out <- out[out$to <= to, , drop = FALSE]
   as_tbl(out)
@@ -67,25 +71,29 @@ pd_diff <- function(slug, version = NULL) {
   steps <- pd_changes(slug)
   hit <- steps[steps$to == version, , drop = FALSE]
   if (!nrow(hit)) {
-    pd_abort("no comparison ends at ", version, " for '", slug,
-         "': it is the first version kept, or not a version. pd_changes() lists them.")
+    pd_abort(
+      "no comparison ends at ", version, " for '", slug,
+      "': it is the first version kept, or not a version. pd_changes() lists them."
+    )
   }
-  structure(pd_get(hit$url[1], simplify = FALSE), class = "pd_diff")
+  structure(pd_get(hit$url[1L], simplify = FALSE), class = "pd_diff")
 }
 
 #' @export
 print.pd_diff <- function(x, ...) {
   cat("<pd_diff> ", x$dataset, ": ", x$from, " to ", x$to, "\n", sep = "")
+  big <- function(n) format(n, big.mark = ",")
   if (!is.null(x$added)) {
-    cat(format(x$added, big.mark = ","), " added, ", format(x$removed, big.mark = ","), " removed, ",
-        format(x$changed, big.mark = ","), " changed, ", format(x$unchanged, big.mark = ","),
-        " unchanged\n", sep = "")
+    cat(big(x$added), " added, ", big(x$removed), " removed, ", big(x$changed), " changed, ",
+      big(x$unchanged), " unchanged\n",
+      sep = ""
+    )
   } else {
-    cat("rows: ", format(x$rows_from, big.mark = ","), " to ", format(x$rows_to, big.mark = ","), "\n", sep = "")
+    cat("rows: ", big(x$rows_from), " to ", big(x$rows_to), "\n", sep = "")
   }
   for (k in c("fields_added", "fields_removed", "tables_added", "tables_removed")) {
     v <- unlist(x$schema[[k]])
-    if (length(v)) cat(sub("_", " ", k), ": ", paste(v, collapse = ", "), "\n", sep = "")
+    if (length(v)) cat(sub("_", " ", k, fixed = TRUE), ": ", toString(v), "\n", sep = "")
   }
   if (!is.null(x$note)) cat(x$note, "\n")
   invisible(x)

@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      pull-requests: write
-      actions: read
+      pull-requests: write # approves the pull request, or dismisses an earlier approval
+      actions: read # reads the run that cut the branch
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -47,7 +47,9 @@ jobs:
             exit 0
           }
           [ "$HEAD_REPO" = "$REPO" ] || hold "the branch is on a fork"
-          [ "$OPENER_TYPE" = "Bot" ] && [ -n "$FETCHER" ] && [ "$OPENER" = "$FETCHER" ] || hold "opened by $OPENER ($OPENER_TYPE), not the fetch app"
+          if ! { [ "$OPENER_TYPE" = "Bot" ] && [ -n "$FETCHER" ] && [ "$OPENER" = "$FETCHER" ]; }; then
+            hold "opened by $OPENER ($OPENER_TYPE), not the fetch app"
+          fi
           run=$(gh api "repos/$REPO/actions/runs/${BRANCH##*-}" --jq '"\(.path) \(.head_branch) \(.event)"' 2>/dev/null || true)
           case "$run" in
             ".github/workflows/fetch.yml main schedule"|".github/workflows/fetch.yml main workflow_dispatch"|\

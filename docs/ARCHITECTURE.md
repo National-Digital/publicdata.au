@@ -1,7 +1,7 @@
 # Architecture
 
 One job: take a dataset a government already publishes under an open licence and serve it
-as immutable, versioned, schema-carrying files that never send traffic back to the source.
+as dated, versioned, schema-carrying files that never send traffic back to the source.
 
 ## The shape
 
@@ -63,7 +63,7 @@ pipeline/publicdata/
    since review. A grant that is not Creative Commons is admitted only through
    `register/licences/`, which quotes the publisher on reproduction, adaptation, commercial use
    and attribution. Old versions stay up under the licence they were published under.
-6. Versions are immutable and dated by source change; unchanged hash, no version. The
+6. Versions are dated by source change and keep their content; unchanged hash, no version. The
    [Archive](#archive) section says how long they are kept and what may change.
 7. Serialisers are pure functions of the model. Two builds of one snapshot are byte-identical,
    and CI proves it.
@@ -111,6 +111,7 @@ pipeline/publicdata/
 /d/<slug>/v/<date>/by/<field>/<value>.json           where partition_by is declared
 /d/<slug>/v/<date>/manifest.json     source URL, fetched-at, SHA-256 of source bytes
 /d/<slug>/v/<date>/source.<ext>      the bytes as fetched, served from publicdata-raw
+/d/<slug>/v/<date>/SHA256SUMS        SHA-256 of every file, under its download name
 /d/<slug>/openapi.json               OpenAPI for this dataset's query paths
 /d/<slug>/explore/                   the explorer; ?view=<id> opens a saved dashboard
 /d/<slug>/embed/                     the same dashboard in a frame, with the attribution
@@ -120,7 +121,7 @@ pipeline/publicdata/
 /health.json
 ```
 
-Immutable versions are cached for a year. Every dataset page carries schema.org Dataset
+Dated versions are cached for a year. Every dataset page carries schema.org Dataset
 JSON-LD.
 
 ## What every dataset gets
@@ -129,9 +130,9 @@ A register entry that passes `register validate` and has a stored version gets a
 the build, with nothing written by hand:
 
 - the dataset page, its Markdown twin, schema.org Dataset JSON-LD and a catalogue record;
-- one dated, immutable version per source change, each with its files, its manifest, the
-  publisher's own file and a diff against the version before. Every table version has Parquet,
-  CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
+- one dated version per source change, which keeps its content, each with its files, its
+  manifest, the publisher's own file and a diff against the version before. Every table version
+  has Parquet, CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
   `data.geo.parquet` and a GeoPackage, and a polygon or line layer keeps its shapes in
   `data.parquet`, which is GeoParquet, with a GeoPackage and PMTiles vector tiles. The DuckDB
   file attaches read-only over HTTPS (the R2 function answers range requests), so a query runs
@@ -173,7 +174,8 @@ the key `publicdata.profile` holds the profile version, now `1`, beside the `pub
 provenance key. A reader checks that key before it relies on the order, the sizes or the page
 index.
 
-A published file never changes (ADR 0002), so the profile reaches a version in one of two ways.
+A published file keeps its bytes unless a correction rebuilds it (ADR 0002), so the profile
+reaches a version in one of two ways.
 
 - A version's own files keep the layout its fetch recorded. `fetch` writes the register entry's
   layout (`profile.layout`: the profile version, `sort`, `key`, `lookup` and `int32`) into the
@@ -230,8 +232,9 @@ Schema and keys, and `schema.sql` with the CREATE TABLE statements, references a
 database has no JSON, CSV, Excel or SQLite files, no partitions, no query API and no explorer; its
 page lists the tables and shows how to attach the file from R, Python and DuckDB, and two versions
 are compared table by table by row count. The DuckDB file's bytes are not reproducible, since its
-storage picks a compression for each block by sampling, so CI compares DuckDB files by content
-(`python -m publicdata.dbcheck`) and everything else byte for byte.
+storage lays out and packs its blocks differently on each write, and its length can differ too. CI
+compares DuckDB files by content (`python -m publicdata.dbcheck`) and everything else byte for
+byte, and no page or catalogue states a DuckDB file's size.
 
 What shapes the defaults is the register: field types, `key` and `partition_by`. A table keyed by
 several fields with a count field is charted as the sum of that count; any other table counts its
@@ -269,22 +272,28 @@ files or Parquet are missing.
 
 This site is the version history the portals do not keep. The archive role has its own rules.
 
-- Every version is kept indefinitely. A version is never deleted or rewritten, including when
-  the publisher withdraws or replaces the source file. The only exception is a legal takedown,
-  which is recorded in `changes.json` as a tombstone that keeps the manifest and hash.
+- Every version is kept indefinitely. A version is never deleted, including when the publisher
+  withdraws or replaces the source file, and its source bytes never change. Its converted files
+  are rebuilt only to correct a fault in our conversion or in the publisher's attribution, to
+  comply with the law, or when a publisher asks for removal, and the change goes in the
+  version's notes. A file is removed only for a legal takedown or a publisher's request to
+  remove its dataset, and the version's `tombstone` keeps the manifest and hash on record.
+  [CORRECTIONS.md](CORRECTIONS.md) sets out the steps for each.
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
-- Raw bytes are kept for every version in append-only object storage with versioning on, and
-  a `history` branch in git holds every manifest and diff report, so the archive can be
-  rebuilt from either.
+- Raw bytes are kept for every version in the R2 bucket `publicdata-raw`, and a `history`
+  branch in git holds every manifest and diff report, so the archive can be rebuilt from
+  either. R2 keeps no earlier copies of an object, so the push keeps the bucket append-only:
+  `publicdata store push` skips any object that already exists under a version whose manifest
+  is committed, and it takes no option to replace one.
 - Any two versions can be compared: `/d/<slug>/diff/<a>..<b>.json` lists added, removed and
   changed rows by the declared key, and field-level schema differences. `changes.json` is
   the same for consecutive pairs.
 - `versions.json` per dataset lists every version with date, as-at, row count, field count,
   source hash and encoding. `/d/<slug>/history.tar.zst` bundles every version's data.parquet
   and manifest for offline use.
-- Publishers can cite a version URL knowing it will resolve to the same bytes in ten years.
+- Publishers can cite a version URL knowing it will resolve to the same data in ten years.
 
 ## Hosting
 
@@ -383,6 +392,33 @@ that listed it before main stopped using it still finds it whole. Source bytes a
 pulled only for versions the cache does not hold. A deploy dispatched with `replace` builds
 without it.
 
+Every dated version in R2 carries `SHA256SUMS`, one `sha256sum` line per file under the name the
+site saves it as (`site.download_name`), so `sha256sum -c --ignore-missing SHA256SUMS` checks a
+download (`shasum -a 256 -c` on a Mac). The build never writes it, so the cache key does not cover it and adding it rebuilt
+nothing. A production deploy runs `publicdata checksums` straight after the Pages deploy. It lists
+each dataset's versions in R2 and writes the list for any version that has none. The hashes are the
+SHA-256 that `dist-push` stores with each object, so no data file is read back. A source file served from
+the raw store takes the SHA-256 its `manifest.json` records. A version with a file stored without a
+hash is skipped and reported. The step may fail without failing the deploy, since the next deploy
+catches up.
+The list is part of its version (ADR 0002), so it is written once and served like every dated file,
+as immutable for a year. Only a `replace` dispatch makes it again. The step deletes the replaced
+version's list before it writes the new one, so a run that stops leaves no list for the next deploy
+to write, and it runs before the purge, which then drops the old list from the edge with the other
+files. Outside a replace, a file R2 holds that is newer than its version's list breaks the rule
+that dated files never change. The step names each one in a `::warning::` and leaves the list as
+it is. A file stored again with the SHA-256 its line already holds, as a file compressed at rest
+would be, passes without a warning.
+A deploy of main signs the lists it wrote with one GitHub artifact attestation (`--subjects`,
+then `actions/attest-build-provenance` in a `sign` job of its own, since the deploy job also runs a
+pull request's code). `gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au
+--source-ref refs/heads/main` ties a list to a run on main, which a pull request's run cannot
+sign as. An attestation takes
+at most 1,024 subjects; a deploy signs the first 1,024 and warns. The Checksums workflow, run by
+hand, writes any missing list across R2 (`--all --download`) and signs every list again
+(`--resign`) in parts of 1,024. It never rewrites a list that exists. It is the backfill once the lists first ship, and the catch-up
+after a failed write or signature.
+
 One runner's disk cannot hold a build of every version at once, so the deploy builds in shards.
 A plan job lists the versions the cache cannot serve, those with no entry and those a writer
 would grow (`publicdata shards`), and packs their datasets by source bytes into at most four
@@ -391,7 +427,7 @@ Each shard pulls only the cache entries its datasets key to (`cache pull --only`
 hands over the cache entries it wrote, with the version files a preview serves. The deploy job
 then builds the whole site from the cache those entries filled, links the preview files in with
 `build --built`, and pushes the pages. Every deploy is therefore limited by its largest single
-dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
+dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote and their query API answers from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
 
 Because the build code is not in a version's key, the deploy checks a change to it against real
 versions. The plan job lists the files the change touches since its base, which for a pull
@@ -427,7 +463,10 @@ cancelled stops the deploy too. A fork's pull request has no access to the store
 first checked on the push to main, and a failure there stops every deploy until it is fixed. The reference is the cache entry because it records
 what the build made when the version was last built, which is what a reuse stands for. A dated
 file in R2 is never overwritten outside a replace dispatch, so it keeps the bytes of the version's
-first build, and a raised number alone does not change it. The diffs and the history archive are
+first build, and a raised number alone does not change it. Outside a replace, a push also adds no
+partition file to a version whose manifest R2 holds. An edit to `partition_by` builds every
+stored version again, and `dist-push` stops before it writes the new `by/` files and names the
+versions for a replace dispatch ([CORRECTIONS.md](CORRECTIONS.md#a-change-to-partition_by)). The diffs and the history archive are
 therefore made from the published copy of each version's Parquet and manifest wherever R2 holds
 one, in a deploy and in the check alike (`published.served`), so they describe the files the site
 serves and old bytes in R2 are no difference. When the sampled datasets that differ are more than
@@ -531,6 +570,64 @@ variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI 
 then the endpoints answer 503 and point to the files. The query builder is tested against
 node:sqlite in CI.
 
+## Rollups
+
+The MCP tool `count_rows` answers from a version's rollup before it asks D1. A rollup is one
+gzipped JSON object in `publicdata-dist` under `_rollup/<slug>/<version>.json.gz`, outside the
+published tree, holding the version's counts and totals grouped several ways ("cubes"). It is a
+cache of answers the query API gives and is not offered as a download. It carries the version's
+provenance header. The build never imports `rollup.py`, so rollups shape no version and the build
+cache does not key on them.
+
+`publicdata rollup` runs after the D1 load and follows what D1 holds, which `_versions` lists, so
+a version too large or too wide for D1, an entry with `query: false` and a deploy with D1 off get
+no rollup. Each rollup is stored with the identity of the Parquet it was built from: the SHA-256
+the push stores with every object, or the ETag of one pushed before it did. A version whose
+published Parquet has another identity, or which `--replace` names, gets its rollup written
+again, and the rollups of versions D1 no longer holds are deleted. The Parquet is read from a
+built tree when the tree holds the same bytes, and from `publicdata-dist` otherwise, so a version
+this deploy took from the build cache still gets its rollup. DuckDB reads it on one thread with a
+float's NaN as null, as `data.sqlite` holds it, and totals floats with compensated summation, so
+the same Parquet always gives the same rollup. A version whose totals include an infinity has no
+JSON form and is left to D1.
+
+A published version keeps the schema it was built with, so a rollup takes its fields from the
+version. They are the fields `_versions` lists for it, or the register's when D1 lists none, kept
+only where the Parquet has the column and typed by the column when the stated type does not fit
+it. A version that fails for any other reason, such as a download error, is logged as a warning
+and skipped. Its rollup stays when it was built from the bytes R2 still publishes, the other
+versions are written and pushed, and the next deploy tries it again.
+
+A version gets a rollup when its table has at least 5,000 rows and its entry does not set
+`query: false`; a smaller table is answered at once by any engine. The candidate cubes are the
+field sets the entry's `example` and `chart` ask about, each field readers count by (at most
+1,000 values, or any date), and each pair of the 24 most likely such fields. They are taken
+greedily by the weight of questions each newly answers per byte (a register question 100, a
+count by one field 10, a pair 2) until 1 MB. A cube with more groups than half the rows is left
+out. Each cube totals up to four numeric fields, the register's example and chart measures
+first, as sum, non-null count, minimum and maximum, so counts, sums, averages, minima and
+maxima all come from it. The cap holds on the gzipped bytes: a rollup over it drops its
+last-chosen cubes and is built again.
+
+The function picks the smallest cube that holds every field a query filters or groups on and
+the field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the answer is
+the one `/aggregate` gives; `functions/_rollup.test.mjs` runs random queries through both on
+the fixture in `pipeline/tests/fixtures/rollup`, whose rollup the Python tests pin byte for
+byte. Each filter is decided once per distinct value, and LIKE patterns match without
+backtracking. `count_rows` orders equal totals by its groups, so its top groups are the same
+from either engine and from the query it cites. The function reads a rollup only while its
+stored identity matches the published Parquet's, and checks again after a minute. A query no
+cube holds, a version other than the two newest, a deploy without D1, and a withheld dataset
+fall through to D1. Answers name the version and its `/aggregate` URL.
+
+The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
+measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their
+Parquet, median 152 KB), which answer the fields of 84.5% of the register's example and chart
+questions, 98.2% of counts by one field and 78% of counts by one field filtered on another.
+Doubling the cap gains three points on pairs and doubles the parse time, while counts alone
+answer the same fields in a third of the bytes but none of the sums and averages most register
+questions ask for. In workerd a cold rollup answers in 6 to 25 ms and a warm one in about 1 ms.
+
 ## Catalogue
 
 `publicdata catalogue fetch` reads the dataset list of every government open-data portal:
@@ -613,6 +710,12 @@ functions/_catalogue.js, held together by tests) and casts a vote for the record
 it does not hold is not stored; the answer points to National Digital's contact form. Both endpoints keep the query API's fair-use limit per address in the edge cache
 (`functions/_limit.js`), as the MCP server does, because the zone's rule covers
 `/api/v1/datasets/*` only.
+
+The most-wanted datasets become issues a contributor can start on (`contribute.py`,
+CONTRIBUTING.md "Pick up a dataset task"). A daily workflow reads the votes and the catalogue
+records they name from the public API and writes issues from those records and the register
+alone, so text from a vote never reaches one. The deploy reads the open issues before the build
+(`contribute issues`, `build --tasks`) and the backlog and publisher pages link each one.
 
 ## Site-wide files
 

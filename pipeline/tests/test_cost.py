@@ -233,8 +233,31 @@ def test_the_catalogue_is_summed_by_file_so_a_database_keeps_every_table():
         ],
     }  # fmt: skip
     files = cost.catalogue_sizes({"dataset": [rec]})["db"]
-    # DuckDB sizes are published to one significant figure, so the upper bound is counted.
-    assert files == {"data.duckdb": 250_000_000, "tables/a.parquet": 7, "tables/b.parquet": 9}
+    assert files == {
+        "data.duckdb": 2 * 16 + cost.DUCKDB_BLOCKS,
+        "tables/a.parquet": 7,
+        "tables/b.parquet": 9,
+    }
+
+
+def test_a_duckdb_file_counts_at_its_bound_from_the_files_whose_size_is_stated():
+    def sizes(**files):
+        rec = {
+            "identifier": "x",
+            "versionInfo": "2026-10-01",
+            "distribution": [
+                {"byteSize": n, "downloadURL": f"/d/x/v/2026-10-01/{p}"} if n else {"downloadURL": f"/d/x/v/2026-10-01/{p}"}
+                for p, n in files.items()
+            ],
+        }  # fmt: skip
+        return cost.catalogue_sizes({"dataset": [rec]})["x"]["data.duckdb"]
+
+    assert (
+        sizes(**{"data.csv": 40 * 10**6, "data.parquet": 9 * 10**6, "data.duckdb": 0})
+        == 50 * 10**6 + cost.DUCKDB_BLOCKS
+    )
+    assert sizes(**{"tables/a.parquet": 2 * GB, "data.duckdb": 0}) == 4 * GB + cost.DUCKDB_BLOCKS
+    assert sizes(**{"data.csv": 1000, "data.duckdb": 0}) == 1250 + cost.DUCKDB_BLOCKS
 
 
 def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
@@ -414,6 +437,62 @@ def test_an_edit_to_what_a_version_publishes_counts_as_moved(tmp_path, edit, mov
     assert ("a" in fresh, "a" in shaped) == (moved, reshaped)
 
 
+@pytest.mark.parametrize(
+    "edit, priced",
+    [
+        (BASE.replace("description: one", "description: two"), False),
+        (BASE + "title: Another title\n", False),
+        (BASE + "rebuild: 1\n", False),
+        (BASE.replace("utf-8", "cp1252"), False),
+        (BASE.replace("encoding: utf-8", "encoding: utf-8\n  cadence: daily"), True),
+        (BASE.replace("encoding: utf-8", "encoding: utf-8\n  feed: true"), True),
+        (BASE + "query: false\n", True),
+        (BASE + "status: live\n", True),
+        (BASE + "licence:\n  id: CC-BY-4.0\n", True),
+        (BASE + "key: [a]\n", True),
+        (BASE + "partition_by: [a]\n", True),
+        (BASE.replace("https://x/a", "https://x/b"), True),
+        (BASE.replace("type: string", "type: integer"), True),
+    ],
+)
+def test_only_an_edit_to_what_an_entry_costs_is_priced(tmp_path, edit, priced):
+    _repo(tmp_path, {"register/a.yaml": BASE})
+    (tmp_path / "register" / "a.yaml").write_text(edit, "utf-8")
+    assert ("a" in cost.costed(tmp_path, "HEAD", {"a": "register/a.yaml"})) is priced
+    # An entry with no base copy is priced as a new one.
+    assert cost.costed(tmp_path, "HEAD", {"new": "register/a.yaml"}) == {"new"}
+
+
+def test_the_gate_passes_a_copy_edit_to_an_entry_over_budget(tmp_path, capsys, monkeypatch):
+    real = (ROOT / "register" / "qld-fuel-prices.yaml").read_text("utf-8")
+    files = {"register/qld-fuel-prices.yaml": real}
+    for sub in ("publishers", "licences"):
+        for f in (ROOT / "register" / sub).glob("*.yaml"):
+            files[f"register/{sub}/{f.name}"] = f.read_text("utf-8")
+    git = _repo(tmp_path, files)
+    store = tmp_path / "store"
+    stored(store, "qld-fuel-prices", *(f"2026-0{m}-01" for m in range(1, 10)), size=GB)
+    (tmp_path / "c.json").write_text(json.dumps(catalog()), "utf-8")
+    monkeypatch.setattr(cost, "live_rows", lambda slugs, **kw: {})
+    args = ["cost", "--root", str(tmp_path), "--base", "HEAD~1", "--store", str(store),
+            "--catalog", str(tmp_path / "c.json"), "--today", "2026-10-06",
+            "--summary", str(tmp_path / "s.md")]  # fmt: skip
+
+    def commit(text):
+        (tmp_path / "register" / "qld-fuel-prices.yaml").write_text(text, "utf-8")
+        git("-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qam", "edit")
+
+    commit(real.replace("title: Fuel price", "title: Fuel prices"))
+    assert main(args) == 0
+    assert (
+        "qld-fuel-prices: edited, but nothing the projection reads changed"
+        in capsys.readouterr().out
+    )
+    commit(real.replace("cadence: monthly", "cadence: weekly"))
+    assert main(args) == 1
+    assert "OVER BUDGET" in capsys.readouterr().out
+
+
 def test_an_entry_moved_into_a_folder_is_compared_with_its_base_copy(tmp_path):
     git = _repo(tmp_path, {"register/a.yaml": BASE, "register/b.yaml": BASE})
     (tmp_path / "register" / "qld").mkdir()
@@ -548,8 +627,11 @@ def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
         assert not any(p.name.startswith("source.") for p in files)
         versions = json.loads((vdir.parent.parent / "versions.json").read_text("utf-8"))
         v = next(x for x in versions["versions"] if x["version"] == vdir.name)
+        sizes = {p.relative_to(vdir).as_posix(): _size(p) for p in files}
+        if "data.duckdb" in sizes:
+            sizes["data.duckdb"] = cost.duckdb_bound(sizes)
         # No built tree holds the publisher's file; the raw store keeps it once.
-        n = sum(_size(p) for p in files) + v["bytes"]
+        n = sum(sizes.values()) + v["bytes"]
         stored += n
         latest[vdir.parent.parent.name] = (n, v["rows"], (vdir / "data.csv"))
     assert s["stored_bytes"] == stored > 0

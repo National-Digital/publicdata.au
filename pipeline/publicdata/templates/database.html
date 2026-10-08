@@ -44,9 +44,9 @@
 </section>
 
 <h2 id="get">Download the database, or one table at a time</h2>
-<p>Every file is from version {{ latest.version }}. A dated version never changes. The same files sit under <span class="mono">{{ base }}latest/</span>, which redirects to the newest version.</p>
+<p>Every file is from version {{ latest.version }}. A dated version keeps its content. The same files sit under <span class="mono">{{ base }}latest/</span>, which redirects to the newest version.</p>
 <ul class="files">
-  <li><a href="{{ db.duckdb }}" class="mono">data.duckdb</a><span>{{ db.duckdb_size }} · every table and view, with the provenance in a <span class="mono">publicdata</span> table</span></li>
+  <li><a href="{{ db.duckdb }}" class="mono">data.duckdb</a><span>every table and view, with the provenance in a <span class="mono">publicdata</span> table</span></li>
   <li><a href="{{ db.schema_sql }}" class="mono">schema.sql</a><span>CREATE TABLE for every table with keys and references, and the views, for PostgreSQL and most SQL dialects</span></li>
   <li><a href="{{ db.schema_json }}" class="mono">schema.json</a><span>every table as a Frictionless Table Schema, with primary and foreign keys</span></li>
   <li><a href="{{ db.source }}" class="mono">source.{{ latest.ext }}</a><span>{{ db.source_size }} · the publisher's archive, byte for byte as fetched</span></li>

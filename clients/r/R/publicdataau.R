@@ -24,6 +24,7 @@
 #' `httr2_http_404`.
 #'
 #' @keywords internal
+#' @importFrom rlang %||%
 "_PACKAGE"
 
 pd_site <- function() {
@@ -31,26 +32,35 @@ pd_site <- function() {
   sub("/+$", "", site)
 }
 
-formats <- c("parquet", "csv", "csv.gz", "json", "ndjson", "sqlite", "duckdb", "xlsx", "arrow", "geojson", "gpkg", "geo.parquet")
+formats <- c(
+  "parquet", "csv", "csv.gz", "json", "ndjson", "sqlite", "duckdb", "xlsx", "arrow", "geojson",
+  "gpkg", "geo.parquet"
+)
 
 check_table <- function(table) {
-  if (is.null(table)) return(NULL)
-  if (!is.character(table) || length(table) != 1 || !grepl("^[A-Za-z0-9_]+$", table)) {
+  if (is.null(table)) {
+    return(NULL)
+  }
+  if (!is.character(table) || length(table) != 1L || !grepl("^[A-Za-z0-9_]+$", table)) {
     pd_abort("not a table name: ", format(table))
   }
   table
 }
 
 check_slug <- function(slug) {
-  if (!is.character(slug) || length(slug) != 1 || !grepl("^[A-Za-z0-9-]+$", slug)) {
+  if (!is.character(slug) || length(slug) != 1L || !grepl("^[A-Za-z0-9-]+$", slug)) {
     pd_abort("not a dataset slug: ", format(slug))
   }
   slug
 }
 
 check_version <- function(version) {
-  if (is.null(version)) return(NULL)
-  if (!is.character(version) || length(version) != 1 || !grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", version)) {
+  if (is.null(version)) {
+    return(NULL)
+  }
+  is_date <- is.character(version) && length(version) == 1L &&
+    grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", version)
+  if (!is_date) {
     pd_abort("a version is a date such as \"2026-08-07\"")
   }
   version
@@ -58,17 +68,18 @@ check_version <- function(version) {
 
 pd_request <- function(url) {
   req <- httr2::request(url)
-  req <- httr2::req_user_agent(req, paste0("publicdataau-r/", utils::packageVersion("publicdataau")))
+  agent <- paste0("publicdataau-r/", utils::packageVersion("publicdataau"))
+  req <- httr2::req_user_agent(req, agent)
   # A stalled connection fails; a slow download of a large file does not.
-  req <- httr2::req_options(req, connecttimeout = 30, low_speed_time = 60, low_speed_limit = 1)
+  req <- httr2::req_options(req, connecttimeout = 30L, low_speed_time = 60L, low_speed_limit = 1L)
   # The API allows a burst per address, then answers 429 with how long to wait; a passing server
   # error is tried again after a pause.
-  req <- httr2::req_retry(req, max_tries = 4, is_transient = function(resp) {
-    httr2::resp_status(resp) %in% c(429, 500, 502, 503, 504)
+  req <- httr2::req_retry(req, max_tries = 4L, is_transient = function(resp) {
+    httr2::resp_status(resp) %in% c(429L, 500L, 502L, 503L, 504L)
   })
   httr2::req_error(req, body = function(resp) {
-    body <- tryCatch(httr2::resp_body_json(resp), error = function(e) NULL)
-    if (is.list(body) && !is.null(body$error)) body$error else NULL
+    sent <- tryCatch(httr2::resp_body_json(resp), error = function(e) NULL)
+    if (is.list(sent) && !is.null(sent$error)) sent$error else NULL
   })
 }
 
@@ -78,15 +89,17 @@ pd_perform <- function(req, ...) {
     httr2_failure = function(e) {
       host <- regmatches(req$url, regexpr("^[a-z]+://[^/]+", req$url))
       pd_abort("could not reach ", host, ": ", conditionMessage(e),
-               "\nCheck the connection, or try again later.", class = "publicdataau_unreachable")
+        "\nCheck the connection, or try again later.",
+        class = "publicdataau_unreachable"
+      )
     }
   )
 }
 
 pd_get <- function(path, query = list(), simplify = TRUE) {
-  url <- if (grepl("://", path, fixed = TRUE)) path else paste0(pd_site(), path)
-  req <- pd_request(url)
-  query <- query[!vapply(query, is.null, logical(1))]
+  target <- if (grepl("://", path, fixed = TRUE)) path else paste0(pd_site(), path)
+  req <- pd_request(target)
+  query <- query[!vapply(query, is.null, logical(1L))]
   if (length(query)) req <- httr2::req_url_query(req, !!!query)
   httr2::resp_body_json(pd_perform(req), simplifyVector = simplify)
 }
@@ -107,8 +120,8 @@ latest_version <- function(slug) {
 #' @export
 pd_available <- function() {
   req <- httr2::req_method(pd_request(paste0(pd_site(), "/catalog.json")), "HEAD")
-  req <- httr2::req_timeout(httr2::req_retry(req, max_tries = 1), 10)
-  ok <- tryCatch(httr2::resp_status(httr2::req_perform(req)) < 400, error = function(e) FALSE)
+  req <- httr2::req_timeout(httr2::req_retry(req, max_tries = 1L), 10L)
+  ok <- tryCatch(httr2::resp_status(httr2::req_perform(req)) < 400L, error = function(e) FALSE)
   isTRUE(ok)
 }
 
@@ -135,9 +148,11 @@ NULL
 new_filter <- function(expr) structure(list(expr = expr), class = "pd_filter")
 
 fv <- function(value) {
-  if (length(value) != 1) pd_abort("a filter takes one value; pd_in() takes several")
+  if (length(value) != 1L) pd_abort("a filter takes one value; pd_in() takes several")
   if (is.na(value)) pd_abort("a filter cannot compare with NA; use pd_is_null()")
-  if (is.logical(value)) return(if (value) "true" else "false")
+  if (is.logical(value)) {
+    return(if (value) "true" else "false")
+  }
   format(value, scientific = FALSE, trim = TRUE)
 }
 
@@ -168,7 +183,7 @@ pd_ilike <- function(pattern) new_filter(paste0("ilike.", pattern))
 #' @rdname filters
 #' @export
 pd_in <- function(...) {
-  values <- vapply(as.list(unlist(list(...))), fv, character(1))
+  values <- vapply(as.list(unlist(list(...))), fv, character(1L))
   if (any(grepl(",", values, fixed = TRUE))) pd_abort("a value in pd_in() cannot contain a comma")
   new_filter(paste0("in.(", paste(values, collapse = ","), ")"))
 }
@@ -186,15 +201,23 @@ print.pd_filter <- function(x, ...) {
 }
 
 as_filter <- function(value) {
-  if (inherits(value, "pd_filter")) return(value$expr)
-  if (is.null(value) || (length(value) == 1 && is.na(value))) return("is.null")
-  if (length(value) > 1) return(pd_in(value)$expr)
+  if (inherits(value, "pd_filter")) {
+    return(value$expr)
+  }
+  if (is.null(value) || (length(value) == 1L && is.na(value))) {
+    return("is.null")
+  }
+  if (length(value) > 1L) {
+    return(pd_in(value)$expr)
+  }
   pd_eq(value)$expr
 }
 
 conditions <- function(where) {
-  if (!length(where)) return(list())
-  if (is.null(names(where)) || any(names(where) == "")) {
+  if (!length(where)) {
+    return(list())
+  }
+  if (is.null(names(where)) || !all(nzchar(names(where)))) {
     pd_abort("every condition needs a field name, as in pd_rows(slug, state = \"QLD\")")
   }
   lapply(where, as_filter)
@@ -204,7 +227,9 @@ joined <- function(x) if (is.null(x)) NULL else paste(x, collapse = ",")
 
 raw_rows <- function(body) {
   rows <- body$rows
-  if (is.null(rows) || length(rows) == 0) return(data.frame())
+  if (is.null(rows) || length(rows) == 0L) {
+    return(data.frame())
+  }
   as.data.frame(rows, stringsAsFactors = FALSE)
 }
 
@@ -236,14 +261,18 @@ answer <- function(rows, slug, meta, nxt = NULL, version = NULL) {
 #' @export
 pd_datasets <- function(q = NULL, publisher = NULL, topic = NULL, jurisdiction = NULL) {
   out <- as_tbl(pd_get("/api/v1/datasets", list(q = q))$results)
-  if (is.null(publisher) && is.null(topic) && is.null(jurisdiction)) return(out)
+  if (is.null(publisher) && is.null(topic) && is.null(jurisdiction)) {
+    return(out)
+  }
   keep <- catalogue_match(publisher, topic, jurisdiction)
-  if (!nrow(out)) return(out)
+  if (!nrow(out)) {
+    return(out)
+  }
   out[out$slug %in% keep, , drop = FALSE]
 }
 
 one_text <- function(x, what) {
-  if (!is.character(x) || length(x) != 1 || is.na(x) || !nzchar(x)) {
+  if (!is.character(x) || length(x) != 1L || is.na(x) || !nzchar(x)) {
     pd_abort(what, " must be one piece of text")
   }
   tolower(x)
@@ -251,31 +280,34 @@ one_text <- function(x, what) {
 
 catalogue_match <- function(publisher, topic, jurisdiction) {
   entries <- pd_get("/catalog.json", simplify = FALSE)$dataset
-  text <- function(x) if (is.null(x)) "" else tolower(as.character(x))
+  lower <- function(x) if (is.null(x)) "" else tolower(as.character(x))
   keep <- rep(TRUE, length(entries))
   if (!is.null(publisher)) {
     p <- one_text(publisher, "publisher")
-    keep <- keep & vapply(entries, function(e) grepl(p, text(e$publisher$name), fixed = TRUE), logical(1))
+    by_publisher <- function(e) grepl(p, lower(e$publisher$name), fixed = TRUE)
+    keep <- keep & vapply(entries, by_publisher, logical(1L))
   }
   if (!is.null(topic)) {
-    t <- one_text(topic, "topic")
+    wanted <- one_text(topic, "topic")
     topics <- lapply(entries, function(e) tolower(as.character(unlist(e[["publicdata:topics"]]))))
     known <- sort(unique(unlist(topics)))
     if (!length(known)) pd_abort("the site's catalogue does not list topics yet")
-    if (!t %in% known) {
-      pd_abort("no datasets are filed under topic \"", topic, "\"; the topics are ",
-           paste(known, collapse = ", "))
+    if (!wanted %in% known) {
+      pd_abort(
+        "no datasets are filed under topic \"", topic, "\"; the topics are ",
+        toString(known)
+      )
     }
-    keep <- keep & vapply(topics, function(x) t %in% x, logical(1))
+    keep <- keep & vapply(topics, function(x) wanted %in% x, logical(1L))
   }
   if (!is.null(jurisdiction)) {
     j <- one_text(jurisdiction, "jurisdiction")
     if (j %in% c("commonwealth", "australian government", "federal")) j <- "cth"
     keep <- keep & vapply(entries, function(e) {
-      j %in% c(text(e[["publicdata:jurisdiction"]]), text(e$spatial))
-    }, logical(1))
+      j %in% c(lower(e[["publicdata:jurisdiction"]]), lower(e$spatial))
+    }, logical(1L))
   }
-  vapply(entries[keep], function(e) e$identifier, character(1))
+  vapply(entries[keep], function(e) e$identifier, character(1L))
 }
 
 #' A dataset's description and files
@@ -325,7 +357,7 @@ query_path <- function(slug, kind, version) {
 #' @param .offset Rows to skip.
 #' @param .version A version date from [pd_versions()]. Without it the answer
 #'   comes from the newest version and changes when the publisher releases
-#'   again; with it the answer never changes.
+#'   again; with it the answer comes from that version alone.
 #' @param .all Follow every page and return all matching rows.
 #' @return A tibble, with each column typed as its field says (dates as `Date`,
 #'   booleans as logical) and labelled with the field's description.
@@ -337,21 +369,21 @@ query_path <- function(slug, kind, version) {
 #' @export
 pd_rows <- function(slug, ..., .select = NULL, .order = NULL, .limit = NULL,
                     .offset = NULL, .version = NULL, .all = FALSE) {
-  if (isTRUE(.all) && is.null(.limit)) .limit <- 10000
+  if (isTRUE(.all) && is.null(.limit)) .limit <- 10000L
   query <- c(
     conditions(list(...)),
     list(select = joined(.select), order = joined(.order), limit = .limit, offset = .offset)
   )
-  body <- pd_get(query_path(slug, "rows", .version), query)
-  meta <- body$publicdata
-  nxt <- body[["next"]]
-  pages <- list(raw_rows(body))
+  reply <- pd_get(query_path(slug, "rows", .version), query)
+  meta <- reply$publicdata
+  nxt <- reply[["next"]]
+  pages <- list(raw_rows(reply))
   while (isTRUE(.all) && !is.null(nxt)) {
-    body <- pd_get(nxt)
-    pages[[length(pages) + 1]] <- raw_rows(body)
-    nxt <- body[["next"]]
+    reply <- pd_get(nxt)
+    pages[[length(pages) + 1L]] <- raw_rows(reply)
+    nxt <- reply[["next"]]
   }
-  rows <- if (length(pages) > 1) do.call(rbind, pages) else pages[[1]]
+  rows <- if (length(pages) > 1L) do.call(rbind, pages) else pages[[1L]]
   licence_notice(slug, meta$licence)
   answer(rows, slug, meta, nxt, .version)
 }
@@ -371,9 +403,9 @@ pd_rows <- function(slug, ..., .select = NULL, .order = NULL, .limit = NULL,
 #' @export
 pd_aggregate <- function(slug, group = NULL, metric = "count", ..., .version = NULL) {
   query <- c(conditions(list(...)), list(group = joined(group), metric = joined(metric)))
-  body <- pd_get(query_path(slug, "aggregate", .version), query)
-  licence_notice(slug, body$publicdata$licence)
-  answer(raw_rows(body), slug, body$publicdata, version = .version)
+  reply <- pd_get(query_path(slug, "aggregate", .version), query)
+  licence_notice(slug, reply$publicdata$licence)
+  answer(raw_rows(reply), slug, reply$publicdata, version = .version)
 }
 
 #' The attribution an answer carries
@@ -423,7 +455,8 @@ save_file <- function(slug, format, version, path, table = NULL) {
 #' @param table For a database, one of its tables, which is served as Parquet.
 #'   See [pd_tables()].
 #' @param cache Keep the file in [pd_cache_dir()] and reuse it next time.
-#'   Versions never change, so a kept file never goes stale. Off unless
+#'   A correction to a version is recorded in its notes, and
+#'   [pd_cache_clear()] removes the old copy. Off unless
 #'   `options(publicdataau.cache = TRUE)` is set.
 #' @return The path of the saved file, invisibly, with the version it resolved
 #'   to in `attr(path, "version")`.
@@ -449,18 +482,20 @@ always <- c("parquet", "csv", "csv.gz", "ndjson", "duckdb")
 
 # Why a version may have no data.<format>, for a 404 on one.
 absent_why <- function(slug, format) {
-  head <- paste0("'", slug, "' has no data.", format, " in this version.")
-  tail <- paste0(paste(always, collapse = ", "), " are on every table version.")
+  lead <- paste0("'", slug, "' has no data.", format, " in this version.")
+  rest <- paste0(toString(always), " are on every table version.")
   why <- if (format %in% c("gpkg", "geo.parquet")) {
     "Only datasets with a location or a shape have it."
   } else if (format == "arrow") {
     "Arrow is only on versions fetched before the format change, whose manifest has no caps field."
   } else {
-    paste0("Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over their size ",
-           "limits, and the version's manifest names the reason under formats_left_out.",
-           if (format == "geojson") " GeoJSON is only for datasets with a location or a shape." else "")
+    paste0(
+      "Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over their size ",
+      "limits, and the version's manifest names the reason under formats_left_out.",
+      if (format == "geojson") " GeoJSON is only for datasets with a location or a shape." else ""
+    )
   }
-  paste(head, why, tail)
+  paste(lead, why, rest)
 }
 
 download_file <- function(slug, format, version, path, table, cache) {
@@ -472,9 +507,9 @@ download_file <- function(slug, format, version, path, table, cache) {
     }
   } else {
     if (is.null(path)) {
-      stem <- paste0(check_slug(slug), "-", if (is.null(version)) "latest" else version)
-      if (!is.null(check_table(table))) stem <- paste0(stem, "-", table)
-      path <- file.path(tempdir(), paste0(stem, ".", format))
+      base_name <- paste0(check_slug(slug), "-", version %||% "latest")
+      if (!is.null(check_table(table))) base_name <- paste0(base_name, "-", table)
+      path <- file.path(tempdir(), paste0(base_name, ".", format))
     }
     got <- save_file(slug, format, version, path, table)
   }
@@ -522,18 +557,24 @@ pd_read <- function(slug, version = NULL, table = NULL, cache = NULL, columns = 
     arrow::read_parquet(got$path, col_select = !!columns, as_data_frame = FALSE)
   }
   header <- tbl$metadata$publicdata
-  df <- as_tbl(labelled(as.data.frame(tbl), field_meta(slug, table, version)))
-  attr(df, "publicdata") <- if (is.null(header)) list() else jsonlite::fromJSON(header, simplifyVector = FALSE)
-  licence_notice(slug, attr(df, "publicdata")$licence)
-  df
+  out <- as_tbl(labelled(as.data.frame(tbl), field_meta(slug, table, version)))
+  attr(out, "publicdata") <- if (is.null(header)) {
+    list()
+  } else {
+    jsonlite::fromJSON(header, simplifyVector = FALSE)
+  }
+  licence_notice(slug, attr(out, "publicdata")$licence)
+  out
 }
 
 has_zstd <- function() arrow::codec_is_available("zstd")
 
 reads_parquet <- function() requireNamespace("arrow", quietly = TRUE) && has_zstd()
 
-csv_classes <- c(string = "character", integer = "character", number = "numeric",
-                 boolean = "logical", date = "character", datetime = "character")
+csv_classes <- c(
+  string = "character", integer = "character", number = "numeric",
+  boolean = "logical", date = "character", datetime = "character"
+)
 
 # A table from the version's gzipped CSV, for a session that cannot read the Parquet file.
 read_csv_gz <- function(slug, version, cache, columns) {
@@ -544,38 +585,54 @@ read_csv_gz <- function(slug, version, cache, columns) {
   f <- field_meta(slug, NULL, version)
   if (!is.null(columns) && !is.null(f)) {
     unknown <- setdiff(columns, f$name)
-    if (length(unknown)) pd_abort("unknown fields: ", paste(unknown, collapse = ", "))
+    if (length(unknown)) pd_abort("unknown fields: ", toString(unknown))
   }
   got <- fetch_file(slug, "csv.gz", version, NULL, cache)
   if (got$temp) on.exit(unlink(got$path), add = TRUE)
-  classes <- c(suppressed = "character")
-  if (!is.null(f)) classes <- c(stats::setNames(unname(csv_classes[f$type]), f$name), classes)
-  header <- names(utils::read.csv(gzfile(got$path), nrows = 0, check.names = FALSE))
-  classes <- classes[names(classes) %in% header]
-  if (!length(classes)) classes <- NA
-  df <- utils::read.csv(gzfile(got$path), colClasses = classes, na.strings = "",
-                        check.names = FALSE, stringsAsFactors = FALSE, encoding = "UTF-8")
-  if (!is.null(columns)) df <- df[, columns, drop = FALSE]
-  for (col in intersect(names(df), f$name[f$type == "integer"])) df[[col]] <- as_int64(df[[col]])
-  if ("suppressed" %in% names(df)) {
-    # The CSV joins the suppressed field names with ";"; the Parquet holds a list.
-    df$suppressed <- lapply(df$suppressed, function(x) {
-      if (is.na(x) || !nzchar(x)) character() else strsplit(x, ";", fixed = TRUE)[[1]]
-    })
+  rows <- utils::read.csv(gzfile(got$path),
+    colClasses = csv_col_classes(got$path, f), na.strings = "",
+    check.names = FALSE, stringsAsFactors = FALSE, encoding = "UTF-8"
+  )
+  if (!is.null(columns)) rows <- rows[, columns, drop = FALSE]
+  for (col in intersect(names(rows), f$name[f$type == "integer"])) {
+    rows[[col]] <- as_int64(rows[[col]])
   }
-  df <- as_tbl(labelled(typed(df, f), f))
+  if ("suppressed" %in% names(rows)) rows$suppressed <- split_suppressed(rows$suppressed)
+  out <- as_tbl(labelled(typed(rows, f), f))
   at <- if (is.null(got$version) || is.na(got$version)) version else got$version
-  attr(df, "publicdata") <- file_header(slug, at)
-  licence_notice(slug, attr(df, "publicdata")$licence)
-  df
+  attr(out, "publicdata") <- file_header(slug, at)
+  licence_notice(slug, attr(out, "publicdata")$licence)
+  out
+}
+
+# The CSV joins the suppressed field names with ";"; the Parquet holds a list.
+split_suppressed <- function(x) {
+  lapply(x, function(v) {
+    if (is.na(v) || !nzchar(v)) character() else strsplit(v, ";", fixed = TRUE)[[1L]]
+  })
+}
+
+# Each column's class as its field's type says, for the columns the file has.
+csv_col_classes <- function(path, fields) {
+  classes <- c(suppressed = "character")
+  if (!is.null(fields)) {
+    classes <- c(stats::setNames(unname(csv_classes[fields$type]), fields$name), classes)
+  }
+  header <- names(utils::read.csv(gzfile(path), nrows = 0L, check.names = FALSE))
+  classes <- classes[names(classes) %in% header]
+  if (length(classes)) classes else NA
 }
 
 # Whole numbers as 'arrow' reads a Parquet int64: integer when every value fits, else
 # bit64's integer64, read from the text so no digit is lost; double when 'bit64' is missing.
 as_int64 <- function(x) {
   n <- suppressWarnings(as.numeric(x))
-  if (all(is.na(x) | abs(n) <= .Machine$integer.max)) return(as.integer(n))
-  if (requireNamespace("bit64", quietly = TRUE)) return(bit64::as.integer64(x))
+  if (all(is.na(x) | abs(n) <= .Machine$integer.max)) {
+    return(as.integer(n))
+  }
+  if (requireNamespace("bit64", quietly = TRUE)) {
+    return(bit64::as.integer64(x))
+  }
   n
 }
 
@@ -583,12 +640,15 @@ as_int64 <- function(x) {
 # with a range request so the rest is not downloaded.
 file_header <- function(slug, version) {
   req <- httr2::req_headers(pd_request(file_url(slug, "ndjson", version)), Range = "bytes=0-65535")
-  tryCatch({
-    body <- rawToChar(httr2::resp_body_raw(pd_perform(req)))
-    Encoding(body) <- "UTF-8"
-    h <- jsonlite::fromJSON(strsplit(body, "\n", fixed = TRUE)[[1]][1], simplifyVector = FALSE)$publicdata
-    if (is.null(h)) list() else h
-  }, error = function(e) list())
+  tryCatch(
+    {
+      opening <- rawToChar(httr2::resp_body_raw(pd_perform(req)))
+      Encoding(opening) <- "UTF-8"
+      first <- strsplit(opening, "\n", fixed = TRUE)[[1L]][1L]
+      jsonlite::fromJSON(first, simplifyVector = FALSE)$publicdata %||% list()
+    },
+    error = function(e) list()
+  )
 }
 
 need <- function(pkg, fn) {
@@ -632,14 +692,16 @@ pd_tables <- function(slug, version = NULL) {
   one <- function(t) {
     data.frame(
       name = t$name,
-      description = if (is.null(t$description)) "" else t$description,
+      description = t$description %||% "",
       rows = if (is.null(t$rows)) NA_real_ else as.numeric(t$rows),
       fields = length(t$fields),
-      key = paste(unlist(t$primaryKey), collapse = ", "),
+      key = toString(unlist(t$primaryKey)),
       stringsAsFactors = FALSE
     )
   }
-  if (identical(s$kind, "database")) return(as_tbl(do.call(rbind, lapply(s$tables, one))))
+  if (identical(s$kind, "database")) {
+    return(as_tbl(do.call(rbind, lapply(s$tables, one))))
+  }
   as_tbl(one(list(name = "records", fields = s$fields, primaryKey = s$primaryKey)))
 }
 
@@ -679,40 +741,44 @@ pd_connect <- function(slug, version = NULL, name = NULL, shared_home = FALSE, c
   need("DBI", "pd_connect()")
   need("duckdb", "pd_connect()")
   if (is.null(check_version(version))) version <- latest_version(slug)
-  url <- file_url(slug, "duckdb", version)
+  file_link <- file_url(slug, "duckdb", version)
   path <- NULL
   if (use_cache(cache)) path <- fetch_file(slug, "duckdb", version, cache = TRUE)$path
   if (is.null(name)) name <- gsub("-", "_", check_slug(slug), fixed = TRUE)
   if (!grepl("^[A-Za-z_][A-Za-z0-9_]*$", name)) pd_abort("not a database name: ", name)
-  args <- list(...)
+  db_args <- list(...)
   has_home <- has_shared_home()
-  if (has_home) args$shared_home <- shared_home
-  con <- DBI::dbConnect(do.call(duckdb::duckdb, args))
+  if (has_home) db_args$shared_home <- shared_home
+  con <- DBI::dbConnect(do.call(duckdb::duckdb, db_args))
   if (!has_home && !shared_home) {
     # 'duckdb' before 1.5.5 has no shared_home and would install under ~/.duckdb.
-    dir <- gsub("\\", "/", file.path(tempdir(), "duckdb"), fixed = TRUE)
-    DBI::dbExecute(con, sprintf("SET extension_directory = '%s'", gsub("'", "''", dir)))
+    ext_dir <- gsub("\\", "/", file.path(tempdir(), "duckdb"), fixed = TRUE)
+    DBI::dbExecute(con, sprintf("SET extension_directory = '%s'", sql_quote(ext_dir)))
   }
-  src <- if (is.null(path)) url else path
+  src <- path %||% file_link
   if (grepl("^https?://", src)) DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs")
-  DBI::dbExecute(con, sprintf("ATTACH '%s' AS \"%s\" (READ_ONLY)", gsub("'", "''", src), name))
+  DBI::dbExecute(con, sprintf("ATTACH '%s' AS \"%s\" (READ_ONLY)", sql_quote(src), name))
   DBI::dbExecute(con, sprintf("USE \"%s\"", name))
   header <- tryCatch(
     parse_header(DBI::dbGetQuery(con, "SELECT key, value FROM publicdata")),
     error = function(e) list()
   )
   attr(con, "publicdata") <- c(
-    list(dataset = slug, version = version, url = url, path = path, name = name),
+    list(dataset = slug, version = version, url = file_link, path = path, name = name),
     header[setdiff(names(header), c("dataset", "version", "url", "name"))]
   )
   licence_notice(slug, header$licence)
   con
 }
 
+sql_quote <- function(x) gsub("'", "''", x, fixed = TRUE)
+
 # A file's publicdata table: one row per key, with any value that is not text held as JSON.
 parse_header <- function(kv) {
   out <- lapply(kv$value, function(v) {
-    if (is.na(v) || !grepl("^[[{]", v)) return(v)
+    if (is.na(v) || !grepl("^[[{]", v)) {
+      return(v)
+    }
     tryCatch(jsonlite::fromJSON(v, simplifyVector = FALSE), error = function(e) v)
   })
   stats::setNames(out, kv$key)

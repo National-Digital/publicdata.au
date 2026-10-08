@@ -6,6 +6,7 @@ name: Storage cost
 # data and never run, and the token is read-only. Every event runs the check rather than skipping
 # it, since a skipped required check counts as passed.
 on:
+  # zizmor: ignore[dangerous-triggers] the head is read as data and never run; only the revoke job writes, and only the label
   pull_request_target:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
@@ -24,9 +25,9 @@ jobs:
       cancel-in-progress: true
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
-      actions: read
+      pull-requests: read # the pull request's labels, author and head
+      issues: read # the approval label's events
+      actions: read # this check's runs, which date the head commit
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,8 +67,12 @@ jobs:
       && (contains(fromJSON('["synchronize", "reopened"]'), github.event.action)
       || (github.event.action == 'edited' && github.event.changes.base))
     runs-on: ubuntu-24.04
+    # A revoke is never cancelled, so one that has started always finishes.
+    concurrency:
+      group: cost-revoke-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
-      pull-requests: write
+      pull-requests: write # takes the approval label off
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}

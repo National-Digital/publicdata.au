@@ -5,13 +5,17 @@ pd_abort <- function(..., class = NULL) {
 }
 
 as_tbl <- function(x) {
-  if (is.null(x) || (is.list(x) && !is.data.frame(x) && !length(x))) return(tibble::tibble())
+  if (is.null(x) || (is.list(x) && !is.data.frame(x) && !length(x))) {
+    return(tibble::tibble())
+  }
   tibble::as_tibble(as.data.frame(x, stringsAsFactors = FALSE))
 }
 
 # Metadata that does not change within a session, such as a dataset's fields, read once.
 memo <- function(key, value) {
-  if (!is.null(state$memo[[key]])) return(state$memo[[key]])
+  if (!is.null(state$memo[[key]])) {
+    return(state$memo[[key]])
+  }
   out <- value
   state$memo[[key]] <- out
   out

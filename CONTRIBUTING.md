@@ -1,9 +1,9 @@
 # Contributing
 
-publicdata.au republishes Australian government open data as dated versions that never change.
-Contributions are welcome: a new dataset, a fix to an entry, a new output format, an adapter for a
-portal we cannot read yet, or a bug fix. This guide covers the routine changes step by step, then
-the rules every change is held to.
+publicdata.au republishes Australian government open data as dated versions that keep their
+content. Contributions are welcome: a new dataset, a fix to an entry, a new output format, an
+adapter for a portal we cannot read yet, or a bug fix. This guide covers the routine changes step
+by step, then the rules every change is held to.
 
 By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues
 privately as [SECURITY.md](SECURITY.md) describes.
@@ -47,9 +47,9 @@ python -m publicdata gate /tmp/pd
 The raw bytes of every published version are kept in a private bucket that only the deploy reads.
 The manifests in `store/` record each one's URL, hash and fetch time.
 
-The site's typeface is licensed to National Digital and is not in the repository. Without it,
-pages use system fonts and the social cards use Pillow's bundled Aileron; nothing else changes.
-`store pull` fetches it from the same private bucket for the deploy.
+The site's typeface, Random Grotesque, is in `pipeline/publicdata/static/fonts/` under its own
+licence, not the AGPL. Only styles from its free package may be added there; see
+`THIRD-PARTY-NOTICES.md`.
 
 ## Git hooks
 
@@ -62,6 +62,18 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   takes the settings CI uses for it. It names each file and rule that fails and stops the commit. A
   commit with no staged Python file in either directory runs no check. It takes well under a
   second.
+- `pre-commit` also checks the files the Workflow lint job reads, when a commit stages one of
+  them: `.github/workflows/`, `.github/actions/`, `.github/actionlint.yaml` and
+  `.github/dependabot.yml`. A change to a template, `CODEOWNERS` or the lint fixture runs no
+  check. It writes those staged files to a temporary directory, so an unstaged edit cannot hide a
+  fault, and runs actionlint with shellcheck and
+  `zizmor --offline --persona auditor --strict-collection` over that copy, so a workflow zizmor
+  cannot parse fails too. It names each file and rule that fails and stops the commit once the
+  Python check has run. Offline, zizmor leaves out the audits that ask GitHub: `impostor-commit`,
+  `ref-confusion`, `known-vulnerable-actions`, `stale-action-refs` and `ref-version-mismatch`.
+  The Workflow lint job in CI runs those too, so a commit the hook passes can still fail there.
+  Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
+  versions, when one differs, and runs it anyway.
 - `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
   and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
   It should take under a minute on a laptop.
@@ -72,8 +84,14 @@ and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI
 
 A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
 through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
-tests, and `node` for the JavaScript tests. To skip the hooks once, pass `--no-verify` to
-`git commit` or `git push`.
+tests, and `node` for the JavaScript tests. The workflow check is the exception: a commit that
+stages `.github/` fails when actionlint, shellcheck or zizmor is missing, with a line naming the
+version CI pins and where to get it. To skip the hooks once, pass `--no-verify` to `git commit` or
+`git push`.
+
+CI's pipeline job puts the same pinned actionlint, shellcheck and zizmor on its PATH, so the
+hook's tests in `pipeline/tests/test_hooks.py` run there. Locally they skip when a tool is not
+installed.
 
 ## Private copies
 
@@ -104,6 +122,19 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   the fetch app opened them from a run on `main`, with one signed-off commit of store manifests.
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
+- A change under `.github/` must pass the Workflow lint job in `ci.yml`. It runs zizmor at its
+  auditor persona, which reports every finding zizmor has, and actionlint with shellcheck over every
+  workflow's `run:` blocks. actionlint does not read the composite action in `.github/actions/`, so
+  its steps get zizmor alone. The `pre-commit` hook runs both offline (see Git hooks). The online
+  audits need a token, so run zizmor with one before you push, at the versions that job pins:
+
+  ```sh
+  GH_TOKEN=$(gh auth token) uvx zizmor==1.30.1 --persona auditor --strict-collection .github
+  actionlint -shellcheck "$(command -v shellcheck)"
+  ```
+
+  Fix each finding. Where a rule truly cannot apply, a `# zizmor: ignore[<rule>]` comment on the
+  line it covers, or a `# shellcheck disable=<code>` comment on the line before, gives the reason.
 
 ## Reviewing a pull request
 
@@ -148,6 +179,29 @@ publicdata.au has four kinds of version, and each has its own rule.
 
 The pipeline package in `pipeline/` is not published, so it makes no versioning promise.
 
+## Pick up a dataset task
+
+Some of the most-wanted datasets have an issue labelled `good first issue` and `dataset`, with the
+portal page, the licence and its evidence, the vote count and a starting register entry. Say on the
+issue that you are taking it, follow Add a dataset below, and write `Closes #<issue>` in the pull
+request.
+
+`.github/workflows/contribute.yml` keeps these issues each day with `python -m publicdata
+contribute sync`. It opens them, most voted first, for backlog entries whose licence is open and
+for catalogue records with an open licence, a file and at least `CONTRIBUTE_VOTES` votes (1 when
+unset), and never leaves more than `CONTRIBUTE_CAP` (10 when unset) open. Both are repository
+variables. An open issue keeps its place when another dataset gains votes; when the cap is
+lowered, the least wanted close first and an entry already `building` closes last.
+
+An issue is written only from the register and the catalogue's own record; a vote adds only its
+count. The sync changes only issues it opened, finds them again by the key in a hidden marker,
+updates their text, and closes one when its dataset is live, when its licence or status takes it
+off the list, or when it falls outside the cap. A dataset whose issue was closed does not get
+another; a maintainer reopens the old one instead. `--dry-run` prints what a run would do and
+changes nothing. Only the workflow runs it without, because the next run reads only the issues the
+workflow's own account opened. The backlog and the publisher's page link an open issue from the
+deploy after the sync opens it until the deploy after it closes; the catalogue search does not.
+
 ## Add a dataset
 
 1. Find the dataset on its publisher's portal and read the licence. It must be open (CC BY, CC0 or
@@ -181,9 +235,13 @@ the reason, so the site can say why.
 ## Change or fix a dataset entry
 
 Edit `register/<slug>.yaml` and open a `fix(register): ...` pull request. A field the publisher
-renamed, a resource that moved or a header that changed row are the usual causes. A change that
-would alter a published version's bytes is not possible: versions are immutable, so the fix applies
-from the next version. When the publisher changes its licence, the fetch stops that dataset until a
+renamed, a resource that moved or a header that changed row are the usual causes. The fix applies
+from the next version. When a fault in our conversion or a wrong attribution has already reached
+published versions, those versions are rebuilt as [docs/CORRECTIONS.md](docs/CORRECTIONS.md)
+describes. An edit to `partition_by` changes the `by/` files of every version already published,
+so it is a correction too, and the deploy's plan fails it until each of those versions' manifests
+carries a note ([A change to `partition_by`](docs/CORRECTIONS.md#a-change-to-partition_by)).
+When the publisher changes its licence, the fetch stops that dataset until a
 person has read the new licence and updated `licence` and `licence.reviewed`.
 
 ## Manual sources
@@ -289,7 +347,7 @@ module the build imports leaves every published version as it was.
 ## Toolchain versions
 
 Every tool and library CI, the deploy and the fetch runner use is pinned to an exact version, and
-each version lives in one file that the workflows read:
+each version lives in one file that the workflows or the pipeline read:
 
 | What | File |
 |---|---|
@@ -301,17 +359,30 @@ each version lives in one file that the workflows read:
 | npm packages, wrangler, and the Chrome build the accessibility check runs (from `puppeteer-core`) | `package-lock.json` |
 | GitHub Actions | the commit SHA in each `uses:` |
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
-| R and its CRAN snapshot date | `.github/workflows/clients.yml` |
+| R, its CRAN snapshot date and the R client's lint tools | `.github/workflows/clients.yml` |
+| DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
+| zizmor, actionlint and shellcheck | `.github/workflows/ci.yml` |
 
 An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
-npm packages and the Actions; raise the others by hand. The Python version and the keyed
+npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed
 libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles) are in the build's cache key, so
 raising one rebuilds every version, about four hours on main. Merge such a pull request on a day
 with no data pull request due.
 
-DuckDB's spatial extension is the one exception: DuckDB serves it for each release and can replace
-it within one. The datasets that load it are keyed on the build installed, and every job of a
-deploy checks that it has the same build as the plan.
+DuckDB serves its spatial extension for each release and can replace it within one, so we keep a
+copy of the build we use in R2, under `_toolchain/` in `publicdata-raw`, named by the DuckDB
+release, the platform and the build. `spatial-extension.json` pins its URL and SHA-256.
+`python -m publicdata spine install` takes our copy when it has the R2 credentials, as the deploy
+does, and otherwise the same bytes from DuckDB, as CI and a working copy do. It stops when the hash
+differs or when the pin is for another DuckDB than the one installed. The datasets that load the
+extension are keyed on its build, and every job of a deploy checks that it has the same build as
+the plan.
+
+A raise of `duckdb` needs the extension for the new release. Once the pull request that raises it
+is open, a maintainer runs the Spatial extension workflow on main with that pull request's branch.
+It checks that the build DuckDB serves is the one DuckDB's own install fetches, copies it to R2 and
+commits the new pin to the branch. Until then the pull request's checks fail. A new build changes
+the key of every dataset that loads the extension, so those versions are built again.
 
 ## Licences that are not Creative Commons
 
@@ -322,17 +393,8 @@ such file, `<AGENCY>-PERMISSION-<year>`, with the reply stored beside it.
 
 ## Withdraw a dataset or correct published files
 
-- When a publisher withdraws a source, the entry stays and the versions already published stay
-  where they are. Set the entry's status and the reason, and no new versions are made.
-- When a licence turns out not to allow publication, a maintainer withholds the dataset or the
-  affected columns, as `source_withheld` and the omitted fields do. The build stops making those
-  files and the site says why.
-- A legal takedown is the only time a published file is removed. It is recorded in `changes.json`
-  as a tombstone that keeps the manifest and hash.
-- To rebuild files a bug wrote wrongly, a maintainer runs the Deploy workflow with `replace` set
-  to the version prefixes, which also purges them from the edge cache. The pull request that fixed
-  the bug says which versions it affects and raises their rebuild number (see Change the build
-  code).
+[docs/CORRECTIONS.md](docs/CORRECTIONS.md) covers a correction from the report to the log, and a
+withdrawal, withholding or removal, which change what a version's URL serves.
 
 ## Change the API or the MCP tools
 
@@ -349,6 +411,20 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
    Python tests and `R CMD check --as-cran`.
 3. On merge, the Python client publishes to PyPI by trusted publishing when the version is new.
    A maintainer builds the R tarball and submits it to CRAN by hand, with `cran-comments.md`.
+
+The R client is held to lintr and styler on every pull request. `clients/r/.lintr` turns on every
+linter lintr has and names the few it turns off, each with its reason. The Clients workflow fails
+on any finding and on any file styler would change. To check before pushing, install the package
+and run both from `clients/r`:
+
+```
+R CMD INSTALL .
+Rscript -e 'lintr::lint_package()'
+Rscript -e 'styler::style_pkg()'
+```
+
+`style_pkg()` rewrites the files in place, so commit what it changes. A line that has to break a
+rule carries `# nolint: <linter>. <reason>`.
 
 ## Reference
 
@@ -400,7 +476,8 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   the code and name of the area each point falls in, joined by location against each layer's newest version.
   The columns are marked as joined in `schema.json` with the layer version, the ABS attribution is in every
   file's header, and the published coordinates are never changed. The joins and tiles need DuckDB's spatial
-  extension, which `python -m publicdata spine install` fetches once so the build stays offline.
+  extension, which `python -m publicdata spine install` fetches once, as pinned in
+  `pipeline/publicdata/spatial-extension.json`, so the build stays offline.
 - Workbooks may be `.xlsx`, `.xlsm` or legacy `.xls`, which is converted cell for cell before it is read.
   A header that repeats a name numbers each repeat, `Count (2)`. In a stack, a field whose source is
   `(file)` holds the name of the file each row came from, which is often its period; `ckan-stack` stacks
@@ -426,7 +503,11 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   marked `register` or `rules`, so the picks can be read and the poor ones replaced. A register
   example that answers no rows fails the gate. `chart` sets what the yearly chart and the card's
   sparkline draw: `where` (the same form), `split` (a field, or `none`), `metric` and `label`,
-  each falling back to the example's.
+  each falling back to the example's, and `year`, the field that dates a row. A text `year` is
+  a financial year in any common form (`2018-19`, `2018–19`, `2018/19`, `2018-2019`, `FY201819`,
+  `FY18-19`, or `FY2019` for the year that ends in June 2019), and the chart names each bar as the
+  publisher wrote it. A value that is not a financial year is left out. `chart: none`
+  draws no chart, for a table with no year worth drawing.
 - `search_title` is the phrase a dataset's title tag targets and no two entries may share one;
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,

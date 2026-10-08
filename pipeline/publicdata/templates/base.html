@@ -10,6 +10,8 @@
 {% endif %}<link rel="alternate" type="text/markdown" href="{{ md_url }}" title="This page as Markdown">
 <link rel="alternate" type="application/ld+json" href="{{ site }}/catalog.json" title="DCAT catalogue">
 <link rel="ard" href="{{ site }}/.well-known/ard.json">
+<link rel="ai-catalog" href="/.well-known/ai-catalog.json">
+<link rel="api-catalog" href="/.well-known/api-catalog">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -18,10 +20,10 @@
 <meta name="theme-color" content="{{ theme.dark }}" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-title" content="publicdata">
 {% if origin_trial %}<meta http-equiv="origin-trial" content="{{ origin_trial }}">
-{% endif %}{% if brand_fonts %}<link rel="preload" href="/static/fonts/RG-StandardBook.woff2" as="font" type="font/woff2" crossorigin>
+{% endif %}<link rel="preload" href="/static/fonts/RG-StandardRegular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/RG-StandardMedium.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/RG-StandardBold.woff2" as="font" type="font/woff2" crossorigin>
-{% endif %}<style>{{ css|safe }}</style>
+<style>{{ css|safe }}</style>
 <meta property="og:title" content="{{ title }}">
 <meta property="og:description" content="{{ description }}">
 <meta property="og:url" content="{{ canonical }}">

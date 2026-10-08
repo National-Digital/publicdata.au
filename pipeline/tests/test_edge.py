@@ -28,3 +28,10 @@ def test_purge_sends_prefixes_on_the_host_in_batches():
     assert [len(p) for _, p in s.posts] == [30, 1]
     assert s.posts[0][0].endswith("/zones/z1/purge_cache")
     assert s.posts[0][1][0] == "publicdata.au/d/x/v/2026-01-01/"
+
+
+def test_a_version_prefix_also_purges_its_query_api_answers():
+    assert edge.with_answers(["d/x-y/v/2026-01-02/"]) == [
+        "d/x-y/v/2026-01-02/",
+        "api/v1/datasets/x-y/versions/2026-01-02/",
+    ]

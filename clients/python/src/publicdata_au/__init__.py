@@ -19,7 +19,8 @@ the site needs no new release of this package.
     >>> pd_au.join_boundaries(by_sa2.to_pandas())  # a GeoDataFrame of SA2s, with the [geo] extra
 
 Nothing is kept on disk unless asked: pass `cache=True`, or set PUBLICDATA_CACHE=1, and files
-are kept in `cache_dir()` and reused, since a version never changes.
+are kept in `cache_dir()` and reused, since a version keeps its content. A correction to a
+version is recorded in its notes, and `cache_clear()` removes the old copy.
 """
 
 from __future__ import annotations
@@ -571,7 +572,7 @@ class Client:
         means blank. Every condition must match.
 
         Without `version` the answer comes from the newest version and changes when the
-        publisher releases again; with a date from `versions()` it never changes. `all=True`
+        publisher releases again; with a date from `versions()` it comes from that version alone. `all=True`
         follows every page. For a whole table, `read()` or `download()` is faster and has no
         rate limit."""
         if all and limit is None:
@@ -1008,7 +1009,7 @@ class Client:
             warnings.warn(f"{missed} row(s) matched no {lay['noun']} boundary", stacklevel=2)
         return gdf
 
-    # The cache: a version never changes, so a file kept once is never stale.
+    # The cache: a version keeps its content, so a kept file is reused until cache_clear().
 
     def cache_dir(self) -> Path:
         """Where kept files go: PUBLICDATA_CACHE_DIR, else the platform's user cache folder."""

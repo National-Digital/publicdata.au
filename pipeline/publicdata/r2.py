@@ -36,6 +36,7 @@ TYPES = {
 }
 
 VERSIONED = re.compile(r"(^|/)v/\d{4}-\d{2}-\d{2}/")
+PARTITION = re.compile(r"^(d/[^/]+/v/\d{4}-\d{2}-\d{2}/)by/")
 
 
 def client():
@@ -171,7 +172,7 @@ def push(
 ) -> int:
     """Upload every file under root that include accepts. An existing immutable key is skipped unless it starts
     with one of the replace prefixes, which name the versions whose serialisation was rebuilt on
-    purpose; the version notes for such a rebuild are committed separately. Every key in expect,
+    purpose; the version notes for such a rebuild come from the pull request that made the fix. Every key in expect,
     which a cached build left out, must already be in the bucket, or nothing is uploaded.
 
     With layouts, each dataset's layout (`profile.layout`), a query copy is uploaded again only
@@ -190,6 +191,7 @@ def push(
         etags |= _etags(s3, bucket, sc)
     existing = set(etags)
     check_expected(expect, existing, replace)
+    check_partitions(keys, existing, replace)
 
     def layout_of(key: str) -> dict | None:
         if layouts is None or not key.startswith("_q/"):
@@ -293,6 +295,29 @@ def check_expected(expect, existing: set[str], replace: tuple[str, ...] = ()) ->
         )
 
 
+def check_partitions(keys, existing: set[str], replace: tuple[str, ...] = ()) -> None:
+    """A partition file R2 lacks in a version whose manifest R2 holds would add a file to a
+    published version, which a change to `partition_by` does to every version it rebuilds. Only a
+    replace may, so nothing is uploaded. A version is pushed in key order, so by/ goes up before
+    its manifest and a push cut short is finished by the next one."""
+    added = sorted(
+        {
+            m.group(1)
+            for k in keys
+            if k not in existing
+            and (m := PARTITION.match(k))
+            and f"{m.group(1)}manifest.json" in existing
+            and not k.startswith(replace or ("\0",))
+        }
+    )
+    if added:
+        sys.exit(
+            f"{len(added)} published version(s) would gain partition files outside a replace, "
+            f"e.g. {added[0]}by/. A change to partition_by corrects published versions "
+            "(docs/CORRECTIONS.md): run the Deploy workflow with replace set to " + " ".join(added)
+        )
+
+
 def pull_store(
     store: Path,
     bucket: str = "publicdata-raw",
@@ -321,25 +346,6 @@ def pull_store(
         st.verify(store, m)
         n += 1
         print(f"got {bucket}/{key}")
-    return n
-
-
-def pull_fonts(dest: Path, bucket: str = "publicdata-raw") -> int:
-    """Fetch the brand fonts the repository leaves out, checked against their pinned hashes."""
-    from .brand import FONT_KEY, FONT_SHA256
-
-    s3 = client()
-    dest.mkdir(parents=True, exist_ok=True)
-    n = 0
-    for name, sha in FONT_SHA256.items():
-        p = dest / name
-        if p.is_file() and _sha256(p) == sha:
-            continue
-        s3.download_file(bucket, FONT_KEY + name, str(p))
-        if _sha256(p) != sha:
-            p.unlink()
-            sys.exit(f"{bucket}/{FONT_KEY}{name} does not match its pinned SHA-256")
-        n += 1
     return n
 
 
