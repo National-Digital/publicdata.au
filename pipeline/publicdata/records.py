@@ -130,7 +130,7 @@ class Records:
         v = _affinity(value, "NUMERIC")
         if isinstance(v, str):
             msg = f"{name} holds numbers, so it cannot be compared with {value!r}"
-            raise ValueError(msg)
+            raise ValueError(msg)  # noqa: TRY004 - the value does not fit the column
         return v
 
     def execute(self, sql: str, params=()) -> Records:

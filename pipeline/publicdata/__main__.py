@@ -940,8 +940,8 @@ def cmd_cost(args) -> int:
     approve = None
     if args.github_pr:
         repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
-        approve = lambda: cost.approval(repo, args.github_pr, lambda p: cost._github(p, token))  # noqa: E731
-    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+        approve = lambda: cost.approval(repo, args.github_pr, lambda p: cost._github(p, token))  # noqa: E731, SLF001
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()  # noqa: DTZ011 - the runner's day
     return cost.run(
         load(register),
         Path(args.store),

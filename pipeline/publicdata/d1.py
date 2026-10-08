@@ -482,7 +482,7 @@ def write_loads(
         try:
             stmts = list(_parquet_stmts(src, ds, version, index, tbl))
         except TooWide as e:
-            print(f"d1: {ds.slug}@{version} stays files-only: {e}")
+            print(f"d1: {ds.slug}@{version} stays files-only: {e}")  # noqa: T201 - the deploy log
             continue
         # The order is recorded only once the version is registered under this table.
         order = (
@@ -629,7 +629,7 @@ def catalogue_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str 
             )
         )
     except TooWide as e:
-        print(f"d1: {CATALOGUE}@{version} not loaded: {e}")
+        print(f"d1: {CATALOGUE}@{version} not loaded: {e}")  # noqa: T201 - the deploy log
         return []
     return _write_load(out, CATALOGUE, version, tbl, stmts, stamp, 1, fts=True)
 
@@ -698,7 +698,7 @@ def served_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str = "
         text = ("title", "summary", "publisher", "keywords", "fields")
         stmts = list(_sqlite_stmts(tmp, SERVED, version, ("slug",), tbl, text))
     except TooWide as e:
-        print(f"d1: {SERVED}@{version} not loaded: {e}")
+        print(f"d1: {SERVED}@{version} not loaded: {e}")  # noqa: T201 - the deploy log
         return []
     finally:
         tmp.unlink()
@@ -1170,7 +1170,7 @@ def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, budget: _Bud
         if j.tbl in served:
             # Registered by a deploy that could not confirm it; only the finish part runs again.
             if j.fts:
-                raise _Failed(0, f"{j.tbl} is registered; its full-text index is not rebuilt")
+                raise _Failed(0, f"{j.tbl} is registered; its full-text index is not rebuilt")  # noqa: TRY301 - recorded below with every failure
             budget.reserve(j, j.finishing())
         else:
             budget.reserve(j, j.planned())

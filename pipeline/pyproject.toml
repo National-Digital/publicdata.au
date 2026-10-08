@@ -67,6 +67,9 @@ ignore = [
   # PATH, as CI installs them.
   "S603",
   "S607",
+  # The gate and the validators list each check as a loop that appends a problem when it fails,
+  # which reads as the rule it checks; the speed PERF401 offers is nothing on lists this short.
+  "PERF401",
 ]
 
 [tool.ruff.lint.pydocstyle]
@@ -78,8 +81,9 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 # pytest asserts with assert, and an expected value reads more plainly as a literal. A stand-in
 # takes the signature of what it replaces, a fixture can be asked for only for its effect, and a
-# test may call the private helper it tests.
-"tests/**" = ["S101", "PLR2004", "ARG", "SLF001"]
+# test may call the private helper it tests. A spreadsheet or Parquet timestamp in a fixture has
+# no zone, as the data has none.
+"tests/**" = ["S101", "PLR2004", "ARG", "SLF001", "DTZ001"]
 # The fake S3 client takes boto3's keyword names.
 "tests/test_r2.py" = ["N803"]
 # The command line, the commands it hands to (gate.main, cost.run, verify.run) and the modules run

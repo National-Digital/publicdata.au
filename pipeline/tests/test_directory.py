@@ -50,7 +50,7 @@ def test_organisations_resolve_to_publishers_by_curation_then_portal():
     assert by_org["vic:melb"] is by_org["vic:melb-2"]  # one council listed twice on one portal
     assert by_org["vic:melb"].path == "/vic/city-of-melbourne/"
     assert clean_title("City of Moreton Bay's Data Hub") == "City of Moreton Bay"
-    assert slugify("Attorney-General’s Department") == "attorney-generals-department"
+    assert slugify("Attorney-General’s Department") == "attorney-generals-department"  # noqa: RUF001 - a curly apostrophe on purpose
 
 
 def test_curated_publishers_are_validated(tmp_path):

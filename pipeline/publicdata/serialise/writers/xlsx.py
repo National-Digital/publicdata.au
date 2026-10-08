@@ -47,7 +47,7 @@ def write_xlsx(tbl: Table, header: dict, path: Path) -> None:
                     continue
                 t = types.get(n)
                 if t == "date":
-                    ws.write_datetime(r, c, dt.datetime(v.year, v.month, v.day), date_fmt)
+                    ws.write_datetime(r, c, dt.datetime(v.year, v.month, v.day), date_fmt)  # noqa: DTZ001 - an Excel date has no zone
                 elif t == "datetime":
                     ws.write_datetime(r, c, v.replace(tzinfo=None), dt_fmt)
                 elif t == "boolean":

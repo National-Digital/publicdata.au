@@ -37,7 +37,7 @@ RETURNS = re.compile(
     re.IGNORECASE,
 )
 STOPWORDS = set(
-    "a an and any as at be by for from has in into is it its of on one or so than that the this "
+    "a an and any as at be by for from has in into is it its of on one or so than that the this "  # noqa: SIM905 - a word list reads best as words
     "to up use when which with".split()
 )
 

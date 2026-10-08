@@ -856,7 +856,7 @@ RELATED_STOP = set(
     australia australian national state states territory nsw new south wales qld queensland vic
     victoria victorian sa south wa western tas tasmania tasmanian act capital nt northern
     government council councils area areas region regions number numbers list register
-    records table""".split()
+    records table""".split()  # noqa: SIM905 - a word list reads best as words
 )
 # A page lists at most this many, so the list stays one a reader scans.
 RELATED_MAX = 12

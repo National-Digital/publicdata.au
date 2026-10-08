@@ -59,6 +59,6 @@ def int32_misfits(ds, m, store_dir: Path, built: list[Path]) -> list[str] | None
         return None
     try:
         table = normalise(ds, m, src.read_bytes()).table
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - any failure to normalise is the finding
         return [f"its source no longer normalises ({e})"]
     return misfits(table, ds.int32)

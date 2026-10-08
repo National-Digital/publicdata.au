@@ -69,8 +69,9 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 # pytest asserts with assert, and an expected value reads more plainly as a literal. The tests
 # are not a package, and only the public API in src/ needs docstrings. A stand-in takes the
-# signature of what it replaces, and a test may call the private helper it tests.
-"tests/**" = ["S101", "PLR2004", "D1", "INP001", "ARG", "SLF001"]
+# signature of what it replaces, and a test may call the private helper it tests. A Parquet
+# timestamp in a fixture has no zone, as the data has none.
+"tests/**" = ["S101", "PLR2004", "D1", "INP001", "ARG", "SLF001", "DTZ001"]
 # The public keyword arguments format= and all= read as the words a caller means, and renaming
 # them would break callers. Every URL the client opens is built on its base URL, which is
 # https://publicdata.au unless the caller names another.

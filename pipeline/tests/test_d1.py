@@ -40,7 +40,7 @@ def test_a_statement_stays_under_the_limit_in_bytes_when_text_is_not_ascii(tmp_p
     con.execute("CREATE TABLE publicdata (key TEXT, value TEXT)")
     con.execute("INSERT INTO fields VALUES ('name', 'string')")
     # Each of these letters is four bytes, so a batch sized in characters runs past the limit.
-    con.executemany("INSERT INTO records VALUES (?)", [("𝓐" * 200,)] * 2000)
+    con.executemany("INSERT INTO records VALUES (?)", [("𝓐" * 200,)] * 2000)  # noqa: RUF001
     con.commit()
     con.close()
     inserts = [
@@ -74,7 +74,7 @@ def _run(stmts):
 
 def test_a_row_wider_than_a_statement_loads_whole_a_piece_at_a_time(tmp_path):
     # Quotes and four-byte letters, so neither an escape nor a character may split at a piece.
-    body = ("It's 𝓐 heritage place. " * 12_000)[:290_000]
+    body = ("It's 𝓐 heritage place. " * 12_000)[:290_000]  # noqa: RUF001
     raw = bytes(range(256)) * 600
     rows = [(1, "short", None), (2, body, raw), (3, "after", b"\x00")]
     stmts = list(d1.version_sql(_version(tmp_path, rows), "t", "2026-01-01", ()))

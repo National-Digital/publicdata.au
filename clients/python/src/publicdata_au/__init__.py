@@ -28,6 +28,7 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -379,7 +380,7 @@ class Client:
         while True:
             try:
                 return urllib.request.urlopen(req, timeout=self.timeout)
-            except urllib.error.HTTPError as err:
+            except urllib.error.HTTPError as err:  # noqa: PERF203 - each attempt answers its own error
                 # The API allows a burst per address, then answers 429 with how long to wait.
                 if err.code == HTTPStatus.TOO_MANY_REQUESTS and attempt < self.retries:
                     attempt += 1
@@ -1077,7 +1078,7 @@ class Client:
 
         if isinstance(df, gpd.GeoDataFrame):
             msg = "df already has a geometry; drop it first"
-            raise ValueError(msg)
+            raise ValueError(msg)  # noqa: TRY004 - a public error callers may catch
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(list(df))
         if layer is None:
@@ -1358,7 +1359,7 @@ def _norm_codes(col, ref) -> list:
     width = next(iter(widths)) if len(widths) == 1 else 0
     out = []
     for v in col:
-        if v is None or v is pd.NA or (isinstance(v, float) and v != v):
+        if v is None or v is pd.NA or (isinstance(v, float) and math.isnan(v)):
             out.append(None)
         elif isinstance(v, (int, float)) and not isinstance(v, bool):
             whole = float(v).is_integer()

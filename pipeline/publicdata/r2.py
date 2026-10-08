@@ -260,7 +260,7 @@ def push(
             str(p), bucket, key, ExtraArgs={"ContentType": ctype, "Metadata": {"sha256": digest}}
         )
         n += 1
-        print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")
+        print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")  # noqa: T201 - the deploy log
     return n
 
 
@@ -292,7 +292,7 @@ def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, etags: dict[str, 
         ExtraArgs={"ContentType": TYPES[".parquet"], "Metadata": {"sha256": _sha256(p)}},
     )
     _record(s3, bucket, key, lay)
-    print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")
+    print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")  # noqa: T201 - the deploy log
     return 1
 
 
@@ -341,7 +341,7 @@ def pull_store(
         s3.download_file(bucket, key, str(dest))
         st.verify(store, m)
         n += 1
-        print(f"got {bucket}/{key}")
+        print(f"got {bucket}/{key}")  # noqa: T201 - the deploy log
     return n
 
 

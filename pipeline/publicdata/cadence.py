@@ -45,7 +45,7 @@ def _ended(t: str, today: dt.date) -> bool:
 def per_year(text: str, feed: bool = False, today: dt.date | None = None) -> float | None:
     """The rate the cadence names, or None when it names none ("irregular", "as required")."""
     t = text.strip().lower()
-    if _ended(t, today or dt.date.today()):
+    if _ended(t, today or dt.date.today()):  # noqa: DTZ011 - the runner's day
         return 0.0
     for pattern, n in RATES:
         if re.search(pattern, t):

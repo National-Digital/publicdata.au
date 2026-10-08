@@ -422,7 +422,7 @@ def run(
         try:
             p, c, r = check(ds, store_dir, cache, out, cap)
         # Each dataset the new code cannot build is named, and the rest are still checked.
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             failed.append(f"d/{ds.slug}/: the build failed: {type(e).__name__}: {e}")
             print(f"verify: {ds.slug}: the build failed")
             p, c, r = [], 0, 0
