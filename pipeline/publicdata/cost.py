@@ -650,6 +650,40 @@ def entry_changes(
     return fresh, reshaped
 
 
+# Keys besides the source and the shape that a projection reads: whether the entry is
+# published, whether D1 loads it and what D1 indexes.
+COST_KEYS = ("partition_by", "key", "query", "status", "licence")
+
+
+def _costs(raw: dict) -> tuple:
+    src = raw.get("source") or {}
+    return (
+        _source(raw),
+        _shape(raw),
+        src.get("cadence"),
+        src.get("feed"),
+        {k: raw.get(k) for k in COST_KEYS},
+    )
+
+
+def costed(root: Path, base: str, entries: dict[str, str]) -> set[str]:
+    """Changed entries whose edit can move what they cost: new ones, and those whose source,
+    cadence, shape or a key in COST_KEYS differs from the base's. A description, a label or a
+    raised rebuild number leaves the projection as it was, so the gate does not ask for an
+    approval it already had."""
+    out = set()
+    base_paths = _base_paths(root, base)
+    for slug, path in entries.items():
+        if slug not in base_paths:
+            out.add(slug)
+            continue
+        new = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
+        old = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
+        if _costs(old) != _costs(new):
+            out.add(slug)
+    return out
+
+
 def load_catalog(where: str) -> dict:
     if where.startswith(("http://", "https://")):
         req = urllib.request.Request(where, headers={"User-Agent": UA})

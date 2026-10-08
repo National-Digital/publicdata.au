@@ -824,8 +824,11 @@ def cmd_cost(args) -> int:
             return 2
         base, paths = cost.changed_paths(args.base, root)
         entries = cost.changed_entries(register, paths, root)
-        changed |= set(entries)
-        fresh, reshaped = cost.entry_changes(root, base, entries)
+        priced = cost.costed(root, base, entries)
+        if same := sorted(set(entries) - priced):
+            print(f"cost: {', '.join(same)}: edited, but nothing the projection reads changed")
+        changed |= priced
+        fresh, reshaped = cost.entry_changes(root, base, {s: entries[s] for s in priced})
     approve = None
     if args.github_pr:
         repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
