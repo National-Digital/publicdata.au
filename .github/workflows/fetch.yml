@@ -6,6 +6,7 @@ name: Fetch
 # has approved it as the fetch's own and the checks are green; nothing is published before then.
 # The portals' dataset lists are harvested by catalogue.yml.
 on:
+  # zizmor: ignore[concurrency-limits] the one fetch runner serialises fetches, and a group would replace a pending one
   schedule:
     - cron: "17 19 * * 1" # Tuesday 05:17 Brisbane
     # Live feeds (source.feed) every other day of the week, so each day a feed changes is a version.
@@ -19,11 +20,6 @@ env:
 # The fetch app's token pushes the branches and opens the pull requests.
 permissions:
   contents: read
-
-# Runs queue one at a time on the fetch host, as the catalogue harvest does.
-concurrency:
-  group: fetch
-  cancel-in-progress: false
 
 jobs:
   fetch:

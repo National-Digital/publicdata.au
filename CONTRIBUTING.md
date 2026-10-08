@@ -106,7 +106,8 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   Every other pull request, a person's change to `store/` included, needs a maintainer.
 - A change under `.github/` must pass the Workflow lint job in `ci.yml`. It runs zizmor at its
   auditor persona, which reports every finding zizmor has, and actionlint with shellcheck over every
-  `run:` block. Run them before you push, at the versions that job pins:
+  workflow's `run:` blocks. actionlint does not read the composite action in `.github/actions/`, so
+  its steps get zizmor alone. Run them before you push, at the versions that job pins:
 
   ```sh
   GH_TOKEN=$(gh auth token) uvx zizmor==1.30.1 --persona auditor .github

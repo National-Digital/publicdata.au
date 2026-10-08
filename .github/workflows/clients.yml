@@ -20,10 +20,11 @@ env:
 permissions:
   contents: read
 
-# A newer push to a pull request cancels its run; main's runs finish, since one may publish.
+# A newer push to a pull request cancels its run. Every other run has a group of its own, so a
+# pending run on main that may publish is never replaced.
 concurrency:
-  group: clients-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: clients-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   python:
