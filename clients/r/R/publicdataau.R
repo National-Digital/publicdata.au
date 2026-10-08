@@ -357,7 +357,7 @@ query_path <- function(slug, kind, version) {
 #' @param .offset Rows to skip.
 #' @param .version A version date from [pd_versions()]. Without it the answer
 #'   comes from the newest version and changes when the publisher releases
-#'   again; with it the answer never changes.
+#'   again; with it the answer comes from that version alone.
 #' @param .all Follow every page and return all matching rows.
 #' @return A tibble, with each column typed as its field says (dates as `Date`,
 #'   booleans as logical) and labelled with the field's description.
@@ -455,7 +455,8 @@ save_file <- function(slug, format, version, path, table = NULL) {
 #' @param table For a database, one of its tables, which is served as Parquet.
 #'   See [pd_tables()].
 #' @param cache Keep the file in [pd_cache_dir()] and reuse it next time.
-#'   Versions never change, so a kept file never goes stale. Off unless
+#'   A correction to a version is recorded in its notes, and
+#'   [pd_cache_clear()] removes the old copy. Off unless
 #'   `options(publicdataau.cache = TRUE)` is set.
 #' @return The path of the saved file, invisibly, with the version it resolved
 #'   to in `attr(path, "version")`.

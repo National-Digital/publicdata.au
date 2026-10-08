@@ -493,8 +493,10 @@ def test_a_chart_keeps_its_rows_and_names_its_split_and_measure():
     }
     assert parse(_fielded(chart="none"), "x").chart["off"] is True
     assert parse(_fielded(chart={"year": "year"}), "x").chart["year"] == "year"
+    # A text year is a financial year, such as 2018-19.
+    assert parse(_fielded(chart={"year": "state"}), "x").chart["year"] == "state"
     with pytest.raises(RegisterError, match="year must name"):
-        parse(_fielded(chart={"year": "state"}), "x")
+        parse(_fielded(chart={"year": "value"}), "x")
     assert parse(_fielded(chart={"split": "state"}), "x").chart["split"] == "state"
     assert parse(_fielded(chart={}), "x").chart["split"] is None
     with pytest.raises(RegisterError, match="cannot use newest"):

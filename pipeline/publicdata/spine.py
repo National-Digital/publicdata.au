@@ -109,13 +109,6 @@ def is_spine(source: str) -> bool:
     return source.startswith(SOURCE_PREFIX)
 
 
-def install() -> None:
-    """Fetch DuckDB's spatial extension once, so that a build only loads it and stays offline."""
-    import duckdb
-
-    duckdb.connect().install_extension("spatial")
-
-
 def connect():
     import duckdb
 

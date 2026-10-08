@@ -32,7 +32,7 @@ pd_rows(
 
 \item{.version}{A version date from [pd_versions()]. Without it the answer
 comes from the newest version and changes when the publisher releases
-again; with it the answer never changes.}
+again; with it the answer comes from that version alone.}
 
 \item{.all}{Follow every page and return all matching rows.}
 }

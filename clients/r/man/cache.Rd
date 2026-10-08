@@ -25,7 +25,7 @@ pd_cache_clear(slug = NULL, version = NULL)
   number of bytes freed, invisibly.
 }
 \description{
-A version of a dataset never changes once published, so a file downloaded
+A version of a dataset keeps its content once published, so a file downloaded
 once can be kept and read again without another download. Nothing is kept
 unless you ask: pass `cache = TRUE` to [pd_read()], [pd_download()],
 [pd_connect()], [pd_tbl()] or [pd_sf()], or set

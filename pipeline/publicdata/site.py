@@ -165,7 +165,6 @@ def env() -> Environment:
     e.filters["linkify"] = linkify
     e.globals["cadence_words"] = cadence_words
     e.globals["download_name"] = download_name
-    e.globals["brand_fonts"] = brand.has_fonts()
     return e
 
 
@@ -1419,7 +1418,7 @@ def _md_twin_database(
         f"- Schema: {vbase}schema.json",
         f"- The publisher's archive: {vbase}source.{m.ext} ({fmt_size(v.files.get(f'source.{m.ext}'))})",
         "",
-        f"{base}latest/ redirects to the newest version. Dated versions never change.",
+        f"{base}latest/ redirects to the newest version. Dated versions keep their content.",
         "",
         "## Tables",
         "",
@@ -1508,7 +1507,7 @@ def _md_twin_dataset(
         lines += ["", *why]
     lines += [
         "",
-        f"Pinned version {m.version}: `{vbase}data.<format>`. Dated versions never change.",
+        f"Pinned version {m.version}: `{vbase}data.<format>`. Dated versions keep their content.",
         "",
     ]
     if console:
@@ -1756,7 +1755,7 @@ PROSE = {
 <p>Every version keeps the publisher's own file beside it, byte for byte, with its SHA-256 hash. The manifest beside it records the portal URL, the date the file was fetched and the licence the portal stated at that moment. You can download the source file from here or from the portal and compare the hashes.</p>
 <p>The rows are the publisher's rows. Cells are typed, headers are renamed to a plain form with the original header kept beside each one, and the encoding is made UTF-8. A cell the publisher suppressed, such as "&lt;5", becomes null with a flag that says so. Nothing is added, removed, ranked, joined or summarised. The count charts on a dataset page are counts of rows worked out in the build, and the caption says so.</p>
 <h2>A URL you can put in a brief</h2>
-<p>A dated version never changes. A link of the form <code>/d/&lt;dataset&gt;/v/&lt;date&gt;/</code> returns the same bytes for as long as the site exists, so a reader of your brief can open the file you used. The <code>latest/</code> link moves to the newest release, so use a dated link when the figure must stay the same.</p>
+<p>A dated version keeps the same content. A link of the form <code>/d/&lt;dataset&gt;/v/&lt;date&gt;/</code> returns the same data for as long as the site exists, so a reader of your brief can open the file you used. The <code>latest/</code> link moves to the newest release, so use a dated link when the figure must stay the same.</p>
 <p>Each dataset page has a citation ready to copy in author-date form, the form most departmental style guides ask for, as well as plain text, HTML, Markdown and BibTeX. The licence requires the publisher's attribution, which is inside every file. We ask that you also name publicdata.au and link to the version, and you are free to decline.</p>
 <h2>Before you use a dataset</h2>
 <p>Each dataset page has a box under the description that states the publisher's own caveats, such as which months are preliminary and which years are not comparable. Read it before you quote a figure. The publisher's release notes on the portal remain the authority.</p>
@@ -1798,7 +1797,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> never changes and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 </ul>
 <h2>Inside every data file</h2>
@@ -1828,9 +1827,9 @@ PROSE = {
 <p>The data licences are separate from the site's code, and stay that way. The code is open source under the GNU Affero General Public License, on <a href="{repo}">GitHub</a>, and the <a href="/contribute/">contributing page</a> explains how to add a dataset or improve the site.</p>
 <h2 id="corrections">Corrections</h2>
 <p>If a value is wrong, it is almost always wrong in the publisher's file as well, because this site publishes what the publisher publishes. Send those to the publisher, whose contact is on each dataset page.</p>
-<p>If the serialisation is wrong, for example a column typed badly or a row missing, <a href="{repo}/issues/new?template=data-problem.yml">open an issue on GitHub</a> or <a href="https://nationaldigital.com.au/contact/">tell National Digital</a>. We fix it, publish a new build, and record the correction in the version's notes. A dated version keeps the same content once it is published. Its files change only to correct a fault in our conversion, to comply with the law, or when a publisher asks us to remove its dataset, and the change is recorded in that version's notes.</p>
+<p>If the serialisation is wrong, for example a column typed badly or a row missing, <a href="{repo}/issues/new?template=data-problem.yml">open an issue on GitHub</a> or <a href="https://nationaldigital.com.au/contact/">tell National Digital</a>. We fix it, publish a new build, and record the correction in the version's notes. A dated version keeps the same content once it is published. Its files change only to correct a fault in our conversion or in the publisher's attribution, to comply with the law, or when a publisher asks us to remove its dataset, and the change is recorded in that version's notes. The <a href="{repo}/blob/main/docs/CORRECTIONS.md">corrections policy</a> sets out each step and keeps a log of every correction.</p>
 <h2 id="cite">Citing the files</h2>
-<p>The licence on each dataset requires the publisher's attribution, and it is inside every file. We ask for one thing more: say that the file came from publicdata.au and link to the version you used. The link lets a reader fetch the same bytes, and it is how other people find this site. Every dataset page has the sentence ready to copy as text, HTML, Markdown and BibTeX.</p>
+<p>The licence on each dataset requires the publisher's attribution, and it is inside every file. We ask for one thing more: say that the file came from publicdata.au and link to the version you used. The link lets a reader fetch the same data, and it is how other people find this site. Every dataset page has the sentence ready to copy as text, HTML, Markdown and BibTeX.</p>
 <h2>Privacy</h2>
 <p>The site sets no cookies. Page views are counted by Cloudflare Web Analytics, which is served from this site's own provider, stores nothing in the browser and does not follow anyone across sites. There is no other tracking. Votes in the backlog are counted once per browser per day using a salted hash that changes every day. Nobody is asked who they are. The <a href="/privacy/">privacy page</a> sets out everything the site records.</p>
 <h2>Security</h2>
@@ -1856,7 +1855,7 @@ PROSE = {
 <p>Votes in the <a href="/backlog/">backlog</a> decide which datasets are built next. A report of a file that differs from the publisher's, or of a page that reads badly, helps as much as a pull request. A publisher that confirms a licence in writing can move a blocked dataset onto the list. Questions and ideas that are not a fault go in <a href="{repo}/discussions">the discussions</a>.</p>
 <h2>How a change is accepted</h2>
 <p>Sign off each commit with <code>git commit -s</code>, which certifies under the <a href="https://developercertificate.org/">Developer Certificate of Origin</a> that you may submit it. Title the pull request as a Conventional Commit, such as <code>data(register): add &lt;what it is&gt;</code>. The checks build and test the site and need no credentials, so they run on a pull request from a fork. A maintainer then reviews it and squash-merges it, and the release notes on GitHub name the people whose changes each release carries.</p>
-<p>The rules every change is held to are in <a href="{repo}/blob/main/CONTRIBUTING.md#ground-rules">the guide</a>. The site publishes what the publisher published and derives nothing from it, and a version never changes once it is out. By taking part you agree to the <a href="{repo}/blob/main/CODE_OF_CONDUCT.md">code of conduct</a>. Report a security issue privately, as the <a href="{repo}/blob/main/SECURITY.md">security policy</a> describes.</p>
+<p>The rules every change is held to are in <a href="{repo}/blob/main/CONTRIBUTING.md#ground-rules">the guide</a>. The site publishes what the publisher published and derives nothing from it, and a version keeps its content once it is out. By taking part you agree to the <a href="{repo}/blob/main/CODE_OF_CONDUCT.md">code of conduct</a>. Report a security issue privately, as the <a href="{repo}/blob/main/SECURITY.md">security policy</a> describes.</p>
 <h2>Licences</h2>
 <p>Each dataset stays under its publisher's licence. The code is under the AGPL and the register's own text is under CC BY 4.0. The name publicdata.au and its mark are outside both licences, and <a href="{repo}/blob/main/BRAND.md">BRAND.md</a> says what a copy of the site may use.</p>
 """,
@@ -1899,7 +1898,7 @@ PROSE = {
 <h2>Votes and dataset requests</h2>
 <p>A vote is stored under a salted hash of your address and browser, and no name or account is attached to it. The <a href="/privacy/">privacy page</a> sets out how this works. A vote asks for a dataset to be built sooner and does not oblige us to build it.</p>
 <h2>Versions and changes</h2>
-<p>A dated version keeps the same content once it is published. We change the files at a version URL only to correct a fault in our conversion, to comply with the law, or when a publisher asks us to remove its dataset, and we record the change in that version's notes.</p>
+<p>A dated version keeps the same content once it is published. We change the files at a version URL only to correct a fault in our conversion or in the publisher's attribution, to comply with the law, or when a publisher asks us to remove its dataset, and we record the change in that version's notes.</p>
 <p>The site is free and may be unavailable at times. Paths other than dated versions may change, and so may the tools. We may change these terms. A change applies only to use after the date it was made, and these terms were last changed on {terms_changed}.</p>
 <h2>Liability</h2>
 <p>To the extent the law allows, National Digital is not liable for any loss or damage that arises from using the site, the data, the query API or the MCP server. This includes loss caused by our negligence and loss from an answer a program or an AI agent gives from the data.</p>
@@ -1916,8 +1915,8 @@ PROSE = {
 # The date the terms last changed, and a hash of their text. The gate fails when the text changes
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
-    "6 October 2026",
-    "4ce25a2e3b856f96612c6da5b55ae9aa3b21bcac9bddcaca5d4a417a61f9f8bd",
+    "8 October 2026",
+    "9c980b65ff9a94242796d36470ef0ea4558f56c1ab299c5829c6d2443003bfec",
 )
 
 
@@ -2458,10 +2457,10 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
         "info": {
             "title": HOST,
             "version": at.release(),
-            "summary": "Australian government open data as versioned, immutable files.",
+            "summary": "Australian government open data as dated versions that keep their content.",
             "description": "Every path is public, with no keys or accounts. Files have no download limit. "
             + at.spec()["api"]["rate_limit"]
-            + " Files under /v/<date>/ never change. "
+            + " Files under /v/<date>/ keep their content and change only for the reasons in /terms/. "
             "Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a publicdata provenance header. "
             "No government agency runs or has endorsed this site.",
             "contact": {"name": OPERATOR, "url": "https://nationaldigital.com.au/contact/"},
@@ -2637,7 +2636,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
             "/d/{slug}/v/{version}/data.{format}": {
                 "get": {
                     "tags": ["version"],
-                    "summary": "The whole dataset in one format. Immutable, cached one year. Range requests are honoured.",
+                    "summary": "The whole dataset in one format. Cached one year. Range requests are honoured.",
                     "operationId": "getData",
                     "parameters": [slug_p, ver_p, fmt_p],
                     "responses": {
@@ -2934,7 +2933,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
                                         "version": {
                                             "type": "string",
                                             "format": "date",
-                                            "description": "The dated version the dashboard reads. Its numbers never change.",
+                                            "description": "The dated version the dashboard reads.",
                                         },
                                         "workspace": {
                                             "type": "object",
@@ -3095,12 +3094,6 @@ def render_site(
         return crumbs, {"jur_path": jp, "publisher_path": pub.path}
 
     css = (static_src / "site.css").read_text(encoding="utf-8").strip()
-    if not brand.has_fonts():
-        css = "\n".join(
-            ln
-            for ln in css.splitlines()
-            if not ln.startswith('@font-face{font-family:"Random Grotesque"')
-        )
     js = (static_src / "site.js").read_text(encoding="utf-8")
     assert js.count(API_SLOT) == 1
     js = js.replace(API_SLOT, json.dumps(at.browser_spec(), ensure_ascii=False, sort_keys=True))
@@ -3174,13 +3167,17 @@ def render_site(
                     f"dataset: {base}",
                     f"rows: {v.rows}",
                     f"source_sha256: {v.manifest.sha256}",
-                    "immutable: true",
                     "---",
                     "",
                     f"# {ds.title}, version {v.manifest.version}",
                     "",
-                    f"{v.rows} rows, {ds.field_count} fields, fetched {view['fetched_long']}. This version never changes.",
+                    f"{v.rows} rows, {ds.field_count} fields, fetched {view['fetched_long']}. This version keeps its content. Its files change only for the reasons the terms give ({SITE}/terms/), and each change is recorded in its notes.",
                     "",
+                    *(
+                        ["## About this version", "", *v.manifest.notes, ""]
+                        if v.manifest.notes
+                        else []
+                    ),
                     *(
                         [f"Condition of use: {ds.licence.condition}", ""]
                         if ds.licence.condition
@@ -3200,7 +3197,7 @@ def render_site(
                 "version.html",
                 md,
                 title=f"{ds.title} {v.manifest.version} | {HOST}",
-                description=f"Immutable version {v.manifest.version} of {ds.title}.",
+                description=f"Dated version {v.manifest.version} of {ds.title}.",
                 nav="datasets",
                 noindex=True,
                 og=card
@@ -3889,7 +3886,7 @@ def render_site(
             "",
             f"# {brand.HEADLINE}",
             "",
-            f"publicdata.au republishes Australian government datasets as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage. Every release a publisher makes becomes a dated version that never changes, with its schema, its provenance and a diff against the release before. A query API answers filters and counts from a URL, an explorer charts every row in the browser, and an MCP server at {SITE}/mcp gives agents the same tools. There are no keys and no accounts. No government agency runs or has endorsed this site.",
+            f"publicdata.au republishes Australian government datasets as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage. Every release a publisher makes becomes a dated version that keeps its content, with its schema, its provenance and a diff against the release before. A query API answers filters and counts from a URL, an explorer charts every row in the browser, and an MCP server at {SITE}/mcp gives agents the same tools. There are no keys and no accounts. No government agency runs or has endorsed this site.",
             "",
             "## Datasets",
             "",
@@ -4029,7 +4026,7 @@ def render_site(
         "home.html",
         home_md,
         title=f"{HOST}: Australian government open data as CSV, Excel, JSON, Parquet and SQLite",
-        description="Australian government open data as dated versions that never change, in eleven formats, with a query API, a browser explorer and an MCP server for AI agents. No keys, no accounts.",
+        description="Australian government open data as dated versions that keep their content, in eleven formats, with a query API, a browser explorer and an MCP server for AI agents. No keys, no accounts.",
         nav="datasets",
         headline=brand.HEADLINE,
         stats=stats,
@@ -4388,13 +4385,13 @@ def render_site(
         "",
         "No keys or accounts, and no download limit on files. "
         + at.spec()["api"]["rate_limit"]
-        + " `latest/` redirects (302) to the newest dated version; dated versions never change. Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a `publicdata` header with the publisher, licence, attribution, a ready-made `cite` string and the source SHA-256. When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL.",
+        + " `latest/` redirects (302) to the newest dated version; dated versions keep their content. Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a `publicdata` header with the publisher, licence, attribution, a ready-made `cite` string and the source SHA-256. When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL.",
         "",
         f"- Catalogue (DCAT JSON-LD): {SITE}/catalog.json",
         f"- Discovery manifest (ARD): {SITE}/.well-known/ard.json",
         f"- OpenAPI 3.1 for every path: {SITE}/openapi.json",
         "- MCP server: " + at.plain(at.spec()["mcp"]["intro"]),
-        f"- Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for a dated version that never changes; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
+        f"- Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
         + FILTER_HELP,
         f"- Every dataset on Australia's government portals, by government and publisher: {SITE}/browse/ (as data: {SITE}/catalogue/publishers.json, and catalogue.json on each publisher page)",
         f"- Backlog and licences: {SITE}/backlog.json",
