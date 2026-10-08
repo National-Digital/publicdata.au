@@ -67,6 +67,7 @@ jobs:
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # the last release tag, which the real-data check compares the code with
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -160,7 +161,9 @@ jobs:
       PUBLICDATA_SPATIAL: ${{ needs.plan.outputs.spatial }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/build-runner
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-runner # zizmor: ignore[self-repository] actionlint cannot parse $/ yet; ./ is this event's own checkout
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
@@ -207,7 +210,9 @@ jobs:
         slugs: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/build-runner
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-runner # zizmor: ignore[self-repository] actionlint cannot parse $/ yet; ./ is this event's own checkout
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
@@ -307,8 +312,9 @@ jobs:
           exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # the tags, for scripts/next-version.mjs
-      - uses: ./.github/actions/build-runner
+      - uses: ./.github/actions/build-runner # zizmor: ignore[self-repository] actionlint cannot parse $/ yet; ./ is this event's own checkout
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
@@ -503,6 +509,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # zizmor: ignore[artipacked] the tag push below goes with this credential
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
