@@ -100,7 +100,7 @@ jobs:
           # main as it stands now; the new manifests are untracked and carry over.
           git fetch -q origin main
           git checkout -q --detach origin/main
-          git checkout -b "data/catalogue-$DATE-${{ github.run_id }}"
+          git checkout -b "data/catalogue-$DATE-$GITHUB_RUN_ID"
           git add store/catalogue/*/manifest.json
           git commit -s -m "data(catalogue): portal dataset lists harvested $DATE" -m "$(grep -E '^catalogue: new version' harvest.log)"
           git push -u origin HEAD

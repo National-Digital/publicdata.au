@@ -123,4 +123,6 @@ jobs:
         with:
           packages-dir: clients/python/dist
       - if: steps.pypi.outputs.publish == 'true'
-        run: echo "Published publicdata-au ${{ steps.pypi.outputs.version }} to PyPI." >> "$GITHUB_STEP_SUMMARY"
+        env:
+          VERSION: ${{ steps.pypi.outputs.version }}
+        run: echo "Published publicdata-au $VERSION to PyPI." >> "$GITHUB_STEP_SUMMARY"

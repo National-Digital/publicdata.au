@@ -108,7 +108,7 @@ jobs:
             # A failed command inside an if condition does not stop a set -e shell, so each step is chained.
             if ! {
               git checkout -q --detach "$base" &&
-              git checkout -q -b "data/fetch-$DATE-$jur-${{ github.run_id }}" &&
+              git checkout -q -b "data/fetch-$DATE-$jur-$GITHUB_RUN_ID" &&
               git add "${files[@]}" &&
               git commit -q -s -m "data($jur): new source versions fetched $DATE" -m "$lines" &&
               git push -q -u origin HEAD &&
@@ -117,7 +117,7 @@ jobs:
             }; then
               failed="$failed $jur"
               # A branch pushed without its PR is removed, so the next run starts clean.
-              git push -q origin --delete "data/fetch-$DATE-$jur-${{ github.run_id }}" 2>/dev/null || true
+              git push -q origin --delete "data/fetch-$DATE-$jur-$GITHUB_RUN_ID" 2>/dev/null || true
               echo "No pull request was opened for $jur; its versions are fetched again next run." >> "$GITHUB_STEP_SUMMARY"
             fi
           done
@@ -134,10 +134,10 @@ jobs:
           open=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           due=$(grep -E ': MANUAL ' fetch.log | sed -E 's/^([^:]+): MANUAL [^:]+: download (\S+) .*/- [ ] `\1` from <\2>/' || true)
           if [ -z "$due" ]; then
-            [ -z "$open" ] || gh issue close "$open" --comment "Nothing is due as of run ${{ github.run_id }}."
+            [ -z "$open" ] || gh issue close "$open" --comment "Nothing is due as of run $GITHUB_RUN_ID."
             exit 0
           fi
-          body=$(printf 'The publisher changed these files and their hosts turn automated clients away. Download each in a browser and follow CONTRIBUTING.md, "Manual sources".\n\n%s\n\nRun %s.' "$due" "${{ github.run_id }}")
+          body=$(printf 'The publisher changed these files and their hosts turn automated clients away. Download each in a browser and follow CONTRIBUTING.md, "Manual sources".\n\n%s\n\nRun %s.' "$due" "$GITHUB_RUN_ID")
           printf '%s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$open" ]; then gh issue edit "$open" --body "$body"; else gh issue create --title "$TITLE" --body "$body"; fi
       - name: Fail when anything could not be fetched

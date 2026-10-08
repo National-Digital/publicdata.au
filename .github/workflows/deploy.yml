@@ -253,16 +253,19 @@ jobs:
       # preview serves from Pages, its Parquet and SQLite included, which no cache entry keeps.
       # A production build pushed those to R2 above.
       - name: Pack the build
+        env:
+          JOB_INDEX: ${{ strategy.job-index }}
+          SLUGS: ${{ matrix.slugs }}
         run: |
           mkdir -p /mnt/work/shard
           (cd "$BUILD_CACHE" && find . -mindepth 2 -maxdepth 2 -name meta.json -newer "$RUNNER_TEMP/start" -printf '%h\n') > entries.txt
           tar -C "$BUILD_CACHE" -I 'zstd -T0' -cf /mnt/work/shard/cache.tar.zst -T entries.txt
           : > built.txt
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             (cd "$DIST" && find d -path '*/v/*' -type f ! -name 'index.*' ! -name manifest.json ! -name schema.json ! -name schema.sql) > built.txt
           fi
           tar -C "$DIST" -I 'zstd -T0' -cf /mnt/work/shard/built.tar.zst -T built.txt
-          echo "Shard ${{ strategy.job-index }}: $(wc -l < entries.txt) cache entries, $(wc -l < built.txt) preview files, ${{ matrix.slugs }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Shard $JOB_INDEX: $(wc -l < entries.txt) cache entries, $(wc -l < built.txt) preview files, $SLUGS" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: shard-${{ strategy.job-index }}
@@ -288,8 +291,12 @@ jobs:
         # A check that did not pass, timed out or cancelled included, stops it, so no tag is cut
         # past an unchecked change.
         if: ${{ needs.plan.result == 'failure' || needs.shard.result == 'failure' || (needs.verify.result != 'success' && needs.verify.result != 'skipped') }}
+        env:
+          PLAN: ${{ needs.plan.result }}
+          SHARD: ${{ needs.shard.result }}
+          VERIFY: ${{ needs.verify.result }}
         run: |
-          echo "::error::plan ${{ needs.plan.result }}, shards ${{ needs.shard.result }}, real-data check ${{ needs.verify.result }}"
+          echo "::error::plan $PLAN, shards $SHARD, real-data check $VERIFY"
           exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -467,9 +474,9 @@ jobs:
         run: |
           BODY="Preview: https://pr-$PR.publicdata-au.pages.dev (this deploy: $(cat url.txt))"
           # Edit only our own preview comment. --edit-last would rewrite whatever the bot posted most recently, such as the review.
-          ID=$(gh api --paginate "repos/${{ github.repository }}/issues/$PR/comments" | jq -rs 'add | [.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("Preview: "))] | last | .id // empty')
+          ID=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" | jq -rs 'add | [.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("Preview: "))] | last | .id // empty')
           if [ -n "$ID" ]; then
-            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$ID" -f body="$BODY" >/dev/null
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$ID" -f body="$BODY" >/dev/null
           else
             gh pr comment "$PR" --body "$BODY"
           fi

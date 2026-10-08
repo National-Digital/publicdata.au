@@ -102,7 +102,7 @@ jobs:
             exit 0
           fi
           DATE=$(date -u +%Y-%m-%d)
-          BRANCH="data/hubs-$DATE-${{ github.run_id }}"
+          BRANCH="data/hubs-$DATE-$GITHUB_RUN_ID"
           git config user.name "publicdata fetch"
           git config user.email "fetch@publicdata.au"
           git checkout -q -b "$BRANCH"
