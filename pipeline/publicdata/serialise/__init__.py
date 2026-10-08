@@ -391,8 +391,10 @@ def duckdb_digest(path: Path) -> str:
         for q in (
             "SELECT block_size FROM pragma_database_size() WHERE database_name = 'd'",
             "SELECT tags FROM duckdb_databases() WHERE database_name = 'd'",
-            "SELECT table_name, constraint_type, constraint_text FROM duckdb_constraints() "
-            "WHERE database_name = 'd' ORDER BY ALL",
+            (
+                "SELECT table_name, constraint_type, constraint_text FROM duckdb_constraints() "
+                "WHERE database_name = 'd' ORDER BY ALL"
+            ),
             "SELECT index_name, sql FROM duckdb_indexes() WHERE database_name = 'd' ORDER BY ALL",
         ):
             parts.append(dumps(con.execute(q).fetchall()))

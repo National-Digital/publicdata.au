@@ -344,8 +344,10 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
     out = [
         (
             f"How do I download {short} as a CSV file?",
-            f"Open {base}latest/data.csv. It redirects to the newest dated version, which is {vbase}data.csv today. "
-            f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
+            (
+                f"Open {base}latest/data.csv. It redirects to the newest dated version, which is {vbase}data.csv today. "
+                f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same."
+            ),
         )
     ]
     why = reasons(v.rows, geo_kind(ds), v.left_out).get("xlsx")
@@ -1350,13 +1352,17 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
     out = [
         (
             f"How do I query {short} without downloading it?",
-            f"Attach {vbase}data.duckdb read-only from DuckDB, R or Python and query any table or view, such as {start}. DuckDB reads only the blocks a query touches over HTTPS. "
-            f"{base}latest/data.duckdb redirects to the newest version; a dated URL never changes.",
+            (
+                f"Attach {vbase}data.duckdb read-only from DuckDB, R or Python and query any table or view, such as {start}. DuckDB reads only the blocks a query touches over HTTPS. "
+                f"{base}latest/data.duckdb redirects to the newest version; a dated URL never changes."
+            ),
         ),
         (
             f"How do I get one table of {short}?",
-            f"Every table is a Parquet file under {vbase}tables/, for example {vbase}tables/{ds.tables[0].name}.parquet, which pandas, R, Polars, Spark and DuckDB read directly. "
-            f"{vbase}schema.sql has the CREATE TABLE statements with the keys and references, and {vbase}schema.json the same as Table Schema.",
+            (
+                f"Every table is a Parquet file under {vbase}tables/, for example {vbase}tables/{ds.tables[0].name}.parquet, which pandas, R, Polars, Spark and DuckDB read directly. "
+                f"{vbase}schema.sql has the CREATE TABLE statements with the keys and references, and {vbase}schema.json the same as Table Schema."
+            ),
         ),
     ]
     if ds.source.cadence:
@@ -1377,8 +1383,10 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
     out.append(
         (
             f"Is this the official source for {short}?",
-            f"No. The publisher is {ds.publisher.name}, and its page is {landing(ds)}. This site republishes the publisher's release without changing its content: the files are typed and the columns named in lower case. "
-            f"The publisher's archive sits beside every version as source.{m.ext} with its SHA-256, so the two can be compared.",
+            (
+                f"No. The publisher is {ds.publisher.name}, and its page is {landing(ds)}. This site republishes the publisher's release without changing its content: the files are typed and the columns named in lower case. "
+                f"The publisher's archive sits beside every version as source.{m.ext} with its SHA-256, so the two can be compared."
+            ),
         )
     )
     return out
@@ -4154,9 +4162,11 @@ def render_site(
             "",
             *(
                 [
-                    f"Every dataset on Australia's government portals, {fmt_int(dirx.listed)} of them, can be searched at {SITE}/api/v1/catalogue?q=<words>. "
-                    f"{fmt_int(dirx.votable)} have an open licence and a file or API we can read, and those take a vote. "
-                    f"A portal URL sent to POST {SITE}/api/v1/requests becomes a vote for the dataset it names.",
+                    (
+                        f"Every dataset on Australia's government portals, {fmt_int(dirx.listed)} of them, can be searched at {SITE}/api/v1/catalogue?q=<words>. "
+                        f"{fmt_int(dirx.votable)} have an open licence and a file or API we can read, and those take a vote. "
+                        f"A portal URL sent to POST {SITE}/api/v1/requests becomes a vote for the dataset it names."
+                    ),
                     "",
                     "## Chosen for building",
                     "",

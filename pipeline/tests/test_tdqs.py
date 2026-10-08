@@ -78,23 +78,31 @@ RETURN_SENTENCES = {
     "list_fields": ["The answer describes the newest version, in one page."],
     "list_partitions": ["Every value comes back in one answer, with no paging."],
     "query_rows": [
-        "One page holds up to limit rows, and offset steps through the rest until next_offset "
-        "is null."
+        (
+            "One page holds up to limit rows, and offset steps through the rest until next_offset "
+            "is null."
+        )
     ],
     "count_rows": [
         "Groups come back largest first, and truncated means raise limit or narrow where."
     ],
     "diff_versions": [
-        "One answer holds the counts of rows added, removed, changed and unchanged, the keys of "
-        "the rows added, removed and changed, and up to ten changed rows with their old and new "
-        "values."
+        (
+            "One answer holds the counts of rows added, removed, changed and unchanged, the keys of "
+            "the rows added, removed and changed, and up to ten changed rows with their old and new "
+            "values."
+        )
     ],
     "search_catalogue": ["A page holds 20 records, those that can take a vote first."],
     "list_backlog": [
-        "Votes on catalogue records that no entry has claimed yet come back apart, under the vote "
-        "key search_catalogue uses.",
-        "The whole backlog comes back in one answer, with no paging, and the call costs nothing "
-        "against the rate limit.",
+        (
+            "Votes on catalogue records that no entry has claimed yet come back apart, under the vote "
+            "key search_catalogue uses."
+        ),
+        (
+            "The whole backlog comes back in one answer, with no paging, and the call costs nothing "
+            "against the rate limit."
+        ),
     ],
     "upvote_dataset": ["The answer gives the dataset's vote total after this call."],
 }

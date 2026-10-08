@@ -851,8 +851,10 @@ def report(
         lines += [note, ""]
     if gated:
         lines += [
-            f"Entries this change adds or edits, against {BUDGET_GB_YEAR:g} GB of storage and "
-            f"{BUDGET_D1_ROWS_YEAR:,} D1 rows written a year each:",
+            (
+                f"Entries this change adds or edits, against {BUDGET_GB_YEAR:g} GB of storage and "
+                f"{BUDGET_D1_ROWS_YEAR:,} D1 rows written a year each:"
+            ),
             "",
         ]
         lines += [*HEAD, *(_row(p) for p in projections if p.slug in gated), ""]
@@ -878,21 +880,27 @@ def report(
         "### Fleet",
         "",
         f"Projected growth: {f.gb_per_year:,.1f} GB a year across {len(projections)} entries.",
-        f"Stored now (estimated as each stored version at its newest version's size): "
-        f"{f.stored_gb:,.1f} GB.",
-        f"Projected D1 rows written: {f.d1_rows_per_year:,} a year, each version's rows once "
-        "for the table and once for each index on it.",
+        (
+            f"Stored now (estimated as each stored version at its newest version's size): "
+            f"{f.stored_gb:,.1f} GB."
+        ),
+        (
+            f"Projected D1 rows written: {f.d1_rows_per_year:,} a year, each version's rows once "
+            "for the table and once for each index on it."
+        ),
         "",
-        "A change to an entry's output rebuilds each of its stored versions once, counted at the "
-        "newest version's size in the rebuild column and in the year's figure, and loads its "
-        "newest version into D1 again. Sizes marked estimate are the source bytes times "
-        f"{SOURCE_MULTIPLIER} ({SPATIAL_MULTIPLIER} for a spatial entry), with a zip or gzip "
-        "counted at its unpacked size, or at "
-        f"{COMPRESSED_MULTIPLIER} times its bytes when that cannot be read, and a spreadsheet at "
-        f"{SPREADSHEET_MULTIPLIER} times. The rest are read from the newest version's files in "
-        "the catalogue, with the publisher's file counted once for the raw store. D1 rows are "
-        "the newest version's, or one per "
-        f"{PUBLISHED_BYTES_PER_ROW} published bytes for an estimate.",
+        (
+            "A change to an entry's output rebuilds each of its stored versions once, counted at the "
+            "newest version's size in the rebuild column and in the year's figure, and loads its "
+            "newest version into D1 again. Sizes marked estimate are the source bytes times "
+            f"{SOURCE_MULTIPLIER} ({SPATIAL_MULTIPLIER} for a spatial entry), with a zip or gzip "
+            "counted at its unpacked size, or at "
+            f"{COMPRESSED_MULTIPLIER} times its bytes when that cannot be read, and a spreadsheet at "
+            f"{SPREADSHEET_MULTIPLIER} times. The rest are read from the newest version's files in "
+            "the catalogue, with the publisher's file counted once for the raw store. D1 rows are "
+            "the newest version's, or one per "
+            f"{PUBLISHED_BYTES_PER_ROW} published bytes for an estimate."
+        ),
         "",
         "<details><summary>Every entry</summary>",
         "",

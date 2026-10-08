@@ -261,8 +261,10 @@ def readme(e: Entry, hub: str) -> str:
     query = [
         "## Query it without downloading",
         "",
-        "The publicdata.au query API filters and totals the newest version of this dataset "
-        "and needs no key:",
+        (
+            "The publicdata.au query API filters and totals the newest version of this dataset "
+            "and needs no key:"
+        ),
         "",
         "```",
         f"{e.site}/api/v1/datasets/{e.slug}/rows?limit=10",
@@ -274,15 +276,19 @@ def readme(e: Entry, hub: str) -> str:
         "",
         e.description,
         "",
-        f"This is a copy of the {e.version} version of this dataset on publicdata.au, "
-        f"where it has {e.rows:,} rows and {len(e.fields)} fields. The same version is kept at "
-        f"{e.version_url} in {e.formats} formats, with every earlier version"
-        f"{' and a query API' if e.queryable else ''}.",
+        (
+            f"This is a copy of the {e.version} version of this dataset on publicdata.au, "
+            f"where it has {e.rows:,} rows and {len(e.fields)} fields. The same version is kept at "
+            f"{e.version_url} in {e.formats} formats, with every earlier version"
+            f"{' and a query API' if e.queryable else ''}."
+        ),
         "",
         "## Attribution",
         "",
-        f"The data is published by {e.publisher} under {e.licence.title}, {e.licence.url}. "
-        "The licence requires this attribution:",
+        (
+            f"The data is published by {e.publisher} under {e.licence.title}, {e.licence.url}. "
+            "The licence requires this attribution:"
+        ),
         "",
         f"> {e.attribution}",
         "",
@@ -294,8 +300,10 @@ def readme(e: Entry, hub: str) -> str:
         "",
         "## Versions",
         "",
-        "publicdata.au keeps a new version each time the publisher changes the source file, "
-        f"and lists them all at {e.page}versions.json. {held}",
+        (
+            "publicdata.au keeps a new version each time the publisher changes the source file, "
+            f"and lists them all at {e.page}versions.json. {held}"
+        ),
         "",
         *(query if e.queryable else ()),
         "## Fields",
@@ -306,8 +314,10 @@ def readme(e: Entry, hub: str) -> str:
     lines += [f"| `{f['name']}` | {f.get('type', '')} | {_about(f)} |" for f in e.fields]
     lines += [
         "",
-        "`publicdata.json` beside the data names the version, licence, attribution and the "
-        "SHA-256 of the publisher's file it was built from.",
+        (
+            "`publicdata.json` beside the data names the version, licence, attribution and the "
+            "SHA-256 of the publisher's file it was built from."
+        ),
         "",
     ]
     return "\n".join(lines)
@@ -543,8 +553,10 @@ def kaggle_sources(e: Entry) -> str:
     m = e.manifest
     fetched = (m.get("fetched_at") or "")[:10]
     parts = [
-        f"Published by [{e.publisher}]({e.publisher_url}) on [the publisher's dataset page]"
-        f"({e.source_page}) under [{e.licence.title}]({e.licence.url}).",
+        (
+            f"Published by [{e.publisher}]({e.publisher_url}) on [the publisher's dataset page]"
+            f"({e.source_page}) under [{e.licence.title}]({e.licence.url})."
+        ),
         f"These rows are the [{e.version} version]({e.version_url}) on [publicdata.au]({e.page}), "
         f"built from the publisher's file `{m.get('filename', '')}`"
         + (f" fetched on {fetched}" if fetched else "")
@@ -677,18 +689,24 @@ def zenodo_metadata(e: Entry, community: str | None = None) -> dict:
     description = "".join(
         [
             p(e.description),
-            f"<p>This is the {escape(e.version)} version of this dataset on publicdata.au, with "
-            f"{e.rows:,} rows and {len(e.fields)} fields. The same version is kept at "
-            f"{link(e.version_url)} in {e.formats} formats, with every earlier version"
-            f"{' and a query API' if e.queryable else ''}. Each Zenodo version of this record "
-            "is one publicdata.au version.</p>",
-            f"<p>The data is published by {escape(e.publisher)} under {escape(e.licence.title)}, "
-            f"{link(e.licence.url)}. The licence requires this attribution:</p>",
+            (
+                f"<p>This is the {escape(e.version)} version of this dataset on publicdata.au, with "
+                f"{e.rows:,} rows and {len(e.fields)} fields. The same version is kept at "
+                f"{link(e.version_url)} in {e.formats} formats, with every earlier version"
+                f"{' and a query API' if e.queryable else ''}. Each Zenodo version of this record "
+                "is one publicdata.au version.</p>"
+            ),
+            (
+                f"<p>The data is published by {escape(e.publisher)} under {escape(e.licence.title)}, "
+                f"{link(e.licence.url)}. The licence requires this attribution:</p>"
+            ),
             f"<blockquote>{escape(e.attribution)}</blockquote>",
             p(NOT_ENDORSED),
-            f"<p>The rows are in {escape(_and([f'data.{f}' for f in carried(e, ZENODO_FORMATS)]))}. "
-            "schema.json describes the fields, and publicdata.json names the version, licence, "
-            "attribution and the SHA-256 of the publisher's file.</p>",
+            (
+                f"<p>The rows are in {escape(_and([f'data.{f}' for f in carried(e, ZENODO_FORMATS)]))}. "
+                "schema.json describes the fields, and publicdata.json names the version, licence, "
+                "attribution and the SHA-256 of the publisher's file.</p>"
+            ),
         ]
     )
     related = [

@@ -181,8 +181,10 @@ def _length(t: dict) -> list[str]:
 def _naming(t: dict) -> list[str]:
     if not NAME.match(t.get("name") or ""):
         return [
-            f"name {t.get('name')!r} should be lowercase verb_object snake case, "
-            "like the other tools"
+            (
+                f"name {t.get('name')!r} should be lowercase verb_object snake case, "
+                "like the other tools"
+            )
         ]
     return []
 
@@ -234,8 +236,10 @@ def set_problems(ts: list[dict]) -> list[tuple[str, str]]:
             out.append(
                 (
                     "disambiguation",
-                    f"{a['name']} and {b['name']} have similar purposes and neither names the "
-                    "other; say when to use each",
+                    (
+                        f"{a['name']} and {b['name']} have similar purposes and neither names the "
+                        "other; say when to use each"
+                    ),
                 )
             )
     return out

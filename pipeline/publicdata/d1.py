@@ -230,15 +230,19 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
         yield "fts", f'DROP TABLE IF EXISTS "{tbl}_fts";', 0
         yield (
             "fts",
-            f"CREATE VIRTUAL TABLE \"{tbl}_fts\" USING fts5({text}, content='{tbl}', "
-            "content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2');",
+            (
+                f"CREATE VIRTUAL TABLE \"{tbl}_fts\" USING fts5({text}, content='{tbl}', "
+                "content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2');"
+            ),
             0,
         )
         for a in range(0, n, FTS_ROWS):
             yield (
                 "fts",
-                f'INSERT INTO "{tbl}_fts" (rowid, {text}) SELECT rowid, {text} FROM "{tbl}" '
-                f"WHERE rowid > {a} AND rowid <= {a + FTS_ROWS};",
+                (
+                    f'INSERT INTO "{tbl}_fts" (rowid, {text}) SELECT rowid, {text} FROM "{tbl}" '
+                    f"WHERE rowid > {a} AND rowid <= {a + FTS_ROWS};"
+                ),
                 0,
             )
     # The provenance header every file of this version carries, parsed back to one object.
@@ -262,8 +266,10 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
     )
     holds = [
         f'(SELECT COUNT(*) FROM "{tbl}") = {n}',
-        "(SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = "
-        f"{literal(tbl)}) = {len(indexes)}",
+        (
+            "(SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = "
+            f"{literal(tbl)}) = {len(indexes)}"
+        ),
     ]
     if fts:
         holds.append(f'(SELECT COUNT(*) FROM "{tbl}_fts_docsize") = {n}')
@@ -1218,8 +1224,10 @@ def _summary(
     ]
     if stale:
         lines += [
-            f"Skipped, or waiting over {STALE_DAYS} days; the API answers from the version "
-            "before each:",
+            (
+                f"Skipped, or waiting over {STALE_DAYS} days; the API answers from the version "
+                "before each:"
+            ),
             "",
             *(
                 f"- {j.key}: {'skipped, ' + j.note if j.outcome == 'skipped' else 'waiting'}"
