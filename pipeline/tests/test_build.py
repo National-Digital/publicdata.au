@@ -166,8 +166,8 @@ def test_a_version_fetched_before_the_caps_keeps_its_arrow_file(
 
 def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_path, monkeypatch):
     monkeypatch.setattr(serialise, "EXCEL_MAX_ROWS", 100)
-    assert "xlsx" not in formats_for(300, False)
-    assert "xlsx" in formats_for(100, False)
+    assert "xlsx" not in formats_for(300, geometry=False)
+    assert "xlsx" in formats_for(100, geometry=False)
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-factors"]
     build_dataset(ds, fixture_store, tmp_path)
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
@@ -180,15 +180,15 @@ def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_p
 
 def test_json_and_geojson_skip_the_row_limit_before_the_caps(monkeypatch):
     monkeypatch.setattr(serialise, "JSON_MAX_ROWS", 100)
-    assert {"json", "geojson"} & set(formats_for(300, True)) == set()
-    assert {"json", "geojson", "gpkg", "arrow"} <= set(formats_for(100, True))
-    assert set(legacy_left_out(300, True)) == {"json", "geojson"}
-    assert set(legacy_left_out(300, False)) == {"json"}
+    assert {"json", "geojson"} & set(formats_for(300, geometry=True)) == set()
+    assert {"json", "geojson", "gpkg", "arrow"} <= set(formats_for(100, geometry=True))
+    assert set(legacy_left_out(300, geometry=True)) == {"json", "geojson"}
+    assert set(legacy_left_out(300, geometry=False)) == {"json"}
 
 
 def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
-    assert cappable(False) == ["sqlite", "xlsx", "json"]
-    assert cappable(True) == ["sqlite", "geojson", "xlsx", "json"]
+    assert cappable(geometry=False) == ["sqlite", "xlsx", "json"]
+    assert cappable(geometry=True) == ["sqlite", "geojson", "xlsx", "json"]
     assert cappable("polygon") == ["sqlite", "geojson", "xlsx", "json"]
     for f, (_on, limit) in CAPS.items():
         assert over_cap(f, 10, limit) is None
@@ -208,12 +208,12 @@ def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
         "Excel is not offered because the table is over 1,048,575 rows, which is as "
         "many as a worksheet holds below its header row."
     )
-    assert formats_for(10, True, {}) == [
+    assert formats_for(10, geometry=True, gone={}) == [
         "json", "ndjson", "csv", "parquet", "sqlite", "duckdb", "xlsx", "csv.gz",
         "geojson", "gpkg", "geo.parquet",
     ]  # fmt: skip
     # The recorded set is the set, whatever the rows: no rule is applied again.
-    assert "xlsx" in formats_for(EXCEL_MAX_ROWS + 1, False, {})
+    assert "xlsx" in formats_for(EXCEL_MAX_ROWS + 1, geometry=False, gone={})
     gone = {"json": "x", "sqlite": "y"}
     assert {"json", "sqlite", "arrow"} & set(formats_for(10, "polygon", gone)) == set()
     assert {"ndjson", "csv", "csv.gz", "parquet", "duckdb", "pmtiles"} <= set(

@@ -205,7 +205,7 @@ def test_zenodo_record_relates_the_version_the_dataset_and_the_source():
 class FakeHub:
     name = "fake"
 
-    def __init__(self, held=(), fail=False):
+    def __init__(self, held=(), *, fail=False):
         self._held = set(held)
         self.fail = fail
         self.published = []
@@ -290,7 +290,7 @@ class FakeResponse:
 class FakeZenodoHttp:
     """Enough of Zenodo's deposit API to follow a new version through to publish."""
 
-    def __init__(self, records, fail_metadata=False, found=()):
+    def __init__(self, records, *, fail_metadata=False, found=()):
         self.records = records
         self.found = list(found)
         self.fail_metadata = fail_metadata
@@ -335,7 +335,7 @@ def zenodo(records, **kw):
     return z
 
 
-def record(id_, version, submitted=True, concept=None):
+def record(id_, version, *, submitted=True, concept=None):
     return {
         "id": id_,
         "submitted": submitted,

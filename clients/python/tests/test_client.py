@@ -328,7 +328,7 @@ def test_filters_render_in_the_apis_operator_form():
     assert str(pd_au.not_(pd_au.eq("x"))) == "not.eq.x"
     assert str(pd_au.is_null()) == "is.null"
     assert str(pd_au.ilike("*rider*")) == "ilike.*rider*"
-    assert str(pd_au.eq(True)) == "eq.true"
+    assert str(pd_au.eq(True)) == "eq.true"  # noqa: FBT003 - the value compared
     with pytest.raises(ValueError, match="comma"):
         pd_au.in_("a,b")
 

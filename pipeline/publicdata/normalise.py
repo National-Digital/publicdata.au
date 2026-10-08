@@ -479,7 +479,7 @@ def _plain_number(arr: pa.ChunkedArray) -> pa.ChunkedArray:
 
     Only a cell that is wholly such a figure is touched.
     """
-    grouped = pc.fill_null(pc.match_substring_regex(arr, THOUSANDS), False)
+    grouped = pc.fill_null(pc.match_substring_regex(arr, THOUSANDS), fill_value=False)
     if not pc.any(grouped).as_py():
         return arr
     return pc.if_else(grouped, pc.replace_substring(arr, ",", ""), arr)
@@ -509,11 +509,13 @@ def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):
     """Return (typed array, suppression mask or None)."""
     arr = _blank_to_null(arr)
     if f.null_values:
-        unknown = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(f.null_values))), False)
+        unknown = pc.fill_null(
+            pc.is_in(arr, value_set=pa.array(list(f.null_values))), fill_value=False
+        )
         arr = pc.if_else(unknown, pa.scalar(None, pa.string()), arr)
     sup = None
     if suppression and f.type in ("integer", "number"):
-        sup = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(suppression))), False)
+        sup = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(suppression))), fill_value=False)
         if pc.any(sup).as_py():
             arr = pc.if_else(sup, pa.scalar(None, pa.string()), arr)
         else:
@@ -524,13 +526,17 @@ def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):
         if f.type in ("integer", "number"):
             return pc.cast(_plain_number(arr), ARROW_TYPES[f.type]), sup
         if f.type == "boolean":
-            t = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(f.true_values))), False)
-            fl = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(f.false_values))), False)
+            t = pc.fill_null(
+                pc.is_in(arr, value_set=pa.array(list(f.true_values))), fill_value=False
+            )
+            fl = pc.fill_null(
+                pc.is_in(arr, value_set=pa.array(list(f.false_values))), fill_value=False
+            )
             bad = pc.and_(pc.is_valid(arr), pc.invert(pc.or_(t, fl)))
             if pc.any(bad).as_py():
                 msg = f"{f.name}: values outside true/false sets: {_examples(arr, bad)}"
                 raise NormaliseError(msg)
-            return pc.if_else(t, True, pc.if_else(fl, False, pa.scalar(None, pa.bool_()))), sup
+            return pc.if_else(t, True, pc.if_else(fl, False, pa.scalar(None, pa.bool_()))), sup  # noqa: FBT003 - pyarrow's if_else takes them by position
         if f.type in ("date", "datetime"):
             if f.date_format == "epoch_ms":
                 # An ArcGIS service gives dates as milliseconds since 1970, UTC.

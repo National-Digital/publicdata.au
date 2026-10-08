@@ -924,6 +924,7 @@ def _place_pages(
     latest_view: dict,
     console: dict | None,
     db: Path,
+    *,
     out: Path,
     page,
     places: list[dict],
@@ -1426,6 +1427,7 @@ def _md_twin_database(
     views: list[dict],
     faq: list[tuple[str, str]] = (),
     citation: dict | None = None,
+    *,
     related: list[dict] = (),
 ) -> str:
     v = o.latest
@@ -1514,6 +1516,7 @@ def _md_twin_dataset(
     views: list[dict],
     siblings: list[Dataset],
     faq: list[tuple[str, str]] = (),
+    *,
     citation: dict | None = None,
     console: dict | None = None,
     explore: bool = False,
@@ -2066,7 +2069,7 @@ PATH_HINT_VALUES = 20
 
 
 def _query_paths(
-    live: list[DatasetOut], slug_p: dict, hints: dict | None = None, generic: bool = False
+    live: list[DatasetOut], slug_p: dict, hints: dict | None = None, *, generic: bool = False
 ) -> dict:
     """One rows path per live dataset with its fields as typed filters, and one aggregate path."""
     hints = hints or {}
@@ -3098,8 +3101,8 @@ def _dataset_card(out: Path, ds: Dataset, v, rel: str, cache: BuildCache | None)
             ds.licence.title,
             f"Version {v.manifest.version}",
         ],
-        ds.publisher.name,
-        cache,
+        publisher=ds.publisher.name,
+        cache=cache,
     )
 
 
@@ -3114,6 +3117,7 @@ def render_site(
     records: list[dict] | None = None,
     curated: list | None = None,
     catalogue_as_at: str = "",
+    *,
     catalogue_stats: dict | None = None,
     search: Path | None = None,
     cache: BuildCache | None = None,
@@ -3208,7 +3212,7 @@ def render_site(
             md,
         )
 
-    def version_pages(o, ds, views, fig, hints, card, base, latest) -> None:
+    def version_pages(o, ds, views, fig, hints, *, card, base, latest) -> None:
         """One page per dated version: its files, its change from the version before and its figure."""
         for v, view in zip(o.versions, views, strict=True):
             vfig = (
@@ -3334,7 +3338,7 @@ def render_site(
             page(
                 f"d/{ds.slug}/index.html",
                 "database.html",
-                _md_twin_database(ds, o, views, faq, citation, related),
+                _md_twin_database(ds, o, views, faq, citation, related=related),
                 title=_db_seo_title(ds),
                 description=_db_seo_description(ds, latest),
                 nav="datasets",
@@ -3367,7 +3371,7 @@ def render_site(
                 else "",
                 jsonld=json.dumps(_dataset_jsonld(ds, o, copies), ensure_ascii=False),
             )
-            version_pages(o, ds, views, fig, None, card, base, latest)
+            version_pages(o, ds, views, fig, None, card=card, base=base, latest=latest)
             continue
         formats, fmt_data = _picker(ds, latest)
         first = json.loads(latest.first or "{}")
@@ -3482,7 +3486,16 @@ def render_site(
             f"d/{ds.slug}/index.html",
             "dataset.html",
             _md_twin_dataset(
-                ds, o, views, siblings, faq, citation, console, bool(explore), related, places
+                ds,
+                o,
+                views,
+                siblings,
+                faq,
+                citation=citation,
+                console=console,
+                explore=bool(explore),
+                related=related,
+                places=places,
             ),
             title=_seo_title(ds, latest, fig.get("years", "")),
             description=_seo_description(ds, latest, fig.get("years", "")),
@@ -3545,13 +3558,13 @@ def render_site(
             views[-1],
             console,
             rows_path,
-            out,
-            page,
-            places,
-            card,
-            crumbs,
-            links,
-            citation,
+            out=out,
+            page=page,
+            places=places,
+            card=card,
+            crumbs=crumbs,
+            links=links,
+            citation=citation,
         )
         if explore:
             explored.add(ds.slug)
@@ -3609,7 +3622,7 @@ def render_site(
                     **ex_ctx,
                 ),
             )
-        version_pages(o, ds, views, fig, hints, card, base, latest)
+        version_pages(o, ds, views, fig, hints, card=card, base=base, latest=latest)
 
     # Collection pages: one per publisher release that arrives as several tables.
     collections: dict[str, list[DatasetOut]] = {}

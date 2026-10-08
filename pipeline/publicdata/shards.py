@@ -60,5 +60,5 @@ def weights(datasets: list[Dataset], store_dir: Path, cache_dir: Path | None) ->
             if d.publishable
         }
     cache = BuildCache(cache_dir)
-    now = {shape: cache_mod.writer_keys(shape) for shape in (False, True)}
+    now = {shape: cache_mod.writer_keys(shape=shape) for shape in (False, True)}
     return {d.slug: pending(cache, d, store_dir, now[shape_layer(d)]) for d in datasets}

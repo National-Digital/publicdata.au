@@ -98,7 +98,7 @@ def capped(manifest) -> bool:
     return bool(caps)
 
 
-def _kind(geometry: bool | str) -> str:
+def _kind(geometry: bool | str) -> str:  # noqa: FBT001 - True for points, or a shape kind's name
     return "point" if geometry is True else (geometry or "")
 
 
@@ -106,7 +106,7 @@ def _geo_formats(kind: str) -> tuple[str, ...]:
     return () if not kind else GEO_FORMATS if kind == "point" else SHAPE_FORMATS
 
 
-def cappable(geometry: bool | str) -> list[str]:
+def cappable(geometry: bool | str) -> list[str]:  # noqa: FBT001 - True for points, or a shape kind's name
     """The formats the caps can leave out of a version of this kind, in CAPS order."""
     have = set(FORMATS) | set(_geo_formats(_kind(geometry)))
     return [f for f in CAPS if f in have]
@@ -137,7 +137,7 @@ def _over(size: int, limit: int) -> str:
     return f"{mb} MB" if float(mb.replace(",", "")) > limit / 1e6 else f"{size:,} bytes"
 
 
-def legacy_left_out(rows: int, geometry: bool | str) -> dict[str, str]:
+def legacy_left_out(rows: int, geometry: bool | str) -> dict[str, str]:  # noqa: FBT001 - True for points, or a shape kind's name
     """The formats a version without the caps stamp lacks, by the row limits it was built under."""
     over = {"xlsx"} if rows > EXCEL_MAX_ROWS else set()
     if rows > JSON_MAX_ROWS:
@@ -157,7 +157,7 @@ def _row_reason(fmt: str) -> str:
     )
 
 
-def reasons(rows: int, geometry: bool | str, gone: dict[str, str] | None) -> dict[str, str]:
+def reasons(rows: int, geometry: bool | str, gone: dict[str, str] | None) -> dict[str, str]:  # noqa: FBT001 - True for points, or a shape kind's name
     """Each format a version lacks, with the reason.
 
     The reason is a capped version's recorded formats_left_out, or the row limits of a version
@@ -166,7 +166,7 @@ def reasons(rows: int, geometry: bool | str, gone: dict[str, str] | None) -> dic
     return dict(gone) if gone is not None else legacy_left_out(rows, geometry)
 
 
-def formats_for(rows: int, geometry: bool | str, gone: dict[str, str] | None = None) -> list[str]:
+def formats_for(rows: int, geometry: bool | str, gone: dict[str, str] | None = None) -> list[str]:  # noqa: FBT001 - True for points, or a shape kind's name
     """The formats a version carries.
 
     `geometry` is the dataset's geometry kind, or True for points. `gone` is a capped version's

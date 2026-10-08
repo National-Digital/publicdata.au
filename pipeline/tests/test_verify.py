@@ -148,7 +148,9 @@ def test_the_check_leaves_a_changed_writers_file_to_the_deploy(two_datasets, tmp
     real = cache_mod.writer_key
     stale = ("csv", "csv.gz")  # the gzip is made from the CSV, so its key takes the CSV writer in
     monkeypatch.setattr(
-        cache_mod, "writer_key", lambda f, shape=False: "new" if f in stale else real(f, shape)
+        cache_mod,
+        "writer_key",
+        lambda f, shape=False: "new" if f in stale else real(f, shape=shape),
     )
     real_csv = build.WRITERS["csv"]
 
@@ -524,7 +526,7 @@ def test_a_raised_rebuild_number_is_always_in_the_sample(two_datasets, tmp_path)
     (before / "register" / "t.yaml").write_text("slug: t\nrebuild: 1\n", encoding="utf-8")
     (before / "register" / "u.yaml").write_text("slug: u\n", encoding="utf-8")
     assert bumped(before, [t, u]) == ["t"]
-    assert sample([t, u], s, "a", 0, 10**9, ["t"]) == ["t"]
+    assert sample([t, u], s, "a", 0, 10**9, forced=["t"]) == ["t"]
 
 
 def test_the_plan_names_the_strata_the_sample_leaves_out(two_datasets):
@@ -543,7 +545,9 @@ def test_the_manifest_is_compared_beyond_its_sizes_when_a_writer_changed(tmp_pat
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     real = cache_mod.writer_key
     monkeypatch.setattr(
-        cache_mod, "writer_key", lambda f, shape=False: "new" if f == "xlsx" else real(f, shape)
+        cache_mod,
+        "writer_key",
+        lambda f, shape=False: "new" if f == "xlsx" else real(f, shape=shape),
     )
     assert check(t, s, BuildCache(root), tmp_path / "v") == ([], 1, 0)
     monkeypatch.setattr(build, "version_url", lambda slug, v: f"https://elsewhere/{slug}/{v}/")

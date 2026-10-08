@@ -279,7 +279,7 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
 
 
 def cmd_gate(args) -> int:
-    return gate.main(Path(args.out), REGISTER, _absent(args.absent), not args.versions_only)
+    return gate.main(Path(args.out), REGISTER, _absent(args.absent), site=not args.versions_only)
 
 
 def _absent(path: str | None) -> list[str]:
@@ -385,8 +385,8 @@ def cmd_d1(args) -> int:
         loaded,
         Path(args.out),
         args.stamp,
-        loaded_fields,
-        loaded_orders,
+        loaded_fields=loaded_fields,
+        loaded_orders=loaded_orders,
     )
     if args.catalogue and Path(args.catalogue).exists():
         parts += catalogue_loads(
@@ -670,7 +670,7 @@ def cmd_verify(args) -> int:
             print(f"verify: {', '.join(mods)} changed", file=sys.stderr)
         else:
             budget = 0  # only the raised entries are checked
-        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap, raised)
+        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap, forced=raised)
         if mods:
             for line in verify.uncovered(datasets, store_dir, slugs):
                 print(f"verify: no dataset in the sample is built as {line}", file=sys.stderr)

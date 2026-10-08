@@ -36,10 +36,10 @@ def test_the_repository_carries_only_the_free_fonts_with_their_attribution():
 
 def test_cards_are_the_same_bytes_every_time(tmp_path):
     a = brand.dataset_card(
-        tmp_path / "a", "og/d/s.png", "A title", "Queensland · Agency", ["3 rows"], "A"
+        tmp_path / "a", "og/d/s.png", "A title", "Queensland · Agency", ["3 rows"], publisher="A"
     )
     b = brand.dataset_card(
-        tmp_path / "b", "og/d/s.png", "A title", "Queensland · Agency", ["3 rows"], "A"
+        tmp_path / "b", "og/d/s.png", "A title", "Queensland · Agency", ["3 rows"], publisher="A"
     )
     assert a.url == b.url
     assert (tmp_path / "a" / a.path).read_bytes() == (tmp_path / "b" / b.path).read_bytes()
@@ -49,7 +49,7 @@ def test_cards_are_the_same_bytes_every_time(tmp_path):
 def test_a_title_too_long_for_three_lines_is_cut_at_a_word(tmp_path):
     long = " ".join(["Consultancies and contractors engaged by the Commissioner"] * 6)
     c = brand.dataset_card(
-        tmp_path, "og/d/s.png", long, "Commonwealth · " + "Office " * 40, [], "O"
+        tmp_path, "og/d/s.png", long, "Commonwealth · " + "Office " * 40, [], publisher="O"
     )
     assert _png_size(tmp_path / c.path) == (brand.CARD_W, brand.CARD_H)
     _, lines = brand._fit(long, brand.BOLD, range(72, 47, -4), 1056, 3)
@@ -117,14 +117,14 @@ def test_a_card_is_drawn_once_and_again_only_when_its_words_change(tmp_path, mon
     real = brand._card
     monkeypatch.setattr(brand, "_card", lambda *a: drawn.append(a) or real(*a))
     cache = BuildCache(tmp_path / "cache")
-    args = ("og/d/s.png", "A title", "Queensland · Agency", ["3 rows"], "A")
-    first = brand.dataset_card(tmp_path / "a", *args, cache=cache)
-    again = brand.dataset_card(tmp_path / "b", *args, cache=cache)
+    args = ("og/d/s.png", "A title", "Queensland · Agency", ["3 rows"])
+    first = brand.dataset_card(tmp_path / "a", *args, publisher="A", cache=cache)
+    again = brand.dataset_card(tmp_path / "b", *args, publisher="A", cache=cache)
     assert len(drawn) == 1
     assert first.url == again.url
     assert (tmp_path / "a" / first.path).read_bytes() == (tmp_path / "b" / again.path).read_bytes()
     renamed = brand.dataset_card(
-        tmp_path / "c", "og/d/s.png", "A new title", *args[2:], cache=cache
+        tmp_path / "c", "og/d/s.png", "A new title", *args[2:], publisher="A", cache=cache
     )
     assert len(drawn) == 2
     assert renamed.url != first.url

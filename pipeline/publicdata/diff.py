@@ -52,9 +52,11 @@ def _differs(x: pa.ChunkedArray, y: pa.ChunkedArray) -> pa.ChunkedArray:
         return pc.or_(pc.is_valid(x), pc.is_valid(y))
     x, y = _flat(x), _flat(y)
     one_null = pc.xor(pc.is_null(x), pc.is_null(y))
-    ne = pc.fill_null(pc.not_equal(x, y), False)
+    ne = pc.fill_null(pc.not_equal(x, y), fill_value=False)
     if pa.types.is_floating(x.type):
-        ne = pc.and_(ne, pc.invert(pc.fill_null(pc.and_(pc.is_nan(x), pc.is_nan(y)), False)))
+        ne = pc.and_(
+            ne, pc.invert(pc.fill_null(pc.and_(pc.is_nan(x), pc.is_nan(y)), fill_value=False))
+        )
     return pc.or_(ne, one_null)
 
 

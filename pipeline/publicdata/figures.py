@@ -135,6 +135,7 @@ def series(
     kind: str,
     split: str | None,
     metric: str,
+    *,
     until: str,
     where: dict | None = None,
 ) -> dict:
@@ -515,6 +516,7 @@ def map_html(
     out: Path,
     gaps: dict[str, str] | None = None,
     box=None,
+    *,
     floor: float = 0.35,
     bare: bool = False,
 ) -> str:
@@ -646,7 +648,7 @@ def year_span(s: dict) -> str:
     return f"{_name(s, a)} to {_name(s, b)}" if a != b else _name(s, a)
 
 
-def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=None) -> dict:
+def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, *, within=None) -> dict:
     """Everything a dataset or version page draws for one version.
 
     That is the yearly chart, its caption, a sparkline for a card and a map when the rows have
@@ -690,7 +692,7 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=Non
     named |= {metric.split(".", 1)[1]} if metric != "count" else set()
     if yf and db.exists() and named <= _columns(db):
         conds = [*chart.get("where", ()), *([within] if within else [])]
-        s = series(db, yf[0], yf[1], split, metric, until, conds)
+        s = series(db, yf[0], yf[1], split, metric, until=until, where=conds)
         # One bar is no trend, so a table of one year draws no chart.
         if len(s["years"]) > 1:
             by = f" by {ds.field(split).display.lower()}" if split else ""
@@ -821,6 +823,7 @@ def sample_rows(
     fields: list[str],
     n: int = 3,
     where=None,
+    *,
     nulls: bool = False,
     order: tuple = (),
     spread: str = "",

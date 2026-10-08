@@ -128,7 +128,7 @@ def test_an_ended_cadence_cannot_zero_a_stored_entry(tmp_path):
         assert cost.versions_per_year(entry("t", cad), ["2024-01-01"], TODAY) == (1, "observed")
     stored(tmp_path, "old", "2024-01-01", size=1000)
     out = cost.project([entry("old", "closed")], tmp_path, {}, TODAY, frozenset({"old"}),
-                       frozenset({"old"}), prober=lambda d: cost.Sized(10 * GB), probing=True)[0]  # fmt: skip
+                       fresh=frozenset({"old"}), prober=lambda d: cost.Sized(10 * GB), probing=True)[0]  # fmt: skip
     assert out.per_year == 1
     assert out.gb_per_year == 140
     assert out.over_budget
@@ -262,7 +262,7 @@ def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
         return cost.Sized(sized[d.slug])
 
     out = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"probed", "new", "moved"}),
-                       frozenset({"moved"}), prober=prober, probing=True)  # fmt: skip
+                       fresh=frozenset({"moved"}), prober=prober, probing=True)  # fmt: skip
     p = {x.slug: x for x in out}
     assert (p["served"].bytes_per_version, p["served"].basis) == (3 * GB, "measured")
     assert (p["stored"].bytes_per_version, p["stored"].basis) == (14 * GB, "estimate")
@@ -310,11 +310,11 @@ def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
     stored(tmp_path, "crime", "2026-10-01", size=GB // 10)
     sizes = cost.catalogue_sizes(catalog(crime={"parquet": 2 * GB}))
     ds = [entry("crime", "quarterly")]
-    small = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), frozenset({"crime"}),
+    small = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), fresh=frozenset({"crime"}),
                          prober=lambda d: cost.Sized(GB // 100), probing=True)[0]  # fmt: skip
     assert (small.bytes_per_version, small.basis) == (2 * GB + GB // 10, "measured")
     assert small.over_budget
-    big = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), frozenset({"crime"}),
+    big = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), fresh=frozenset({"crime"}),
                        prober=lambda d: cost.Sized(GB), probing=True)[0]  # fmt: skip
     assert (big.bytes_per_version, big.basis) == (14 * GB, "estimate")
 
@@ -323,7 +323,7 @@ def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
         raise cost.Unsized(msg)
 
     # A moved source the probe cannot size stays unknown and fails closed.
-    lost = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), frozenset({"crime"}),
+    lost = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), fresh=frozenset({"crime"}),
                         prober=lost_host, probing=True)[0]  # fmt: skip
     assert lost.basis == "unknown"
     assert lost.over_budget
@@ -642,7 +642,7 @@ def test_the_cost_module_stays_out_of_the_build_cache_key():
 class Host:
     """Serves one file by HEAD and byte range, as urlopen would, counting requests."""
 
-    def __init__(self, body: bytes, ranges: bool = True, drops: int = 0):
+    def __init__(self, body: bytes, *, ranges: bool = True, drops: int = 0):
         self.body, self.ranges, self.drops, self.calls = body, ranges, drops, 0
 
     def __call__(self, req, timeout):
@@ -824,7 +824,7 @@ def test_live_rows_reads_the_newest_version_and_skips_failures(monkeypatch, no_s
     assert cost.live_rows(["a", "b"]) == {"a": 7}
 
 
-def _api(labels=("cost-approved",), events=(), perms=None, runs=(), author="alice", head="h2"):
+def _api(labels=("cost-approved",), events=(), perms=None, runs=(), author="alice", *, head="h2"):
     perms = perms or {"maint": "maintain", "alice": "admin", "reader": "read"}
 
     def get(path):

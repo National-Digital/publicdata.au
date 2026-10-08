@@ -142,7 +142,7 @@ def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions():
         fields = [Field(n, n) for n in ("id", "region", "n", "x", "day", "ok")]
         ds = make_dataset(fields, key=key)
         kt = rng.choice(["integer", "string"])
-        ta = _random_table(rng, kt, False, False, rng.randint(0, 40))
+        ta = _random_table(rng, kt, extra=False, retype=False, rows=rng.randint(0, 40))
         tb = _random_table(
             rng,
             kt if trial % 7 else ("string" if kt == "integer" else "integer"),

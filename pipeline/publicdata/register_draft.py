@@ -140,15 +140,15 @@ def _get(s: requests.Session, url: str, cap: int) -> tuple[bytes, bool]:
     return buf.getvalue(), False
 
 
-def sample_table(data: bytes, kind: str, cut: bool, sheet: str = "", header_row: int = 1):
+def sample_table(data: bytes, kind: str, *, cut: bool, sheet: str = "", header_row: int = 1):
     try:
-        return _sample_table(data, kind, cut, sheet, header_row)
+        return _sample_table(data, kind, cut=cut, sheet=sheet, header_row=header_row)
     except UNFIT as e:
         msg = f"the file could not be read as {kind.upper()}: {e}"
         raise DraftError(msg) from e
 
 
-def _sample_table(data: bytes, kind: str, cut: bool, sheet: str, header_row: int):
+def _sample_table(data: bytes, kind: str, *, cut: bool, sheet: str, header_row: int):
     if kind in ("xlsx", "xls"):
         if cut:
             msg = "the workbook is larger than a draft reads; draft it by hand"
@@ -200,6 +200,7 @@ def draft(
     session: requests.Session | None = None,
     resource: str = "",
     slug: str = "",
+    *,
     sheet: str = "",
     header_row: int = 1,
 ) -> tuple[str, dict, list[str]]:
@@ -236,7 +237,7 @@ def draft(
         )
     kind = TABULAR.get((res.get("format") or "").upper(), "csv")
     data, cut = _get(s, res["url"], WORKBOOK_BYTES if kind in ("xlsx", "xls") else SAMPLE_BYTES)
-    raw, enc = sample_table(data, kind, cut, sheet, header_row)
+    raw, enc = sample_table(data, kind, cut=cut, sheet=sheet, header_row=header_row)
     if cut:
         notes.append(
             f"types were inferred from the first {raw.num_rows:,} rows; the build types every row and stops on one that does not fit"

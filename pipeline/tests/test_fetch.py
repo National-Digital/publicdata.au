@@ -265,7 +265,7 @@ class _Session:
     def __init__(self, table):
         self.table, self.calls, self.headers = table, [], {}
 
-    def get(self, url, params=None, timeout=None, allow_redirects=True):
+    def get(self, url, params=None, timeout=None, *, allow_redirects=True):
         self.calls.append((url, params or {}))
         for key, fn in self.table.items():
             if url.startswith(key):
@@ -503,11 +503,11 @@ def test_ala_stops_when_a_provider_loses_open_rows_but_not_rows(tmp_path):
     # The provider still has four rows, but the licence filter now finds three.
 
     class Narrow(_Session):
-        def get(self, url, params=None, timeout=None, allow_redirects=True):
+        def get(self, url, params=None, timeout=None, *, allow_redirects=True):
             fqs = (params or {}).get("fq") or []
             if params.get("pageSize") == 0 and any(f.startswith("license:") for f in fqs):
                 return _Resp({"totalRecords": 3})
-            return super().get(url, params, timeout, allow_redirects)
+            return super().get(url, params, timeout, allow_redirects=allow_redirects)
 
     s = _ala_session(rows)
     with pytest.raises(LicenceDrift, match="licence has changed"):

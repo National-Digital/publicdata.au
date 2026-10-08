@@ -26,7 +26,7 @@ def no_waiting(monkeypatch):
 
 def test_literals_quote_text_and_keep_numbers():
     assert d1.literal(None) == "NULL"
-    assert d1.literal(True) == "1"
+    assert d1.literal(True) == "1"  # noqa: FBT003 - the value written
     assert d1.literal(3) == "3"
     assert d1.literal("O'Connor") == "'O''Connor'"
     assert d1.literal(float("nan")) == "NULL"
@@ -466,11 +466,15 @@ def test_a_loaded_version_whose_fields_changed_is_loaded_again(tmp_path):
     loaded = {"x-y": ["2026-01-02"]}
     same = json.dumps(d1.built_fields(ds, v / "data.parquet"))
     assert (
-        d1.write_loads([root], [ds], loaded, tmp_path / "a", "", {("x-y", "2026-01-02"): same})
+        d1.write_loads(
+            [root], [ds], loaded, tmp_path / "a", "", loaded_fields={("x-y", "2026-01-02"): same}
+        )
         == []
     )
     old = json.dumps([{"name": "a", "type": "integer"}])
-    parts = d1.write_loads([root], [ds], loaded, tmp_path / "b", "", {("x-y", "2026-01-02"): old})
+    parts = d1.write_loads(
+        [root], [ds], loaded, tmp_path / "b", "", loaded_fields={("x-y", "2026-01-02"): old}
+    )
     assert [p.name for p in parts] == ["x-y@2026-01-02.part001.sql", "x-y@2026-01-02.part002.sql"]
     # A registry read without fields, as before deploys asked for them, reloads nothing.
     assert d1.write_loads([root], [ds], loaded, tmp_path / "c") == []
@@ -483,7 +487,7 @@ def test_a_catalogue_row_larger_than_d1_holds_skips_the_index_without_failing(tm
     assert d1.catalogue_loads(path, [], tmp_path / "out") == []
 
 
-def _write_job(folder, slug, version, rows, index=("a",), keep=d1.KEEP):
+def _write_job(folder, slug, version, rows, index=("a",), *, keep=d1.KEEP):
     """A load of `rows` one-column rows.
 
     The table's creation is in part 1, then a row per part, then the part that indexes and
@@ -502,13 +506,13 @@ def _write_job(folder, slug, version, rows, index=("a",), keep=d1.KEEP):
                 index,
                 [("a", "INTEGER")],
                 {"attribution": "x"},
-                [{"name": "a", "type": "integer"}],
-                iter([(i,) for i in range(rows)]),
-                tbl,
+                fields=[{"name": "a", "type": "integer"}],
+                rows=iter([(i,) for i in range(rows)]),
+                tbl=tbl,
             )
         )
         d1.PART_BYTES = len(stmts[0][1]) + len(stmts[1][1]) + 2
-        return d1._write_load(folder, slug, version, tbl, stmts, "run", keep)
+        return d1._write_load(folder, slug, version, tbl, stmts, stamp="run", keep=keep)
     finally:
         d1.PART_BYTES, d1.MAX_VALUES = saved
 

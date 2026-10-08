@@ -543,7 +543,11 @@ class Client:
 
         version = _date(version) if version else self.latest(slug)
         url = self.file_url(slug, "duckdb", version)
-        path = self._fetch(slug, "duckdb", version, cache=True)[0] if self._caching(cache) else None
+        path = (
+            self._fetch(slug, "duckdb", version, cache=True)[0]
+            if self._caching(cache=cache)
+            else None
+        )
         name = _ident(name or _slug(slug).replace("-", "_"))
         con = duckdb.connect()
         src = str(path) if path else url
@@ -586,7 +590,7 @@ class Client:
         connection.
         """
         version = _date(version) if version else self.latest(slug)
-        key = (_slug(slug), version, self._caching(cache))
+        key = (_slug(slug), version, self._caching(cache=cache))
         con = self._relations.get(key)
         if con is None:
             con = self.connect(slug, version, cache=cache)
@@ -787,7 +791,7 @@ class Client:
         or with the cache on it is the kept file in `cache_dir()`. `table` saves one table of a
         database, as Parquet. Files have no rate limit.
         """
-        if self._caching(cache):
+        if self._caching(cache=cache):
             kept = self._fetch(slug, format, version, table, cache=True)[0]
             if path is None:
                 out = kept
@@ -828,7 +832,7 @@ class Client:
                 raise ImportError(msg) from None
             return self._read_csv(slug, version, cache, columns)
         with tempfile.TemporaryDirectory() as d:
-            p, _ = self._fetch(slug, "parquet", version, table, cache, Path(d))
+            p, _ = self._fetch(slug, "parquet", version, table, cache, tmp=Path(d))
             tbl = pq.read_table(p, columns=list(columns) if columns else None)
         header = (tbl.schema.metadata or {}).get(b"publicdata")
         df = tbl.to_pandas()
@@ -846,7 +850,7 @@ class Client:
                 msg = f"unknown fields: {', '.join(unknown)}"
                 raise ValueError(msg)
         with tempfile.TemporaryDirectory() as d:
-            p, got = self._fetch(slug, "csv.gz", version, None, cache, Path(d))
+            p, got = self._fetch(slug, "csv.gz", version, None, cache, tmp=Path(d))
             # Every column as text, then typed as the Parquet path types it.
             df = pd.read_csv(
                 p,
@@ -893,7 +897,7 @@ class Client:
 
         with tempfile.TemporaryDirectory() as d:
             try:
-                p, _ = self._fetch(slug, "gpkg", version, None, cache, Path(d))
+                p, _ = self._fetch(slug, "gpkg", version, None, cache, tmp=Path(d))
             except PublicDataError as err:
                 if err.status == HTTPStatus.NOT_FOUND:
                     raise PublicDataError(
@@ -1181,15 +1185,17 @@ class Client:
             root = root / _date(version)
         return root
 
-    def _caching(self, cache: bool | None) -> bool:
+    def _caching(self, *, cache: bool | None) -> bool:
         return self.cache if cache is None else bool(cache)
 
-    def _fetch(self, slug, format, version=None, table=None, cache=None, tmp: Path | None = None):
+    def _fetch(
+        self, slug, format, version=None, table=None, cache=None, *, tmp: Path | None = None
+    ):
         """One version's file: the kept copy when caching, else a download into `tmp`."""
         if format not in FORMATS:
             msg = f"format must be one of {', '.join(FORMATS)}"
             raise ValueError(msg)
-        if not self._caching(cache):
+        if not self._caching(cache=cache):
             name = f"tables-{table}.parquet" if table else f"data.{format}"
             return self._save(slug, format, version, tmp / name, table)
         version = _date(version) if version else self.latest(slug)

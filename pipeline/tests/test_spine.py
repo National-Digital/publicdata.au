@@ -98,7 +98,7 @@ def test_shapes_get_geoparquet_and_vector_tiles_and_points_get_geoparquet(monkey
     assert "pmtiles" in formats_for(10, "polygon")
     assert "geo.parquet" not in formats_for(10, "polygon")
     assert "pmtiles" not in formats_for(10, "point")
-    assert "geo.parquet" in formats_for(10, True)
+    assert "geo.parquet" in formats_for(10, geometry=True)
     assert not {"geojson", "gpkg", "geo.parquet"} & set(formats_for(10, ""))
 
 

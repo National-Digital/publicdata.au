@@ -126,24 +126,33 @@ def version_sql(
     version: str,
     index_fields: tuple[str, ...],
     tbl: str | None = None,
+    *,
     fts: tuple[str, ...] = (),
 ):
     """Yields the statements that create and fill one table from a SQLite file.
 
     The file is shaped as a version's data.sqlite, as the catalogue and served indexes are.
     """
-    for _, stmt, _ in _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl, fts):
+    for _, stmt, _ in _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl, fts=fts):
         yield stmt
 
 
-def _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl=None, fts=()):
+def _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl=None, *, fts=()):
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         cols = [(c[1], c[2]) for c in src.execute("PRAGMA table_info(records)").fetchall()]
         header = dict(src.execute("SELECT key, value FROM publicdata").fetchall())
         rows = src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
         yield from _table_sql(
-            slug, version, index_fields, cols, header, _fields(src), rows, tbl, fts
+            slug,
+            version,
+            index_fields,
+            cols,
+            header,
+            fields=_fields(src),
+            rows=rows,
+            tbl=tbl,
+            fts=fts,
         )
     finally:
         src.close()
@@ -171,7 +180,14 @@ def _parquet_stmts(parquet, ds, version, index_fields, tbl=None):
         src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
         rows = (r for batch in iter(lambda: src.fetchmany(10_000), []) for r in batch)
         yield from _table_sql(
-            ds.slug, version, index_fields, cols, header, built_fields(ds, parquet), rows, tbl
+            ds.slug,
+            version,
+            index_fields,
+            cols,
+            header,
+            fields=built_fields(ds, parquet),
+            rows=rows,
+            tbl=tbl,
         )
 
 
@@ -186,7 +202,7 @@ def parquet_columns(parquet: Path, ds) -> list[tuple[str, str]]:
     return cols + ([("suppressed", "TEXT")] if "suppressed" in have else [])
 
 
-def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None, fts=()):
+def _table_sql(slug, version, index_fields, cols, header, *, fields, rows, tbl=None, fts=()):
     """Yields (kind, statement, rows it inserts).
 
     Kinds "create", "insert" and "update" fill the table; "index", "fts" and "register" finish it
@@ -216,7 +232,7 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
             if batch:
                 yield "insert", head + ",".join(batch) + ";", len(batch)
                 batch, size = [], len(head.encode())
-            yield from _wide_row(tbl, head, names, row, n, wide)
+            yield from _wide_row(tbl, head, names, row, n, wide=wide)
             continue
         if batch and (size + width + 2 > MAX_STATEMENT or len(batch) >= max_rows):
             yield "insert", head + ",".join(batch) + ";", len(batch)
@@ -309,7 +325,7 @@ def _raw_size(v) -> int:
     return 0
 
 
-def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict[int, int]):
+def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, *, wide: dict[int, int]):
     """A row too long for one statement, inserted in pieces.
 
     It goes in with its longest text and blob values empty, and each of those is then appended a
@@ -436,6 +452,7 @@ def write_loads(
     loaded: dict[str, list[str]],
     out: Path,
     stamp: str = "",
+    *,
     loaded_fields: dict[tuple[str, str], str] | None = None,
     loaded_orders: dict[tuple[str, str], str] | None = None,
 ) -> list[Path]:
@@ -489,11 +506,13 @@ def write_loads(
             f"{literal(sig)} WHERE EXISTS (SELECT 1 FROM _versions WHERE slug = "
             f"{literal(ds.slug)} AND version = {literal(version)} AND tbl = {literal(tbl)});"
         )
-        written += _write_load(out, ds.slug, version, tbl, stmts, stamp, KEEP, after=[order])
+        written += _write_load(
+            out, ds.slug, version, tbl, stmts, stamp=stamp, keep=KEEP, after=[order]
+        )
     return written
 
 
-def _write_load(out, slug, version, tbl, stmts, stamp, keep, fts=False, after=()) -> list[Path]:
+def _write_load(out, slug, version, tbl, stmts, *, stamp, keep, fts=False, after=()) -> list[Path]:
     """Writes one load's parts and its manifest.
 
     Every part but the last only adds rows, and `cum` records the rows the table holds after each,
@@ -624,13 +643,13 @@ def catalogue_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str 
                 version,
                 ("id", "portal", "host", "name", "url", "vote"),
                 tbl,
-                ("title", "summary", "publisher"),
+                fts=("title", "summary", "publisher"),
             )
         )
     except TooWide as e:
         print(f"d1: {CATALOGUE}@{version} not loaded: {e}")  # noqa: T201 - the deploy log
         return []
-    return _write_load(out, CATALOGUE, version, tbl, stmts, stamp, 1, fts=True)
+    return _write_load(out, CATALOGUE, version, tbl, stmts, stamp=stamp, keep=1, fts=True)
 
 
 # The datasets served here, for search_datasets: one small table with a full-text index, kept in
@@ -695,13 +714,13 @@ def served_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str = "
     try:
         tbl = load_table(SERVED, version, _sqlite_digest(tmp))
         text = ("title", "summary", "publisher", "keywords", "fields")
-        stmts = list(_sqlite_stmts(tmp, SERVED, version, ("slug",), tbl, text))
+        stmts = list(_sqlite_stmts(tmp, SERVED, version, ("slug",), tbl, fts=text))
     except TooWide as e:
         print(f"d1: {SERVED}@{version} not loaded: {e}")  # noqa: T201 - the deploy log
         return []
     finally:
         tmp.unlink()
-    return _write_load(out, SERVED, version, tbl, stmts, stamp, 1, fts=True)
+    return _write_load(out, SERVED, version, tbl, stmts, stamp=stamp, keep=1, fts=True)
 
 
 class Wrangler:
@@ -917,7 +936,7 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
     return take, wait
 
 
-def _upsert(rows: list[tuple], since: bool = False) -> str:
+def _upsert(rows: list[tuple], *, since: bool = False) -> str:
     return (
         "INSERT INTO _loads (slug, version, tbl, part, rows, attempts, error, since, tried) VALUES "
         + ",".join("(" + ", ".join(literal(v) for v in r) + ")" for r in rows)
@@ -1148,7 +1167,7 @@ def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> N
             log(f"d1 load: {j.key} is loaded; dropping what it replaced reported an error")
 
 
-def _record_failure(db, j: Job, done: int, why: str, now: str, log) -> None:
+def _record_failure(db, j: Job, done: int, why: str, now: str, *, log) -> None:
     j.attempts += 1
     rows = j.cum[done - 1] if done else 0
     try:
@@ -1164,7 +1183,9 @@ def _record_failure(db, j: Job, done: int, why: str, now: str, log) -> None:
         log(f"d1 load: {j.key} failure could not be recorded: {e}")
 
 
-def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, budget: _Budget, log) -> None:
+def _run(
+    db, j: Job, reg, served: set[str], folder: Path, *, now: str, budget: _Budget, log
+) -> None:
     try:
         if j.tbl in served:
             # Registered by a deploy that could not confirm it; only the finish part runs again.
@@ -1185,19 +1206,19 @@ def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, budget: _Bud
         return
     except _Failed as e:
         log(f"d1 load: {j.key} failed: {e}")
-        _record_failure(db, j, e.done, str(e), now, log)
+        _record_failure(db, j, e.done, str(e), now, log=log)
         j.outcome, j.note = "failed", str(e)
         return
     except Unknown as e:
         # Counted as a failure with no progress, so a check D1 never answers cannot reload a
         # version on every deploy. Nothing is unregistered: a registered version stays served.
         log(f"d1 load: {j.key} not checked, D1 did not answer: {e}")
-        _record_failure(db, j, 0, f"unchecked: {e}", now, log)
+        _record_failure(db, j, 0, f"unchecked: {e}", now, log=log)
         j.outcome, j.note = "unchecked", str(e)[:300]
         return
     except (RuntimeError, OSError, ValueError, KeyError, IndexError) as e:
         log(f"d1 load: {j.key} failed: {e}")
-        _record_failure(db, j, 0, str(e), now, log)
+        _record_failure(db, j, 0, str(e), now, log=log)
         j.outcome, j.note = "failed", str(e)[:300]
         return
     j.outcome = "resumed" if j.start else "loaded"
@@ -1221,7 +1242,7 @@ def _stale(j: Job, now: str) -> bool:
 
 
 def _summary(
-    path: Path | None, jobs: list[Job], budget: int, log, spent: int = 0, now: str = ""
+    path: Path | None, jobs: list[Job], budget: int, log, spent: int = 0, *, now: str = ""
 ) -> None:
     order = {"loaded": 0, "resumed": 0, "failed": 1, "unchecked": 2, "deferred": 3, "skipped": 4}
     jobs = sorted(jobs, key=lambda j: (order.get(j.outcome, 5), j.key))
@@ -1289,6 +1310,7 @@ def load(
     log=print,
     workers: int = WORKERS,
     budget: int = BUDGET,
+    *,
     retry: set[str] | None = None,
     summary: Path | None = None,
     now: str | None = None,
@@ -1319,7 +1341,7 @@ def load(
     )
 
     def one(j: Job) -> None:
-        _run(db, j, reg, served, folder, now, spent, log)
+        _run(db, j, reg, served, folder, now=now, budget=spent, log=log)
 
     if workers <= 1:
         for j in take:
@@ -1327,5 +1349,5 @@ def load(
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(one, take))
-    _summary(summary, jobs, budget, log, spent.spent, now)
+    _summary(summary, jobs, budget, log, spent.spent, now=now)
     return sum(j.outcome == "failed" for j in jobs)

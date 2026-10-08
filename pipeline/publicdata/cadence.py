@@ -42,7 +42,7 @@ def _ended(t: str, today: dt.date) -> bool:
     return (int(m[2]), month) < (today.year, today.month)
 
 
-def per_year(text: str, feed: bool = False, today: dt.date | None = None) -> float | None:
+def per_year(text: str, *, feed: bool = False, today: dt.date | None = None) -> float | None:
     """The rate the cadence names, or None when it names none ("irregular", "as required")."""
     t = text.strip().lower()
     if _ended(t, today or dt.date.today()):  # noqa: DTZ011 - the runner's day

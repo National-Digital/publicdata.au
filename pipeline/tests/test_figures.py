@@ -46,12 +46,14 @@ def test_a_part_year_is_left_out_and_named(tmp_path):
             (2025, "Fatal", 153.0, -27.5),
         ],
     )
-    s = figures.series(db, "crash_year", "integer", "severity", "count", "2025-06-30")
+    s = figures.series(db, "crash_year", "integer", "severity", "count", until="2025-06-30")
     assert s["years"] == [2023, 2024]
     assert s["partial"] == [2025]
     assert s["values"][2024] == {"Fatal": 1, "Minor": 1}
     # A file that runs to the last day of the year keeps that year.
-    assert figures.series(db, "crash_year", "integer", None, "count", "2025-12-31")["years"] == [
+    assert figures.series(db, "crash_year", "integer", None, "count", until="2025-12-31")[
+        "years"
+    ] == [
         2023,
         2024,
         2025,
@@ -206,7 +208,9 @@ def test_the_chart_condition_keeps_to_the_rows_it_names_and_says_so(tmp_path):
         ],
     )
     where = {"field": "severity", "op": "!=", "value": "Property damage only"}
-    s = figures.series(db, "crash_year", "integer", "severity", "count", "2024-12-31", where)
+    s = figures.series(
+        db, "crash_year", "integer", "severity", "count", until="2024-12-31", where=where
+    )
     assert s["values"] == {2023: {"Fatal": 1}, 2024: {"Fatal": 1}}
     assert s["categories"] == ["Fatal"]
     ds = _ds()

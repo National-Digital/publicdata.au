@@ -463,7 +463,7 @@ def _copy(path, lay):
     return path
 
 
-def _held(tmp_path, lay, marked=True):
+def _held(tmp_path, lay, *, marked=True):
     """A bucket holding the version's dated file and its query copy under lay."""
     fake = Dist()
     for key, p in (

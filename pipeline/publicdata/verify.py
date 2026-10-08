@@ -186,6 +186,7 @@ def sample(
     seed: str,
     budget: int = BUDGET,
     cap: int = CAP,
+    *,
     forced: list[str] | tuple[str, ...] = (),
 ) -> list[str]:
     """The datasets the check builds, while the budget lasts.
@@ -253,7 +254,7 @@ def _plain(v):
     return json.loads(json.dumps(v, ensure_ascii=False))
 
 
-def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, rels: list[str]):
+def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, *, rels: list[str]):
     """The files a deploy grew into a reused version, made again with the code as it stands.
 
     The deploy grew them from the Parquet the site serves, and they are made again the same way,
@@ -284,11 +285,11 @@ def _unmeasured(p: Path) -> dict:
 
 
 def _version(
-    ds: Dataset, meta: dict, vout, out: Path, entry: Path, cache: BuildCache, key: str
+    ds: Dataset, meta: dict, vout, out: Path, entry: Path, *, cache: BuildCache, key: str
 ) -> list[str]:
     """How a version built now differs from the cache entry a deploy would reuse for it."""
     vdir = out / "d" / ds.slug / "v" / vout.manifest.version
-    now = writer_keys(shape_layer(ds))
+    now = writer_keys(shape=shape_layer(ds))
     seen = meta.get("writers", {})
     want = set() if ds.kind == "database" else set(_want(ds, meta["rows"], meta.get("left_out")))
     # A format whose writer changed is written again into the reused version, so it is not
@@ -349,7 +350,7 @@ def _version(
         databases=ds.kind != "database",
     )
     if regrow:
-        again = _regrown(ds, vout.manifest, cache, key, out, sorted(regrow))
+        again = _regrown(ds, vout.manifest, cache, key, out, rels=sorted(regrow))
         if again is None:
             out_lines.append("the published Parquet its grown files were made from is gone")
         else:
@@ -394,7 +395,7 @@ def check(
             rebuilt += 1
             continue
         compared += 1
-        diffs = _version(ds, meta, v, out, cache.root / key, cache, key)
+        diffs = _version(ds, meta, v, out, cache.root / key, cache=cache, key=key)
         problems += [f"{where}: {d}" for d in diffs]
     pairs = list(zip(fresh.versions, keys, strict=True))
     for (a, ka), (b, kb) in itertools.pairwise(pairs):

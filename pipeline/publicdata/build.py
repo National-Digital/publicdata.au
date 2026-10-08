@@ -586,7 +586,7 @@ def pending(
     """
     if not ds.publishable:
         return 0
-    now = now or cache_mod.writer_keys(shape_layer(ds))
+    now = now or cache_mod.writer_keys(shape=shape_layer(ds))
     n = 0
     for m in store.manifests(store_dir, ds.slug):
         meta = cache.root / version_key(cache, ds, m, store_dir) / "meta.json"
@@ -619,7 +619,7 @@ def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
 
 
 def grow_cached(
-    ds: Dataset, m: store.Manifest, hit: dict, vdir: Path, cache: BuildCache, key: str
+    ds: Dataset, m: store.Manifest, hit: dict, vdir: Path, cache: BuildCache, *, key: str
 ) -> dict | None:
     """A cached table version brought up to the current writers.
 
@@ -631,7 +631,7 @@ def grow_cached(
     if ds.kind == "database":
         return hit
     want = _want(ds, hit["rows"], hit.get("left_out"))
-    now = cache_mod.writer_keys(shape_layer(ds))
+    now = cache_mod.writer_keys(shape=shape_layer(ds))
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
     stale = list(changed)
@@ -717,7 +717,13 @@ def grow_cached(
 
 
 def _cached_version(
-    ds: Dataset, m: store.Manifest, store_dir: Path, out: Path, cache: BuildCache | None, key: str
+    ds: Dataset,
+    m: store.Manifest,
+    store_dir: Path,
+    out: Path,
+    cache: BuildCache | None,
+    *,
+    key: str,
 ) -> tuple[Table | None, VersionOut]:
     """A version from the cache when its entry exists, else built from its source bytes.
 
@@ -728,7 +734,7 @@ def _cached_version(
     if cache is not None:
         hit = cache.get(key, vdir)
         if hit is not None:
-            hit = grow_cached(ds, m, hit, vdir, cache, key)
+            hit = grow_cached(ds, m, hit, vdir, cache, key=key)
         if hit is not None:
             return None, _from_cache(ds, m, hit, vdir)
     store.verify(store_dir, m)
@@ -739,7 +745,7 @@ def _cached_version(
     else:
         tbl, vout = build_version(ds, m, src.read_bytes(), out, store_dir)
     if cache is not None:
-        now = cache_mod.writer_keys(shape_layer(ds))
+        now = cache_mod.writer_keys(shape=shape_layer(ds))
         writers = (
             {}
             if ds.kind == "database"
@@ -875,7 +881,7 @@ def build_dataset(
     for m in ms[-newest:] if newest else ms:
         key = version_key(cache, ds, m, store_dir) if cache else ""
         keys.append(key)
-        tbl, vout = _cached_version(ds, m, store_dir, out, cache, key)
+        tbl, vout = _cached_version(ds, m, store_dir, out, cache, key=key)
         dout.versions.append(vout)
         if prev is not None:
             pm, ptbl, pkey = prev

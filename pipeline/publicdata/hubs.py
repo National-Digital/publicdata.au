@@ -123,6 +123,7 @@ def entry(
     versions: dict,
     schema: dict,
     manifest: dict,
+    *,
     queryable: bool = False,
     site: str = SITE,
     registered=None,
@@ -827,9 +828,9 @@ def read_site(
                     get(f"{base}versions.json"),
                     get(f"{base}v/{v}/schema.json"),
                     get(f"{base}v/{v}/manifest.json"),
-                    served(slug),
-                    site,
-                    register.get(slug),
+                    queryable=served(slug),
+                    site=site,
+                    registered=register.get(slug),
                 ),
             )
         except Refused as err:
@@ -1208,7 +1209,7 @@ class Kaggle:
             paths.append(work / f"data.{fmt}")
         return paths
 
-    def publish(self, e: Entry, work: Path, fetch: Callable, first: bool) -> str:
+    def publish(self, e: Entry, work: Path, fetch: Callable, *, first: bool) -> str:
         """Publishes a version, with every upload following the settings.
 
         Kaggle scores a dataset's page from its newest version, and attaches file and column
@@ -1464,6 +1465,7 @@ def run(
     fetch: Callable | None = None,
     work_root: Path | None = None,
     log: Callable = print,
+    *,
     refresh: bool = False,
     record: dict | None = None,
     on_record: Callable | None = None,
@@ -1487,7 +1489,7 @@ def run(
                 failures += 1
                 continue
             try:
-                _one(name, hub, slug, e, fetch, work_root, log, refresh)
+                _one(name, hub, slug, e, fetch, work_root=work_root, log=log, refresh=refresh)
             except Exception as err:  # noqa: BLE001
                 failures += 1
                 log(f"{name} {slug}: FAILED {type(err).__name__}: {err}")
@@ -1513,6 +1515,7 @@ def _one(
     slug: str,
     e: Entry,
     fetch: Callable,
+    *,
     work_root: Path | None,
     log: Callable,
     refresh: bool,

@@ -53,7 +53,7 @@ class Portal:
         return f"{self.api.removesuffix('/api/3/action')}/dataset/{name}"
 
 
-def _council(code, host, jur, kind, publisher, replaces=()):
+def _council(code, host, jur, kind, publisher, *, replaces=()):
     return Portal(code, host, f"https://{host}", jur, kind, publisher, tuple(replaces))
 
 
@@ -79,15 +79,15 @@ PORTALS = (
     Portal("abs", "data.api.abs.gov.au", "https://data.api.abs.gov.au/rest", "cth", "sdmx"),
     # Councils with a portal of their own. One that data.gov.au or its state portal already lists
     # in full is left to that copy.
-    _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", ["qld:brisbane-city-council"]),
-    _council("melb", "data.melbourne.vic.gov.au", "vic", "ods", "City of Melbourne", ["vic:city-of-melbourne", "gov:city-of-melbourne-open-data"]),
-    _council("casey", "data.casey.vic.gov.au", "vic", "ods", "City of Casey", ["vic:city-of-casey", "gov:city-of-casey"]),
-    _council("ballarat", "data.ballarat.vic.gov.au", "vic", "ods", "City of Ballarat", ["vic:city-of-ballarat", "gov:city-of-ballarat"]),
-    _council("geelong", "www.geelongdataexchange.com.au", "vic", "ods", "City of Greater Geelong", ["vic:city-of-greater-geelong", "gov:city-of-greater-geelong"]),
-    _council("corangamite", "data.corangamite.vic.gov.au", "vic", "ods", "Corangamite Shire Council", ["gov:corangamite-shire-council"]),
+    _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", replaces=["qld:brisbane-city-council"]),
+    _council("melb", "data.melbourne.vic.gov.au", "vic", "ods", "City of Melbourne", replaces=["vic:city-of-melbourne", "gov:city-of-melbourne-open-data"]),
+    _council("casey", "data.casey.vic.gov.au", "vic", "ods", "City of Casey", replaces=["vic:city-of-casey", "gov:city-of-casey"]),
+    _council("ballarat", "data.ballarat.vic.gov.au", "vic", "ods", "City of Ballarat", replaces=["vic:city-of-ballarat", "gov:city-of-ballarat"]),
+    _council("geelong", "www.geelongdataexchange.com.au", "vic", "ods", "City of Greater Geelong", replaces=["vic:city-of-greater-geelong", "gov:city-of-greater-geelong"]),
+    _council("corangamite", "data.corangamite.vic.gov.au", "vic", "ods", "Corangamite Shire Council", replaces=["gov:corangamite-shire-council"]),
     _council("hawkesbury", "data.hawkesbury.nsw.gov.au", "nsw", "ods", "Hawkesbury City Council"),
     _council("maitland", "data.maitland.nsw.gov.au", "nsw", "ods", "Maitland City Council"),
-    _council("lakemac", "data.lakemac.com.au", "nsw", "ods", "Lake Macquarie City Council", ["gov:lake-macquarie-city-council", "nsw:lakemac"]),
+    _council("lakemac", "data.lakemac.com.au", "nsw", "ods", "Lake Macquarie City Council", replaces=["gov:lake-macquarie-city-council", "nsw:lakemac"]),
     _council("camden", "data.camden.nsw.gov.au", "nsw", "ods", "Camden Council"),
     _council("liverpool", "data.liverpool.nsw.gov.au", "nsw", "ods", "Liverpool City Council"),
     _council("bmcc", "data.bmcc.nsw.gov.au", "nsw", "ods", "Blue Mountains City Council"),
@@ -97,15 +97,15 @@ PORTALS = (
     _council("fairfield", "data.fairfieldcity.nsw.gov.au", "nsw", "ods", "Fairfield City Council"),
     _council("bayside", "nsw-bayside.opendatasoft.com", "nsw", "ods", "Bayside Council"),
     _council("wollondilly", "data.wollondilly.nsw.gov.au", "nsw", "ods", "Wollondilly Shire Council"),
-    _council("darwin", "darwin.opendatasoft.com", "nt", "ods", "City of Darwin", ["nt:darwin-city-council"]),
+    _council("darwin", "darwin.opendatasoft.com", "nt", "ods", "City of Darwin", replaces=["nt:darwin-city-council"]),
     _council("sydney", "data.cityofsydney.nsw.gov.au", "nsw", "hub", "City of Sydney"),
-    _council("goldcoast", "data-goldcoast.opendata.arcgis.com", "qld", "hub", "City of Gold Coast", ["gov:city-of-gold-coast"]),
+    _council("goldcoast", "data-goldcoast.opendata.arcgis.com", "qld", "hub", "City of Gold Coast", replaces=["gov:city-of-gold-coast"]),
     _council("sunshine", "data.sunshinecoast.qld.gov.au", "qld", "hub", "Sunshine Coast Council"),
-    _council("townsville", "data-tsvcitycouncil.opendata.arcgis.com", "qld", "hub", "Townsville City Council", ["gov:townsville-city-council"]),
+    _council("townsville", "data-tsvcitycouncil.opendata.arcgis.com", "qld", "hub", "Townsville City Council", replaces=["gov:townsville-city-council"]),
     _council("tweed", "data-tweed.opendata.arcgis.com", "nsw", "hub", "Tweed Shire Council"),
     _council("wodonga", "cow-open-data-hub-cityofwodonga.hub.arcgis.com", "vic", "hub", "City of Wodonga"),
     _council("albany", "city-maps-and-data-albanywa.hub.arcgis.com", "wa", "hub", "City of Albany"),
-    _council("parramatta", "open-data-parracity.hub.arcgis.com", "nsw", "hub", "City of Parramatta", ["gov:city-of-parramatta"]),
+    _council("parramatta", "open-data-parracity.hub.arcgis.com", "nsw", "hub", "City of Parramatta", replaces=["gov:city-of-parramatta"]),
     _council("perth", "geohub-perth.opendata.arcgis.com", "wa", "hub", "City of Perth"),
     _council("latrobe", "geo-latrobecc.hub.arcgis.com", "vic", "hub", "Latrobe City Council"),
 )  # fmt: skip

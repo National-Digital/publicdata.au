@@ -188,7 +188,7 @@ def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple
     """
     if not ds.publishable:
         return 0.0, "not publishable"
-    declared = per_year(ds.source.cadence, ds.source.feed, today)
+    declared = per_year(ds.source.cadence, feed=ds.source.feed, today=today)
     if ds.source.feed:
         declared = max(declared or 0.0, float(FEED_MAX))
     if not versions:
@@ -448,6 +448,7 @@ def project(
     sizes: dict[str, dict[str, int]] | None,
     today: dt.date,
     changed: frozenset[str] = frozenset(),
+    *,
     fresh: frozenset[str] = frozenset(),
     prober=probe,
     probing: bool = False,
@@ -871,6 +872,7 @@ HEAD = (
 def report(
     projections: list[Projection],
     gated: set[str],
+    *,
     approved: bool,
     note: str = "",
     why: str = "",
@@ -951,6 +953,7 @@ def run(
     catalog_src: str,
     changed: set[str],
     today: dt.date,
+    *,
     approved: bool = False,
     probing: bool = False,
     fresh: set[str] = frozenset(),
@@ -986,7 +989,7 @@ def run(
         sizes,
         today,
         frozenset(changed),
-        frozenset(fresh),
+        fresh=frozenset(fresh),
         prober=prober,
         probing=probing,
         reshaped=reshaped,
@@ -996,7 +999,7 @@ def run(
     why = ""
     if over and not approved and approve is not None:
         approved, why = approve()
-    text, over = report(projections, changed, approved, note, why)
+    text, over = report(projections, changed, approved=approved, note=note, why=why)
     f = fleet(projections)
     print(
         f"cost: {f.gb_per_year:,.1f} GB a year projected over {len(projections)} entries; "

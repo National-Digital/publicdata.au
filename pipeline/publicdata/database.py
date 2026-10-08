@@ -99,7 +99,7 @@ def _expr(f: Field, dtype: str) -> str:
     return f"CAST({src} AS {dtype})"
 
 
-def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[str], tmp: Path):
+def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[str], *, tmp: Path):
     """Create the typed table and load each of its members in turn.
 
     Members are extracted one at a time so the disk holds one member's text, not a whole table's.
@@ -123,7 +123,7 @@ def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[
     return con.execute(f"SELECT count(*) FROM {_ident(t.name)}").fetchone()[0]
 
 
-def _write_parquet(con, t: TableSpec, header: dict, path: Path, profiled: bool) -> None:
+def _write_parquet(con, t: TableSpec, header: dict, path: Path, *, profiled: bool) -> None:
     """One table in the publisher's order.
 
     The table is read under the Parquet profile, a row group at a time, for a version fetched
@@ -270,7 +270,7 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
                 unknown = [h for h in header if h not in allow]
                 if unknown:
                     out.unknown_columns[t.name] = unknown
-                n = _load_table(con, z, ds, t, files, tmp)
+                n = _load_table(con, z, ds, t, files, tmp=tmp)
                 out.tables[t.name] = n
                 out.rows += n
                 duckdb_comment(con, t.name, None, t.description or t.source)
@@ -281,7 +281,7 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
                     t,
                     hdr(n, f"tables/{t.name}.parquet"),
                     vdir / "tables" / f"{t.name}.parquet",
-                    bool(m.parquet),
+                    profiled=bool(m.parquet),
                 )
             for v in ds.views:
                 con.execute(f"CREATE VIEW {_ident(v.name)} AS {v.sql.rstrip(';')}")

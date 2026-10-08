@@ -15,7 +15,7 @@ NODE = shutil.which("node")
 VENV_BIN = Path(sys.executable).parent
 
 
-def _run(args, cwd, path, check=False):
+def _run(args, cwd, path, *, check=False):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(PATH=os.pathsep.join(map(str, path)), HOME=str(cwd), GIT_CONFIG_NOSYSTEM="1")
     env["PYTEST_XDIST_AUTO_NUM_WORKERS"] = "1"

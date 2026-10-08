@@ -51,11 +51,11 @@ def _ds(**kw):
     return make_dataset(F, key=("id",), **kw)
 
 
-def _m(ds, csv=CSV, legacy=False, **kw):
+def _m(ds, csv=CSV, *, legacy=False, **kw):
     return make_manifest(csv, parquet={} if legacy else profile.layout(ds), **kw)
 
 
-def _build(tmp_path, ds, legacy=False):
+def _build(tmp_path, ds, *, legacy=False):
     m = _m(ds, legacy=legacy)
     _, vout = build_version(ds, m, CSV, tmp_path)
     return tmp_path / "d" / "t" / "v" / m.version, vout
@@ -352,10 +352,14 @@ def test_d1_loads_a_version_again_when_its_rows_were_taken_in_another_order(fixt
     src = fixture_site / "d" / slug / "v" / version / "data.parquet"
     fields = {(slug, version): json.dumps(d1.built_fields(ds, src))}
     loaded = {slug: [version]}
-    stale = d1.write_loads([fixture_site], [ds], loaded, tmp_path / "a", "", fields, {})
+    stale = d1.write_loads(
+        [fixture_site], [ds], loaded, tmp_path / "a", "", loaded_fields=fields, loaded_orders={}
+    )
     assert stale  # loaded before its rows were sorted
     same = {(slug, version): profile.signature(src)}
-    assert not d1.write_loads([fixture_site], [ds], loaded, tmp_path / "b", "", fields, same)
+    assert not d1.write_loads(
+        [fixture_site], [ds], loaded, tmp_path / "b", "", loaded_fields=fields, loaded_orders=same
+    )
     text = "".join(p.read_text() for p in stale)
     assert "INSERT OR REPLACE INTO _orders SELECT 'qld-road-crash-locations'" in text
 

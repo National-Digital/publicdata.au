@@ -180,6 +180,7 @@ def push(
     bucket: str,
     prefix: str = "",
     replace: tuple[str, ...] = (),
+    *,
     immutable: Callable[[str], bool] = lambda _key: True,
     expect: list[str] = (),
     include: Callable[[str], bool] = lambda _key: True,
@@ -238,7 +239,7 @@ def push(
     for p, key in zip(files, keys, strict=True):
         forced = key.startswith(replace or ("\0",))
         if (lay := layout_of(key)) is not None:
-            n += _push_query(s3, bucket, p, key, lay, etags)
+            n += _push_query(s3, bucket, p, key, lay, etags=etags)
             continue
         if key in existing and not forced and immutable(key):
             continue
@@ -273,7 +274,7 @@ def _built_to(p: Path, lay: dict | None) -> bool:
     return follows(pq.read_metadata(p), lay)
 
 
-def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, etags: dict[str, str]) -> int:
+def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, *, etags: dict[str, str]) -> int:
     """Upload a query copy unless R2's follows lay.
 
     The record is written after the upload, so it never names a layout the copy in R2 does not
@@ -375,7 +376,7 @@ def _missing(e) -> bool:
     return e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey")
 
 
-def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = None) -> int:
+def cache_pull(root: Path, *, meta_only: bool = False, entries: set[str] | None = None) -> int:
     """Copy the build cache down from R2 into root, each entry's meta.json last.
 
     An entry whose files did not all arrive is never taken for whole, and an entry deleted while
@@ -445,7 +446,7 @@ def _unused(s3) -> dict[str, str]:
     return json.loads(body)
 
 
-def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
+def cache_push(root: Path, *, prune: bool = False, now=None) -> tuple[int, int]:
     """Upload the entries under root that R2 lacks or holds in another form.
 
     Files go before each meta.json. With prune, R2's entries that root no longer holds are noted

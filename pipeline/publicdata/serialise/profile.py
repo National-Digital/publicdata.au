@@ -230,6 +230,7 @@ def write(
     path: Path,
     lay: dict,
     perm: pa.Array | None = None,
+    *,
     extra: dict[str, str] | None = None,
 ) -> None:
     """Write `t` as one profile file at path under layout `lay`.

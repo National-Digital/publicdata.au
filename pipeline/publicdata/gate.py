@@ -197,12 +197,12 @@ def examples(out: Path, datasets: dict) -> tuple[list[str], list[str]]:
     return report, errors
 
 
-def check(out: Path, register_dir: Path, absent: list[str] = (), site: bool = True) -> list[str]:
-    return checked(out, register_dir, absent, site)[0]
+def check(out: Path, register_dir: Path, absent: list[str] = (), *, site: bool = True) -> list[str]:
+    return checked(out, register_dir, absent, site=site)[0]
 
 
 def checked(
-    out: Path, register_dir: Path, absent: list[str] = (), site: bool = True
+    out: Path, register_dir: Path, absent: list[str] = (), *, site: bool = True
 ) -> tuple[list[str], list[str]]:
     """The gate's errors, and the list of every dataset page's first query.
 
@@ -407,8 +407,8 @@ def checked(
     return errors, report
 
 
-def main(out: Path, register_dir: Path, absent: list[str] = (), site: bool = True) -> int:
-    errors, report = checked(out, register_dir, absent, site)
+def main(out: Path, register_dir: Path, absent: list[str] = (), *, site: bool = True) -> int:
+    errors, report = checked(out, register_dir, absent, site=site)
     if site:
         picked = sum(1 for line in report if line.startswith("rules"))
         print(f"examples: {len(report)} dataset pages, {picked} picked by the rules")

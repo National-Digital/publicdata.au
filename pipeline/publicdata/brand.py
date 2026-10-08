@@ -247,6 +247,7 @@ def dataset_card(
     title: str,
     eyebrow: str,
     facts: list[str],
+    *,
     publisher: str,
     cache: BuildCache | None = None,
 ) -> Card:

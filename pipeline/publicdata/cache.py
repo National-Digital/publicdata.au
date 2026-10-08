@@ -217,7 +217,7 @@ def digest(p: Path) -> str:
     return h.hexdigest()
 
 
-def digests(root: Path, only=None, databases: bool = True) -> dict[str, str]:
+def digests(root: Path, only=None, *, databases: bool = True) -> dict[str, str]:
     """The SHA-256 of each file under root, or of those named in only.
 
     A DuckDB file's bytes differ from one write to the next, so it gets a digest of its tables,
@@ -241,7 +241,7 @@ def digests(root: Path, only=None, databases: bool = True) -> dict[str, str]:
     return out
 
 
-def writer_files(fmt: str, shape: bool | None = None) -> list[Path]:
+def writer_files(fmt: str, *, shape: bool | None = None) -> list[Path]:
     """The writer modules one format's file comes from.
 
     These are the modules its entry in WRITERS calls, those of the formats it derives its file
@@ -269,18 +269,18 @@ def writer_files(fmt: str, shape: bool | None = None) -> list[Path]:
     return sorted(seen)
 
 
-def writer_key(fmt: str, shape: bool = False) -> str:
+def writer_key(fmt: str, *, shape: bool = False) -> str:
     """What shapes one format's file beyond the rows: its writer modules and the libraries."""
     h = hashlib.sha256()
-    for p in writer_files(fmt, shape):
+    for p in writer_files(fmt, shape=shape):
         h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
     _runtime(h)
     return h.hexdigest()
 
 
-def writer_keys(shape: bool = False) -> dict[str, str]:
+def writer_keys(*, shape: bool = False) -> dict[str, str]:
     """Each format's writer key for a table, or for a shape layer when shape is True."""
-    return {fmt: writer_key(fmt, shape) for fmt in WRITER_MODULES}
+    return {fmt: writer_key(fmt, shape=shape) for fmt in WRITER_MODULES}
 
 
 def _link_or_copy(src: str, dst: str) -> None:

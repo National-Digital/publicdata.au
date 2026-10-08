@@ -346,7 +346,7 @@ def _changed(ds: Dataset, value, unit: int = 0) -> str:
 
 
 def _licence(
-    ds: Dataset, stated: str, normalised: str, title: str, url: str, read_from: str
+    ds: Dataset, stated: str, normalised: str, title: str, url: str, *, read_from: str
 ) -> dict:
     """The licence a portal states, keeping its own code and the id worked out from its words.
 
@@ -375,6 +375,7 @@ def _portal_version(
     s: requests.Session,
     url: str,
     changed: str,
+    *,
     filename: str,
     source: dict,
     licence: dict,
@@ -438,19 +439,19 @@ def socrata_view(ds: Dataset, store_dir: Path, session: requests.Session | None 
         s,
         f"{base}/api/views/{ds.source.package}/rows.csv?accessType=DOWNLOAD",
         _changed(ds, view.get("rowsUpdatedAt") or view.get("viewLastModified"), 1),
-        f"{ds.source.package}.csv",
-        {
+        filename=f"{ds.source.package}.csv",
+        source={
             "package": ds.source.package,
             "resource_name": view.get("name", ""),
             "rows_updated_at": view.get("rowsUpdatedAt"),
         },
-        _licence(
+        licence=_licence(
             ds,
             view.get("licenseId") or title,
             catalogue.licence_id(title),
             title,
             lic.get("termsLink", ""),
-            f"{base}/api/views/{ds.source.package}.json",
+            read_from=f"{base}/api/views/{ds.source.package}.json",
         ),
     )
 
@@ -467,19 +468,19 @@ def opendatasoft(ds: Dataset, store_dir: Path, session: requests.Session | None 
         s,
         f"{base}/exports/csv?delimiter=%2C&with_bom=false",
         _changed(ds, meta.get("data_processed") or meta.get("modified")),
-        f"{ds.source.package}.csv",
-        {
+        filename=f"{ds.source.package}.csv",
+        source={
             "package": ds.source.package,
             "resource_name": meta.get("title", ""),
             "data_processed": meta.get("data_processed"),
         },
-        _licence(
+        licence=_licence(
             ds,
             title,
             catalogue.cc_url(meta.get("license_url") or "") or catalogue.licence_id(title),
             title,
             meta.get("license_url") or "",
-            base,
+            read_from=base,
         ),
     )
 
@@ -507,20 +508,20 @@ def arcgis_hub(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         s,
         f"{base}/api/download/v1/items/{ds.source.package}/csv?layers={layer}",
         _changed(ds, changed, 1000),
-        f"{ds.source.package}_{layer}.csv",
-        {
+        filename=f"{ds.source.package}_{layer}.csv",
+        source={
             "package": ds.source.package,
             "resource": layer,
             "resource_name": props.get("title", ""),
             "service": props.get("url", ""),
         },
-        _licence(
+        licence=_licence(
             ds,
             props.get("license") or lic_id,
             lic_id,
             lic_title,
             "",
-            f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}",
+            read_from=f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}",
         ),
     )
 
@@ -540,7 +541,7 @@ def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | Non
         normalise_licence_id(stated, ds.source.portal),
         p.get("license_title", ""),
         p.get("license_url", ""),
-        f"{ds.source.portal.rstrip('/')}/api/3/action/package_show?id={p['name']}",
+        read_from=f"{ds.source.portal.rstrip('/')}/api/3/action/package_show?id={p['name']}",
     )
     layer = ds.source.url.rstrip("/")
     info = catalogue.get_json(s, layer, {"f": "pjson"})
@@ -721,7 +722,7 @@ def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
 ALA_MIN_SPAN = 0.0001
 
 
-def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: float, dim: int):
+def _ala_slices(s, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: float, dim: int):
     """Rows of a query too large for the API's paging, read in slices.
 
     The query is split by load time, then by latitude and longitude, then by year, until every
@@ -742,7 +743,7 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: floa
                 sub = [*fq, cond]
                 m = _ala_count(s, base, q, sub)
                 if m:
-                    yield from _ala_slices(s, base, q, sub, m, a, b, d)
+                    yield from _ala_slices(s, base, q, sub, m, lo=a, hi=b, dim=d)
             return
         mid = lo + (hi - lo) / 2
         fmt = lambda t: dt.datetime.fromtimestamp(t, dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
@@ -759,7 +760,14 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: floa
     else:
         if hi - lo <= ALA_MIN_SPAN:
             yield from _ala_slices(
-                s, base, q, fq, n, -180 if dim == 1 else 0, 180 if dim == 1 else 2200, dim + 1
+                s,
+                base,
+                q,
+                fq,
+                n,
+                lo=-180 if dim == 1 else 0,
+                hi=180 if dim == 1 else 2200,
+                dim=dim + 1,
             )
             return
         mid = (lo + hi) / 2
@@ -771,7 +779,7 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: floa
         sub = [*fq, cond]
         m = _ala_count(s, base, q, sub)
         if m:
-            yield from _ala_slices(s, base, q, sub, m, a, b, dim)
+            yield from _ala_slices(s, base, q, sub, m, lo=a, hi=b, dim=dim)
 
 
 def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
@@ -810,7 +818,7 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
             )
             raise LicenceDrift(msg)
         got = 0
-        for r in _ala_slices(s, base, ds.source.search, fq, n, 0, now, 0):
+        for r in _ala_slices(s, base, ds.source.search, fq, n, lo=0, hi=now, dim=0):
             key = r.get("uuid") or r.get("id")
             if key and key not in rows:
                 rows[key] = r
@@ -845,7 +853,7 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
         "CC-BY-4.0",
         "CC BY 4.0 and CC0, by provider",
         ds.licence.evidence,
-        f"{base}/occurrences/search",
+        read_from=f"{base}/occurrences/search",
     )
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
@@ -1376,7 +1384,7 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
         normalise_licence_id(stated),
         stated,
         meta.get("license", {}).get("url", ""),
-        f"{ds.source.url}?q=conceptrecid:{ds.source.package}",
+        read_from=f"{ds.source.url}?q=conceptrecid:{ds.source.package}",
     )
     rx = re.compile(ds.source.resource_match or ".")
     files = [f for f in rec.get("files") or [] if rx.search(f.get("key") or "")]
@@ -1433,6 +1441,7 @@ def _stack_rows(
     header_match: str,
     section_match: str = "",
     header_depth: int = 1,
+    *,
     group_match: str = "",
     footnote_marks: bool = False,
 ) -> tuple[list[str], list[list[str]]]:
@@ -1556,8 +1565,8 @@ def _stack(
             ds.source.header_match,
             ds.source.section_match,
             ds.source.header_depth,
-            ds.source.group_match,
-            ds.source.footnote_marks,
+            group_match=ds.source.group_match,
+            footnote_marks=ds.source.footnote_marks,
         )
         if named:
             label = f.get("name") or f["filename"]
@@ -1599,6 +1608,7 @@ def _stack_version(
     data: bytes,
     changed: str,
     source: dict,
+    *,
     licence: dict,
     notes: tuple[str, ...] = (),
 ):
@@ -1661,7 +1671,7 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         normalise_licence_id(lic_id, ds.source.portal),
         lic_title,
         lic_url,
-        f"{api}/package_search?q={urllib.parse.quote(ds.source.package)}",
+        read_from=f"{api}/package_search?q={urllib.parse.quote(ds.source.package)}",
     )
     rrx = re.compile(ds.source.resource_match) if ds.source.resource_match else None
     resources = []
@@ -1714,7 +1724,7 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         "rows_repeated": repeated,
         "newest_resource": changed,
     }
-    return _stack_version(ds, store_dir, data, changed, source, licence)
+    return _stack_version(ds, store_dir, data, changed, source, licence=licence)
 
 
 LINK_RE = re.compile(r"""<a\b[^>]*?href\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
@@ -1769,7 +1779,13 @@ def file_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
     }
     # No file states a change date, so the version is dated by the fetch, and its notes say so.
     return _stack_version(
-        ds, store_dir, data, changed or _now(), source, licence, () if changed else (FILE_NOTE,)
+        ds,
+        store_dir,
+        data,
+        changed or _now(),
+        source,
+        licence=licence,
+        notes=() if changed else (FILE_NOTE,),
     )
 
 

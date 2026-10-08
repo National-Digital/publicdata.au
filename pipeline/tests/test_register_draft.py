@@ -163,4 +163,4 @@ def test_a_workbook_without_the_named_sheet_is_a_draft_error():
     buf = io.BytesIO()
     wb.save(buf)
     with pytest.raises(rd.DraftError, match="could not be read as XLSX"):
-        rd.sample_table(buf.getvalue(), "xlsx", False, sheet="missing")
+        rd.sample_table(buf.getvalue(), "xlsx", cut=False, sheet="missing")
