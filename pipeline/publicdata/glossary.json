@@ -141,6 +141,7 @@
   "WA": "Western Australia",
   "WCAG": "Web Content Accessibility Guidelines, the international standard for accessible web content",
   "WFS": "Web Feature Service, a standard interface for fetching map features",
+  "WGS": "World Geodetic System, the coordinate frame GPS uses",
   "WGS84": "World Geodetic System 1984, the coordinate frame GPS uses",
   "WMS": "Web Map Service, a standard interface for fetching map images",
   "XLSX": "an Excel workbook",

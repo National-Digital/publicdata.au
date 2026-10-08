@@ -80,7 +80,7 @@ geometry:
   lon: longitude
   lat: latitude
   crs: EPSG:4326
-  crs_note: The publisher gives longitude and latitude in decimal degrees on the WGS84 datum (EPSG:4326). They
+  crs_note: The publisher gives longitude and latitude in decimal degrees on the WGS datum (EPSG:4326). They
     are published as given.
 row_label: Site hours
 fields:
