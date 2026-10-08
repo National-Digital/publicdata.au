@@ -5,6 +5,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: ci
     groups:
@@ -14,6 +16,8 @@ updates:
     directory: /pipeline
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: build
     groups:
@@ -23,6 +27,8 @@ updates:
     directory: /clients/python
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: build
     groups:
@@ -32,6 +38,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: build
     groups:

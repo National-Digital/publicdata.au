@@ -23,6 +23,7 @@ concurrency:
 
 jobs:
   harvest:
+    name: harvest
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
     # Some portals turn away cloud runners, so the harvest runs from the same Australian host as

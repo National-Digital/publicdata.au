@@ -66,6 +66,10 @@ jobs:
       && (contains(fromJSON('["synchronize", "reopened"]'), github.event.action)
       || (github.event.action == 'edited' && github.event.changes.base))
     runs-on: ubuntu-24.04
+    # A revoke is never cancelled, so one that has started always finishes.
+    concurrency:
+      group: cost-revoke-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
       pull-requests: write # takes the approval label off
     env:

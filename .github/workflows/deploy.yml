@@ -43,6 +43,7 @@ jobs:
   # from the cache they filled. A replace dispatch rebuilds every version, so every dataset is
   # planned.
   plan:
+    name: plan
     runs-on: ubuntu-24.04
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     # Side effects run only in the public repo, never in a fork or a private copy.
@@ -150,6 +151,7 @@ jobs:
   # history archive a deploy would reuse with its cache entry. A difference fails the deploy and
   # names the dataset whose rebuild number the change must raise.
   verify:
+    name: verify
     needs: plan
     if: ${{ needs.plan.result == 'success' && needs.plan.outputs.verify != '' }}
     runs-on: ubuntu-24.04
@@ -285,6 +287,7 @@ jobs:
           compression-level: 0
 
   deploy:
+    name: deploy
     needs: [plan, shard, verify]
     # A required check that is skipped counts as passed, so this runs and fails when the build did.
     # The plan skips itself for a fork's pull request, which builds from fixtures here instead.
@@ -501,6 +504,7 @@ jobs:
   # MCP Registry entry when what a client sees has changed. A separate job, so the write token never
   # meets the build. Every step tolerates a re-run or a concurrent deploy that got there first.
   release:
+    name: release
     needs: deploy
     # A deploy with no changed versions skips its shards; without !cancelled() that skip would
     # pass down and skip the release too.
