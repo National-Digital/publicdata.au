@@ -67,8 +67,16 @@ jobs:
       - uses: r-lib/actions/setup-r-dependencies@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
         with:
           working-directory: clients/r
-          extra-packages: any::rcmdcheck, any::roxygen2
+          extra-packages: any::rcmdcheck, any::roxygen2, any::lintr, any::cyclocomp, any::styler, local::.
           needs: check
+      # lintr reads the installed package to resolve its internal functions; .lintr says which
+      # linters are off and why.
+      - name: lintr finds nothing
+        working-directory: clients/r
+        run: Rscript -e 'lints <- lintr::lint_package(); print(lints); if (length(lints)) quit(status = 1L)'
+      - name: styler would change no file
+        working-directory: clients/r
+        run: Rscript -e 'styler::style_pkg(dry = "fail")'
       # The man pages and NAMESPACE are generated from the roxygen comments and committed.
       - name: The generated docs are current
         working-directory: clients/r
