@@ -1,8 +1,14 @@
+import datetime as dt
+import io
+import json
+import zipfile
+from pathlib import Path
+
 import pyarrow as pa
 import pytest
 
-from publicdata.normalise import NormaliseError, normalise
-from publicdata.register import Field
+from publicdata.normalise import NormaliseError, normalise, read_csv, read_xlsx, xls_to_xlsx
+from publicdata.register import LAT_SOURCE, LON_SOURCE, Field, Source
 
 from .conftest import make_dataset, make_manifest
 
@@ -60,10 +66,6 @@ def test_cp1252_source_becomes_utf8():
 
 
 def test_geojson_source_becomes_rows_with_the_point_as_two_fields():
-    import json
-
-    from publicdata.register import LAT_SOURCE, LON_SOURCE
-
     fc = {
         "type": "FeatureCollection",
         "features": [
@@ -103,11 +105,6 @@ def test_geojson_source_becomes_rows_with_the_point_as_two_fields():
 
 
 def test_zip_source_reads_the_named_member():
-    import io
-    import zipfile
-
-    from publicdata.register import Source
-
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("License.txt", "CC BY")
@@ -127,8 +124,6 @@ def test_zip_source_reads_the_named_member():
 
 
 def test_tab_delimited_source_reads_by_the_declared_delimiter():
-    from publicdata.register import Source
-
     data = b"\xef\xbb\xbfId\tName, Ltd\tWhen\r\n1\t  Alpha, Beta Ltd\t03/02/2024\r\n"
     fields = [
         Field("id", "Id", "integer"),
@@ -147,8 +142,6 @@ def test_tab_delimited_source_reads_by_the_declared_delimiter():
 
 
 def test_a_csv_with_a_preamble_starts_at_the_header_row_and_drops_separator_only_rows():
-    from publicdata.register import Source
-
     data = (
         b"\xef\xbb\xbfTABLE A2\nTitle,Rate,Other\n\n\nSeries ID,ARBAX,ARBAY\n23-Jan-1990,17.00 to 17.50\n"
         b"15-Feb-1990,16.50,1\n,,\n,,\n"
@@ -208,19 +201,12 @@ def test_a_column_the_register_omits_on_purpose_is_recorded_and_not_held():
 
 
 def test_a_header_with_trailing_or_non_breaking_spaces_is_still_read_as_text():
-    from publicdata.normalise import read_csv
-
     t = read_csv("Supplier \u00a0,Value \n001,2\n,\n".encode(), "utf-8")
     assert [c.type for c in t.columns] == [pa.string(), pa.string()]
     assert t.column(0).to_pylist() == ["001"]
 
 
 def test_a_legacy_xls_workbook_reads_like_an_xlsx_one():
-    import datetime as dt
-    from pathlib import Path
-
-    from publicdata.normalise import read_xlsx, xls_to_xlsx
-
     data = (Path(__file__).parent / "fixtures" / "legacy.xls").read_bytes()
     t = read_xlsx(xls_to_xlsx(data), "", 1)
     assert t.column_names == ["Name", "Count", "When"]

@@ -1,6 +1,7 @@
 import json
 import random
 import sqlite3
+import unittest.mock
 from dataclasses import replace
 from pathlib import Path
 
@@ -9,11 +10,17 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from publicdata import fetch, store
+from publicdata import build, d1, fetch, normalise, serialise, store
+from publicdata.__main__ import main
 from publicdata.build import build_dataset, build_version
 from publicdata.cache import BuildCache
+from publicdata.gate import check
+from publicdata.r2 import dated_file
 from publicdata.register import Field, RegisterError, Source, load, parse
 from publicdata.serialise import profile
+from publicdata.serialise.writers import duckdb as writer
+from publicdata.site import _sample
+from publicdata.validate import _parquet_misfits, int32_misfits
 
 from .conftest import ROOT, make_dataset, make_manifest
 from .test_cache import _reading
@@ -97,7 +104,6 @@ def test_the_other_formats_keep_the_source_order_and_duckdb_follows_the_parquet(
 def test_the_duckdb_file_is_written_in_one_insert(tmp_path, monkeypatch, legacy):
     # DuckDB writes a larger file when the rows arrive in several inserts, so the slices a sort
     # reads in are streamed into one.
-    from publicdata.serialise.writers import duckdb as writer
 
     real_chunks, real_connect = profile.chunks, writer.duckdb_connect
     monkeypatch.setattr(profile, "chunks", lambda t, perm, rows=2: real_chunks(t, perm, rows))
@@ -126,7 +132,6 @@ def test_the_build_sorts_a_version_once(tmp_path, monkeypatch):
     calls = []
     real = profile.permutation
     monkeypatch.setattr(profile, "permutation", lambda *a: calls.append(1) or real(*a))
-    from publicdata import build
 
     monkeypatch.setattr(build, "permutation", profile.permutation)
     _build(tmp_path, _ds(sort=("year", "place")))
@@ -266,8 +271,6 @@ def test_a_fetch_records_the_layout_its_version_keeps(tmp_path, monkeypatch):
 
 
 def _few_then_grown(tmp_path, monkeypatch, ds, stale_published=None):
-    from publicdata import build, serialise
-
     s = tmp_path / "store"
     store.write(s, _m(ds), CSV)
     cache = BuildCache(tmp_path / "cache")
@@ -299,8 +302,6 @@ def test_a_cached_sorted_version_grows_formats_in_the_source_order(tmp_path, mon
 
 
 def test_a_sorted_version_without_its_order_is_built_again(tmp_path, monkeypatch):
-    from publicdata import build
-
     ds = _ds(sort=("place",))
 
     def drop(_):
@@ -346,8 +347,6 @@ def pc_sort_back(t):
 
 
 def test_d1_loads_a_version_again_when_its_rows_were_taken_in_another_order(fixture_site, tmp_path):
-    from publicdata import d1
-
     slug, version = "qld-road-crash-locations", "2026-04-24"
     ds = {d.slug: d for d in load(ROOT / "register")}[slug]
     src = fixture_site / "d" / slug / "v" / version / "data.parquet"
@@ -362,8 +361,6 @@ def test_d1_loads_a_version_again_when_its_rows_were_taken_in_another_order(fixt
 
 
 def test_the_gate_wants_every_table_version_to_have_its_query_copy(site_copy):
-    from publicdata.gate import check
-
     q = "_q/qld-road-crash-factors/2026-04-24.parquet"
     assert (site_copy / q).is_file()
     (site_copy / q).unlink()
@@ -373,9 +370,6 @@ def test_the_gate_wants_every_table_version_to_have_its_query_copy(site_copy):
 
 
 def test_query_copies_go_to_r2_alone(tmp_path):
-    from publicdata.__main__ import main
-    from publicdata.r2 import dated_file
-
     out, large = tmp_path / "dist", tmp_path / "large"
     (out / "_q" / "x").mkdir(parents=True)
     (out / "_q" / "x" / "2026-04-24.parquet").write_text("x")
@@ -418,8 +412,6 @@ def test_a_fetch_holds_a_version_that_does_not_fit_an_int32_field(tmp_path, monk
 
 
 def test_register_validate_checks_int32_against_the_versions_at_hand(tmp_path):
-    from publicdata.validate import int32_misfits
-
     s = tmp_path / "store"
     plain = _ds()
     m = _m(plain)
@@ -437,17 +429,12 @@ def test_register_validate_checks_int32_against_the_versions_at_hand(tmp_path):
 
 
 def test_validate_reads_every_column_when_a_file_has_no_statistics(tmp_path):
-    from publicdata.validate import _parquet_misfits
-
     path = tmp_path / "x.parquet"
     pq.write_table(pa.table({"a": [1, 2], "b": [1, 2**40]}), path, write_statistics=False)
     assert _parquet_misfits(path, ("a", "b")) == _parquet_misfits(path, ("b",)) != []
 
 
 def test_validate_reports_a_source_that_no_longer_normalises(tmp_path, monkeypatch):
-    from publicdata import normalise
-    from publicdata.validate import int32_misfits
-
     s = tmp_path / "store"
     m = _m(_ds())
     store.write(s, m, CSV)
@@ -472,8 +459,6 @@ def test_the_order_file_is_in_the_entry_before_its_record(tmp_path):
             seen.append((self.parent / "order.parquet").is_file())
         return real(self, *a, **k)
 
-    import unittest.mock
-
     with unittest.mock.patch.object(Path, "write_text", spy):
         cache.put("k", {}, extra={"order.parquet": b"x"})
     assert seen == [True]
@@ -487,8 +472,6 @@ def test_sort_or_int32_on_a_database_names_the_rule():
 
 @pytest.mark.parametrize("legacy", [False, True])
 def test_the_sample_note_names_the_order_the_rows_are_in(tmp_path, legacy):
-    from publicdata.site import _sample
-
     ds = _ds(sort=("year", "place"))
     vdir, _ = _build(tmp_path, ds, legacy=legacy)
     note = json.dumps(_sample(ds, vdir / "data.parquet"))

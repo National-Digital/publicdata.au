@@ -1,9 +1,21 @@
 import hashlib
+import io
 import json
 import re
+import shutil
+import subprocess
 from datetime import UTC, datetime, timedelta
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
+
 from publicdata import r2
+from publicdata.__main__ import REGISTER, _cached_versions, main
+from publicdata.build import cache_keys
+from publicdata.cache import BuildCache
+from publicdata.register import load
+from publicdata.serialise import profile
 
 
 class FakeS3:
@@ -84,8 +96,6 @@ def test_mutable_key_is_replaced_only_when_its_hash_changes(tmp_path, monkeypatc
 
 
 def test_split_moves_every_version_file_and_its_page(tmp_path, capsys):
-    from publicdata.__main__ import main
-
     out, large = tmp_path / "dist", tmp_path / "large"
     v = out / "d" / "x" / "v" / "2026-04-24"
     (v / "by" / "year").mkdir(parents=True)
@@ -116,8 +126,6 @@ def test_split_moves_every_version_file_and_its_page(tmp_path, capsys):
 
 
 def test_dist_push_rejects_a_prefix_that_is_not_a_version(tmp_path, monkeypatch, capsys):
-    from publicdata.__main__ import main
-
     monkeypatch.setattr(r2, "client", lambda: FakeS3(set()))
     assert main(["dist-push", "--large", str(tmp_path), "--replace", "d/"]) == 2
     assert "prefixes only" in capsys.readouterr().out
@@ -125,10 +133,6 @@ def test_dist_push_rejects_a_prefix_that_is_not_a_version(tmp_path, monkeypatch,
 
 
 def test_pull_skips_the_versions_the_build_cache_holds(fixture_store, tmp_path, monkeypatch):
-    import shutil
-
-    from publicdata.__main__ import _cached_versions, main
-
     s = tmp_path / "store"
     shutil.copytree(fixture_store, s)
     cache = tmp_path / "cache"
@@ -189,10 +193,6 @@ def test_a_dated_only_push_leaves_the_pages(tmp_path, monkeypatch):
 
 
 def test_store_push_replaces_raw_bytes_only_for_versions_main_never_took(tmp_path, monkeypatch):
-    import subprocess
-
-    from publicdata.__main__ import main
-
     for v in ("2026-10-03", "2026-10-04"):
         (tmp_path / "x" / v).mkdir(parents=True)
         (tmp_path / "x" / v / "manifest.json").write_text("{}")
@@ -237,8 +237,6 @@ class Bucket(FakeS3):
         open(dest, "wb").write(self.bytes[key])
 
     def get_object(self, Bucket, Key):
-        import io
-
         if Key not in self.bytes:
             raise _missing()
         return {"Body": io.BytesIO(self.bytes[Key])}
@@ -257,7 +255,7 @@ class Bucket(FakeS3):
 
 
 def _missing():
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
 
     return ClientError({"Error": {"Code": "404"}}, "GetObject")
 
@@ -293,7 +291,6 @@ def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_droppe
     assert r2.cache_pull(down) == 2
     assert (down / ("a" * 64) / "files" / "manifest.json").read_text() == "manifest.json"
     assert (down / ("a" * 64) / "meta.json").read_text() == '{"grown": 1}'
-    import shutil
 
     shutil.rmtree(up / ("b" * 64))
     assert r2.cache_push(up) == (0, 0)  # without prune nothing goes
@@ -311,8 +308,6 @@ def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_droppe
 def test_an_entry_used_again_is_no_longer_due_and_pruning_takes_its_record_first(
     tmp_path, monkeypatch
 ):
-    import shutil
-
     bucket = Bucket()
     monkeypatch.setattr(r2, "client", lambda: bucket)
     up = tmp_path / "up"
@@ -337,8 +332,6 @@ def test_an_entry_used_again_is_no_longer_due_and_pruning_takes_its_record_first
 
 
 def test_a_delete_r2_refuses_fails_the_push(tmp_path, monkeypatch):
-    import pytest
-
     class Refusing(Bucket):
         def delete_objects(self, Bucket, Delete):
             return {"Errors": [{"Key": Delete["Objects"][0]["Key"], "Code": "AccessDenied"}]}
@@ -383,11 +376,6 @@ def test_a_pull_leaves_out_an_entry_deleted_under_it_and_can_keep_to_some(tmp_pa
 
 
 def test_a_shard_pulls_only_the_entries_its_datasets_key_to(fixture_store, tmp_path, monkeypatch):
-    from publicdata.__main__ import REGISTER, main
-    from publicdata.build import cache_keys
-    from publicdata.cache import BuildCache
-    from publicdata.register import load
-
     seen = {}
     monkeypatch.setattr(
         r2, "cache_pull", lambda root, meta_only=False, entries=None: seen.update(e=entries) or 0
@@ -414,10 +402,6 @@ def test_a_shard_pulls_only_the_entries_its_datasets_key_to(fixture_store, tmp_p
 
 
 def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
-    import json
-
-    import pytest
-
     for slug, version, man in (
         ("x", "2026-10-01", {"filename": "Crashes.CSV"}),
         ("y", "2026-10-02", {"filename": "a.zip", "source_withheld": "Its terms are unclear."}),
@@ -458,8 +442,6 @@ class Dist(Bucket):
         return {"ContentLength": len(self.bytes[Key]), "Metadata": {}}
 
     def get_object(self, Bucket, Key, Range=None):
-        import io
-
         a, b = (int(x) for x in Range.removeprefix("bytes=").split("-"))
         self.ops.append(("get", Key))
         return {"Body": io.BytesIO(self.bytes[Key][a : b + 1])}
@@ -470,16 +452,10 @@ MARK = "_q/t/2026-01-02.layout.json"
 
 
 def _lay(**kw):
-    from publicdata.serialise import profile
-
     return {"profile": profile.VERSION, "sort": [], "key": ["id"], "lookup": [], "int32": []} | kw
 
 
 def _copy(path, lay):
-    import pyarrow as pa
-
-    from publicdata.serialise import profile
-
     path.parent.mkdir(parents=True, exist_ok=True)
     t = pa.table({"id": [3, 1, 2], "year": [2024, 2023, 2024], "place": ["b", "a", "c"]})
     profile.write(t, {}, path, lay)
@@ -488,8 +464,6 @@ def _copy(path, lay):
 
 def _held(tmp_path, lay, marked=True):
     """A bucket holding the version's dated file and its query copy under lay."""
-    from publicdata.serialise import profile
-
     fake = Dist()
     for key, p in (
         ("d/t/v/2026-01-02/data.parquet", _copy(tmp_path / "old" / "data.parquet", _lay())),
@@ -504,10 +478,6 @@ def _held(tmp_path, lay, marked=True):
 
 
 def _remote(fake, key=Q):
-    import io
-
-    import pyarrow.parquet as pq
-
     return pq.read_metadata(io.BytesIO(fake.bytes[key]))
 
 
@@ -520,8 +490,6 @@ def test_a_query_push_lists_only_the_query_copies(tmp_path, monkeypatch):
 
 
 def test_a_layout_edit_reaches_the_query_copies_r2_holds(tmp_path, monkeypatch):
-    from publicdata.serialise import profile
-
     for old, new in (
         (_lay(), _lay(sort=["year"])),
         (_lay(sort=["year"]), _lay(sort=["place"], lookup=["place"])),
@@ -557,8 +525,6 @@ def test_an_unchanged_layout_uploads_no_query_copy(tmp_path, monkeypatch):
 
 
 def test_a_copy_without_a_record_is_judged_by_its_footer(tmp_path, monkeypatch):
-    from publicdata.serialise import profile
-
     lay = _lay(sort=["year"])
     fake = _held(tmp_path, lay, marked=False)
     _copy(tmp_path / "tree" / Q, lay)
@@ -574,8 +540,6 @@ def test_a_copy_without_a_record_is_judged_by_its_footer(tmp_path, monkeypatch):
 
 
 def test_an_unreadable_copy_is_written_again(tmp_path, monkeypatch):
-    from publicdata.serialise import profile
-
     lay = _lay(sort=["year"])
     fake = _held(tmp_path, lay, marked=False)
     fake.bytes[Q] = b"not parquet"
@@ -586,10 +550,6 @@ def test_an_unreadable_copy_is_written_again(tmp_path, monkeypatch):
 
 
 def test_a_cached_query_copy_must_follow_the_entry_in_r2(tmp_path, monkeypatch):
-    import pytest
-
-    from publicdata.serialise import profile
-
     lay = _lay(sort=["year"])
     (tmp_path / "tree").mkdir()
     for held, ok in ((lay, True), (_lay(), False)):
@@ -608,8 +568,6 @@ def test_a_cached_query_copy_must_follow_the_entry_in_r2(tmp_path, monkeypatch):
 
 
 def test_a_query_copy_the_build_wrote_otherwise_stops_the_push(tmp_path, monkeypatch):
-    import pytest
-
     _copy(tmp_path / "tree" / Q, _lay())
     _copy(tmp_path / "tree" / "d/t/v/2026-01-02/data.parquet", _lay())
     fake = Dist()

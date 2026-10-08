@@ -1,9 +1,19 @@
+import copy
 import re
+import shutil
 
 import pytest
 import yaml
 
-from publicdata.register import RegisterError, load, parse
+from publicdata import __main__ as cli
+from publicdata.register import (
+    LICENCE_CONDITIONS,
+    OPEN_LICENCES,
+    RegisterError,
+    draft_label,
+    load,
+    parse,
+)
 
 from .conftest import ROOT
 
@@ -63,8 +73,6 @@ def test_key_must_be_declared_field():
 
 
 def test_live_needs_the_search_fields(tmp_path):
-    import yaml
-
     live = _raw(
         status="live",
         licence={
@@ -112,13 +120,6 @@ def test_live_needs_the_search_fields(tmp_path):
 
 
 def test_label_drafts_reuse_the_register_then_read_the_name(tmp_path, monkeypatch):
-    import shutil
-
-    import yaml
-
-    from publicdata import __main__ as cli
-    from publicdata.register import draft_label, load
-
     names = [
         "crash_year",
         "crash_severity",
@@ -147,8 +148,6 @@ def test_label_drafts_reuse_the_register_then_read_the_name(tmp_path, monkeypatc
 
 
 def test_entries_load_from_folders_but_not_publishers(tmp_path):
-    import yaml
-
     (tmp_path / "qld").mkdir()
     (tmp_path / "publishers").mkdir()
     (tmp_path / "qld" / "x-y.yaml").write_text(yaml.safe_dump(_raw()))
@@ -170,10 +169,6 @@ def test_query_takes_true_or_false():
 
 
 def test_a_ckan_source_names_its_package_and_its_resource_or_a_pattern():
-    import copy
-
-    from publicdata.register import RegisterError, parse
-
     base = yaml.safe_load((ROOT / "register" / "nsw-recorded-crime-by-lga.yaml").read_text())
     parse(base, "ok")
     raw = copy.deepcopy(base)
@@ -275,10 +270,6 @@ def test_a_live_file_source_quotes_the_licence_pages_words():
 
 
 def test_two_entries_cannot_target_one_search_phrase(tmp_path):
-    import shutil
-
-    from publicdata.register import RegisterError, load
-
     src = ROOT / "register"
     for name in ("qld-road-crash-locations.yaml", "qld-road-casualties.yaml"):
         shutil.copy(src / name, tmp_path / name)
@@ -297,8 +288,6 @@ def test_two_entries_cannot_target_one_search_phrase(tmp_path):
 
 
 def test_place_field_must_be_a_partition_field(tmp_path):
-    from publicdata.register import RegisterError, load
-
     text = (ROOT / "register" / "qld-road-crash-locations.yaml").read_text(encoding="utf-8")
     text = text.replace("place_field: loc_local_government_area", "place_field: crash_severity")
     (tmp_path / "qld-road-crash-locations.yaml").write_text(text, encoding="utf-8")
@@ -407,8 +396,6 @@ def test_a_database_entry_is_checked_for_its_pattern_references_and_shape():
 
 
 def test_a_licence_with_a_condition_is_open_and_states_it():
-    from publicdata.register import LICENCE_CONDITIONS, OPEN_LICENCES
-
     assert set(LICENCE_CONDITIONS) <= set(OPEN_LICENCES)
     ds = parse(_raw(licence={"id": "OPEN-GNAF-EULA"}), "x")
     assert ds.licence.open

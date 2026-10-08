@@ -1,3 +1,5 @@
+import requests
+
 from publicdata import smithery
 from publicdata.api_text import mcp_spec
 
@@ -73,8 +75,6 @@ def _raises(exc):
 
 
 def test_a_4xx_fails_the_release_and_an_outage_only_warns(monkeypatch):
-    import requests
-
     monkeypatch.setenv("SMITHERY_API_KEY", "key")
     bad = requests.Response()
     bad.status_code = 401

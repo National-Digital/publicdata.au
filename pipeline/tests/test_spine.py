@@ -1,18 +1,26 @@
 import dataclasses
+import io
 import json
 import re
+import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
+import duckdb
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import yaml
 
-from publicdata import spine, store
+from publicdata import serialise, spine, store
 from publicdata.build import build_version, version_key
 from publicdata.cache import BuildCache
 from publicdata.normalise import normalise
-from publicdata.register import RegisterError, parse
+from publicdata.register import LAT_SOURCE, LON_SOURCE, RegisterError, parse
 from publicdata.serialise import formats_for
+from publicdata.serialise.geo import _connect
+from publicdata.serialise.writers.pmtiles import write_pmtiles
+from publicdata.site import _faq
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
@@ -84,8 +92,6 @@ def test_a_polygon_layer_declares_its_kind_and_datum_and_no_coordinates():
 
 
 def test_shapes_get_geoparquet_and_vector_tiles_and_points_get_geoparquet(monkeypatch):
-    from publicdata import serialise
-
     monkeypatch.setattr(serialise, "LIMIT", None)
     # A layer's Parquet is GeoParquet already, with its shapes in it.
     assert "pmtiles" in formats_for(10, "polygon")
@@ -227,8 +233,6 @@ def test_a_polygon_layer_keeps_rows_with_no_shape_and_reads_every_attribute():
 
 
 def test_the_spine_needs_its_extension_installed_not_fetched_at_build(monkeypatch):
-    import duckdb
-
     class Con:
         def execute(self, sql):
             return self
@@ -253,8 +257,6 @@ def test_a_partitioned_polygon_layer_writes_json_partitions_without_point_geojso
 
 
 def test_the_places_question_names_only_the_layers_a_dataset_joins():
-    from publicdata.site import _faq
-
     class V:
         manifest = store.manifests(FIXTURES, "qld-road-crash-locations")[-1]
         files = {}
@@ -266,13 +268,6 @@ def test_the_places_question_names_only_the_layers_a_dataset_joins():
 
 
 def test_a_point_shapefile_reads_its_coordinates_as_published(tmp_path):
-    import io
-    import zipfile
-
-    import duckdb
-
-    from publicdata.register import LAT_SOURCE, LON_SOURCE
-
     con = duckdb.connect()
     con.load_extension("spatial")
     out = tmp_path / "shp"
@@ -292,13 +287,6 @@ def test_a_point_shapefile_reads_its_coordinates_as_published(tmp_path):
 
 
 def test_a_polygon_whose_repair_leaves_a_stray_line_still_makes_tiles(tmp_path):
-    from types import SimpleNamespace
-
-    import pyarrow as pa
-
-    from publicdata.serialise.geo import _connect
-    from publicdata.serialise.writers.pmtiles import write_pmtiles
-
     # A ring with a spike: making it valid gives a polygon and a line, which a tile cannot hold.
     spiked = (
         "POLYGON((150 -30, 151 -30, 151 -29, 150.5 -29, 150.5 -28.5, 150.5 -29, 150 -29, 150 -30))"

@@ -1,6 +1,17 @@
+import datetime as dt
+import hashlib
+import json
+import random
+
+import pyarrow as pa
+import pyarrow.compute as pc
+import pytest
+
 from publicdata.diff import diff
-from publicdata.normalise import normalise
+from publicdata.normalise import Table, normalise
 from publicdata.register import Field
+from publicdata.register import Field as F2
+from publicdata.serialise import iter_rows, json_view
 
 from .conftest import make_dataset, make_manifest
 
@@ -24,10 +35,6 @@ def test_diff_by_key():
 
 
 def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys():
-    import pytest
-
-    from publicdata.register import Field as F2
-
     fields = [F2("id", "Id", "integer"), F2("n", "N", "integer")]
     ds = make_dataset(fields, key=("id",), suppression=("<5",))
     a_csv, b_csv = b"Id,N\n1,<5\n2,7\n", b"Id,N\n1,<5\n2,8\n"
@@ -43,11 +50,6 @@ def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys():
 
 # The per-row implementation this module replaced, kept as the oracle for the Arrow join.
 def _reference(a, b):
-    import hashlib
-    import json
-
-    from publicdata.serialise import iter_rows, json_view
-
     def keyed(t, key):
         out = {}
         for row in iter_rows(json_view(t)):
@@ -95,10 +97,6 @@ def _reference(a, b):
 
 
 def _random_table(rng, key_type, extra, retype, rows):
-    import datetime as dt
-
-    import pyarrow as pa
-
     ids = rng.sample(range(rows * 2), rows)
     region = [rng.choice("NS") for _ in ids]
     cols = {
@@ -131,9 +129,6 @@ def _random_table(rng, key_type, extra, retype, rows):
 
 def _next_release(rng, ta, tnew):
     """The table `ta` with some rows dropped, some edited and rows of `tnew` added under new ids."""
-    import pyarrow as pa
-    import pyarrow.compute as pc
-
     kept = ta.filter(pa.array([rng.random() < 0.8 for _ in range(ta.num_rows)], pa.bool_()))
     n = [v if rng.random() < 0.7 else (v or 0) + 1 for v in kept["n"].to_pylist()]
     kept = kept.set_column(kept.column_names.index("n"), "n", pa.array(n, kept["n"].type))
@@ -142,12 +137,6 @@ def _next_release(rng, ta, tnew):
 
 
 def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions():
-    import json
-    import random
-
-    from publicdata.normalise import Table
-    from publicdata.register import Field as F2
-
     rng = random.Random(7)  # noqa: S311 - a seeded sample, repeatable on purpose
     for trial in range(60):
         key = ("id",) if trial % 3 else ("region", "id")
@@ -174,8 +163,6 @@ def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions():
 
 
 def test_a_blank_key_part_matches_itself_across_versions():
-    from publicdata.register import Field as F2
-
     fields = [F2("offence", "Offence"), F2("sub", "Sub"), F2("n", "N", "integer")]
     ds = make_dataset(fields, key=("offence", "sub"))
     a_csv = b"Offence,Sub,N\nAssault,,5\nTheft,Shop,3\nArson,,1\n"

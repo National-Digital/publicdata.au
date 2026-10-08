@@ -1,11 +1,22 @@
+import dataclasses
 import json
 import sqlite3
 import subprocess
 import sys
+import threading
+import time
+from types import SimpleNamespace
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from publicdata import d1
+from publicdata import d1, site
+from publicdata.__main__ import main
+from publicdata.gate import check
+from publicdata.register import load
+
+from .conftest import ROOT
 
 
 @pytest.fixture(autouse=True)
@@ -186,9 +197,6 @@ def test_only_the_newest_versions_are_kept_once_the_new_one_is_registered(tmp_pa
 
 
 def test_openapi_lists_the_query_api_only_once_it_is_switched_on(tmp_path, monkeypatch):
-    from publicdata import site
-    from publicdata.__main__ import main
-
     monkeypatch.setattr(site, "QUERY_API", False)
     assert main(["build", "--fixtures", "--out", str(tmp_path / "off")]) == 0
     off = json.loads((tmp_path / "off" / "openapi.json").read_text())
@@ -232,9 +240,6 @@ def test_a_large_version_loads_in_parts_that_register_it_only_at_the_end(
 ):
     out = site_copy
     monkeypatch.setattr(d1, "PART_BYTES", 20_000)
-    from publicdata.register import load
-
-    from .conftest import ROOT
 
     ds = [d for d in load(ROOT / "register") if d.slug == "qld-road-crash-locations"]
     parts = d1.write_loads([out], ds, {}, tmp_path / "load")
@@ -271,9 +276,6 @@ def test_a_large_version_loads_in_parts_that_register_it_only_at_the_end(
 
 def test_every_part_carries_the_run_stamp(tmp_path, site_copy):
     out = site_copy
-    from publicdata.register import load
-
-    from .conftest import ROOT
 
     ds = [d for d in load(ROOT / "register") if d.slug == "qld-road-casualties"]
     parts = d1.write_loads([out], ds, {}, tmp_path / "load", stamp="36393705927")
@@ -313,10 +315,6 @@ class FakeD1:
 
 
 def parts_for(site, tmp_path, monkeypatch, slug="qld-road-crash-locations"):
-    from publicdata.register import load
-
-    from .conftest import ROOT
-
     ds = [d for d in load(ROOT / "register") if d.slug == slug]
     monkeypatch.setattr(d1, "PART_BYTES", 20_000)
     folder = tmp_path / "load"
@@ -367,11 +365,6 @@ def test_one_version_that_cannot_load_does_not_stop_the_next(fixture_site, tmp_p
 
 
 def test_a_version_too_large_for_d1_is_files_only_everywhere(tmp_path, monkeypatch):
-    from publicdata.__main__ import main
-    from publicdata.register import load
-
-    from .conftest import ROOT
-
     out = tmp_path / "dist"
     big = out / "d" / "qld-road-crash-locations"
     monkeypatch.setattr(d1, "MAX_CSV", 100_000)
@@ -389,7 +382,6 @@ def test_a_version_too_large_for_d1_is_files_only_everywhere(tmp_path, monkeypat
     enum = doc["paths"]["/api/v1/datasets/{slug}/rows"]["get"]["parameters"][0]["schema"]["enum"]
     assert "qld-road-crash-locations" not in enum
     assert "qld-road-casualties" in enum
-    from publicdata.gate import check
 
     assert check(out, ROOT / "register") == []
     ds = [d for d in load(ROOT / "register") if d.slug == "qld-road-crash-locations"]
@@ -397,12 +389,6 @@ def test_a_version_too_large_for_d1_is_files_only_everywhere(tmp_path, monkeypat
 
 
 def test_query_false_keeps_a_dataset_out_of_the_loads(tmp_path, site_copy):
-    import dataclasses
-
-    from publicdata.register import load
-
-    from .conftest import ROOT
-
     out = site_copy
     ds = [d for d in load(ROOT / "register") if d.slug == "qld-road-casualties"]
     assert d1.write_loads([out], ds, {}, tmp_path / "a")
@@ -411,9 +397,6 @@ def test_query_false_keeps_a_dataset_out_of_the_loads(tmp_path, site_copy):
 
 
 def test_versions_import_one_part_at_a_time_with_each_version_in_order(tmp_path):
-    import threading
-    import time
-
     folder = tmp_path / "load"
     for k in range(6):
         _write_job(folder, f"s{k}", "2026-01-01", 3)
@@ -441,9 +424,6 @@ def test_versions_import_one_part_at_a_time_with_each_version_in_order(tmp_path)
 
 
 def test_a_version_is_checked_only_while_no_other_import_runs(tmp_path):
-    import threading
-    import time
-
     folder = tmp_path / "load"
     for k in range(6):
         _write_job(folder, f"s{k}", "2026-01-01", 2)
@@ -470,14 +450,10 @@ def test_a_version_is_checked_only_while_no_other_import_runs(tmp_path):
 
 
 def test_a_loaded_version_whose_fields_changed_is_loaded_again(tmp_path):
-    from types import SimpleNamespace
-
     root = tmp_path / "dist"
     v = root / "d" / "x-y" / "v" / "2026-01-02"
     v.mkdir(parents=True)
     (root / "latest.json").write_text(json.dumps({"x-y": "2026-01-02"}))
-    import pyarrow as pa
-    import pyarrow.parquet as pq
 
     t = pa.table({"a": pa.array([1], pa.int64()), "sal_2021_name": ["Kingaroy"]})
     pq.write_table(t.replace_schema_metadata({"publicdata": "{}"}), v / "data.parquet")

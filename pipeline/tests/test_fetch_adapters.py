@@ -1,10 +1,13 @@
 import dataclasses
+import io
 import json
 import re
 
 import pytest
+import xlsxwriter
 
 from publicdata import fetch as f
+from publicdata import store
 from publicdata.register import Field, Licence, Source
 
 from .conftest import make_dataset
@@ -347,8 +350,6 @@ def test_a_manual_source_is_never_downloaded_and_a_new_one_is_due(tmp_path, monk
 def test_a_manual_source_reads_the_downloaded_file_then_waits_for_the_record_to_change(
     tmp_path, monkeypatch
 ):
-    from publicdata import store
-
     got = tmp_path / "t.csv"
     got.write_bytes(CSV)
     monkeypatch.setattr(f, "MANUAL", {"t": got})
@@ -629,10 +630,6 @@ def test_zenodo_follows_the_concept_record_to_its_newest_version_and_licence(tmp
 
 
 def _stack_book(title_rows: int, rows: list[list], header=("FullDate", "Brand", "Diesel")) -> bytes:
-    import io
-
-    import xlsxwriter
-
     buf = io.BytesIO()
     wb = xlsxwriter.Workbook(buf, {"in_memory": True})
     ws = wb.add_worksheet("Sheet1")
@@ -766,8 +763,6 @@ def test_a_downloaded_file_keeps_its_headers_whatever_their_case():
 def test_a_manual_stack_reads_a_folder_of_downloads_then_waits_for_the_records_to_change(
     tmp_path, monkeypatch
 ):
-    from publicdata import store
-
     def portal(modified):
         res = [
             {"id": f"r{i}", "name": n, "format": "XLSX", "created": modified, "url": u}

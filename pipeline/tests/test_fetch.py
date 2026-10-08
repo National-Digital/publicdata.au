@@ -1,8 +1,32 @@
+import datetime as dt
+import json
+
 import pytest
 import yaml
 
-from publicdata.fetch import LicenceDrift, check_licence, normalise_licence_id, parse_as_at
-from publicdata.register import Field
+from publicdata import __main__ as cli
+from publicdata import fetch as f
+from publicdata import store
+from publicdata.fetch import (
+    ALA_DEEP,
+    ALA_PAGE,
+    UA,
+    FetchError,
+    LicenceDrift,
+    _package,
+    ala,
+    arcgis_feature,
+    check_licence,
+    etag,
+    expect_page,
+    free_version,
+    normalise_licence_id,
+    parse_as_at,
+    pick_package,
+    pick_resource,
+    resource_filename,
+)
+from publicdata.register import Field, Source
 
 from .conftest import ROOT, make_dataset
 
@@ -44,10 +68,6 @@ def test_as_at_from_publishers_words():
 
 
 def test_an_empty_or_html_answer_is_refused_not_stored():
-    import pytest
-
-    from publicdata.fetch import FetchError, expect_page
-
     class D:
         slug = "x"
 
@@ -70,9 +90,6 @@ def test_an_empty_or_html_answer_is_refused_not_stored():
 
 
 def test_one_failing_dataset_does_not_stop_the_others(monkeypatch, capsys):
-    from publicdata import __main__ as cli
-    from publicdata import fetch as f
-
     def fake(ds, store_dir):
         if ds.slug == "qld-road-casualties":
             msg = "qld-road-casualties: returned no bytes"
@@ -88,16 +105,12 @@ def test_one_failing_dataset_does_not_stop_the_others(monkeypatch, capsys):
 
 def test_every_workflow_file_parses():
     # GitHub drops a workflow it cannot parse without a failing check, and the schedule stops.
-    for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
-        d = yaml.safe_load(f.read_text(encoding="utf-8"))
-        assert d.get("jobs"), f.name
+    for wf in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        d = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        assert d.get("jobs"), wf.name
 
 
 def test_a_second_file_on_a_taken_day_gets_the_next_free_day_and_says_why():
-    import datetime as dt
-
-    from publicdata.fetch import free_version
-
     assert free_version("2026-04-24", {"2026-01-01"}, dt.date(2026, 9, 30)) == ("2026-04-24", "")
     v, note = free_version("2026-04-24", {"2026-04-24"}, dt.date(2026, 9, 30))
     assert v == "2026-09-30"
@@ -107,11 +120,6 @@ def test_a_second_file_on_a_taken_day_gets_the_next_free_day_and_says_why():
 
 
 def test_new_versions_are_grouped_by_government_for_their_own_pull_requests(monkeypatch, tmp_path):
-    import json
-
-    from publicdata import __main__ as cli
-    from publicdata import fetch as f
-
     def fake(ds, store_dir):
         if ds.slug == "qld-road-crash-factors":
             msg = "qld-road-crash-factors: returned no bytes"
@@ -133,9 +141,6 @@ def test_new_versions_are_grouped_by_government_for_their_own_pull_requests(monk
 
 
 def test_the_newest_matching_resource_is_fetched():
-    from publicdata.fetch import FetchError, pick_resource
-    from publicdata.register import Source
-
     ds = make_dataset(
         [Field("a", "A")],
         source=Source(adapter="ckan-resource", url="u", package="p", resource_match=r"by LGA"),
@@ -155,9 +160,6 @@ def test_the_newest_matching_resource_is_fetched():
 
 
 def test_the_newest_matching_package_is_fetched():
-    from publicdata.fetch import FetchError, pick_package
-    from publicdata.register import Source
-
     ds = make_dataset(
         [Field("a", "A")],
         source=Source(
@@ -178,9 +180,6 @@ def test_the_newest_matching_package_is_fetched():
 
 
 def test_a_package_pattern_searches_with_the_package_text():
-    from publicdata.fetch import _package
-    from publicdata.register import Source
-
     ds = make_dataset(
         [Field("a", "A")],
         source=Source(
@@ -224,8 +223,6 @@ def test_a_package_pattern_searches_with_the_package_text():
 
 
 def test_a_file_with_no_extension_is_named_from_the_resource_format():
-    from publicdata.fetch import resource_filename
-
     page = "https://www.dffh.vic.gov.au/moving-annual-rent-suburb-september-quarter-2025-excel"
     assert resource_filename({"url": page, "format": "XLSX"}).endswith("-excel.xlsx")
     assert resource_filename({"url": "https://x/a/data.csv", "format": "XLSX"}) == "data.csv"
@@ -236,8 +233,6 @@ def test_a_file_with_no_extension_is_named_from_the_resource_format():
 
 
 def test_the_user_agent_names_the_site_in_a_form_firewalls_accept():
-    from publicdata.fetch import UA
-
     # dffh.vic.gov.au resets the connection for either of these.
     assert "publicdata.au/about" in UA
     assert "fetcher" not in UA.lower()
@@ -280,9 +275,6 @@ class _Session:
 
 
 def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
-    from publicdata.fetch import arcgis_feature
-    from publicdata.register import Source
-
     ds = make_dataset(
         [Field("id", "ID", "integer")],
         source=Source(
@@ -339,7 +331,6 @@ def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
     queries = [p for u, p in s.calls if u.endswith("/query")]
     assert [q["resultOffset"] for q in queries] == [0, 2]
     assert all(q["orderByFields"] == "ID" and q["outSR"] == 4326 for q in queries)
-    import json
 
     fc = json.loads(data)
     assert [f["properties"]["ID"] for f in fc["features"]] == [1, 2, 3]
@@ -354,7 +345,6 @@ def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
     assert any("newest record" in n for n in m.notes)
     assert any("no file" in n for n in m.notes)
     # The same layer gives the same bytes, so an unchanged layer is no version.
-    from publicdata import store
 
     store.write(tmp_path, m, data)
     again, m2, _ = arcgis_feature(ds, tmp_path, s)
@@ -367,7 +357,6 @@ def _ala_session(rows, lat_of=lambda r: r[2]):
 
     The rows are filtered by the fq conditions the adapter sends.
     """
-    from publicdata.fetch import ALA_DEEP, ALA_PAGE
 
     def rng(f):
         lo, hi = f.split("[", 1)[1].rstrip("]}").split(" TO ")
@@ -426,8 +415,6 @@ def _ala_session(rows, lat_of=lambda r: r[2]):
 
 
 def _ala_dataset(providers=("dr1", "dr2")):
-    from publicdata.register import Source
-
     return make_dataset(
         [Field("record_id", "uuid", "string")],
         source=Source(
@@ -440,9 +427,6 @@ def _ala_dataset(providers=("dr1", "dr2")):
 
 
 def test_ala_reads_each_provider_in_slices_and_dates_the_version_by_the_newest_load(tmp_path):
-    from publicdata import store
-    from publicdata.fetch import ALA_DEEP, ala
-
     ds = _ala_dataset()
     # dr1 has 3 rows, one a specimen. dr2 has more than the paging limit, half of them loaded in
     # one second and one without coordinates, so the reads split by load time, then by latitude.
@@ -489,8 +473,6 @@ def test_ala_reads_each_provider_in_slices_and_dates_the_version_by_the_newest_l
 
 
 def test_ala_splits_one_place_and_second_by_year_and_refuses_what_it_cannot_read(tmp_path):
-    from publicdata.fetch import ALA_DEEP, FetchError, ala
-
     ds = _ala_dataset(providers=("dr1",))
     same = ("2013-04-09T10:58:31.000+00:00", -33.0)
     rows = {
@@ -509,9 +491,6 @@ def test_ala_splits_one_place_and_second_by_year_and_refuses_what_it_cannot_read
 
 
 def test_ala_stops_when_a_provider_loses_open_rows_but_not_rows(tmp_path):
-    from publicdata import store
-    from publicdata.fetch import LicenceDrift, ala
-
     ds = _ala_dataset(providers=("dr1",))
     rows = {
         "dr1": [
@@ -536,8 +515,6 @@ def test_ala_stops_when_a_provider_loses_open_rows_but_not_rows(tmp_path):
 
 
 def test_an_etag_loses_its_quotes_and_keeps_its_weak_mark():
-    from publicdata.fetch import etag
-
     assert etag({"ETag": '"abc-1"'}) == "abc-1"
     assert (
         etag({"ETag": 'W/"1501050059.0-253909-3591704692"'}) == "W/1501050059.0-253909-3591704692"

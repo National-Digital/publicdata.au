@@ -1,10 +1,13 @@
+import io
 import json
 import re
 from pathlib import Path
 
+import openpyxl
 import pytest
 import yaml
 
+from publicdata import __main__ as cli
 from publicdata import register_draft as rd
 from publicdata.normalise import normalise
 from publicdata.publishers import Publisher
@@ -138,8 +141,6 @@ def test_field_names_are_snake_case_and_unique():
 
 
 def test_the_draft_command_writes_the_entry_and_refuses_to_overwrite(monkeypatch, tmp_path, capsys):
-    from publicdata import __main__ as cli
-
     monkeypatch.setattr(cli, "REGISTER", tmp_path)
     monkeypatch.setattr(cli, "ROOT", tmp_path.parent)
     monkeypatch.setattr(rd.requests, "Session", Portal)
@@ -157,10 +158,6 @@ def test_a_named_resource_that_is_not_a_table_is_refused():
 
 
 def test_a_workbook_without_the_named_sheet_is_a_draft_error():
-    import io
-
-    import openpyxl
-
     wb = openpyxl.Workbook()
     wb.active.title = "data"
     buf = io.BytesIO()

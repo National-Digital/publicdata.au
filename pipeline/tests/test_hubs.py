@@ -1,13 +1,18 @@
+import dataclasses
 import json
 import re
 from pathlib import Path
 
 import pytest
+import requests
 import yaml
+from PIL import Image
 
 from publicdata import hubs
+from publicdata.__main__ import main
 from publicdata.cadence import kaggle_frequency
-from publicdata.register import load
+from publicdata.register import LICENCE_CONDITIONS, OPEN_LICENCES, load
+from publicdata.site import copies_of
 
 from .conftest import ROOT
 
@@ -96,8 +101,6 @@ def test_hub_copy_has_no_em_dashes():
 
 
 def test_every_open_licence_the_register_allows_has_a_hub_id():
-    from publicdata.register import LICENCE_CONDITIONS, OPEN_LICENCES
-
     # A licence with a condition of use is open here and never copied: no hub can state it.
     plain = set(OPEN_LICENCES) - set(LICENCE_CONDITIONS)
     assert set(hubs.HUB_IDS) == plain
@@ -222,8 +225,6 @@ class FakeHub:
 
 def fake_fetch(url, dest):
     if dest.name == "card.png":
-        from PIL import Image
-
         Image.new("RGB", (1200, 630), (10, 80, 160)).save(dest)
         return
     dest.write_bytes(b"PAR1")
@@ -564,7 +565,6 @@ def test_kaggle_publish_then_sets_every_usability_item(tmp_path):
     cli, log, kept = kaggle_cli(tmp_path)
     work = tmp_path / "w"
     work.mkdir()
-    import dataclasses
 
     roads = dataclasses.replace(make(), topics=("roads",))
     hubs.Kaggle("o", "tok", cli).publish(roads, work, fake_fetch, first=True)
@@ -588,7 +588,6 @@ def test_kaggle_publish_then_sets_every_usability_item(tmp_path):
     assert "/v/2026-09-30/" in meta["userSpecifiedSources"]
     assert all(f["description"] for f in meta["resources"][0]["schema"]["fields"])
     assert all(r["description"] for r in meta["resources"])
-    from PIL import Image
 
     with Image.open(meta_dir / "dataset-cover-image.png") as im:
         assert im.size == (560, 280)
@@ -600,8 +599,6 @@ def test_kaggle_publish_then_sets_every_usability_item(tmp_path):
 
 
 def test_kaggle_drops_the_tags_it_names_as_invalid_and_remembers_them(tmp_path):
-    import dataclasses
-
     sent = tmp_path / "sent"
     cli, _, _ = kaggle_cli(
         tmp_path,
@@ -764,8 +761,6 @@ def test_notebook_titles_are_unique_per_slug_and_short_enough():
 
 
 def test_cover_image_is_cut_to_two_by_one(tmp_path):
-    from PIL import Image
-
     for size in ((1200, 630), (800, 800), (2000, 500)):
         src = tmp_path / "c.png"
         Image.new("RGB", size).save(src)
@@ -781,8 +776,6 @@ def test_every_catalogue_cadence_maps_to_a_kaggle_choice():
 
 
 def test_hubs_render_command_writes_every_hubs_files(tmp_path, monkeypatch):
-    from publicdata.__main__ import main
-
     monkeypatch.setattr(
         hubs, "read_site", lambda site, only, register=None: iter([(RECORD["identifier"], make())])
     )
@@ -799,8 +792,6 @@ def test_hubs_render_command_writes_every_hubs_files(tmp_path, monkeypatch):
 
 
 def test_hubs_command_fails_when_a_hub_fails(monkeypatch, capsys):
-    from publicdata.__main__ import main
-
     monkeypatch.setattr(
         hubs, "read_site", lambda site, only, register=None: iter([("x", hubs.Refused("nope"))])
     )
@@ -842,8 +833,6 @@ class FakeSiteHttp:
         self.asked = []
 
     def get(self, url, timeout=None):
-        import requests
-
         self.asked.append(url)
         body = self.files.get(url)
         status = 200 if body is not None or url in self.served else 404
@@ -897,7 +886,7 @@ def test_the_installed_hugging_face_library_has_the_calls_the_job_makes():
     hf = pytest.importorskip("huggingface_hub")
     for name in ("create_repo", "upload_folder", "create_tag", "list_repo_refs"):
         assert callable(getattr(hf.HfApi, name))
-    from huggingface_hub.errors import RepositoryNotFoundError  # noqa: F401
+    from huggingface_hub.errors import RepositoryNotFoundError  # noqa: F401, PLC0415 - hubs extra
 
 
 def test_every_kaggle_column_type_is_one_kaggle_documents():
@@ -947,8 +936,6 @@ def test_merge_record_keeps_what_a_partial_run_did_not_reach():
 
 
 def test_copies_are_listed_in_a_fixed_order_with_the_doi_last():
-    from publicdata.site import copies_of
-
     rec = {
         "datasets": {
             "x": {
@@ -978,8 +965,6 @@ def test_zenodo_location_is_the_concept_doi_of_a_submitted_record():
 
 
 def test_coordinates_are_typed_as_coordinates_and_tag_the_dataset():
-    import dataclasses
-
     fields = (
         {"name": "crash_latitude", "type": "number"},
         {"name": "lng", "type": "number"},
@@ -993,8 +978,6 @@ def test_coordinates_are_typed_as_coordinates_and_tag_the_dataset():
 
 
 def test_kaggle_carries_json_and_sqlite_unless_they_are_too_large(tmp_path):
-    import dataclasses
-
     v = "https://publicdata.au/d/qld-road-crash-factors/v/2026-09-30/"
     files = {f: f"{v}data.{f}" for f in ("parquet", "csv", "json", "sqlite")}
     small = dataclasses.replace(make(), files=files, sizes={"json": 10, "sqlite": 10})
@@ -1016,8 +999,6 @@ def test_kaggle_carries_json_and_sqlite_unless_they_are_too_large(tmp_path):
 
 
 def test_the_search_title_leads_on_kaggle_when_it_fits():
-    import dataclasses
-
     fits = dataclasses.replace(make(), search_title="Queensland road crash factors by year")
     long = dataclasses.replace(make(), search_title="x" * 51)
     assert hubs.kaggle_metadata(fits, "o")["title"] == "Queensland road crash factors by year"
@@ -1025,8 +1006,6 @@ def test_the_search_title_leads_on_kaggle_when_it_fits():
 
 
 def test_every_dataset_is_tagged_tabular_and_by_its_topics():
-    import dataclasses
-
     tags = hubs.kaggle_tags(dataclasses.replace(make(), topics=("crime",)))
     assert tags[:3] == ["australia", "government", "tabular"]
     assert "crime" in tags
@@ -1079,8 +1058,6 @@ def test_read_site_refuses_what_the_register_does_not_authorise_before_reading_i
 
 
 def _with_formats(**sizes):
-    import dataclasses
-
     v = "https://publicdata.au/d/qld-road-crash-factors/v/2026-09-30/"
     files = {f: f"{v}data.{f}" for f in ("parquet", "csv", "json", "sqlite", "xlsx")}
     return dataclasses.replace(make(), files=files, sizes=sizes)
@@ -1154,8 +1131,6 @@ def test_the_record_is_saved_after_every_dataset(tmp_path):
 
 
 def test_the_hubs_command_writes_the_record_as_it_goes(tmp_path, monkeypatch):
-    from publicdata.__main__ import main
-
     rec = tmp_path / "hubs.json"
     rec.write_text('{"accounts": {}, "datasets": {"kept": {"h": "x"}}}')
     e = make()
@@ -1173,8 +1148,6 @@ def test_the_hubs_command_writes_the_record_as_it_goes(tmp_path, monkeypatch):
 
 
 def test_kaggle_uploads_carry_no_tags_and_the_settings_carry_them(tmp_path):
-    import dataclasses
-
     e = dataclasses.replace(make(), topics=("roads",))
     hubs.Kaggle("o", "tok").files(e, tmp_path, fake_fetch)
     assert json.loads((tmp_path / "dataset-metadata.json").read_text())["keywords"] == []
@@ -1182,8 +1155,6 @@ def test_kaggle_uploads_carry_no_tags_and_the_settings_carry_them(tmp_path):
 
 
 def test_kaggle_trims_tags_until_the_category_limit_is_met(tmp_path):
-    import dataclasses
-
     sent = tmp_path / "sent"
     cli, _, _ = kaggle_cli(
         tmp_path,

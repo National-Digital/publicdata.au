@@ -1,14 +1,20 @@
 import filecmp
+import json
 import re
+import shutil
 
 import pytest
 
-from publicdata import store
-from publicdata.build import build_dataset
+from publicdata import build, cache, published, r2, serialise, store
+from publicdata import cache as cache_mod
+from publicdata.__main__ import main
+from publicdata.build import build_dataset, cache_keys
 from publicdata.cache import PACKAGE, BuildCache, code_files
-from publicdata.register import Field
+from publicdata.dbcheck import compare
+from publicdata.gate import check
+from publicdata.register import Field, load
 
-from .conftest import make_dataset, make_manifest
+from .conftest import ROOT, make_dataset, make_manifest
 
 F = [Field("id", "Id", "integer"), Field("v", "V")]
 
@@ -18,8 +24,6 @@ def _tree(root):
 
 
 def _same(a, b):
-    from publicdata.dbcheck import compare
-
     assert _tree(a) == _tree(b)
     # A DuckDB file's bytes are not reproducible, so those are compared by content.
     files = [f for f in _tree(a) if not f.endswith("data.duckdb")]
@@ -38,8 +42,6 @@ def two_versions(tmp_path):
 
 
 def _without_sources(src, dst):
-    import shutil
-
     shutil.copytree(src, dst)
     for p in dst.rglob("source.*"):
         p.unlink()
@@ -51,8 +53,6 @@ def _reading(monkeypatch, out, published_tree):
 
     This is how the deploy reads them from R2.
     """
-    from publicdata import published
-
     monkeypatch.setattr(published, "current", published.Published(out, source=published_tree))
 
 
@@ -148,8 +148,6 @@ def test_the_check_covers_every_module_the_version_build_imports():
 
 
 def test_absolute_package_imports_are_followed(tmp_path, monkeypatch):
-    from publicdata import cache
-
     (tmp_path / "__init__.py").write_text("")
     (tmp_path / "build.py").write_text("import publicdata.a\nfrom publicdata.b import x\n")
     (tmp_path / "a.py").write_text("")
@@ -164,12 +162,6 @@ def test_absolute_package_imports_are_followed(tmp_path, monkeypatch):
 def test_a_warm_site_build_from_manifests_alone_matches_and_passes_the_gate(
     fixture_store, fixture_builds, register_dir, tmp_path
 ):
-    import json
-    import shutil
-
-    from publicdata.__main__ import main
-    from publicdata.gate import check
-
     s = tmp_path / "store"
     shutil.copytree(fixture_store, s)
     plain = fixture_builds[0]
@@ -193,8 +185,6 @@ def test_a_warm_site_build_from_manifests_alone_matches_and_passes_the_gate(
 
 
 def test_the_push_refuses_when_a_left_out_file_is_not_in_r2():
-    from publicdata import r2
-
     r2.check_expected(["d/x/v/2026-01-01/data.json"], {"d/x/v/2026-01-01/data.json"})
     with pytest.raises(SystemExit, match="not in R2"):
         r2.check_expected(["d/x/v/2026-01-01/data.json"], set())
@@ -207,8 +197,6 @@ def test_the_push_refuses_when_a_left_out_file_is_not_in_r2():
 
 
 def test_a_rebuild_prunes_the_old_entries_before_it_builds(two_versions, tmp_path):
-    from publicdata.build import cache_keys
-
     ds = make_dataset(F, key=("id",))
     root = tmp_path / "cache"
     build_dataset(ds, two_versions, tmp_path / "a", BuildCache(root))
@@ -220,11 +208,6 @@ def test_a_rebuild_prunes_the_old_entries_before_it_builds(two_versions, tmp_pat
 
 
 def _plain_and_cached(fixture_store, fixture_builds, tmp_path, formats=None):
-    import json
-    import shutil
-
-    from publicdata.__main__ import main
-
     plain, cold, shared = fixture_builds
     cache = tmp_path / "cache"
     if formats:
@@ -239,14 +222,6 @@ def _plain_and_cached(fixture_store, fixture_builds, tmp_path, formats=None):
 def test_a_cached_version_grows_into_new_formats_from_its_parquet(
     fixture_store, fixture_builds, tmp_path, monkeypatch, capsys
 ):
-    import json
-
-    from publicdata import build, serialise
-    from publicdata.__main__ import main
-    from publicdata.gate import check
-
-    from .conftest import ROOT
-
     plain, _cold, cache, _ = _plain_and_cached(
         fixture_store, fixture_builds, tmp_path, "ndjson,csv,parquet,sqlite,geojson"
     )
@@ -289,10 +264,6 @@ def test_a_cached_version_grows_into_new_formats_from_its_parquet(
 def test_a_changed_writer_rewrites_only_its_own_file(
     fixture_store, fixture_builds, tmp_path, monkeypatch, capsys
 ):
-    from publicdata import build
-    from publicdata import cache as cache_mod
-    from publicdata.__main__ import main
-
     plain, cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     real = cache_mod.writer_key
     monkeypatch.setattr(
@@ -325,11 +296,6 @@ def test_a_changed_writer_rewrites_only_its_own_file(
 def test_a_changed_parquet_writer_rebuilds_the_version(
     fixture_store, fixture_builds, register_dir, tmp_path, monkeypatch
 ):
-    from publicdata import build
-    from publicdata import cache as cache_mod
-    from publicdata.__main__ import main
-    from publicdata.register import load
-
     _plain, _cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     real = cache_mod.writer_key
     monkeypatch.setattr(
@@ -352,8 +318,6 @@ def test_a_changed_parquet_writer_rebuilds_the_version(
 
 
 def test_the_rows_key_leaves_the_writers_out_but_keeps_the_partition_writers():
-    from publicdata import cache as cache_mod
-
     files = {p.relative_to(cache_mod.PACKAGE).as_posix() for p in cache_mod.code_files()}
     assert "serialise/writers/json.py" in files
     assert "serialise/writers/geojson.py" in files
@@ -383,10 +347,6 @@ def test_the_rows_key_leaves_the_writers_out_but_keeps_the_partition_writers():
 
 
 def test_a_derived_formats_key_takes_in_the_writer_it_reads(tmp_path, monkeypatch):
-    import shutil
-
-    from publicdata import cache as cache_mod
-
     before = cache_mod.writer_key("csv.gz")
     shadow = tmp_path / "writers"
     shutil.copytree(cache_mod._writers_dir(), shadow)
@@ -396,8 +356,6 @@ def test_a_derived_formats_key_takes_in_the_writer_it_reads(tmp_path, monkeypatc
 
 
 def test_formats_must_be_known_and_keep_what_the_build_reads_back(fixture_store, tmp_path):
-    from publicdata.__main__ import main
-
     run = ["build", "--store", str(fixture_store), "--out", str(tmp_path / "o")]
     with pytest.raises(SystemExit, match="unknown"):
         main([*run, "--formats", "ndjson,parquet,docx"])
@@ -408,10 +366,6 @@ def test_formats_must_be_known_and_keep_what_the_build_reads_back(fixture_store,
 def test_a_limited_build_never_shrinks_a_full_entry(
     fixture_store, fixture_builds, tmp_path, capsys
 ):
-    import json
-
-    from publicdata.__main__ import main
-
     _plain, cold, cache, _ = _plain_and_cached(fixture_store, fixture_builds, tmp_path)
     run = ["build", "--store", str(fixture_store), "--cache", str(cache), "--published", str(cold)]
     assert main([*run, "--out", str(tmp_path / "few"), "--absent", str(tmp_path / "few.json"), "--formats", "ndjson,parquet"]) == 0  # fmt: skip
@@ -427,10 +381,6 @@ def test_a_limited_build_never_shrinks_a_full_entry(
 def test_cache_prune_drops_only_what_no_stored_version_uses(
     fixture_store, fixture_builds, tmp_path
 ):
-    import shutil
-
-    from publicdata.__main__ import main
-
     cache = tmp_path / "cache"
     shutil.copytree(fixture_builds[2], cache)
     kept = sorted(p.name for p in cache.iterdir())

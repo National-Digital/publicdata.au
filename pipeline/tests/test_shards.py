@@ -3,6 +3,7 @@ import shutil
 
 from publicdata import shards
 from publicdata.__main__ import main
+from publicdata.register import load
 
 
 def test_small_changes_build_in_one_job():
@@ -40,8 +41,6 @@ def _build(store, out, cache, *slugs, built=(), published=None):
 
 
 def test_shards_fill_the_cache_the_deploy_builds_from(fixture_store, tmp_path, register_dir):
-    from publicdata.register import load
-
     every = [d.slug for d in load(register_dir) if d.publishable]
     assert sorted(shards.weights(load(register_dir), fixture_store, tmp_path / "none")) == sorted(
         d.slug for d in load(register_dir)
@@ -70,8 +69,6 @@ def test_shards_fill_the_cache_the_deploy_builds_from(fixture_store, tmp_path, r
 
 
 def test_a_version_whose_writer_changed_is_still_to_build(fixture_store, tmp_path, register_dir):
-    from publicdata.register import load
-
     cache = tmp_path / "cache"
     _build(fixture_store, tmp_path / "o", cache)
     metas = [p for p in cache.glob("*/meta.json") if "writers" in json.loads(p.read_text())]

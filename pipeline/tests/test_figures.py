@@ -3,6 +3,8 @@ import sqlite3
 from types import SimpleNamespace
 
 from publicdata import figures
+from publicdata.register import Publisher
+from publicdata.site import RELATED_MAX, _related, _sample
 
 from .conftest import as_parquet, make_dataset
 
@@ -372,8 +374,6 @@ def test_a_figure_keeps_its_fraction_and_an_average_is_never_added_up(tmp_path):
 
 
 def test_the_sample_shows_the_newest_rows_with_each_partition_value_in_turn(tmp_path):
-    from publicdata.site import _sample
-
     db = _counts(tmp_path)
     ds = _counts_ds(partition_by=("severity",))
     s = _sample(ds, db)
@@ -405,8 +405,6 @@ def test_the_sample_shows_the_newest_rows_with_each_partition_value_in_turn(tmp_
 
 
 def test_a_table_with_no_year_or_partition_shows_its_first_rows(tmp_path):
-    from publicdata.site import _sample
-
     db = _counts(tmp_path)
     ds = make_dataset([SimpleNamespace(name="severity", type="string", display="Severity")])
     s = _sample(ds, db)
@@ -415,9 +413,6 @@ def test_a_table_with_no_year_or_partition_shows_its_first_rows(tmp_path):
 
 
 def test_related_datasets_share_subject_words_and_the_list_is_capped():
-    from publicdata.register import Publisher
-    from publicdata.site import RELATED_MAX, _related
-
     def out(slug, title, publisher, rows=1, topics=("water",)):
         ds = make_dataset(
             [],

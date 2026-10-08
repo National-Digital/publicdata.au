@@ -1,9 +1,15 @@
+import datetime as dt
+import gzip
 import io
 import json
 import os
 import re
+import socket
+import sqlite3
 import threading
 import urllib.parse
+import warnings
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -35,12 +41,9 @@ def _g_files():
 
     The CSV joins the suppressed names with ";" as the CSV writer joins them.
     """
-    import datetime as dt
-    import gzip
-
-    import pyarrow as pa
-    import pyarrow.csv as pcsv
-    import pyarrow.parquet as pq
+    import pyarrow as pa  # noqa: PLC0415 - the client's pandas extra
+    import pyarrow.csv as pcsv  # noqa: PLC0415 - the client's pandas extra
+    import pyarrow.parquet as pq  # noqa: PLC0415 - the client's pandas extra
 
     t = pa.table(
         {
@@ -140,8 +143,8 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
         if u.path == "/d/db/v/2026-08-07/tables/thing.parquet":
-            import pyarrow as pa
-            import pyarrow.parquet as pq
+            import pyarrow as pa  # noqa: PLC0415 - the client's pandas extra
+            import pyarrow.parquet as pq  # noqa: PLC0415 - the client's pandas extra
 
             buf = io.BytesIO()
             t = pa.table({"id": [7]}).replace_schema_metadata({"publicdata": json.dumps(META)})
@@ -283,8 +286,8 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps({"publicdata": header}).encode() + b"\n" + b'{"n":1}\n'
             return self.send(200, body, "application/x-ndjson")
         if u.path == "/d/a/v/2026-08-07/data.parquet":
-            import pyarrow as pa
-            import pyarrow.parquet as pq
+            import pyarrow as pa  # noqa: PLC0415 - the client's pandas extra
+            import pyarrow.parquet as pq  # noqa: PLC0415 - the client's pandas extra
 
             buf = io.BytesIO()
             header = {
@@ -442,7 +445,6 @@ def test_read_takes_provenance_from_the_file_it_read(client):
 def test_read_falls_back_to_the_gzipped_csv_typed_as_the_parquet_path(client, monkeypatch):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
-    import datetime as dt
 
     want = client.read("g", version="2026-08-07")
     monkeypatch.setattr(pd_au, "_parquet_module", lambda: None)
@@ -473,7 +475,6 @@ def test_read_falls_back_to_the_gzipped_csv_typed_as_the_parquet_path(client, mo
 
 def test_a_far_timestamp_is_never_made_a_null():
     pd = pytest.importorskip("pandas")
-    import datetime as dt
 
     col = pd.Series(["9999-12-31 00:00:00", None], dtype=object)
     out = pd_au._csv_column(col, "datetime")
@@ -497,8 +498,6 @@ def test_a_format_a_version_leaves_out_says_why(client, tmp_path):
 
 
 def test_an_unreachable_site_raises_the_packages_own_error():
-    import socket
-
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -640,7 +639,6 @@ def test_nothing_is_kept_unless_asked(client, tmp_path):
 def test_a_licence_condition_is_shown_once(client):
     with pytest.warns(pd_au.LicenceCondition, match="No mail lists"):
         client.aggregate("c")
-    import warnings
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -667,10 +665,8 @@ def test_relation_is_lazy_and_checks_the_table(client, tmp_path):
 
 def test_read_geo_reads_the_layer_and_its_provenance(client, tmp_path):
     gpd = pytest.importorskip("geopandas")
-    import sqlite3
-    from contextlib import closing
 
-    from shapely.geometry import Point
+    from shapely.geometry import Point  # noqa: PLC0415 - the client's geo extra
 
     src = tmp_path / "data.gpkg"
     gdf = gpd.GeoDataFrame({"id": [1, 2]}, geometry=[Point(153, -28), Point(151, -33)], crs=7844)
@@ -762,8 +758,8 @@ def test_codes_compare_as_text_with_leading_zeros():
 
 def test_join_boundaries_finds_the_layer_and_keeps_the_order(client, monkeypatch):
     gpd = pytest.importorskip("geopandas")
-    import pandas as pd
-    from shapely.geometry import box
+    import pandas as pd  # noqa: PLC0415 - the client's geo extra
+    from shapely.geometry import box  # noqa: PLC0415 - the client's geo extra
 
     b = gpd.GeoDataFrame(
         {"poa_2021_code": ["0800", "4220"], "poa_2021_name": ["0800", "4220"]},

@@ -1,7 +1,10 @@
 import json
+import re
 from pathlib import Path
 
+from publicdata import __main__ as cli
 from publicdata import catalogue, store
+from publicdata.publishers import PORTAL_JUR, load_curated, resolve
 
 
 class Resp:
@@ -200,7 +203,6 @@ def test_socrata_and_sdmx_records_fit_the_same_shape_and_vote_keys():
     assert act[0]["modified"] == "2026-08-21"
     assert abs_[0]["id"] == "abs-abs-census-g01"
     assert set(act[0]) == set(abs_[0])
-    import re
 
     assert all(re.match(r"^[a-z0-9][a-z0-9-]{1,63}$", r["id"]) for r in act + abs_)
 
@@ -282,8 +284,6 @@ def test_a_first_harvest_marks_an_unreadable_portal_as_not_read(tmp_path, monkey
 def test_a_harvest_that_cannot_finish_reports_failed_and_exits_non_zero(
     tmp_path, monkeypatch, capsys
 ):
-    from publicdata import __main__ as cli
-
     def boom(store_dir):
         msg = "snapshot not in the store"
         raise catalogue.PortalError(msg)
@@ -443,10 +443,6 @@ def test_a_portal_answering_an_odd_shape_is_kept_from_the_last_snapshot(monkeypa
 
 
 def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally():
-    import re
-
-    from publicdata.publishers import PORTAL_JUR, load_curated, resolve
-
     assert all(re.fullmatch(r"[a-z]+", p.code) for p in catalogue.PORTALS)
     assert len({p.code for p in catalogue.PORTALS}) == len(catalogue.PORTALS)
     replaced = [o for p in catalogue.PORTALS for o in p.replaces]

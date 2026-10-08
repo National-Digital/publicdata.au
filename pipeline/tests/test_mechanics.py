@@ -1,15 +1,21 @@
 import datetime as dt
+import inspect
 import io
+import json
+import json as _json
 import re
 
+import openpyxl
 import pytest
 import yaml
 
 from publicdata import fetch as f
 from publicdata import store
-from publicdata.normalise import XML_JOIN, read_xml
+from publicdata.normalise import XML_JOIN, NormaliseError, read_xlsx, read_xml
 from publicdata.register import (
     GRANTS,
+    LICENCE_CONDITIONS,
+    OPEN_LICENCES,
     Field,
     Licence,
     RegisterError,
@@ -67,8 +73,6 @@ def test_a_grant_file_is_named_by_its_id(tmp_path):
 
 
 def test_the_committed_grants_pass_and_join_the_open_licences():
-    from publicdata.register import LICENCE_CONDITIONS, OPEN_LICENCES
-
     assert {"RBA-COPYRIGHT-NOTICE", "OPEN-GNAF-EULA"} <= set(GRANTS)
     assert OPEN_LICENCES["RBA-COPYRIGHT-NOTICE"] == (
         "RBA copyright notice",
@@ -146,8 +150,6 @@ def test_a_fetch_refuses_a_licence_read_with_no_place_or_time(tmp_path, monkeypa
 
 
 def test_every_adapter_records_where_it_read_the_licence():
-    import inspect
-
     for name, fn in f.ADAPTERS.items():
         src = inspect.getsource(fn)
         assert any(k in src for k in ("_licence(", "statement_licence(", "read_from")), name
@@ -188,8 +190,6 @@ def test_page_links_are_absolute_once_each_and_matched_decoded():
 
 
 def _xlsx(rows):
-    import openpyxl
-
     wb = openpyxl.Workbook()
     for r in rows:
         wb.active.append(r)
@@ -300,7 +300,6 @@ def test_an_xml_record_becomes_one_row_with_attributes_and_repeats_joined():
     assert rows[0]["criterion@type"] == f"A{XML_JOIN}D"
     assert rows[1]["@site_id"] == ""
     assert rows[1]["alias"] == "Old hall"
-    from publicdata.normalise import NormaliseError
 
     with pytest.raises(NormaliseError, match="no <site>"):
         read_xml(XML.encode("utf-8"), "site")
@@ -338,8 +337,6 @@ def test_a_file_url_with_no_extension_is_named_by_its_declared_format(tmp_path, 
 
 
 def test_a_capped_wfs_is_read_page_by_page_into_one_file(tmp_path, monkeypatch):
-    import json as _json
-
     ds = make_dataset(
         [Field("a", "a")],
         licence=Licence("CC-BY-4.0", "https://p/c", "a", statement="CC BY 4.0"),
@@ -383,8 +380,6 @@ def test_a_resource_served_through_a_page_script_is_named_by_its_file():
 def test_a_stack_can_name_each_rows_file_and_a_repeated_header_stays_distinct(
     tmp_path, monkeypatch
 ):
-    from publicdata.normalise import read_xlsx
-
     t = read_xlsx(_xlsx([["Rank", "Name", "Rank", "Name"], [1, "Ava", 1, "Leo"]]), "", 1)
     assert t.column_names == ["Rank", "Name", "Rank (2)", "Name (2)"]
     ds = make_dataset(
@@ -455,8 +450,6 @@ def test_a_stack_keeps_a_repeated_header_as_two_columns(tmp_path, monkeypatch):
 
 
 def test_a_reordered_export_with_the_same_rows_is_no_new_version(tmp_path, monkeypatch):
-    from publicdata import store
-
     ds = make_dataset(
         [Field("a", "a"), Field("b", "b")], source=Source(adapter="file", url="https://e/f.csv")
     )
@@ -482,8 +475,6 @@ def test_a_reordered_export_with_the_same_rows_is_no_new_version(tmp_path, monke
 
 
 def test_an_export_with_no_rows_never_replaces_one_that_had_some(tmp_path, monkeypatch):
-    from publicdata import store
-
     ds = make_dataset(
         [Field("a", "a"), Field("b", "b")], source=Source(adapter="file", url="https://e/f.csv")
     )
@@ -511,8 +502,6 @@ def test_a_manifest_without_a_rows_digest_keeps_its_bytes():
 
 
 def test_a_polygon_layers_row_digest_follows_each_rows_own_shape():
-    import json
-
     ds = make_dataset(
         [Field("code", "CODE"), Field("name", "NAME")],
         geometry={"kind": "polygon", "crs": "EPSG:7844"},

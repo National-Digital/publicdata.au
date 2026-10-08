@@ -1,8 +1,15 @@
+import dataclasses
+import hashlib
 import json
 import re
+import shutil
 import subprocess
 
-from publicdata import brand
+import pytest
+
+from publicdata import brand, store
+from publicdata.__main__ import main
+from publicdata.cache import BuildCache
 from publicdata.gate import _png_size
 
 from .conftest import ROOT
@@ -78,13 +85,6 @@ def test_every_page_names_its_card_and_the_manifest_its_icons(fixture_site):
 
 
 def test_an_older_version_page_carries_its_own_card(fixture_store, tmp_path):
-    import dataclasses
-    import hashlib
-    import shutil
-
-    from publicdata import store
-    from publicdata.__main__ import main
-
     s = tmp_path / "store"
     shutil.copytree(fixture_store, s)
     slug = "qld-road-casualties"
@@ -113,8 +113,6 @@ def test_an_older_version_page_carries_its_own_card(fixture_store, tmp_path):
 
 
 def test_a_card_is_drawn_once_and_again_only_when_its_words_change(tmp_path, monkeypatch):
-    from publicdata.cache import BuildCache
-
     drawn = []
     real = brand._card
     monkeypatch.setattr(brand, "_card", lambda *a: drawn.append(a) or real(*a))
@@ -135,8 +133,6 @@ def test_a_card_is_drawn_once_and_again_only_when_its_words_change(tmp_path, mon
 def test_card_entries_outlast_the_first_prune_and_the_last_drops_the_unused(
     fixture_store, tmp_path
 ):
-    from publicdata.__main__ import main
-
     cache = tmp_path / "cache"
     run = ["build", "--store", str(fixture_store), "--cache", str(cache)]
     assert main([*run, "--out", str(tmp_path / "a"), "--absent", str(tmp_path / "a.json")]) == 0

@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from publicdata import api_text as at
-from publicdata import register
+from publicdata import gate, register
+from publicdata import site as site_module
 
 from .conftest import ROOT
 
@@ -171,8 +172,6 @@ def test_the_release_version_reaches_every_output(site, monkeypatch):
 
 
 def test_every_queryable_dataset_is_an_mcp_resource(site, tmp_path):
-    from publicdata import gate
-
     listed = json.loads((site / "mcp" / "resources.json").read_text(encoding="utf-8"))["resources"]
     assert listed
     assert not gate._mcp_resources(site)
@@ -192,7 +191,6 @@ def test_every_queryable_dataset_is_an_mcp_resource(site, tmp_path):
 def test_the_directory_listing_is_built_from_the_site_text_and_fits_the_forms(site):
     got = json.loads((site / "mcp" / "listing.json").read_text(encoding="utf-8"))
     assert got == at.directory_listing()
-    from publicdata import gate
 
     assert not gate._mcp_listing(site), "shorten a tool description or the site summary"
     over = site.parent / "over"
@@ -274,9 +272,7 @@ def test_the_terms_page_is_linked_everywhere_a_directory_looks(site):
 
 
 def test_the_terms_date_moves_with_the_terms_text():
-    from publicdata import site
-
-    assert site.terms_hash() == site.TERMS_CHANGED[1], (
+    assert site_module.terms_hash() == site_module.TERMS_CHANGED[1], (
         "The terms text changed: set TERMS_CHANGED in site.py to today's date and "
-        f"hash {site.terms_hash()}"
+        f"hash {site_module.terms_hash()}"
     )

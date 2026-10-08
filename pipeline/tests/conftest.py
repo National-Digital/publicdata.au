@@ -1,11 +1,16 @@
+import hashlib
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
+from publicdata.__main__ import main
 from publicdata.register import Dataset, Licence, Publisher, Source
 from publicdata.store import Manifest
 
@@ -87,8 +92,6 @@ def site_copy(fixture_site, tmp_path) -> Path:
 @pytest.fixture(scope="session")
 def fixture_builds(tmp_path_factory, fixture_site):
     """The plain build (the shared fixture site) and a cold cached build of the same store."""
-    from publicdata.__main__ import main
-
     root = tmp_path_factory.mktemp("fixture-builds")
     store = Path(__file__).parent / "fixtures" / "store"
     plain, cold, cache = fixture_site, root / "cold", root / "cache"
@@ -115,8 +118,6 @@ def make_dataset(fields, **kw) -> Dataset:
 
 
 def make_manifest(data: bytes, **kw) -> Manifest:
-    import hashlib
-
     base = {
         "dataset": "t",
         "version": "2026-01-02",
@@ -142,11 +143,6 @@ def as_parquet(db: Path) -> Path:
 
     It is typed from its declared columns, which is what the build reads now.
     """
-    import sqlite3
-
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
     types = {"INTEGER": pa.int64(), "REAL": pa.float64(), "TEXT": pa.string()}
     con = sqlite3.connect(db)
     cols = con.execute("PRAGMA table_info(records)").fetchall()

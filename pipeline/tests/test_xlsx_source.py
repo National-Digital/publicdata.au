@@ -5,11 +5,13 @@ from dataclasses import replace
 import pyarrow as pa
 import pytest
 import xlsxwriter
+import yaml
 
 from publicdata import fetch, normalise
-from publicdata.register import Field
+from publicdata import normalise as nz
+from publicdata.register import Field, RegisterError, load
 
-from .conftest import ROOT
+from .conftest import ROOT, make_dataset, make_manifest
 
 
 def workbook() -> bytes:
@@ -83,8 +85,6 @@ def test_an_exact_portal_licence_id_is_compared_as_stated():
 
 
 def test_a_file_replaced_inside_one_resource_is_dated_by_the_resource_metadata(tmp_path):
-    from publicdata.register import load
-
     ds = next(d for d in load(ROOT / "register") if d.slug == "au-road-deaths")
     body = workbook()
 
@@ -146,14 +146,9 @@ def wide_workbook() -> bytes:
 
 
 def test_a_wide_table_of_dated_columns_unpivots_to_one_row_per_cell():
-    from publicdata.normalise import normalise
-    from publicdata.register import load
-
-    from .conftest import ROOT, make_manifest
-
     ds = next(d for d in load(ROOT / "register") if d.slug == "nsw-recorded-crime-by-lga")
     data = wide_workbook()
-    t = normalise(
+    t = normalise.normalise(
         ds, make_manifest(data, filename="RCI_offencebymonth.xlsm", encoding="xlsx"), data
     )
     rows = t.table.to_pylist()
@@ -165,7 +160,6 @@ def test_a_wide_table_of_dated_columns_unpivots_to_one_row_per_cell():
     ]
     assert rows[2]["subcategory"] is None
     assert t.unknown_columns == ["Notes"]  # a new column that is not a month is held, not published
-    from publicdata import normalise as nz
 
     with pytest.raises(nz.NormaliseError, match="no dated columns"):
         nz.unpivot(
@@ -177,12 +171,6 @@ def test_a_wide_table_of_dated_columns_unpivots_to_one_row_per_cell():
 
 
 def test_unpivot_needs_one_header_field_and_one_cell_field(tmp_path):
-    import yaml
-
-    from publicdata.register import RegisterError, load
-
-    from .conftest import ROOT
-
     raw = yaml.safe_load((ROOT / "register" / "nsw-recorded-crime-by-lga.yaml").read_text())
     raw["fields"] = [f for f in raw["fields"] if f["source"] != "(cell)"]
     raw["key"] = ["lga", "offence_category", "subcategory", "month"]
@@ -192,8 +180,6 @@ def test_unpivot_needs_one_header_field_and_one_cell_field(tmp_path):
 
 
 def test_a_later_file_date_than_the_portal_dates_the_version(tmp_path):
-    from publicdata.register import load
-
     ds = next(d for d in load(ROOT / "register") if d.slug == "nsw-recorded-crime-by-lga")
     body = wide_workbook()
     res = {
@@ -262,8 +248,6 @@ def presentation_workbook() -> bytes:
 
 
 def wide_dataset(**kw):
-    from .conftest import make_dataset
-
     fields = [
         Field("property_type", "(sheet)"),
         Field("region", "(row header 1)"),
@@ -285,8 +269,6 @@ def wide_dataset(**kw):
 
 
 def test_a_presentation_table_reads_one_row_per_group_of_cells():
-    from .conftest import make_manifest
-
     data = presentation_workbook()
     t = normalise.normalise(
         wide_dataset(), make_manifest(data, filename="rents.xlsx", encoding="xlsx"), data
@@ -326,12 +308,6 @@ def test_a_presentation_table_reads_one_row_per_group_of_cells():
 
 
 def test_a_wide_table_names_every_value_it_reads(tmp_path):
-    import yaml
-
-    from publicdata.register import RegisterError, load
-
-    from .conftest import ROOT
-
     base = yaml.safe_load((ROOT / "register" / "nsw-recorded-crime-by-lga.yaml").read_text())
     base.pop("unpivot")
     base.pop("key")
@@ -383,8 +359,6 @@ def test_a_wide_table_names_every_value_it_reads(tmp_path):
 
 
 def test_a_wide_table_reads_only_the_columns_its_pattern_names():
-    from .conftest import make_dataset, make_manifest
-
     buf = io.BytesIO()
     wb = xlsxwriter.Workbook(buf, {"in_memory": True})
     ws = wb.add_worksheet("Sheet1")

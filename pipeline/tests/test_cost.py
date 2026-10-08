@@ -1,14 +1,20 @@
 import datetime as dt
+import gzip
+import http.client
+import io
 import json
 import subprocess
 import urllib.error
+import zipfile
 from dataclasses import replace
 
 import pytest
 
-from publicdata import cache, cadence, cost
+from publicdata import cache, cadence, cost, fetch
 from publicdata.__main__ import main
-from publicdata.register import Field, Source
+from publicdata.build import _size
+from publicdata.d1 import queryable
+from publicdata.register import Field, Source, load
 
 from .conftest import ROOT, make_dataset, make_manifest
 
@@ -271,8 +277,6 @@ def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
 
 
 def test_a_ckan_entry_is_probed_at_the_resource_it_resolves_to(monkeypatch):
-    from publicdata import fetch
-
     ds = make_dataset([Field("a", "string")], source=Source(adapter="ckan-resource",
         url="https://example.gov.au/dataset/p", portal="https://example.gov.au", package="p", resource="r1"))  # fmt: skip
     resources = [
@@ -602,10 +606,6 @@ def test_the_fleet_counts_storage_cumulatively_and_d1_rows():
 
 
 def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
-    from publicdata.build import _size
-    from publicdata.d1 import queryable
-    from publicdata.register import load
-
     health = json.loads((fixture_site / "health.json").read_text("utf-8"))
     s = health["storage"]
     assert not any("usd" in k for k in s)
@@ -646,8 +646,6 @@ class Host:
         self.body, self.ranges, self.drops, self.calls = body, ranges, drops, 0
 
     def __call__(self, req, timeout):
-        import http.client
-
         self.calls += 1
         if self.drops:
             self.drops -= 1
@@ -666,8 +664,6 @@ class Host:
 
 class _Resp:
     def __init__(self, status, headers, body):
-        import io
-
         self.status, self.headers, self._b = status, headers, io.BytesIO(body)
 
     def read(self, n=-1):
@@ -681,9 +677,6 @@ class _Resp:
 
 
 def _zip(members: dict[str, bytes]) -> bytes:
-    import io
-    import zipfile
-
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in members.items():
@@ -718,8 +711,6 @@ def test_a_host_without_ranges_falls_back_to_the_compressed_multiplier(monkeypat
 
 
 def test_a_gzip_is_sized_from_its_trailer(monkeypatch, no_sleep):
-    import gzip
-
     body = gzip.compress(b"a,b\n" * 100_000)
     monkeypatch.setattr(cost.urllib.request, "urlopen", Host(body))
     assert cost.unpacked_bytes("https://example.gov.au/f.csv.gz", len(body), "gzip", 5) == 400_000

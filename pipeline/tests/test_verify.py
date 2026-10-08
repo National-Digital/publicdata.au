@@ -1,13 +1,31 @@
+import shutil
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
-from publicdata import build, store
+from publicdata import build, published, register, serialise, store, verify
 from publicdata import cache as cache_mod
-from publicdata.build import build_dataset
-from publicdata.cache import BuildCache, entry_key
-from publicdata.register import Field
-from publicdata.verify import check, sample, unkeyed
+from publicdata.__main__ import main
+from publicdata.build import build_dataset, version_key
+from publicdata.cache import PACKAGE, BuildCache, entry_key, writer_files, writer_key
+from publicdata.published import Published
+from publicdata.register import Field, load
+from publicdata.serialise import WRITERS, duckdb_connect, duckdb_digest
+from publicdata.spine import spine_versions
+from publicdata.verify import (
+    REPO,
+    _stratum,
+    bumped,
+    changed_defaults,
+    check,
+    checked_versions,
+    run,
+    sample,
+    source_bytes,
+    uncovered,
+    unkeyed,
+)
 
 from .conftest import make_dataset, make_manifest
 
@@ -47,8 +65,6 @@ def _changed_normalise(monkeypatch):
 
 
 def test_the_key_reads_no_build_module_but_the_partition_writers(monkeypatch):
-    from pathlib import Path
-
     read, real = [], Path.read_bytes
     monkeypatch.setattr(Path, "read_bytes", lambda p: read.append(p.name) or real(p))
     cache_mod.environment_key()
@@ -148,8 +164,6 @@ def test_the_check_leaves_a_changed_writers_file_to_the_deploy(two_datasets, tmp
 def test_the_command_passes_on_the_fixture_store_built_by_the_deploy(
     fixture_store, fixture_builds, tmp_path, capsys
 ):
-    from publicdata.__main__ import main
-
     _plain, cold, cache = fixture_builds
     run = ["verify", "run", "--store", str(fixture_store), "--cache", str(cache)]
     assert main([*run, "--published", str(cold), "--out", str(tmp_path / "v")]) == 0
@@ -160,8 +174,6 @@ def test_the_command_passes_on_the_fixture_store_built_by_the_deploy(
 def test_the_command_fails_and_names_the_entry_to_bump(
     fixture_store, fixture_builds, tmp_path, monkeypatch, capsys
 ):
-    from publicdata.__main__ import main
-
     _plain, cold, cache = fixture_builds
     _changed_normalise(monkeypatch)
     slug = "qld-road-crash-factors"
@@ -173,8 +185,6 @@ def test_the_command_fails_and_names_the_entry_to_bump(
 
 
 def test_a_dataset_the_new_code_cannot_build_fails_the_check(two_datasets, tmp_path, monkeypatch):
-    from publicdata.verify import run
-
     s, t, u = two_datasets
     root = _build([t, u], s, tmp_path / "a", tmp_path / "cache").root
     real = build.normalise
@@ -207,9 +217,6 @@ def test_only_an_edit_outside_the_keys_needs_the_check():
 
 
 def test_the_sample_covers_each_stratum_within_its_budget(fixture_store, register_dir):
-    from publicdata.register import load
-    from publicdata.verify import _stratum, source_bytes
-
     every = 10**12
     datasets = [
         d for d in load(register_dir) if d.kind != "database" and source_bytes(d, fixture_store)
@@ -236,8 +243,6 @@ def test_the_sample_covers_each_stratum_within_its_budget(fixture_store, registe
 
 
 def test_the_check_compares_what_the_duckdb_file_holds(two_datasets, tmp_path, monkeypatch):
-    from publicdata import serialise
-
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     monkeypatch.setitem(serialise.DUCKDB_TYPES, "string", "BLOB")
@@ -277,11 +282,6 @@ def test_a_format_the_code_no_longer_makes_is_left_to_the_deploy(
 
 
 def test_each_parquet_writer_keys_only_the_datasets_that_run_it(monkeypatch):
-    from pathlib import Path
-
-    from publicdata.cache import writer_files, writer_key
-    from publicdata.serialise import WRITERS
-
     assert {p.name for p in writer_files("parquet", shape=True)} == {"geo_parquet.py"}
     assert {p.name for p in writer_files("parquet", shape=False)} == {"parquet.py"}
     assert {p.name for p in writer_files("csv.gz")} == {"csv.py", "csv_gz.py"}
@@ -299,8 +299,6 @@ def test_each_parquet_writer_keys_only_the_datasets_that_run_it(monkeypatch):
 
 
 def test_only_a_dataset_that_loads_the_spatial_extension_is_keyed_on_it(monkeypatch, tmp_path):
-    from publicdata.build import version_key
-
     cache = BuildCache(tmp_path / "cache")
     table = make_dataset(F, key=("id",))
     layer = replace(table, geometry={"kind": "point", "lat": "a", "lon": "b"})
@@ -323,10 +321,6 @@ def test_a_job_with_another_spatial_build_than_the_plan_stops(monkeypatch):
 
 
 def test_a_database_is_keyed_on_the_module_only_it_runs(monkeypatch, tmp_path):
-    from pathlib import Path
-
-    from publicdata.build import version_key
-
     cache = BuildCache(tmp_path / "cache")
     table = make_dataset(F, key=("id",))
     db = replace(table, slug="g", kind="database")
@@ -342,8 +336,6 @@ def test_a_database_is_keyed_on_the_module_only_it_runs(monkeypatch, tmp_path):
 
 
 def test_a_grant_files_wording_is_in_the_key(monkeypatch):
-    from publicdata import register
-
     ds = make_dataset(F, key=("id",))
     before = entry_key(ds)
     lid = ds.licence.id
@@ -355,10 +347,6 @@ def test_a_grant_files_wording_is_in_the_key(monkeypatch):
 
 
 def test_a_joined_dataset_is_keyed_on_its_layers_register_entry(register_dir, tmp_path):
-    import shutil
-
-    from publicdata.spine import spine_versions
-
     reg = tmp_path / "register"
     reg.mkdir()
     shutil.copy(register_dir / "abs-lga-2025.yaml", reg / "abs-lga-2025.yaml")
@@ -369,9 +357,6 @@ def test_a_joined_dataset_is_keyed_on_its_layers_register_entry(register_dir, tm
 
 
 def test_a_changed_register_default_needs_the_global_number(tmp_path):
-    from publicdata.cache import PACKAGE
-    from publicdata.verify import changed_defaults
-
     reg = (PACKAGE / "register.py").read_text(encoding="utf-8")
     cache_src = (PACKAGE / "cache.py").read_text(encoding="utf-8")
     before = tmp_path / "before"
@@ -414,14 +399,10 @@ def _old_r2(t, s, tmp_path, monkeypatch):
 
 
 def _publishing(out, r2):
-    from publicdata import published
-
     published.current = published.Published(out, [], r2)
 
 
 def test_old_bytes_in_r2_are_no_difference(two_datasets, tmp_path, monkeypatch):
-    from publicdata import published
-
     s, t, _u = two_datasets
     r2 = _old_r2(t, s, tmp_path, monkeypatch)
     t = replace(t, rebuild=1)
@@ -444,8 +425,6 @@ def test_old_bytes_in_r2_are_no_difference(two_datasets, tmp_path, monkeypatch):
 def test_a_format_grown_from_old_bytes_in_r2_is_made_again_from_them(
     two_datasets, tmp_path, monkeypatch
 ):
-    from publicdata import published, serialise
-
     s, t, _u = two_datasets
     r2 = _old_r2(t, s, tmp_path, monkeypatch)
     t = replace(t, rebuild=1)
@@ -462,7 +441,6 @@ def test_a_format_grown_from_old_bytes_in_r2_is_made_again_from_them(
         _publishing(tmp_path / "v", r2)
         assert check(t, s, BuildCache(cache.root), tmp_path / "v") == ([], 2, 0)
         # A change to what the grown files hold, outside the writer's key, is still found.
-        from publicdata import verify
 
         keys = cache_mod.writer_keys()
         monkeypatch.setattr(cache_mod, "writer_keys", lambda shape=False: keys)
@@ -481,8 +459,6 @@ def test_a_format_grown_from_old_bytes_in_r2_is_made_again_from_them(
 
 
 def test_the_published_copy_is_read_beside_what_the_build_made(tmp_path):
-    from publicdata.published import Published
-
     out = tmp_path / "out"
     (out / "d").mkdir(parents=True)
     (out / "d" / "x").write_bytes(b"new")
@@ -510,8 +486,6 @@ def test_the_published_copy_is_read_beside_what_the_build_made(tmp_path):
 def test_a_change_across_datasets_asks_for_the_global_number(
     two_datasets, tmp_path, monkeypatch, capsys
 ):
-    from publicdata.verify import run
-
     s, t, u = two_datasets
     root = _build([t, u], s, tmp_path / "a", tmp_path / "cache").root
     _changed_normalise(monkeypatch)
@@ -522,8 +496,6 @@ def test_a_change_across_datasets_asks_for_the_global_number(
 
 
 def test_a_large_dataset_is_checked_on_its_newest_versions(two_datasets, tmp_path, monkeypatch):
-    from publicdata.verify import checked_versions
-
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     ms = store.manifests(s, "t")
@@ -540,14 +512,10 @@ def test_a_large_dataset_is_checked_on_its_newest_versions(two_datasets, tmp_pat
 
 
 def source_bytes_of(ds, s, cap):
-    from publicdata.verify import source_bytes
-
     return source_bytes(ds, s, cap)
 
 
 def test_a_raised_rebuild_number_is_always_in_the_sample(two_datasets, tmp_path):
-    from publicdata.verify import REPO, bumped
-
     s, t, u = two_datasets
     t = replace(t, rebuild=2, path=str(REPO / "register" / "t.yaml"))
     u = replace(u, path=str(REPO / "register" / "u.yaml"))
@@ -560,8 +528,6 @@ def test_a_raised_rebuild_number_is_always_in_the_sample(two_datasets, tmp_path)
 
 
 def test_the_plan_names_the_strata_the_sample_leaves_out(two_datasets):
-    from publicdata.verify import uncovered
-
     s, t, u = two_datasets
     u = replace(u, sort=("id",))
     assert uncovered([t, u], s, ["t"])
@@ -586,8 +552,6 @@ def test_the_manifest_is_compared_beyond_its_sizes_when_a_writer_changed(tmp_pat
 
 
 def test_the_duckdb_digest_sees_row_order_and_block_size(tmp_path):
-    from publicdata.serialise import duckdb_connect, duckdb_digest
-
     def write(name, rows, n):
         con = duckdb_connect(tmp_path / name, n)
         con.execute("CREATE TABLE records (a INTEGER)")

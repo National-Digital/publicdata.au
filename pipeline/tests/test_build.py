@@ -1,16 +1,35 @@
 import filecmp
+import gzip
+import io
 import json
 import shutil
 import sqlite3
+import zipfile
 from pathlib import Path
 
+import duckdb
+import pyarrow.feather as pf
 import pyarrow.parquet as pq
 
+from publicdata import serialise
+from publicdata.__main__ import main
 from publicdata.build import build_dataset
+from publicdata.database import build_database
 from publicdata.dbcheck import compare
-from publicdata.register import load
+from publicdata.gate import check
+from publicdata.register import load, parse
+from publicdata.serialise import (
+    CAPS,
+    EXCEL_MAX_ROWS,
+    cappable,
+    duckdb_digest,
+    formats_for,
+    legacy_left_out,
+    over_cap,
+)
+from publicdata.store import Manifest
 
-from .conftest import read_json
+from .conftest import make_manifest, read_json
 
 
 def _tree(root):
@@ -68,9 +87,6 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
 def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
     register_dir, fixture_store, tmp_path
 ):
-    import gzip
-    import zipfile
-
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
     outs = []
     for name in ("a", "b"):
@@ -135,8 +151,6 @@ def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
 def test_a_version_fetched_before_the_caps_keeps_its_arrow_file(
     register_dir, fixture_store, tmp_path
 ):
-    import pyarrow.feather as pf
-
     ds = {d.slug: d for d in load(register_dir)}["qld-road-casualties"]
     build_dataset(ds, fixture_store, tmp_path)
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
@@ -151,10 +165,6 @@ def test_a_version_fetched_before_the_caps_keeps_its_arrow_file(
 
 
 def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_path, monkeypatch):
-    from publicdata import serialise
-    from publicdata.gate import check
-    from publicdata.serialise import formats_for
-
     monkeypatch.setattr(serialise, "EXCEL_MAX_ROWS", 100)
     assert "xlsx" not in formats_for(300, False)
     assert "xlsx" in formats_for(100, False)
@@ -169,9 +179,6 @@ def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_p
 
 
 def test_json_and_geojson_skip_the_row_limit_before_the_caps(monkeypatch):
-    from publicdata import serialise
-    from publicdata.serialise import formats_for, legacy_left_out
-
     monkeypatch.setattr(serialise, "JSON_MAX_ROWS", 100)
     assert {"json", "geojson"} & set(formats_for(300, True)) == set()
     assert {"json", "geojson", "gpkg", "arrow"} <= set(formats_for(100, True))
@@ -180,8 +187,6 @@ def test_json_and_geojson_skip_the_row_limit_before_the_caps(monkeypatch):
 
 
 def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
-    from publicdata.serialise import CAPS, EXCEL_MAX_ROWS, cappable, formats_for, over_cap
-
     assert cappable(False) == ["sqlite", "xlsx", "json"]
     assert cappable(True) == ["sqlite", "geojson", "xlsx", "json"]
     assert cappable("polygon") == ["sqlite", "geojson", "xlsx", "json"]
@@ -219,8 +224,6 @@ def test_the_caps_decide_by_the_measured_sizes_and_a_record_fixes_the_set():
 def test_a_layers_geojson_is_measured_on_its_own_bytes(
     register_dir, fixture_store, tmp_path, monkeypatch
 ):
-    from publicdata import serialise
-
     ds = {d.slug: d for d in load(register_dir)}["abs-lga-2025"]
     build_dataset(ds, fixture_store, tmp_path)
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-05-14"
@@ -246,9 +249,6 @@ def test_a_layers_geojson_is_measured_on_its_own_bytes(
 def test_a_published_versions_format_set_never_moves(
     register_dir, fixture_store, tmp_path, monkeypatch
 ):
-    from publicdata import serialise
-    from publicdata.gate import check
-
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
     build_dataset(ds, fixture_store, tmp_path)
@@ -279,10 +279,6 @@ def test_a_published_versions_format_set_never_moves(
 def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
     register_dir, fixture_store, tmp_path, monkeypatch
 ):
-    from publicdata import serialise
-    from publicdata.__main__ import main
-    from publicdata.gate import check
-
     monkeypatch.setitem(serialise.CAPS, "json", ("ndjson", 1_000))
     monkeypatch.setitem(serialise.CAPS, "geojson", ("geojson", 1_000))
     out = tmp_path / "dist"
@@ -338,8 +334,6 @@ def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
 def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
     register_dir, fixture_store, tmp_path
 ):
-    import duckdb
-
     ds = {d.slug: d for d in load(register_dir)}["gnaf"]
     outs = []
     for name in ("a", "b"):
@@ -414,10 +408,6 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
 def test_a_table_version_carries_a_duckdb_file_with_typed_columns_and_provenance(
     register_dir, fixture_store, tmp_path
 ):
-    import duckdb
-
-    from publicdata.serialise import duckdb_digest
-
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-factors"]
     build_dataset(ds, fixture_store, tmp_path)
     path = tmp_path / "d" / ds.slug / "v" / "2026-04-24" / "data.duckdb"
@@ -443,16 +433,6 @@ def test_a_table_version_carries_a_duckdb_file_with_typed_columns_and_provenance
 
 
 def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_path):
-    import io
-    import zipfile
-
-    import duckdb
-
-    from publicdata.database import build_database
-    from publicdata.register import parse
-
-    from .conftest import make_manifest
-
     raw = {
         "slug": "tabbed",
         "kind": "database",
@@ -522,8 +502,6 @@ def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_pat
 
 
 def test_a_manifest_with_a_field_this_code_does_not_know_still_reads(tmp_path):
-    from publicdata.store import Manifest
-
     src = Path(__file__).parent / "fixtures" / "store" / "qld-road-crash-factors" / "2026-04-24"
     d = read_json(src / "manifest.json")
     (tmp_path / "manifest.json").write_text(json.dumps({**d, "later": 2}), encoding="utf-8")
@@ -533,8 +511,6 @@ def test_a_manifest_with_a_field_this_code_does_not_know_still_reads(tmp_path):
 
 
 def test_a_limited_build_measures_what_it_does_not_keep(register_dir, fixture_store, tmp_path):
-    from publicdata import serialise
-
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-locations"]
     serialise.LIMIT = {"ndjson", "parquet"}
     try:

@@ -1,12 +1,16 @@
 import json
 import re
+import sqlite3
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
+from publicdata.d1 import SERVED, catalogue_loads, served_loads
+from publicdata.directory import locate, plan, render, search_rows
 from publicdata.publishers import Publisher, clean_title, load_curated, resolve, slugify
-from publicdata.register import RegisterError
+from publicdata.register import RegisterError, load
 
 
 def rec(portal, org, title, **kw):
@@ -195,10 +199,6 @@ def test_template_copy_has_no_stray_escapes(site):
 
 
 def test_a_pasted_url_is_read_the_way_functions_catalogue_reads_it():
-    from pathlib import Path
-
-    from publicdata.directory import locate
-
     cases = json.loads((Path(__file__).parent / "fixtures" / "locate.json").read_text())
     for c in cases:
         hit = locate(c["url"])
@@ -206,9 +206,6 @@ def test_a_pasted_url_is_read_the_way_functions_catalogue_reads_it():
 
 
 def test_a_live_entry_marks_the_record_its_source_url_names_as_served():
-    from publicdata.directory import plan, search_rows
-    from publicdata.register import load
-
     reg = {d.slug: d for d in load(__import__("publicdata.__main__").__main__.REGISTER)}
     rec = {
         "kind": "dataflow",
@@ -232,9 +229,6 @@ def test_a_live_entry_marks_the_record_its_source_url_names_as_served():
 
 
 def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
-    from publicdata.directory import plan, render, search_rows
-    from publicdata.register import load
-
     reg = {d.slug: d for d in load(__import__("publicdata.__main__").__main__.REGISTER)}
     base = {
         "kind": "dataset",
@@ -305,10 +299,6 @@ def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
 
 
 def test_the_search_index_holds_every_listed_record_and_loads_once_per_harvest(site, tmp_path):
-    import sqlite3
-
-    from publicdata.d1 import catalogue_loads
-
     path = site.parent / "search.sqlite"
     db = sqlite3.connect(path)
     states = dict(db.execute("SELECT state, COUNT(*) FROM records GROUP BY state").fetchall())
@@ -336,10 +326,6 @@ def test_the_search_index_holds_every_listed_record_and_loads_once_per_harvest(s
 
 
 def test_the_served_index_loads_when_the_register_changes_and_answers_a_search(site, tmp_path):
-    import sqlite3
-
-    from publicdata.d1 import SERVED, served_loads
-
     path = site.parent / "search.sqlite"
     src = sqlite3.connect(path)
     (version,) = src.execute("SELECT value FROM publicdata WHERE key = 'served_version'").fetchone()
