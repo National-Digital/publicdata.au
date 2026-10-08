@@ -23,6 +23,10 @@ FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
 
 
 def cmd_register(args) -> int:
+    from . import store  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .validate import int32_misfits  # noqa: PLC0415 - CLI start-up
+
     ds = load(REGISTER)
     for d in ds:
         print(f"{d.status:9s} {d.slug:40s} {d.licence.id:14s} {d.publisher.short}")
@@ -58,6 +62,8 @@ def cmd_labels(args) -> int:  # noqa: C901 - one pass that drafts, reports and w
     The label is the one another entry already gives a field of the same name, or else one
     worked out from the name. --write puts them in the YAML.
     """
+    from .register import draft_label, load  # noqa: PLC0415 - CLI start-up
+
     datasets = load(REGISTER)
     known = {}
     for d in datasets:
@@ -92,6 +98,12 @@ def cmd_labels(args) -> int:  # noqa: C901 - one pass that drafts, reports and w
 
 def cmd_draft(args) -> int:
     """Write a first register entry for a CKAN portal dataset, for a person to review."""
+    import requests  # noqa: PLC0415 - CLI start-up
+
+    from .catalogue import PortalError  # noqa: PLC0415 - CLI start-up
+    from .publishers import load_curated  # noqa: PLC0415 - CLI start-up
+    from .register_draft import DraftError, draft, to_yaml, write  # noqa: PLC0415 - CLI start-up
+
     try:
         slug, entry, notes = draft(
             args.url,
@@ -115,6 +127,11 @@ def cmd_draft(args) -> int:
 
 
 def cmd_fetch(args) -> int:  # noqa: C901 - the fetch command's cases, read in order
+    import requests  # noqa: PLC0415 - CLI start-up
+
+    from . import fetch  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+
     store_dir = Path(args.store)
     for pair in args.file:
         slug, _, path = pair.partition("=")
@@ -167,6 +184,11 @@ R2 = "r2://"
 
 
 def cmd_build(args) -> int:
+    from . import published, serialise  # noqa: PLC0415 - CLI start-up
+    from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
+    from .r2 import downloader  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+
     out = Path(args.out)
     store_dir = FIXTURES if args.fixtures else Path(args.store)
 
@@ -208,6 +230,13 @@ def cmd_build(args) -> int:
 
 
 def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
+    from . import published  # noqa: PLC0415 - CLI start-up
+    from .build import build_dataset, take_built  # noqa: PLC0415 - CLI start-up
+    from .catalogue import latest as catalogue_latest  # noqa: PLC0415 - CLI start-up
+    from .catalogue import load as load_catalogue  # noqa: PLC0415 - CLI start-up
+    from .publishers import load_curated  # noqa: PLC0415 - CLI start-up
+    from .site import render_site  # noqa: PLC0415 - CLI start-up
+
     outs = []
     for d in datasets:
         if args.slug and d.slug not in args.slug:
@@ -279,6 +308,8 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
 
 
 def cmd_gate(args) -> int:
+    from . import gate  # noqa: PLC0415 - CLI start-up
+
     return gate.main(Path(args.out), REGISTER, _absent(args.absent), site=not args.versions_only)
 
 
@@ -296,6 +327,9 @@ def cmd_split(args) -> int:
     version, its page included. A file moved to R2 is only reachable where _routes.json runs the
     function that reads it.
     """
+    from .serialise.profile import QUERY_DIR  # noqa: PLC0415 - CLI start-up
+    from .site import ROUTES  # noqa: PLC0415 - CLI start-up
+
     routed = [
         re.compile("^/" + re.escape(r.lstrip("/")).replace(r"\*", ".*") + "$") for r in ROUTES
     ]
@@ -331,6 +365,11 @@ def cmd_split(args) -> int:
 
 
 def cmd_catalogue(args) -> int:
+    import requests  # noqa: PLC0415 - CLI start-up
+
+    from . import catalogue  # noqa: PLC0415 - CLI start-up
+    from .catalogue import PortalError  # noqa: PLC0415 - CLI start-up
+
     try:
         catalogue.fetch(Path(args.store))
     except (PortalError, OSError, ValueError, requests.RequestException) as e:
@@ -341,6 +380,12 @@ def cmd_catalogue(args) -> int:
 
 def cmd_catalogue_publishers(args) -> int:
     """Print proposed curation for data.gov.au organisations no curated publisher claims yet."""
+    import requests  # noqa: PLC0415 - CLI start-up
+    import yaml  # noqa: PLC0415 - CLI start-up
+
+    from .catalogue import load as load_catalogue  # noqa: PLC0415 - CLI start-up
+    from .publishers import load_curated, suggest  # noqa: PLC0415 - CLI start-up
+
     codes = requests.get(
         "https://data.api.abs.gov.au/rest/codelist/ABS/CL_LGA_2024",
         headers={"Accept": "application/vnd.sdmx.structure+json"},
@@ -362,6 +407,15 @@ def cmd_catalogue_publishers(args) -> int:
 
 def cmd_d1(args) -> int:
     """Write one SQL file per live dataset whose latest version the query API has not loaded."""
+    from .d1 import (  # noqa: PLC0415 - CLI start-up
+        CATALOGUE,
+        SERVED,
+        catalogue_loads,
+        served_loads,
+        write_loads,
+    )
+    from .register import load  # noqa: PLC0415 - CLI start-up
+
     loaded: dict[str, list[str]] = {}
     loaded_fields: dict[tuple[str, str], str] = {}
     loaded_orders: dict[tuple[str, str], str] = {}
@@ -401,6 +455,8 @@ def cmd_d1(args) -> int:
 
 
 def _rows_written(text: str) -> int:
+    from .d1 import rows_written  # noqa: PLC0415 - CLI start-up
+
     try:
         return rows_written(text or "0")
     except ValueError as e:
@@ -408,6 +464,9 @@ def _rows_written(text: str) -> int:
 
 
 def cmd_d1_load(args) -> int:
+    from .d1 import BUDGET, Wrangler  # noqa: PLC0415 - CLI start-up
+    from .d1 import load as load_d1  # noqa: PLC0415 - CLI start-up
+
     failed = load_d1(
         Path(args.dir),
         Wrangler(),
@@ -420,6 +479,8 @@ def cmd_d1_load(args) -> int:
 
 
 def cmd_store(args) -> int:
+    from .r2 import pull_store, push  # noqa: PLC0415 - CLI start-up
+
     store_dir = Path(args.store)
     if args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
@@ -458,6 +519,9 @@ def _committed_versions(store_dir: Path) -> set[tuple[str, str]]:
 
 def _with_layers(only: list[str]) -> tuple[str, ...]:
     """The slugs, and the spine layers any of them joins, whose sources a joined build reads."""
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .spine import LAYERS  # noqa: PLC0415 - CLI start-up
+
     if not only:
         return ()
     joins = {LAYERS[k].slug for d in load(REGISTER) if d.slug in only for k in d.enrich}
@@ -466,6 +530,12 @@ def _with_layers(only: list[str]) -> tuple[str, ...]:
 
 def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     """The versions the build will take from the cache, so their source bytes are not needed."""
+    from . import store  # noqa: PLC0415 - CLI start-up
+    from .build import version_key  # noqa: PLC0415 - CLI start-up
+    from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .spine import LAYERS  # noqa: PLC0415 - CLI start-up
+
     cache = BuildCache(cache_dir)
     datasets = [d for d in load(REGISTER) if d.publishable]
     cached = {
@@ -512,6 +582,10 @@ def cmd_spine_mirror(args) -> int:
 
 
 def cmd_dist_push(args) -> int:
+    from .r2 import check_sources, dated_file, push  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .serialise.profile import layout  # noqa: PLC0415 - CLI start-up
+
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
         print(f"dist push: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
@@ -583,6 +657,8 @@ def cmd_checksums(args) -> int:
 
 
 def cmd_purge(args) -> int:
+    from .edge import purge, with_answers  # noqa: PLC0415 - CLI start-up
+
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
         print(f"purge: takes d/<slug>/v/<date>/ prefixes only, not {bad}")
@@ -597,6 +673,9 @@ def cmd_purge(args) -> int:
 
 def _prune_unusable(cache, datasets, store_dir: Path) -> int:
     """Removes the entries no version in the store keys to, which reads the manifests only."""
+    from .brand import CARD_PREFIX  # noqa: PLC0415 - CLI start-up
+    from .build import cache_keys  # noqa: PLC0415 - CLI start-up
+
     usable = set().union(*(cache_keys(cache, d, store_dir) for d in datasets))
     if cache.root.is_dir():
         usable |= {p.name for p in cache.root.glob(CARD_PREFIX + "*")}
@@ -604,12 +683,21 @@ def _prune_unusable(cache, datasets, store_dir: Path) -> int:
 
 
 def cmd_cache_prune(args) -> int:
+    from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+
     n = _prune_unusable(BuildCache(Path(args.cache)), load(REGISTER), Path(args.store))
     print(f"cache: {n} entries no version in the store can use removed")
     return 0
 
 
 def cmd_cache(args) -> int:
+    from . import r2  # noqa: PLC0415 - CLI start-up
+    from .build import cache_keys  # noqa: PLC0415 - CLI start-up
+    from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
+    from .r2 import cache_push  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+
     root = Path(args.cache)
     if args.sub == "pull":
         entries = None
@@ -641,6 +729,10 @@ def cmd_verify(args) -> int:  # noqa: C901, PLR0911, PLR0912 - the plan and run 
     plan prints the datasets the check builds, or nothing when no changed path shapes versions
     outside their key; run builds them and compares.
     """
+    from . import published, serialise, verify  # noqa: PLC0415 - CLI start-up
+    from .r2 import downloader  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+
     datasets = load(REGISTER)
     store_dir = Path(args.store)
     mb = 1_000_000
@@ -711,6 +803,9 @@ def cmd_verify(args) -> int:  # noqa: C901, PLR0911, PLR0912 - the plan and run 
 
 def cmd_shards(args) -> int:
     """Prints a JSON list of build jobs, each a space-separated list of dataset slugs."""
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .shards import plan, weights  # noqa: PLC0415 - CLI start-up
+
     w = weights(load(REGISTER), Path(args.store), Path(args.cache) if args.cache else None)
     jobs = plan(w, args.count)
     for i, slugs in enumerate(jobs):
@@ -734,6 +829,9 @@ def _tasks(path: str | None) -> dict[str, int]:
 
 
 def cmd_hubs(args) -> int:
+    from . import hubs  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+
     only = set(args.only) if args.only else None
     registered = {d.slug: d for d in load(REGISTER)}
     entries = list(hubs.read_site(args.site, only, register=registered))
@@ -806,6 +904,9 @@ def cmd_contribute(args) -> int:
 
 
 def cmd_cost(args) -> int:
+    from . import cost  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+
     root = Path(args.root).resolve() if args.root else ROOT
     register = root / "register"
     changed, fresh, reshaped = set(args.slug), set(), {}
