@@ -14,9 +14,11 @@
 pd_boundary_layers <- function() {
   memo("places", {
     p <- pd_get("/places.json", simplify = FALSE)$layers
-    text <- function(k) vapply(p, function(l) as.character(l[[k]]), character(1))
-    tibble::tibble(key = text("key"), slug = text("slug"), title = text("title"), code = text("code"),
-                   name = text("name"), noun = text("noun"), version = text("version"))
+    field <- function(k) vapply(p, function(l) as.character(l[[k]]), character(1L))
+    tibble::tibble(
+      key = field("key"), slug = field("slug"), title = field("title"), code = field("code"),
+      name = field("name"), noun = field("noun"), version = field("version")
+    )
   })
 }
 
@@ -24,8 +26,10 @@ find_layer <- function(layer) {
   layers <- pd_boundary_layers()
   l <- one_text(layer, "layer")
   hit <- which(tolower(layers$key) == l | tolower(layers$slug) == l | tolower(layers$code) == l)
-  if (!length(hit)) pd_abort("no boundary layer \"", layer, "\"; the layers are ", paste(layers$key, collapse = ", "))
-  layers[hit[1], ]
+  if (!length(hit)) {
+    pd_abort("no boundary layer \"", layer, "\"; the layers are ", toString(layers$key))
+  }
+  layers[hit[1L], ]
 }
 
 #' A boundary layer as an sf object
@@ -74,35 +78,42 @@ pd_boundaries <- function(layer, cache = NULL) {
 pd_join_boundaries <- function(x, layer = NULL, by = NULL, cache = NULL) {
   need("sf", "pd_join_boundaries()")
   if (!is.data.frame(x)) pd_abort("x must be a data frame")
-  if (inherits(x, "sf")) pd_abort("x already has a geometry; drop it with sf::st_drop_geometry() first")
+  if (inherits(x, "sf")) {
+    pd_abort("x already has a geometry; drop it with sf::st_drop_geometry() first")
+  }
   if (is.null(layer)) {
     layers <- pd_boundary_layers()
     hits <- layers[layers$code %in% names(x), ]
     if (!nrow(hits)) {
-      pd_abort("x has no column named for a boundary code (", paste(layers$code, collapse = ", "),
-               "); name the layer and the column, as in layer = \"lga\", by = \"council_code\"")
+      pd_abort(
+        "x has no column named for a boundary code (", toString(layers$code),
+        "); name the layer and the column, as in layer = \"lga\", by = \"council_code\""
+      )
     }
-    if (nrow(hits) > 1) {
-      pd_abort("x has codes for several layers (", paste(hits$key, collapse = ", "), "); choose one with layer =")
+    if (nrow(hits) > 1L) {
+      pd_abort("x has codes for several layers (", toString(hits$key), "); choose one with layer =")
     }
-    l <- hits[1, ]
+    l <- hits[1L, ]
   } else {
     l <- find_layer(layer)
   }
-  col <- if (is.null(by)) l$code else one_text(by, "by")
-  col <- names(x)[tolower(names(x)) == col][1]
-  if (is.na(col)) pd_abort("x has no column \"", if (is.null(by)) l$code else by, "\"")
+  wanted <- if (is.null(by)) l$code else one_text(by, "by")
+  col_name <- names(x)[tolower(names(x)) == wanted][1L]
+  if (is.na(col_name)) pd_abort("x has no column \"", by %||% l$code, "\"")
   b <- pd_boundaries(l$key, cache = cache)
   ref <- as.character(b[[l$code]])
-  codes <- norm_codes(x[[col]], ref)
+  codes <- norm_codes(x[[col_name]], ref)
   idx <- match(codes, ref)
   add_name <- l$name %in% names(b) && !l$name %in% names(x)
   geom <- sf::st_geometry(b)
-  empty <- sf::st_sfc(lapply(seq_len(sum(is.na(idx))), function(i) sf::st_multipolygon()), crs = sf::st_crs(b))
+  empty <- sf::st_sfc(
+    lapply(seq_len(sum(is.na(idx))), function(i) sf::st_multipolygon()),
+    crs = sf::st_crs(b)
+  )
   g <- geom[ifelse(is.na(idx), 1L, idx)]
-  if (any(is.na(idx))) g[is.na(idx)] <- empty
+  if (anyNA(idx)) g[is.na(idx)] <- empty
   out <- tibble::as_tibble(x)
-  out[[col]] <- codes
+  out[[col_name]] <- codes
   if (add_name) out[[l$name]] <- b[[l$name]][idx]
   out <- sf::st_sf(out, geometry = g)
   attr(out, "publicdata") <- attr(x, "publicdata")
@@ -118,7 +129,13 @@ norm_codes <- function(v, ref) {
   if (is.numeric(v)) {
     widths <- unique(nchar(ref[!is.na(ref)]))
     whole <- all(is.na(v) | v == round(v))
-    fmt <- if (length(widths) == 1 && whole) paste0("%0", widths, ".0f") else if (whole) "%.0f" else "%.15g"
+    fmt <- if (!whole) {
+      "%.15g"
+    } else if (length(widths) == 1L) {
+      paste0("%0", widths, ".0f")
+    } else {
+      "%.0f"
+    }
     v <- ifelse(is.na(v), NA_character_, sprintf(fmt, v))
   }
   trimws(as.character(v))

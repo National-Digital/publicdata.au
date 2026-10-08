@@ -21,7 +21,7 @@
 <!--portal-text--><div class="tbl"><table class="ledger" id="catalogue">
 <thead><tr><th>Dataset</th><th>Formats</th><th>Licence</th><th>Updated</th><th>Votes</th></tr></thead>
 <tbody>
-{% for r in rows %}<tr><td class="t"><a href="{{ r.url }}" rel="nofollow noopener">{{ r.title }}</a><span class="sub">{{ r.summary }}</span></td><td class="mono" style="font-size:13px">{{ r.formats }}</td><td>{{ r.licence }}</td><td class="mono">{{ r.modified }}</td><td>{% if r.served %}<a class="chip live" href="{{ r.served }}">served</a>{% elif r.candidate %}<button class="vote" type="button" data-vote="{{ r.vote }}"><b>0</b><span>vote</span></button>{% else %}<span class="muted" style="font-size:13px">{{ r.reason }}</span>{% endif %}</td></tr>
+{% for r in rows %}<tr><td class="t"><a href="{{ r.url }}" rel="nofollow noopener">{{ r.title }}</a><span class="sub">{{ r.summary }}</span>{% if r.task %}<span class="sub">Open as a contributor task: <a href="{{ r.task }}" rel="noopener">GitHub issue {{ r.task.rsplit('/', 1)[1] }}</a></span>{% endif %}</td><td class="mono" style="font-size:13px">{{ r.formats }}</td><td>{{ r.licence }}</td><td class="mono">{{ r.modified }}</td><td>{% if r.served %}<a class="chip live" href="{{ r.served }}">served</a>{% elif r.candidate %}<button class="vote" type="button" data-vote="{{ r.vote }}"><b>0</b><span>vote</span></button>{% else %}<span class="muted" style="font-size:13px">{{ r.reason }}</span>{% endif %}</td></tr>
 {% endfor %}
 </tbody></table></div><!--/portal-text-->
 {% if stats.shown < stats.listed_n %}<p class="muted" style="font-size:14px">The full list of {{ stats.listed }} is in <a href="{{ pub.path }}catalogue.json" class="mono">catalogue.json</a>.</p>{% endif %}

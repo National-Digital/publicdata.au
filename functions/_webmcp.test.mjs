@@ -122,3 +122,53 @@ test('a 429 tells the agent how long to wait, and any other failure carries the 
   await assert.rejects(fail(429, { error: 'x' }, { 'retry-after': '7' }).query_rows.execute({ slug: 'x' }), /wait 7 seconds/);
   await assert.rejects(fail(400, { error: 'no field nope' }).count_rows.execute({ slug: 'x' }), /no field nope/);
 });
+
+// Just enough DOM for the query builder to build its controls and write its URL.
+class FakeEl {
+  constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.attrs = {}; this.dataset = {}; this.on = {}; this.hidden = false; this.checked = false; this.selected = false; this.textContent = ''; this._value = ''; }
+  get value() {
+    if (this.tagName !== 'SELECT' || this._set) return this._value;
+    const o = this.children.find((c) => c.selected) || this.children[0];
+    return o ? o.value : '';
+  }
+  set value(v) { this._value = String(v); this._set = this.tagName === 'SELECT'; }
+  set innerHTML(_) { this.children = []; this._set = false; }
+  setAttribute(k, v) { this.attrs[k] = String(v); if (k.startsWith('data-')) this.dataset[k.slice(5)] = String(v); if (k === 'value') this.value = v; }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  appendChild(c) { this.children.push(c); return c; }
+  addEventListener(type, f) { (this.on[type] ||= []).push(f); }
+  dispatchEvent(e) { (this.on[e.type] || []).forEach((f) => f(e)); }
+  querySelectorAll(sel) {
+    const [tag, checked] = sel.split(':');
+    const out = [];
+    const walk = (n) => n.children.forEach((c) => { if (c.tagName === tag.toUpperCase() && (!checked || c.checked)) out.push(c); walk(c); });
+    walk(this);
+    return out;
+  }
+  focus() {}
+  remove() {}
+}
+
+test('the query builder keeps literal commas and colons in its URLs beside the WebMCP tools', () => {
+  const made = [];
+  const ds = { slug: 'x', title: 'Crashes', console: {
+    fields: [{ name: 'lga', type: 'string' }, { name: 'time', type: 'string' }],
+    example: { filters: [{ field: 'lga', op: 'in', value: 'Gold Coast,Logan' }, { field: 'time', op: 'eq', value: '12:30' }], group: [], metric: 'count' },
+    versions: ['2026-04-24'], api: '/api/v1/datasets/x/', site: 'https://publicdata.au',
+  } };
+  const byId = { console: new FakeEl('div'), 'ds-data': { textContent: JSON.stringify(ds) } };
+  vm.runInNewContext(src, {
+    document: { getElementById: (id) => byId[id] || null, createElement: (t) => { const n = new FakeEl(t); made.push(n); return n; }, querySelector: () => null, querySelectorAll: () => [] },
+    location: { origin: 'https://publicdata.au', href: '', search: '' },
+    localStorage: { getItem: () => null, setItem() {} },
+    navigator: { modelContext: { registerTool() {} } },
+    Event: class { constructor(type) { this.type = type; } },
+    fetch: fakeFetch,
+  });
+  const url = made.find((n) => n.attrs.id === 'q-url');
+  const format = made.find((n) => n.attrs['aria-label'] === 'Format');
+  format.value = 'csv';
+  format.dispatchEvent({ type: 'change' });
+  assert.match(url.textContent, /format=csv/);
+  assert.match(url.textContent, /lga=in\.\(Gold%20Coast,Logan\)&time=eq\.12:30&/);
+});

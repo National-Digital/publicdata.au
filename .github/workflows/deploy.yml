@@ -36,7 +36,6 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   # A runner's disk cannot hold a build of every version at once, so the versions the build cache
@@ -44,6 +43,7 @@ jobs:
   # from the cache they filled. A replace dispatch rebuilds every version, so every dataset is
   # planned.
   plan:
+    name: plan
     runs-on: ubuntu-24.04
     environment: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
     # Side effects run only in the public repo, never in a fork or a private copy.
@@ -67,6 +67,7 @@ jobs:
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # the last release tag, which the real-data check compares the code with
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -135,8 +136,9 @@ jobs:
           for f in register.py cache.py; do
             git show "$base:pipeline/publicdata/$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
           done
-          # The base's copy of each changed register entry, to find the rebuild numbers raised.
-          { grep -E '^register/.*\.yaml$' "$RUNNER_TEMP/changed.txt" || true; } | while read -r f; do
+          # The base's copy of each changed register entry, to find the rebuild numbers raised, and
+          # of each changed manifest, to find the notes a partition_by edit must add.
+          { grep -E '^(register/.*\.yaml|store/.*/manifest\.json)$' "$RUNNER_TEMP/changed.txt" || true; } | while read -r f; do
             mkdir -p "$before/$(dirname "$f")"
             git show "$base:$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
           done
@@ -150,6 +152,7 @@ jobs:
   # history archive a deploy would reuse with its cache entry. A difference fails the deploy and
   # names the dataset whose rebuild number the change must raise.
   verify:
+    name: verify
     needs: plan
     if: ${{ needs.plan.result == 'success' && needs.plan.outputs.verify != '' }}
     runs-on: ubuntu-24.04
@@ -160,7 +163,9 @@ jobs:
       PUBLICDATA_SPATIAL: ${{ needs.plan.outputs.spatial }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/build-runner
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-runner # zizmor: ignore[self-repository] actionlint cannot parse $/ yet; ./ is this event's own checkout
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
@@ -172,8 +177,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           SLUGS: ${{ needs.plan.outputs.verify }}
         run: |
-          python -m publicdata cache pull --cache "$BUILD_CACHE" --store "$STORE" --only $SLUGS
-          python -m publicdata store pull --store "$STORE" --only $SLUGS
+          read -ra slugs <<< "$SLUGS"
+          python -m publicdata cache pull --cache "$BUILD_CACHE" --store "$STORE" --only "${slugs[@]}"
+          python -m publicdata store pull --store "$STORE" --only "${slugs[@]}"
       - name: Build the sample and compare it with what a deploy reuses
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -182,7 +188,8 @@ jobs:
           SLUGS: ${{ needs.plan.outputs.verify }}
         run: |
           set +e
-          python -m publicdata verify run $SLUGS --store "$STORE" --cache "$BUILD_CACHE" --out "$DIST" --published r2://publicdata-dist > verify.log 2>&1
+          read -ra slugs <<< "$SLUGS"
+          python -m publicdata verify run "${slugs[@]}" --store "$STORE" --cache "$BUILD_CACHE" --out "$DIST" --published r2://publicdata-dist > verify.log 2>&1
           rc=$?
           cat verify.log
           { echo '```'; sed 's/^::error:://' verify.log | tail -40; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
@@ -205,7 +212,9 @@ jobs:
         slugs: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/build-runner
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-runner # zizmor: ignore[self-repository] actionlint cannot parse $/ yet; ./ is this event's own checkout
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
@@ -218,14 +227,18 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           SLUGS: ${{ matrix.slugs }}
         # Only the entries this shard's datasets key to, so no shard downloads the whole cache.
-        run: python -m publicdata cache pull --cache "$BUILD_CACHE" --store "$STORE" --only $SLUGS
+        run: |
+          read -ra slugs <<< "$SLUGS"
+          python -m publicdata cache pull --cache "$BUILD_CACHE" --store "$STORE" --only "${slugs[@]}"
       - name: Pull raw sources from R2
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           SLUGS: ${{ matrix.slugs }}
-        run: python -m publicdata store pull --store "$STORE" --cache "$BUILD_CACHE" --only $SLUGS catalogue
+        run: |
+          read -ra slugs <<< "$SLUGS"
+          python -m publicdata store pull --store "$STORE" --cache "$BUILD_CACHE" --only "${slugs[@]}" catalogue
       # A cached version's Parquet, which a diff or the history archive reads, comes back from R2.
       - name: Build and gate
         env:
@@ -236,9 +249,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           touch "$RUNNER_TEMP/start"
-          python -m publicdata build $SLUGS --no-site --store "$STORE" --out "$DIST" --cache "$BUILD_CACHE" --absent absent.json --published r2://publicdata-dist
+          read -ra slugs <<< "$SLUGS"
+          python -m publicdata build "${slugs[@]}" --no-site --store "$STORE" --out "$DIST" --cache "$BUILD_CACHE" --absent absent.json --published r2://publicdata-dist
           python -m publicdata gate "$DIST" --absent absent.json --versions-only
-          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 ${VERSIONED}
+          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 ${VERSIONED:+"$VERSIONED"}
           df -h / | tail -1
       # Only dated files: the pages say which version is newest, so the deploy job writes them.
       - name: Push version files to R2
@@ -253,16 +267,19 @@ jobs:
       # preview serves from Pages, its Parquet and SQLite included, which no cache entry keeps.
       # A production build pushed those to R2 above.
       - name: Pack the build
+        env:
+          JOB_INDEX: ${{ strategy.job-index }}
+          SLUGS: ${{ matrix.slugs }}
         run: |
           mkdir -p /mnt/work/shard
           (cd "$BUILD_CACHE" && find . -mindepth 2 -maxdepth 2 -name meta.json -newer "$RUNNER_TEMP/start" -printf '%h\n') > entries.txt
           tar -C "$BUILD_CACHE" -I 'zstd -T0' -cf /mnt/work/shard/cache.tar.zst -T entries.txt
           : > built.txt
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             (cd "$DIST" && find d -path '*/v/*' -type f ! -name 'index.*' ! -name manifest.json ! -name schema.json ! -name schema.sql) > built.txt
           fi
           tar -C "$DIST" -I 'zstd -T0' -cf /mnt/work/shard/built.tar.zst -T built.txt
-          echo "Shard ${{ strategy.job-index }}: $(wc -l < entries.txt) cache entries, $(wc -l < built.txt) preview files, ${{ matrix.slugs }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Shard $JOB_INDEX: $(wc -l < entries.txt) cache entries, $(wc -l < built.txt) preview files, $SLUGS" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: shard-${{ strategy.job-index }}
@@ -271,6 +288,7 @@ jobs:
           compression-level: 0
 
   deploy:
+    name: deploy
     needs: [plan, shard, verify]
     # A required check that is skipped counts as passed, so this runs and fails when the build did.
     # The plan skips itself for a fork's pull request, which builds from fixtures here instead.
@@ -280,21 +298,31 @@ jobs:
     env:
       HAS_CF: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_API_TOKEN_ID != '' }}
       PUBLICDATA_SPATIAL: ${{ needs.plan.outputs.spatial }}
+    permissions:
+      contents: read
+      pull-requests: write # the preview URL comment
+      issues: read # the open contributor issues the backlog and publisher pages link
     outputs:
       version: ${{ steps.release.outputs.version }}
       deployed: ${{ steps.pages.outcome == 'success' }}
+      sign: ${{ steps.checksums.outputs.sign }}
     steps:
       - name: Stop when the build failed
         # A check that did not pass, timed out or cancelled included, stops it, so no tag is cut
         # past an unchecked change.
         if: ${{ needs.plan.result == 'failure' || needs.shard.result == 'failure' || (needs.verify.result != 'success' && needs.verify.result != 'skipped') }}
+        env:
+          PLAN: ${{ needs.plan.result }}
+          SHARD: ${{ needs.shard.result }}
+          VERIFY: ${{ needs.verify.result }}
         run: |
-          echo "::error::plan ${{ needs.plan.result }}, shards ${{ needs.shard.result }}, real-data check ${{ needs.verify.result }}"
+          echo "::error::plan $PLAN, shards $SHARD, real-data check $VERIFY"
           exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0 # the tags, for scripts/next-version.mjs
-      - uses: ./.github/actions/build-runner
+      - uses: ./.github/actions/build-runner # zizmor: ignore[self-repository] actionlint cannot parse $/ yet; ./ is this event's own checkout
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
@@ -379,6 +407,17 @@ jobs:
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m publicdata store pull --store "$STORE" --cache "$BUILD_CACHE"
+      # The backlog and publisher pages link each dataset's open contributor issue. GitHub being
+      # unreachable costs the notices, not the deploy.
+      - name: Read the open contributor issues
+        if: env.HAS_CF == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m publicdata contribute issues --out contribute.json || {
+            echo "::warning::the open contributor issues could not be read; the pages show none"
+            echo '{}' > contribute.json
+          }
       - name: Build and gate
         env:
           VERSIONED: ${{ github.event_name != 'pull_request' && '--versioned' || '' }}
@@ -389,15 +428,15 @@ jobs:
           # The MCP server's bundle carries the release, so its tool file is rewritten with it.
           python -m publicdata.api_text
           if [ "$HAS_CF" = "true" ]; then
-            BUILT=$(find /mnt/work/built -mindepth 1 -maxdepth 1 -type d -printf '--built %p ' 2>/dev/null || true)
-            python -m publicdata build --store "$STORE" --out "$DIST" --cache "$BUILD_CACHE" --absent absent.json --search catalogue-search.sqlite --published r2://publicdata-dist $BUILT
+            mapfile -t built < <(find /mnt/work/built -mindepth 1 -maxdepth 1 -type d -printf '--built\n%p\n' 2>/dev/null)
+            python -m publicdata build --store "$STORE" --out "$DIST" --cache "$BUILD_CACHE" --absent absent.json --search catalogue-search.sqlite --tasks contribute.json --published r2://publicdata-dist "${built[@]}"
           else
             echo "No Cloudflare secrets: building from fixtures, no deploy." >> "$GITHUB_STEP_SUMMARY"
             python -m publicdata build --fixtures --out "$DIST"
           fi
           [ -f absent.json ] || echo '[]' > absent.json
           python -m publicdata gate "$DIST" --absent absent.json
-          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 ${VERSIONED}
+          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 ${VERSIONED:+"$VERSIONED"}
           df -h / | tail -1
       - name: Push version files to R2
         if: env.HAS_CF == 'true' && github.event_name != 'pull_request'
@@ -426,6 +465,36 @@ jobs:
         run: |
           npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
           grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
+      # Made from the hashes R2 stored with each file, so the build and its cache key never see it.
+      # Straight after the site goes live, which links each list. A failure leaves the lists for the
+      # next deploy to catch up, so it never fails the deploy or holds back D1 and the release.
+      # Before the purge, so the edge drops a replaced version's old list with its other files.
+      - name: Write each version's SHA256SUMS
+        id: checksums
+        if: ${{ !cancelled() && env.HAS_CF == 'true' && github.event_name != 'pull_request' && steps.pages.outcome == 'success' }}
+        continue-on-error: true
+        # The first run hashes every version that has no list. Each list is kept as it is written,
+        # so a run stopped here leaves the rest to the next deploy and the D1 load is not held up.
+        timeout-minutes: 20
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          REPLACE: ${{ github.event.inputs.replace }}
+        run: |
+          python -m publicdata checksums --root "$DIST" --root "$DIST_LARGE" ${REPLACE:+--replace $REPLACE} --subjects "$RUNNER_TEMP/lists"
+          if [ -s "$RUNNER_TEMP/lists/1.sha256" ]; then echo "sign=true" >> "$GITHUB_OUTPUT"; fi
+          if [ -e "$RUNNER_TEMP/lists/2.sha256" ]; then
+            echo "::warning::over 1,024 lists were written, so only the first 1,024 are signed; run the Checksums workflow to sign the rest"
+          fi
+      - name: Hand the lists written to the signing job
+        if: ${{ !cancelled() && steps.checksums.outputs.sign == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checksum-lists
+          path: ${{ runner.temp }}/lists/1.sha256
+          retention-days: 1
       # A dated file is cached at the edge as immutable, so the versions a replace rewrote are
       # purged, or the edge serves the old files for a year.
       - name: Purge replaced versions from the edge
@@ -438,7 +507,8 @@ jobs:
             echo "::warning::CLOUDFLARE_PURGE_TOKEN is not set, so the edge serves the old files under $REPLACE until they are purged by hand"
             exit 0
           fi
-          python -m publicdata purge $REPLACE
+          read -ra replace <<< "$REPLACE"
+          python -m publicdata purge "${replace[@]}"
       # The query API reads D1. Loading runs after the site deploy so a failed load never holds the
       # site back, and stays off until the repository variable D1_ENABLED is true. Only main loads,
       # so the concurrency group above keeps one load at a time.
@@ -481,17 +551,40 @@ jobs:
         run: |
           BODY="Preview: https://pr-$PR.publicdata-au.pages.dev (this deploy: $(cat url.txt))"
           # Edit only our own preview comment. --edit-last would rewrite whatever the bot posted most recently, such as the review.
-          ID=$(gh api --paginate "repos/${{ github.repository }}/issues/$PR/comments" | jq -rs 'add | [.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("Preview: "))] | last | .id // empty')
+          ID=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" | jq -rs 'add | [.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("Preview: "))] | last | .id // empty')
           if [ -n "$ID" ]; then
-            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$ID" -f body="$BODY" >/dev/null
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$ID" -f body="$BODY" >/dev/null
           else
             gh pr comment "$PR" --body "$BODY"
           fi
+
+  # One attestation for the lists the deploy wrote. It is a job of its own so that only a deploy
+  # of main can sign: the deploy job also runs a pull request's code. Like the lists, a failure
+  # waits for the Checksums workflow to sign again, and never fails the deploy.
+  sign:
+    name: sign
+    needs: deploy
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.deploy.outputs.sign == 'true' }}
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # the OIDC token Sigstore certifies to sign the attestation
+      attestations: write # stores the attestation with the repository
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: checksum-lists
+          path: lists
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: lists/1.sha256
 
   # Tags the released version and cuts a GitHub release with generated notes, then publishes the
   # MCP Registry entry when what a client sees has changed. A separate job, so the write token never
   # meets the build. Every step tolerates a re-run or a concurrent deploy that got there first.
   release:
+    name: release
     needs: deploy
     # A deploy with no changed versions skips its shards; without !cancelled() that skip would
     # pass down and skip the release too.
@@ -499,9 +592,11 @@ jobs:
     runs-on: ubuntu-24.04
     environment: production
     permissions:
-      contents: write
+      contents: write # pushes the release tag and creates the GitHub release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # zizmor: ignore[artipacked] the tag push below goes with this credential
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version

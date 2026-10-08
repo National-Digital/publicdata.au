@@ -111,6 +111,7 @@ pipeline/publicdata/
 /d/<slug>/v/<date>/by/<field>/<value>.json           where partition_by is declared
 /d/<slug>/v/<date>/manifest.json     source URL, fetched-at, SHA-256 of source bytes
 /d/<slug>/v/<date>/source.<ext>      the bytes as fetched, served from publicdata-raw
+/d/<slug>/v/<date>/SHA256SUMS        SHA-256 of every file, under its download name
 /d/<slug>/openapi.json               OpenAPI for this dataset's query paths
 /d/<slug>/explore/                   the explorer; ?view=<id> opens a saved dashboard
 /d/<slug>/embed/                     the same dashboard in a frame, with the attribution
@@ -280,9 +281,11 @@ This site is the version history the portals do not keep. The archive role has i
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
-- Raw bytes are kept for every version in append-only object storage with versioning on, and
-  a `history` branch in git holds every manifest and diff report, so the archive can be
-  rebuilt from either.
+- Raw bytes are kept for every version in the R2 bucket `publicdata-raw`, and a `history`
+  branch in git holds every manifest and diff report, so the archive can be rebuilt from
+  either. R2 keeps no earlier copies of an object, so the push keeps the bucket append-only:
+  `publicdata store push` skips any object that already exists under a version whose manifest
+  is committed, and it takes no option to replace one.
 - Any two versions can be compared: `/d/<slug>/diff/<a>..<b>.json` lists added, removed and
   changed rows by the declared key, and field-level schema differences. `changes.json` is
   the same for consecutive pairs.
@@ -388,6 +391,33 @@ that listed it before main stopped using it still finds it whole. Source bytes a
 pulled only for versions the cache does not hold. A deploy dispatched with `replace` builds
 without it.
 
+Every dated version in R2 carries `SHA256SUMS`, one `sha256sum` line per file under the name the
+site saves it as (`site.download_name`), so `sha256sum -c --ignore-missing SHA256SUMS` checks a
+download (`shasum -a 256 -c` on a Mac). The build never writes it, so the cache key does not cover it and adding it rebuilt
+nothing. A production deploy runs `publicdata checksums` straight after the Pages deploy. It lists
+each dataset's versions in R2 and writes the list for any version that has none. The hashes are the
+SHA-256 that `dist-push` stores with each object, so no data file is read back. A source file served from
+the raw store takes the SHA-256 its `manifest.json` records. A version with a file stored without a
+hash is skipped and reported. The step may fail without failing the deploy, since the next deploy
+catches up.
+The list is part of its version (ADR 0002), so it is written once and served like every dated file,
+as immutable for a year. Only a `replace` dispatch makes it again. The step deletes the replaced
+version's list before it writes the new one, so a run that stops leaves no list for the next deploy
+to write, and it runs before the purge, which then drops the old list from the edge with the other
+files. Outside a replace, a file R2 holds that is newer than its version's list breaks the rule
+that dated files never change. The step names each one in a `::warning::` and leaves the list as
+it is. A file stored again with the SHA-256 its line already holds, as a file compressed at rest
+would be, passes without a warning.
+A deploy of main signs the lists it wrote with one GitHub artifact attestation (`--subjects`,
+then `actions/attest-build-provenance` in a `sign` job of its own, since the deploy job also runs a
+pull request's code). `gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au
+--source-ref refs/heads/main` ties a list to a run on main, which a pull request's run cannot
+sign as. An attestation takes
+at most 1,024 subjects; a deploy signs the first 1,024 and warns. The Checksums workflow, run by
+hand, writes any missing list across R2 (`--all --download`) and signs every list again
+(`--resign`) in parts of 1,024. It never rewrites a list that exists. It is the backfill once the lists first ship, and the catch-up
+after a failed write or signature.
+
 One runner's disk cannot hold a build of every version at once, so the deploy builds in shards.
 A plan job lists the versions the cache cannot serve, those with no entry and those a writer
 would grow (`publicdata shards`), and packs their datasets by source bytes into at most four
@@ -432,7 +462,10 @@ cancelled stops the deploy too. A fork's pull request has no access to the store
 first checked on the push to main, and a failure there stops every deploy until it is fixed. The reference is the cache entry because it records
 what the build made when the version was last built, which is what a reuse stands for. A dated
 file in R2 is never overwritten outside a replace dispatch, so it keeps the bytes of the version's
-first build, and a raised number alone does not change it. The diffs and the history archive are
+first build, and a raised number alone does not change it. Outside a replace, a push also adds no
+partition file to a version whose manifest R2 holds. An edit to `partition_by` builds every
+stored version again, and `dist-push` stops before it writes the new `by/` files and names the
+versions for a replace dispatch ([CORRECTIONS.md](CORRECTIONS.md#a-change-to-partition_by)). The diffs and the history archive are
 therefore made from the published copy of each version's Parquet and manifest wherever R2 holds
 one, in a deploy and in the check alike (`published.served`), so they describe the files the site
 serves and old bytes in R2 are no difference. When the sampled datasets that differ are more than
@@ -631,6 +664,12 @@ functions/_catalogue.js, held together by tests) and casts a vote for the record
 it does not hold is not stored; the answer points to National Digital's contact form. Both endpoints keep the query API's fair-use limit per address in the edge cache
 (`functions/_limit.js`), as the MCP server does, because the zone's rule covers
 `/api/v1/datasets/*` only.
+
+The most-wanted datasets become issues a contributor can start on (`contribute.py`,
+CONTRIBUTING.md "Pick up a dataset task"). A daily workflow reads the votes and the catalogue
+records they name from the public API and writes issues from those records and the register
+alone, so text from a vote never reaches one. The deploy reads the open issues before the build
+(`contribute issues`, `build --tasks`) and the backlog and publisher pages link each one.
 
 ## Site-wide files
 

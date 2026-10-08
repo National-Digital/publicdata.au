@@ -1799,6 +1799,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/SHA256SUMS</code> lists the SHA-256 of every file in the version, each under the name it downloads as, such as <code>&lt;slug&gt;_&lt;date&gt;.csv</code>. Run <code>sha256sum -c --ignore-missing SHA256SUMS</code> beside the files (<code>shasum -a 256 -c --ignore-missing SHA256SUMS</code> on a Mac), or save them with <code>curl -OJ</code> so the names match. Each list carries a GitHub artifact attestation from the deploy that wrote it, which <code>gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au --source-ref refs/heads/main</code> checks.</li>
 </ul>
 <h2>Inside every data file</h2>
 <p>JSON, NDJSON, GeoJSON, Parquet and SQLite each carry a <code>publicdata</code> header with the publisher, licence, attribution string, a <code>cite</code> string, version, source URL and source SHA-256. The CSV has no room for a header, so read <code>manifest.json</code> beside it.</p>
@@ -1843,7 +1844,7 @@ PROSE = {
 <p>The code that builds publicdata.au is open source. It is on GitHub under the GNU Affero General Public License, and anyone can propose a change to it. A maintainer at National Digital reviews every pull request, and a merged change goes live with the next release.</p>
 <p><a class="gh" href="{repo}">{gh}National-Digital/publicdata.au</a></p>
 <h2 id="add-a-dataset">Add a dataset</h2>
-<p>Any dataset in the <a href="/backlog/">backlog</a> with an open licence can be added by anyone. A dataset is one YAML file in the <code>register/</code> folder, which names the source, the licence with the publisher's own statement as evidence, the attribution and the fields to publish. <code>python -m publicdata register draft</code> writes a first draft from the dataset's portal page. You finish it by hand and build it locally to check it, and the <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-dataset">contributing guide</a> has the steps.</p>
+<p>Any dataset in the <a href="/backlog/">backlog</a> with an open licence can be added by anyone. A dataset is one YAML file in the <code>register/</code> folder, which names the source, the licence with the publisher's own statement as evidence, the attribution and the fields to publish. <code>python -m publicdata register draft</code> writes a first draft from the dataset's portal page. You finish it by hand and build it locally to check it, and the <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-dataset">contributing guide</a> has the steps. Some of the most-wanted datasets have an <a href="{repo}/issues?q=is%3Aissue%20is%3Aopen%20label%3Adataset">open issue</a> with the portal page, the licence evidence and a starting entry.</p>
 <p>The licence is the only thing that stops a dataset. A non-commercial or no-derivatives licence, or none at all, means it cannot be published here, however useful it is.</p>
 <h2 id="add-a-format">Add a file format</h2>
 <p>Each format is a writer that takes one normalised table and its provenance and returns the bytes of the file. A writer reads no network, clock or random value, so two builds of one version give identical files. A new format is added to every dataset at the next deploy. The guide's section on <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-serialisation">serialisation</a> lists what a writer needs.</p>
@@ -3042,6 +3043,7 @@ def render_site(
     search: Path | None = None,
     cache: BuildCache | None = None,
     hubs: dict | None = None,
+    tasks: dict[str, int] | None = None,
 ) -> None:
     e = env()
     static_src = Path(__file__).parent / "static"
@@ -3077,6 +3079,7 @@ def render_site(
     dirx = directory.plan(
         datasets, list(records or []), list(curated or []), catalogue_as_at, catalogue_stats or {}
     )
+    dirx.tasks = dict(tasks or {})
     if search and catalogue_as_at:
         from .d1 import catalogue_sqlite, served_table
 
@@ -3186,6 +3189,8 @@ def render_site(
                     *[f"- {f['name']}: {f['url']} ({f['size']})" for f in files],
                     "",
                     *[f"{why}\n" for why in _left_out(ds, v)],
+                    f"SHA-256 of every file, under the names they download as: {version_url(ds.slug, v.manifest.version)}SHA256SUMS",
+                    "",
                     "## Attribution",
                     "",
                     attribution(ds, v.manifest),
@@ -4106,7 +4111,13 @@ def render_site(
 
     # Backlog.
     present = {p.jurisdiction for p in dirx.pubs.values()}
-    all_rows = [_row(d, by_slug.get(d.slug)) for d in datasets]
+    all_rows = [
+        {
+            **_row(d, by_slug.get(d.slug)),
+            "task": "" if d.status == "live" else dirx.task_url(d.slug),
+        }
+        for d in datasets
+    ]
     order = {"live": 0, "building": 1, "backlog": 2, "assessing": 2, "blocked": 3}
     all_rows.sort(key=lambda r: (order[r["status"]], r["title"]))
     backlog_md = "\n".join(
@@ -4134,6 +4145,7 @@ def render_site(
             ),
             *[
                 f"- **{r['title']}** ({r['publisher_name']}, {r['licence']}): {r['status_label']}. {r['summary']} {r['planned']} {r['blocked_reason']}".rstrip()
+                + (f" Open as a contributor task: {r['task']}" if r["task"] else "")
                 for r in all_rows
             ],
             "",
