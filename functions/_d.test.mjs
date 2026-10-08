@@ -120,12 +120,11 @@ test('a dated file saves under its dataset and version, and a page has no file n
   assert.equal((await get('/d/x/v/2026-04-24/index.md')).headers.get('content-disposition'), null);
 });
 
-test('a version checksum list is served with a short cache and no file name', async () => {
+test("a version's checksum list is part of the version: cached for a year as immutable, with no file name", async () => {
   R2['d/x/v/2026-04-24/SHA256SUMS'] = `${'0'.repeat(64)}  x_2026-04-24.csv\n`;
   const r = await get('/d/x/v/2026-04-24/SHA256SUMS');
   assert.equal(r.status, 200);
-  assert.match(r.headers.get('cache-control'), /max-age=300/);
-  assert.doesNotMatch(r.headers.get('cache-control'), /immutable/);
+  assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable, no-transform');
   assert.equal(r.headers.get('content-disposition'), null);
   assert.equal((await get('/d/x/latest/SHA256SUMS')).headers.get('location'), '/d/x/v/2026-04-24/SHA256SUMS');
 });

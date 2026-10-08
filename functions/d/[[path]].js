@@ -18,8 +18,6 @@ const EDGE_MAX = 500 * 1024 * 1024;
 const BYPASS = 'bypass';
 // A version's page says whether it is the newest, so it changes and is cached briefly.
 const PAGE = /\/v\/\d{4}-\d{2}-\d{2}\/(index\.(html|md))?$/;
-// The checksum list gains a line when a format is added to a version, so it is cached briefly too.
-const SUMS = /\/v\/\d{4}-\d{2}-\d{2}\/SHA256SUMS$/;
 
 // Pages applies _headers to its own files only, so a page read from R2 takes the site's
 // security headers from the build, read once per isolate.
@@ -173,7 +171,7 @@ async function fromR2(request, env, url) {
   headers.set('access-control-allow-origin', '*');
   // no-transform keeps the edge from compressing the body, which would drop the byte range.
   const page = PAGE.test('/' + key);
-  headers.set('cache-control', DATED.test(key) && !page && !SUMS.test('/' + key) ? 'public, max-age=31536000, immutable, no-transform' : 'public, max-age=300, no-transform');
+  headers.set('cache-control', DATED.test(key) && !page ? 'public, max-age=31536000, immutable, no-transform' : 'public, max-age=300, no-transform');
   if (page) for (const [k, v] of Object.entries(await headersFor(env))) headers.set(k, v);
   const cd = disposition(key);
   if (cd) headers.set('content-disposition', cd);
