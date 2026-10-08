@@ -27,11 +27,13 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import importlib
 import json
 import math
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import time
 import urllib.error
@@ -39,62 +41,101 @@ import urllib.parse
 import urllib.request
 import warnings
 import webbrowser
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import closing
 from http import HTTPStatus
+from http.client import HTTPResponse  # noqa: TC003 - get_type_hints reads the hints at runtime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from types import ModuleType  # noqa: TC003 - get_type_hints reads the hints at runtime
+from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
-    from http.client import HTTPResponse
-    from types import ModuleType
-
     import duckdb
     import geopandas as gpd
     import pandas as pd
-    from typing_extensions import Self, TypedDict, Unpack
+    from typing_extensions import Self, Unpack
+elif sys.version_info >= (3, 11):
+    from typing import Self, Unpack
+else:
+    # Python 3.10's typing has neither, so a tool that reads the hints sees Any in their place.
+    Self = Any
 
-    class _DatasetsOptions(TypedDict, total=False):
-        publisher: str | None
-        topic: str | None
-        jurisdiction: str | None
+    class Unpack:
+        def __class_getitem__(cls, item: object) -> object:
+            return Any
 
-    class _RowsOptions(TypedDict, total=False):
-        select: str | list[str] | None
-        order: str | list[str] | None
-        limit: int | None
-        offset: int | None
-        version: str | None
-        all: bool
 
-    class _VersionOption(TypedDict, total=False):
-        version: str | None
+class _Extra:
+    """An optional extra named in the hints, imported only when a tool reads them.
 
-    class _CacheOption(TypedDict, total=False):
-        cache: bool | None
+    typing.get_type_hints resolves pd.DataFrame through this, to the real class when the extra
+    is installed and to Any when it is not.
+    """
 
-    class _DownloadOptions(TypedDict, total=False):
-        table: str | None
-        cache: bool | None
+    def __init__(self, name: str) -> None:
+        self._name = name
 
-    class _ReadOptions(TypedDict, total=False):
-        table: str | None
-        cache: bool | None
-        columns: list[str] | None
+    def __getattr__(self, attr: str) -> object:
+        try:
+            return getattr(importlib.import_module(self._name), attr)
+        except ImportError:
+            return Any
 
-    class _ConnectOptions(TypedDict, total=False):
-        name: str | None
-        cache: bool | None
 
-    class _CiteOptions(TypedDict, total=False):
-        format: str
+if not TYPE_CHECKING:
+    duckdb = _Extra("duckdb")
+    gpd = _Extra("geopandas")
+    pd = _Extra("pandas")
 
-    class _CatalogueOptions(TypedDict, total=False):
-        jurisdiction: str | None
-        status: str | list[str] | None
-        limit: int
-        offset: int
+
+class _DatasetsOptions(TypedDict, total=False):
+    publisher: str | None
+    topic: str | None
+    jurisdiction: str | None
+
+
+class _RowsOptions(TypedDict, total=False):
+    select: str | list[str] | None
+    order: str | list[str] | None
+    limit: int | None
+    offset: int | None
+    version: str | None
+    all: bool
+
+
+class _VersionOption(TypedDict, total=False):
+    version: str | None
+
+
+class _CacheOption(TypedDict, total=False):
+    cache: bool | None
+
+
+class _DownloadOptions(TypedDict, total=False):
+    table: str | None
+    cache: bool | None
+
+
+class _ReadOptions(TypedDict, total=False):
+    table: str | None
+    cache: bool | None
+    columns: list[str] | None
+
+
+class _ConnectOptions(TypedDict, total=False):
+    name: str | None
+    cache: bool | None
+
+
+class _CiteOptions(TypedDict, total=False):
+    format: str
+
+
+class _CatalogueOptions(TypedDict, total=False):
+    jurisdiction: str | None
+    status: str | list[str] | None
+    limit: int
+    offset: int
 
 
 __version__ = "0.5.0"

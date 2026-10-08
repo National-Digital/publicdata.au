@@ -6,8 +6,10 @@ import os
 import re
 import socket
 import sqlite3
+import sys
 import threading
 import time
+import typing
 import urllib.parse
 import warnings
 from collections.abc import Iterable, Iterator
@@ -819,3 +821,33 @@ def test_a_pinned_version_is_typed_from_its_own_fields(client: pd_au.Client) -> 
     assert r[0]["day"] == "2026-01-02"
     assert r.page["fields"] == {"day": "Old."}
     assert any(h[0] == "/d/t/v/2026-01-01/schema.json" for h in Handler.hits)
+
+
+def _public_callables() -> Iterator[tuple[str, object]]:
+    for name in pd_au.__all__:
+        obj = getattr(pd_au, name)
+        if isinstance(obj, type):
+            for attr, member in vars(obj).items():
+                public = not attr.startswith("_") or attr in {"__init__", "__enter__"}
+                if public and callable(member):
+                    yield f"{name}.{attr}", member
+        elif callable(obj):
+            yield name, obj
+
+
+@pytest.mark.parametrize("extras", [True, False], ids=["with extras", "without extras"])
+def test_every_public_hint_resolves_at_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    extras: bool,  # noqa: FBT001 - pytest passes parametrized values by name
+) -> None:
+    if not extras:
+        for mod in ("pandas", "geopandas", "duckdb", "pyarrow"):
+            monkeypatch.setitem(sys.modules, mod, None)
+    seen = 0
+    for name, fn in _public_callables():
+        try:
+            typing.get_type_hints(fn)
+        except Exception as e:  # noqa: BLE001 - the test names whatever stops a hint resolving
+            pytest.fail(f"{name}: {e!r}")
+        seen += 1
+    assert seen > 30
