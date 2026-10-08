@@ -525,6 +525,64 @@ variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI 
 then the endpoints answer 503 and point to the files. The query builder is tested against
 node:sqlite in CI.
 
+## Rollups
+
+The MCP tool `count_rows` answers from a version's rollup before it asks D1. A rollup is one
+gzipped JSON object in `publicdata-dist` under `_rollup/<slug>/<version>.json.gz`, outside the
+published tree, holding the version's counts and totals grouped several ways ("cubes"). It is a
+cache of answers the query API gives and is not offered as a download. It carries the version's
+provenance header. The build never imports `rollup.py`, so rollups shape no version and the build
+cache does not key on them.
+
+`publicdata rollup` runs after the D1 load and follows what D1 holds, which `_versions` lists, so
+a version too large or too wide for D1, an entry with `query: false` and a deploy with D1 off get
+no rollup. Each rollup is stored with the identity of the Parquet it was built from: the SHA-256
+the push stores with every object, or the ETag of one pushed before it did. A version whose
+published Parquet has another identity, or which `--replace` names, gets its rollup written
+again, and the rollups of versions D1 no longer holds are deleted. The Parquet is read from a
+built tree when the tree holds the same bytes, and from `publicdata-dist` otherwise, so a version
+this deploy took from the build cache still gets its rollup. DuckDB reads it on one thread with a
+float's NaN as null, as `data.sqlite` holds it, and totals floats with compensated summation, so
+the same Parquet always gives the same rollup. A version whose totals include an infinity has no
+JSON form and is left to D1.
+
+A published version keeps the schema it was built with, so a rollup takes its fields from the
+version. They are the fields `_versions` lists for it, or the register's when D1 lists none, kept
+only where the Parquet has the column and typed by the column when the stated type does not fit
+it. A version that fails for any other reason, such as a download error, is logged as a warning
+and skipped. Its rollup stays when it was built from the bytes R2 still publishes, the other
+versions are written and pushed, and the next deploy tries it again.
+
+A version gets a rollup when its table has at least 5,000 rows and its entry does not set
+`query: false`; a smaller table is answered at once by any engine. The candidate cubes are the
+field sets the entry's `example` and `chart` ask about, each field readers count by (at most
+1,000 values, or any date), and each pair of the 24 most likely such fields. They are taken
+greedily by the weight of questions each newly answers per byte (a register question 100, a
+count by one field 10, a pair 2) until 1 MB. A cube with more groups than half the rows is left
+out. Each cube totals up to four numeric fields, the register's example and chart measures
+first, as sum, non-null count, minimum and maximum, so counts, sums, averages, minima and
+maxima all come from it. The cap holds on the gzipped bytes: a rollup over it drops its
+last-chosen cubes and is built again.
+
+The function picks the smallest cube that holds every field a query filters or groups on and
+the field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the answer is
+the one `/aggregate` gives; `functions/_rollup.test.mjs` runs random queries through both on
+the fixture in `pipeline/tests/fixtures/rollup`, whose rollup the Python tests pin byte for
+byte. Each filter is decided once per distinct value, and LIKE patterns match without
+backtracking. `count_rows` orders equal totals by its groups, so its top groups are the same
+from either engine and from the query it cites. The function reads a rollup only while its
+stored identity matches the published Parquet's, and checks again after a minute. A query no
+cube holds, a version other than the two newest, a deploy without D1, and a withheld dataset
+fall through to D1. Answers name the version and its `/aggregate` URL.
+
+The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
+measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their
+Parquet, median 152 KB), which answer the fields of 84.5% of the register's example and chart
+questions, 98.2% of counts by one field and 78% of counts by one field filtered on another.
+Doubling the cap gains three points on pairs and doubles the parse time, while counts alone
+answer the same fields in a third of the bytes but none of the sums and averages most register
+questions ask for. In workerd a cold rollup answers in 6 to 25 ms and a warm one in about 1 ms.
+
 ## Catalogue
 
 `publicdata catalogue fetch` reads the dataset list of every government open-data portal:
