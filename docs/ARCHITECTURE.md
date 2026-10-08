@@ -519,10 +519,11 @@ rowid agrees with the Parquet and the console. At most two versions per dataset 
 stays available as files. A version whose data.csv is over 500 MB, or a dataset whose entry sets
 `query: false`, is not loaded, and its page, OpenAPI and MCP resources leave the query API out;
 `d1.queryable` is the one rule both the build and the loader read. Every other version is for the
-Parquet engine, which reads the version's query copy in `publicdata-dist`, never its data.parquet. Up to four versions load at
+Parquet engine, which reads the version's query copy in `publicdata-dist` first. Up to four versions load at
 once, each one's parts in order. Filters follow PostgREST (`field=gte.2020`, `in.(a,b)`, `is.null`,
 `like.*x*`, `not.` to negate), every name is checked against the field list and every value is
-bound. Paging asks for one row more than the limit and returns a `next` URL on the version's own
+bound. `like` and `ilike` treat `*` as the wildcard and ignore case in ASCII letters only, as
+SQLite's LIKE does. Paging asks for one row more than the limit and returns a `next` URL on the version's own
 path. JSON responses carry the version, licence and attribution; CSV and NDJSON carry them in
 headers. Dated answers are cached at the edge for good, the newest for five minutes. Above 60
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
@@ -550,6 +551,50 @@ lists what loaded, waited and was skipped, and names every dataset skipped or wa
 days, whose API answers come from the version before. Each deploy also drops the load tables that
 neither `_versions` nor `_loads` names, as a failed cleanup can leave. Only deploys of main load,
 one at a time.
+
+The MCP server's `query_rows` and `count_rows` answer from D1 for the versions it holds. Any
+other version, older than the two loaded, over the size limit or in an entry with `query: false`,
+is read from Parquet in R2 (`functions/_parquet.js`) with the same filters. The build writes a field list,
+`d/<slug>/fields.json`, for every dataset whose newest version has a data.parquet, from that file
+and whether or not D1 loads it, so `list_fields` answers for every dataset the row tools serve. The build writes a
+profile copy of every version, old ones included, at `_q/<slug>/<version>.parquet` in
+`publicdata-dist`, which no route serves, and the engine reads that first when its row count,
+version and source hash match the published file's footer. A failed read of the copy fails the
+call, so the published file never stands in for it by accident. Without a matching copy it reads
+the published `data.parquet`, but only when that file carries the profile's footer key
+`publicdata.profile` (ADR 0008). Otherwise the query is refused with DuckDB SQL that answers it
+from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
+benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A version
+written only as period parts has neither file, and the engine does not read parts yet, so the
+call says the version is stored as parts, links its manifest and gives DuckDB SQL over the part
+files the manifest lists. A sorted profile
+file has a page index, and one without is read a column chunk at a time. Each version's
+footer, and the page index of each column a query touches, are read once per isolate and held to
+the file's ETag. A query copy is written again in place when its entry's `sort`, `lookup` or
+`int32` changes, so every range read passes `onlyIf: { etagMatches }`; a read the copy refuses
+drops the footer, and the call reads it again once. A footer over a minute old is checked against
+the copy's ETag before it is used. Row-group
+statistics, and page statistics where there is a page index, rule out what cannot match, and
+rows that the statistics prove match are counted without being read. The pages left are fetched six at a time, ranges
+less than 256 KB apart read as one, and decoded with hyparquet a few row groups at a time.
+Before any data is read, the pages a query needs are priced from the page index, and a call may
+read 64 row groups, 8 MB, 4 million values and 160 ranges. An ordered page holds every row
+before it, so offset + limit, or the rows that can match where that is fewer, may come to at most
+100,000 rows there. Each candidate row of an order costs one more value for every eight levels of
+that heap, since it is compared once per level. An aggregate holds one bucket per distinct group
+and may hold 50,000. Each value a `like` pattern
+with a `*` is matched against counts once more for every eight characters of the pattern. A
+query that needs more is refused with the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, the
+suppressed flags joined by semicolons, and a 64-bit integer as a number while it is exact and as
+its digits beyond that. Sums and averages are compensated as SQLite's are, and `like` is matched
+without backtracking. Rows the statistics prove match are counted and paged by arithmetic, never
+one index per row. Without an order, and for ties, an answer from Parquet follows the file's own
+order: the declared sort, then the key, then the source position. D1 keeps the publisher's
+order, and the DuckDB SQL rebuilds the file's order from the published file with
+`file_row_number`. Footers are kept least recently used first. Answers are cached at the edge by
+version, engine version and the ETag of the file read, so a copy written again never answers from
+the cache of the one before. Each answer links the version's manifest, since the query API path
+answers only while D1 holds the version. A file with no `publicdata` provenance key is refused.
 
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until

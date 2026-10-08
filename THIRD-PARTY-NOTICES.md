@@ -49,6 +49,16 @@ time from `package-lock.json`, not committed.
 | `@perspective-dev/client`, `server`, `viewer`, `viewer-charts`, `viewer-datagrid` | Apache-2.0 |
 | `apache-arrow` | Apache-2.0 |
 
+## Libraries the functions bundle
+
+The MCP server reads Parquet files with these npm packages, which the deploy bundles into the
+Pages Functions from `package-lock.json`.
+
+| Package | Licence |
+| --- | --- |
+| `hyparquet` | MIT |
+| `fzstd` | MIT |
+
 ## The GitHub mark
 
 The pages link to the repository with the GitHub mark (`GH_MARK` in

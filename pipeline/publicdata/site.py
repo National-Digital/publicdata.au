@@ -2263,10 +2263,13 @@ def _query_paths(
 HINT_VALUES = 150  # a field with more distinct values than this gets no value list
 
 
-def _fields_resource(o: DatasetOut, console: dict) -> dict:
-    """A dataset's fields as the MCP server's resource: what the query console knows, as data."""
+def _fields_resource(o: DatasetOut, hints: dict, api: bool) -> dict:
+    """A dataset's fields as the MCP server's resource, read from the newest version's
+    data.parquet as the query console's are. The query API's URLs are given only when it loads
+    the dataset; the server's row tools answer either way, from the version's Parquet."""
     ds, m = o.dataset, o.latest.manifest
-    api = f"{SITE}/api/v1/datasets/{ds.slug}/"
+    base = f"{SITE}/api/v1/datasets/{ds.slug}/"
+    urls = {"rows_url": base + "rows", "aggregate_url": base + "aggregate"} if api else {}
     return {
         "slug": ds.slug,
         "title": ds.title,
@@ -2276,12 +2279,11 @@ def _fields_resource(o: DatasetOut, console: dict) -> dict:
         "version": m.version,
         "rows": o.latest.rows,
         "dataset_page": dataset_url(ds.slug),
-        "rows_url": api + "rows",
-        "aggregate_url": api + "aggregate",
+        **urls,
         "where": at.plain(at.spec()["webmcp"]["where"]),
         "key": list(ds.key),
         "partition_by": list(ds.partition_by),
-        "fields": console["fields"],
+        "fields": hints["fields"],
     }
 
 
@@ -3375,14 +3377,18 @@ def render_site(
         rows_path = out / "d" / ds.slug / "v" / m.version / "data.parquet"
         if rows_path.exists():
             hints = _console(ds, rows_path)
-        if QUERY_API and hints and queryable(ds, latest.files.get("data.csv")):
+        api = bool(QUERY_API and hints and queryable(ds, latest.files.get("data.csv")))
+        if api:
             queried.append(o)
             console = hints
             _write(out, f"d/{ds.slug}/openapi.json", pretty(_dataset_openapi(o, console)))
             console["api"] = f"/api/v1/datasets/{ds.slug}/"
             console["site"] = SITE
             console["versions"] = [v["version"] for v in reversed(views)][:KEEP]
-            fields_body = pretty(_fields_resource(o, console))
+        # The MCP server's row tools answer from Parquet what D1 does not load, so every table
+        # with a data.parquet gets its field list, whether or not the query API serves it.
+        if hints:
+            fields_body = pretty(_fields_resource(o, hints, api))
             _write(out, f"d/{ds.slug}/fields.json", fields_body)
             resources.append(
                 {
