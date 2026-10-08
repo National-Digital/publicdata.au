@@ -1126,7 +1126,7 @@
   }
 
   // Tabs: a row of buttons that each show one pane.
-  document.querySelectorAll('[data-tabList]').forEach(function (box) {
+  document.querySelectorAll('[data-tabs]').forEach(function (box) {
     var tabList = box.querySelectorAll('[role=tab]');
     tabList.forEach(function (tab) {
       tab.addEventListener('click', function () {
