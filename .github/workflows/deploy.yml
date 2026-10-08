@@ -74,9 +74,16 @@ jobs:
       # The same install as the build, since the libraries and the spatial extension are part of
       # every cache key.
       - run: pip install -e './pipeline[deploy]'
+      # The extension build pinned in spatial-extension.json, from our copy in R2. The install
+      # stops when the pin is not for the duckdb in pipeline/requirements.txt or the bytes are not
+      # the pinned build.
       - run: python -m publicdata spine install
-      # Each runner fetches the extension, so every later job checks it got the build this plan
-      # keyed on (PUBLICDATA_SPATIAL) and stops when it did not.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      # Every later job checks it installed the build this plan keyed on (PUBLICDATA_SPATIAL) and
+      # stops when it did not.
       - name: Record the spatial extension
         id: spatial
         run: echo "version=$(python -c 'from publicdata.cache import spatial_version; print(spatial_version())')" >> "$GITHUB_OUTPUT"
@@ -154,6 +161,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/build-runner
+        with:
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       - name: Pull the sample's cache entries and sources
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -195,6 +206,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/build-runner
+        with:
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       - name: Pull the build cache from R2
         if: ${{ !github.event.inputs.replace }}
         env:
@@ -280,6 +295,10 @@ jobs:
         with:
           fetch-depth: 0 # the tags, for scripts/next-version.mjs
       - uses: ./.github/actions/build-runner
+        with:
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       # A pull request previews the version it would release; a push to main releases it; a
       # dispatched redeploy keeps the version already released, so no number goes untagged.
       - name: Resolve the release version

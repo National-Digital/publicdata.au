@@ -1,0 +1,8 @@
+{
+  "duckdb": "1.5.6",
+  "platform": "linux_amd64",
+  "build": "04270fe",
+  "url": "r2://publicdata-raw/_toolchain/duckdb/v1.5.6/linux_amd64/04270fe/spatial.duckdb_extension.gz",
+  "upstream": "https://extensions.duckdb.org/v1.5.6/linux_amd64/spatial.duckdb_extension.gz",
+  "sha256": "3aa7e084efff1ceb71218b3bf75911a2ff519f9530547be87f6729f3cd7a1b6a"
+}

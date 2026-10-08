@@ -556,10 +556,18 @@ VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
 def cmd_spine_install(args) -> int:
-    from .spine import install
+    from .extension import install
 
     install()
     print("spine: DuckDB spatial extension installed")
+    return 0
+
+
+def cmd_spine_mirror(args) -> int:
+    from .extension import mirror
+
+    pin = mirror(Path(args.pin))
+    print(f"spine: pinned {pin['url']} ({pin['sha256']})")
     return 0
 
 
@@ -1045,6 +1053,11 @@ def main(argv=None) -> int:
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
     ).set_defaults(fn=cmd_spine_install)
+    sm = sp.add_parser(
+        "mirror", help="copy the spatial extension for the installed DuckDB to R2 and pin it"
+    )
+    sm.add_argument("--pin", required=True, help="the spatial-extension.json to write")
+    sm.set_defaults(fn=cmd_spine_mirror)
     hb = sub.add_parser("hubs", help="copy each dataset's newest version to the data hubs")
     hb.add_argument("--site", default="https://publicdata.au")
     hb.add_argument("--hub", nargs="*", default=["huggingface", "zenodo", "kaggle"])
