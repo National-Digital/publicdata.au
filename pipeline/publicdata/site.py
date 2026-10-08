@@ -1844,7 +1844,7 @@ PROSE = {
 <p>The code that builds publicdata.au is open source. It is on GitHub under the GNU Affero General Public License, and anyone can propose a change to it. A maintainer at National Digital reviews every pull request, and a merged change goes live with the next release.</p>
 <p><a class="gh" href="{repo}">{gh}National-Digital/publicdata.au</a></p>
 <h2 id="add-a-dataset">Add a dataset</h2>
-<p>Any dataset in the <a href="/backlog/">backlog</a> with an open licence can be added by anyone. A dataset is one YAML file in the <code>register/</code> folder, which names the source, the licence with the publisher's own statement as evidence, the attribution and the fields to publish. <code>python -m publicdata register draft</code> writes a first draft from the dataset's portal page. You finish it by hand and build it locally to check it, and the <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-dataset">contributing guide</a> has the steps.</p>
+<p>Any dataset in the <a href="/backlog/">backlog</a> with an open licence can be added by anyone. A dataset is one YAML file in the <code>register/</code> folder, which names the source, the licence with the publisher's own statement as evidence, the attribution and the fields to publish. <code>python -m publicdata register draft</code> writes a first draft from the dataset's portal page. You finish it by hand and build it locally to check it, and the <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-dataset">contributing guide</a> has the steps. Some of the most-wanted datasets have an <a href="{repo}/issues?q=is%3Aissue%20is%3Aopen%20label%3Adataset">open issue</a> with the portal page, the licence evidence and a starting entry.</p>
 <p>The licence is the only thing that stops a dataset. A non-commercial or no-derivatives licence, or none at all, means it cannot be published here, however useful it is.</p>
 <h2 id="add-a-format">Add a file format</h2>
 <p>Each format is a writer that takes one normalised table and its provenance and returns the bytes of the file. A writer reads no network, clock or random value, so two builds of one version give identical files. A new format is added to every dataset at the next deploy. The guide's section on <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-serialisation">serialisation</a> lists what a writer needs.</p>
@@ -3043,6 +3043,7 @@ def render_site(
     search: Path | None = None,
     cache: BuildCache | None = None,
     hubs: dict | None = None,
+    tasks: dict[str, int] | None = None,
 ) -> None:
     e = env()
     static_src = Path(__file__).parent / "static"
@@ -3078,6 +3079,7 @@ def render_site(
     dirx = directory.plan(
         datasets, list(records or []), list(curated or []), catalogue_as_at, catalogue_stats or {}
     )
+    dirx.tasks = dict(tasks or {})
     if search and catalogue_as_at:
         from .d1 import catalogue_sqlite, served_table
 
@@ -4109,7 +4111,13 @@ def render_site(
 
     # Backlog.
     present = {p.jurisdiction for p in dirx.pubs.values()}
-    all_rows = [_row(d, by_slug.get(d.slug)) for d in datasets]
+    all_rows = [
+        {
+            **_row(d, by_slug.get(d.slug)),
+            "task": "" if d.status == "live" else dirx.task_url(d.slug),
+        }
+        for d in datasets
+    ]
     order = {"live": 0, "building": 1, "backlog": 2, "assessing": 2, "blocked": 3}
     all_rows.sort(key=lambda r: (order[r["status"]], r["title"]))
     backlog_md = "\n".join(
@@ -4137,6 +4145,7 @@ def render_site(
             ),
             *[
                 f"- **{r['title']}** ({r['publisher_name']}, {r['licence']}): {r['status_label']}. {r['summary']} {r['planned']} {r['blocked_reason']}".rstrip()
+                + (f" Open as a contributor task: {r['task']}" if r["task"] else "")
                 for r in all_rows
             ],
             "",

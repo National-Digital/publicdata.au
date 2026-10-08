@@ -37,6 +37,7 @@ concurrency:
 permissions:
   contents: read
   pull-requests: write
+  issues: read
 
 jobs:
   # A runner's disk cannot hold a build of every version at once, so the versions the build cache
@@ -380,6 +381,17 @@ jobs:
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m publicdata store pull --store "$STORE" --cache "$BUILD_CACHE"
+      # The backlog and publisher pages link each dataset's open contributor issue. GitHub being
+      # unreachable costs the notices, not the deploy.
+      - name: Read the open contributor issues
+        if: env.HAS_CF == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m publicdata contribute issues --out contribute.json || {
+            echo "::warning::the open contributor issues could not be read; the pages show none"
+            echo '{}' > contribute.json
+          }
       - name: Build and gate
         env:
           VERSIONED: ${{ github.event_name != 'pull_request' && '--versioned' || '' }}
@@ -391,7 +403,7 @@ jobs:
           python -m publicdata.api_text
           if [ "$HAS_CF" = "true" ]; then
             BUILT=$(find /mnt/work/built -mindepth 1 -maxdepth 1 -type d -printf '--built %p ' 2>/dev/null || true)
-            python -m publicdata build --store "$STORE" --out "$DIST" --cache "$BUILD_CACHE" --absent absent.json --search catalogue-search.sqlite --published r2://publicdata-dist $BUILT
+            python -m publicdata build --store "$STORE" --out "$DIST" --cache "$BUILD_CACHE" --absent absent.json --search catalogue-search.sqlite --tasks contribute.json --published r2://publicdata-dist $BUILT
           else
             echo "No Cloudflare secrets: building from fixtures, no deploy." >> "$GITHUB_STEP_SUMMARY"
             python -m publicdata build --fixtures --out "$DIST"
