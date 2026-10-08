@@ -22,9 +22,18 @@ async function run(html, mode, width = 1280) {
   const browser = await puppeteer.launch({ executablePath: chrome, args: ["--no-sandbox", "--disable-gpu"] });
   try {
     const page = await browser.newPage();
+    if (mode === "menu-nojs") await page.setJavaScriptEnabled(false);
     await page.setViewport({ width, height: 900 });
     await page.setContent(html, { waitUntil: "load" });
     if (mode === "spacing") await page.addStyleTag({ content: TEXT_SPACING });
+    if (mode === "menu-open" || mode === "menu-closed") {
+      await page.focus("header button");
+      await page.keyboard.press("Enter");
+    }
+    if (mode === "menu-closed") {
+      await page.focus("nav a");
+      await page.keyboard.press("Escape");
+    }
     return await page.evaluate(house, HOUSE, mode);
   } finally {
     await browser.close();
@@ -100,4 +109,25 @@ test("text cut off by the spacing override fails, a line clamp or a data region 
   assert.deepEqual(rules(bad), ["text-spacing"]);
   const ok = await run(`${BASE}<div data-conformance="aa"><div style="width:8rem;height:1.2rem;overflow:hidden;white-space:nowrap">${LONG}</div></div>${END}`, "spacing");
   assert.deepEqual(ok, []);
+});
+
+const menuPage = ({ escape, links, nojs }) => `${BASE.replace("</style>", `nav{display:none}header.open nav{display:flex;flex-direction:column}nav a{${links}}${nojs ? "@media (scripting:none){nav{display:flex}}" : ""}</style>`)}
+<header><button type="button" aria-expanded="false" aria-controls="n">Menu</button><nav id="n" aria-label="Site"><a href="/a">Datasets</a><a href="/b">About</a></nav></header>
+<script>var b=document.querySelector("header button"),h=b.parentElement;b.onclick=function(){var on=b.getAttribute("aria-expanded")!=="true";b.setAttribute("aria-expanded",on);h.classList.toggle("open",on)};
+${escape ? 'h.onkeydown=function(e){if(e.key==="Escape"){b.setAttribute("aria-expanded","false");h.classList.remove("open");b.focus()}};' : ""}</script>${END}`;
+
+test("a menu that opens to full-size links, closes on Escape and shows its links without script passes", { skip }, async () => {
+  const html = menuPage({ escape: true, links: "min-height:2.75rem;display:flex;align-items:center", nojs: true });
+  assert.deepEqual(await run(html, "menu-open", HOUSE.reflowWidth), []);
+  assert.deepEqual(await run(html, "menu-closed", HOUSE.reflowWidth), []);
+  assert.deepEqual(await run(html, "menu-nojs", HOUSE.reflowWidth), []);
+});
+
+test("a menu with small links, no Escape and nothing without script fails each pass", { skip }, async () => {
+  const html = menuPage({ escape: false, links: "display:block;line-height:1", nojs: false });
+  assert.deepEqual(rules(await run(html, "menu-open", HOUSE.reflowWidth)), ["target-size"]);
+  const closed = await run(html, "menu-closed", HOUSE.reflowWidth);
+  assert.deepEqual(rules(closed), ["menu"]);
+  assert.ok(closed.some((f) => f.detail.includes("Escape does not close")));
+  assert.deepEqual(rules(await run(html, "menu-nojs", HOUSE.reflowWidth)), ["menu"]);
 });

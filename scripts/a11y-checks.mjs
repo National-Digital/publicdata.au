@@ -22,7 +22,11 @@ export const HOUSE = {
 };
 
 // Runs in the page. `mode` picks the checks: "all" at the working width, "type" at the wide width,
-// "reflow" at the narrow width, "spacing" after the text-spacing override has been injected.
+// "reflow" at the narrow width, "spacing" after the text-spacing override has been injected. At the
+// narrow width the header's menu button (one with aria-controls and aria-expanded) is checked three ways:
+// "menu-open" after Enter holds what it opens to the target, name and focus checks,
+// "menu-closed" after Escape wants it shut with focus back on the button, and "menu-nojs" wants
+// its links reachable with script turned off.
 export function house(cfg, mode) {
   const out = [];
   const add = (rule, el, detail) => out.push({ rule, target: label(el), detail });
@@ -44,6 +48,24 @@ export function house(cfg, mode) {
   const inAA = (el) => !!el.closest('[data-conformance="aa"]');
   const PROSE = "p, li, dd, dt, td, th, summary, label, figcaption, blockquote, h1, h2, h3, h4, h5, h6, a, button, input, select, textarea";
   const INTERACTIVE = 'a[href], button, input, select, textarea, summary, [role="button"], [role="tab"], [role="link"], [tabindex="0"]';
+  const toggle = [...document.querySelectorAll("header button[aria-controls][aria-expanded]")].find(visible);
+  const controlled = toggle && document.getElementById(toggle.getAttribute("aria-controls"));
+  const scope = mode === "menu-open" ? controlled || document.createElement("div") : document;
+
+  if (mode === "menu-open" && toggle) {
+    if (toggle.getAttribute("aria-expanded") !== "true") add("menu", toggle, "aria-expanded is not true after Enter");
+    if (!controlled || !visible(controlled)) add("menu", toggle, "Enter does not show what the button controls");
+  }
+  if (mode === "menu-closed" && toggle) {
+    if (toggle.getAttribute("aria-expanded") !== "false") add("menu", toggle, "Escape does not close the menu");
+    else if (controlled && visible(controlled)) add("menu", controlled, "the menu stays visible after Escape");
+    if (document.activeElement !== toggle) add("menu", toggle, "focus does not return to the button after Escape");
+  }
+  if (mode === "menu-nojs") {
+    const nav = document.querySelector('nav[aria-label="Site"]');
+    const hidden = nav ? [...nav.querySelectorAll("a[href]")].filter((a) => !visible(a)) : [];
+    if (hidden.length) add("menu", nav, `${hidden.length} site link(s) cannot be reached without script`);
+  }
 
   if (mode === "all" || mode === "type") {
     const want = mode === "type" ? cfg.rootAtWide : cfg.rootAtNarrow;
@@ -74,9 +96,9 @@ export function house(cfg, mode) {
     }
   }
 
-  if (mode === "all") {
+  if (mode === "all" || mode === "menu-open") {
     const flows = /^(block|inline-block|list-item|table-cell)$/;
-    for (const el of document.querySelectorAll(INTERACTIVE)) {
+    for (const el of scope.querySelectorAll(INTERACTIVE)) {
       if (!visible(el) || el.closest("svg")) continue;
       let box = el;
       if (el.matches('input[type="checkbox"], input[type="radio"]')) {
@@ -101,7 +123,7 @@ export function house(cfg, mode) {
       if (w + 0.5 < min || h + 0.5 < min) add("target-size", el, `${Math.round(w)}x${Math.round(h)}px, minimum ${min}px${inAA(el) ? " (AA region)" : ""}`);
     }
     const generic = new Set(cfg.generic);
-    for (const a of document.querySelectorAll("a[href]")) {
+    for (const a of scope.querySelectorAll("a[href]")) {
       if (!visible(a)) continue;
       let name = a.getAttribute("aria-label") || "";
       if (!name && a.getAttribute("aria-labelledby")) name = a.getAttribute("aria-labelledby").split(/\s+/).map((id) => (document.getElementById(id) || {}).textContent || "").join(" ");
@@ -111,7 +133,7 @@ export function house(cfg, mode) {
       else if (generic.has(name)) add("link-purpose", a, `"${name}" does not say where the link goes`);
     }
     let focused = 0;
-    for (const el of document.querySelectorAll(INTERACTIVE)) {
+    for (const el of scope.querySelectorAll(INTERACTIVE)) {
       if (focused >= 80) break;
       if (!visible(el) || el.closest("svg") || el.closest(".xhost")) continue;
       focused++;

@@ -22,6 +22,7 @@ check fires on a page built to fail it, as every gate in this repo must.
 | link purpose | 2.4.9 | no link is named only "csv", "download", "open", "more" or another word that does not say where it goes; format links carry the dataset's name in `aria-label` |
 | focus visible | 2.4.7, 2.4.13 | every focusable element shows an outline of at least 2px when focused |
 | reflow | 1.4.10 | no page scrolls sideways at 320px wide |
+| menu | 2.1.1, 2.4.3, 4.1.2 | at 320px wide, the header's menu button opens from the keyboard with `aria-expanded` set and its links pass the target, name and focus checks; Escape from inside the menu closes it and returns focus to the button; with script turned off, every site link is shown |
 | text spacing | 1.4.12 | with line height 1.5, letter spacing 0.12em, word spacing 0.16em and paragraph spacing 2em forced, nothing is cut off and the page does not scroll sideways |
 
 The Python gate (`python -m publicdata gate`) adds, on every built page including production

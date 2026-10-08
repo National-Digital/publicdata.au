@@ -1,6 +1,7 @@
 // Holds built pages to WCAG 2.2 AAA: axe-core's rules through the AAA tags in both colour
 // schemes, then the house checks in a11y-checks.mjs at 1280px, 2560px (the type must grow) and
-// 320px (reflow), and with the text-spacing override. docs/ACCESSIBILITY.md states the target and
+// 320px (reflow, and the menu opened, closed and without script), and with the text-spacing
+// override. docs/ACCESSIBILITY.md states the target and
 // the regions held to AA. Usage: node scripts/a11y.mjs <dist> [path ...]. With no paths, a fixed
 // set of representative pages is checked. Chrome is found at CHROME_PATH or /usr/bin/google-chrome.
 import { createServer } from "node:http";
@@ -80,6 +81,38 @@ const browser = await puppeteer.launch({
 const axe = await readFile(AXE, "utf8");
 const settle = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 let failed = 0;
+// Opens the menu from the keyboard, checks it, then closes it with Escape from its first link. Assumes the page
+// is already at the narrow width.
+async function menuRuns(page) {
+  const sel = "header button[aria-controls][aria-expanded]";
+  const toggle = await page.$$eval(sel, (bs) => bs.findIndex((b) => b.getBoundingClientRect().width > 0));
+  if (toggle < 0) return [];
+  const runs = [];
+  await (await page.$$(sel))[toggle].focus();
+  await page.keyboard.press("Enter");
+  await settle(page);
+  runs.push(await page.evaluate(house, HOUSE, "menu-open"));
+  await page.evaluate((s) => {
+    const b = [...document.querySelectorAll(s)].find((x) => x.getBoundingClientRect().width > 0);
+    const first = document.getElementById(b.getAttribute("aria-controls"))?.querySelector("a[href], button");
+    (first || b).focus();
+  }, sel);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  runs.push(await page.evaluate(house, HOUSE, "menu-closed"));
+  return runs;
+}
+async function noScriptRun(path) {
+  const page = await browser.newPage();
+  try {
+    await page.setJavaScriptEnabled(false);
+    await page.setViewport({ width: HOUSE.reflowWidth, height: 900 });
+    await page.goto(base + path, { waitUntil: "load", timeout: 60000 });
+    return await page.evaluate(house, HOUSE, "menu-nojs");
+  } finally {
+    await page.close();
+  }
+}
 const report = (path, scheme, problems) => {
   if (!problems.length) {
     console.log(`✓ ${path} (${scheme})`);
@@ -125,10 +158,12 @@ try {
         await page.setViewport({ width: HOUSE.reflowWidth, height: 900 });
         await settle(page);
         runs.push(await page.evaluate(house, HOUSE, "reflow"));
+        runs.push(...(await menuRuns(page)));
         await page.setViewport(WORK);
         await page.addStyleTag({ content: TEXT_SPACING });
         await settle(page);
         runs.push(await page.evaluate(house, HOUSE, "spacing"));
+        runs.push(await noScriptRun(path));
         const byRule = new Map();
         for (const f of runs.flat()) {
           if (!byRule.has(f.rule)) byRule.set(f.rule, []);
