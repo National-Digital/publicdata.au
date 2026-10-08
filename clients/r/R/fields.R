@@ -29,7 +29,7 @@ pd_fields <- function(slug, version = NULL) {
   if (identical(s$kind, "database")) {
     all <- unlist(lapply(s$tables, function(t) t$fields), recursive = FALSE)
     tables <- unlist(lapply(s$tables, function(t) rep(t$name, length(t$fields))))
-    return(tibble::add_column(fields_tibble(all), table = tables, .before = 1))
+    return(tibble::add_column(fields_tibble(all), table = tables, .before = 1L))
   }
   fields_tibble(s$fields)
 }
@@ -39,11 +39,11 @@ at_path <- function(version) if (is.null(check_version(version))) "latest" else 
 fields_tibble <- function(fields) {
   text <- function(x) if (is.null(x)) NA_character_ else as.character(x)
   tibble::tibble(
-    name = vapply(fields, function(f) f$name, character(1)),
-    type = vapply(fields, function(f) text(f$type), character(1)),
-    description = vapply(fields, function(f) text(f$description), character(1)),
-    min = vapply(fields, function(f) text(f$min), character(1)),
-    max = vapply(fields, function(f) text(f$max), character(1)),
+    name = vapply(fields, function(f) f$name, character(1L)),
+    type = vapply(fields, function(f) text(f$type), character(1L)),
+    description = vapply(fields, function(f) text(f$description), character(1L)),
+    min = vapply(fields, function(f) text(f$min), character(1L)),
+    max = vapply(fields, function(f) text(f$max), character(1L)),
     values = lapply(fields, function(f) unlist(f$values))
   )
 }

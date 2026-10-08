@@ -39,13 +39,13 @@ pd_cache_list <- function(slug = NULL, version = NULL) {
   root <- cache_root(slug, version)
   files <- if (dir.exists(root)) list.files(root, recursive = TRUE, full.names = TRUE) else character()
   files <- files[!grepl("\\.part$", files)]
-  rel <- substring(normalizePath(files, "/", FALSE), nchar(normalizePath(pd_cache_dir(), "/", FALSE)) + 2)
+  rel <- substring(normalizePath(files, "/", FALSE), nchar(normalizePath(pd_cache_dir(), "/", FALSE)) + 2L)
   parts <- strsplit(rel, "/", fixed = TRUE)
   info <- file.info(files)
   tibble::tibble(
-    dataset = vapply(parts, `[`, character(1), 1),
-    version = vapply(parts, `[`, character(1), 2),
-    file = vapply(parts, function(p) paste(p[-(1:2)], collapse = "/"), character(1)),
+    dataset = vapply(parts, `[`, character(1L), 1L),
+    version = vapply(parts, `[`, character(1L), 2L),
+    file = vapply(parts, function(p) paste(p[-(1L:2L)], collapse = "/"), character(1L)),
     bytes = as.numeric(info$size),
     saved = info$mtime
   )
@@ -56,7 +56,7 @@ pd_cache_list <- function(slug = NULL, version = NULL) {
 pd_cache_clear <- function(slug = NULL, version = NULL) {
   root <- cache_root(slug, version)
   if (!dir.exists(root)) {
-    return(invisible(0))
+    return(invisible(0.0))
   }
   files <- list.files(root, recursive = TRUE, full.names = TRUE, all.files = TRUE)
   freed <- sum(file.info(files)$size, na.rm = TRUE)

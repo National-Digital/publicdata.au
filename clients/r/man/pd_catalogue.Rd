@@ -8,8 +8,8 @@ pd_catalogue(
   q = NULL,
   jurisdiction = NULL,
   status = NULL,
-  limit = 20,
-  offset = 0
+  limit = 20L,
+  offset = 0L
 )
 }
 \arguments{

@@ -30,7 +30,7 @@ JUR_CODES <- c(
 #' @examplesIf pd_available()
 #' pd_catalogue("water quality", jurisdiction = "Queensland", limit = 5)
 #' @export
-pd_catalogue <- function(q = NULL, jurisdiction = NULL, status = NULL, limit = 20, offset = 0) {
+pd_catalogue <- function(q = NULL, jurisdiction = NULL, status = NULL, limit = 20L, offset = 0L) {
   jur <- NULL
   if (!is.null(jurisdiction)) {
     jur <- unname(JUR_CODES[one_text(jurisdiction, "jurisdiction")])
@@ -46,7 +46,7 @@ pd_catalogue <- function(q = NULL, jurisdiction = NULL, status = NULL, limit = 2
     url = "url", licence = "licence", formats = "formats", modified = "modified", status = "state",
     page = "page", reason = "reason"
   )
-  out <- tibble::as_tibble(lapply(cols, function(k) vapply(rows, text, character(1), k = k)))
+  out <- tibble::as_tibble(lapply(cols, function(k) vapply(rows, text, character(1L), k = k)))
   attr(out, "total") <- body$total
   attr(out, "next_offset") <- body$next_offset
   out

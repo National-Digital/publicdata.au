@@ -76,7 +76,7 @@ pd_diff <- function(slug, version = NULL) {
       "': it is the first version kept, or not a version. pd_changes() lists them."
     )
   }
-  structure(pd_get(hit$url[1], simplify = FALSE), class = "pd_diff")
+  structure(pd_get(hit$url[1L], simplify = FALSE), class = "pd_diff")
 }
 
 #' @export

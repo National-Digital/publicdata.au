@@ -14,7 +14,7 @@
 pd_boundary_layers <- function() {
   memo("places", {
     p <- pd_get("/places.json", simplify = FALSE)$layers
-    text <- function(k) vapply(p, function(l) as.character(l[[k]]), character(1))
+    text <- function(k) vapply(p, function(l) as.character(l[[k]]), character(1L))
     tibble::tibble(
       key = text("key"), slug = text("slug"), title = text("title"), code = text("code"),
       name = text("name"), noun = text("noun"), version = text("version")
@@ -27,7 +27,7 @@ find_layer <- function(layer) {
   l <- one_text(layer, "layer")
   hit <- which(tolower(layers$key) == l | tolower(layers$slug) == l | tolower(layers$code) == l)
   if (!length(hit)) pd_abort("no boundary layer \"", layer, "\"; the layers are ", paste(layers$key, collapse = ", "))
-  layers[hit[1], ]
+  layers[hit[1L], ]
 }
 
 #' A boundary layer as an sf object
@@ -86,15 +86,15 @@ pd_join_boundaries <- function(x, layer = NULL, by = NULL, cache = NULL) {
         "); name the layer and the column, as in layer = \"lga\", by = \"council_code\""
       )
     }
-    if (nrow(hits) > 1) {
+    if (nrow(hits) > 1L) {
       pd_abort("x has codes for several layers (", paste(hits$key, collapse = ", "), "); choose one with layer =")
     }
-    l <- hits[1, ]
+    l <- hits[1L, ]
   } else {
     l <- find_layer(layer)
   }
   col <- if (is.null(by)) l$code else one_text(by, "by")
-  col <- names(x)[tolower(names(x)) == col][1]
+  col <- names(x)[tolower(names(x)) == col][1L]
   if (is.na(col)) pd_abort("x has no column \"", if (is.null(by)) l$code else by, "\"")
   b <- pd_boundaries(l$key, cache = cache)
   ref <- as.character(b[[l$code]])
@@ -122,7 +122,7 @@ norm_codes <- function(v, ref) {
   if (is.numeric(v)) {
     widths <- unique(nchar(ref[!is.na(ref)]))
     whole <- all(is.na(v) | v == round(v))
-    fmt <- if (length(widths) == 1 && whole) paste0("%0", widths, ".0f") else if (whole) "%.0f" else "%.15g"
+    fmt <- if (length(widths) == 1L && whole) paste0("%0", widths, ".0f") else if (whole) "%.0f" else "%.15g"
     v <- ifelse(is.na(v), NA_character_, sprintf(fmt, v))
   }
   trimws(as.character(v))
