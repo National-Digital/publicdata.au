@@ -104,6 +104,17 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   the fetch app opened them from a run on `main`, with one signed-off commit of store manifests.
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
+- A change under `.github/` must pass the Workflow lint job in `ci.yml`. It runs zizmor at its
+  auditor persona, which reports every finding zizmor has, and actionlint with shellcheck over every
+  `run:` block. Run them before you push, at the versions that job pins:
+
+  ```sh
+  GH_TOKEN=$(gh auth token) uvx zizmor==1.30.1 --persona auditor .github
+  actionlint -shellcheck "$(command -v shellcheck)"
+  ```
+
+  Fix each finding. Where a rule truly cannot apply, a `# zizmor: ignore[<rule>]` comment on the
+  line it covers, or a `# shellcheck disable=<code>` comment on the line before, gives the reason.
 
 ## Reviewing a pull request
 
@@ -304,6 +315,7 @@ each version lives in one file that the workflows or the pipeline read:
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
 | R and its CRAN snapshot date | `.github/workflows/clients.yml` |
 | DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
+| zizmor, actionlint and shellcheck | `.github/workflows/ci.yml` |
 
 An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
 npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed

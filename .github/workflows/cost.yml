@@ -6,6 +6,7 @@ name: Storage cost
 # data and never run, and the token is read-only. Every event runs the check rather than skipping
 # it, since a skipped required check counts as passed.
 on:
+  # zizmor: ignore[dangerous-triggers] the head is checked out as data and never run, and the token only reads
   pull_request_target:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 

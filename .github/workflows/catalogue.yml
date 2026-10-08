@@ -28,7 +28,7 @@ jobs:
     if: github.repository == 'National-Digital/publicdata.au'
     # Some portals turn away cloud runners, so the harvest runs from the same Australian host as
     # the dataset fetch.
-    runs-on: [self-hosted, publicdata-fetch]
+    runs-on: [self-hosted, publicdata-fetch] # zizmor: ignore[self-hosted-runner] some portals turn cloud runners away
     environment: fetch
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

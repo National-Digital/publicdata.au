@@ -5,6 +5,7 @@ name: Hubs
 # production deploy and weekly, and each hub is compared first, so a run with nothing new uploads
 # nothing. A hub whose credentials are not set is skipped and named in the summary.
 on:
+  # zizmor: ignore[dangerous-triggers] runs main's own code after a push to main and reads nothing from the run
   workflow_run:
     workflows: [Deploy]
     types: [completed]
