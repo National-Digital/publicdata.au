@@ -22,7 +22,8 @@ def test_more_jobs_than_allowed_fall_back_to_the_lightest_job():
     w = {"a": 7, "b": 7, "c": 7, "d": 3, "e": 3, "f": 3}
     # Two jobs of 15 cannot hold them (7+7, 7+3+3, 3), so each goes to the lighter job.
     jobs = shards.plan(w, 2, floor=0)
-    assert len(jobs) == 2 and sorted(s for j in jobs for s in j) == sorted(w)
+    assert len(jobs) == 2
+    assert sorted(s for j in jobs for s in j) == sorted(w)
     assert sorted(sum(w[s] for s in j) for j in jobs) == [14, 16]
 
 

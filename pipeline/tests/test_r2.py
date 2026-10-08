@@ -146,7 +146,8 @@ def test_pull_skips_the_versions_the_build_cache_holds(fixture_store, tmp_path, 
 
     monkeypatch.setattr(r2, "client", lambda: Fake(set()))
     r2.pull_store(s, skip=held)
-    assert got == [k for k in got if k.startswith("catalogue/")] and got
+    assert got == [k for k in got if k.startswith("catalogue/")]
+    assert got
 
 
 def test_a_version_page_is_uploaded_again_only_when_it_changes(tmp_path, monkeypatch):
@@ -163,8 +164,10 @@ def test_a_version_page_is_uploaded_again_only_when_it_changes(tmp_path, monkeyp
     old = FakeS3(keys, etags={"d/x/v/2026-04-24/index.html": hashlib.md5(b"old").hexdigest()})
     monkeypatch.setattr(r2, "client", lambda: old)
     assert r2.push(tmp_path, "b", immutable=r2.dated_file) == 1
-    assert [k for k, _ in old.puts] == ["d/x/v/2026-04-24/index.html"] and old.heads == []
-    assert r2.dated_file("d/x/v/2026-04-24/data.csv") and not r2.dated_file("d/x/history.tar.zst")
+    assert [k for k, _ in old.puts] == ["d/x/v/2026-04-24/index.html"]
+    assert old.heads == []
+    assert r2.dated_file("d/x/v/2026-04-24/data.csv")
+    assert not r2.dated_file("d/x/history.tar.zst")
 
 
 def test_a_dated_only_push_leaves_the_pages(tmp_path, monkeypatch):
@@ -526,7 +529,8 @@ def test_a_layout_edit_reaches_the_query_copies_r2_holds(tmp_path, monkeypatch):
         _copy(root / "d/t/v/2026-01-02/data.parquet", new)
         monkeypatch.setattr(r2, "client", lambda fake=fake: fake)
         assert r2.push(root, "b", immutable=r2.dated_file, layouts={"t": new}) == 1
-        assert profile.follows(_remote(fake), new) and not profile.follows(_remote(fake), old)
+        assert profile.follows(_remote(fake), new)
+        assert not profile.follows(_remote(fake), old)
         assert fake.bytes[MARK] == profile.layout_body(new)
         assert fake.bytes["d/t/v/2026-01-02/data.parquet"] == dated
         # The record follows the upload, so it never names a layout the copy does not have.
@@ -542,7 +546,8 @@ def test_an_unchanged_layout_uploads_no_query_copy(tmp_path, monkeypatch):
     _copy(tmp_path / "tree" / Q, lay)
     monkeypatch.setattr(r2, "client", lambda: fake)
     assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 0
-    assert fake.ops == [] and fake.heads == []
+    assert fake.ops == []
+    assert fake.heads == []
 
 
 def test_a_copy_without_a_record_is_judged_by_its_footer(tmp_path, monkeypatch):
@@ -553,11 +558,13 @@ def test_a_copy_without_a_record_is_judged_by_its_footer(tmp_path, monkeypatch):
     _copy(tmp_path / "tree" / Q, lay)
     monkeypatch.setattr(r2, "client", lambda: fake)
     assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 0
-    assert ("upload", Q) not in fake.ops and fake.bytes[MARK] == profile.layout_body(lay)
+    assert ("upload", Q) not in fake.ops
+    assert fake.bytes[MARK] == profile.layout_body(lay)
     stale = _held(tmp_path, _lay(), marked=False)
     monkeypatch.setattr(r2, "client", lambda: stale)
     assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 1
-    assert profile.follows(_remote(stale), lay) and stale.bytes[MARK] == profile.layout_body(lay)
+    assert profile.follows(_remote(stale), lay)
+    assert stale.bytes[MARK] == profile.layout_body(lay)
 
 
 def test_an_unreadable_copy_is_written_again(tmp_path, monkeypatch):

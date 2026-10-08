@@ -124,7 +124,9 @@ def test_a_file_replaced_inside_one_resource_is_dated_by_the_resource_metadata(t
             return R(pkg) if "package_show" in url else R(content=body)
 
     data, m, _ = fetch.ckan_resource(ds, tmp_path, session=S())
-    assert data == body and m.version == "2026-08-07" and m.encoding == "xlsx"
+    assert data == body
+    assert m.version == "2026-08-07"
+    assert m.encoding == "xlsx"
 
 
 def wide_workbook() -> bytes:
@@ -309,7 +311,8 @@ def test_a_presentation_table_reads_one_row_per_group_of_cells():
     ]
     # The note row carries no data and is skipped; the next sheet follows the first.
     assert rows[4] == ("1 bedroom flat", "Outer", "Werribee", "2000-03-01", 20, 50)
-    assert rows[6][0] == "House" and len(rows) == 12
+    assert rows[6][0] == "House"
+    assert len(rows) == 12
     # A header the register does not name is held, not published.
     assert t.unknown_columns == ["Share"]
     ds = wide_dataset()

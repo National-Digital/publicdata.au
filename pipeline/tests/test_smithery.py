@@ -52,7 +52,8 @@ def test_sync_writes_only_the_fields_that_drifted(monkeypatch):
     monkeypatch.setattr(smithery, "_session", lambda key: fake)
     assert smithery.sync("key") == []
     assert fake.patches == [{"description": want["description"]}]
-    assert smithery.sync("key") == [] and len(fake.patches) == 1
+    assert smithery.sync("key") == []
+    assert len(fake.patches) == 1
 
 
 def test_sync_reports_a_field_the_write_did_not_keep(monkeypatch):

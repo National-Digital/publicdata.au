@@ -81,7 +81,8 @@ def test_one_failing_dataset_does_not_stop_the_others(monkeypatch, capsys):
     monkeypatch.setattr(f, "fetch", fake)
     assert cli.main(["fetch", "qld-road-casualties", "qld-road-crash-factors"]) == 0
     out = capsys.readouterr().out
-    assert "qld-road-casualties: FAILED" in out and "qld-road-crash-factors: unchanged" in out
+    assert "qld-road-casualties: FAILED" in out
+    assert "qld-road-crash-factors: unchanged" in out
     assert "0 new version(s), 1 failed" in out
 
 
@@ -99,7 +100,8 @@ def test_a_second_file_on_a_taken_day_gets_the_next_free_day_and_says_why():
 
     assert free_version("2026-04-24", {"2026-01-01"}, dt.date(2026, 9, 30)) == ("2026-04-24", "")
     v, note = free_version("2026-04-24", {"2026-04-24"}, dt.date(2026, 9, 30))
-    assert v == "2026-09-30" and "2026-04-24" in note
+    assert v == "2026-09-30"
+    assert "2026-04-24" in note
     v, _ = free_version("2026-09-30", {"2026-09-30", "2026-10-01"}, dt.date(2026, 9, 30))
     assert v == "2026-10-02"
 
@@ -238,7 +240,8 @@ def test_the_user_agent_names_the_site_in_a_form_firewalls_accept():
 
     # dffh.vic.gov.au resets the connection for either of these.
     assert "publicdata.au/about" in UA
-    assert "fetcher" not in UA.lower() and "://" not in UA
+    assert "fetcher" not in UA.lower()
+    assert "://" not in UA
 
 
 class _Resp:
@@ -339,11 +342,14 @@ def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
 
     fc = json.loads(data)
     assert [f["properties"]["ID"] for f in fc["features"]] == [1, 2, 3]
-    assert m.filename == "t.geojson" and m.source["features"] == 3
-    assert m.source["date_fields"] == ["WHEN"] and m.source["last_edit_date"] is None
+    assert m.filename == "t.geojson"
+    assert m.source["features"] == 3
+    assert m.source["date_fields"] == ["WHEN"]
+    assert m.source["last_edit_date"] is None
     # No edit date on the layer, so the newest record dates the version: 1364602560000 ms is
     # 2013-03-30 in Brisbane.
-    assert m.version == "2013-03-30" and m.source["newest_record"] == 1364602560000
+    assert m.version == "2013-03-30"
+    assert m.source["newest_record"] == 1364602560000
     assert any("newest record" in n for n in m.notes)
     assert any("no file" in n for n in m.notes)
     # The same layer gives the same bytes, so an unchanged layer is no version.
@@ -351,7 +357,8 @@ def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
 
     store.write(tmp_path, m, data)
     again, m2, _ = arcgis_feature(ds, tmp_path, s)
-    assert again is None and m2.version == m.version
+    assert again is None
+    assert m2.version == m.version
 
 
 def _ala_session(rows, lat_of=lambda r: r[2]):
@@ -391,10 +398,12 @@ def _ala_session(rows, lat_of=lambda r: r[2]):
         out = [r for r in rows[uid] if all(keep(r, f) for f in fqs)]
         if params.get("pageSize") == 0:
             return _Resp({"totalRecords": len(out)})
-        assert params["pageSize"] == ALA_PAGE and params["startIndex"] < ALA_DEEP
+        assert params["pageSize"] == ALA_PAGE
+        assert params["startIndex"] < ALA_DEEP
         # Pages sorted by load date skip rows across a tie; only the unique id is stable.
         assert params["sort"] == "id"
-        assert "catalogNumber" in params["fl"] and "raw_" not in params["fl"]
+        assert "catalogNumber" in params["fl"]
+        assert "raw_" not in params["fl"]
         page = out[params["startIndex"] : params["startIndex"] + ALA_PAGE]
         return _Resp(
             {
@@ -464,13 +473,13 @@ def test_ala_reads_each_provider_in_slices_and_dates_the_version_by_the_newest_l
     assert lines[0].startswith("uuid,occurrenceID,raw_catalogNumber,raw_institutionCode,")
     assert lines[0].endswith(",locality,occurrenceStatus,firstLoadedDate")
     assert len(lines) == 1 + 3 + big
-    assert lines[1].startswith("a1,,MEL 1,MEL,") and lines[1].endswith(
-        ",near a road,,2020-01-01T00:00:00Z"
-    )
+    assert lines[1].startswith("a1,,MEL 1,MEL,")
+    assert lines[1].endswith(",near a road,,2020-01-01T00:00:00Z")
     assert m.version == "2024-03-01"
     assert m.source["providers"] == {"dr1": {"open": 3, "all": 3}, "dr2": {"open": big, "all": big}}
     assert m.source["licences"] == {"CC-BY 4.0 (Int)": 1, "CC0": 2 + big}
-    assert licence["id"] == "CC-BY-4.0" and m.filename == f"{ds.slug}.csv"
+    assert licence["id"] == "CC-BY-4.0"
+    assert m.filename == f"{ds.slug}.csv"
     assert any("government providers" in n for n in m.notes)
     assert all("license:(" in str(c[1].get("fq")) for c in s.calls if c[1].get("pageSize"))
     store.write(tmp_path, m, data)

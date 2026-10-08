@@ -22,11 +22,17 @@ def test_types_blanks_suppression_and_allow_list():
     rows = t.table.to_pylist()
     assert t.unknown_columns == ["Extra"]
     assert t.suppressed_cells == 1
-    assert rows[0]["name"] == "Alpha" and rows[1]["name"] is None
-    assert rows[0]["count"] == 5 and rows[1]["count"] is None and rows[2]["count"] is None
-    assert rows[1]["suppressed"] == ["count"] and rows[2]["suppressed"] == []
-    assert rows[0]["flag"] is True and rows[1]["flag"] is False
-    assert str(rows[0]["when"]) == "2024-02-03" and rows[1]["when"] is None
+    assert rows[0]["name"] == "Alpha"
+    assert rows[1]["name"] is None
+    assert rows[0]["count"] == 5
+    assert rows[1]["count"] is None
+    assert rows[2]["count"] is None
+    assert rows[1]["suppressed"] == ["count"]
+    assert rows[2]["suppressed"] == []
+    assert rows[0]["flag"] is True
+    assert rows[1]["flag"] is False
+    assert str(rows[0]["when"]) == "2024-02-03"
+    assert rows[1]["when"] is None
     assert "Extra" not in t.table.column_names
 
 
@@ -87,9 +93,12 @@ def test_geojson_source_becomes_rows_with_the_point_as_two_fields():
     t = normalise(ds, make_manifest(data, filename="t.geojson", encoding="utf-8"), data)
     rows = t.table.to_pylist()
     assert t.unknown_columns == ["LATE"]
-    assert rows[0]["longitude"] == 147.33 and rows[0]["latitude"] == -42.88
-    assert rows[1]["longitude"] is None and rows[1]["latitude"] is None
-    assert str(rows[0]["when"]) == "2013-03-30 00:16:00" and rows[1]["when"] is None
+    assert rows[0]["longitude"] == 147.33
+    assert rows[0]["latitude"] == -42.88
+    assert rows[1]["longitude"] is None
+    assert rows[1]["latitude"] is None
+    assert str(rows[0]["when"]) == "2013-03-30 00:16:00"
+    assert rows[1]["when"] is None
     assert rows[0]["speed_zone"] == "060"
 
 
@@ -194,7 +203,8 @@ def test_a_column_the_register_omits_on_purpose_is_recorded_and_not_held():
         FIELDS, suppression=("<5",), omit={"Extra": "A vendor's series, not the publisher's."}
     )
     t = normalise(ds, make_manifest(CSV, encoding="utf-8-sig"), CSV)
-    assert t.unknown_columns == [] and t.omitted_columns == ["Extra"]
+    assert t.unknown_columns == []
+    assert t.omitted_columns == ["Extra"]
 
 
 def test_a_header_with_trailing_or_non_breaking_spaces_is_still_read_as_text():

@@ -46,7 +46,8 @@ def test_no_api_prose_is_written_outside_api_json():
     for f in sources:
         t = f.read_text(encoding="utf-8")
         assert not re.search(rf"\b{n} requests|q={n}\b", t), f.name
-        assert "registerTool({" not in t and "description: '" not in t, f.name
+        assert "registerTool({" not in t, f.name
+        assert "description: '" not in t, f.name
 
 
 @pytest.fixture
@@ -73,7 +74,8 @@ def test_the_mcp_server_has_every_tool_from_api_json(site):
         json.loads((site / ".well-known" / "mcp" / "server-card.json").read_text("utf-8")) == card
     )
     reg = at.registry_server()
-    assert len(reg["description"]) <= 100 and reg["name"] == card["name"]
+    assert len(reg["description"]) <= 100
+    assert reg["name"] == card["name"]
     auth = (site / ".well-known" / "mcp-registry-auth").read_text(encoding="utf-8")
     assert re.fullmatch(r"v=MCPv1; k=ed25519; p=[A-Za-z0-9+/]{43}=\n", auth)
     glama = json.loads((site / ".well-known" / "glama.json").read_text(encoding="utf-8"))
@@ -82,7 +84,8 @@ def test_the_mcp_server_has_every_tool_from_api_json(site):
     assert re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge)
     for t in S["webmcp"]["tools"].values():
         a = t["annotations"]
-        assert t["title"] and set(a) == {
+        assert t["title"]
+        assert set(a) == {
             "readOnlyHint",
             "destructiveHint",
             "idempotentHint",
@@ -151,7 +154,8 @@ def test_each_sentence_reaches_every_output(site):
     assert at.as_html(S["mcp"]["intro"]) in agents
     assert at.plain(S["mcp"]["intro"]) in (site / "llms.txt").read_text(encoding="utf-8")
     md = (site / "d" / "qld-road-casualties" / "index.md").read_text(encoding="utf-8")
-    assert at.filter_help() in md and rate in md
+    assert at.filter_help() in md
+    assert rate in md
     for n in at.tool_names():
         assert f"<code>{n}</code>" in (site / "agents" / "index.html").read_text("utf-8")
 
@@ -170,7 +174,8 @@ def test_every_queryable_dataset_is_an_mcp_resource(site, tmp_path):
     from publicdata import gate
 
     listed = json.loads((site / "mcp" / "resources.json").read_text(encoding="utf-8"))["resources"]
-    assert listed and not gate._mcp_resources(site)
+    assert listed
+    assert not gate._mcp_resources(site)
     for r in listed:
         f = json.loads((site / "d" / r["name"] / "fields.json").read_text(encoding="utf-8"))
         assert r["title"] == f["title"]
@@ -229,10 +234,8 @@ def test_the_mcp_server_is_an_entity_the_directories_identify(site):
 
     for rel in ("index.html", "agents/index.html"):
         api = next(n for n in nodes(rel) if n.get("@type") == "WebAPI")
-        assert (
-            api["@id"] == "https://publicdata.au/mcp#server"
-            and api["url"] == "https://publicdata.au/mcp"
-        )
+        assert api["@id"] == "https://publicdata.au/mcp#server"
+        assert api["url"] == "https://publicdata.au/mcp"
         assert api["sameAs"] == [e["url"] for e in S["mcp"]["listing"]["listed_at"]]
     # Each sameAs is also a visible link where the server is described.
     agents = (site / "agents" / "index.html").read_text(encoding="utf-8")
@@ -254,7 +257,8 @@ def test_the_mcp_server_is_an_entity_the_directories_identify(site):
 
 def test_the_terms_page_is_linked_everywhere_a_directory_looks(site):
     page = (site / "terms" / "index.html").read_text(encoding="utf-8")
-    assert at.as_html(S["api"]["terms_limits"]) in page and "Australian Consumer Law" in page
+    assert at.as_html(S["api"]["terms_limits"]) in page
+    assert "Australian Consumer Law" in page
     assert "https://publicdata.au/terms/" in S["mcp"]["instructions"]
     assert 'href="/terms/"' in (site / "index.html").read_text(encoding="utf-8")
     sitemaps = "".join(f.read_text(encoding="utf-8") for f in (site / "sitemaps").glob("*.xml"))

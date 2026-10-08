@@ -46,7 +46,9 @@ def test_a_title_too_long_for_three_lines_is_cut_at_a_word(tmp_path):
     )
     assert _png_size(tmp_path / c.path) == (brand.CARD_W, brand.CARD_H)
     _, lines = brand._fit(long, brand.BOLD, range(72, 47, -4), 1056, 3)
-    assert len(lines) == 3 and lines[-1].endswith("…") and " …" not in lines[-1]
+    assert len(lines) == 3
+    assert lines[-1].endswith("…")
+    assert " …" not in lines[-1]
 
 
 def test_every_page_names_its_card_and_the_manifest_its_icons(fixture_site):
@@ -65,7 +67,8 @@ def test_every_page_names_its_card_and_the_manifest_its_icons(fixture_site):
     assert '<link rel="manifest" href="/manifest.webmanifest">' in home
     assert '<link rel="apple-touch-icon" href="/apple-touch-icon.png">' in home
     m = json.loads((out / "manifest.webmanifest").read_text(encoding="utf-8"))
-    assert m["display"] == "standalone" and m["start_url"] == "/"
+    assert m["display"] == "standalone"
+    assert m["start_url"] == "/"
     assert {i["src"] for i in m["icons"]} >= {"/icon-192.png", "/icon-512.png"}
     assert _png_size(out / "apple-touch-icon.png") == (180, 180)
     assert (out / "favicon.ico").read_bytes()[:4] == b"\x00\x00\x01\x00"
@@ -119,12 +122,14 @@ def test_a_card_is_drawn_once_and_again_only_when_its_words_change(tmp_path, mon
     args = ("og/d/s.png", "A title", "Queensland · Agency", ["3 rows"], "A")
     first = brand.dataset_card(tmp_path / "a", *args, cache=cache)
     again = brand.dataset_card(tmp_path / "b", *args, cache=cache)
-    assert len(drawn) == 1 and first.url == again.url
+    assert len(drawn) == 1
+    assert first.url == again.url
     assert (tmp_path / "a" / first.path).read_bytes() == (tmp_path / "b" / again.path).read_bytes()
     renamed = brand.dataset_card(
         tmp_path / "c", "og/d/s.png", "A new title", *args[2:], cache=cache
     )
-    assert len(drawn) == 2 and renamed.url != first.url
+    assert len(drawn) == 2
+    assert renamed.url != first.url
 
 
 def test_card_entries_outlast_the_first_prune_and_the_last_drops_the_unused(

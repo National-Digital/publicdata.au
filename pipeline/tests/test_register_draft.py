@@ -83,7 +83,8 @@ def test_a_draft_types_each_field_as_the_normaliser_will_and_builds():
     ds = parse(yaml.safe_load(text), "draft")
     data = (FIX / "enrolments.csv").read_bytes()
     t = normalise(ds, make_manifest(data, dataset=ds.slug), data)
-    assert t.rows == 4 and t.suppressed_cells == 2
+    assert t.rows == 4
+    assert t.suppressed_cells == 2
 
 
 def test_a_draft_cannot_go_live_until_its_search_copy_is_written():

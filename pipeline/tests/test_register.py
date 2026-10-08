@@ -12,7 +12,8 @@ def test_real_register_loads(register_dir):
     ds = load(register_dir)
     assert {d.slug for d in ds} >= {"qld-road-crash-locations", "qld-road-casualties"}
     live = [d for d in ds if d.status == "live"]
-    assert live and all((d.fields or d.tables) and d.licence.open for d in live)
+    assert live
+    assert all((d.fields or d.tables) and d.licence.open for d in live)
 
 
 def _raw(**over):
@@ -206,7 +207,8 @@ def test_an_ala_source_needs_a_search_and_providers():
         ),
         "x",
     )
-    assert ds.source.search == "genus:Eucalyptus" and ds.source.providers == ("dr1",)
+    assert ds.source.search == "genus:Eucalyptus"
+    assert ds.source.providers == ("dr1",)
 
 
 def test_a_delimiter_is_tab_or_one_character():
@@ -363,11 +365,14 @@ def _database(**over):
 
 def test_a_database_entry_names_its_tables_keys_references_and_views():
     ds = parse(_database(), "x")
-    assert ds.kind == "database" and ds.fields == () and ds.field_count == 4
+    assert ds.kind == "database"
+    assert ds.fields == ()
+    assert ds.field_count == 4
     assert [t.name for t in ds.tables] == ["thing", "kind_aut"]
     assert ds.table("thing").key == ("thing_pid",)
     assert ds.table("thing").field("kind_code").references == "kind_aut.code"
-    assert ds.views[0].example == "kind_code" and ds.database.delimiter == "|"
+    assert ds.views[0].example == "kind_code"
+    assert ds.database.delimiter == "|"
     # A database never goes to the query API.
     assert ds.query is False
 
@@ -406,7 +411,8 @@ def test_a_licence_with_a_condition_is_open_and_states_it():
 
     assert set(LICENCE_CONDITIONS) <= set(OPEN_LICENCES)
     ds = parse(_raw(licence={"id": "OPEN-GNAF-EULA"}), "x")
-    assert ds.licence.open and "sending of mail" in ds.licence.condition
+    assert ds.licence.open
+    assert "sending of mail" in ds.licence.condition
     assert parse(_raw(), "x").licence.condition == ""
 
 

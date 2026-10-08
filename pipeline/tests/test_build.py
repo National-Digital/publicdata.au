@@ -32,13 +32,16 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     # A DuckDB file is compared by content, since its bytes are not reproducible.
     files = [f for f in _tree(a) if not f.endswith("data.duckdb")]
     same, diff, err = filecmp.cmpfiles(a, b, files, shallow=False)
-    assert not diff and not err
+    assert not diff
+    assert not err
     assert compare(a, b) == []
     vdir = a / "d" / ds.slug / "v" / "2026-04-24"
     data = read_json(vdir / "data.json")
     h = data["publicdata"]
-    assert h["licence"]["id"] == "CC-BY-4.0" and "sourced" in h["attribution"]
-    assert h["source"]["sha256"] and h["not_endorsed"]
+    assert h["licence"]["id"] == "CC-BY-4.0"
+    assert "sourced" in h["attribution"]
+    assert h["source"]["sha256"]
+    assert h["not_endorsed"]
     assert len(data["records"]) == data["publicdata"]["rows"] == 300
     assert data["records"][0]["involving_drink_driving"] in (True, False)
     meta = pq.read_metadata(vdir / "data.parquet").metadata
@@ -53,7 +56,8 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     assert not (vdir / "source.csv").exists()
     assert built.latest.files["source.csv"] == built.latest.manifest.bytes > 0
     versions = read_json(a / "d" / ds.slug / "versions.json")
-    assert versions["latest"] == "2026-04-24" and versions["versions"][0]["rows"] == 300
+    assert versions["latest"] == "2026-04-24"
+    assert versions["versions"][0]["rows"] == 300
     idx = read_json(vdir / "by" / "crash_year" / "index.json")
     assert sum(p["rows"] for p in idx["partitions"]) == 300
     assert (a / "d" / ds.slug / "datapackage.json").exists()
@@ -76,7 +80,8 @@ def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
         outs.append(out)
     a, b = outs
     same, diff, err = filecmp.cmpfiles(a, b, _tree(a), shallow=False)
-    assert not diff and not err
+    assert not diff
+    assert not err
     vdir = a / "d" / ds.slug / "v" / "2026-04-24"
     for f in (
         "data.xlsx",
@@ -96,7 +101,8 @@ def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
     assert man["formats_left_out"] == {}
     with zipfile.ZipFile(vdir / "data.xlsx") as z:
         names = z.namelist()
-        assert "xl/worksheets/sheet1.xml" in names and "xl/worksheets/sheet3.xml" in names
+        assert "xl/worksheets/sheet1.xml" in names
+        assert "xl/worksheets/sheet3.xml" in names
         assert all(i.date_time == (2026, 4, 24, 0, 0, 0) for i in z.infolist())
     con = sqlite3.connect(vdir / "data.gpkg")
     assert con.execute("PRAGMA application_id").fetchone()[0] == 1196444487
@@ -106,19 +112,20 @@ def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
         7844,
     )
     n, with_geom = con.execute("select count(*), count(geom) from records").fetchone()
-    assert n == 300 and 0 < with_geom <= n
+    assert n == 300
+    assert 0 < with_geom <= n
     blob = con.execute("select geom from records where geom is not null limit 1").fetchone()[0]
-    assert blob[:2] == b"GP" and len(blob) == 61
+    assert blob[:2] == b"GP"
+    assert len(blob) == 61
     con.close()
     with gzip.open(vdir / "data.csv.gz", "rb") as gz:
         assert gz.read() == (vdir / "data.csv").read_bytes()
     sql = (vdir / "schema.sql").read_text(encoding="utf-8")
-    assert (
-        "CREATE TABLE qld_road_crash_locations (" in sql
-        and 'PRIMARY KEY ("crash_ref_number")' in sql
-    )
+    assert "CREATE TABLE qld_road_crash_locations (" in sql
+    assert 'PRIMARY KEY ("crash_ref_number")' in sql
     csvw = read_json(vdir / "data.csv-metadata.json")
-    assert csvw["url"] == "data.csv" and csvw["tableSchema"]["primaryKey"] == ["crash_ref_number"]
+    assert csvw["url"] == "data.csv"
+    assert csvw["tableSchema"]["primaryKey"] == ["crash_ref_number"]
     dp = read_json(a / "d" / ds.slug / "datapackage.json")
     names = {r["name"] for r in dp["resources"]}
     assert names >= {"xlsx", "gpkg", "geo.parquet", "csv.gz", "schema-sql", "csvw"}
@@ -134,9 +141,11 @@ def test_a_version_fetched_before_the_caps_keeps_its_arrow_file(
     build_dataset(ds, fixture_store, tmp_path)
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
     t = pf.read_table(vdir / "data.arrow")
-    assert t.num_rows == 300 and json.loads(t.schema.metadata[b"publicdata"])["dataset"] == ds.slug
+    assert t.num_rows == 300
+    assert json.loads(t.schema.metadata[b"publicdata"])["dataset"] == ds.slug
     man = read_json(vdir / "manifest.json")
-    assert "measured_bytes" not in man and "formats_left_out" not in man
+    assert "measured_bytes" not in man
+    assert "formats_left_out" not in man
     dp = read_json(tmp_path / "d" / ds.slug / "datapackage.json")
     assert "arrow" in {r["name"] for r in dp["resources"]}
 
@@ -147,11 +156,13 @@ def test_excel_is_skipped_above_the_row_limit(register_dir, fixture_store, tmp_p
     from publicdata.serialise import formats_for
 
     monkeypatch.setattr(serialise, "EXCEL_MAX_ROWS", 100)
-    assert "xlsx" not in formats_for(300, False) and "xlsx" in formats_for(100, False)
+    assert "xlsx" not in formats_for(300, False)
+    assert "xlsx" in formats_for(100, False)
     ds = {d.slug: d for d in load(register_dir)}["qld-road-crash-factors"]
     build_dataset(ds, fixture_store, tmp_path)
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
-    assert not (vdir / "data.xlsx").exists() and (vdir / "data.csv.gz").exists()
+    assert not (vdir / "data.xlsx").exists()
+    assert (vdir / "data.csv.gz").exists()
     dp = read_json(tmp_path / "d" / ds.slug / "datapackage.json")
     assert "xlsx" not in {r["name"] for r in dp["resources"]}
     assert not [e for e in check(tmp_path, register_dir) if "xlsx" in e]
@@ -216,15 +227,18 @@ def test_a_layers_geojson_is_measured_on_its_own_bytes(
     man = read_json(vdir / "manifest.json")
     gj = (vdir / "data.geojson").stat().st_size
     nd = (vdir / "data.ndjson").stat().st_size
-    assert man["measured_bytes"]["data.geojson"] == gj and gj > 10 * nd  # the shapes
-    assert man["formats_left_out"] == {} and not (vdir / "data.arrow").exists()
+    assert man["measured_bytes"]["data.geojson"] == gj
+    assert gj > 10 * nd
+    assert man["formats_left_out"] == {}
+    assert not (vdir / "data.arrow").exists()
     # Under a cap the NDJSON would pass, the file itself is over, so it is dropped.
     monkeypatch.setitem(serialise.CAPS, "geojson", ("geojson", nd + 1))
     out = tmp_path / "capped"
     build_dataset(ds, fixture_store, out)
     vdir = out / "d" / ds.slug / "v" / "2026-05-14"
     man = read_json(vdir / "manifest.json")
-    assert not (vdir / "data.geojson").exists() and (vdir / "data.pmtiles").exists()
+    assert not (vdir / "data.geojson").exists()
+    assert (vdir / "data.pmtiles").exists()
     assert set(man["formats_left_out"]) == {"geojson"}
     assert man["measured_bytes"]["data.geojson"] == gj
 
@@ -239,11 +253,13 @@ def test_a_published_versions_format_set_never_moves(
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
     build_dataset(ds, fixture_store, tmp_path)
     first = read_json(vdir / "manifest.json")
-    assert first["formats_left_out"] == {} and first["caps"] == 1
+    assert first["formats_left_out"] == {}
+    assert first["caps"] == 1
     # A tighter cap later leaves a rebuilt published version as it was.
     monkeypatch.setitem(serialise.CAPS, "json", ("ndjson", 1_000))
     out = build_dataset(ds, fixture_store, tmp_path)
-    assert (vdir / "data.json").exists() and out.latest.left_out == {}
+    assert (vdir / "data.json").exists()
+    assert out.latest.left_out == {}
     assert read_json(vdir / "manifest.json") == first
     # A new version, with nothing published, takes the cap.
     fresh = tmp_path / "fresh"
@@ -275,21 +291,26 @@ def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
     vdir = out / "d" / slug / "v" / "2026-04-24"
     rows = read_json(vdir / "manifest.json")["rows"]
     assert rows > 100
-    assert not (vdir / "data.json").exists() and not (vdir / "data.geojson").exists()
-    assert (vdir / "data.ndjson").exists() and (vdir / "data.gpkg").exists()
+    assert not (vdir / "data.json").exists()
+    assert not (vdir / "data.geojson").exists()
+    assert (vdir / "data.ndjson").exists()
+    assert (vdir / "data.gpkg").exists()
     assert list((vdir / "by").glob("*/*.geojson"))  # partition files are slices and stay
     gone = read_json(vdir / "manifest.json")["formats_left_out"]
     assert set(gone) == {"json", "geojson"}
     assert gone["json"].startswith("JSON is not offered because the table is ")
     vpage = (vdir / "index.html").read_text(encoding="utf-8")
-    assert gone["json"] in vpage and gone["geojson"] in vpage
+    assert gone["json"] in vpage
+    assert gone["geojson"] in vpage
     assert gone["json"] in (vdir / "index.md").read_text(encoding="utf-8")
     dp = read_json(out / "d" / slug / "datapackage.json")
     assert {"json", "geojson"} & {r["name"] for r in dp["resources"]} == set()
     page = (out / "d" / slug / "index.html").read_text(encoding="utf-8")
-    assert "latest/data.ndjson" in page and "v/2026-04-24/data.json" not in page
+    assert "latest/data.ndjson" in page
+    assert "v/2026-04-24/data.json" not in page
     title = page.split("<title>", 1)[1].split("</title>", 1)[0]
-    assert "JSON" not in title and "CSV, Parquet, SQLite" in title
+    assert "JSON" not in title
+    assert "CSV, Parquet, SQLite" in title
     assert "data.json" not in next(
         ln for ln in (out / "llms.txt").read_text().splitlines() if slug in ln
     )
@@ -328,17 +349,17 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
     (a, oa), (b, _) = outs
     files = [f for f in _tree(a) if not f.endswith("data.duckdb")]
     same, diff, err = filecmp.cmpfiles(a, b, files, shallow=False)
-    assert not diff and not err
+    assert not diff
+    assert not err
     # The DuckDB files are compared by content, since their bytes are not reproducible.
     assert compare(a, b) == []
     vdir = a / "d" / ds.slug / "v" / "2026-08-17"
     v = oa.latest
-    assert (
-        v.tables["address_detail"] == 40
-        and len(v.tables) == 37
-        and v.rows == sum(v.tables.values())
-    )
-    assert not (vdir / "data.csv").exists() and not (vdir / "data.parquet").exists()
+    assert v.tables["address_detail"] == 40
+    assert len(v.tables) == 37
+    assert v.rows == sum(v.tables.values())
+    assert not (vdir / "data.csv").exists()
+    assert not (vdir / "data.parquet").exists()
     for t in ds.tables:
         assert (vdir / "tables" / f"{t.name}.parquet").exists()
     meta = pq.read_metadata(vdir / "tables" / "address_detail.parquet")
@@ -355,7 +376,8 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'address_detail'"
         ).fetchall()
     )
-    assert typed["date_created"] == "DATE" and typed["confidence"] == "BIGINT"
+    assert typed["date_created"] == "DATE"
+    assert typed["confidence"] == "BIGINT"
     assert con.execute("SELECT count(*) FROM g.relations").fetchone()[0] == 47
     assert (
         json.loads(
@@ -365,7 +387,8 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
     )
     con.close()
     man = read_json(vdir / "manifest.json")
-    assert man["kind"] == "database" and man["unknown_upstream_columns"] == []
+    assert man["kind"] == "database"
+    assert man["unknown_upstream_columns"] == []
     assert man["unknown_upstream_tables"] == []
     schema = read_json(vdir / "schema.json")
     detail = next(t for t in schema["tables"] if t["name"] == "address_detail")
@@ -378,9 +401,11 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(
     assert 'FOREIGN KEY ("locality_pid") REFERENCES "locality" ("locality_pid")' in sql
     assert 'CREATE VIEW "address_view" AS' in sql
     # The archive stays in the store, and the version lists it at its size there.
-    assert not (vdir / "source.zip").exists() and v.files["source.zip"] == v.manifest.bytes
+    assert not (vdir / "source.zip").exists()
+    assert v.files["source.zip"] == v.manifest.bytes
     pkg = read_json(a / "d" / ds.slug / "datapackage.json")
-    assert pkg["publicdata:kind"] == "database" and pkg["resources"][0]["name"] == "duckdb"
+    assert pkg["publicdata:kind"] == "database"
+    assert pkg["resources"][0]["name"] == "duckdb"
     assert pkg["licenses"][0]["publicdata:condition"]
     versions = read_json(a / "d" / ds.slug / "versions.json")
     assert versions["versions"][0]["tables"]["locality"] == 19
@@ -404,7 +429,8 @@ def test_a_table_version_carries_a_duckdb_file_with_typed_columns_and_provenance
             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'records'"
         ).fetchall()
     )
-    assert types["crash_year"] == "BIGINT" and types["involving_drink_driving"] == "BOOLEAN"
+    assert types["crash_year"] == "BIGINT"
+    assert types["involving_drink_driving"] == "BOOLEAN"
     assert (
         con.execute("SELECT value FROM q.publicdata WHERE key = 'version'").fetchone()[0]
         == "2026-04-24"
@@ -476,7 +502,9 @@ def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_pat
         vdir,
         lambda rows, rel: {"version": m.version, "url": f"https://x/{rel}", "attribution": "A."},
     )
-    assert out.tables == {"thing": 2} and out.unknown_columns == {} and out.unknown_tables == []
+    assert out.tables == {"thing": 2}
+    assert out.unknown_columns == {}
+    assert out.unknown_tables == []
     con = duckdb.connect()
     con.execute(f"ATTACH '{vdir / 'data.duckdb'}' AS t (READ_ONLY)")
     assert con.execute("SELECT id, name, seen FROM t.thing ORDER BY id").fetchall() == [
@@ -500,7 +528,8 @@ def test_a_manifest_with_a_field_this_code_does_not_know_still_reads(tmp_path):
     d = read_json(src / "manifest.json")
     (tmp_path / "manifest.json").write_text(json.dumps({**d, "later": 2}), encoding="utf-8")
     m = Manifest.read(tmp_path / "manifest.json")
-    assert m.caps == 1 and not hasattr(m, "later")
+    assert m.caps == 1
+    assert not hasattr(m, "later")
 
 
 def test_a_limited_build_measures_what_it_does_not_keep(register_dir, fixture_store, tmp_path):
@@ -513,7 +542,8 @@ def test_a_limited_build_measures_what_it_does_not_keep(register_dir, fixture_st
     finally:
         serialise.LIMIT = None
     vdir = tmp_path / "d" / ds.slug / "v" / "2026-04-24"
-    assert not (vdir / "data.csv").exists() and not (vdir / "data.geojson").exists()
+    assert not (vdir / "data.csv").exists()
+    assert not (vdir / "data.geojson").exists()
     man = read_json(vdir / "manifest.json")
     assert set(man["measured_bytes"]) == {"data.ndjson", "data.csv", "data.geojson"}
     full = tmp_path / "full"

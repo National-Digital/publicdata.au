@@ -123,7 +123,9 @@ def test_an_ended_cadence_cannot_zero_a_stored_entry(tmp_path):
     stored(tmp_path, "old", "2024-01-01", size=1000)
     out = cost.project([entry("old", "closed")], tmp_path, {}, TODAY, frozenset({"old"}),
                        frozenset({"old"}), prober=lambda d: cost.Sized(10 * GB), probing=True)[0]  # fmt: skip
-    assert out.per_year == 1 and out.gb_per_year == 140 and out.over_budget
+    assert out.per_year == 1
+    assert out.gb_per_year == 140
+    assert out.over_budget
 
 
 def test_observed_versions_are_not_capped_at_one_a_week():
@@ -261,9 +263,11 @@ def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
     assert (p["probed"].bytes_per_version, p["probed"].basis) == (14 * GB // 10, "estimate")
     # A moved source is sized from the new file when that is larger than the stored one.
     assert (p["moved"].bytes_per_version, p["moved"].basis) == (14 * GB // 100, "estimate")
-    assert p["new"].basis == "unknown" and p["new"].over_budget
+    assert p["new"].basis == "unknown"
+    assert p["new"].over_budget
     assert "not sized ahead of a fetch" in p["new"].note
-    assert p["served"].gb_per_year == 36 and p["served"].over_budget
+    assert p["served"].gb_per_year == 36
+    assert p["served"].over_budget
 
 
 def test_a_ckan_entry_is_probed_at_the_resource_it_resolves_to(monkeypatch):
@@ -293,7 +297,9 @@ def test_a_new_entry_cannot_project_zero_from_its_cadence(tmp_path, cad):
     ds = [entry("copy", cad)]
     out = cost.project(ds, tmp_path, {}, TODAY, frozenset({"copy"}), prober=lambda d: cost.Sized(GB),
                        probing=True)[0]  # fmt: skip
-    assert out.per_year >= 1 and out.gb_per_year >= 13 and out.over_budget
+    assert out.per_year >= 1
+    assert out.gb_per_year >= 13
+    assert out.over_budget
 
 
 def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
@@ -315,7 +321,9 @@ def test_a_source_edit_never_sizes_below_the_measured_version(tmp_path):
     # A moved source the probe cannot size stays unknown and fails closed.
     lost = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}), frozenset({"crime"}),
                         prober=lost_host, probing=True)[0]  # fmt: skip
-    assert lost.basis == "unknown" and lost.over_budget and "IncompleteRead" in lost.note
+    assert lost.basis == "unknown"
+    assert lost.over_budget
+    assert "IncompleteRead" in lost.note
 
 
 def test_a_ckan_landing_page_edit_is_not_a_moved_source(tmp_path):
@@ -491,8 +499,10 @@ def test_a_new_partition_counts_the_rebuild_of_every_stored_version(tmp_path):
     out = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}),
                        reshaped={"crime": {}})[0]  # fmt: skip
     # Each of the nine stored versions gains a 0.3 GB partition copy when it is rebuilt.
-    assert out.bytes_per_version == 7 * 10**8 and out.per_year == 9
-    assert out.rebuild_bytes == 9 * 3 * 10**8 and out.over_budget
+    assert out.bytes_per_version == 7 * 10**8
+    assert out.per_year == 9
+    assert out.rebuild_bytes == 9 * 3 * 10**8
+    assert out.over_budget
     assert out.gb_per_year == pytest.approx(9 * 0.7 + 2.7)
     same = cost.project(ds, tmp_path, sizes, TODAY, frozenset({"crime"}),
                         reshaped={"crime": {"partition_by": ["a"]}})[0]  # fmt: skip
@@ -528,7 +538,9 @@ def test_the_gate_fails_a_changed_entry_over_budget(tmp_path):
     assert cost.run(changed={"big"}, summary=str(summary), rows={}, **run) == 1
     text = summary.read_text("utf-8")
     assert "| `big` | 14.000 (estimate) | 52 (cadence) | 0.000 | 728.000 | 3,640,000,000 | yes |" in text  # fmt: skip
-    assert "cost-approved" in text and "Projected growth" in text and "$" not in text
+    assert "cost-approved" in text
+    assert "Projected growth" in text
+    assert "$" not in text
     assert cost.run(changed={"big"}, approved=True, rows={}, **run) == 0
     assert cost.run(changed={"big"}, approve=lambda: (True, "approved by m"), rows={}, **run) == 0
     assert cost.run(changed={"big"}, approve=lambda: (False, "author"), rows={}, **run) == 1
@@ -689,7 +701,8 @@ def test_a_zip_is_sized_by_its_members_from_the_central_directory(monkeypatch, n
     host = Host(body)
     monkeypatch.setattr(cost.urllib.request, "urlopen", host)
     s = cost._sized("https://example.gov.au/f.zip", 5)
-    assert s.kind == "zip" and s.bytes == len(body)
+    assert s.kind == "zip"
+    assert s.bytes == len(body)
     # A zip inside the zip is counted at the multiplier for a source that cannot be unpacked.
     assert s.unpacked == 800_000 + 1000 * cost.COMPRESSED_MULTIPLIER
     # Packed to a few kB, the CSV still projects at its unpacked size.
@@ -762,7 +775,9 @@ def test_an_adapter_that_cannot_be_sized_says_how_to_approve(tmp_path):
     rc = cost.run([ds], tmp_path, str(cat), {"t"}, TODAY, probing=True, fresh={"t"},
                   summary=str(summary), rows={})  # fmt: skip
     text = summary.read_text("utf-8")
-    assert rc == 1 and "socrata adapter" in text and "cost-approved" in text
+    assert rc == 1
+    assert "socrata adapter" in text
+    assert "cost-approved" in text
 
 
 def test_d1_rows_count_each_index_and_every_version(tmp_path):
@@ -781,7 +796,8 @@ def test_d1_rows_count_each_index_and_every_version(tmp_path):
     p = {x.slug: x for x in cost.project(ds, tmp_path, sizes, TODAY, rows=rows)}
     # id, year and lga are indexed once each, so each row is written four times.
     assert p["crashes"].d1_indexes == 3
-    assert p["crashes"].d1_rows_per_year == 250_000 * 4 * 12 and p["crashes"].over_d1
+    assert p["crashes"].d1_rows_per_year == 250_000 * 4 * 12
+    assert p["crashes"].over_d1
     # A data.csv over the loader's limit stays files-only, as does an entry with query off.
     assert p["big"].d1_rows_per_year == 0 == p["files"].d1_rows_per_year
     small = cost.project(ds[:1], tmp_path, sizes, TODAY, rows={"crashes": 1000})[0]
@@ -795,7 +811,8 @@ def test_a_new_entry_estimates_its_rows_from_its_bytes(tmp_path):
     out = cost.project([entry("new", "twice a year")], tmp_path, {}, TODAY, frozenset({"new"}),
                        prober=lambda d: cost.Sized(10**8), probing=True)[0]  # fmt: skip
     assert out.d1_rows == 14 * 10**8 // cost.PUBLISHED_BYTES_PER_ROW
-    assert out.over_d1 and not out.over_storage
+    assert out.over_d1
+    assert not out.over_storage
 
 
 def test_live_rows_reads_the_newest_version_and_skips_failures(monkeypatch, no_sleep):
@@ -892,7 +909,8 @@ RUNS = [_run("h2", "2026-10-07T11:05:00Z"), _run("h2", "2026-10-07T11:00:00Z"),
 )
 def test_an_approval_needs_another_writer_after_the_newest_commit(events, kw, ok, why):
     got, reason = cost.approval("o/r", 50, _api(events=events, **{"runs": RUNS, **kw}))
-    assert got is ok and why in reason
+    assert got is ok
+    assert why in reason
 
 
 def test_a_head_pushed_back_counts_from_its_return():

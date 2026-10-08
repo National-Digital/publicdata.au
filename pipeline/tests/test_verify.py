@@ -495,10 +495,14 @@ def test_the_published_copy_is_read_beside_what_the_build_made(tmp_path):
 
     p = Published(out, [], None, download)
     old = p.copy("d/x")
-    assert old.read_bytes() == b"old" and (out / "d" / "x").read_bytes() == b"new"
-    assert p.copy("d/x") == old and p.copy("d/missing") is None and p.copy("d/missing") is None
+    assert old.read_bytes() == b"old"
+    assert (out / "d" / "x").read_bytes() == b"new"
+    assert p.copy("d/x") == old
+    assert p.copy("d/missing") is None
+    assert p.copy("d/missing") is None
     assert calls == ["d/x", "d/missing"]
-    assert p.copy("d/y").read_bytes() == b"old" and (out / "d" / "y").read_bytes() == b"old"
+    assert p.copy("d/y").read_bytes() == b"old"
+    assert (out / "d" / "y").read_bytes() == b"old"
 
 
 def test_a_change_across_datasets_asks_for_the_global_number(
@@ -558,7 +562,8 @@ def test_the_plan_names_the_strata_the_sample_leaves_out(two_datasets):
 
     s, t, u = two_datasets
     u = replace(u, sort=("id",))
-    assert uncovered([t, u], s, ["t"]) and "u" in uncovered([t, u], s, ["t"])[0]
+    assert uncovered([t, u], s, ["t"])
+    assert "u" in uncovered([t, u], s, ["t"])[0]
     assert uncovered([t, u], s, ["t", "u"]) == []
 
 

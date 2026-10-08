@@ -86,7 +86,8 @@ def test_every_copy_links_back_to_the_version_and_carries_the_attribution():
         assert "licensed under CC BY 4.0" in t
         assert "has not endorsed" in t
     p = hubs.provenance(e)
-    assert p["version_url"] == e.version_url and p["manifest"]["sha256"] == "ab" * 32
+    assert p["version_url"] == e.version_url
+    assert p["manifest"]["sha256"] == "ab" * 32
 
 
 def test_hub_copy_has_no_em_dashes():
@@ -120,7 +121,8 @@ def test_no_licence_is_ever_published_as_a_different_licence():
         if "other" in (lic.huggingface, lic.kaggle):
             e = make(license=lic.url)
             for text in (hubs.hf_card(e, "r"), hubs.kaggle_metadata(e, "o")["description"]):
-                assert lic.title in text and lic.url in text
+                assert lic.title in text
+                assert lic.url in text
 
 
 def test_an_unmapped_licence_is_refused():
@@ -136,14 +138,13 @@ def test_a_version_missing_from_versions_json_is_refused():
 def test_an_australian_port_is_named_where_the_hub_has_no_id():
     e = make(license="https://creativecommons.org/licenses/by/3.0/au/")
     card = hubs.hf_card(e, "publicdata-au/x")
-    assert 'license: "other"' in card and 'license_name: "cc-by-3.0-au"' in card
+    assert 'license: "other"' in card
+    assert 'license_name: "cc-by-3.0-au"' in card
     assert hubs.kaggle_metadata(e, "o")["licenses"] == [{"name": "other"}]
     z = hubs.zenodo_metadata(e)
     assert z["license"] == "other-at"
-    assert (
-        "CC BY 3.0 AU" in z["description"]
-        and "https://creativecommons.org/licenses/by/3.0/au/" in z["description"]
-    )
+    assert "CC BY 3.0 AU" in z["description"]
+    assert "https://creativecommons.org/licenses/by/3.0/au/" in z["description"]
 
 
 def test_hugging_face_card_frontmatter_points_at_the_parquet_and_sizes_the_rows():
@@ -153,7 +154,8 @@ def test_hugging_face_card_frontmatter_points_at_the_parquet_and_sizes_the_rows(
     assert '- "1K<n<10K"' in front
     assert '- "road-crashes"' in front
     assert "queensland-road-crash-factors" not in front
-    assert 'revision="v2026-09-30"' in card and "publicdata-au/qld-road-crash-factors" in card
+    assert 'revision="v2026-09-30"' in card
+    assert "publicdata-au/qld-road-crash-factors" in card
 
 
 def test_field_table_escapes_pipes_and_skips_source_cell_notes():
@@ -167,12 +169,14 @@ def test_query_api_is_named_only_when_it_serves_the_dataset():
     assert "/api/v1/datasets/qld-road-crash-factors/rows" in hubs.hf_card(make(), "r")
     quiet = hubs.entry(RECORD, VERSIONS, SCHEMA, MANIFEST, queryable=False)
     for t in text_of(quiet):
-        assert "/api/v1/" not in t and "query API" not in t
+        assert "/api/v1/" not in t
+        assert "query API" not in t
 
 
 def test_kaggle_limits():
     m = hubs.kaggle_metadata(make(), "publicdataau")
-    assert len(m["title"]) <= 50 and m["title"] == "Factors in road crashes, Queensland"
+    assert len(m["title"]) <= 50
+    assert m["title"] == "Factors in road crashes, Queensland"
     assert 20 <= len(m["subtitle"]) <= 80
     assert m["id"] == "publicdataau/qld-road-crash-factors"
     types = {f["name"]: f["type"] for f in m["resources"][0]["schema"]["fields"]}
@@ -237,7 +241,8 @@ def test_run_publishes_only_what_a_hub_lacks(tmp_path):
         lines.append,
     )
     assert fails == 0
-    assert fresh.published == ["2026-09-30"] and current.published == ahead.published == []
+    assert fresh.published == ["2026-09-30"]
+    assert current.published == ahead.published == []
     assert any("holds 2026-09-30" in ln for ln in lines)
     assert any("newer than the site's" in ln for ln in lines)
     assert list(tmp_path.iterdir()) == []
@@ -261,7 +266,8 @@ def test_one_failure_is_counted_and_the_rest_carry_on(tmp_path):
 def test_configured_skips_a_hub_without_credentials():
     hubs_, skipped = hubs.configured({"HF_TOKEN": "t", "KAGGLE_API_TOKEN": "k"})
     assert list(hubs_) == ["huggingface"]
-    assert len(skipped) == 2 and all("not" in s for s in skipped)
+    assert len(skipped) == 2
+    assert all("not" in s for s in skipped)
     legacy, _ = hubs.configured({"KAGGLE_USERNAME": "u", "KAGGLE_KEY": "k"})
     assert "kaggle" not in legacy
     both, _ = hubs.configured({"KAGGLE_USERNAME": "u", "KAGGLE_API_TOKEN": "k"})
@@ -499,7 +505,8 @@ def test_kaggle_lists_every_page_of_the_accounts_datasets(tmp_path):
         + "'; else printf 'ref,title,size\\no/last,T,1\\n'; fi\n",
     )
     k = hubs.Kaggle("o", "tok", cli)
-    assert len(k.mine()) == 201 and "last" in k.mine()
+    assert len(k.mine()) == 201
+    assert "last" in k.mine()
 
 
 def kaggle_cli(tmp_path, status="ready", extra=""):
@@ -543,11 +550,13 @@ def test_kaggle_first_upload_creates_and_later_ones_version(tmp_path):
         }
     calls = [c for c in log.read_text().splitlines() if c.split()[1] in ("create", "version")]
     created, settled, versioned = calls
-    assert created.startswith("datasets create") and " -u " in created and " -t" in created
-    assert settled.startswith("datasets version") and "Page settings" in settled
-    assert (
-        versioned.startswith("datasets version") and "publicdata.au version 2026-09-30" in versioned
-    )
+    assert created.startswith("datasets create")
+    assert " -u " in created
+    assert " -t" in created
+    assert settled.startswith("datasets version")
+    assert "Page settings" in settled
+    assert versioned.startswith("datasets version")
+    assert "publicdata.au version 2026-09-30" in versioned
 
 
 def test_kaggle_publish_then_sets_every_usability_item(tmp_path):
@@ -571,12 +580,11 @@ def test_kaggle_publish_then_sets_every_usability_item(tmp_path):
     ]
     (meta_dir,) = [p for p in kept.iterdir() if p.name.endswith("-meta")]
     meta = json.loads((meta_dir / "dataset-metadata.json").read_text())
-    assert "australia" in meta["keywords"] and "transportation" in meta["keywords"]
+    assert "australia" in meta["keywords"]
+    assert "transportation" in meta["keywords"]
     assert meta["expectedUpdateFrequency"] == "annually"
-    assert (
-        "SHA-256" in meta["userSpecifiedSources"]
-        and "/v/2026-09-30/" in meta["userSpecifiedSources"]
-    )
+    assert "SHA-256" in meta["userSpecifiedSources"]
+    assert "/v/2026-09-30/" in meta["userSpecifiedSources"]
     assert all(f["description"] for f in meta["resources"][0]["schema"]["fields"])
     assert all(r["description"] for r in meta["resources"])
     from PIL import Image
@@ -585,9 +593,8 @@ def test_kaggle_publish_then_sets_every_usability_item(tmp_path):
         assert im.size == (560, 280)
     nb_meta = json.loads((kept / "notebook" / "kernel-metadata.json").read_text())
     assert nb_meta["id"] == "o/qld-road-crash-factors-quick-start"
-    assert nb_meta["is_private"] == "false" and nb_meta["dataset_sources"] == [
-        "o/qld-road-crash-factors"
-    ]
+    assert nb_meta["is_private"] == "false"
+    assert nb_meta["dataset_sources"] == ["o/qld-road-crash-factors"]
     assert not (work.parent / "w-meta").exists()
 
 
@@ -609,10 +616,11 @@ def test_kaggle_drops_the_tags_it_names_as_invalid_and_remembers_them(tmp_path):
         k.refresh(e, tmp_path / name, fake_fetch)
     tags = [json.loads(m)["keywords"] for m in sent.read_text().split("@@") if m.strip()]
     assert len(tags) == 5
-    assert "drink driving" in tags[0] and "public data" in tags[0]
-    assert (
-        "drink driving" not in tags[1] and "public data" not in tags[1] and "australia" in tags[1]
-    )
+    assert "drink driving" in tags[0]
+    assert "public data" in tags[0]
+    assert "drink driving" not in tags[1]
+    assert "public data" not in tags[1]
+    assert "australia" in tags[1]
     assert all(t == tags[1] for t in tags[2:])
 
 
@@ -709,9 +717,12 @@ def test_refresh_reapplies_settings_to_a_held_version_and_holds_otherwise(tmp_pa
     e, lines = make(), []
     hub = Refreshable()
     hubs.run({"h": hub}, [(e.slug, e)], fake_fetch, tmp_path, lines.append)
-    assert hub.refreshed == [] and "holds" in lines[-1]
+    assert hub.refreshed == []
+    assert "holds" in lines[-1]
     hubs.run({"h": hub}, [(e.slug, e)], fake_fetch, tmp_path, lines.append, refresh=True)
-    assert hub.refreshed == ["2026-09-30"] and "refreshed" in lines[-1] and hub.published == []
+    assert hub.refreshed == ["2026-09-30"]
+    assert "refreshed" in lines[-1]
+    assert hub.published == []
 
 
 def test_every_field_gets_a_description_from_the_register_or_its_name():
@@ -743,7 +754,8 @@ def test_notebook_titles_are_unique_per_slug_and_short_enough():
     assert ia["id"] != ib["id"]
     for slug in ("x" * 45, "a" * 40 + "-one", "a" * 40 + "-two"):
         title = hubs.kaggle_notebook(make(identifier=slug), "o")[0]["title"]
-        assert len(title) <= 50 and title.endswith(" quick start")
+        assert len(title) <= 50
+        assert title.endswith(" quick start")
     one, two = (
         hubs.kaggle_notebook(make(identifier="a" * 40 + s), "o")[0]["id"] for s in ("-one", "-two")
     )
@@ -854,10 +866,14 @@ def test_read_site_builds_entries_and_turns_a_failed_read_into_a_refusal():
     got = dict(hubs.read_site("https://publicdata.au", {"qld-road-crash-factors", "broken"}, http))
     assert set(got) == {"qld-road-crash-factors", "broken"}
     e = got["qld-road-crash-factors"]
-    assert isinstance(e, hubs.Entry) and e.queryable and e.rows == 1234
-    assert e.files["csv"].endswith("/v/2026-09-30/data.csv") and "json" in e.files
+    assert isinstance(e, hubs.Entry)
+    assert e.queryable
+    assert e.rows == 1234
+    assert e.files["csv"].endswith("/v/2026-09-30/data.csv")
+    assert "json" in e.files
     assert e.source_page == "https://www.data.qld.gov.au/dataset/crash-data-from-queensland-roads"
-    assert isinstance(got["broken"], hubs.Refused) and "404" in str(got["broken"])
+    assert isinstance(got["broken"], hubs.Refused)
+    assert "404" in str(got["broken"])
     assert not any("/skipped/" in u for u in http.asked)
 
 
@@ -865,7 +881,8 @@ def test_read_site_marks_a_dataset_the_query_api_lacks():
     http = FakeSiteHttp()
     http.served = set()
     (slug, e), *_ = hubs.read_site("https://publicdata.au", {"qld-road-crash-factors"}, http)
-    assert slug == "qld-road-crash-factors" and not e.queryable
+    assert slug == "qld-road-crash-factors"
+    assert not e.queryable
 
 
 def test_the_installed_kaggle_sdk_reads_the_token_from_kaggle_api_token(monkeypatch):
@@ -942,11 +959,10 @@ def test_copies_are_listed_in_a_fixed_order_with_the_doi_last():
     }
     got = copies_of(rec, "x")
     assert [c["hub"] for c in got] == ["Hugging Face", "Kaggle", "Zenodo"]
-    assert (
-        got[2]["url"] == "https://doi.org/10.5281/zenodo.9"
-        and got[0]["note"] == 'load_dataset("O/x")'
-    )
-    assert copies_of(rec, "y") == [] and copies_of(None, "x") == []
+    assert got[2]["url"] == "https://doi.org/10.5281/zenodo.9"
+    assert got[0]["note"] == 'load_dataset("O/x")'
+    assert copies_of(rec, "y") == []
+    assert copies_of(None, "x") == []
 
 
 def test_zenodo_location_is_the_concept_doi_of_a_submitted_record():
@@ -1012,7 +1028,9 @@ def test_every_dataset_is_tagged_tabular_and_by_its_topics():
 
     tags = hubs.kaggle_tags(dataclasses.replace(make(), topics=("crime",)))
     assert tags[:3] == ["australia", "government", "tabular"]
-    assert "crime" in tags and "criminology" in tags and len(tags) <= 20
+    assert "crime" in tags
+    assert "criminology" in tags
+    assert len(tags) <= 20
 
 
 class Reg:
@@ -1175,9 +1193,9 @@ def test_kaggle_trims_tags_until_the_category_limit_is_met(tmp_path):
     e = dataclasses.replace(make(), topics=("roads", "crime"))
     hubs.Kaggle("o", "tok", cli).settings(e, tmp_path / "m", fake_fetch)
     counts = [int(x) for x in sent.read_text().split()]
-    assert (
-        counts[0] == hubs.TAG_LIMIT and counts[-1] <= 5 and counts == sorted(counts, reverse=True)
-    )
+    assert counts[0] == hubs.TAG_LIMIT
+    assert counts[-1] <= 5
+    assert counts == sorted(counts, reverse=True)
 
 
 def test_kaggle_waits_out_403s_while_a_new_dataset_registers(tmp_path, monkeypatch):
@@ -1261,7 +1279,8 @@ def test_a_licence_without_a_settings_name_is_refused_before_anything_is_uploade
         hubs.Kaggle("o", "tok", cli).publish(
             make(), tmp_path / "w", lambda u, d: fetched.append(u), first=True
         )
-    assert fetched == [] and not log.exists()
+    assert fetched == []
+    assert not log.exists()
 
 
 def test_a_notebook_is_pushed_only_when_the_dataset_has_none(tmp_path):
@@ -1313,7 +1332,8 @@ def test_a_missing_notebook_is_checked_once_before_its_push(tmp_path):
     cli, log, _ = kaggle_cli(tmp_path)
     hubs.Kaggle("o", "tok", cli).ensure(make(), tmp_path / "w", fake_fetch)
     calls = [c.split()[:2] for c in log.read_text().splitlines()]
-    assert calls.count(["kernels", "status"]) == 1 and ["kernels", "push"] in calls
+    assert calls.count(["kernels", "status"]) == 1
+    assert ["kernels", "push"] in calls
 
 
 def test_kaggle_answering_kernels_get_denied_means_no_notebook_yet(tmp_path):
@@ -1408,4 +1428,6 @@ def test_read_site_passes_an_exclusion_through_as_an_exclusion():
 
 def test_reading_the_site_retries_a_dropped_connection_but_never_an_upload():
     retry = hubs._http().get_adapter("https://publicdata.au/").max_retries
-    assert retry.total >= 3 and retry.is_retry("GET", 503) and not retry.is_retry("POST", 503)
+    assert retry.total >= 3
+    assert retry.is_retry("GET", 503)
+    assert not retry.is_retry("POST", 503)

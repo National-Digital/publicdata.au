@@ -32,7 +32,8 @@ def test_organisations_resolve_to_publishers_by_curation_then_portal():
         rec("vic", "melb-2", "City of Melbourne Open Data"),
     ]
     pubs, by_org = resolve(records, [tmr], {"qld": "qld", "gov": "cth", "nsw": "nsw", "vic": "vic"})
-    assert by_org["gov:tmr"] is tmr and by_org["qld:transport-and-main-roads"] is tmr
+    assert by_org["gov:tmr"] is tmr
+    assert by_org["qld:transport-and-main-roads"] is tmr
     hobart = by_org["gov:city-of-hobart-open-data"]
     assert (hobart.jurisdiction, hobart.slug, hobart.name) == (
         "Cth",
@@ -109,7 +110,8 @@ def test_every_crumb_tier_is_a_page(site):
         "qld/transport-and-main-roads",
         "tas/city-of-hobart",
     ):
-        assert (site / path / "index.html").exists() and (site / path / "index.md").exists()
+        assert (site / path / "index.html").exists()
+        assert (site / path / "index.md").exists()
     tmr = (site / "qld" / "transport-and-main-roads" / "index.html").read_text(encoding="utf-8")
     assert (
         "<title>Queensland Department of Transport and Main Roads (TMR) open data: 5 datasets"
@@ -117,7 +119,8 @@ def test_every_crumb_tier_is_a_page(site):
     )
     assert 'href="/c/qld-road-crashes/">served<' in tmr  # the portal record that is served here
     assert 'data-vote="qld-0a000000-0000-0000-0000-000000000001"' in tmr
-    assert "licence not open" in tmr and "no download" in tmr
+    assert "licence not open" in tmr
+    assert "no download" in tmr
     assert 'name="robots"' not in tmr
 
 
@@ -125,8 +128,10 @@ def test_thin_publisher_pages_stay_out_of_the_index(site):
     hobart = (site / "tas" / "city-of-hobart" / "index.html").read_text(encoding="utf-8")
     assert '<meta name="robots" content="noindex, follow">' in hobart
     sitemap = "".join(p.read_text(encoding="utf-8") for p in (site / "sitemaps").glob("*.xml"))
-    assert "/tas/city-of-hobart/" not in sitemap and "/qld/transport-and-main-roads/" in sitemap
-    assert "/browse/" in sitemap and "/tas/" in sitemap
+    assert "/tas/city-of-hobart/" not in sitemap
+    assert "/qld/transport-and-main-roads/" in sitemap
+    assert "/browse/" in sitemap
+    assert "/tas/" in sitemap
 
 
 def test_only_votable_records_are_in_the_vote_shards(site):
@@ -141,7 +146,8 @@ def test_only_votable_records_are_in_the_vote_shards(site):
     assert all(i.startswith(k) for k, s in shards.items() for i in s)
     listing = json.loads((site / "qld" / "transport-and-main-roads" / "catalogue.json").read_text())
     served = [r for r in listing["records"] if r["served_at"]]
-    assert served and served[0]["served_at"].endswith("/c/qld-road-crashes/")
+    assert served
+    assert served[0]["served_at"].endswith("/c/qld-road-crashes/")
 
 
 def test_other_organisations_and_unread_portals_are_shown_on_government_pages(site):
@@ -171,12 +177,14 @@ def test_before_the_first_harvest_the_directory_claims_nothing_about_the_portals
         check=True,
     )
     browse = (out / "browse" / "index.html").read_text(encoding="utf-8")
-    assert "is being gathered" in browse and "0 datasets" not in browse
+    assert "is being gathered" in browse
+    assert "0 datasets" not in browse
     assert '<meta name="robots" content="noindex, follow">' in browse
     assert "Datasets listed" not in (out / "qld" / "index.html").read_text(encoding="utf-8")
     assert not any("/browse/" in p.read_text("utf-8") for p in (out / "sitemaps").glob("*.xml"))
     tmr = (out / "qld" / "transport-and-main-roads" / "index.md").read_text(encoding="utf-8")
-    assert "## On the portals" not in tmr and "catalogue.json" not in tmr.split("---", 2)[2]
+    assert "## On the portals" not in tmr
+    assert "catalogue.json" not in tmr.split("---", 2)[2]
 
 
 def test_template_copy_has_no_stray_escapes(site):
@@ -270,7 +278,8 @@ def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
     assert (rows["gov-1"]["state"], rows["gov-1"]["vote"]) == ("chosen", "abn-bulk-extract")
     assert (rows["gov-2"]["state"], rows["gov-2"]["vote"]) == ("votable", "gov-2")
     assert (rows["gov-3"]["state"], rows["gov-3"]["note"]) == ("closed", "licence not open")
-    assert rows["gov-1"]["jur"] == "cth" and rows["gov-1"]["host"] == "data.gov.au"
+    assert rows["gov-1"]["jur"] == "cth"
+    assert rows["gov-1"]["host"] == "data.gov.au"
     assert d.votable == 2
     written = {}
     render(d, lambda *a, **k: None, written.__setitem__, {}, lambda c: {})
@@ -280,7 +289,8 @@ def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
         if rel.startswith("catalogue/votable/")
         for k in json.loads(t)
     }
-    assert "gov-2" in shards and "gov-1" not in shards
+    assert "gov-2" in shards
+    assert "gov-1" not in shards
     # Votes cast under the record id before the register claimed it count for the entry.
     assert json.loads(written["catalogue/aliases.json"]) == {"gov-1": "abn-bulk-extract"}
     listing = next(
@@ -302,7 +312,9 @@ def test_the_search_index_holds_every_listed_record_and_loads_once_per_harvest(s
     states = dict(db.execute("SELECT state, COUNT(*) FROM records GROUP BY state").fetchall())
     (version,) = db.execute("SELECT value FROM publicdata WHERE key = 'catalogue_read'").fetchone()
     db.close()
-    assert states["served"] >= 1 and states["votable"] >= 1 and states["closed"] >= 1
+    assert states["served"] >= 1
+    assert states["votable"] >= 1
+    assert states["closed"] >= 1
     parts = catalogue_loads(path, ["2020-01-01"], tmp_path, "run1")
     sql = "".join(p.read_text() for p in parts)
     tbl = json.loads((tmp_path / f"_catalogue@{version}.json").read_text())["tbl"]
@@ -317,7 +329,8 @@ def test_the_search_index_holds_every_listed_record_and_loads_once_per_harvest(s
     assert rows == sum(states.values())
     assert catalogue_loads(path, [version], tmp_path / "again") == []
     home = (site / "backlog" / "index.html").read_text(encoding="utf-8")
-    assert 'id="cat-search"' in home and '<option value="qld">Queensland</option>' in home
+    assert 'id="cat-search"' in home
+    assert '<option value="qld">Queensland</option>' in home
 
 
 def test_the_served_index_loads_when_the_register_changes_and_answers_a_search(site, tmp_path):
@@ -332,7 +345,8 @@ def test_the_served_index_loads_when_the_register_changes_and_answers_a_search(s
     src.close()
     assert "qld-road-casualties" in slugs
     parts = served_loads(path, ["0000"], tmp_path, "run1")
-    assert parts and served_loads(path, [version], tmp_path / "again") == []
+    assert parts
+    assert served_loads(path, [version], tmp_path / "again") == []
     db = sqlite3.connect(":memory:")
     for p in parts:
         db.executescript(p.read_text())
@@ -349,9 +363,11 @@ def test_the_served_index_loads_when_the_register_changes_and_answers_a_search(s
 
 def test_the_sitemap_is_an_index_of_one_sitemap_per_government(site):
     index = (site / "sitemap.xml").read_text(encoding="utf-8")
-    assert "<sitemapindex" in index and "https://publicdata.au/sitemaps/site.xml" in index
+    assert "<sitemapindex" in index
+    assert "https://publicdata.au/sitemaps/site.xml" in index
     qld = (site / "sitemaps" / "qld.xml").read_text(encoding="utf-8")
-    assert "/d/qld-road-casualties/" in qld and "/c/qld-road-crashes/" in qld
+    assert "/d/qld-road-casualties/" in qld
+    assert "/c/qld-road-crashes/" in qld
     assert "/d/qld-road-casualties/" not in (site / "sitemaps" / "site.xml").read_text("utf-8")
 
 
@@ -385,7 +401,8 @@ def test_a_dataset_with_copies_names_them_in_its_json_ld_and_on_the_page(site):
 
 def test_a_dataset_without_copies_keeps_its_plain_identifier(site):
     node = _ld(site / "d" / "qld-road-casualties" / "index.html", "Dataset")
-    assert node["identifier"] == "qld-road-casualties" and isinstance(node["sameAs"], str)
+    assert node["identifier"] == "qld-road-casualties"
+    assert isinstance(node["sameAs"], str)
     assert 'id="copies"' not in (site / "d" / "qld-road-casualties" / "index.html").read_text(
         "utf-8"
     )

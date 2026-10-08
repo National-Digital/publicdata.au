@@ -45,7 +45,8 @@ def test_a_part_year_is_left_out_and_named(tmp_path):
         ],
     )
     s = figures.series(db, "crash_year", "integer", "severity", "count", "2025-06-30")
-    assert s["years"] == [2023, 2024] and s["partial"] == [2025]
+    assert s["years"] == [2023, 2024]
+    assert s["partial"] == [2025]
     assert s["values"][2024] == {"Fatal": 1, "Minor": 1}
     # A file that runs to the last day of the year keeps that year.
     assert figures.series(db, "crash_year", "integer", None, "count", "2025-12-31")["years"] == [
@@ -63,8 +64,11 @@ def test_a_part_year_is_left_out_and_named(tmp_path):
         fig["chart_caption"]
         == "Crashes per year by severity, 2023 to 2024. 2025 is not drawn because the file runs to 30 June 2025."
     )
-    assert "<svg" in fig["chart"] and 'fill="var(--s1)"' in fig["chart"] and "Fatal" in fig["chart"]
-    assert fig["years"] == "2023 to 2024" and "<svg" in fig["spark"]
+    assert "<svg" in fig["chart"]
+    assert 'fill="var(--s1)"' in fig["chart"]
+    assert "Fatal" in fig["chart"]
+    assert fig["years"] == "2023 to 2024"
+    assert "<svg" in fig["spark"]
 
 
 def test_a_financial_year_is_drawn_and_named_as_the_publisher_writes_it(tmp_path):
@@ -165,15 +169,15 @@ def test_cells_count_rows_and_the_national_map_hatches_states_without_data(tmp_p
     svg = figures.national_map(
         [("Queensland", c)], "Crashes", "no published crash locations", tmp_path
     )
-    assert (
-        'class="nodata"' in svg
-        and "Western Australia" in svg
-        and "no published crash locations" in svg
-    )
+    assert 'class="nodata"' in svg
+    assert "Western Australia" in svg
+    assert "no published crash locations" in svg
     assert svg.count('class="nodata"') == len(figures.STATES) - 1
     # The hero is the data alone: no outlines, no city names, a gap still hatched and named.
     # The raster is a file named by its bytes, in an img whose alt is worked out from the cells.
-    assert "data:" not in svg and "Brisbane" not in svg and 'class="state"' not in svg
+    assert "data:" not in svg
+    assert "Brisbane" not in svg
+    assert 'class="state"' not in svg
     src = re.search(r'src="(/maps/[0-9a-f]{16}\.png)"', svg).group(1)
     assert (tmp_path / src.lstrip("/")).stat().st_size > 0
     assert 'alt="2 crashes drawn in 1 cells of 0.05 degrees, the fullest with 2. ' in svg
@@ -185,7 +189,8 @@ def test_cells_count_rows_and_the_national_map_hatches_states_without_data(tmp_p
     assert both.count('class="nodata"') == len(figures.STATES) - 2
     assert set(figures.GAP_LABEL) == set(figures.STATES)
     own = figures.map_html(c, "Crashes", tmp_path)
-    assert 'class="nodata"' not in own and "<svg" in own
+    assert 'class="nodata"' not in own
+    assert "<svg" in own
 
 
 def test_the_chart_condition_keeps_to_the_rows_it_names_and_says_so(tmp_path):
@@ -358,7 +363,8 @@ def test_a_figure_keeps_its_fraction_and_an_average_is_never_added_up(tmp_path):
     }
     chart = {"where": (), "split": None, "metric": "avg.rate", "label": ""}
     fig = figures.dataset_figures(_counts_ds(chart=chart), m, console, db, tmp_path)
-    assert "in all" not in fig["chart"] and "over 2 years" not in fig["spark"]
+    assert "in all" not in fig["chart"]
+    assert "over 2 years" not in fig["spark"]
     assert "the highest 7.5 in 2024, the latest year." in fig["chart"]
     assert "2 years, 2023 to 2024, the highest 7.5 in 2024, the latest year." in fig["spark"]
     fig = figures.dataset_figures(_counts_ds(), m, console, db, tmp_path)

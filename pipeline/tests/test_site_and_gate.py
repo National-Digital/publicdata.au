@@ -22,10 +22,12 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     assert '"token": "b3b3d9ce88104e7e965284919b4d556e"' in home  # the site token, not the site tag
     assert '<meta http-equiv="origin-trial" content="AjNME/' in home
     assert home.index("origin-trial") < home.index("<script")
-    assert "<style>" in home and 'rel="stylesheet"' not in home
+    assert "<style>" in home
+    assert 'rel="stylesheet"' not in home
     assert 'rel="preload" href="/static/fonts/RG-StandardRegular.woff2"' in home
     assert '"Random Grotesque";font-weight:300' in home
-    assert ">all formats<" in home and ">more<" not in home
+    assert ">all formats<" in home
+    assert ">more<" not in home
     assert 'toolname="find_dataset_page"' in home
     # Every dataset link on the home page reaches a built page: the explorer is only built for
     # a table under its size cap, and the hero and preview must not point at one that is not.
@@ -51,13 +53,17 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
         "list_backlog",
         "upvote_dataset",
     ):
-        assert f"EXEC.{tool} = function" in js and f'"{tool}": {{' in js
+        assert f"EXEC.{tool} = function" in js
+        assert f'"{tool}": {{' in js
     assert not (out / "static" / "site.css").exists()
-    assert "--primary-ink:#171717" in home and "RG Fallback" in home
-    assert "var API = '/api/v1/datasets/';" in js and "partitionRows" not in js
+    assert "--primary-ink:#171717" in home
+    assert "RG Fallback" in home
+    assert "var API = '/api/v1/datasets/';" in js
+    assert "partitionRows" not in js
     assert re.search(r'<script src="/static/site\.js\?v=[0-9a-f]{12}" defer>', home)
     ds = (out / "d" / "qld-road-crash-locations" / "index.html").read_text(encoding="utf-8")
-    assert 'data-fmt="parquet"' in ds and 'data-fmt="geojson"' in ds
+    assert 'data-fmt="parquet"' in ds
+    assert 'data-fmt="geojson"' in ds
     for key in ("xlsx", "gpkg", "geo.parquet", "csv.gz", "duckdb"):
         assert f'data-fmt="{key}"' in ds, key
     # Fetched after the size limits came in, so no Arrow; a version fetched before keeps it.
@@ -74,7 +80,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     # The home page's tool names link to what each tool does on the agents page.
     agents = (out / "agents" / "index.html").read_text(encoding="utf-8")
     for tool in ("search_datasets", "count_rows"):
-        assert f'href="/agents/#tool-{tool}"' in home and f'id="tool-{tool}"' in agents
+        assert f'href="/agents/#tool-{tool}"' in home
+        assert f'id="tool-{tool}"' in agents
     agents_md = (out / "agents" / "index.md").read_text(encoding="utf-8")
     assert "\n- `count_rows` Count and sum rows: Count, sum" in agents_md
     assert "pd_read(&#34;qld-road-crash-locations&#34;)" in ds
@@ -88,36 +95,41 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
         "<title>G-NAF download (Geocoded National Address File): DuckDB and Parquet | publicdata.au</title>"
         in db
     )
-    assert "The licence has a condition" in db and "sending of mail" in db
-    assert "pd_connect(&#34;gnaf&#34;)" in db and "pd_au.connect(" in db
+    assert "The licence has a condition" in db
+    assert "sending of mail" in db
+    assert "pd_connect(&#34;gnaf&#34;)" in db
+    assert "pd_au.connect(" in db
     assert 'href="https://publicdata.au/d/gnaf/v/2026-08-17/tables/address_detail.parquet"' in db
-    assert 'id="t-address_detail"' in db and "FROM address_view" in db
-    assert "data-fmt=" not in db and 'id="console"' not in db
+    assert 'id="t-address_detail"' in db
+    assert "FROM address_view" in db
+    assert "data-fmt=" not in db
+    assert 'id="console"' not in db
     assert "sending of mail" in (out / "d" / "gnaf" / "v" / "2026-08-17" / "index.html").read_text(
         encoding="utf-8"
     )
     dbmd = (out / "d" / "gnaf" / "index.md").read_text(encoding="utf-8")
-    assert "kind: database" in dbmd and "licence_condition: You must not" in dbmd
-    assert "## Tables" in dbmd and "- address_detail (40 rows, key address_detail_pid)" in dbmd
+    assert "kind: database" in dbmd
+    assert "licence_condition: You must not" in dbmd
+    assert "## Tables" in dbmd
+    assert "- address_detail (40 rows, key address_detail_pid)" in dbmd
     assert "DuckDB https://publicdata.au/d/gnaf/v/2026-08-17/data.duckdb" in (
         out / "llms.txt"
     ).read_text(encoding="utf-8")
     catalog = json.loads((out / "catalog.json").read_text(encoding="utf-8"))
     rec = next(d for d in catalog["dataset"] if d["identifier"] == "gnaf")
-    assert rec["publicdata:kind"] == "database" and rec["publicdata:licenceCondition"]
-    assert rec["publicdata:jurisdiction"] == "Cth" and rec["publicdata:topics"]
+    assert rec["publicdata:kind"] == "database"
+    assert rec["publicdata:licenceCondition"]
+    assert rec["publicdata:jurisdiction"] == "Cth"
+    assert rec["publicdata:topics"]
     places = json.loads((out / "places.json").read_text(encoding="utf-8"))
     lga = next(p for p in places["layers"] if p["key"] == "lga")
-    assert lga["slug"] == "abs-lga-2025" and lga["code"] == "lga_2025_code"
+    assert lga["slug"] == "abs-lga-2025"
+    assert lga["code"] == "lga_2025_code"
     assert lga["gpkg"].endswith(f"/d/abs-lga-2025/v/{lga['version']}/data.gpkg")
-    assert (
-        rec["distribution"][0]["format"] == "duckdb"
-        and rec["distribution"][1]["title"] == "address_detail"
-    )
-    assert (
-        not (out / "d" / "gnaf" / "explore").exists()
-        and not (out / "d" / "gnaf" / "openapi.json").exists()
-    )
+    assert rec["distribution"][0]["format"] == "duckdb"
+    assert rec["distribution"][1]["title"] == "address_detail"
+    assert not (out / "d" / "gnaf" / "explore").exists()
+    assert not (out / "d" / "gnaf" / "openapi.json").exists()
     assert "/*.gpkg" in (out / "_headers").read_text(encoding="utf-8")
     assert "application/ld+json" in ds
     md = (out / "d" / "qld-road-crash-locations" / "index.md").read_text(encoding="utf-8")
@@ -137,27 +149,30 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
         in ds
     )
     # The register's own questions are the caveats box, above the fold; the generated ones stay.
-    assert '<div class="caveats">' in ds and ds.index("caveats") < ds.index('id="get"')
+    assert '<div class="caveats">' in ds
+    assert ds.index("caveats") < ds.index('id="get"')
     assert "Does it include every car accident in Queensland?" in ds.split('id="questions"')[0]
     assert "How do I download Road crash locations as a CSV file?" in ds.split('id="questions"')[1]
-    assert (
-        '<table class="ledger sample">' in ds and ds.count("<tr>", ds.index("ledger sample")) >= 11
-    )
-    assert 'data-cite="harvard"' in ds and "[data set], CC BY 4.0" in ds
+    assert '<table class="ledger sample">' in ds
+    assert ds.count("<tr>", ds.index("ledger sample")) >= 11
+    assert 'data-cite="harvard"' in ds
+    assert "[data set], CC BY 4.0" in ds
     assert (out / "d" / "qld-road-crash-locations" / "schema.xlsx").stat().st_size > 1000
     assert 'href="https://publicdata.au/d/qld-road-crash-locations/schema.xlsx"' in ds
     # Place pages: one per council area, indexed, listed on the table's page and in the sitemap.
     assert '<h2 id="places">By council area</h2>' in ds
     place = out / "d" / "qld-road-crash-locations" / "in" / "gold-coast-city" / "index.html"
     ptext = place.read_text(encoding="utf-8")
-    assert "<h1>Crashes in Gold Coast City</h1>" in ptext and "noindex" not in ptext
+    assert "<h1>Crashes in Gold Coast City</h1>" in ptext
+    assert "noindex" not in ptext
     assert (
         place.with_name("index.md")
         .read_text(encoding="utf-8")
         .startswith('---\ntitle: "Crashes in Gold Coast City"')
     )
     # The place field is the By council area section, not a second list under Smaller files.
-    assert "By loc_local_government_area" not in ds and "By crash_year" in ds
+    assert "By loc_local_government_area" not in ds
+    assert "By crash_year" in ds
     assert (
         'href="https://publicdata.au/d/qld-road-crash-locations/v/2026-04-24/by/loc_local_government_area/gold-coast-city.json"'
         in ptext
@@ -179,31 +194,39 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
         encoding="utf-8"
     )
     gov = (out / "government" / "index.html").read_text(encoding="utf-8")
-    assert "<h1" in gov and "ABN 13 744 838 758" in gov
+    assert "<h1" in gov
+    assert "ABN 13 744 838 758" in gov
     # The header searches the whole catalogue; the phone header collapses the site links.
-    assert 'class="search" action="/backlog/"' in home and 'class="menu"' in home
-    assert '<div class="ttile empty">' in home and 'class="vote small"' in home
+    assert 'class="search" action="/backlog/"' in home
+    assert 'class="menu"' in home
+    assert '<div class="ttile empty">' in home
+    assert 'class="vote small"' in home
     assert "as at 30 June 2025" in home.split('class="ticker"')[1].split("</div>")[0]
-    assert "<span>publishers</span>" in home and "rows served" not in home
+    assert "<span>publishers</span>" in home
+    assert "rows served" not in home
     assert 'href="/d/qld-road-crash-locations/"' in home
     pub = (out / "qld" / "transport-and-main-roads" / "index.html").read_text(encoding="utf-8")
     assert "Department of Transport and Main Roads is a Queensland government body" in pub
     assert "Its datasets served here cover roads and transport." in pub
-    assert '"@type": "FAQPage"' in ds and '"@type": "BreadcrumbList"' in ds
+    assert '"@type": "FAQPage"' in ds
+    assert '"@type": "BreadcrumbList"' in ds
     assert '"citation": "Department of Transport and Main Roads' in ds
-    assert 'id="cite-data"' in ds and "@misc{publicdata_qld_road_crash_locations_2026_04_24" in ds
+    assert 'id="cite-data"' in ds
+    assert "@misc{publicdata_qld_road_crash_locations_2026_04_24" in ds
     assert 'href="https://publicdata.au/c/qld-road-crashes/"' in ds
-    assert "## Questions" in md and "Serialised and versioned by National Digital" in md
-    assert "## By council area" in md and "Harvard: Department of Transport" in md
+    assert "## Questions" in md
+    assert "Serialised and versioned by National Digital" in md
+    assert "## By council area" in md
+    assert "Harvard: Department of Transport" in md
     coll = (out / "c" / "qld-road-crashes" / "index.html").read_text(encoding="utf-8")
-    assert (
-        "<h1>Crash data from Queensland roads</h1>" in coll
-        and coll.count('href="/d/qld-road-') >= 6
-    )
+    assert "<h1>Crash data from Queensland roads</h1>" in coll
+    assert coll.count('href="/d/qld-road-') >= 6
     assert coll.count('<p style="margin-top:14px">') == 2  # the two register paragraphs
-    assert '<span class="chip live">live</span>' in coll and ">www.data.qld.gov.au</a>" in coll
+    assert '<span class="chip live">live</span>' in coll
+    assert ">www.data.qld.gov.au</a>" in coll
     aka = coll.split("Also called: ")[1].split("</p>")[0]
-    assert "TMR crash data" in aka and "road safety" not in aka
+    assert "TMR crash data" in aka
+    assert "road safety" not in aka
     assert "https://publicdata.au/c/qld-road-crashes/" in (out / "sitemaps" / "qld.xml").read_text(
         encoding="utf-8"
     )
@@ -212,9 +235,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
         .open(encoding="utf-8")
         .readline()
     )["publicdata"]
-    assert header["operator"]["name"] == "National Digital" and header["cite"].endswith(
-        "/v/2026-04-24/"
-    )
+    assert header["operator"]["name"] == "National Digital"
+    assert header["cite"].endswith("/v/2026-04-24/")
     dp = json.loads(
         (out / "d" / "qld-road-crash-locations" / "datapackage.json").read_text(encoding="utf-8")
     )
@@ -232,12 +254,14 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     ):
         assert (out / p).exists()
     ard = (out / ".well-known/ard.json").read_text(encoding="utf-8")
-    assert '"displayName"' in ard and '"representativeQueries"' in ard
+    assert '"displayName"' in ard
+    assert '"representativeQueries"' in ard
     headers = (out / "_headers").read_text(encoding="utf-8")
     assert "static.cloudflareinsights.com" in headers
     fn = (ROOT / "functions" / "d" / "[[path]].js").read_text(encoding="utf-8")
     assert "max-age=31536000, immutable" in fn
-    assert "immutable, no-transform" in fn and "max-age=300, no-transform" in fn
+    assert "immutable, no-transform" in fn
+    assert "max-age=300, no-transform" in fn
     assert "content-encoding" not in fn
     assert "obj.range.suffix !== undefined" in fn
     assert (
@@ -252,7 +276,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
             r'type="text/markdown" href="https://publicdata.au/([^"]+)"',
             html.read_text(encoding="utf-8"),
         )
-        assert m and (out / m.group(1)).exists(), html
+        assert m, html
+        assert (out / m.group(1)).exists(), html
 
 
 def test_the_gate_refuses_a_licence_that_is_not_open_or_differs_from_the_register(
@@ -295,7 +320,8 @@ def test_home_links_to_the_dataset_when_its_table_has_no_explorer(tmp_path, monk
     assert "/explore/" not in home
     # The fixtures hold no hero-map dataset, so the hero's own fallback shows only on a real
     # build; the explorer preview drops out here.
-    assert ">Explore the map<" not in home and ">Open the explorer<" not in home
+    assert ">Explore the map<" not in home
+    assert ">Open the explorer<" not in home
     for href in set(re.findall(r'href="(/d/[^"#?]*)"', home)):
         target = out / href.lstrip("/")
         assert target.exists() or (target / "index.html").exists(), href
@@ -327,10 +353,12 @@ def test_openapi_document_names_every_live_slug(register_dir, tmp_path, site_cop
 
     out = site_copy
     doc = json.loads((out / "openapi.json").read_text(encoding="utf-8"))
-    assert doc["openapi"] == "3.1.0" and doc["servers"][0]["url"] == "https://publicdata.au"
+    assert doc["openapi"] == "3.1.0"
+    assert doc["servers"][0]["url"] == "https://publicdata.au"
     slugs = doc["paths"]["/d/{slug}/versions.json"]["get"]["parameters"][0]["schema"]["enum"]
     assert "qld-road-crash-locations" in slugs
-    assert "/api/v1/votes/{slug}" in doc["paths"] and "post" in doc["paths"]["/api/v1/votes/{slug}"]
+    assert "/api/v1/votes/{slug}" in doc["paths"]
+    assert "post" in doc["paths"]["/api/v1/votes/{slug}"]
 
 
 def test_linkify_escapes_and_links_only_the_url():
@@ -375,9 +403,8 @@ def test_bibtex_protects_the_institutional_author_and_the_title():
     bib = cite(ds, m, "https://publicdata.au/d/qld-road-crash-locations/v/2026-04-24/")["bibtex"]
     assert "  author = {{Department of Transport and Main Roads}}," in bib
     assert "  title = {{Road crash locations, Queensland}}," in bib
-    assert "  year = {2026}," in bib and bib.startswith(
-        "@misc{publicdata_qld_road_crash_locations_2026_04_24,"
-    )
+    assert "  year = {2026}," in bib
+    assert bib.startswith("@misc{publicdata_qld_road_crash_locations_2026_04_24,")
 
 
 def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_copy):
@@ -390,8 +417,10 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_cop
 
     page, c = console("qld-road-casualties")
     block = re.search(r'id="ds-data">(.*?)</script>', page, re.DOTALL).group(1)
-    assert "<" not in block and ">" not in block
-    assert 'id="query"' in page and 'href="/api/v1/datasets/qld-road-casualties/rows?' in page
+    assert "<" not in block
+    assert ">" not in block
+    assert 'id="query"' in page
+    assert 'href="/api/v1/datasets/qld-road-casualties/rows?' in page
     # The register's example is the console's first query, and the tile answers it.
     assert c["example"] == {
         "filters": [{"field": "casualty_severity", "op": "eq", "value": "Hospitalised"}],
@@ -401,7 +430,8 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_cop
     assert "Casualties by road user where severity is Hospitalised: " in page
     year = next(f for f in c["fields"] if f["name"] == "crash_year")
     region = next(f for f in c["fields"] if f["name"] == "crash_police_region")
-    assert region["values"] == sorted(region["values"]) and None not in region["values"]
+    assert region["values"] == sorted(region["values"])
+    assert None not in region["values"]
 
     doc = json.loads((out / "d" / "qld-road-casualties" / "openapi.json").read_text("utf-8"))
     rows = doc["paths"]["/api/v1/datasets/qld-road-casualties/rows"]["get"]
@@ -411,7 +441,8 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_cop
         "enum"
     ] == ["qld-road-casualties"]
     md = (out / "d" / "qld-road-casualties" / "index.md").read_text(encoding="utf-8")
-    assert "## Query" in md and "/api/v1/datasets/qld-road-casualties/aggregate?group=" in md
+    assert "## Query" in md
+    assert "/api/v1/datasets/qld-road-casualties/aggregate?group=" in md
 
 
 def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp_path, site_copy):
@@ -420,7 +451,8 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp
     def ex(slug, page="explore"):
         text = (out / "d" / slug / page / "index.html").read_text(encoding="utf-8")
         block = re.search(r'id="ex-data">(.*?)</script>', text, re.DOTALL).group(1)
-        assert "<" not in block and ">" not in block
+        assert "<" not in block
+        assert ">" not in block
         return text, json.loads(block)
 
     from publicdata.register import load
@@ -434,10 +466,12 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp
             assert not (out / "d" / slug / "explore").exists()
             continue
         page, data = ex(slug)
-        assert data["page"] == f"/d/{slug}/explore/" and data["embed"] is False
+        assert data["page"] == f"/d/{slug}/explore/"
+        assert data["embed"] is False
         assert ex(slug, "embed")[1]["embed"] is True
         assert f'href="/d/{slug}/explore/"' in (out / "d" / slug / "index.html").read_text("utf-8")
-        assert "noindex" in page and "has not endorsed" in page
+        assert "noindex" in page
+        assert "has not endorsed" in page
         assert (
             data["versions"][0]["parquet"]
             == f"/d/{slug}/v/{data['versions'][0]['version']}/data.parquet"
@@ -455,15 +489,19 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp
     assert ex("qld-road-crash-factors")[1]["yesno"][0] == "involving_drink_driving"
     _, loc = ex("qld-road-crash-locations")
     by = loc["defaults"]["panels"]["by-group"]
-    assert by["expressions"] == {"Crashes": "1"} and by["columns"] == ["Crashes"]
+    assert by["expressions"] == {"Crashes": "1"}
+    assert by["columns"] == ["Crashes"]
     # The first dashboard groups by the register example's field.
     assert by["title"] == "Crashes by nature of crash and severity"
     assert loc["defaults"]["masters"] == ["by-group"]
     years = loc["defaults"]["panels"]["over-time"]
-    assert years["group_by"] == ["Year"] and "Year" not in years["expressions"]
-    assert loc["text"] == ["crash_year"] and loc["labels"]["crash_year"] == "Year"
+    assert years["group_by"] == ["Year"]
+    assert "Year" not in years["expressions"]
+    assert loc["text"] == ["crash_year"]
+    assert loc["labels"]["crash_year"] == "Year"
     panels = loc["defaults"]["panels"]
-    assert by["split_by"] == ["Severity"] and years["plugin"] == "Y Area"
+    assert by["split_by"] == ["Severity"]
+    assert years["plugin"] == "Y Area"
     assert panels["heatmap"]["group_by"] == ["Year"]
     assert panels["map"]["plugin"] == "Map Scatter"
     assert panels["map"]["columns"][:2] == ["Longitude", "Latitude"]
@@ -478,12 +516,16 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp
 
     headers = (out / "_headers").read_text(encoding="utf-8")
     site_csp = headers.split("\n")[2]
-    assert "wasm-unsafe-eval" not in site_csp and "blob:" not in site_csp
+    assert "wasm-unsafe-eval" not in site_csp
+    assert "blob:" not in site_csp
     embed = headers.split("/d/:slug/embed/*\n")[1].split("\n\n")[0]
-    assert "! Content-Security-Policy" in embed and "frame-ancestors *" in embed
+    assert "! Content-Security-Policy" in embed
+    assert "frame-ancestors *" in embed
     explore = headers.split("/d/:slug/explore/*\n")[1].split("\n\n")[0]
-    assert "'wasm-unsafe-eval'" in explore and "frame-ancestors 'none'" in explore
-    assert "https://tile.openstreetmap.org" in explore and "tile.openstreetmap" not in site_csp
+    assert "'wasm-unsafe-eval'" in explore
+    assert "frame-ancestors 'none'" in explore
+    assert "https://tile.openstreetmap.org" in explore
+    assert "tile.openstreetmap" not in site_csp
 
     api = json.loads((out / "openapi.json").read_text(encoding="utf-8"))["paths"]
     body = api["/api/v1/views"]["post"]["requestBody"]["content"]["application/json"]["schema"]
@@ -679,7 +721,8 @@ def test_the_picked_example_skips_a_group_the_filter_fixes_and_an_identifier(tmp
     ex = _console(_console_ds(key=("year", "state_code", "kind")), db)["example"]
     # year is filtered; state_name is one value under it, so the group moves on to kind, and
     # row_id is an identifier, so n is the sum.
-    assert ex["group"] == ["kind"] and ex["metric"] == "sum.n"
+    assert ex["group"] == ["kind"]
+    assert ex["metric"] == "sum.n"
     assert ex["filters"][0]["field"] == "year"
     # A filter that matches fewer than twenty rows is dropped.
     (tmp_path / "small").mkdir()
@@ -789,21 +832,25 @@ def test_pages_invite_contributions_and_link_the_repository(fixture_site):
     out = fixture_site
     for rel in ("index.html", "about/index.html", "backlog/index.html", "terms/index.html"):
         h = (out / rel).read_text(encoding="utf-8")
-        assert f'href="{REPO}"' in h and 'href="/contribute/"' in h, rel
+        assert f'href="{REPO}"' in h, rel
+        assert 'href="/contribute/"' in h, rel
     page = (out / "d" / "qld-road-crash-locations" / "index.html").read_text(encoding="utf-8")
     entry = re.search(rf'href="{REPO}/blob/main/([^"]+)"', page).group(1)
-    assert entry == "register/qld-road-crash-locations.yaml" and (ROOT / entry).is_file()
+    assert entry == "register/qld-road-crash-locations.yaml"
+    assert (ROOT / entry).is_file()
     assert "template=data-problem.yml&amp;dataset=https%3A%2F%2Fpublicdata.au%2Fd%2F" in page
     assert entry in (out / "d" / "qld-road-crash-locations" / "index.md").read_text("utf-8")
     contribute = (out / "contribute" / "index.html").read_text(encoding="utf-8")
-    assert 'id="add-a-dataset"' in contribute and "{repo}" not in contribute
+    assert 'id="add-a-dataset"' in contribute
+    assert "{repo}" not in contribute
     assert f"{REPO}/blob/main/CONTRIBUTING.md#add-a-serialisation" in contribute
 
     ld = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
     home = [json.loads(b) for b in ld.findall((out / "index.html").read_text(encoding="utf-8"))]
     source = next(n for n in home if n["@type"] == "SoftwareSourceCode")
     catalog = next(n for n in home if n["@type"] == "DataCatalog")
-    assert source["codeRepository"] == REPO and "sameAs" not in catalog
+    assert source["codeRepository"] == REPO
+    assert "sameAs" not in catalog
     assert "https://github.com/National-Digital" in catalog["provider"]["sameAs"]
 
     assert (
@@ -847,7 +894,8 @@ def test_a_downloaded_file_is_named_after_its_dataset_and_version(fixture_site):
 def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site):
     out = fixture_site
     page = (out / "publishers" / "stable-urls" / "index.html").read_text(encoding="utf-8")
-    assert "versions.json" in page and "schema_version" in page
+    assert "versions.json" in page
+    assert "schema_version" in page
     assert '<a href="/publishers/" aria-current="page">' in page
     assert "/publishers/stable-urls/" in (out / "publishers" / "index.html").read_text(
         encoding="utf-8"
@@ -862,10 +910,8 @@ def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site):
         encoding="utf-8"
     )
     md = (out / "publishers" / "stable-urls" / "index.md").read_text(encoding="utf-8")
-    assert (
-        md.startswith("---\ntitle: Publishing a dataset at a stable URL\n")
-        and "## A check list" in md
-    )
+    assert md.startswith("---\ntitle: Publishing a dataset at a stable URL\n")
+    assert "## A check list" in md
 
 
 def test_a_version_page_shows_the_version_notes(fixture_site):

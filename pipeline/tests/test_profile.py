@@ -69,7 +69,9 @@ def test_a_sorted_parquet_follows_the_sort_then_the_key_and_names_its_profile(tm
     assert names == ["year", "place", "id"]
     assert not any(c.nulls_first or c.descending for c in meta.row_group(0).sorting_columns)
     col = meta.row_group(0).column(0)
-    assert col.has_offset_index and col.has_column_index and col.compression == "ZSTD"
+    assert col.has_offset_index
+    assert col.has_column_index
+    assert col.compression == "ZSTD"
     assert profile.signature(vdir / "data.parquet") == "year,place,id"
 
 
@@ -152,7 +154,8 @@ def test_a_version_fetched_before_the_profile_keeps_its_writer_and_gets_a_query_
     assert [r[0] for r in db.execute("SELECT id FROM records").fetchall()] == SOURCE
     q = tmp_path / vout.query
     assert vout.query == "_q/t/2026-01-02.parquet"
-    assert _ids(q) == SORTED and profile.signature(q) == "year,place,id"
+    assert _ids(q) == SORTED
+    assert profile.signature(q) == "year,place,id"
     assert pq.read_schema(q).field("id").type == pa.int32()
     # The query copy carries the version's own provenance, which names its data.parquet.
     assert pq.read_metadata(q).metadata[b"publicdata"] == meta.metadata[b"publicdata"]
@@ -177,7 +180,8 @@ def test_a_version_keeps_the_layout_it_was_fetched_with(tmp_path):
 def test_int32_is_declared_per_field(tmp_path):
     vdir, _ = _build(tmp_path, _ds(int32=("id", "year")))
     schema = pq.read_schema(vdir / "data.parquet")
-    assert schema.field("id").type == pa.int32() and schema.field("year").type == pa.int32()
+    assert schema.field("id").type == pa.int32()
+    assert schema.field("year").type == pa.int32()
     assert schema.field("big").type == pa.int64()
     back = profile.widen(pq.read_table(vdir / "data.parquet"))
     assert back.schema.field("id").type == pa.int64()
@@ -488,9 +492,11 @@ def test_the_sample_note_names_the_order_the_rows_are_in(tmp_path, legacy):
     vdir, _ = _build(tmp_path, ds, legacy=legacy)
     note = json.dumps(_sample(ds, vdir / "data.parquet"))
     if legacy:
-        assert "in the publisher's order" in note and "sorted by" not in note
+        assert "in the publisher's order" in note
+        assert "sorted by" not in note
     else:
-        assert "sorted by year, then place" in note and "publisher's order" not in note
+        assert "sorted by year, then place" in note
+        assert "publisher's order" not in note
 
 
 def test_a_footer_shows_the_layout_it_was_written_with(tmp_path):

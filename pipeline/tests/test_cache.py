@@ -24,7 +24,8 @@ def _same(a, b):
     # A DuckDB file's bytes are not reproducible, so those are compared by content.
     files = [f for f in _tree(a) if not f.endswith("data.duckdb")]
     _, mismatch, errors = filecmp.cmpfiles(a, b, files, shallow=False)
-    assert not mismatch and not errors
+    assert not mismatch
+    assert not errors
     assert compare(a, b) == []
 
 
@@ -63,7 +64,8 @@ def _matches_except_absent(full, slim, vouts, slug="t"):
     absent = {a for a in absent if not (slim / a).exists()}
     assert _tree(slim) == sorted(set(_tree(full)) - absent)
     _, mismatch, errors = filecmp.cmpfiles(full, slim, _tree(slim), shallow=False)
-    assert not mismatch and not errors
+    assert not mismatch
+    assert not errors
     return absent
 
 
@@ -80,7 +82,8 @@ def test_a_warm_build_needs_no_source_bytes_and_matches_less_the_published_forma
     cache = BuildCache(tmp_path / "cache")
     out = build_dataset(ds, _without_sources(two_versions, tmp_path / "bare"), warm, cache)
     assert (cache.hits, cache.misses) == (4, 0)
-    assert out.changes[0]["changed"] == 1 and out.latest.rows == 2
+    assert out.changes[0]["changed"] == 1
+    assert out.latest.rows == 2
     absent = _matches_except_absent(plain, warm, out.versions)
     names = {a.rsplit("/", 1)[1] for a in absent}
     assert {"data.json", "data.csv", "data.ndjson", "data.parquet", "data.sqlite"} <= names
@@ -121,7 +124,8 @@ def test_a_register_change_rebuilds_and_prune_drops_the_old_entry(two_versions, 
         make_dataset(F, key=("id",), title="Renamed"), two_versions, tmp_path / "b", cache
     )
     assert cache.hits == 0
-    assert cache.prune() == 4 and len(list(root.iterdir())) == 4
+    assert cache.prune() == 4
+    assert len(list(root.iterdir())) == 4
 
 
 def test_cached_files_are_read_only(two_versions, tmp_path):
@@ -176,9 +180,11 @@ def test_a_warm_site_build_from_manifests_alone_matches_and_passes_the_gate(
     assert main(["build", "--store", str(s), "--out", str(warm), *cache, "--absent", str(tmp_path / "b.json"), "--published", str(cold)]) == 0  # fmt: skip
     absent = json.loads((tmp_path / "b.json").read_text())
     _same(plain, cold)
-    assert absent and _tree(warm) == sorted(set(_tree(plain)) - set(absent))
+    assert absent
+    assert _tree(warm) == sorted(set(_tree(plain)) - set(absent))
     _, mismatch, errors = filecmp.cmpfiles(plain, warm, _tree(warm), shallow=False)
-    assert not mismatch and not errors
+    assert not mismatch
+    assert not errors
     assert check(warm, register_dir, absent) == []
     assert any("missing data.json" in e for e in check(warm, register_dir))
 
@@ -260,7 +266,8 @@ def test_a_cached_version_grows_into_new_formats_from_its_parquet(
         elif not rel.endswith("data.duckdb"):
             assert (grown / rel).read_bytes() == (plain / rel).read_bytes(), rel
     # The files written now are in the tree; those the cache had published are absent.
-    assert absent and not [
+    assert absent
+    assert not [
         r
         for r in absent
         if r.endswith(("data.duckdb", "data.xlsx")) and "/v/" in r and "gnaf" not in r
@@ -345,7 +352,8 @@ def test_the_rows_key_leaves_the_writers_out_but_keeps_the_partition_writers():
     from publicdata import cache as cache_mod
 
     files = {p.relative_to(cache_mod.PACKAGE).as_posix() for p in cache_mod.code_files()}
-    assert "serialise/writers/json.py" in files and "serialise/writers/geojson.py" in files
+    assert "serialise/writers/json.py" in files
+    assert "serialise/writers/geojson.py" in files
     assert not [
         f
         for f in files

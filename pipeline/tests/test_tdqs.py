@@ -151,7 +151,8 @@ def test_each_quality_fails_on_its_own(quality, change):
     ts = _tools()
     change(_by_name(ts, "query_rows"))
     errors = tdqs.problems(ts)[0]
-    assert errors and all(e.startswith(f"query_rows: {quality}:") for e in errors), errors
+    assert errors
+    assert all(e.startswith(f"query_rows: {quality}:") for e in errors), errors
 
 
 def test_a_read_only_tool_that_says_it_writes_fails():

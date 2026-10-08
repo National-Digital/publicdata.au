@@ -17,7 +17,9 @@ def test_diff_by_key():
     b = _tbl(b"Id,V\n2,b\n3,C\n4,d\n", "2026-02-01")
     d = diff(a, b)
     assert (d["added"], d["removed"], d["changed"], d["unchanged"]) == (1, 1, 1, 1)
-    assert d["added_keys"] == [4] and d["removed_keys"] == [1] and d["changed_keys"] == [3]
+    assert d["added_keys"] == [4]
+    assert d["removed_keys"] == [1]
+    assert d["changed_keys"] == [3]
     assert d["examples"][0]["fields"] == {"v": {"from": "c", "to": "C"}}
 
 
@@ -32,7 +34,8 @@ def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys():
     a = normalise(ds, make_manifest(a_csv, version="2026-01-01"), a_csv)
     b = normalise(ds, make_manifest(b_csv, version="2026-02-01"), b_csv)
     d = diff(a, b)
-    assert d["changed"] == 1 and d["unchanged"] == 1
+    assert d["changed"] == 1
+    assert d["unchanged"] == 1
     dup = b"Id,V\n1,a\n1,b\n"
     with pytest.raises(ValueError, match="not unique"):
         diff(_tbl(dup, "2026-01-01"), _tbl(dup, "2026-02-01"))
@@ -181,6 +184,7 @@ def test_a_blank_key_part_matches_itself_across_versions():
     b = normalise(ds, make_manifest(b_csv, version="2026-02-01"), b_csv)
     d = diff(a, b)
     assert (d["added"], d["removed"], d["changed"], d["unchanged"]) == (1, 1, 1, 1)
-    assert d["added_keys"] == [["Fraud", None]] and d["removed_keys"] == [["Arson", None]]
+    assert d["added_keys"] == [["Fraud", None]]
+    assert d["removed_keys"] == [["Arson", None]]
     assert d["changed_keys"] == [["Assault", None]]
     assert d["examples"][0]["fields"] == {"n": {"from": 5, "to": 6}}

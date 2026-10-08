@@ -347,20 +347,23 @@ def test_rows_sends_where_select_and_order(client):
         "limit": "2",
     }
     assert ua.startswith("publicdata-au-python/")
-    assert r == [{"n": 0}, {"n": 1}] and r.page["next"]
+    assert r == [{"n": 0}, {"n": 1}]
+    assert r.page["next"]
 
 
 def test_rows_carries_provenance(client):
     r = client.rows("a")
-    assert (
-        r.version == "2026-08-07" and r.attribution and r.cite and r.licence == {"id": "CC-BY-4.0"}
-    )
+    assert r.version == "2026-08-07"
+    assert r.attribution
+    assert r.cite
+    assert r.licence == {"id": "CC-BY-4.0"}
     assert r.version_page == "vp"
 
 
 def test_all_follows_every_page(client):
     r = client.rows("a", all=True, limit=2)
-    assert [x["n"] for x in r] == [0, 1, 2, 3, 4] and r.page["next"] is None
+    assert [x["n"] for x in r] == [0, 1, 2, 3, 4]
+    assert r.page["next"] is None
     assert len([h for h in Handler.hits if h[0].endswith("/rows")]) == 3
 
 
@@ -374,7 +377,8 @@ def test_a_dated_version_goes_on_the_path(client):
 def test_aggregate(client):
     a = client.aggregate("a", group=["g", "h"], metric=["count", "sum.n"], where={"x": 1})
     assert last_api_hit()[1] == {"group": "g,h", "metric": "count,sum.n", "x": "eq.1"}
-    assert a == [{"g": 1, "count": 2}] and a.version == "2026-08-07"
+    assert a == [{"g": 1, "count": 2}]
+    assert a.version == "2026-08-07"
 
 
 def test_429_waits_then_retries(client):
@@ -402,7 +406,8 @@ def test_429_past_the_retries_raises(client):
 def test_an_error_names_the_status_and_the_apis_message(client):
     with pytest.raises(pd_au.PublicDataError) as err:
         client.rows("nope")
-    assert err.value.status == 404 and "No such dataset" in str(err.value)
+    assert err.value.status == 404
+    assert "No such dataset" in str(err.value)
     assert err.value.body == {"error": "No such dataset in the query API"}
 
 
@@ -415,7 +420,8 @@ def test_a_bad_slug_never_reaches_the_network(client):
 def test_download_follows_latest_and_names_the_version(client, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     p = client.download("a", "csv")
-    assert p.name == "a-2026-08-07.csv" and p.read_bytes() == b"n\n1\n"
+    assert p.name == "a-2026-08-07.csv"
+    assert p.read_bytes() == b"n\n1\n"
     with pytest.raises(ValueError, match="format"):
         client.download("a", "docx")
 
@@ -447,9 +453,12 @@ def test_read_falls_back_to_the_gzipped_csv_typed_as_the_parquet_path(client, mo
         else:
             pd.testing.assert_series_equal(df[name], want[name], check_dtype=True)
     # A NaN stays NaN, an open-ended date stays a date, and nothing is coerced to a null.
-    assert pd.isna(df["x"].iloc[1]) and df["x"].iloc[2] == 0.30000000000000004
-    assert df["day"].iloc[2] == dt.date(9999, 12, 31) and df["day"].iloc[1] is None
-    assert df["big"].iloc[0] == 2**62 + 1 and df["code"].iloc[0] == "01234"
+    assert pd.isna(df["x"].iloc[1])
+    assert df["x"].iloc[2] == 0.30000000000000004
+    assert df["day"].iloc[2] == dt.date(9999, 12, 31)
+    assert df["day"].iloc[1] is None
+    assert df["big"].iloc[0] == 2**62 + 1
+    assert df["code"].iloc[0] == "01234"
     assert df.attrs["publicdata"]["attribution"] == "Publisher, CC BY 4.0."
     assert Handler.ranges[-1] == "bytes=0-65535"
     picked = client.read("g", version="2026-08-07", columns=["code", "n"])
@@ -466,13 +475,15 @@ def test_a_far_timestamp_is_never_made_a_null():
 
     col = pd.Series(["9999-12-31 00:00:00", None], dtype=object)
     out = pd_au._csv_column(col, "datetime")
-    assert out.iloc[0] == dt.datetime(9999, 12, 31) and pd.isna(out.iloc[1])
+    assert out.iloc[0] == dt.datetime(9999, 12, 31)
+    assert pd.isna(out.iloc[1])
 
 
 def test_a_format_a_version_leaves_out_says_why(client, tmp_path):
     with pytest.raises(pd_au.PublicDataError, match="has no data.xlsx in this version") as err:
         client.download("a", "xlsx", "2026-08-07", tmp_path / "x.xlsx")
-    assert err.value.status == 404 and "size limits" in str(err.value)
+    assert err.value.status == 404
+    assert "size limits" in str(err.value)
     with pytest.raises(pd_au.PublicDataError, match="location or a shape"):
         client.download("a", "geo.parquet", "2026-08-07", tmp_path / "x.geo.parquet")
     with pytest.raises(pd_au.PublicDataError, match="no caps field"):
@@ -490,7 +501,8 @@ def test_an_unreachable_site_raises_the_packages_own_error():
     s.close()
     with pytest.raises(pd_au.PublicDataError) as err:
         pd_au.Client(f"http://127.0.0.1:{port}", timeout=2).datasets()
-    assert err.value.status == 0 and "could not reach" in str(err.value)
+    assert err.value.status == 0
+    assert "could not reach" in str(err.value)
 
 
 def test_versions_and_dataset(client):
@@ -510,7 +522,8 @@ def test_live_site():
     slugs = [d["slug"] for d in pd_au.datasets()]
     assert "au-road-deaths" in slugs
     r = pd_au.rows("au-road-deaths", {"state": "QLD"}, limit=1)
-    assert len(r) == 1 and r.attribution
+    assert len(r) == 1
+    assert r.attribution
 
 
 def test_tables_of_a_table_and_of_a_database(client):
@@ -524,7 +537,8 @@ def test_a_table_of_a_database_is_read_as_parquet(client):
     pytest.importorskip("pyarrow")
     pytest.importorskip("pandas")
     df = client.read("db", "2026-08-07", table="thing")
-    assert list(df["id"]) == [7] and df.attrs["publicdata"]["version"] == "2026-08-07"
+    assert list(df["id"]) == [7]
+    assert df.attrs["publicdata"]["version"] == "2026-08-07"
     assert client.file_url("db", version="2026-08-07", table="thing").endswith(
         "/d/db/v/2026-08-07/tables/thing.parquet"
     )
@@ -545,7 +559,8 @@ def test_connect_attaches_the_newest_version_read_only(client, tmp_path):
     Handler.duckdb_bytes = src.read_bytes()
     con = client.connect("a")
     assert con.execute("SELECT count(*) FROM records").fetchone()[0] == 2
-    assert con.publicdata["version"] == "2026-08-07" and con.publicdata["name"] == "a"
+    assert con.publicdata["version"] == "2026-08-07"
+    assert con.publicdata["name"] == "a"
     assert con.publicdata["licence"] == {"id": "CC-BY-4.0"}
     assert any(h[0] == "/d/a/v/2026-08-07/data.duckdb" for h in Handler.hits)
     with pytest.raises(duckdb.Error):
@@ -581,7 +596,8 @@ def test_cite_as_text_and_bibtex(client):
         f"at publicdata.au. Publisher. {client.site}/d/a/v/2026-08-07/"
     )
     bib = client.cite("a", format="bibtex")
-    assert bib.startswith("@misc{a-2026-08-07,") and "author = {{Pub}}" in bib
+    assert bib.startswith("@misc{a-2026-08-07,")
+    assert "author = {{Pub}}" in bib
     assert "read from the publisher on 2026-08-01" in client.cite("a", "2026-08-01")
 
 
@@ -605,7 +621,8 @@ def test_the_cache_keeps_a_version_and_reuses_it(client, tmp_path):
         client.cache_clear(version="2026-08-07")
     with pytest.raises(ValueError, match="format"):
         client.download("a", "../../x", cache=True)
-    assert not (tmp_path / "x").exists() and not (tmp_path / "cache" / "a").exists()
+    assert not (tmp_path / "x").exists()
+    assert not (tmp_path / "cache" / "a").exists()
 
 
 def test_nothing_is_kept_unless_asked(client, tmp_path):
@@ -660,7 +677,8 @@ def test_read_geo_reads_the_layer_and_its_provenance(client, tmp_path):
         db.commit()
     Handler.gpkg_bytes = src.read_bytes()
     out = client.read_geo("a")
-    assert len(out) == 2 and out.crs.to_epsg() == 7844
+    assert len(out) == 2
+    assert out.crs.to_epsg() == 7844
     assert out.attrs["publicdata"]["licence"] == {"id": "CC-BY-4.0"}
     with pytest.raises(pd_au.PublicDataError, match="no map layer"):
         client.read_geo("b")
@@ -671,9 +689,13 @@ def test_fields_and_typed_rows(client):
     assert [x["name"] for x in f] == ["n", "day", "at", "flag", "g"]
     r = client.rows("t")
     assert r[0]["day"] == __import__("datetime").date(2026, 1, 2)
-    assert r[0]["at"].hour == 10 and r[0]["at"].utcoffset().total_seconds() == 0
-    assert r[0]["flag"] is True and r[1]["flag"] is False
-    assert r[1]["day"] == "not a date" and r[1]["at"] is None and r[0]["e"] == "e"
+    assert r[0]["at"].hour == 10
+    assert r[0]["at"].utcoffset().total_seconds() == 0
+    assert r[0]["flag"] is True
+    assert r[1]["flag"] is False
+    assert r[1]["day"] == "not a date"
+    assert r[1]["at"] is None
+    assert r[0]["e"] == "e"
     df = r.to_pandas()
     assert df.attrs["fields"] == {"n": "A count."}
     db = client.fields("db", "2026-08-07")
@@ -685,9 +707,13 @@ def test_provenance_catalogue_and_file_url(client):
     out = client.catalogue(
         "water", jurisdiction="Queensland", status=["votable", "served"], limit=5
     )
-    assert out.total == 1 and out[0]["jurisdiction"] == "qld" and out[0]["status"] == "votable"
+    assert out.total == 1
+    assert out[0]["jurisdiction"] == "qld"
+    assert out[0]["status"] == "votable"
     q = last_api_hit()[1]
-    assert q["jur"] == "qld" and q["state"] == "votable,served" and q["limit"] == "5"
+    assert q["jur"] == "qld"
+    assert q["state"] == "votable,served"
+    assert q["limit"] == "5"
     with pytest.raises(ValueError, match="jurisdiction is one of"):
         client.catalogue(jurisdiction="Narnia")
     assert client.file_url("a", "csv", "2026-08-07").endswith("/d/a/v/2026-08-07/data.csv")
@@ -745,10 +771,14 @@ def test_join_boundaries_finds_the_layer_and_keeps_the_order(client, monkeypatch
     df = pd.DataFrame({"poa_2021_code": ["4220", "9999", "0800"], "n": [1, 2, 3]})
     with pytest.warns(UserWarning, match="1 row"):
         g = client.join_boundaries(df)
-    assert list(g["n"]) == [1, 2, 3] and g.crs.to_epsg() == 7844
+    assert list(g["n"]) == [1, 2, 3]
+    assert g.crs.to_epsg() == 7844
     names = list(g["poa_2021_name"])
-    assert names[0] == "4220" and pd.isna(names[1]) and names[2] == "0800"
-    assert g.geometry.iloc[1] is None and g.attrs["boundaries"] == {"attribution": "ABS"}
+    assert names[0] == "4220"
+    assert pd.isna(names[1])
+    assert names[2] == "0800"
+    assert g.geometry.iloc[1] is None
+    assert g.attrs["boundaries"] == {"attribution": "ABS"}
     other = pd.DataFrame({"pc": [800]})
     assert list(client.join_boundaries(other, layer="postcode", by="pc")["poa_2021_name"]) == [
         "0800"

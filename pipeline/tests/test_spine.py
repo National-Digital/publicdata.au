@@ -87,10 +87,10 @@ def test_shapes_get_geoparquet_and_vector_tiles_and_points_get_geoparquet(monkey
 
     monkeypatch.setattr(serialise, "LIMIT", None)
     # A layer's Parquet is GeoParquet already, with its shapes in it.
-    assert "pmtiles" in formats_for(10, "polygon") and "geo.parquet" not in formats_for(
-        10, "polygon"
-    )
-    assert "pmtiles" not in formats_for(10, "point") and "geo.parquet" in formats_for(10, True)
+    assert "pmtiles" in formats_for(10, "polygon")
+    assert "geo.parquet" not in formats_for(10, "polygon")
+    assert "pmtiles" not in formats_for(10, "point")
+    assert "geo.parquet" in formats_for(10, True)
     assert not {"geojson", "gpkg", "geo.parquet"} & set(formats_for(10, ""))
 
 
@@ -221,7 +221,8 @@ def test_a_polygon_layer_keeps_rows_with_no_shape_and_reads_every_attribute():
     attrs, wkb = spine.read_shapes(json.dumps(fc).encode(), "geojson", "", "EPSG:7844")
     assert attrs.column("CODE").to_pylist() == ["1", "9"]
     assert attrs.column("AREA").to_pylist() == ["1.5", ""]
-    assert wkb[0].as_py() is not None and wkb[1].as_py() is None
+    assert wkb[0].as_py() is not None
+    assert wkb[1].as_py() is None
 
 
 def test_the_spine_needs_its_extension_installed_not_fetched_at_build(monkeypatch):
@@ -246,7 +247,8 @@ def test_a_partitioned_polygon_layer_writes_json_partitions_without_point_geojso
     m = store.manifests(FIXTURES, ds.slug)[-1]
     _, out = build_version(ds, m, store.source_path(FIXTURES, m).read_bytes(), tmp_path, FIXTURES)
     entries = out.partitions["state_name"]
-    assert entries and all("geojson" not in e for e in entries)
+    assert entries
+    assert all("geojson" not in e for e in entries)
 
 
 def test_the_places_question_names_only_the_layers_a_dataset_joins():

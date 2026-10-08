@@ -118,7 +118,8 @@ def test_licence_titles_map_onto_register_ids():
         == "CC-BY-NC-ND-4.0"
     )
     assert catalogue.licence_id("Creative Commons Attribution No-Derivatives 4.0") == "CC-BY-ND-4.0"
-    assert catalogue.licence_id("ODBL-1") == "ODBL-1.0" and catalogue.is_open("ODBL-1.0")
+    assert catalogue.licence_id("ODBL-1") == "ODBL-1.0"
+    assert catalogue.is_open("ODBL-1.0")
     assert (
         catalogue.licence_id(
             "Restricted access. This dataset is not available for public distribution."
@@ -144,7 +145,8 @@ def test_formats_and_summary_are_tidied_not_rewritten():
     )
     long = "word " * 100
     s = catalogue.summary(long)
-    assert s.endswith("…") and len(s) <= catalogue.SUMMARY_CHARS + 1
+    assert s.endswith("…")
+    assert len(s) <= catalogue.SUMMARY_CHARS + 1
 
 
 def test_ckan_drops_copies_of_portals_read_directly():
@@ -179,9 +181,12 @@ def test_ckan_drops_copies_of_portals_read_directly():
     assert recs[2]["harvested_from"] == ""
     r = recs[0]
     assert r["org_title"] == "Transport and Main Roads"
-    assert r["licence"] == "CC-BY-3.0-AU" and r["open"] is True and r["downloadable"] is True
+    assert r["licence"] == "CC-BY-3.0-AU"
+    assert r["open"] is True
+    assert r["downloadable"] is True
     assert r["url"] == "https://data.gov.au/data/dataset/crash-data-1"
-    assert r["modified"] == "2026-04-24" and r["harvested_from"] == ""
+    assert r["modified"] == "2026-04-24"
+    assert r["harvested_from"] == ""
     assert recs[1]["harvested_from"] == "catalogue.aodn.org.au"
 
 
@@ -189,8 +194,10 @@ def test_socrata_and_sdmx_records_fit_the_same_shape_and_vote_keys():
     s = FakeSession([])
     act, _ = catalogue.socrata(catalogue.BY_CODE["act"], s, log=lambda *_: None)
     abs_, _ = catalogue.sdmx(catalogue.BY_CODE["abs"], s, log=lambda *_: None)
-    assert act[0]["id"] == "act-426s-vdu4" and act[0]["org_title"] == "Access Canberra"
-    assert act[0]["licence"] == "CC-BY-4.0" and act[0]["modified"] == "2026-08-21"
+    assert act[0]["id"] == "act-426s-vdu4"
+    assert act[0]["org_title"] == "Access Canberra"
+    assert act[0]["licence"] == "CC-BY-4.0"
+    assert act[0]["modified"] == "2026-08-21"
     assert abs_[0]["id"] == "abs-abs-census-g01"
     assert set(act[0]) == set(abs_[0])
     import re
@@ -215,7 +222,9 @@ def test_snapshot_is_deterministic_and_unchanged_bytes_make_no_version(tmp_path,
     monkeypatch.setattr(catalogue.requests, "Session", lambda: s)
     portals = (catalogue.BY_CODE["qld"],)
     m = catalogue.fetch(tmp_path, log=lambda *_: None, portals=portals, today="2026-09-28")
-    assert m and m.version == "2026-09-28" and m.dataset == "catalogue"
+    assert m
+    assert m.version == "2026-09-28"
+    assert m.dataset == "catalogue"
     first = store.source_path(tmp_path, m).read_bytes()
     assert catalogue.encode(catalogue.decode(first)) == first
     assert (
@@ -314,18 +323,25 @@ def test_opendatasoft_records_are_the_council_s_own_with_formats_from_the_platfo
     assert dropped == 0
     by = {r["name"]: r for r in recs}
     # A dataset federated from another portal is left to that portal.
-    assert len(recs) == 5 and not any("@" in n for n in by)
+    assert len(recs) == 5
+    assert not any("@" in n for n in by)
     # A dataset with no records is a page of links: listed, with no files to vote on.
     links = by["superseded-plans-collection"]
-    assert links["formats"] == [] and not links["downloadable"] and links["licence"] == "CC-BY-4.0"
+    assert links["formats"] == []
+    assert not links["downloadable"]
+    assert links["licence"] == "CC-BY-4.0"
     toilets = by["public-toilets"]
-    assert toilets["org"] == "ballarat" and toilets["org_title"] == "City of Ballarat"
+    assert toilets["org"] == "ballarat"
+    assert toilets["org_title"] == "City of Ballarat"
     assert toilets["url"] == "https://data.ballarat.vic.gov.au/explore/dataset/public-toilets/"
     # "CC BY 3" names no version; the deed URL beside it does.
-    assert toilets["licence"] == "CC-BY-3.0-AU" and toilets["open"] is True
-    assert {"CSV", "GEOJSON", "API"} <= set(toilets["formats"]) and toilets["downloadable"]
+    assert toilets["licence"] == "CC-BY-3.0-AU"
+    assert toilets["open"] is True
+    assert {"CSV", "GEOJSON", "API"} <= set(toilets["formats"])
+    assert toilets["downloadable"]
     assert toilets["id"].startswith("ballarat-da-")
-    assert by["libraries"]["licence"] == "" and by["libraries"]["open"] is None
+    assert by["libraries"]["licence"] == ""
+    assert by["libraries"]["open"] is None
     assert "GEOJSON" not in by["local-workers-occupation-by-industry"]["formats"]
     assert set(recs[0]) == set(catalogue.socrata(catalogue.BY_CODE["act"], FakeSession([]))[0][0])
 
@@ -341,13 +357,16 @@ def test_hub_pages_until_there_is_no_next_link_and_reads_licences_from_the_terms
         trees["url"]
         == "https://data.cityofsydney.nsw.gov.au/datasets/15c4713a688a48fcb604fc343118af05"
     )
-    assert trees["licence"] == "CC-BY-4.0" and trees["downloadable"]
-    assert trees["created"] == "2021-02-25" and trees["org_title"] == "City of Sydney"
+    assert trees["licence"] == "CC-BY-4.0"
+    assert trees["downloadable"]
+    assert trees["created"] == "2021-02-25"
+    assert trees["org_title"] == "City of Sydney"
     assert [catalogue._epoch_day(x) for x in (None, "None", "", "9" * 30)] == [""] * 4
     # "custom" with a Creative Commons deed linked in the terms is that licence.
     assert by["Sydney Development Control Plan 2012"]["licence"] == "CC-BY-4.0"
     assert by["Free Tree Giveaway"]["licence"] == "CC-BY-SA-4.0"
-    assert by["Library details"]["licence"] == "" and by["Library details"]["open"] is None
+    assert by["Library details"]["licence"] == ""
+    assert by["Library details"]["open"] is None
     assert catalogue.hub_licence({"license": "custom", "licenseInfo": "<p>Terms apply.</p>"}) == (
         "custom",
         "Terms apply.",
@@ -398,8 +417,10 @@ def test_a_flaky_council_keeps_its_last_records_and_never_stops_the_harvest(monk
         previous=[before],
         previous_version="2026-09-28",
     )
-    assert stats["ballarat"]["carried_from"] == "2026-09-28" and "error" in stats["ballarat"]
-    assert before in recs and sum(r["portal"] == "sydney" for r in recs) == 4
+    assert stats["ballarat"]["carried_from"] == "2026-09-28"
+    assert "error" in stats["ballarat"]
+    assert before in recs
+    assert sum(r["portal"] == "sydney" for r in recs) == 4
 
 
 def test_a_portal_answering_an_odd_shape_is_kept_from_the_last_snapshot(monkeypatch):
@@ -417,7 +438,8 @@ def test_a_portal_answering_an_odd_shape_is_kept_from_the_last_snapshot(monkeypa
         previous=[before],
         previous_version="2026-09-28",
     )
-    assert recs == [before] and "error" in stats["ballarat"]
+    assert recs == [before]
+    assert "error" in stats["ballarat"]
 
 
 def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally():
@@ -435,6 +457,7 @@ def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally
     pubs, by_org = resolve(recs, curated, {p.code: p.jurisdiction for p in catalogue.PORTALS})
     for p in councils:
         pub = by_org[f"{p.code}:{p.code}"]
-        assert pub.jurisdiction == PORTAL_JUR[p.jurisdiction] and pub.level == "local", p.code
+        assert pub.jurisdiction == PORTAL_JUR[p.jurisdiction], p.code
+        assert pub.level == "local", p.code
     # A council already curated from another portal gains the new portal's records.
     assert by_org["melb:melb"] is by_org["vic:city-of-melbourne"]

@@ -156,7 +156,8 @@ def test_a_feed_is_one_version_per_day_and_a_day_is_never_rewritten():
     day = dt.date(2026, 10, 1)
     m = make_manifest(b"x", version="2024-01-01")
     got = f.feed_version(m, [], day)
-    assert got.version == "2026-10-01" and got.notes == [f.FEED_NOTE]
+    assert got.version == "2026-10-01"
+    assert got.notes == [f.FEED_NOTE]
     again = make_manifest(b"y", version="2024-01-01")
     assert f.feed_version(again, [got], day) is None
     assert f.feed_version(again, [got], day + dt.timedelta(days=1)).version == "2026-10-02"
@@ -231,9 +232,11 @@ def test_a_file_stack_reads_every_listed_file_as_one_table(tmp_path, monkeypatch
     monkeypatch.setattr(f, "_session", lambda session: s)
     data, m, lic = f.file_stack(ds, tmp_path)
     assert data.decode().splitlines() == ["Site,Price", "A,1.9", "B,2.05", "C,2.1"]
-    assert m.version == "2025-03-03" and m.source["rows_repeated"] == 1
+    assert m.version == "2025-03-03"
+    assert m.source["rows_repeated"] == 1
     assert [x["rows"] for x in m.source["files"]] == [2, 2]
-    assert lic["read_from"] == "https://pub.example/copyright" and lic["read_at"]
+    assert lic["read_from"] == "https://pub.example/copyright"
+    assert lic["read_at"]
     assert f.FILE_NOTE not in m.notes
     s.routes["https://pub.example/copyright"] = Resp(
         b"<p>All rights reserved.</p>", ctype="text/html"
@@ -259,7 +262,8 @@ def test_a_file_stack_with_no_dated_file_says_it_is_dated_by_the_fetch(tmp_path,
     )
     monkeypatch.setattr(f, "_session", lambda session: s)
     _, m, _ = f.file_stack(ds, tmp_path)
-    assert f.FILE_NOTE in m.notes and m.source["newest_file"] is None
+    assert f.FILE_NOTE in m.notes
+    assert m.source["newest_file"] is None
 
 
 def test_a_file_stack_entry_names_its_link_pattern_and_header():
@@ -293,7 +297,8 @@ def test_an_xml_record_becomes_one_row_with_attributes_and_repeats_joined():
     rows = t.to_pylist()
     assert rows[0]["criterion"] == f"first{XML_JOIN}second"
     assert rows[0]["criterion@type"] == f"A{XML_JOIN}D"
-    assert rows[1]["@site_id"] == "" and rows[1]["alias"] == "Old hall"
+    assert rows[1]["@site_id"] == ""
+    assert rows[1]["alias"] == "Old hall"
     from publicdata.normalise import NormaliseError
 
     with pytest.raises(NormaliseError, match="no <site>"):
@@ -327,7 +332,8 @@ def test_a_file_url_with_no_extension_is_named_by_its_declared_format(tmp_path, 
     )
     monkeypatch.setattr(f, "_session", lambda session: s)
     _, m, _ = f.http_file(ds, tmp_path)
-    assert m.filename == "t.geojson" and m.ext == "geojson"
+    assert m.filename == "t.geojson"
+    assert m.ext == "geojson"
 
 
 def test_a_capped_wfs_is_read_page_by_page_into_one_file(tmp_path, monkeypatch):

@@ -81,8 +81,11 @@ def test_socrata_exports_the_whole_view_and_reads_its_licence(tmp_path, monkeypa
         tmp_path,
         monkeypatch,
     )
-    assert data == CSV and m.filename == "426s-vdu4.csv" and m.version == "2026-08-21"
-    assert m.licence["id"] == "CC-BY-4.0" and m.licence["stated"] == "CC_40_BY"
+    assert data == CSV
+    assert m.filename == "426s-vdu4.csv"
+    assert m.version == "2026-08-21"
+    assert m.licence["id"] == "CC-BY-4.0"
+    assert m.licence["stated"] == "CC_40_BY"
     assert "accessType=DOWNLOAD" in s.asked[-1]
 
 
@@ -109,8 +112,10 @@ def test_opendatasoft_exports_comma_separated_csv(tmp_path, monkeypatch):
         monkeypatch,
     )
     # 20:00 UTC on the 15th is the 16th in Brisbane.
-    assert m.version == "2026-09-16" and m.licence["id"] == "CC-BY-4.0"
-    assert "delimiter=%2C" in s.asked[-1] and "with_bom=false" in s.asked[-1]
+    assert m.version == "2026-09-16"
+    assert m.licence["id"] == "CC-BY-4.0"
+    assert "delimiter=%2C" in s.asked[-1]
+    assert "with_bom=false" in s.asked[-1]
 
 
 def test_arcgis_hub_waits_for_its_export_and_dates_it_by_the_layer_edit(tmp_path, monkeypatch):
@@ -141,8 +146,11 @@ def test_arcgis_hub_waits_for_its_export_and_dates_it_by_the_layer_edit(tmp_path
         tmp_path,
         monkeypatch,
     )
-    assert data == CSV and m.version == "2026-09-28" and m.filename == "58e6_2.csv"
-    assert s.asked[-1].endswith("layers=2") and m.source["service"] == service
+    assert data == CSV
+    assert m.version == "2026-09-28"
+    assert m.filename == "58e6_2.csv"
+    assert s.asked[-1].endswith("layers=2")
+    assert m.source["service"] == service
 
 
 def test_an_export_still_building_after_the_waits_is_refused(tmp_path, monkeypatch):
@@ -260,8 +268,11 @@ def test_a_file_source_is_dated_by_last_modified_and_licensed_by_the_pages_words
         ),
     }
     data, m, s = run("file", file_ds(), routes, tmp_path, monkeypatch)
-    assert data == CSV and m.version == "2026-09-30" and m.filename == "t.csv"
-    assert m.licence["id"] == "CC-BY-4.0" and m.notes == []
+    assert data == CSV
+    assert m.version == "2026-09-30"
+    assert m.filename == "t.csv"
+    assert m.licence["id"] == "CC-BY-4.0"
+    assert m.notes == []
     assert s.asked[0] == "https://example.gov.au/copyright"
 
 
@@ -341,13 +352,15 @@ def test_a_manual_source_reads_the_downloaded_file_then_waits_for_the_record_to_
     got.write_bytes(CSV)
     monkeypatch.setattr(f, "MANUAL", {"t": got})
     data, m, s = run_manual("2026-09-01T00:00:00", tmp_path / "store")
-    assert data == CSV and m.version == "2026-09-01"
+    assert data == CSV
+    assert m.version == "2026-09-01"
     assert s.asked == ["https://p.example/api/3/action/package_show"]
     store.write(tmp_path / "store", m, data)
 
     monkeypatch.setattr(f, "MANUAL", {})
     data, _, s = run_manual("2026-09-01T00:00:00", tmp_path / "store")
-    assert data is None and s.asked == ["https://p.example/api/3/action/package_show"]
+    assert data is None
+    assert s.asked == ["https://p.example/api/3/action/package_show"]
     with pytest.raises(f.ManualDue):
         run_manual("2026-10-01T00:00:00", tmp_path / "store")
 
@@ -439,8 +452,10 @@ def test_kiwis_values_are_one_csv_ordered_by_station_and_day_and_dated_by_the_ne
         "212243,Warragamba Dam,NSW,2026-01-01,1930000.0,90",
         "212243,Warragamba Dam,NSW,2026-01-02,1931364.77,140",
     ]
-    assert m.version == "2026-01-02" and m.source["series_read"] == 2
-    assert m.licence["id"] == "CC-BY-3.0-AU" and f.KIWIS_NOTE in m.notes
+    assert m.version == "2026-01-02"
+    assert m.source["series_read"] == 2
+    assert m.licence["id"] == "CC-BY-3.0-AU"
+    assert f.KIWIS_NOTE in m.notes
 
 
 def test_kiwis_stations_carry_the_owner_state_and_capacity(tmp_path, monkeypatch):
@@ -454,9 +469,8 @@ def test_kiwis_stations_carry_the_owner_state_and_capacity(tmp_path, monkeypatch
         "station_no,station_name,latitude,longitude,data_owner,full_storage_volume_ml"
     )
     assert lines[0].endswith(",state")
-    assert lines[1].startswith("143001,Wivenhoe,-27.4,152.6,QLD - Seqwater,,") and lines[
-        1
-    ].endswith(",QLD")
+    assert lines[1].startswith("143001,Wivenhoe,-27.4,152.6,QLD - Seqwater,,")
+    assert lines[1].endswith(",QLD")
     assert lines[2].startswith("212243,Warragamba Dam,-33.9,150.6,NSW - Water NSW,2027000,")
     assert f.KIWIS_STATIONS_NOTE in m.notes
 
@@ -534,7 +548,9 @@ def test_aihw_takes_the_newest_listed_file_whose_title_matches(tmp_path, monkeyp
     )
     data, m, lic = f.ADAPTERS["aihw"](ds, tmp_path)
     f.check_licence(ds, lic)
-    assert data == CSV and m.version == "2026-08-19" and m.filename == "shs_June-2026.xlsx"
+    assert data == CSV
+    assert m.version == "2026-08-19"
+    assert m.filename == "shs_June-2026.xlsx"
     assert m.source["resource_name"] == "Data tables: SHS monthly data"
     assert ("POST", f.AIHW_LISTING, "abc", 42) in s.asked
     with pytest.raises(f.FetchError, match="no listed file matches"):
@@ -594,9 +610,13 @@ def test_zenodo_follows_the_concept_record_to_its_newest_version_and_licence(tmp
         ),
     )
     data, m, s = run("zenodo", ds, routes, tmp_path, monkeypatch)
-    assert data == CSV and m.version == "2026-09-03" and m.as_at == "2026-09-02"
-    assert m.filename == "Database Public Version.xlsx" and m.source["record"] == 22262542
-    assert m.licence["stated"] == "cc-by-4.0" and m.licence["id"] == "CC-BY-4.0"
+    assert data == CSV
+    assert m.version == "2026-09-03"
+    assert m.as_at == "2026-09-02"
+    assert m.filename == "Database Public Version.xlsx"
+    assert m.source["record"] == 22262542
+    assert m.licence["stated"] == "cc-by-4.0"
+    assert m.licence["id"] == "CC-BY-4.0"
     with pytest.raises(f.LicenceDrift):
         run(
             "zenodo",
@@ -702,11 +722,13 @@ def test_a_ckan_stack_reads_every_workbook_once_into_one_ordered_table(tmp_path,
         "2020-01-31,Shell,150.5",
         "2020-02-01,BP,149",
     ]
-    assert m.source["rows_repeated"] == 1 and [w["resource"] for w in m.source["workbooks"]] == [
+    assert m.source["rows_repeated"] == 1
+    assert [w["resource"] for w in m.source["workbooks"]] == [
         "r1",
         "r2",
     ]
-    assert m.version == "2023-02-03" and f.STACK_NOTE in m.notes
+    assert m.version == "2023-02-03"
+    assert f.STACK_NOTE in m.notes
     assert s.asked[1:] == ["https://p.example/jan.xlsx", "https://p.example/feb.xlsx"]
 
 
@@ -736,7 +758,8 @@ def test_kiwis_splits_a_batch_the_service_refuses_as_too_large(monkeypatch):
 
 def test_a_downloaded_file_keeps_its_headers_whatever_their_case():
     r = f.Fetched(b"x", {"etag": '"abc"', "last-modified": "Tue, 29 Sep 2026 23:00:37 GMT"})
-    assert r.headers.get("ETag") == '"abc"' and r.headers["Last-Modified"].startswith("Tue")
+    assert r.headers.get("ETag") == '"abc"'
+    assert r.headers["Last-Modified"].startswith("Tue")
 
 
 def test_a_manual_stack_reads_a_folder_of_downloads_then_waits_for_the_records_to_change(
