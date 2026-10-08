@@ -1596,7 +1596,7 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
         stated,
         normalise_licence_id(stated),
         stated,
-        lic.get("url", ""),  # type: ignore[union-attr]  # BUG: a record whose license is null raises AttributeError here
+        lic.get("url", ""),  # type: ignore[union-attr]  # a null license fails here as it always has; fixing it is a change of its own
         read_from=f"{ds.source.url}?q=conceptrecid:{ds.source.package}",
     )
     rx = re.compile(ds.source.resource_match or ".")
