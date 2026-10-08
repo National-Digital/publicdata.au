@@ -1,0 +1,67 @@
+name: PageSpeed Insights
+
+# Holds production to the Lighthouse targets through PageSpeed Insights, the Lighthouse Google
+# ships, which moves to a new release within weeks of it while the pull request job stays pinned.
+# A failure opens an issue labelled psi, or comments on the open one; a later pass closes it.
+on:
+  schedule:
+    - cron: "17 20 * * 0" # Monday 06:17 in Brisbane
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: psi
+  cancel-in-progress: false
+
+jobs:
+  psi:
+    name: PageSpeed Insights
+    if: ${{ github.repository == 'National-Digital/publicdata.au' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Run PageSpeed Insights against production
+        id: psi
+        env:
+          PSI_API_KEY: ${{ secrets.PSI_API_KEY }}
+        run: |
+          set +e
+          node scripts/psi.mjs https://publicdata.au
+          code=$?
+          [ "$code" = 1 ] && [ ! -f psi-report.md ] && code=3
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ -f psi-report.md ] && cat psi-report.md >> "$GITHUB_STEP_SUMMARY"
+          # A missing key or a script error is not a result, so it fails the run without an issue.
+          [ "$code" -le 1 ] || exit "$code"
+      - name: Open or update the issue
+        if: steps.psi.outputs.code == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create psi --description "PageSpeed Insights below target on production" --color d93f0b 2>/dev/null || true
+          { cat psi-report.md; echo; echo "Run: $RUN"; } > body.md
+          n=$(gh issue list --label psi --state open --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file body.md
+          else
+            gh issue create --title "PageSpeed Insights: production below target" --label psi --body-file body.md
+          fi
+          exit 1
+      - name: Close the issue on a pass
+        if: steps.psi.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for n in $(gh issue list --label psi --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Every page met every target in $RUN."
+          done
