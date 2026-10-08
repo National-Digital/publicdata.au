@@ -686,6 +686,19 @@ def cmd_verify(args) -> int:
                     file=sys.stderr,
                 )
             return 1
+        if args.before and (
+            bare := verify.unnoted_partitions(Path(args.before), datasets, store_dir, changed)
+        ):
+            for slug, prefixes in bare.items():
+                print(
+                    f"::error::{slug}: partition_by changed, which adds or drops by/ files in "
+                    f"{len(prefixes)} published version(s). That is a correction "
+                    "(docs/CORRECTIONS.md): add a dated note to each version's manifest in "
+                    "store/ in the same change, and once it is merged run the Deploy workflow "
+                    f"with replace set to {' '.join(prefixes)}",
+                    file=sys.stderr,
+                )
+            return 1
         mods = verify.unkeyed(changed)
         raised = verify.bumped(Path(args.before), datasets) if args.before else []
         if not mods and not raised:
