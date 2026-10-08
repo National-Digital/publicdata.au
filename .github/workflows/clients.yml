@@ -44,10 +44,15 @@ jobs:
       - run: mypy
       - run: mypy --python-version 3.14
       - run: pytest -q tests
+      # uv run ignores UV_CONSTRAINT, so the floor gets a venv of its own and installs the pins
+      # requirements.txt gives that Python.
       - name: The oldest Python pyproject.toml claims passes the tests too
         run: |
           floor=$(python -c "import tomllib,re;print(re.search(r'[0-9.]+', tomllib.load(open('pyproject.toml','rb'))['project']['requires-python']).group())")
-          uv run --isolated --no-project --python "$floor" --with-editable '.[pandas,duckdb,geo,dev]' pytest -q tests
+          uv venv --python "$floor" "$RUNNER_TEMP/floor"
+          uv pip install --python "$RUNNER_TEMP/floor" -c requirements.txt -e '.[pandas,duckdb,geo,dev]'
+          uv pip freeze --python "$RUNNER_TEMP/floor"
+          "$RUNNER_TEMP/floor/bin/python" -m pytest -q tests
       - name: The live site answers the client
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
