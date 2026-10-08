@@ -21,7 +21,7 @@ import urllib.parse
 import zoneinfo
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import openpyxl
 import requests
@@ -32,7 +32,14 @@ from .register import FILE_SOURCE
 from .serialise.profile import layout, misfits
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+
     from .register import Dataset
+
+    # The bytes (None when unchanged), the manifest and the licence as the adapter read it.
+    type FetchResult = tuple[bytes | None, store.Manifest, dict[str, Any]]
+    type Adapter = Callable[[Dataset, Path], FetchResult]
+    type Download = Fetched | requests.Response
 
 TZ = zoneinfo.ZoneInfo("Australia/Brisbane")
 UNREADABLE_DATE = (TypeError, ValueError)
@@ -86,7 +93,9 @@ def parse_as_at(text: str, regex: str) -> str:
     return mm.group(0) if mm else ""
 
 
-def ckan_resource(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def ckan_resource(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     s = session or requests.Session()
     s.headers["User-Agent"] = UA
     api = f"{ds.source.portal.rstrip('/')}/api/3/action"
@@ -166,7 +175,7 @@ def ckan_resource(ds: Dataset, store_dir: Path, session: requests.Session | None
     return data, m, licence
 
 
-def _same_record(m: store.Manifest, p: dict, res: dict) -> bool:
+def _same_record(m: store.Manifest, p: dict[str, Any], res: dict[str, Any]) -> bool:
     """Whether the portal still describes the file the newest version was made from."""
     was = m.source
     return (
@@ -176,13 +185,14 @@ def _same_record(m: store.Manifest, p: dict, res: dict) -> bool:
     )
 
 
-def _package(ds: Dataset, s: requests.Session, api: str) -> dict:
+def _package(ds: Dataset, s: requests.Session, api: str) -> dict[str, Any]:
     if ds.source.package_match:
-        found = s.get(
-            f"{api}/package_search",
-            params={"q": ds.source.package, "sort": "metadata_created desc", "rows": 100},
-            timeout=60,
-        ).json()
+        query: dict[str, str | int] = {
+            "q": ds.source.package,
+            "sort": "metadata_created desc",
+            "rows": 100,
+        }
+        found = s.get(f"{api}/package_search", params=query, timeout=60).json()
         if not found.get("success"):
             msg = f"{ds.slug}: package_search failed: {found.get('error')}"
             raise RuntimeError(msg)
@@ -193,20 +203,22 @@ def _package(ds: Dataset, s: requests.Session, api: str) -> dict:
     if not pkg.get("success"):
         msg = f"{ds.slug}: package_show failed: {pkg.get('error')}"
         raise RuntimeError(msg)
-    return pkg["result"]
+    result: dict[str, Any] = pkg["result"]
+    return result
 
 
-def pick_package(ds: Dataset, packages: list[dict]) -> str:
+def pick_package(ds: Dataset, packages: list[dict[str, Any]]) -> str:
     """The newest package whose name matches, by the date the portal created it."""
     rx = re.compile(ds.source.package_match)
     hits = [p for p in packages if rx.search(p.get("name", ""))]
     if not hits:
         msg = f"{ds.slug}: no package matches '{ds.source.package_match}'"
         raise FetchError(msg)
-    return max(hits, key=lambda p: p.get("metadata_created") or "")["name"]
+    name: str = max(hits, key=lambda p: p.get("metadata_created") or "")["name"]
+    return name
 
 
-def pick_resource(ds: Dataset, resources: list[dict]) -> dict:
+def pick_resource(ds: Dataset, resources: list[dict[str, Any]]) -> dict[str, Any]:
     """The named resource, or the newest whose name matches.
 
     The newest is the latest created, then the last listed, since a portal that re-imports old
@@ -231,7 +243,7 @@ def pick_resource(ds: Dataset, resources: list[dict]) -> dict:
     return max(hits, key=lambda h: h[:3])[3]
 
 
-def etag(headers) -> str:
+def etag(headers: Mapping[str, str]) -> str:
     """The ETag without its quotes, keeping the W/ that marks a weak one."""
     tag = headers.get("ETag", "").strip()
     weak = tag.startswith("W/")
@@ -239,7 +251,7 @@ def etag(headers) -> str:
     return f"W/{tag}" if weak else tag
 
 
-def resource_filename(res: dict) -> str:
+def resource_filename(res: dict[str, Any]) -> str:
     """The file's name from its URL.
 
     A name with no extension takes the resource's stated format, since the reader is chosen by
@@ -292,7 +304,7 @@ def _session(session: requests.Session | None) -> requests.Session:
 class Fetched:
     """A file a person downloaded, shaped like the response the adapters read."""
 
-    def __init__(self, content: bytes, headers: dict[str, str]):
+    def __init__(self, content: bytes, headers: dict[str, str]) -> None:
         self.content = content
         self.headers = requests.structures.CaseInsensitiveDict(headers)
         self.status_code = 200
@@ -306,7 +318,7 @@ class ManualDue(RuntimeError):  # noqa: N818 - a signal that a person must fetch
     pass
 
 
-def _download(ds: Dataset, s: requests.Session, url: str):
+def _download(ds: Dataset, s: requests.Session, url: str) -> Download:
     """The file's bytes and headers.
 
     They come by the session, or from the file a person downloaded when the entry's host turns
@@ -329,7 +341,7 @@ def _download(ds: Dataset, s: requests.Session, url: str):
     return r
 
 
-def _changed(ds: Dataset, value, unit: int = 0) -> str:
+def _changed(ds: Dataset, value: str | float | None, unit: int = 0) -> str:
     """The portal's change date as UTC ISO.
 
     It is read from an epoch in seconds (unit 1), milliseconds (unit 1000) or an ISO string
@@ -338,7 +350,7 @@ def _changed(ds: Dataset, value, unit: int = 0) -> str:
     """
     try:
         if unit:
-            return dt.datetime.fromtimestamp(int(value) / unit, dt.UTC).isoformat()
+            return dt.datetime.fromtimestamp(int(value) / unit, dt.UTC).isoformat()  # type: ignore[arg-type]  # None raises the TypeError that reports no date
         return _normal_iso(str(value))
     except UNREADABLE_DATE as e:
         msg = f"{ds.slug}: the portal states no change date ({value!r})"
@@ -347,7 +359,7 @@ def _changed(ds: Dataset, value, unit: int = 0) -> str:
 
 def _licence(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset, stated: str, normalised: str, title: str, url: str, *, read_from: str
-) -> dict:
+) -> dict[str, Any]:
     """The licence a portal states, keeping its own code and the id worked out from its words.
 
     `id` is the one the register is checked against: the portal's code when the entry names one
@@ -377,9 +389,9 @@ def _portal_version(  # noqa: PLR0913 - the options are keyword-only and named a
     changed: str,
     *,
     filename: str,
-    source: dict,
-    licence: dict,
-):
+    source: dict[str, Any],
+    licence: dict[str, Any],
+) -> FetchResult:
     """Download a portal's export and make its manifest.
 
     The export is dated by the portal's own change date, and an unchanged SHA-256 is no version.
@@ -426,7 +438,9 @@ def _portal_version(  # noqa: PLR0913 - the options are keyword-only and named a
     return data, m, licence
 
 
-def socrata_view(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def socrata_view(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     """A Socrata dataset, such as the ACT's, exported whole as CSV. package is its four-by-four."""
     s = _session(session)
     base = ds.source.portal.rstrip("/")
@@ -456,7 +470,9 @@ def socrata_view(ds: Dataset, store_dir: Path, session: requests.Session | None 
     )
 
 
-def opendatasoft(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def opendatasoft(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     """An Opendatasoft dataset exported whole as comma-separated CSV. package is its dataset id."""
     s = _session(session)
     base = f"{ds.source.portal.rstrip('/')}/api/explore/v2.1/catalog/datasets/{ds.source.package}"
@@ -485,7 +501,9 @@ def opendatasoft(ds: Dataset, store_dir: Path, session: requests.Session | None 
     )
 
 
-def arcgis_hub(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def arcgis_hub(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     """A layer of an ArcGIS Hub item, as the CSV the site's download API serves.
 
     package is the item id and resource the layer number, 0 when absent.
@@ -526,7 +544,9 @@ def arcgis_hub(ds: Dataset, store_dir: Path, session: requests.Session | None = 
     )
 
 
-def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def arcgis_feature(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     """An ArcGIS feature layer with no file behind it, kept as one GeoJSON file.
 
     Every feature is read in pages ordered by the layer's object id, in WGS84. url is the layer;
@@ -552,7 +572,7 @@ def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | Non
         (f["name"] for f in info["fields"] if f["type"] == "esriFieldTypeOID"), "OBJECTID"
     )
     page = min(int(info.get("maxRecordCount") or 1000), 2000)
-    feats: list[dict] = []
+    feats: list[dict[str, Any]] = []
     offset = 0
     while True:
         got = catalogue.get_json(
@@ -683,7 +703,7 @@ ALA_NOTE = (
 )
 
 
-def _ala_count(s, base: str, q: str, fq: list[str]) -> int:
+def _ala_count(s: requests.Session, base: str, q: str, fq: list[str]) -> int:
     got = catalogue.get_json(s, base, {"q": q, "fq": fq, "pageSize": 0}, timeout=120)
     if "totalRecords" not in got:
         msg = f"ALA count failed: {str(got)[:200]}"
@@ -691,7 +711,9 @@ def _ala_count(s, base: str, q: str, fq: list[str]) -> int:
     return int(got["totalRecords"])
 
 
-def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
+def _ala_pages(
+    s: requests.Session, base: str, q: str, fq: list[str], n: int
+) -> Iterator[dict[str, Any]]:
     for start in range(0, n, ALA_PAGE):
         got = catalogue.get_json(
             s,
@@ -722,7 +744,9 @@ def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
 ALA_MIN_SPAN = 0.0001
 
 
-def _ala_slices(s, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: float, dim: int):  # noqa: C901, PLR0913 - the slicing rule in one place; the options are keyword-only
+def _ala_slices(  # noqa: C901, PLR0913 - the slicing rule in one place; the options are keyword-only
+    s: requests.Session, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: float, dim: int
+) -> Iterator[dict[str, Any]]:
     """Rows of a query too large for the API's paging, read in slices.
 
     The query is split by load time, then by latitude and longitude, then by year, until every
@@ -736,17 +760,20 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: f
     if field == "first_loaded_date":
         if hi - lo <= 1:
             # One second's load: the rows without coordinates go by year, the rest by place.
-            for cond, a, b, d in (
+            for cond, start, end, d in (
                 ("-decimalLatitude:*", 0, 2200, 3),
                 ("decimalLatitude:*", -90, 90, 1),
             ):
                 sub = [*fq, cond]
                 m = _ala_count(s, base, q, sub)
                 if m:
-                    yield from _ala_slices(s, base, q, sub, m, lo=a, hi=b, dim=d)
+                    yield from _ala_slices(s, base, q, sub, m, lo=start, hi=end, dim=d)
             return
         mid = lo + (hi - lo) / 2
-        fmt = lambda t: dt.datetime.fromtimestamp(t, dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+
+        def fmt(t: float) -> str:
+            return dt.datetime.fromtimestamp(t, dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         halves = [
             (f"{field}:[{fmt(lo)} TO {fmt(mid)}}}", lo, mid),
             (f"{field}:[{fmt(mid)} TO {fmt(hi)}]", mid, hi),
@@ -782,7 +809,7 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: f
             yield from _ala_slices(s, base, q, sub, m, lo=a, hi=b, dim=dim)
 
 
-def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):  # noqa: C901, PLR0912, PLR0915 - the adapter's steps, read in order
+def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:  # noqa: C901, PLR0912, PLR0915 - the adapter's steps, read in order
     """The Atlas of Living Australia's search API, kept as one CSV.
 
     Every record the search matches is read from each provider the register names, under an open
@@ -801,8 +828,8 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None): 
     ]
     existing = store.manifests(store_dir, ds.slug)
     before = (existing[-1].source.get("providers") or {}) if existing else {}
-    rows: dict[str, dict] = {}
-    counts: dict[str, dict] = {}
+    rows: dict[str, dict[str, Any]] = {}
+    counts: dict[str, dict[str, int]] = {}
     now = dt.datetime.now(dt.UTC).timestamp()
     for uid in ds.source.providers:
         fq = [*common, f"dataResourceUid:{uid}"]
@@ -904,7 +931,7 @@ def page_text(body: bytes) -> str:
     return " ".join(text.split())
 
 
-def statement_licence(ds: Dataset, s: requests.Session) -> dict:
+def statement_licence(ds: Dataset, s: requests.Session) -> dict[str, Any]:
     """The licence a publisher states on its own page, for a file no portal describes.
 
     The register's licence holds while the page still carries the words the entry quotes.
@@ -932,13 +959,13 @@ def statement_licence(ds: Dataset, s: requests.Session) -> dict:
 WFS_PAGES = 1000
 
 
-def _wfs_pages(ds: Dataset, s: requests.Session):
+def _wfs_pages(ds: Dataset, s: requests.Session) -> tuple[Download, bytes]:
     """Every feature of a WFS GetFeature, as one GeoJSON FeatureCollection.
 
     Features are read `page_size` at a time in the order its sortBy gives. The last response stands
     for the whole for its headers.
     """
-    feats: list = []
+    feats: list[Any] = []
     sep = "&" if "?" in ds.source.url else "?"
     for page in range(WFS_PAGES):
         url = f"{ds.source.url}{sep}count={ds.source.page_size}&startIndex={page * ds.source.page_size}"
@@ -962,7 +989,7 @@ UNREAD_DATE_NOTE = (
 )
 
 
-def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:
     """A file at a fixed URL on the publisher's own site, with no portal record.
 
     The version is dated by the server's Last-Modified, or failing that by the fetch, and the
@@ -1050,7 +1077,7 @@ KIWIS_STATIONS_NOTE = (
 )
 
 
-def _kiwis_query(s: requests.Session, base: str, request: str, **params):
+def _kiwis_query(s: requests.Session, base: str, request: str, **params: str) -> list[Any]:
     """One KiWIS query.
 
     The service answers 500 to a space sent as "+", so the query is percent-encoded, and a refusal
@@ -1079,10 +1106,11 @@ def _kiwis_query(s: requests.Session, base: str, request: str, **params):
     if isinstance(got, dict):
         msg = f"KiWIS {request} failed: {str(got)[:200]}"
         raise FetchError(msg)
-    return got
+    rows: list[Any] = got
+    return rows
 
 
-def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[dict]:
+def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[dict[str, Any]]:
     """The values of a batch of series.
 
     The service counts values its own way, so a batch it refuses as too large is split until it
@@ -1112,7 +1140,7 @@ def _kiwis_state(owner: str) -> str:
     return head.strip() if sep else ""
 
 
-def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None):  # noqa: C901 - the adapter's steps, read in order
+def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:  # noqa: C901 - the adapter's steps, read in order
     """The Bureau of Meteorology's Water Data Online (a Kisters KiWIS service).
 
     `search` is the parameter type, `package` the time series name and `resource` the table:
@@ -1138,7 +1166,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
     stations = {r[0]: dict(zip(header, r, strict=True)) for r in rows}
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
-    source: dict = {"url": base, "parameter": ds.source.search, "stations": len(stations)}
+    source: dict[str, Any] = {"url": base, "parameter": ds.source.search, "stations": len(stations)}
     if ds.source.resource == "stations":
         w.writerow([*KIWIS_STATION_COLUMNS.values(), "state"])
         for no in sorted(stations):
@@ -1164,7 +1192,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
         if not dated:
             msg = f"{ds.slug}: no station has a dated {ds.source.package} series"
             raise FetchError(msg)
-        values: dict[str, list] = {}
+        values: dict[str, list[Any]] = {}
         for batch in _kiwis_batches(dated):
             for ts in _kiwis_values(s, base, batch):
                 values[ts["station_no"]] = ts.get("data") or []
@@ -1204,7 +1232,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
     return data, m, licence
 
 
-def _kiwis_batches(series: list[dict]) -> list[list[str]]:
+def _kiwis_batches(series: list[dict[str, Any]]) -> list[list[str]]:
     """Series packed into requests by the days each covers, under the service's value limit."""
     est = []
     for r in series:
@@ -1230,7 +1258,7 @@ AIHW_LISTING = "https://www.aihw.gov.au/api/search/all-downloadable-resources"
 AIHW_ATTRS = re.compile(r'<div[^>]*class="s-downloadable-resources[^"]*"(.*?)>', re.DOTALL)
 
 
-def _aihw_listing(page: bytes) -> dict:
+def _aihw_listing(page: bytes) -> dict[str, Any]:
     """The query the AIHW data page makes for its file list, from the wrapper's attributes."""
     for m in AIHW_ATTRS.finditer(page.decode("utf-8", "replace")):
         d = dict(re.findall(r'data-([a-z-]+)="([^"]*)"', m.group(1)))
@@ -1240,7 +1268,7 @@ def _aihw_listing(page: bytes) -> dict:
     raise FetchError(msg)
 
 
-def _aihw_query(d: dict) -> dict:
+def _aihw_query(d: dict[str, str]) -> dict[str, Any]:
     def flag(k: str) -> bool:
         return d.get(k, "").lower() == "true"
 
@@ -1278,7 +1306,7 @@ def _aihw_query(d: dict) -> dict:
     }
 
 
-def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:
     """A data table workbook of the Australian Institute of Health and Welfare.
 
     `url` is the report's data page, whose file list the Institute's site fetches from its search
@@ -1357,7 +1385,7 @@ def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
     return data, m, licence
 
 
-def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:
     """A file on Zenodo, followed across versions of one concept record.
 
     `url` is the records API, `package` the concept record id and `resource_match` the file name.
@@ -1460,8 +1488,8 @@ def _stack_rows(  # noqa: C901, PLR0912, PLR0913 - one reader for every stacked 
         wb = openpyxl.load_workbook(
             io.BytesIO(data), read_only=True, data_only=True, keep_links=False
         )
-        rows = wb.worksheets[0].iter_rows(values_only=True)
-        close = wb.close
+        rows: Iterator[Sequence[object]] = wb.worksheets[0].iter_rows(values_only=True)
+        close: Callable[[], None] | None = wb.close
     elif filename.lower().endswith(".csv"):
         text = data.decode(detect_encoding(data))
         rows = iter(list(csv.reader(io.StringIO(text))))
@@ -1513,10 +1541,13 @@ def _stack_rows(  # noqa: C901, PLR0912, PLR0913 - one reader for every stacked 
     return (["Group", *header] if group_match else header), out
 
 
-def _section_rows(rows, filename: str, header_match: str, section_match: str) -> list[list[str]]:
+def _section_rows(
+    rows: Iterable[Sequence[object]], filename: str, header_match: str, section_match: str
+) -> list[list[str]]:
     rx = re.compile(section_match)
     out: list[list[str]] = []
-    section, header = "", []
+    section = ""
+    header: list[str] = []
     for r in rows:
         vals = [_cell(v).strip().lstrip("\ufeff") for v in r]
         if not any(vals):
@@ -1544,8 +1575,8 @@ def _section_rows(rows, filename: str, header_match: str, section_match: str) ->
 
 
 def _stack(
-    ds: Dataset, s: requests.Session, files: list[dict]
-) -> tuple[bytes, list[dict], int, int]:
+    ds: Dataset, s: requests.Session, files: list[dict[str, str]]
+) -> tuple[bytes, list[dict[str, Any]], int, int]:
     """Every file read into one table.
 
     Its columns are laid out as the first file has them, and it is ordered by every column, with a
@@ -1555,7 +1586,7 @@ def _stack(
     named = any(x.source == FILE_SOURCE for x in ds.fields)
     header: list[str] = []
     rows: list[list[str]] = []
-    read = []
+    read: list[dict[str, Any]] = []
     for f in files:
         got = _download(ds, s, f["url"])
         expect_page(ds, f["url"], got, got.content)
@@ -1607,11 +1638,11 @@ def _stack_version(  # noqa: PLR0913 - the options are keyword-only and named at
     store_dir: Path,
     data: bytes,
     changed: str,
-    source: dict,
+    source: dict[str, Any],
     *,
-    licence: dict,
+    licence: dict[str, Any],
     notes: tuple[str, ...] = (),
-):
+) -> FetchResult:
     digest = hashlib.sha256(data).hexdigest()
     existing = store.manifests(store_dir, ds.slug)
     if existing and existing[-1].sha256 == digest:
@@ -1634,7 +1665,9 @@ def _stack_version(  # noqa: PLR0913 - the options are keyword-only and named at
     return data, m, licence
 
 
-def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = None):  # noqa: C901 - the adapter's steps, read in order
+def ckan_stack(  # noqa: C901 - the adapter's steps, read in order
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     """A series a CKAN portal holds as many workbooks across many packages, read into one table.
 
     `package` is the search text, `package_match` the packages to take by name, `resource_match`
@@ -1674,7 +1707,7 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         read_from=f"{api}/package_search?q={urllib.parse.quote(ds.source.package)}",
     )
     rrx = re.compile(ds.source.resource_match) if ds.source.resource_match else None
-    resources = []
+    resources: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for p in packages:
         for r in p.get("resources") or []:
             if rrx and not rrx.search((r.get("name") or "").strip()):
@@ -1744,7 +1777,9 @@ def page_links(page: bytes, base: str, pattern: str) -> list[str]:
     return out
 
 
-def file_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def file_stack(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     """A series a publisher lists on its own page as one file per period, read into one table.
 
     `url` is the page, `resource_match` the pattern each file's link matches, and `header_match`
@@ -1789,7 +1824,7 @@ def file_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
     )
 
 
-ADAPTERS = {
+ADAPTERS: dict[str, Adapter] = {
     "ckan-stack": ckan_stack,
     "file-stack": file_stack,
     "file": http_file,
@@ -1813,7 +1848,7 @@ class FetchError(RuntimeError):
     """The portal answered, but not with the file."""
 
 
-def expect_page(ds: Dataset, url: str, r, data: bytes) -> None:
+def expect_page(ds: Dataset, url: str, r: Download, data: bytes) -> None:
     """Refuses an empty body or an HTML page where a data file should be.
 
     Some portals answer requests from cloud addresses with an empty 200; that must never become a
@@ -1909,7 +1944,7 @@ def _encoding(filename: str, data: bytes, preferred: str) -> str:
     return detect_encoding(data, preferred)
 
 
-def check_licence(ds: Dataset, licence: dict) -> None:
+def check_licence(ds: Dataset, licence: Mapping[str, Any]) -> None:
     """Stops the run when the portal's licence differs from the register's.
 
     It runs on every fetch, changed bytes or not, and stops before anything is written. A register
@@ -1983,9 +2018,10 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
         )
         raise FetchError(msg)
     if ds.source.feed:
-        m = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
-        if m is None:
+        fed = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
+        if fed is None:
             return None
+        m = fed
     m.caps = store.CAPS_VERSION
     store.write(store_dir, m, data)
     return m
@@ -2027,7 +2063,9 @@ FEED_NOTE = (
 )
 
 
-def feed_version(m: store.Manifest, existing: list[store.Manifest], today: dt.date):
+def feed_version(
+    m: store.Manifest, existing: list[store.Manifest], today: dt.date
+) -> store.Manifest | None:
     """A feed's version is the day it was fetched.
 
     A second change on a day that already has a version waits for the next day's fetch, so a day

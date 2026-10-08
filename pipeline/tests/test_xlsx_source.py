@@ -1,7 +1,7 @@
 import datetime as dt
 import io
 from dataclasses import replace
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pyarrow as pa
 import pytest
@@ -14,6 +14,13 @@ from publicdata.register import Field, RegisterError, load
 
 from .conftest import ROOT, make_dataset, make_manifest
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import requests
+
+    from publicdata.register import Dataset
+
 
 def workbook() -> bytes:
     buf = io.BytesIO()
@@ -24,7 +31,7 @@ def workbook() -> bytes:
     ws.write(1, 0, "(Data current to June 2026)")
     for c, h in enumerate(["Crash ID", "Speed Limit", "Bus", "Date", "Share"]):
         ws.write(3, c, h)
-    rows = [
+    rows: list[list[object]] = [
         ["1199208270377", 100, "No", dt.datetime(2026, 6, 1), 0.25],
         ["4200909170077", -9, "-9", dt.datetime(2026, 6, 2, 13, 5), 1.0],
         [None, None, None, None, None],
@@ -41,7 +48,7 @@ def workbook() -> bytes:
     return buf.getvalue()
 
 
-def test_xlsx_reads_the_named_sheet_from_its_header_row_as_text():
+def test_xlsx_reads_the_named_sheet_from_its_header_row_as_text() -> None:
     t = normalise.read_xlsx(workbook(), "Data", 4)
     assert t.column_names == ["Crash ID", "Speed Limit", "Bus", "Date", "Share"]
     assert t.num_rows == 3  # the blank row is dropped
@@ -53,7 +60,7 @@ def test_xlsx_reads_the_named_sheet_from_its_header_row_as_text():
         normalise.read_xlsx(workbook(), "Missing", 4)
 
 
-def test_declared_unknown_markers_become_null_and_others_still_fail():
+def test_declared_unknown_markers_become_null_and_others_still_fail() -> None:
     t = normalise.read_xlsx(workbook(), "Data", 4)
     speed, _ = normalise.convert(
         t.column("Speed Limit"),
@@ -71,32 +78,40 @@ def test_declared_unknown_markers_become_null_and_others_still_fail():
 
 
 class Stub:
-    def __init__(self, portal_id, licence_id="CC-BY-4.0", slug="x"):
+    def __init__(self, portal_id: str, licence_id: str = "CC-BY-4.0", slug: str = "x") -> None:
         self.slug = slug
         self.licence = type("L", (), {"id": licence_id, "portal_id": portal_id})()
         self.source = type("S", (), {"portal": ""})()
 
 
-def test_an_exact_portal_licence_id_is_compared_as_stated():
-    fetch.check_licence(Stub("cc-by"), {"id": "cc-by"})
+def stub(portal_id: str) -> Dataset:
+    # Stands in for the three attributes check_licence reads of an entry.
+    return cast("Dataset", Stub(portal_id))
+
+
+def test_an_exact_portal_licence_id_is_compared_as_stated() -> None:
+    fetch.check_licence(stub("cc-by"), {"id": "cc-by"})
     with pytest.raises(fetch.LicenceDrift, match="expects 'cc-by'"):
-        fetch.check_licence(Stub("cc-by"), {"id": "cc-by-nd"})
+        fetch.check_licence(stub("cc-by"), {"id": "cc-by-nd"})
     with pytest.raises(fetch.LicenceDrift):
-        fetch.check_licence(Stub(""), {"id": "cc-by"})  # no portal named, so no version to read
+        fetch.check_licence(stub(""), {"id": "cc-by"})  # no portal named, so no version to read
 
 
-def test_a_file_replaced_inside_one_resource_is_dated_by_the_resource_metadata(tmp_path):
+def test_a_file_replaced_inside_one_resource_is_dated_by_the_resource_metadata(
+    tmp_path: Path,
+) -> None:
     ds = next(d for d in load(ROOT / "register") if d.slug == "au-road-deaths")
     body = workbook()
 
     class R:
-        def __init__(self, j=None, content=b""):
-            self._j, self.content, self.headers, self.status_code = j, content, {}, 200
+        def __init__(self, j: dict[str, Any] | None = None, content: bytes = b"") -> None:
+            self._j, self.content, self.status_code = j, content, 200
+            self.headers: dict[str, str] = {}
 
-        def json(self):
+        def json(self) -> dict[str, Any] | None:
             return self._j
 
-        def raise_for_status(self):
+        def raise_for_status(self) -> None:
             pass
 
     res = {
@@ -119,12 +134,20 @@ def test_a_file_replaced_inside_one_resource_is_dated_by_the_resource_metadata(t
     }
 
     class S:
-        headers: ClassVar[dict] = {}
+        headers: ClassVar[dict[str, str]] = {}
 
-        def get(self, url, params=None, timeout=None, allow_redirects=None):
+        def get(
+            self,
+            url: str,
+            params: object = None,
+            timeout: float | None = None,
+            *,
+            allow_redirects: bool | None = None,
+        ) -> R:
             return R(pkg) if "package_show" in url else R(content=body)
 
-    data, m, _ = fetch.ckan_resource(ds, tmp_path, session=S())
+    session = cast("requests.Session", S())
+    data, m, _ = fetch.ckan_resource(ds, tmp_path, session=session)
     assert data == body
     assert m.version == "2026-08-07"
     assert m.encoding == "xlsx"
@@ -146,7 +169,7 @@ def wide_workbook() -> bytes:
     return buf.getvalue()
 
 
-def test_a_wide_table_of_dated_columns_unpivots_to_one_row_per_cell():
+def test_a_wide_table_of_dated_columns_unpivots_to_one_row_per_cell() -> None:
     ds = next(d for d in load(ROOT / "register") if d.slug == "nsw-recorded-crime-by-lga")
     data = wide_workbook()
     t = normalise.normalise(
@@ -171,7 +194,7 @@ def test_a_wide_table_of_dated_columns_unpivots_to_one_row_per_cell():
         )
 
 
-def test_unpivot_needs_one_header_field_and_one_cell_field(tmp_path):
+def test_unpivot_needs_one_header_field_and_one_cell_field(tmp_path: Path) -> None:
     raw = yaml.safe_load((ROOT / "register" / "nsw-recorded-crime-by-lga.yaml").read_text())
     raw["fields"] = [f for f in raw["fields"] if f["source"] != "(cell)"]
     raw["key"] = ["lga", "offence_category", "subcategory", "month"]
@@ -180,7 +203,7 @@ def test_unpivot_needs_one_header_field_and_one_cell_field(tmp_path):
         load(tmp_path)
 
 
-def test_a_later_file_date_than_the_portal_dates_the_version(tmp_path):
+def test_a_later_file_date_than_the_portal_dates_the_version(tmp_path: Path) -> None:
     ds = next(d for d in load(ROOT / "register") if d.slug == "nsw-recorded-crime-by-lga")
     body = wide_workbook()
     res = {
@@ -201,24 +224,37 @@ def test_a_later_file_date_than_the_portal_dates_the_version(tmp_path):
     }
 
     class R:
-        def __init__(self, j=None, content=b"", headers=None):
+        def __init__(
+            self,
+            j: dict[str, Any] | None = None,
+            content: bytes = b"",
+            headers: dict[str, str] | None = None,
+        ) -> None:
             self._j, self.content, self.headers, self.status_code = j, content, headers or {}, 200
 
-        def json(self):
+        def json(self) -> dict[str, Any] | None:
             return self._j
 
-        def raise_for_status(self):
+        def raise_for_status(self) -> None:
             pass
 
     class S:
-        headers: ClassVar[dict] = {}
+        headers: ClassVar[dict[str, str]] = {}
 
-        def get(self, url, params=None, timeout=None, allow_redirects=None):
+        def get(
+            self,
+            url: str,
+            params: object = None,
+            timeout: float | None = None,
+            *,
+            allow_redirects: bool | None = None,
+        ) -> R:
             if "package_show" in url:
                 return R(pkg)
             return R(content=body, headers={"Last-Modified": "Tue, 15 Sep 2026 17:57:17 GMT"})
 
-    _, m, _ = fetch.ckan_resource(ds, tmp_path, session=S())
+    session = cast("requests.Session", S())
+    _, m, _ = fetch.ckan_resource(ds, tmp_path, session=session)
     assert m.version == "2026-09-16"  # Brisbane date of the file's own timestamp
 
 
@@ -233,7 +269,7 @@ def presentation_workbook() -> bytes:
             ws.write(1, 2 + j, period)
             ws.write(2, 2 + j, ["Count", "Median", "Count", "Median"][j])
         ws.write(2, 6, "Share")
-        body = [
+        body: list[list[object]] = [
             ["Inner", "Carlton", 10, base, 11, base + 5, 0.5],
             [None, "Fitzroy", "-", "-", 12, base + 10, 0.4],
             [None, None, None, None, None, None, None],
@@ -248,7 +284,7 @@ def presentation_workbook() -> bytes:
     return buf.getvalue()
 
 
-def wide_dataset(**kw):
+def wide_dataset(**kw: object) -> Dataset:
     fields = [
         Field("property_type", "(sheet)"),
         Field("region", "(row header 1)"),
@@ -257,7 +293,7 @@ def wide_dataset(**kw):
         Field("lettings", "(cell: Count)", "integer", null_values=("-",)),
         Field("median", "(cell: Median)", "integer", null_values=("-",)),
     ]
-    wide = {
+    wide: dict[str, object] = {
         "sheets": ["1 bedroom flat", "House"],
         "header_row": 2,
         "header_rows": 2,
@@ -269,7 +305,7 @@ def wide_dataset(**kw):
     return make_dataset(fields, wide=wide)
 
 
-def test_a_presentation_table_reads_one_row_per_group_of_cells():
+def test_a_presentation_table_reads_one_row_per_group_of_cells() -> None:
     data = presentation_workbook()
     t = normalise.normalise(
         wide_dataset(), make_manifest(data, filename="rents.xlsx", encoding="xlsx"), data
@@ -308,7 +344,7 @@ def test_a_presentation_table_reads_one_row_per_group_of_cells():
         )
 
 
-def test_a_wide_table_names_every_value_it_reads(tmp_path):
+def test_a_wide_table_names_every_value_it_reads(tmp_path: Path) -> None:
     base = yaml.safe_load((ROOT / "register" / "nsw-recorded-crime-by-lga.yaml").read_text())
     base.pop("unpivot")
     base.pop("key")
@@ -359,7 +395,7 @@ def test_a_wide_table_names_every_value_it_reads(tmp_path):
         load(tmp_path)
 
 
-def test_a_wide_table_reads_only_the_columns_its_pattern_names():
+def test_a_wide_table_reads_only_the_columns_its_pattern_names() -> None:
     buf = io.BytesIO()
     wb = xlsxwriter.Workbook(buf, {"in_memory": True})
     ws = wb.add_worksheet("Sheet1")

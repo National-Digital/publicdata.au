@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import requests
@@ -24,6 +24,8 @@ from .register import CLOSED_LICENCES, OPEN_LICENCES, Field, draft_label
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from .register import FieldType
 
 SAMPLE_BYTES = 20_000_000
 WORKBOOK_BYTES = 200_000_000
@@ -96,7 +98,7 @@ def field_name(header: str, taken: set[str]) -> str:
     return name
 
 
-def _fits(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...] = ()) -> bool:
+def _fits(arr: pa.ChunkedArray[Any], f: Field, suppression: tuple[str, ...] = ()) -> bool:
     try:
         convert(arr, f, suppression)
     except UNFIT:
@@ -104,7 +106,7 @@ def _fits(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...] = ()) -> 
     return True
 
 
-def infer(name: str, header: str, arr: pa.ChunkedArray) -> tuple[Field, tuple[str, ...]]:
+def infer(name: str, header: str, arr: pa.ChunkedArray[Any]) -> tuple[Field, tuple[str, ...]]:
     """The field and any suppression tokens it uses, typed by the normaliser's own conversion."""
     values = {v.strip() for v in arr.to_pylist() if v is not None and v.strip()}
     base = Field(name, header)
@@ -122,10 +124,14 @@ def infer(name: str, header: str, arr: pa.ChunkedArray) -> tuple[Field, tuple[st
             return Field(name, header, t), tokens
     if not coded and _fits(arr, Field(name, header, "boolean")):
         return Field(name, header, "boolean"), ()
-    for t, formats in (("date", DATE_FORMATS), ("datetime", DATETIME_FORMATS)):
+    dated: tuple[tuple[FieldType, tuple[str, ...]], ...] = (
+        ("date", DATE_FORMATS),
+        ("datetime", DATETIME_FORMATS),
+    )
+    for d, formats in dated:
         for fmt in formats:
-            if _fits(arr, Field(name, header, t, date_format=fmt)):
-                return Field(name, header, t, date_format=fmt), ()
+            if _fits(arr, Field(name, header, d, date_format=fmt)):
+                return Field(name, header, d, date_format=fmt), ()
     return base, ()
 
 
@@ -140,7 +146,9 @@ def _get(s: requests.Session, url: str, cap: int) -> tuple[bytes, bool]:
     return buf.getvalue(), False
 
 
-def sample_table(data: bytes, kind: str, *, cut: bool, sheet: str = "", header_row: int = 1):
+def sample_table(
+    data: bytes, kind: str, *, cut: bool, sheet: str = "", header_row: int = 1
+) -> tuple[pa.Table, str]:
     try:
         return _sample_table(data, kind, cut=cut, sheet=sheet, header_row=header_row)
     except UNFIT as e:
@@ -148,7 +156,9 @@ def sample_table(data: bytes, kind: str, *, cut: bool, sheet: str = "", header_r
         raise DraftError(msg) from e
 
 
-def _sample_table(data: bytes, kind: str, *, cut: bool, sheet: str, header_row: int):
+def _sample_table(
+    data: bytes, kind: str, *, cut: bool, sheet: str, header_row: int
+) -> tuple[pa.Table, str]:
     if kind in ("xlsx", "xls"):
         if cut:
             msg = "the workbook is larger than a draft reads; draft it by hand"
@@ -162,7 +172,7 @@ def _sample_table(data: bytes, kind: str, *, cut: bool, sheet: str, header_row: 
     return read_csv(data, enc), enc
 
 
-def _licence(pkg: dict, host: str = "") -> str:
+def _licence(pkg: dict[str, Any], host: str = "") -> str:
     lic = normalise_licence_id(pkg.get("license_id") or "", host)
     if lic in OPEN_LICENCES or lic in CLOSED_LICENCES:
         return lic
@@ -170,7 +180,9 @@ def _licence(pkg: dict, host: str = "") -> str:
     return by_title or lic or "not-specified"
 
 
-def publisher_for(portal: catalogue.Portal, pkg: dict, curated: list[Publisher]) -> dict:
+def publisher_for(
+    portal: catalogue.Portal, pkg: dict[str, Any], curated: list[Publisher]
+) -> dict[str, str]:
     org = pkg.get("organization") or {}
     key = f"{portal.code}:{org.get('name') or 'unknown'}"
     cur = next((p for p in curated if key in p.orgs), None)
@@ -203,7 +215,7 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
     *,
     sheet: str = "",
     header_row: int = 1,
-) -> tuple[str, dict, list[str]]:
+) -> tuple[str, dict[str, Any], list[str]]:
     """Returns (slug, the entry, notes for the reviewer)."""
     s = session or requests.Session()
     s.headers["User-Agent"] = UA
@@ -227,7 +239,7 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
             msg = f"{name} has no CSV or Excel resource"
             raise DraftError(msg)
         res = next((r for r in tabular if r["format"].upper() == "CSV"), tabular[0])
-    notes = []
+    notes: list[str] = []
     if len(tabular) > 1:
         notes.append(
             "other tabular resources: "
@@ -243,14 +255,16 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
             f"types were inferred from the first {raw.num_rows:,} rows; the build types every row and stops on one that does not fit"
         )
     taken: set[str] = set()
-    fields, suppression = [], set()
+    fields: list[Field] = []
+    suppression: set[str] = set()
     headers = [c.strip() for c in raw.column_names]
     names = [field_name(h, taken) for h in headers]
     for n, h, col in zip(names, headers, raw.columns, strict=True):
         f, tokens = infer(n, h, col)
         fields.append(f)
         suppression |= set(tokens)
-    labels, seen = {}, set()
+    labels: dict[str, str] = {}
+    seen: set[str] = set()
     for f in fields:
         label = draft_label(f.name, names)
         if label in seen:
@@ -267,7 +281,7 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
     seg = JUR_SEGMENT[pub["jurisdiction"]]
     words = slugify(title).removeprefix(f"{seg}-")
     slug = slug or f"{seg}-{words}"[:64].rstrip("-")
-    entry = {
+    entry: dict[str, Any] = {
         "slug": slug,
         "title": title,
         "status": "building" if open_ else ("blocked" if lic in CLOSED_LICENCES else "assessing"),
@@ -335,7 +349,7 @@ def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; 
     return slug, entry, notes
 
 
-def to_yaml(entry: dict) -> str:
+def to_yaml(entry: dict[str, Any]) -> str:
     text = yaml.safe_dump(entry, sort_keys=False, allow_unicode=True, width=100)
     for k in TODO:
         text = re.sub(
