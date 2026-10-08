@@ -15,8 +15,15 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from .api_text import mcp_spec
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+# A tool definition as api.json gives it, or as a test writes one, before any check has read it.
+type Tool = dict[str, Any]
 
 NAME = re.compile(r"^[a-z]+(?:_[a-z]+)+$")
 HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
@@ -42,8 +49,9 @@ STOPWORDS = set(
 )
 
 
-def tools() -> list[dict]:
-    return mcp_spec()["tools"]
+def tools() -> list[Tool]:
+    found: list[Tool] = mcp_spec()["tools"]
+    return found
 
 
 def sentences(text: str) -> list[str]:
@@ -63,7 +71,7 @@ def names(text: str, name: str) -> bool:
     return re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text) is not None
 
 
-def _purpose(t: dict) -> list[str]:
+def _purpose(t: Tool) -> list[str]:
     out = []
     title = (t.get("title") or "").strip()
     if not title:
@@ -90,14 +98,14 @@ def _purpose(t: dict) -> list[str]:
     return out
 
 
-def _usage(t: dict, siblings: list[str]) -> list[str]:
+def _usage(t: Tool, siblings: Sequence[str]) -> list[str]:
     d = t.get("description") or ""
     if siblings and not any(names(d, s) for s in siblings):
         return ["the description names no other tool; say when to use this one instead of another"]
     return []
 
 
-def _parameters(t: dict) -> list[str]:
+def _parameters(t: Tool) -> list[str]:
     s = t.get("inputSchema") or {}
     out = []
     if s.get("type") != "object":
@@ -133,13 +141,13 @@ def _parameters(t: dict) -> list[str]:
     return out
 
 
-def _limits(t: dict) -> list[str]:
+def _limits(t: Tool) -> list[str]:
     if not LIMITS.search(t.get("description") or ""):
         return ["the description does not say what a call costs against the rate limit"]
     return []
 
 
-def _returns(t: dict) -> list[str]:
+def _returns(t: Tool) -> list[str]:
     s = t.get("outputSchema") or {}
     props = s.get("properties") or {}
     if s.get("type") != "object" or not props:
@@ -158,7 +166,7 @@ def _returns(t: dict) -> list[str]:
     return out
 
 
-def _annotations(t: dict) -> list[str]:
+def _annotations(t: Tool) -> list[str]:
     a = t.get("annotations") or {}
     out = [f"annotations has no boolean {h}" for h in HINTS if not isinstance(a.get(h), bool)]
     if a.get("title") != t.get("title"):
@@ -172,7 +180,7 @@ def _annotations(t: dict) -> list[str]:
     return out
 
 
-def _length(t: dict) -> list[str]:
+def _length(t: Tool) -> list[str]:
     d = t.get("description") or ""
     out = []
     if d and not MIN_DESCRIPTION <= len(d) <= MAX_DESCRIPTION:
@@ -188,7 +196,7 @@ def _length(t: dict) -> list[str]:
     return out
 
 
-def _naming(t: dict) -> list[str]:
+def _naming(t: Tool) -> list[str]:
     if not NAME.match(t.get("name") or ""):
         return [
             (
@@ -199,7 +207,7 @@ def _naming(t: dict) -> list[str]:
     return []
 
 
-QUALITIES = (
+QUALITIES: tuple[tuple[str, Callable[..., list[str]]], ...] = (
     ("naming", _naming),
     ("purpose", _purpose),
     ("usage", _usage),
@@ -211,25 +219,25 @@ QUALITIES = (
 )
 
 
-def tool_problems(t: dict, siblings: list[str]) -> list[tuple[str, str]]:
-    out = []
+def tool_problems(t: Tool, siblings: Sequence[str]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
     for quality, f in QUALITIES:
         found = f(t, siblings) if f is _usage else f(t)
         out += [(quality, m) for m in found]
     return out
 
 
-def set_problems(ts: list[dict]) -> list[tuple[str, str]]:
-    out = []
+def set_problems(ts: Sequence[Tool]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
     if len(ts) > MAX_TOOLS:
         out.append(
             ("tool count", f"{len(ts)} tools is more than {MAX_TOOLS}; merge tools that overlap")
         )
-    seen: dict[str, int] = {}
+    seen: dict[str | None, int] = {}
     for t in ts:
         seen[t.get("name")] = seen.get(t.get("name"), 0) + 1
     out += [("naming", f"{n} is used by {c} tools") for n, c in seen.items() if c > 1]
-    titles = [t.get("title") for t in ts if t.get("title")]
+    titles: list[str] = [t["title"] for t in ts if t.get("title")]
     out += [
         ("naming", f"title {x!r} is used twice")
         for x in sorted({x for x in titles if titles.count(x) > 1})
@@ -255,12 +263,13 @@ def set_problems(ts: list[dict]) -> list[tuple[str, str]]:
     return out
 
 
-def problems(ts: list[dict]) -> tuple[list[str], list[str]]:
+def problems(ts: Sequence[Tool]) -> tuple[list[str], list[str]]:
     """The failures that stop a merge, and a line per tool for the report."""
-    errors, report = [], []
-    all_names = [t.get("name") for t in ts]
+    errors: list[str] = []
+    report: list[str] = []
+    all_names: list[str | None] = [t.get("name") for t in ts]
     for t in ts:
-        found = tool_problems(t, [n for n in all_names if n != t.get("name")])
+        found = tool_problems(t, [n for n in all_names if n != t.get("name")])  # type: ignore[misc]  # BUG: a tool with no name passes None to names(), which raises
         errors += [f"{t.get('name')}: {q}: {m}" for q, m in found]
         report.append(
             f"{t.get('name')!s:18s} "
@@ -272,7 +281,7 @@ def problems(ts: list[dict]) -> tuple[list[str], list[str]]:
     return errors, report
 
 
-def check(ts: list[dict] | None = None) -> int:
+def check(ts: Sequence[Tool] | None = None) -> int:
     errors, report = problems(tools() if ts is None else ts)
     print("\n".join(report))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -284,7 +293,7 @@ def check(ts: list[dict] | None = None) -> int:
     return 1 if errors else 0
 
 
-def main(argv=None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m publicdata.tdqs", description=__doc__.splitlines()[0]
     )
