@@ -388,21 +388,27 @@ Every dated version in R2 carries `SHA256SUMS`, one `sha256sum` line per file un
 site saves it as (`site.download_name`), so `sha256sum -c --ignore-missing SHA256SUMS` checks a
 download (`shasum -a 256 -c` on a Mac). The build never writes it, so the cache key does not cover it and adding it rebuilt
 nothing. A production deploy runs `publicdata checksums` straight after the Pages deploy. It lists
-each dataset's versions in R2 and writes the list for any version that has none or holds a file
-newer than it, which is how a format added to a cached version gains its line. The hashes are the
+each dataset's versions in R2 and writes the list for any version that has none. The hashes are the
 SHA-256 that `dist-push` stores with each object, so no data file is read back. A source file served from
 the raw store takes the SHA-256 its `manifest.json` records. A version with a file stored without a
 hash is skipped and reported. The step may fail without failing the deploy, since the next deploy
 catches up.
-The list is served with a five-minute cache, since it grows when a format is added.
+The list is part of its version (ADR 0002), so it is written once and served like every dated file,
+as immutable for a year. Only a `replace` dispatch makes it again. The step deletes the replaced
+version's list before it writes the new one, so a run that stops leaves no list for the next deploy
+to write, and it runs before the purge, which then drops the old list from the edge with the other
+files. Outside a replace, a file R2 holds that is newer than its version's list breaks the rule
+that dated files never change. The step names each one in a `::warning::` and leaves the list as
+it is. A file stored again with the SHA-256 its line already holds, as a file compressed at rest
+would be, passes without a warning.
 A deploy of main signs the lists it wrote with one GitHub artifact attestation (`--subjects`,
 then `actions/attest-build-provenance` in a `sign` job of its own, since the deploy job also runs a
 pull request's code). `gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au
 --source-ref refs/heads/main` ties a list to a run on main, which a pull request's run cannot
 sign as. An attestation takes
 at most 1,024 subjects; a deploy signs the first 1,024 and warns. The Checksums workflow, run by
-hand, writes any missing list across R2 (`--all --download`) and signs every current list again
-(`--resign`) in parts of 1,024. It is the backfill once the lists first ship, and the catch-up
+hand, writes any missing list across R2 (`--all --download`) and signs every list again
+(`--resign`) in parts of 1,024. It never rewrites a list that exists. It is the backfill once the lists first ship, and the catch-up
 after a failed write or signature.
 
 One runner's disk cannot hold a build of every version at once, so the deploy builds in shards.
