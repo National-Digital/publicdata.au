@@ -543,21 +543,19 @@ jobs:
             gh pr comment "$PR" --body "$BODY"
           fi
 
-  # Tags the released version and cuts a GitHub release with generated notes, then publishes the
-  # MCP Registry entry when what a client sees has changed. A separate job, so the write token never
-  # meets the build. Every step tolerates a re-run or a concurrent deploy that got there first.
   # One attestation for the lists the deploy wrote. It is a job of its own so that only a deploy
   # of main can sign: the deploy job also runs a pull request's code. Like the lists, a failure
   # waits for the Checksums workflow to sign again, and never fails the deploy.
   sign:
+    name: sign
     needs: deploy
     if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.deploy.outputs.sign == 'true' }}
     continue-on-error: true
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      id-token: write
-      attestations: write
+      id-token: write # the OIDC token Sigstore certifies to sign the attestation
+      attestations: write # stores the attestation with the repository
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -567,6 +565,9 @@ jobs:
         with:
           subject-checksums: lists/1.sha256
 
+  # Tags the released version and cuts a GitHub release with generated notes, then publishes the
+  # MCP Registry entry when what a client sees has changed. A separate job, so the write token never
+  # meets the build. Every step tolerates a re-run or a concurrent deploy that got there first.
   release:
     name: release
     needs: deploy
