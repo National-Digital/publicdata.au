@@ -226,11 +226,12 @@ jobs:
       - *lint-tools
       # The auditor persona reports every finding zizmor has, code smells and likely false
       # positives included. The token lets its online audits ask GitHub whether each pinned commit
-      # belongs to its action and matches the version its comment names.
+      # belongs to its action and matches the version its comment names. --strict-collection fails
+      # on a workflow zizmor cannot parse, which it would otherwise leave out with a warning.
       - name: zizmor
         env:
           GH_TOKEN: ${{ github.token }}
-        run: zizmor --persona auditor --format github .github
+        run: zizmor --persona auditor --strict-collection --format github .github
       - name: actionlint
         run: actionlint -shellcheck "$RUNNER_TEMP/lint-bin/shellcheck"
       # concurrency-limits is reported only at the pedantic persona and above, so finding it shows
