@@ -12,24 +12,43 @@ const fields = [
 const db = new DatabaseSync(':memory:');
 db.exec('CREATE TABLE "v_t_20260424" (lga TEXT, year INTEGER, fatal INTEGER, speed_limit INTEGER)');
 const ins = db.prepare('INSERT INTO "v_t_20260424" VALUES (?, ?, ?, ?)');
-for (const r of [['Gold Coast', 2020, 1, 60], ['Gold Coast', 2021, 0, null], ['Brisbane', 2020, 0, 60], ["O'Connor", 2021, 1, 100]]) ins.run(...r);
-const run = (plan) => db.prepare(plan.sql).all(...plan.binds).map((r) => ({ ...r }));
+for (const r of [
+  ['Gold Coast', 2020, 1, 60],
+  ['Gold Coast', 2021, 0, null],
+  ['Brisbane', 2020, 0, 60],
+  ["O'Connor", 2021, 1, 100],
+])
+  ins.run(...r);
+const run = (plan) =>
+  db
+    .prepare(plan.sql)
+    .all(...plan.binds)
+    .map((r) => ({ ...r }));
 const P = (s) => new URLSearchParams(s);
 
 test('filters bind their values and type them by field', () => {
-  const plan = rowsQuery('v_t_20260424', fields, P('lga=eq.Gold Coast&year=gte.2021&select=lga,year'));
+  const plan = rowsQuery(
+    'v_t_20260424',
+    fields,
+    P('lga=eq.Gold Coast&year=gte.2021&select=lga,year'),
+  );
   assert.deepEqual(plan.binds, ['Gold Coast', 2021]);
   assert.deepEqual(run(plan), [{ lga: 'Gold Coast', year: 2021 }]);
   assert.equal(run(rowsQuery('v_t_20260424', fields, P("lga=eq.O'Connor"))).length, 1);
   assert.equal(run(rowsQuery('v_t_20260424', fields, P('fatal=eq.true'))).length, 2);
-  assert.equal(run(rowsQuery('v_t_20260424', fields, P('lga=in.(Brisbane,Gold Coast)&year=eq.2020'))).length, 2);
+  assert.equal(
+    run(rowsQuery('v_t_20260424', fields, P('lga=in.(Brisbane,Gold Coast)&year=eq.2020'))).length,
+    2,
+  );
   assert.equal(run(rowsQuery('v_t_20260424', fields, P('speed_limit=is.null'))).length, 1);
   assert.equal(run(rowsQuery('v_t_20260424', fields, P('speed_limit=not.is.null'))).length, 3);
   assert.equal(run(rowsQuery('v_t_20260424', fields, P('lga=ilike.*coast*'))).length, 2);
   db.prepare('INSERT INTO "v_t_20260424" VALUES (?, ?, ?, ?)').run('100%_rural', 2022, 0, 80);
-  assert.deepEqual(run(rowsQuery('v_t_20260424', fields, P('lga=like.100%_*&select=lga'))), [{ lga: '100%_rural' }]);
+  assert.deepEqual(run(rowsQuery('v_t_20260424', fields, P('lga=like.100%_*&select=lga'))), [
+    { lga: '100%_rural' },
+  ]);
   assert.equal(run(rowsQuery('v_t_20260424', fields, P('lga=like.Gold_Coast'))).length, 0);
-  db.exec("DELETE FROM \"v_t_20260424\" WHERE lga = '100%_rural'");
+  db.exec('DELETE FROM "v_t_20260424" WHERE lga = \'100%_rural\'');
 });
 
 test('names that are not fields never reach the SQL', () => {
@@ -51,13 +70,32 @@ test('paging asks for one row more to know whether there is a next page', () => 
 });
 
 test('aggregates group, count and sum', () => {
-  const plan = aggregateQuery('v_t_20260424', fields, P('group=year&metric=count,sum.fatal&order=year.desc'));
-  assert.deepEqual(run(plan), [{ year: 2021, count: 2, sum_fatal: 1 }, { year: 2020, count: 2, sum_fatal: 1 }]);
-  assert.deepEqual(run(aggregateQuery('v_t_20260424', fields, P('metric=count&lga=eq.Gold Coast'))), [{ count: 2 }]);
+  const plan = aggregateQuery(
+    'v_t_20260424',
+    fields,
+    P('group=year&metric=count,sum.fatal&order=year.desc'),
+  );
+  assert.deepEqual(run(plan), [
+    { year: 2021, count: 2, sum_fatal: 1 },
+    { year: 2020, count: 2, sum_fatal: 1 },
+  ]);
+  assert.deepEqual(
+    run(aggregateQuery('v_t_20260424', fields, P('metric=count&lga=eq.Gold Coast'))),
+    [{ count: 2 }],
+  );
   assert.throws(() => aggregateQuery('t', fields, P('metric=sum.lga')), /numeric field/);
   assert.throws(() => aggregateQuery('t', fields, P('metric=median.year')), /metric is one of/);
 });
 
 test('csv quotes only what needs it', () => {
-  assert.equal(toCSV(['a', 'b'], [{ a: 'x,y', b: null }, { a: 'say "hi"', b: 2 }]), 'a,b\n"x,y",\n"say ""hi""",2\n');
+  assert.equal(
+    toCSV(
+      ['a', 'b'],
+      [
+        { a: 'x,y', b: null },
+        { a: 'say "hi"', b: 2 },
+      ],
+    ),
+    'a,b\n"x,y",\n"say ""hi""",2\n',
+  );
 });

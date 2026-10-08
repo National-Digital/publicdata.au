@@ -1,30 +1,55 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { FRESH_MS, ROLLUP, onRequestGet as all } from './api/v1/votes.js';
-import { onRequestDelete as unvote, onRequestGet as one, onRequestPost as vote } from './api/v1/votes/[slug].js';
+import {
+  onRequestDelete as unvote,
+  onRequestGet as one,
+  onRequestPost as vote,
+} from './api/v1/votes/[slug].js';
 
 const store = new Map();
 let listings = 0;
 const env = {
   VOTES: {
     get: async (k) => (store.has(k) ? { text: async () => store.get(k) } : null),
-    put: async (k, v) => { store.set(k, v); },
+    put: async (k, v) => {
+      store.set(k, v);
+    },
     head: async (k) => (store.has(k) ? {} : null),
-    delete: async (k) => { store.delete(k); },
-    list: async ({ prefix }) => { listings++; return { objects: [...store.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }; },
+    delete: async (k) => {
+      store.delete(k);
+    },
+    list: async ({ prefix }) => {
+      listings++;
+      return {
+        objects: [...store.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })),
+        truncated: false,
+      };
+    },
   },
   ASSETS: {
     fetch: async (u) => {
       const p = new URL(String(u.url || u)).pathname;
-      if (p === '/backlog.json') return Response.json({ entries: [{ slug: 'abn-bulk-extract', status: 'backlog' }, { slug: 'crashes', status: 'live' }] });
+      if (p === '/backlog.json')
+        return Response.json({
+          entries: [
+            { slug: 'abn-bulk-extract', status: 'backlog' },
+            { slug: 'crashes', status: 'live' },
+          ],
+        });
       if (p === '/catalogue/aliases.json') return Response.json({ 'gov-1111': 'abn-bulk-extract' });
       if (p === '/catalogue/votable/act-3.json') return Response.json({ 'act-3u5a-ve4j': [] });
       return new Response('', { status: 404 });
     },
   },
 };
-const req = (ip) => new Request('https://publicdata.au/api/v1/votes/x', { method: 'POST', headers: { 'cf-connecting-ip': ip } });
-const call = async (fn, slug, ip = '203.0.113.1') => (await fn({ request: req(ip), env, params: { slug } })).json();
+const req = (ip) =>
+  new Request('https://publicdata.au/api/v1/votes/x', {
+    method: 'POST',
+    headers: { 'cf-connecting-ip': ip },
+  });
+const call = async (fn, slug, ip = '203.0.113.1') =>
+  (await fn({ request: req(ip), env, params: { slug } })).json();
 
 test('a vote on a claimed record id counts for the register entry, once a day per browser', async () => {
   // A vote cast under the record id before the register claimed it.

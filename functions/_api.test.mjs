@@ -10,30 +10,81 @@ function d1(db) {
     prepare(sql) {
       let args = [];
       const stmt = {
-        bind(...a) { args = a; return stmt; },
-        async first() { const r = db.prepare(sql).get(...args); return r ? { ...r } : null; },
-        async all() { return { results: db.prepare(sql).all(...args).map((r) => ({ ...r })) }; },
+        bind(...a) {
+          args = a;
+          return stmt;
+        },
+        async first() {
+          const r = db.prepare(sql).get(...args);
+          return r ? { ...r } : null;
+        },
+        async all() {
+          return {
+            results: db
+              .prepare(sql)
+              .all(...args)
+              .map((r) => ({ ...r })),
+          };
+        },
       };
       return stmt;
     },
   };
 }
 const store = new Map();
-globalThis.caches = { default: { match: async (req) => store.get(req.url)?.clone(), put: async (req, res) => { store.set(req.url, res); } } };
+globalThis.caches = {
+  default: {
+    match: async (req) => store.get(req.url)?.clone(),
+    put: async (req, res) => {
+      store.set(req.url, res);
+    },
+  },
+};
 
 const db = new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE "v_t_20260424" (lga TEXT, year INTEGER);
 CREATE TABLE _versions (slug TEXT, version TEXT, tbl TEXT, fields TEXT, rows INTEGER, attribution TEXT, header TEXT);`);
 const ins = db.prepare('INSERT INTO "v_t_20260424" VALUES (?, ?)');
 for (let i = 0; i < 5; i++) ins.run(`LGA ${i}`, 2020 + i);
-const header = { dataset: 'test-data', version: '2026-04-24', publisher: { name: 'Test Agency' }, licence: { id: 'CC-BY-4.0' }, attribution: 'Test Agency, Test, CC BY 4.0.', source: { url: 'https://example.gov.au/f.csv', fetched_at: '2026-04-24T00:00:00Z', sha256: 'abc123' } };
-db.prepare('INSERT INTO _versions VALUES (?, ?, ?, ?, ?, ?, ?)').run('test-data', '2026-04-24', 'v_t_20260424', JSON.stringify([{ name: 'lga', type: 'string' }, { name: 'year', type: 'integer' }]), 5, header.attribution, JSON.stringify(header));
+const header = {
+  dataset: 'test-data',
+  version: '2026-04-24',
+  publisher: { name: 'Test Agency' },
+  licence: { id: 'CC-BY-4.0' },
+  attribution: 'Test Agency, Test, CC BY 4.0.',
+  source: {
+    url: 'https://example.gov.au/f.csv',
+    fetched_at: '2026-04-24T00:00:00Z',
+    sha256: 'abc123',
+  },
+};
+db.prepare('INSERT INTO _versions VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+  'test-data',
+  '2026-04-24',
+  'v_t_20260424',
+  JSON.stringify([
+    { name: 'lga', type: 'string' },
+    { name: 'year', type: 'integer' },
+  ]),
+  5,
+  header.attribution,
+  JSON.stringify(header),
+);
 
 const call = async (qs, env = { DB: d1(db) }, version) => {
   const waits = [];
   const path = version ? `test-data/versions/${version}/rows` : 'test-data/rows';
   const params = version ? { slug: 'test-data', version } : { slug: 'test-data' };
-  const res = await answer({ request: new Request(`https://publicdata.au/api/v1/datasets/${path}${qs}`), env, params, waitUntil: (p) => waits.push(p) }, rowsQuery, 'rows');
+  const res = await answer(
+    {
+      request: new Request(`https://publicdata.au/api/v1/datasets/${path}${qs}`),
+      env,
+      params,
+      waitUntil: (p) => waits.push(p),
+    },
+    rowsQuery,
+    'rows',
+  );
   await Promise.all(waits);
   return res;
 };
@@ -57,7 +108,10 @@ test('JSON carries the whole provenance header and CSV carries it in headers', a
   assert.equal(r.status, 200);
   assert.deepEqual(body.publicdata, header);
   assert.equal(body.rows.length, 2);
-  assert.equal(body.next, 'https://publicdata.au/api/v1/datasets/test-data/versions/2026-04-24/rows?limit=2&offset=2');
+  assert.equal(
+    body.next,
+    'https://publicdata.au/api/v1/datasets/test-data/versions/2026-04-24/rows?limit=2&offset=2',
+  );
   const c = await call('?limit=2&format=csv');
   assert.equal(c.headers.get('x-publicdata-source-sha256'), 'abc123');
   assert.equal(decodeURIComponent(c.headers.get('x-publicdata-attribution')), header.attribution);
@@ -100,7 +154,12 @@ test('a named version is cached for good and served from the cache', async () =>
 
 const listVersions = async (slug, env = { DB: d1(db) }) => {
   const waits = [];
-  const res = await versions({ request: new Request(`https://publicdata.au/api/v1/datasets/${slug}/versions`), env, params: { slug }, waitUntil: (p) => waits.push(p) });
+  const res = await versions({
+    request: new Request(`https://publicdata.au/api/v1/datasets/${slug}/versions`),
+    env,
+    params: { slug },
+    waitUntil: (p) => waits.push(p),
+  });
   await Promise.all(waits);
   return res;
 };
@@ -109,7 +168,10 @@ test('versions lists what is loaded with the URLs to query each', async () => {
   const r = await listVersions('test-data');
   const body = await r.json();
   assert.equal(body.versions[0].version, '2026-04-24');
-  assert.equal(body.versions[0].rows_url, 'https://publicdata.au/api/v1/datasets/test-data/versions/2026-04-24/rows');
+  assert.equal(
+    body.versions[0].rows_url,
+    'https://publicdata.au/api/v1/datasets/test-data/versions/2026-04-24/rows',
+  );
   assert.ok(store.has('https://publicdata.au/api/v1/datasets/test-data/versions'));
   assert.equal((await listVersions('test-data', {})).status, 503);
   assert.equal((await listVersions('nothing-here')).status, 404);

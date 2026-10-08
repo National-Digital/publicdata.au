@@ -8,11 +8,16 @@ export async function spend(request, cost) {
   const { requests, window_seconds: w } = SPEC.limits;
   const now = Math.floor(Date.now() / 1000);
   const ip = request.headers.get('cf-connecting-ip') || '0.0.0.0';
-  const key = new Request(`https://publicdata.au/_limit/${encodeURIComponent(ip)}/${Math.floor(now / w)}`);
+  const key = new Request(
+    `https://publicdata.au/_limit/${encodeURIComponent(ip)}/${Math.floor(now / w)}`,
+  );
   const hit = await caches.default.match(key);
   const used = hit ? Number(await hit.text()) || 0 : 0;
   if (used + cost > requests) return w - (now % w);
-  await caches.default.put(key, new Response(String(used + cost), { headers: { 'cache-control': `max-age=${w}` } }));
+  await caches.default.put(
+    key,
+    new Response(String(used + cost), { headers: { 'cache-control': `max-age=${w}` } }),
+  );
   return 0;
 }
 

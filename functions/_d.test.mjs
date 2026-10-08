@@ -10,37 +10,67 @@ const R2 = {
 };
 const BIG = 'd/x/v/2026-04-24/data.duckdb';
 const obj = (key, body, range) => ({
-  size: key === BIG ? 3e9 : body.length, httpEtag: '"e"', range,
+  size: key === BIG ? 3e9 : body.length,
+  httpEtag: '"e"',
+  range,
   body: key === BIG && body ? new Blob([body]).stream() : body,
   writeHttpMetadata() {},
 });
 R2[BIG] = 'duck';
 const env = {
-  ASSETS: { fetch: async (r) => {
-    const u = new URL(r.url || r);
-    if (u.pathname === '/static/page-headers.json') return Response.json({ 'Content-Security-Policy': "default-src 'self'", 'X-Content-Type-Options': 'nosniff' });
-    if (u.pathname === '/latest.json') return Response.json({ x: '2026-04-24' });
-    if (u.pathname === '/withheld.json') return Response.json(['/d/x/v/2026-04-24/source.csv']);
-    return new Response('nf', { status: 404 });
-  } },
+  ASSETS: {
+    fetch: async (r) => {
+      const u = new URL(r.url || r);
+      if (u.pathname === '/static/page-headers.json')
+        return Response.json({
+          'Content-Security-Policy': "default-src 'self'",
+          'X-Content-Type-Options': 'nosniff',
+        });
+      if (u.pathname === '/latest.json') return Response.json({ x: '2026-04-24' });
+      if (u.pathname === '/withheld.json') return Response.json(['/d/x/v/2026-04-24/source.csv']);
+      return new Response('nf', { status: 404 });
+    },
+  },
   DIST: {
-    get: async (k, o) => (k in R2 ? obj(k, R2[k], o && o.range ? { offset: 0, length: R2[k].length } : undefined) : null),
+    get: async (k, o) =>
+      k in R2
+        ? obj(k, R2[k], o && o.range ? { offset: 0, length: R2[k].length } : undefined)
+        : null,
     head: async (k) => (k in R2 ? obj(k, '', undefined) : null),
-    list: async ({ prefix }) => ({ objects: Object.keys(R2).filter((k) => k.startsWith(prefix)).map((key) => ({ key })) }),
+    list: async ({ prefix }) => ({
+      objects: Object.keys(R2)
+        .filter((k) => k.startsWith(prefix))
+        .map((key) => ({ key })),
+    }),
   },
 };
-const get = (path, headers = {}) => onRequestGet({ request: new Request('https://publicdata.au' + path, { headers }), env });
+const get = (path, headers = {}) =>
+  onRequestGet({ request: new Request('https://publicdata.au' + path, { headers }), env });
 
 // First, because the headers are remembered once a lookup succeeds.
 test('a failed header lookup is not remembered, and the page still goes out with nosniff', async (t) => {
   const logged = t.mock.method(console, 'error', () => {});
   let calls = 0;
-  const flaky = { ...env, ASSETS: { fetch: async (r) => (new URL(r.url || r).pathname === '/static/page-headers.json' && ++calls === 1 ? new Response('no', { status: 500 }) : env.ASSETS.fetch(r)) } };
-  const one = await onRequestGet({ request: new Request('https://publicdata.au/d/x/v/2026-04-24/'), env: flaky });
+  const flaky = {
+    ...env,
+    ASSETS: {
+      fetch: async (r) =>
+        new URL(r.url || r).pathname === '/static/page-headers.json' && ++calls === 1
+          ? new Response('no', { status: 500 })
+          : env.ASSETS.fetch(r),
+    },
+  };
+  const one = await onRequestGet({
+    request: new Request('https://publicdata.au/d/x/v/2026-04-24/'),
+    env: flaky,
+  });
   assert.equal(one.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(one.headers.get('content-security-policy'), null);
   assert.equal(logged.mock.callCount(), 1);
-  const two = await onRequestGet({ request: new Request('https://publicdata.au/d/x/v/2026-04-24/'), env: flaky });
+  const two = await onRequestGet({
+    request: new Request('https://publicdata.au/d/x/v/2026-04-24/'),
+    env: flaky,
+  });
   assert.equal(two.headers.get('content-security-policy'), "default-src 'self'");
 });
 
@@ -68,29 +98,65 @@ test('a version page without its slash redirects, and a file keeps its long cach
 });
 
 test('a version page comes from R2 even when Pages still answers its path', async () => {
-  const stale = { ...env, ASSETS: { fetch: async (r) => (new URL(r.url || r).pathname === '/d/x/v/2026-04-24/' ? new Response('<html>old</html>', { headers: { 'x-robots-tag': 'noindex' } }) : env.ASSETS.fetch(r)) } };
-  const r = await onRequestGet({ request: new Request('https://publicdata.au/d/x/v/2026-04-24/'), env: stale });
+  const stale = {
+    ...env,
+    ASSETS: {
+      fetch: async (r) =>
+        new URL(r.url || r).pathname === '/d/x/v/2026-04-24/'
+          ? new Response('<html>old</html>', { headers: { 'x-robots-tag': 'noindex' } })
+          : env.ASSETS.fetch(r),
+    },
+  };
+  const r = await onRequestGet({
+    request: new Request('https://publicdata.au/d/x/v/2026-04-24/'),
+    env: stale,
+  });
   assert.equal(await r.text(), '<html>v</html>');
   assert.equal(r.headers.get('x-robots-tag'), null);
   const gone = { ...stale, DIST: { get: async () => null, head: async () => null } };
-  const p = await onRequestGet({ request: new Request('https://publicdata.au/d/x/v/2026-04-24/'), env: gone });
+  const p = await onRequestGet({
+    request: new Request('https://publicdata.au/d/x/v/2026-04-24/'),
+    env: gone,
+  });
   assert.equal(await p.text(), '<html>old</html>');
 });
 
 test('a file over the edge cache limit is sent to its bypass URL, which serves the range', async () => {
   for (const method of ['GET', 'HEAD']) {
-    const r = await onRequestGet({ request: new Request('https://publicdata.au/d/x/v/2026-04-24/data.duckdb', { method, headers: { range: 'bytes=0-1' } }), env });
+    const r = await onRequestGet({
+      request: new Request('https://publicdata.au/d/x/v/2026-04-24/data.duckdb', {
+        method,
+        headers: { range: 'bytes=0-1' },
+      }),
+      env,
+    });
     assert.equal(r.status, 302);
-    assert.equal(r.headers.get('location'), 'https://publicdata.au/d/x/v/2026-04-24/data.duckdb?edge=bypass');
+    assert.equal(
+      r.headers.get('location'),
+      'https://publicdata.au/d/x/v/2026-04-24/data.duckdb?edge=bypass',
+    );
   }
   const r = await get('/d/x/v/2026-04-24/data.duckdb?edge=bypass', { range: 'bytes=0-1' });
   assert.equal(r.status, 206);
-  const h = await onRequestGet({ request: new Request('https://publicdata.au/d/x/v/2026-04-24/data.duckdb?edge=bypass', { method: 'HEAD' }), env });
+  const h = await onRequestGet({
+    request: new Request('https://publicdata.au/d/x/v/2026-04-24/data.duckdb?edge=bypass', {
+      method: 'HEAD',
+    }),
+    env,
+  });
   assert.equal(h.status, 200);
   assert.equal(h.headers.get('content-length'), '3000000000');
   assert.equal((await get('/d/x/v/2026-04-24/data.csv')).status, 200);
-  const cond = { ...env, DIST: { ...env.DIST, get: async (k) => ({ ...obj(k, ''), body: undefined }) } };
-  const reval = await onRequestGet({ request: new Request('https://publicdata.au/d/x/v/2026-04-24/data.duckdb', { headers: { 'if-none-match': '"e"' } }), env: cond });
+  const cond = {
+    ...env,
+    DIST: { ...env.DIST, get: async (k) => ({ ...obj(k, ''), body: undefined }) },
+  };
+  const reval = await onRequestGet({
+    request: new Request('https://publicdata.au/d/x/v/2026-04-24/data.duckdb', {
+      headers: { 'if-none-match': '"e"' },
+    }),
+    env: cond,
+  });
   assert.equal(reval.status, 304);
 });
 
@@ -141,17 +207,29 @@ test("a version's source is the raw store's copy, and only for a version that wa
     head: async (k) => (k in RAW ? obj(k, RAW[k]) : null),
   };
   const published = ['d/x/v/2026-04-24/manifest.json', 'd/x/v/2026-03-01/manifest.json'];
-  const dist = { ...env.DIST, head: async (k) => (published.includes(k) ? obj(k, '') : env.DIST.head(k)) };
+  const dist = {
+    ...env.DIST,
+    head: async (k) => (published.includes(k) ? obj(k, '') : env.DIST.head(k)),
+  };
   // A preview holds its new version's manifest on Pages.
-  const pages = { fetch: async (r) => (new URL(r.url || r).pathname === '/d/x/v/2026-06-01/manifest.json' ? new Response('{}') : env.ASSETS.fetch(r)) };
+  const pages = {
+    fetch: async (r) =>
+      new URL(r.url || r).pathname === '/d/x/v/2026-06-01/manifest.json'
+        ? new Response('{}')
+        : env.ASSETS.fetch(r),
+  };
   const e = { ...env, ASSETS: pages, DIST: dist, RAW: raw };
-  const at = (path, method = 'GET') => onRequestGet({ request: new Request('https://publicdata.au' + path, { method }), env: e });
+  const at = (path, method = 'GET') =>
+    onRequestGet({ request: new Request('https://publicdata.au' + path, { method }), env: e });
   const r = await at('/d/x/v/2026-03-01/source.csv');
   assert.equal(r.status, 200);
   assert.equal(await r.text(), 'a,b\n1,2\n');
   assert.match(r.headers.get('cache-control'), /immutable/);
   assert.equal(r.headers.get('content-disposition'), disposition('d/x/v/2026-03-01/source.csv'));
-  assert.equal((await at('/d/x/v/2026-03-01/source.csv', 'HEAD')).headers.get('content-length'), '8');
+  assert.equal(
+    (await at('/d/x/v/2026-03-01/source.csv', 'HEAD')).headers.get('content-length'),
+    '8',
+  );
   assert.equal(await (await at('/d/x/v/2026-06-01/source.csv')).text(), 'preview');
   assert.equal((await at('/d/x/v/2026-05-01/source.csv')).status, 404);
   assert.equal((await at('/d/x/v/2026-03-01/source.zip')).status, 404);
@@ -160,13 +238,20 @@ test("a version's source is the raw store's copy, and only for a version that wa
 });
 
 test('a path with escapes is sent to its plain form, where a withheld file is still refused', async () => {
-  for (const path of ['/d/x/v/2026-04-24/sourc%65.csv', '/d/x/v/2026-04-24/source%2Ecsv', '/d/%78/v/2026-04-24/source.csv']) {
+  for (const path of [
+    '/d/x/v/2026-04-24/sourc%65.csv',
+    '/d/x/v/2026-04-24/source%2Ecsv',
+    '/d/%78/v/2026-04-24/source.csv',
+  ]) {
     const r = await get(path);
     assert.equal(r.status, 308, path);
     assert.equal(r.headers.get('location'), '/d/x/v/2026-04-24/source.csv');
     assert.equal((await get(r.headers.get('location'))).status, 410);
   }
-  assert.equal((await get('/d/%67one/v/2026-04-24/data.csv')).headers.get('location'), '/d/gone/v/2026-04-24/data.csv');
+  assert.equal(
+    (await get('/d/%67one/v/2026-04-24/data.csv')).headers.get('location'),
+    '/d/gone/v/2026-04-24/data.csv',
+  );
   assert.equal((await get('/d/x/v/2026-04-24/data.csv%3Fa')).status, 404);
   assert.equal((await get('/d/x/v/2026-04-24/%E0%A4%A')).status, 404);
   assert.equal((await get('/d/x/v/2026-04-24/data.csv')).status, 200);

@@ -10,8 +10,22 @@ const script = new URL('./next-version.mjs', import.meta.url).pathname;
 const repo = mkdtempSync(join(tmpdir(), 'next-version-'));
 const git = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
 git('init', '-q');
-git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '--allow-empty', '-m', 'chore: init');
-const next = (...a) => execFileSync('node', [script, ...a], { cwd: repo, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+git(
+  '-c',
+  'user.name=t',
+  '-c',
+  'user.email=t@example.com',
+  'commit',
+  '-q',
+  '--allow-empty',
+  '-m',
+  'chore: init',
+);
+const next = (...a) =>
+  execFileSync('node', [script, ...a], {
+    cwd: repo,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).toString();
 
 test('with no tag the floor is 1.0.0', () => {
   assert.equal(next('--print-current'), '1.0.0');
