@@ -24,6 +24,7 @@ import pyarrow.compute as pc
 import pyarrow.csv as pcsv
 import xlrd
 
+from .compute import fill_null
 from .register import (
     CELL_OF_RE,
     CELL_SOURCE,
@@ -169,11 +170,16 @@ def _drop_blank_rows(t: pa.Table) -> pa.Table:
     """A spreadsheet exported as CSV ends in rows of separators alone; they are not data."""
     if not t.num_rows or not t.num_columns:
         return t
-    blank: Arr | None = None
-    for c in t.columns:
-        b = pc.equal(pc.utf8_trim_whitespace(pc.fill_null(c, "")), "")  # type: ignore[call-overload, type-var]  # pyarrow-stubs 20 types fill_null as coalesce and takes no Python scalar
-        blank = b if blank is None else pc.and_(blank, b)
-    return t.filter(pc.invert(blank)) if pc.any(blank).as_py() else t  # type: ignore[arg-type, type-var]  # a table with a column always sets blank
+    blank = _blank(t.columns[0])
+    for c in t.columns[1:]:
+        blank = pc.and_(blank, _blank(c))
+    return t.filter(pc.invert(blank)) if pc.any(blank).as_py() else t
+
+
+def _blank(c: pa.ChunkedArray[Any]) -> Arr:
+    trimmed = pc.utf8_trim_whitespace(fill_null(c, ""))
+    blank: Arr = pc.equal(trimmed, "")  # type: ignore[call-overload]  # the stubs take no Python scalar
+    return blank
 
 
 def _cell(v: object) -> str:
@@ -198,7 +204,7 @@ def xls_to_xlsx(data: bytes) -> bytes:
     """
     book = xlrd.open_workbook(file_contents=data)
     wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # type: ignore[arg-type]  # a new Workbook always has its first sheet
+    wb.remove(wb.worksheets[0])
     for sh in book.sheets():
         ws = wb.create_sheet(sh.name[:31])
         for r in range(sh.nrows):
@@ -480,7 +486,9 @@ def unpivot(raw: pa.Table, ds: Dataset) -> tuple[pa.Table, list[str]]:
 
 def _blank_to_null(arr: Arr) -> Arr:
     arr = pc.utf8_trim_whitespace(arr)
-    return pc.if_else(pc.equal(arr, ""), pa.scalar(None, pa.string()), arr)  # type: ignore[call-overload, no-any-return]  # pyarrow-stubs 20 takes no Python scalar
+    empty: Arr = pc.equal(arr, "")  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
+    out: Arr = pc.if_else(empty, pa.scalar(None, pa.string()), arr)
+    return out
 
 
 def _examples(arr: Arr, mask: Arr, n: int = 5) -> list[str]:
@@ -495,10 +503,11 @@ def _plain_number(arr: Arr) -> Arr:
 
     Only a cell that is wholly such a figure is touched.
     """
-    grouped = pc.fill_null(pc.match_substring_regex(arr, THOUSANDS), fill_value=False)  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
+    grouped = fill_null(pc.match_substring_regex(arr, THOUSANDS), fill=False)
     if not pc.any(grouped).as_py():
         return arr
-    return pc.if_else(grouped, pc.replace_substring(arr, ",", ""), arr)  # type: ignore[no-any-return]  # pyarrow-stubs 20 leaves if_else untyped
+    out: Arr = pc.if_else(grouped, pc.replace_substring(arr, ",", ""), arr)
+    return out
 
 
 def _strptime(arr: Arr, f: Field) -> Arr:
@@ -510,29 +519,28 @@ def _strptime(arr: Arr, f: Field) -> Arr:
     formats = f.date_format.split("|")
     if len(formats) == 1:
         return pc.strptime(arr, format=formats[0], unit="s")
-    out: Arr | None = None
-    for fmt in formats:
-        got = pc.strptime(arr, format=fmt, unit="s", error_is_null=True)
-        out = got if out is None else pc.coalesce(out, got)
-    bad = pc.and_(pc.is_valid(arr), pc.is_null(out))  # type: ignore[arg-type]  # formats is never empty, so out is set
+    out = pc.strptime(arr, format=formats[0], unit="s", error_is_null=True)
+    for fmt in formats[1:]:
+        out = pc.coalesce(out, pc.strptime(arr, format=fmt, unit="s", error_is_null=True))
+    bad = pc.and_(pc.is_valid(arr), pc.is_null(out))
     if pc.any(bad).as_py():
         msg = f"{f.name}: values in none of the formats {formats}: {_examples(arr, bad)}"
         raise NormaliseError(msg)
-    return out  # type: ignore[return-value]  # formats is never empty, so out is set
+    return out
 
 
 def convert(arr: Arr, f: Field, suppression: tuple[str, ...]) -> tuple[Arr, Arr | None]:  # noqa: C901 - one branch per field type
     """Return (typed array, suppression mask or None)."""
     arr = _blank_to_null(arr)
     if f.null_values:
-        unknown = pc.fill_null(
+        unknown = fill_null(
             pc.is_in(arr, value_set=pa.array(list(f.null_values))),
-            fill_value=False,  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
+            fill=False,
         )
         arr = pc.if_else(unknown, pa.scalar(None, pa.string()), arr)
     sup = None
     if suppression and f.type in ("integer", "number"):
-        sup = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(suppression))), fill_value=False)  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
+        sup = fill_null(pc.is_in(arr, value_set=pa.array(list(suppression))), fill=False)
         if pc.any(sup).as_py():
             arr = pc.if_else(sup, pa.scalar(None, pa.string()), arr)
         else:
@@ -543,13 +551,13 @@ def convert(arr: Arr, f: Field, suppression: tuple[str, ...]) -> tuple[Arr, Arr 
         if f.type in ("integer", "number"):
             return pc.cast(_plain_number(arr), ARROW_TYPES[f.type]), sup
         if f.type == "boolean":
-            t = pc.fill_null(
+            t = fill_null(
                 pc.is_in(arr, value_set=pa.array(list(f.true_values))),
-                fill_value=False,  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
+                fill=False,
             )
-            fl = pc.fill_null(
+            fl = fill_null(
                 pc.is_in(arr, value_set=pa.array(list(f.false_values))),
-                fill_value=False,  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
+                fill=False,
             )
             bad = pc.and_(pc.is_valid(arr), pc.invert(pc.or_(t, fl)))
             if pc.any(bad).as_py():

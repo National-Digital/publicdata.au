@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from .compute import fill_null
 from .serialise import json_view
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ NULL_KEY = "\0"
 
 def _join_keys(t: pa.Table, key: tuple[str, ...]) -> list[Arr]:
     """Each key column as text with nulls as a marker no value holds, for joining only."""
-    return [pc.fill_null(pc.cast(t[k], pa.string()), NULL_KEY) for k in key]  # type: ignore[type-var, misc]  # pyarrow-stubs 20 types fill_null as coalesce
+    return [fill_null(pc.cast(t[k], pa.string()), NULL_KEY) for k in key]
 
 
 def _flat(c: Arr) -> Arr:
@@ -52,11 +53,11 @@ def _differs(x: Arr, y: Arr) -> Arr:
         return pc.or_(pc.is_valid(x), pc.is_valid(y))
     x, y = _flat(x), _flat(y)
     one_null = pc.xor(pc.is_null(x), pc.is_null(y))
-    ne = pc.fill_null(pc.not_equal(x, y), fill_value=False)  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
+    ne = fill_null(pc.not_equal(x, y), fill=False)
     if pa.types.is_floating(x.type):
         ne = pc.and_(
             ne,
-            pc.invert(pc.fill_null(pc.and_(pc.is_nan(x), pc.is_nan(y)), fill_value=False)),  # type: ignore[call-arg]  # pyarrow-stubs 20 types fill_null as coalesce
+            pc.invert(fill_null(pc.and_(pc.is_nan(x), pc.is_nan(y)), fill=False)),
         )
     return pc.or_(ne, one_null)
 
