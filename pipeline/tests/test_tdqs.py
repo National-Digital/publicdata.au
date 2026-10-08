@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from publicdata.tdqs import Tool
+    from publicdata.api_text import Tool
 
 
 def _tools() -> list[Tool]:

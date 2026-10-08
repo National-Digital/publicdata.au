@@ -1,6 +1,6 @@
 import datetime as dt
 import json
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import pytest
 import yaml
@@ -37,10 +37,26 @@ if TYPE_CHECKING:
 
     import requests
 
+    from publicdata.fetch import CkanPackage, CkanResource
     from publicdata.register import Dataset
 
     # uuid, load time, latitude, year and any other fields of one Atlas record.
     type AlaRow = tuple[str, str, float | None, int, dict[str, str]]
+
+    class _Params(TypedDict, total=False):
+        """The query parameters the stand-in portals read."""
+
+        id: str
+        q: str
+        sort: str
+        rows: int
+        fq: list[str]
+        pageSize: int
+        startIndex: int
+        fl: str
+        resultOffset: int
+        orderByFields: str
+        outSR: int
 
 
 def _as_session(s: object) -> requests.Session:
@@ -172,7 +188,7 @@ def test_the_newest_matching_resource_is_fetched() -> None:
         [Field("a", "A")],
         source=Source(adapter="ckan-resource", url="u", package="p", resource_match=r"by LGA"),
     )
-    resources = [
+    resources: list[CkanResource] = [
         {"id": "old", "name": "Recorded offences by LGA - Dec 2019", "created": "2020-05-06"},
         {"id": "state", "name": "Recorded offences - Jun 2026", "created": "2026-09-24"},
         {"id": "reimport", "name": "Recorded offences by LGA - Sep 2019", "created": "2020-05-06"},
@@ -196,7 +212,7 @@ def test_the_newest_matching_package_is_fetched() -> None:
             resource_match=r"\.csv$",
         ),
     )
-    packages = [
+    packages: list[CkanPackage] = [
         {"name": "current-nt-crime-statistics-june-2026", "metadata_created": "2026-08-17"},
         {"name": "current-nt-crime-statistics-july-2026", "metadata_created": "2026-09-14"},
         {"name": "nt-crime-statistics-archive", "metadata_created": "2026-09-20"},
@@ -217,19 +233,17 @@ def test_a_package_pattern_searches_with_the_package_text() -> None:
             resource_match=r"\.csv$",
         ),
     )
-    calls: list[tuple[str, dict[str, Any] | None]] = []
+    calls: list[tuple[str, _Params | None]] = []
 
     class R:
-        def __init__(self, body: dict[str, Any]) -> None:
+        def __init__(self, body: object) -> None:
             self.body = body
 
-        def json(self) -> dict[str, Any]:
+        def json(self) -> object:
             return self.body
 
     class S:
-        def get(
-            self, url: str, params: dict[str, Any] | None = None, timeout: float | None = None
-        ) -> R:
+        def get(self, url: str, params: _Params | None = None, timeout: float | None = None) -> R:
             calls.append((url.rsplit("/", 1)[-1], params))
             if url.endswith("package_search"):
                 names = [
@@ -294,15 +308,15 @@ class _Session:
     An adapter's reads are then checked without a network.
     """
 
-    def __init__(self, table: Mapping[str, Callable[[dict[str, Any]], _Resp]]) -> None:
+    def __init__(self, table: Mapping[str, Callable[[_Params], _Resp]]) -> None:
         self.table = table
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.calls: list[tuple[str, _Params]] = []
         self.headers: dict[str, str] = {}
 
     def get(
         self,
         url: str,
-        params: dict[str, Any] | None = None,
+        params: _Params | None = None,
         timeout: float | None = None,
         *,
         allow_redirects: bool = True,
@@ -347,7 +361,7 @@ def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path: P
         ],
     }
 
-    def feats(offset: int) -> dict[str, Any]:
+    def feats(offset: int) -> object:
         rows = [
             {
                 "type": "Feature",
@@ -428,7 +442,7 @@ def _ala_session(
             return int(lo) <= y < int(hi) if ex else int(lo) <= y <= int(hi)
         return True
 
-    def search(params: dict[str, Any]) -> _Resp:
+    def search(params: _Params) -> _Resp:
         fqs = params.get("fq") or []
         uid = next(f.split(":", 1)[1] for f in fqs if f.startswith("dataResourceUid:"))
         out = [r for r in rows[uid] if all(keep(r, f) for f in fqs)]
@@ -558,7 +572,7 @@ def test_ala_stops_when_a_provider_loses_open_rows_but_not_rows(tmp_path: Path) 
         def get(
             self,
             url: str,
-            params: dict[str, Any] | None = None,
+            params: _Params | None = None,
             timeout: float | None = None,
             *,
             allow_redirects: bool = True,

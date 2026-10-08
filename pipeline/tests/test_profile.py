@@ -4,7 +4,7 @@ import sqlite3
 import unittest.mock
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Never
+from typing import TYPE_CHECKING, Never, Unpack
 
 import duckdb
 import pyarrow as pa
@@ -30,9 +30,12 @@ from .test_register import _raw
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from publicdata.normalise import Table
+    from publicdata.normalise import ArrowArray, Table
+    from publicdata.register import RawEntry, RawField
     from publicdata.serialise.profile import Layout
     from publicdata.store import Manifest
+
+    from .conftest import DatasetFields, ManifestFields
 
 F = [
     Field("id", "Id", "integer"),
@@ -55,12 +58,16 @@ SOURCE = [6, 5, 4, 3, 2, 1]
 SORTED = [2, 1, 5, 4, 6, 3]
 
 
-def _ds(**kw: object) -> Dataset:
-    return make_dataset(F, key=("id",), **kw)
+def _ds(**kw: Unpack[DatasetFields]) -> Dataset:
+    fields: DatasetFields = {"key": ("id",), **kw}
+    return make_dataset(F, **fields)
 
 
-def _m(ds: Dataset, csv: bytes = CSV, *, legacy: bool = False, **kw: object) -> Manifest:
-    return make_manifest(csv, parquet={} if legacy else profile.layout(ds), **kw)
+def _m(
+    ds: Dataset, csv: bytes = CSV, *, legacy: bool = False, **kw: Unpack[ManifestFields]
+) -> Manifest:
+    fields: ManifestFields = {"parquet": {} if legacy else profile.layout(ds), **kw}
+    return make_manifest(csv, **fields)
 
 
 def _build(tmp_path: Path, ds: Dataset, *, legacy: bool = False) -> tuple[Path, VersionOut]:
@@ -69,7 +76,7 @@ def _build(tmp_path: Path, ds: Dataset, *, legacy: bool = False) -> tuple[Path, 
     return tmp_path / "d" / "t" / "v" / m.version, vout
 
 
-def _ids(path: Path) -> list[Any]:
+def _ids(path: Path) -> list[object]:
     return pq.read_table(path).column("id").to_pylist()
 
 
@@ -149,7 +156,7 @@ def test_the_build_sorts_a_version_once(tmp_path: Path, monkeypatch: pytest.Monk
     calls: list[int] = []
     real = profile.permutation
 
-    def counted(t: pa.Table, sort: list[str], key: list[str]) -> pa.Array[Any] | None:
+    def counted(t: pa.Table, sort: list[str], key: list[str]) -> ArrowArray | None:
         calls.append(1)
         return real(t, sort, key)
 
@@ -451,14 +458,15 @@ def test_query_copies_go_to_r2_alone(tmp_path: Path) -> None:
         ({"int32": ["a"]}, "int32 field 'a' is not an integer"),
     ],
 )
-def test_sort_lookup_and_int32_name_declared_fields(over: dict[str, object], match: str) -> None:
-    fields = [
+def test_sort_lookup_and_int32_name_declared_fields(over: RawEntry, match: str) -> None:
+    fields: list[RawField] = [
         {"name": "a", "source": "A"},
         {"name": "n", "source": "N", "type": "integer"},
         {"name": "flag", "source": "Flag", "type": "boolean"},
     ]
+    entry: RawEntry = {"fields": fields, **over}
     with pytest.raises(RegisterError, match=match):
-        parse(_raw(fields=fields, **over), "x")
+        parse(_raw(**entry), "x")
     ds = parse(_raw(fields=fields, sort=["a"], lookup=["a"], int32=["n"]), "x")
     assert (ds.sort, ds.lookup, ds.int32) == (("a",), ("a",), ("n",))
 
@@ -537,9 +545,11 @@ def test_the_order_file_is_in_the_entry_before_its_record(tmp_path: Path) -> Non
 
 
 def test_sort_or_int32_on_a_database_names_the_rule() -> None:
-    for name in ("sort", "int32"):
+    over: list[tuple[str, RawEntry]] = [("sort", {"sort": ["a"]}), ("int32", {"int32": ["a"]})]
+    for name, extra in over:
+        entry: RawEntry = {"kind": "database", **extra}
         with pytest.raises(RegisterError, match=f"{name} is for a table entry"):
-            parse(_raw(kind="database", **{name: ["a"]}), "x")
+            parse(_raw(**entry), "x")
 
 
 @pytest.mark.parametrize("legacy", [False, True])

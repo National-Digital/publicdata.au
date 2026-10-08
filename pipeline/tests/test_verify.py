@@ -513,7 +513,7 @@ def test_a_format_grown_from_old_bytes_in_r2_is_made_again_from_them(
         real = WRITERS["xlsx"]
 
         def xlsx(tbl: Table, header: Header, path: Path, vdir: Path) -> None:
-            real(tbl, {**header, "note": "changed"}, path, vdir)
+            real(tbl, {**header, "title": header["title"] + " changed"}, path, vdir)
 
         monkeypatch.setitem(WRITERS, "xlsx", xlsx)
         _publishing(tmp_path / "w", r2)

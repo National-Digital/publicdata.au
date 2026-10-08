@@ -3,7 +3,7 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 import requests
@@ -20,8 +20,20 @@ from .conftest import ROOT
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from typing import Unpack
 
-RECORD = {
+    from publicdata.hubs import (
+        CatalogueRecord,
+        Deposition,
+        HubField,
+        HubRecord,
+        Schema,
+        Versions,
+        ZenodoRequest,
+    )
+    from publicdata.jsontypes import JSONObject
+
+RECORD: CatalogueRecord = {
     "identifier": "qld-road-crash-factors",
     "title": "Factors in road crashes, Queensland, every year from 2001 to the latest release",
     "description": "Crashes by the factors police recorded.",
@@ -53,10 +65,10 @@ RECORD = {
         },
     ],
 }
-VERSIONS = {
+VERSIONS: Versions = {
     "versions": [{"version": "2026-09-30", "rows": 1234}, {"version": "2025-01-01", "rows": 1000}]
 }
-SCHEMA = {
+SCHEMA: Schema = {
     "fields": [
         {"name": "year", "type": "integer", "title": "Year"},
         {
@@ -68,7 +80,7 @@ SCHEMA = {
         {"name": "region", "type": "string", "title": "(row header 1)"},
     ]
 }
-MANIFEST = {
+MANIFEST: JSONObject = {
     "sha256": "ab" * 32,
     "source": {
         "portal": "https://www.data.qld.gov.au",
@@ -77,7 +89,7 @@ MANIFEST = {
 }
 
 
-def make(**over: object) -> hubs.Entry:
+def make(**over: Unpack[CatalogueRecord]) -> hubs.Entry:
     return hubs.entry({**RECORD, **over}, VERSIONS, SCHEMA, MANIFEST, queryable=True)
 
 
@@ -298,10 +310,10 @@ class FakeZenodoHttp:
 
     def __init__(
         self,
-        records: list[dict[str, Any]],
+        records: list[Deposition],
         *,
         fail_metadata: bool = False,
-        found: Iterable[dict[str, Any]] = (),
+        found: Iterable[Deposition] = (),
     ) -> None:
         self.records = records
         self.found = list(found)
@@ -314,7 +326,7 @@ class FakeZenodoHttp:
         method: str,
         url: str,
         timeout: float | None = None,
-        **kw: Any,  # noqa: ANN401 - takes whatever keywords the session would
+        **kw: Unpack[ZenodoRequest],
     ) -> FakeResponse:
         path = url.split("/api", 1)[-1] if "/api/" in url else url
         self.calls.append((method, path))
@@ -352,10 +364,10 @@ class FakeZenodo(hubs.Zenodo):
 
 
 def zenodo(
-    records: list[dict[str, Any]],
+    records: list[Deposition],
     *,
     fail_metadata: bool = False,
-    found: Iterable[dict[str, Any]] = (),
+    found: Iterable[Deposition] = (),
 ) -> FakeZenodo:
     z = FakeZenodo("t", base="https://z")
     z.http = FakeZenodoHttp(records, fail_metadata=fail_metadata, found=found)
@@ -364,7 +376,7 @@ def zenodo(
 
 def record(
     id_: int, version: str, *, submitted: bool = True, concept: int | None = None
-) -> dict[str, Any]:
+) -> Deposition:
     return {
         "id": id_,
         "submitted": submitted,
@@ -423,7 +435,7 @@ def test_a_failed_draft_cleanup_never_hides_the_original_error(
         method: str,
         url: str,
         timeout: float | None = None,
-        **kw: Any,  # noqa: ANN401 - takes whatever keywords the session would
+        **kw: Unpack[ZenodoRequest],
     ) -> FakeResponse:
         if method == "DELETE":
             msg = "network down"
@@ -868,8 +880,8 @@ class FakeSiteHttp:
     """The live site's catalogue files, with one dataset whose schema cannot be read."""
 
     def __init__(self) -> None:
-        broken = {**RECORD, "identifier": "broken"}
-        self.files = {
+        broken: CatalogueRecord = {**RECORD, "identifier": "broken"}
+        self.files: dict[str, object] = {
             "https://publicdata.au/catalog.json": {
                 "dataset": [RECORD, broken, {**RECORD, "identifier": "skipped"}]
             },
@@ -957,7 +969,7 @@ class Locating(FakeHub):
 
 def test_run_records_where_each_copy_is_held_published_or_not_reached(tmp_path: Path) -> None:
     e, other = make(), make(identifier="other-one")
-    record: dict[str, Any] = {}
+    record: HubRecord = {}
     hubs.run(
         {"h": Locating(held={"2026-09-30"}), "bad": FakeHub(fail=True)},
         [(e.slug, e), (other.slug, other)],
@@ -976,11 +988,11 @@ def test_run_records_where_each_copy_is_held_published_or_not_reached(tmp_path: 
 
 
 def test_merge_record_keeps_what_a_partial_run_did_not_reach() -> None:
-    old = {
+    old: HubRecord = {
         "accounts": {"kaggle": "k"},
         "datasets": {"a": {"kaggle": "ka", "zenodo": "10.1/old"}, "b": {"kaggle": "kb"}},
     }
-    new = {"accounts": {"huggingface": "h"}, "datasets": {"a": {"zenodo": "10.1/new"}}}
+    new: HubRecord = {"accounts": {"huggingface": "h"}, "datasets": {"a": {"zenodo": "10.1/new"}}}
     assert hubs.merge_record(old, new) == {
         "accounts": {"huggingface": "h", "kaggle": "k"},
         "datasets": {"a": {"kaggle": "ka", "zenodo": "10.1/new"}, "b": {"kaggle": "kb"}},
@@ -988,7 +1000,7 @@ def test_merge_record_keeps_what_a_partial_run_did_not_reach() -> None:
 
 
 def test_copies_are_listed_in_a_fixed_order_with_the_doi_last() -> None:
-    rec = {
+    rec: HubRecord = {
         "datasets": {
             "x": {
                 "zenodo": "10.5281/zenodo.9",
@@ -1017,7 +1029,7 @@ def test_zenodo_location_is_the_concept_doi_of_a_submitted_record() -> None:
 
 
 def test_coordinates_are_typed_as_coordinates_and_tag_the_dataset() -> None:
-    fields = (
+    fields: tuple[HubField, ...] = (
         {"name": "crash_latitude", "type": "number"},
         {"name": "lng", "type": "number"},
         {"name": "lat_band", "type": "number"},
@@ -1133,10 +1145,10 @@ def test_hugging_face_carries_only_the_parquet_and_clears_other_formats(tmp_path
         def create_tag(self, *a: object, **k: object) -> None:
             pass
 
-        def upload_folder(self, **k: Any) -> None:  # noqa: ANN401 - HfApi's keywords
-            self.calls.append(
-                (sorted(p.name for p in k["folder_path"].iterdir()), k["delete_patterns"])
-            )
+        def upload_folder(
+            self, *, folder_path: Path, delete_patterns: list[str], **k: object
+        ) -> None:
+            self.calls.append((sorted(p.name for p in folder_path.iterdir()), delete_patterns))
 
     hub = object.__new__(hubs.HuggingFace)
     api = Api()
@@ -1260,7 +1272,7 @@ def test_zenodo_sends_a_file_again_after_a_gateway_error(
         method: str,
         url: str,
         timeout: float | None = None,
-        **kw: Any,  # noqa: ANN401 - takes whatever keywords the session would
+        **kw: Unpack[ZenodoRequest],
     ) -> FakeResponse:
         if method == "PUT" and url.startswith("https://z/b/") and url.endswith("data.parquet"):
             tries["n"] += 1

@@ -9,7 +9,7 @@ import urllib.request
 import zipfile
 from dataclasses import replace
 from email.message import Message
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Literal, Protocol, Self, TypedDict, Unpack
 
 import pytest
 
@@ -22,17 +22,46 @@ from publicdata.register import Dataset, Field, Source, load
 from .conftest import ROOT, make_dataset, make_manifest, present
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Iterable
     from pathlib import Path
+
+    from publicdata.cost import Catalog, CatalogRecord, GhEvent, GhRun
+    from publicdata.register import Geometry
+
+    class _RunOptions(TypedDict):
+        store_dir: Path
+        catalog_src: str
+        today: dt.date
+
+    class _RunArgs(_RunOptions):
+        datasets: list[Dataset]
+
+    class _EntryOptions(TypedDict, total=False):
+        source: Source
+        geometry: Geometry | None
+
+    class _ApiOptions(TypedDict, total=False):
+        labels: Iterable[str]
+        runs: Iterable[GhRun]
+
+
+class _Git(Protocol):
+    def __call__(self, *a: str) -> None: ...
+
 
 TODAY = dt.date(2026, 10, 6)
 PAGES = {"index.html", "index.md"}
 GB = cost.GB
 
 
-def entry(slug: str, cadence: str = "", **kw: object) -> Dataset:
+def entry(slug: str, cadence: str = "", **kw: Unpack[_EntryOptions]) -> Dataset:
     src = Source(adapter="file", url=f"https://example.gov.au/{slug}.csv", cadence=cadence)
-    return make_dataset([Field("a", "string")], **{"slug": slug, "source": src, **kw})
+    return make_dataset(
+        [Field("a", "string")],
+        slug=slug,
+        source=kw.get("source", src),
+        geometry=kw.get("geometry"),
+    )
 
 
 def stored(root: Path, slug: str, *versions: str, size: int = 1000) -> None:
@@ -44,7 +73,7 @@ def stored(root: Path, slug: str, *versions: str, size: int = 1000) -> None:
         )
 
 
-def catalog(**sizes: dict[str, int]) -> dict[str, Any]:
+def catalog(**sizes: dict[str, int]) -> Catalog:
     return {
         "dataset": [
             {
@@ -237,7 +266,7 @@ def test_measured_bytes_count_the_source_once_and_the_partitions() -> None:
 
 
 def test_the_catalogue_is_summed_by_file_so_a_database_keeps_every_table() -> None:
-    rec = {
+    rec: CatalogRecord = {
         "identifier": "db",
         "versionInfo": "2026-10-01",
         "distribution": [
@@ -394,7 +423,7 @@ def test_a_host_that_refuses_head_is_sized_from_a_get_it_does_not_read(
     assert seen[-1] == ("GET", "https://bucket.example/f.csv?sig=1", "bytes=0-0")
 
 
-def _repo(tmp_path: Path, files: dict[str, str]) -> Callable[..., None]:
+def _repo(tmp_path: Path, files: dict[str, str]) -> _Git:
     def git(*a: str) -> None:
         subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
 
@@ -560,7 +589,7 @@ def test_the_gate_fails_a_changed_entry_over_budget(tmp_path: Path) -> None:
     cat = tmp_path / "catalog.json"
     cat.write_text(json.dumps(catalog()), "utf-8")
     summary = tmp_path / "summary.md"
-    run: dict[str, Any] = {
+    run: _RunArgs = {
         "datasets": ds,
         "store_dir": tmp_path,
         "catalog_src": str(cat),
@@ -615,7 +644,7 @@ def test_the_cli_reads_a_catalogue_file(
 def test_an_unreadable_catalogue_fails_a_changed_entry_closed(tmp_path: Path) -> None:
     stored(tmp_path, "t", "2026-10-01", size=1000)
     summary = tmp_path / "s.md"
-    run: dict[str, Any] = {
+    run: _RunOptions = {
         "store_dir": tmp_path,
         "catalog_src": str(tmp_path / "missing.json"),
         "today": TODAY,
@@ -776,7 +805,7 @@ def test_a_source_kind_is_read_from_its_name_or_type(name: str, ct: str, kind: s
 
 
 def test_a_spatial_entry_or_a_spreadsheet_projects_more_formats() -> None:
-    geo = entry("t", geometry={"kind": "point"})
+    geo = entry("t", geometry={"kind": "point", "crs": "EPSG:7844"})
     assert cost.estimate(geo, cost.Sized(GB)) == 31 * GB
     assert cost.estimate(entry("t"), cost.Sized(GB, "spreadsheet")) == 91 * GB
 
@@ -867,9 +896,9 @@ def test_live_rows_reads_the_newest_version_and_skips_failures(
 
 def _api(  # noqa: PLR0913 - the options are keyword-only and named at each call
     labels: Iterable[str] = ("cost-approved",),
-    events: Iterable[dict[str, Any]] = (),
+    events: Iterable[GhEvent] = (),
     perms: dict[str, str] | None = None,
-    runs: Iterable[dict[str, Any]] = (),
+    runs: Iterable[GhRun] = (),
     author: str = "alice",
     *,
     head: str = "h2",
@@ -897,11 +926,11 @@ def _api(  # noqa: PLR0913 - the options are keyword-only and named at each call
     return get
 
 
-def _run(sha: str, at: str, repo: str = "o/r") -> dict[str, Any]:
+def _run(sha: str, at: str, repo: str = "o/r") -> GhRun:
     return {"head_sha": sha, "created_at": at, "head_repository": {"full_name": repo}}
 
 
-def _label(who: str, at: str, event: str = "labeled") -> dict[str, Any]:
+def _label(who: str, at: str, event: str = "labeled") -> GhEvent:
     return {"event": event, "actor": {"login": who}, "created_at": at, "label": {"name": "cost-approved"}}  # fmt: skip
 
 
@@ -948,12 +977,14 @@ RUNS = [_run("h2", "2026-10-07T11:05:00Z"), _run("h2", "2026-10-07T11:00:00Z"),
     ],
 )
 def test_an_approval_needs_another_writer_after_the_newest_commit(
-    events: list[dict[str, Any]],
-    kw: dict[str, Any],
+    events: list[GhEvent],
+    kw: _ApiOptions,
     ok: bool,  # noqa: FBT001 - pytest passes parametrized values by name
     why: str,
 ) -> None:
-    got, reason = cost.approval("o/r", 50, _api(events=events, **{"runs": RUNS, **kw}))
+    opts: _ApiOptions = {"runs": RUNS}
+    opts.update(kw)
+    got, reason = cost.approval("o/r", 50, _api(events=events, **opts))
     assert got is ok
     assert why in reason
 

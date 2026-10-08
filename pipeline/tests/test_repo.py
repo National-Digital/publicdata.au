@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import TypedDict
 
 import yaml
 
@@ -19,7 +19,11 @@ CHECKS = {
 }
 
 
-def _guarded(jobs: dict[str, Any], name: str) -> bool:
+# The two keys of a workflow job this check reads; `if` is a keyword, hence the call form.
+Job = TypedDict("Job", {"if": str, "needs": str | list[str]}, total=False)
+
+
+def _guarded(jobs: dict[str, Job], name: str) -> bool:
     """The job's own condition names the repo, or a job it needs does."""
     job = jobs[name]
     if GUARD in str(job.get("if", "")):

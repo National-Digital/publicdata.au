@@ -2,7 +2,7 @@ import dataclasses
 import io
 import json
 import re
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import pytest
 import requests
@@ -18,7 +18,14 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
+    from publicdata.fetch import LicenceRead
+    from publicdata.jsontypes import JSON
     from publicdata.register import Dataset
+
+    class _AihwBody(TypedDict):
+        reportNodeGuid: str
+        currentNodeId: int
+
 
 CSV = b"a,b\n1,x\n2,y\n"
 
@@ -261,7 +268,7 @@ def test_an_entry_that_names_the_portals_own_licence_code_is_checked_against_it(
 
 def test_a_worked_out_licence_id_is_compared_as_it_stands() -> None:
     ds = ds_for("socrata", "https://www.data.act.gov.au", "x", licence="CC-BY-4.0")
-    bare = {
+    bare: LicenceRead = {
         "id": "CC-BY",
         "stated": "CC_BY",
         "normalised": "CC-BY",
@@ -340,7 +347,7 @@ def test_a_licence_page_that_lost_its_grant_stops_the_fetch(
         run("file", file_ds(), routes, tmp_path, monkeypatch)
 
 
-def manual_portal(modified: str = "2026-09-01T00:00:00") -> dict[str, Any]:
+def manual_portal(modified: str = "2026-09-01T00:00:00") -> object:
     res = {"id": "r", "name": "T", "format": "CSV", "url": "https://p.example/t.csv"}
     res["last_modified"] = modified
     return {
@@ -568,7 +575,7 @@ AIHW_LIST = {
 
 
 class AihwPortal(Portal):
-    def post(self, url: str, json: dict[str, Any] | None = None, **kw: object) -> Resp:
+    def post(self, url: str, json: _AihwBody | None = None, **kw: object) -> Resp:
         assert json is not None
         self.asked.append(("POST", url, json["reportNodeGuid"], json["currentNodeId"]))
         return Resp(AIHW_LIST)
@@ -797,9 +804,7 @@ def test_kiwis_splits_a_batch_the_service_refuses_as_too_large(
 ) -> None:
     calls: list[list[str]] = []
 
-    def fake_query(
-        s: requests.Session, base: str, request: str, **params: str
-    ) -> list[dict[str, Any]]:
+    def fake_query(s: requests.Session, base: str, request: str, **params: str) -> list[JSON]:
         ids = params["ts_id"].split(",")
         calls.append(ids)
         if len(ids) > 1:
@@ -829,7 +834,7 @@ def test_a_downloaded_file_keeps_its_headers_whatever_their_case() -> None:
 def test_a_manual_stack_reads_a_folder_of_downloads_then_waits_for_the_records_to_change(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def portal(modified: str) -> dict[str, Any]:
+    def portal(modified: str) -> object:
         res = [
             {"id": f"r{i}", "name": n, "format": "XLSX", "created": modified, "url": u}
             for i, (n, u) in enumerate(

@@ -1,6 +1,6 @@
 import math
 import sqlite3
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 type Pair = tuple[Records, sqlite3.Connection]
 
-ROWS: dict[str, list[Any]] = {
+ROWS: dict[str, list[int | float | str | None]] = {
     "n": [1, 2, 3, None],
     "x": [1.5, math.nan, 2.25, None],
     "s": ["01", "1", "b", None],

@@ -2,7 +2,7 @@ import json
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Never, cast
+from typing import TYPE_CHECKING, Never, cast
 
 import requests
 
@@ -12,6 +12,20 @@ from publicdata.publishers import PORTAL_JUR, load_curated, resolve
 
 if TYPE_CHECKING:
     import pytest
+
+    from publicdata.catalogue import Params, Record
+    from publicdata.publishers import CatalogueRecord
+    from publicdata.store import PortalStats
+
+
+def _int(v: object) -> int:
+    assert isinstance(v, int)
+    return v
+
+
+def _text(v: object) -> str:
+    assert isinstance(v, str)
+    return v
 
 
 class Resp:
@@ -36,7 +50,7 @@ class FakeSession:
     def get(
         self,
         url: str,
-        params: dict[str, Any] | None = None,
+        params: Params | None = None,
         timeout: float | None = None,
         headers: dict[str, str] | None = None,
     ) -> Resp:
@@ -49,10 +63,11 @@ class FakeSession:
             orgs = [{"name": "tmr", "title": " Transport and Main Roads "}]
             return Resp({"result": orgs if params["offset"] == 0 else []})
         if url.endswith("/package_search"):
-            assert "extras_original_harvest_source" in params["fl"]
-            assert "dataset_type" in params["fl"]
-            assert ",url" in params["fl"]
-            rows = self.packages[params["start"] : params["start"] + params["rows"]]
+            assert "extras_original_harvest_source" in _text(params["fl"])
+            assert "dataset_type" in _text(params["fl"])
+            assert ",url" in _text(params["fl"])
+            start = _int(params["start"])
+            rows = self.packages[start : start + _int(params["rows"])]
             return Resp({"result": {"count": len(self.packages), "results": rows}})
         if "socrata" in url:
             res = [
@@ -275,7 +290,7 @@ class Down(FakeSession):
     def get(
         self,
         url: str,
-        params: dict[str, Any] | None = None,
+        params: Params | None = None,
         timeout: float | None = None,
         headers: dict[str, str] | None = None,
     ) -> Resp:
@@ -342,12 +357,12 @@ class FixtureSession:
 
     def __init__(self) -> None:
         self.headers: dict[str, str] = {}
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.calls: list[tuple[str, Params]] = []
 
     def get(
         self,
         url: str,
-        params: dict[str, Any] | None = None,
+        params: Params | None = None,
         timeout: float | None = None,
         headers: dict[str, str] | None = None,
     ) -> Resp:
@@ -430,7 +445,7 @@ def test_a_council_portal_replaces_only_the_copies_it_lists() -> None:
                             licence_title="", formats=["CSV"], created="", modified="", url="", summary="",
                             harvested_from="")  # fmt: skip
 
-    def copy(portal: str, i: int, title: str, host: str = "") -> dict[str, Any]:
+    def copy(portal: str, i: int, title: str, host: str = "") -> Record:
         return catalogue._record(catalogue.BY_CODE[portal], source_id=f"c{i}", name=f"c{i}", title=title,
                                  org="city-of-ballarat", org_title="City of Ballarat", kind="dataset",
                                  licence="CC-BY-4.0", licence_title="", formats=["CSV"], created="",
@@ -439,8 +454,8 @@ def test_a_council_portal_replaces_only_the_copies_it_lists() -> None:
     same_title = copy("vic", 1, "Public toilets")
     same_source = copy("vic", 2, "Old name", "data.ballarat.vic.gov.au")
     elsewhere = copy("gov", 3, "Heritage status")
-    other_org = {**copy("vic", 4, "Public Toilets"), "org": "someone-else"}
-    stats: dict[str, dict[str, Any]] = {"vic": {}, "gov": {}}
+    other_org: Record = {**copy("vic", 4, "Public Toilets"), "org": "someone-else"}
+    stats: dict[str, PortalStats] = {"vic": {}, "gov": {}}
     kept = catalogue._drop_copies(
         [own, same_title, same_source, elsewhere, other_org], catalogue.PORTALS, stats
     )
@@ -457,7 +472,7 @@ def test_a_flaky_council_keeps_its_last_records_and_never_stops_the_harvest(
         def get(
             self,
             url: str,
-            params: dict[str, Any] | None = None,
+            params: Params | None = None,
             timeout: float | None = None,
             headers: dict[str, str] | None = None,
         ) -> Resp:
@@ -468,7 +483,11 @@ def test_a_flaky_council_keeps_its_last_records_and_never_stops_the_harvest(
 
     monkeypatch.setattr(requests, "Session", Broken)
     monkeypatch.setattr(time, "sleep", lambda *_: None)
-    before = {"id": "ballarat-da-old", "portal": "ballarat", "title": "Kept", "org": "ballarat"}
+    # A record from an earlier snapshot, with only the fields the carry reads.
+    before = cast(
+        "Record",
+        {"id": "ballarat-da-old", "portal": "ballarat", "title": "Kept", "org": "ballarat"},
+    )
     recs, stats = catalogue.harvest(
         (catalogue.BY_CODE["ballarat"], catalogue.BY_CODE["sydney"]),
         log=lambda *_: None,
@@ -488,7 +507,7 @@ def test_a_portal_answering_an_odd_shape_is_kept_from_the_last_snapshot(
         def get(
             self,
             url: str,
-            params: dict[str, Any] | None = None,
+            params: Params | None = None,
             timeout: float | None = None,
             headers: dict[str, str] | None = None,
         ) -> Resp:
@@ -497,7 +516,11 @@ def test_a_portal_answering_an_odd_shape_is_kept_from_the_last_snapshot(
             return super().get(url, params, timeout, headers)
 
     monkeypatch.setattr(requests, "Session", Odd)
-    before = {"id": "ballarat-da-old", "portal": "ballarat", "title": "Kept", "org": "ballarat"}
+    # A record from an earlier snapshot, with only the fields the carry reads.
+    before = cast(
+        "Record",
+        {"id": "ballarat-da-old", "portal": "ballarat", "title": "Kept", "org": "ballarat"},
+    )
     recs, stats = catalogue.harvest(
         (catalogue.BY_CODE["ballarat"],),
         log=lambda *_: None,
@@ -514,7 +537,9 @@ def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally
     replaced = [o for p in catalogue.PORTALS for o in p.replaces]
     assert len(set(replaced)) == len(replaced), "two portals replace the same organisation"
     councils = [p for p in catalogue.PORTALS if p.kind in ("ods", "hub")]
-    recs = [{"portal": p.code, "org": p.code, "org_title": p.publisher} for p in councils]
+    recs: list[CatalogueRecord] = [
+        {"portal": p.code, "org": p.code, "org_title": p.publisher} for p in councils
+    ]
     curated = load_curated(Path(__file__).parents[2] / "register" / "publishers")
     _pubs, by_org = resolve(recs, curated, {p.code: p.jurisdiction for p in catalogue.PORTALS})
     for p in councils:

@@ -4,7 +4,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -13,9 +13,16 @@ from publicdata.directory import locate, plan, render, search_rows
 from publicdata.publishers import Publisher, clean_title, load_curated, resolve, slugify
 from publicdata.register import RegisterError, load
 
+from .conftest import arr, obj
 
-def rec(portal: str, org: str, title: str, **kw: object) -> dict[str, object]:
-    return {"portal": portal, "org": org, "org_title": title, **kw}
+if TYPE_CHECKING:
+    from publicdata.catalogue import Record
+    from publicdata.jsontypes import JSONObject
+    from publicdata.publishers import CatalogueRecord
+
+
+def rec(portal: str, org: str, title: str) -> CatalogueRecord:
+    return {"portal": portal, "org": org, "org_title": title}
 
 
 def test_organisations_resolve_to_publishers_by_curation_then_portal() -> None:
@@ -208,22 +215,26 @@ def test_a_pasted_url_is_read_the_way_functions_catalogue_reads_it() -> None:
 
 def test_a_live_entry_marks_the_record_its_source_url_names_as_served() -> None:
     reg = {d.slug: d for d in load(__import__("publicdata.__main__").__main__.REGISTER)}
-    rec = {
-        "kind": "dataflow",
-        "licence": "CC-BY-4.0",
-        "open": True,
-        "downloadable": True,
-        "formats": ["API", "CSV", "SDMX"],
-        "modified": "",
-        "summary": "",
-        "org": "abs",
-        "org_title": "Australian Bureau of Statistics",
-        "portal": "abs",
-        "id": "abs-births-summary",
-        "name": "BIRTHS_SUMMARY",
-        "title": "Births, summary, by state",
-        "url": "https://dataexplorer.abs.gov.au/vis?df[id]=BIRTHS_SUMMARY",
-    }
+    # A stand-in record, short of some keys a harvest writes.
+    rec = cast(
+        "Record",
+        {
+            "kind": "dataflow",
+            "licence": "CC-BY-4.0",
+            "open": True,
+            "downloadable": True,
+            "formats": ["API", "CSV", "SDMX"],
+            "modified": "",
+            "summary": "",
+            "org": "abs",
+            "org_title": "Australian Bureau of Statistics",
+            "portal": "abs",
+            "id": "abs-births-summary",
+            "name": "BIRTHS_SUMMARY",
+            "title": "Births, summary, by state",
+            "url": "https://dataexplorer.abs.gov.au/vis?df[id]=BIRTHS_SUMMARY",
+        },
+    )
     d = plan([reg["au-births-by-state"]], [rec], [], "2026-10-05")
     assert d.served == {"abs-births-summary": "/c/au-abs-births/"}
     assert search_rows(d)[0]["state"] == "served"
@@ -242,33 +253,36 @@ def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record() -> N
         "org": "abr",
         "org_title": "Australian Business Register",
     }
-    records = [
-        {
-            **base,
-            "id": "gov-1",
-            "portal": "gov",
-            "name": "abn-bulk-extract",
-            "title": "ABN Bulk Extract",
-            "url": "https://data.gov.au/data/dataset/abn-bulk-extract",
-        },
-        {
-            **base,
-            "id": "gov-2",
-            "portal": "gov",
-            "name": "other",
-            "title": "Other",
-            "url": "https://data.gov.au/data/dataset/other",
-        },
-        {
-            **base,
-            "id": "gov-3",
-            "portal": "gov",
-            "name": "closed",
-            "title": "Closed",
-            "url": "https://data.gov.au/data/dataset/closed",
-            "open": False,
-        },
-    ]
+    records = cast(
+        "list[Record]",
+        [
+            {
+                **base,
+                "id": "gov-1",
+                "portal": "gov",
+                "name": "abn-bulk-extract",
+                "title": "ABN Bulk Extract",
+                "url": "https://data.gov.au/data/dataset/abn-bulk-extract",
+            },
+            {
+                **base,
+                "id": "gov-2",
+                "portal": "gov",
+                "name": "other",
+                "title": "Other",
+                "url": "https://data.gov.au/data/dataset/other",
+            },
+            {
+                **base,
+                "id": "gov-3",
+                "portal": "gov",
+                "name": "closed",
+                "title": "Closed",
+                "url": "https://data.gov.au/data/dataset/closed",
+                "open": False,
+            },
+        ],
+    )
     d = plan([reg["abn-bulk-extract"]], records, [], "2026-09-28")
     assert d.chosen == {"gov-1": "abn-bulk-extract"}
     rows = {r["id"]: r for r in search_rows(d)}
@@ -364,9 +378,9 @@ def test_the_sitemap_is_an_index_of_one_sitemap_per_government(site: Path) -> No
     assert "/d/qld-road-casualties/" not in (site / "sitemaps" / "site.xml").read_text("utf-8")
 
 
-def _ld(page: Path, kind: str) -> dict[str, Any]:
+def _ld(page: Path, kind: str) -> JSONObject:
     html = page.read_text("utf-8")
-    nodes = [
+    nodes: list[JSONObject] = [
         json.loads(b)
         for b in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
     ]
@@ -376,19 +390,19 @@ def _ld(page: Path, kind: str) -> dict[str, Any]:
 def test_a_dataset_with_copies_names_them_in_its_json_ld_and_on_the_page(site: Path) -> None:
     page = site / "d" / "qld-road-crash-factors" / "index.html"
     node = _ld(page, "Dataset")
-    assert node["identifier"][1] == {
+    assert arr(node["identifier"])[1] == {
         "@type": "PropertyValue",
         "propertyID": "DOI",
         "value": "10.5281/zenodo.1000001",
         "url": "https://doi.org/10.5281/zenodo.1000001",
     }
-    assert node["sameAs"][1:] == [
+    assert arr(node["sameAs"])[1:] == [
         "https://huggingface.co/datasets/National-Digital/qld-road-crash-factors",
         "https://www.kaggle.com/datasets/NationalDigitalAU/qld-road-crash-factors",
         "https://doi.org/10.5281/zenodo.1000001",
     ]
     html = page.read_text("utf-8")
-    for url in node["sameAs"][1:]:
+    for url in arr(node["sameAs"])[1:]:
         assert f'href="{url}"' in html
 
 
@@ -402,7 +416,7 @@ def test_a_dataset_without_copies_keeps_its_plain_identifier(site: Path) -> None
 
 
 def test_the_operator_names_its_hub_accounts_on_the_home_page(site: Path) -> None:
-    provider = _ld(site / "index.html", "DataCatalog")["provider"]
+    provider = obj(_ld(site / "index.html", "DataCatalog")["provider"])
     assert provider["sameAs"] == [
         "https://github.com/National-Digital",
         "https://huggingface.co/National-Digital",

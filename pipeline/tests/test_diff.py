@@ -2,7 +2,7 @@ import datetime as dt
 import hashlib
 import json
 import random
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -13,7 +13,7 @@ from publicdata.normalise import Table, normalise
 from publicdata.register import Field
 from publicdata.serialise import iter_rows, json_view
 
-from .conftest import make_dataset, make_manifest
+from .conftest import dig, make_dataset, make_manifest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -34,7 +34,7 @@ def test_diff_by_key() -> None:
     assert d["added_keys"] == [4]
     assert d["removed_keys"] == [1]
     assert d["changed_keys"] == [3]
-    assert d["examples"][0]["fields"] == {"v": {"from": "c", "to": "C"}}
+    assert dig(d, "examples", 0, "fields") == {"v": {"from": "c", "to": "C"}}
 
 
 def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys() -> None:
@@ -52,9 +52,9 @@ def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys() -> None:
 
 
 # The per-row implementation this module replaced, kept as the oracle for the Arrow join.
-def _reference(a: Table, b: Table) -> dict[str, Any]:
-    def keyed(t: pa.Table, key: Sequence[str]) -> dict[tuple[Any, ...], str]:
-        out: dict[tuple[Any, ...], str] = {}
+def _reference(a: Table, b: Table) -> dict[str, object]:
+    def keyed(t: pa.Table, key: Sequence[str]) -> dict[tuple[object, ...], str]:
+        out: dict[tuple[object, ...], str] = {}
         for row in iter_rows(json_view(t)):
             k = tuple(row[c] for c in key)
             if k in out:
@@ -66,8 +66,8 @@ def _reference(a: Table, b: Table) -> dict[str, Any]:
         return out
 
     def rows_for(
-        t: pa.Table, key: Sequence[str], wanted: set[tuple[Any, ...]]
-    ) -> dict[tuple[Any, ...], dict[str, Any]]:
+        t: pa.Table, key: Sequence[str], wanted: set[tuple[object, ...]]
+    ) -> dict[tuple[object, ...], dict[str, object]]:
         return {k: r for r in iter_rows(json_view(t)) if (k := tuple(r[c] for c in key)) in wanted}
 
     key = a.dataset.key
@@ -88,7 +88,7 @@ def _reference(a: Table, b: Table) -> dict[str, Any]:
         }
         for k in changed[:10]
     ]
-    fmt: Callable[[tuple[Any, ...]], object] = (lambda k: k[0]) if len(key) == 1 else list
+    fmt: Callable[[tuple[object, ...]], object] = (lambda k: k[0]) if len(key) == 1 else list
     return {
         "added": len(added),
         "removed": len(removed),
@@ -106,8 +106,9 @@ def _random_table(
 ) -> pa.Table:
     ids = rng.sample(range(rows * 2), rows)
     region = [rng.choice("NS") for _ in ids]
-    cols: dict[str, pa.Array[Any]] = {
-        "id": pa.array([str(i) if key_type == "string" else i for i in ids]),
+    id_values = [str(i) for i in ids] if key_type == "string" else ids
+    cols: dict[str, pa.Array[pa.Scalar[pa.DataType]]] = {
+        "id": pa.array(id_values),
         "region": pa.array(region),
         "n": pa.array(
             [
@@ -181,4 +182,4 @@ def test_a_blank_key_part_matches_itself_across_versions() -> None:
     assert d["added_keys"] == [["Fraud", None]]
     assert d["removed_keys"] == [["Arson", None]]
     assert d["changed_keys"] == [["Assault", None]]
-    assert d["examples"][0]["fields"] == {"n": {"from": 5, "to": 6}}
+    assert dig(d, "examples", 0, "fields") == {"n": {"from": 5, "to": 6}}

@@ -4,7 +4,7 @@ import io
 import json
 import json as _json
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Unpack
 
 import openpyxl
 import pytest
@@ -34,9 +34,10 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
 
-    from publicdata.fetch import Adapter
+    from publicdata.fetch import Adapter, CkanResource, LicenceRead
+    from publicdata.register import RawEntry, RawGrant, RawLicence
 
-GRANT: dict[str, Any] = {
+GRANT: RawGrant = {
     "id": "TEST-NOTICE",
     "title": "Test notice",
     "url": "https://example.gov.au/copyright",
@@ -89,7 +90,7 @@ def test_the_committed_grants_pass_and_join_the_open_licences() -> None:
     assert LICENCE_CONDITIONS["OPEN-GNAF-EULA"].startswith("You must not use the data")
 
 
-def _live(**licence: str) -> dict[str, Any]:
+def _live(**licence: Unpack[RawLicence]) -> RawEntry:
     return {
         "slug": "x-y",
         "title": "X",
@@ -154,7 +155,11 @@ def test_a_fetch_refuses_a_licence_read_with_no_place_or_time(
     monkeypatch.setitem(f.ADAPTERS, "file", lambda d, s: (b"a\n1\n", m, {"id": "CC-BY-4.0"}))
     with pytest.raises(f.FetchError, match="read_from"):
         f.fetch(ds, tmp_path)
-    lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
+    lic: LicenceRead = {
+        "id": "CC-BY-4.0",
+        "read_from": "https://e",
+        "read_at": "2026-10-01T00:00:00+00:00",
+    }
     monkeypatch.setitem(f.ADAPTERS, "file", lambda d, s: (b"a\n1\n", m, lic))
     assert present(f.fetch(ds, tmp_path)).version == m.version
 
@@ -437,12 +442,12 @@ def test_a_tie_on_creation_date_goes_to_the_newest_file() -> None:
         [Field("a", "a")],
         source=Source(adapter="ckan-resource", url="u", resource_match="Elective"),
     )
-    old = {
+    old: CkanResource = {
         "name": "Elective surgery Sep 2024",
         "created": "2023-01-01",
         "last_modified": "2024-10-01",
     }
-    new = {
+    new: CkanResource = {
         "name": "Elective surgery Sep 2025",
         "created": "2023-01-01",
         "last_modified": "2025-10-01",
@@ -481,7 +486,11 @@ def test_a_reordered_export_with_the_same_rows_is_no_new_version(
     ds = make_dataset(
         [Field("a", "a"), Field("b", "b")], source=Source(adapter="file", url="https://e/f.csv")
     )
-    lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
+    lic: LicenceRead = {
+        "id": "CC-BY-4.0",
+        "read_from": "https://e",
+        "read_at": "2026-10-01T00:00:00+00:00",
+    }
     first, reordered, changed = b"a,b\n1,x\n2,y\n", b"a,b\n2,y\n1,x\n", b"a,b\n2,y\n1,z\n"
 
     def adapter(data: bytes, version: str) -> Adapter:
@@ -508,7 +517,11 @@ def test_an_export_with_no_rows_never_replaces_one_that_had_some(
     ds = make_dataset(
         [Field("a", "a"), Field("b", "b")], source=Source(adapter="file", url="https://e/f.csv")
     )
-    lic = {"id": "CC-BY-4.0", "read_from": "https://e", "read_at": "2026-10-01T00:00:00+00:00"}
+    lic: LicenceRead = {
+        "id": "CC-BY-4.0",
+        "read_from": "https://e",
+        "read_at": "2026-10-01T00:00:00+00:00",
+    }
 
     def adapter(data: bytes, version: str) -> Adapter:
         m = make_manifest(data, dataset="t", version=version, encoding="utf-8")

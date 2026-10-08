@@ -1,7 +1,7 @@
 import copy
 import re
 import shutil
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
@@ -20,6 +20,9 @@ from .conftest import ROOT, present
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import Unpack
+
+    from publicdata.register import RawEntry
 
 
 def test_real_register_loads(register_dir: Path) -> None:
@@ -30,8 +33,8 @@ def test_real_register_loads(register_dir: Path) -> None:
     assert all((d.fields or d.tables) and d.licence.open for d in live)
 
 
-def _raw(**over: object) -> dict[str, Any]:
-    raw: dict[str, Any] = {
+def _raw(**over: Unpack[RawEntry]) -> RawEntry:
+    raw: RawEntry = {
         "slug": "x-y",
         "title": "X",
         "status": "backlog",
@@ -114,7 +117,7 @@ def test_live_needs_the_search_fields(tmp_path: Path) -> None:
     assert parse(live, "x").search_title == "X data"
     assert parse(live, "x").topics == ("roads",)
     # A live collection needs a description on one member.
-    live.update(collection="c", collection_title="C")
+    live.update({"collection": "c", "collection_title": "C"})
     (tmp_path / "x-y.yaml").write_text(yaml.safe_dump(live), encoding="utf-8")
     with pytest.raises(RegisterError, match="collection_description"):
         load(tmp_path)
@@ -253,7 +256,7 @@ def test_a_delimiter_is_tab_or_one_character() -> None:
 
 
 def test_a_live_file_source_quotes_the_licence_pages_words() -> None:
-    live: dict[str, Any] = {
+    live: RawEntry = {
         "status": "live",
         "licence": {
             "id": "CC-BY-4.0",
@@ -312,7 +315,7 @@ def test_omit_needs_a_reason_and_cannot_name_a_read_column() -> None:
         parse(_raw(fields=[{"name": "a", "source": "Vendor"}], omit={"Vendor": "x"}), "x")
 
 
-def _database(**over: object) -> dict[str, Any]:
+def _database(**over: Unpack[RawEntry]) -> RawEntry:
     raw = _raw(
         kind="database",
         status="live",
@@ -409,17 +412,17 @@ def test_a_licence_with_a_condition_is_open_and_states_it() -> None:
     assert parse(_raw(), "x").licence.condition == ""
 
 
-def _fielded(**over: object) -> dict[str, Any]:
-    return _raw(
-        fields=[
+def _fielded(**over: Unpack[RawEntry]) -> RawEntry:
+    fielded: RawEntry = {
+        "fields": [
             {"name": "year", "source": "Year", "type": "integer"},
             {"name": "state", "source": "State", "type": "string"},
             {"name": "unit", "source": "Unit", "type": "string"},
             {"name": "value", "source": "Value", "type": "number"},
             {"name": "drink", "source": "Drink", "type": "boolean"},
-        ],
-        **over,
-    )
+        ]
+    }
+    return _raw(**(fielded | over))
 
 
 def test_an_example_reads_exact_matches_operators_and_newest() -> None:

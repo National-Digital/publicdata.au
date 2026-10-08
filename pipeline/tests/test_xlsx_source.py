@@ -1,7 +1,7 @@
 import datetime as dt
 import io
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import pyarrow as pa
 import pytest
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     import requests
 
-    from publicdata.register import Dataset
+    from publicdata.register import Dataset, Wide
 
 
 def workbook() -> bytes:
@@ -104,11 +104,11 @@ def test_a_file_replaced_inside_one_resource_is_dated_by_the_resource_metadata(
     body = workbook()
 
     class R:
-        def __init__(self, j: dict[str, Any] | None = None, content: bytes = b"") -> None:
+        def __init__(self, j: object = None, content: bytes = b"") -> None:
             self._j, self.content, self.status_code = j, content, 200
             self.headers: dict[str, str] = {}
 
-        def json(self) -> dict[str, Any] | None:
+        def json(self) -> object:
             return self._j
 
         def raise_for_status(self) -> None:
@@ -226,13 +226,13 @@ def test_a_later_file_date_than_the_portal_dates_the_version(tmp_path: Path) -> 
     class R:
         def __init__(
             self,
-            j: dict[str, Any] | None = None,
+            j: object = None,
             content: bytes = b"",
             headers: dict[str, str] | None = None,
         ) -> None:
             self._j, self.content, self.headers, self.status_code = j, content, headers or {}, 200
 
-        def json(self) -> dict[str, Any] | None:
+        def json(self) -> object:
             return self._j
 
         def raise_for_status(self) -> None:
@@ -284,7 +284,7 @@ def presentation_workbook() -> bytes:
     return buf.getvalue()
 
 
-def wide_dataset(**kw: object) -> Dataset:
+def wide_dataset() -> Dataset:
     fields = [
         Field("property_type", "(sheet)"),
         Field("region", "(row header 1)"),
@@ -293,15 +293,17 @@ def wide_dataset(**kw: object) -> Dataset:
         Field("lettings", "(cell: Count)", "integer", null_values=("-",)),
         Field("median", "(cell: Median)", "integer", null_values=("-",)),
     ]
-    wide: dict[str, object] = {
+    # Empty matches read as none, as a parsed entry's do.
+    wide: Wide = {
         "sheets": ["1 bedroom flat", "House"],
         "header_row": 2,
         "header_rows": 2,
         "first_column": 1,
         "row_headers": 2,
         "fill_down": [1],
+        "column_match": "",
+        "sheet_match": "",
     }
-    wide.update(kw)
     return make_dataset(fields, wide=wide)
 
 
@@ -420,7 +422,7 @@ def test_a_wide_table_reads_only_the_columns_its_pattern_names() -> None:
         Field("year", "(column header 1)", "integer"),
         Field("median", "(cell)", "integer", null_values=("NA",)),
     ]
-    wide = {
+    wide: Wide = {
         "sheets": [],
         "header_row": 2,
         "header_rows": 1,
@@ -428,6 +430,7 @@ def test_a_wide_table_reads_only_the_columns_its_pattern_names() -> None:
         "row_headers": 1,
         "fill_down": [],
         "column_match": r"^\d{4}$",
+        "sheet_match": "",
     }
     t = normalise.normalise(
         make_dataset(fields, wide=wide),

@@ -4,7 +4,7 @@ import json
 import re
 import zipfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Never, Self
+from typing import TYPE_CHECKING, ClassVar, Never, Self, cast
 
 import duckdb
 import pyarrow as pa
@@ -25,8 +25,11 @@ from publicdata.site import _faq
 from .conftest import make_dataset, make_manifest, present
 
 if TYPE_CHECKING:
+    from typing import Unpack
+
     from publicdata.build import VersionOut
-    from publicdata.register import Dataset
+    from publicdata.provenance import Header
+    from publicdata.register import Dataset, RawEntry
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
@@ -34,14 +37,15 @@ REGISTER = ROOT / "register"
 ALL = ["sa2", "lga", "suburb", "postcode", "state_electorate", "federal_electorate"]
 
 
-def crashes_raw(**over: object) -> dict[str, Any]:
-    raw: dict[str, Any] = yaml.safe_load((REGISTER / "qld-road-crash-locations.yaml").read_text())
+def crashes_raw(**over: Unpack[RawEntry]) -> RawEntry:
+    raw: RawEntry = yaml.safe_load((REGISTER / "qld-road-crash-locations.yaml").read_text())
     raw.update(over)
     return raw
 
 
-def crashes(**over: object) -> Dataset:
-    return parse(crashes_raw(enrich=ALL, **over), "qld")
+def crashes(**over: Unpack[RawEntry]) -> Dataset:
+    joined: RawEntry = {"enrich": [*ALL]}
+    return parse(crashes_raw(**(joined | over)), "qld")
 
 
 def test_enrich_adds_a_code_and_a_name_per_layer_marked_as_the_spines() -> None:
@@ -66,7 +70,8 @@ def test_enrich_adds_a_code_and_a_name_per_layer_marked_as_the_spines() -> None:
 
 def test_enrich_is_refused_without_points_an_unknown_layer_or_a_clash() -> None:
     raw = crashes_raw(enrich=["lga"])
-    no_geo = {k: v for k, v in raw.items() if k != "geometry"}
+    no_geo = raw.copy()
+    del no_geo["geometry"]
     with pytest.raises(RegisterError, match="point geometry"):
         parse(no_geo, "x")
     with pytest.raises(RegisterError, match="not a spine layer"):
@@ -87,12 +92,14 @@ def test_enrich_is_refused_without_points_an_unknown_layer_or_a_clash() -> None:
 
 
 def test_a_polygon_layer_declares_its_kind_and_datum_and_no_coordinates() -> None:
-    raw: dict[str, Any] = yaml.safe_load((REGISTER / "abs-lga-2025.yaml").read_text())
+    text = (REGISTER / "abs-lga-2025.yaml").read_text()
+    raw: RawEntry = yaml.safe_load(text)
+    geometry: dict[str, object] = yaml.safe_load(text)["geometry"]
     assert present(parse(raw, "lga").geometry)["kind"] == "polygon"
     with pytest.raises(RegisterError, match="carries its geometry"):
-        parse(raw | {"geometry": raw["geometry"] | {"lon": "x"}}, "lga")
+        parse(raw | {"geometry": geometry | {"lon": "x"}}, "lga")
     with pytest.raises(RegisterError, match=re.escape("geometry.kind")):
-        parse(raw | {"geometry": raw["geometry"] | {"kind": "raster"}}, "lga")
+        parse(raw | {"geometry": geometry | {"kind": "raster"}}, "lga")
     with pytest.raises(RegisterError, match="datum"):
         parse(raw | {"geometry": {"kind": "polygon"}}, "lga")
 
@@ -255,7 +262,7 @@ def test_the_spine_needs_its_extension_installed_not_fetched_at_build(
 def test_a_partitioned_polygon_layer_writes_json_partitions_without_point_geojson(
     tmp_path: Path,
 ) -> None:
-    raw: dict[str, Any] = yaml.safe_load((REGISTER / "abs-lga-2025.yaml").read_text())
+    raw: RawEntry = yaml.safe_load((REGISTER / "abs-lga-2025.yaml").read_text())
     ds = parse(raw | {"partition_by": ["state_name"]}, "lga")
     m = store.manifests(FIXTURES, ds.slug)[-1]
     _, out = build_version(ds, m, store.source_path(FIXTURES, m).read_bytes(), tmp_path, FIXTURES)
@@ -267,8 +274,8 @@ def test_a_partitioned_polygon_layer_writes_json_partitions_without_point_geojso
 def test_the_places_question_names_only_the_layers_a_dataset_joins() -> None:
     class V:
         manifest = store.manifests(FIXTURES, "qld-road-crash-locations")[-1]
-        files: ClassVar[dict[str, Any]] = {}
-        left_out: ClassVar[dict[str, Any]] = {}
+        files: ClassVar[dict[str, int]] = {}
+        left_out: ClassVar[dict[str, str]] = {}
         rows = 300
 
     ds = parse(crashes_raw(enrich=["postcode", "lga"]), "qld")
@@ -314,5 +321,5 @@ def test_a_polygon_whose_repair_leaves_a_stray_line_still_makes_tiles(tmp_path: 
         geometry=pa.array([wkb], pa.binary()),
     )
     path = tmp_path / "data.pmtiles"
-    write_pmtiles(tbl, {"attribution": "A"}, path)
+    write_pmtiles(tbl, cast("Header", {"attribution": "A"}), path)
     assert path.stat().st_size > 0

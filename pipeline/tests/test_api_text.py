@@ -2,7 +2,7 @@ import html
 import json
 import re
 import shutil
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 
@@ -14,6 +14,19 @@ from .conftest import ROOT
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    # The JSON-LD keys these tests read.
+    LinkedNode = TypedDict(
+        "LinkedNode",
+        {
+            "@type": str,
+            "@id": str,
+            "url": str,
+            "sameAs": list[str],
+            "includedInDataCatalog": "LinkedNode",
+        },
+        total=False,
+    )
 
 FUNCTIONS = ROOT / "functions"
 S = at.spec()
@@ -227,7 +240,7 @@ def test_resources_carry_their_size_and_date(site: Path) -> None:
 
 
 def test_the_mcp_server_is_an_entity_the_directories_identify(site: Path) -> None:
-    def nodes(rel: str) -> list[dict[str, Any]]:
+    def nodes(rel: str) -> list[LinkedNode]:
         page = (site / rel).read_text(encoding="utf-8")
         return [
             json.loads(m)

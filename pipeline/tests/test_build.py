@@ -18,6 +18,7 @@ from publicdata.build import build_dataset
 from publicdata.database import build_database
 from publicdata.dbcheck import compare
 from publicdata.gate import check
+from publicdata.provenance import header as prov_header
 from publicdata.register import load, parse
 from publicdata.serialise import (
     CAPS,
@@ -30,10 +31,39 @@ from publicdata.serialise import (
 )
 from publicdata.store import Manifest
 
-from .conftest import make_manifest, read_json
+from .conftest import arr, make_manifest, obj, read_json
 
 if TYPE_CHECKING:
     import pytest
+
+    from publicdata.jsontypes import JSON
+    from publicdata.register import RawEntry
+
+
+def dig(v: JSON, *path: str | int) -> JSON:
+    """The value at path in parsed JSON, each step checked as the object or array it reads."""
+    for step in path:
+        v = arr(v)[step] if isinstance(step, int) else obj(v)[step]
+    return v
+
+
+def number(v: JSON) -> int:
+    assert isinstance(v, int)
+    return v
+
+
+def text(v: JSON) -> str:
+    assert isinstance(v, str)
+    return v
+
+
+def texts(v: JSON) -> dict[str, str]:
+    """A JSON object of text values, such as a manifest's formats_left_out."""
+    return {k: text(x) for k, x in obj(v).items()}
+
+
+def resource_names(resources: JSON) -> set[JSON]:
+    return {dig(r, "name") for r in arr(resources)}
 
 
 def _tree(root: Path) -> list[str]:
@@ -61,12 +91,12 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     vdir = a / "d" / ds.slug / "v" / "2026-04-24"
     data = read_json(vdir / "data.json")
     h = data["publicdata"]
-    assert h["licence"]["id"] == "CC-BY-4.0"
-    assert "sourced" in h["attribution"]
-    assert h["source"]["sha256"]
-    assert h["not_endorsed"]
-    assert len(data["records"]) == data["publicdata"]["rows"] == 300
-    assert data["records"][0]["involving_drink_driving"] in (True, False)
+    assert dig(h, "licence", "id") == "CC-BY-4.0"
+    assert "sourced" in text(dig(h, "attribution"))
+    assert dig(h, "source", "sha256")
+    assert dig(h, "not_endorsed")
+    assert len(arr(data["records"])) == dig(h, "rows") == 300
+    assert dig(data, "records", 0, "involving_drink_driving") in (True, False)
     meta = pq.read_metadata(vdir / "data.parquet").metadata
     assert meta is not None
     assert json.loads(meta[b"publicdata"])["dataset"] == ds.slug
@@ -83,9 +113,9 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     assert latest.files["source.csv"] == latest.manifest.bytes > 0
     versions = read_json(a / "d" / ds.slug / "versions.json")
     assert versions["latest"] == "2026-04-24"
-    assert versions["versions"][0]["rows"] == 300
+    assert dig(versions, "versions", 0, "rows") == 300
     idx = read_json(vdir / "by" / "crash_year" / "index.json")
-    assert sum(p["rows"] for p in idx["partitions"]) == 300
+    assert sum(number(dig(p, "rows")) for p in arr(idx["partitions"])) == 300
     assert (a / "d" / ds.slug / "datapackage.json").exists()
     assert (a / "d" / ds.slug / "history.tar.zst").exists()
     shutil.rmtree(a)
@@ -148,9 +178,9 @@ def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
     assert 'PRIMARY KEY ("crash_ref_number")' in sql
     csvw = read_json(vdir / "data.csv-metadata.json")
     assert csvw["url"] == "data.csv"
-    assert csvw["tableSchema"]["primaryKey"] == ["crash_ref_number"]
+    assert dig(csvw, "tableSchema", "primaryKey") == ["crash_ref_number"]
     dp = read_json(a / "d" / ds.slug / "datapackage.json")
-    resources = {r["name"] for r in dp["resources"]}
+    resources = resource_names(dp["resources"])
     assert resources >= {"xlsx", "gpkg", "geo.parquet", "csv.gz", "schema-sql", "csvw"}
     assert "arrow" not in resources
 
@@ -168,7 +198,7 @@ def test_a_version_fetched_before_the_caps_keeps_its_arrow_file(
     assert "measured_bytes" not in man
     assert "formats_left_out" not in man
     dp = read_json(tmp_path / "d" / ds.slug / "datapackage.json")
-    assert "arrow" in {r["name"] for r in dp["resources"]}
+    assert "arrow" in resource_names(dp["resources"])
 
 
 def test_excel_is_skipped_above_the_row_limit(
@@ -183,7 +213,7 @@ def test_excel_is_skipped_above_the_row_limit(
     assert not (vdir / "data.xlsx").exists()
     assert (vdir / "data.csv.gz").exists()
     dp = read_json(tmp_path / "d" / ds.slug / "datapackage.json")
-    assert "xlsx" not in {r["name"] for r in dp["resources"]}
+    assert "xlsx" not in resource_names(dp["resources"])
     assert not [e for e in check(tmp_path, register_dir) if "xlsx" in e]
 
 
@@ -241,7 +271,7 @@ def test_a_layers_geojson_is_measured_on_its_own_bytes(
     man = read_json(vdir / "manifest.json")
     gj = (vdir / "data.geojson").stat().st_size
     nd = (vdir / "data.ndjson").stat().st_size
-    assert man["measured_bytes"]["data.geojson"] == gj
+    assert dig(man, "measured_bytes", "data.geojson") == gj
     assert gj > 10 * nd
     assert man["formats_left_out"] == {}
     assert not (vdir / "data.arrow").exists()
@@ -253,8 +283,8 @@ def test_a_layers_geojson_is_measured_on_its_own_bytes(
     man = read_json(vdir / "manifest.json")
     assert not (vdir / "data.geojson").exists()
     assert (vdir / "data.pmtiles").exists()
-    assert set(man["formats_left_out"]) == {"geojson"}
-    assert man["measured_bytes"]["data.geojson"] == gj
+    assert set(obj(man["formats_left_out"])) == {"geojson"}
+    assert dig(man, "measured_bytes", "data.geojson") == gj
 
 
 def test_a_published_versions_format_set_never_moves(
@@ -281,7 +311,8 @@ def test_a_published_versions_format_set_never_moves(
     assert not (fresh / "d" / ds.slug / "v" / "2026-04-24" / "data.json").exists()
     # The gate holds the record to the files beside it.
     man = read_json(vdir / "manifest.json")
-    man["measured_bytes"]["data.csv"] += 1
+    measured = obj(man["measured_bytes"])
+    measured["data.csv"] = number(measured["data.csv"]) + 1
     (vdir / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
     assert any(
         "measured_bytes disagrees with data.csv" in e
@@ -299,13 +330,14 @@ def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
     slug = "qld-road-crash-locations"
     vdir = out / "d" / slug / "v" / "2026-04-24"
     rows = read_json(vdir / "manifest.json")["rows"]
+    assert isinstance(rows, int)
     assert rows > 100
     assert not (vdir / "data.json").exists()
     assert not (vdir / "data.geojson").exists()
     assert (vdir / "data.ndjson").exists()
     assert (vdir / "data.gpkg").exists()
     assert list((vdir / "by").glob("*/*.geojson"))  # partition files are slices and stay
-    gone = read_json(vdir / "manifest.json")["formats_left_out"]
+    gone = texts(read_json(vdir / "manifest.json")["formats_left_out"])
     assert set(gone) == {"json", "geojson"}
     assert gone["json"].startswith("JSON is not offered because the table is ")
     vpage = (vdir / "index.html").read_text(encoding="utf-8")
@@ -313,7 +345,7 @@ def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
     assert gone["geojson"] in vpage
     assert gone["json"] in (vdir / "index.md").read_text(encoding="utf-8")
     dp = read_json(out / "d" / slug / "datapackage.json")
-    assert {"json", "geojson"} & {r["name"] for r in dp["resources"]} == set()
+    assert {"json", "geojson"} & resource_names(dp["resources"]) == set()
     page = (out / "d" / slug / "index.html").read_text(encoding="utf-8")
     assert "latest/data.ndjson" in page
     assert "v/2026-04-24/data.json" not in page
@@ -400,12 +432,12 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(  # noqa: 
     assert man["unknown_upstream_columns"] == []
     assert man["unknown_upstream_tables"] == []
     schema = read_json(vdir / "schema.json")
-    detail = next(t for t in schema["tables"] if t["name"] == "address_detail")
+    detail = obj(next(t for t in arr(schema["tables"]) if dig(t, "name") == "address_detail"))
     assert detail["primaryKey"] == ["address_detail_pid"]
     assert {
         "fields": ["locality_pid"],
         "reference": {"resource": "locality", "fields": ["locality_pid"]},
-    } in detail["foreignKeys"]
+    } in arr(detail["foreignKeys"])
     sql = (vdir / "schema.sql").read_text(encoding="utf-8")
     assert 'FOREIGN KEY ("locality_pid") REFERENCES "locality" ("locality_pid")' in sql
     assert 'CREATE VIEW "address_view" AS' in sql
@@ -414,10 +446,10 @@ def test_a_database_fixture_builds_one_duckdb_and_a_parquet_per_table(  # noqa: 
     assert v.files["source.zip"] == v.manifest.bytes
     pkg = read_json(a / "d" / ds.slug / "datapackage.json")
     assert pkg["publicdata:kind"] == "database"
-    assert pkg["resources"][0]["name"] == "duckdb"
-    assert pkg["licenses"][0]["publicdata:condition"]
+    assert dig(pkg, "resources", 0, "name") == "duckdb"
+    assert dig(pkg, "licenses", 0, "publicdata:condition")
     versions = read_json(a / "d" / ds.slug / "versions.json")
-    assert versions["versions"][0]["tables"]["locality"] == 19
+    assert dig(versions, "versions", 0, "tables", "locality") == 19
 
 
 def test_a_table_version_carries_a_duckdb_file_with_typed_columns_and_provenance(
@@ -448,7 +480,7 @@ def test_a_table_version_carries_a_duckdb_file_with_typed_columns_and_provenance
 
 
 def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_path: Path) -> None:
-    raw = {
+    raw: RawEntry = {
         "slug": "tabbed",
         "kind": "database",
         "title": "Tabbed",
@@ -496,7 +528,7 @@ def test_a_database_reads_tab_separated_members_and_keeps_default_blocks(tmp_pat
         m,
         src,
         vdir,
-        lambda rows, rel: {"version": m.version, "url": f"https://x/{rel}", "attribution": "A."},
+        lambda rows, rel: prov_header(ds, m, rows, f"https://x/{rel}"),
     )
     assert out.tables == {"thing": 2}
     assert out.unknown_columns == {}
@@ -539,7 +571,7 @@ def test_a_limited_build_measures_what_it_does_not_keep(
     assert not (vdir / "data.csv").exists()
     assert not (vdir / "data.geojson").exists()
     man = read_json(vdir / "manifest.json")
-    assert set(man["measured_bytes"]) == {"data.ndjson", "data.csv", "data.geojson"}
+    assert set(obj(man["measured_bytes"])) == {"data.ndjson", "data.csv", "data.geojson"}
     full = tmp_path / "full"
     build_dataset(ds, fixture_store, full)
     assert read_json(full / "d" / ds.slug / "v" / "2026-04-24" / "manifest.json") == man

@@ -7,7 +7,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 import pytest
 import yaml
@@ -30,12 +30,17 @@ from publicdata.site import (
 )
 from publicdata.store import Manifest
 
-from .conftest import ROOT, as_parquet, make_dataset, make_manifest, present
+from .conftest import ROOT, arr, as_parquet, dig, make_dataset, make_manifest, obj, present
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
+    from typing import Unpack
 
-    from publicdata.register import Dataset
+    from publicdata.explorer import Console
+    from publicdata.jsontypes import JSON, JSONObject
+    from publicdata.register import Dataset, Example
+
+    from .conftest import DatasetFields
 
 
 def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, checked page by page
@@ -422,7 +427,7 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(
 ) -> None:
     out = site_copy
 
-    def console(slug: str) -> tuple[str, dict[str, Any]]:
+    def console(slug: str) -> tuple[str, Console]:
         page = (out / "d" / slug / "index.html").read_text(encoding="utf-8")
         data = present(re.search(r'id="ds-data">(.*?)</script>', page, re.DOTALL)).group(1)
         return page, json.loads(data)["console"]
@@ -442,7 +447,7 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(
     assert "Casualties by road user where severity is Hospitalised: " in page
     year = next(f for f in c["fields"] if f["name"] == "crash_year")
     region = next(f for f in c["fields"] if f["name"] == "crash_police_region")
-    assert region["values"] == sorted(region["values"])
+    assert region["values"] == sorted(cast("list[str]", region["values"]))
     assert None not in region["values"]
 
     doc = json.loads((out / "d" / "qld-road-casualties" / "openapi.json").read_text("utf-8"))
@@ -462,7 +467,7 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(  # noqa: PLR0915
 ) -> None:
     out = site_copy
 
-    def ex(slug: str, page: str = "explore") -> tuple[str, dict[str, Any]]:
+    def ex(slug: str, page: str = "explore") -> tuple[str, JSONObject]:
         text = (out / "d" / slug / page / "index.html").read_text(encoding="utf-8")
         block = present(re.search(r'id="ex-data">(.*?)</script>', text, re.DOTALL)).group(1)
         assert "<" not in block
@@ -485,42 +490,44 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(  # noqa: PLR0915
         assert "noindex" in page
         assert "has not endorsed" in page
         assert (
-            data["versions"][0]["parquet"]
-            == f"/d/{slug}/v/{data['versions'][0]['version']}/data.parquet"
+            dig(data, "versions", 0, "parquet")
+            == f"/d/{slug}/v/{dig(data, 'versions', 0, 'version')}/data.parquet"
         )
-        assert "rows" in data["defaults"]["panels"]
+        assert "rows" in obj(dig(data, "defaults", "panels"))
         listed = json.loads((out / "d" / slug / "explore" / "versions.json").read_text("utf-8"))
-        assert listed["versions"] == [v["version"] for v in data["versions"]]
+        assert listed["versions"] == [dig(v, "version") for v in arr(data["versions"])]
         assert "## Explore" in (out / "d" / slug / "index.md").read_text(encoding="utf-8")
         assert re.search(r'src="/static/explorer\.js\?v=[0-9a-f]{12}"', page)
 
     # A table of counts charts the sum of its count field; a table of crashes counts rows.
     _, cas = ex("qld-road-casualties")
-    assert cas["defaults"]["panels"]["by-group"]["aggregates"] == {"Casualties": "sum"}
-    assert cas["labels"]["crash_police_region"] == "Police region"
-    assert ex("qld-road-crash-factors")[1]["yesno"][0] == "involving_drink_driving"
+    assert dig(cas, "defaults", "panels", "by-group", "aggregates") == {"Casualties": "sum"}
+    assert dig(cas, "labels", "crash_police_region") == "Police region"
+    assert dig(ex("qld-road-crash-factors")[1], "yesno", 0) == "involving_drink_driving"
     _, loc = ex("qld-road-crash-locations")
-    by = loc["defaults"]["panels"]["by-group"]
+    by = obj(dig(loc, "defaults", "panels", "by-group"))
     assert by["expressions"] == {"Crashes": "1"}
     assert by["columns"] == ["Crashes"]
     # The first dashboard groups by the register example's field.
     assert by["title"] == "Crashes by nature of crash and severity"
-    assert loc["defaults"]["masters"] == ["by-group"]
-    years = loc["defaults"]["panels"]["over-time"]
+    assert dig(loc, "defaults", "masters") == ["by-group"]
+    years = obj(dig(loc, "defaults", "panels", "over-time"))
     assert years["group_by"] == ["Year"]
-    assert "Year" not in years["expressions"]
+    assert "Year" not in obj(years["expressions"])
     assert loc["text"] == ["crash_year"]
-    assert loc["labels"]["crash_year"] == "Year"
-    panels = loc["defaults"]["panels"]
+    assert dig(loc, "labels", "crash_year") == "Year"
+    panels = obj(dig(loc, "defaults", "panels"))
     assert by["split_by"] == ["Severity"]
     assert years["plugin"] == "Y Area"
-    assert panels["heatmap"]["group_by"] == ["Year"]
-    assert panels["map"]["plugin"] == "Map Scatter"
-    assert panels["map"]["columns"][:2] == ["Longitude", "Latitude"]
-    assert "map" not in cas["defaults"]["panels"]
+    assert dig(panels, "heatmap", "group_by") == ["Year"]
+    assert dig(panels, "map", "plugin") == "Map Scatter"
+    assert arr(dig(panels, "map", "columns"))[:2] == ["Longitude", "Latitude"]
+    assert "map" not in obj(dig(cas, "defaults", "panels"))
 
-    vendor = out / loc["vendor"].strip("/")
-    assert re.fullmatch(r"/static/vendor/[0-9a-f]{12}/", loc["vendor"])
+    where = loc["vendor"]
+    assert isinstance(where, str)
+    vendor = out / where.strip("/")
+    assert re.fullmatch(r"/static/vendor/[0-9a-f]{12}/", where)
     assert (vendor / "LICENSES.txt").exists()
     for f in ("duckdb.js", "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm.gz"):
         assert (vendor / f).stat().st_size > 100_000
@@ -552,12 +559,14 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(  # noqa: PLR0915
 
 
 def test_a_first_dashboard_without_a_category_or_a_year_is_the_rows() -> None:
-    console = {
+    console: Console = {
         "fields": [{"name": "id", "type": "integer"}, {"name": "note", "type": "string"}],
         "example": {"filters": [], "group": [], "metric": "count"},
     }
     ws = explorer.defaults(make_dataset([], row_label=""), console)
-    assert list(ws["panels"]) == ["rows"]
+    panels = ws["panels"]
+    assert isinstance(panels, dict)
+    assert list(panels) == ["rows"]
     assert ws["layout"] == {"type": "tab-layout", "tabs": ["rows"]}
     assert "masters" not in ws
 
@@ -582,7 +591,7 @@ def test_every_operator_node_resolves_to_one_organisation(tmp_path: Path, site_c
     out = site_copy
     ld = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
 
-    def nodes(v: object) -> Iterator[dict[str, Any]]:
+    def nodes(v: JSON) -> Iterator[JSONObject]:
         if isinstance(v, dict):
             yield v
             for x in v.values():
@@ -685,7 +694,7 @@ def _console_db(tmp_path: Path, rows: Iterable[tuple[object, ...]]) -> Path:
     return as_parquet(db)
 
 
-def _console_ds(**kw: object) -> Dataset:
+def _console_ds(**kw: Unpack[DatasetFields]) -> Dataset:
     return make_dataset(
         [
             Field("row_id", "Row", type="integer"),
@@ -721,7 +730,7 @@ def test_the_picked_example_skips_a_group_the_filter_fixes_and_an_identifier(
 
 def test_the_register_example_resolves_newest_and_must_name_present_fields(tmp_path: Path) -> None:
     db = _console_db(tmp_path, [(i, 2020 + i % 3, "1", "NSW", "a", i) for i in range(9)])
-    example = {
+    example: Example = {
         "filters": ({"field": "year", "op": "eq", "value": "newest"},),
         "group": ("kind",),
         "metric": "sum.n",
@@ -734,7 +743,7 @@ def test_the_register_example_resolves_newest_and_must_name_present_fields(tmp_p
         "metric": "sum.n",
         "label": "Things",
     }
-    gone = {**example, "group": ("missing",)}
+    gone: Example = {**example, "group": ("missing",)}
     with pytest.raises(ValueError, match="names missing"):
         _console(_console_ds(example=gone), db)
     gone = {**example, "metric": "sum.missing"}
@@ -758,7 +767,10 @@ def test_the_gate_lists_every_example_and_fails_a_register_example_with_no_answe
 
     page("chosen", "")
     page("picked", "Rows by a: 3 x.")
-    chosen = make_dataset([], slug="chosen", example={"filters": (), "group": ("a",)})
+    # examples() reads no more of the example than its group.
+    chosen = make_dataset(
+        [], slug="chosen", example=cast("Example", {"filters": (), "group": ("a",)})
+    )
     report, errors = examples(
         tmp_path, {"chosen": chosen, "picked": make_dataset([], slug="picked")}
     )

@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -25,7 +25,50 @@ if TYPE_CHECKING:
 
     from botocore.exceptions import ClientError
 
+    from publicdata.provenance import Header
     from publicdata.serialise.profile import Layout
+
+
+# The parts of boto3's S3 requests and answers that r2 sends and reads.
+class _Extra(TypedDict, total=False):
+    ContentType: str
+    Metadata: dict[str, str]
+
+
+class _Listed(TypedDict):
+    Key: str
+    ETag: str
+
+
+class _Page(TypedDict):
+    Contents: list[_Listed]
+
+
+class _Head(TypedDict, total=False):
+    Metadata: dict[str, str]
+    ContentLength: int
+
+
+class _Got(TypedDict):
+    Body: io.BytesIO
+
+
+class _Key(TypedDict):
+    Key: str
+
+
+class _Delete(TypedDict):
+    Objects: list[_Key]
+    Quiet: bool
+
+
+class _Error(TypedDict):
+    Key: str
+    Code: str
+
+
+class _Deleted(TypedDict, total=False):
+    Errors: list[_Error]
 
 
 class FakeS3:
@@ -46,7 +89,7 @@ class FakeS3:
         fake = self
 
         class P:
-            def paginate(self, Bucket: str, Prefix: str) -> Iterator[dict[str, Any]]:
+            def paginate(self, Bucket: str, Prefix: str) -> Iterator[_Page]:
                 fake.listed.append(Prefix)
                 yield {
                     "Contents": [
@@ -58,11 +101,11 @@ class FakeS3:
 
         return P()
 
-    def head_object(self, Bucket: str, Key: str) -> dict[str, Any]:
+    def head_object(self, Bucket: str, Key: str) -> _Head:
         self.heads.append(Key)
         return {"Metadata": self.meta.get(Key, {})}
 
-    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: dict[str, Any]) -> None:
+    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: _Extra) -> None:
         self.puts.append((key, ExtraArgs["ContentType"]))
 
 
@@ -262,7 +305,7 @@ class Bucket(FakeS3):
         self.deleted: list[str] = []
         self.batches: list[list[str]] = []
 
-    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: dict[str, Any]) -> None:
+    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: _Extra) -> None:
         super().upload_file(path, bucket, key, ExtraArgs)
         data = Path(path).read_bytes()
         self.bytes[key] = data
@@ -274,7 +317,7 @@ class Bucket(FakeS3):
             raise _missing()
         Path(dest).write_bytes(self.bytes[key])
 
-    def get_object(self, Bucket: str, Key: str) -> dict[str, Any]:
+    def get_object(self, Bucket: str, Key: str) -> _Got:
         if Key not in self.bytes:
             raise _missing()
         return {"Body": io.BytesIO(self.bytes[Key])}
@@ -283,7 +326,7 @@ class Bucket(FakeS3):
         self.bytes[Key] = Body
         self.existing.add(Key)
 
-    def delete_objects(self, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:
+    def delete_objects(self, Bucket: str, Delete: _Delete) -> _Deleted:
         self.batches.append([o["Key"] for o in Delete["Objects"]])
         for o in Delete["Objects"]:
             self.deleted.append(o["Key"])
@@ -373,7 +416,7 @@ def test_a_delete_r2_refuses_fails_the_push(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class Refusing(Bucket):
-        def delete_objects(self, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:
+        def delete_objects(self, Bucket: str, Delete: _Delete) -> _Deleted:
             return {"Errors": [{"Key": Delete["Objects"][0]["Key"], "Code": "AccessDenied"}]}
 
     bucket = Refusing()
@@ -474,7 +517,7 @@ class Dist(Bucket):
         super().__init__()
         self.ops: list[tuple[object, ...]] = []
 
-    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: dict[str, Any]) -> None:
+    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: _Extra) -> None:
         super().upload_file(path, bucket, key, ExtraArgs)
         self.ops.append(("upload", key))
 
@@ -483,11 +526,11 @@ class Dist(Bucket):
         self.etags[Key] = hashlib.md5(Body, usedforsecurity=False).hexdigest()
         self.ops.append(("put", Key, Body))
 
-    def head_object(self, Bucket: str, Key: str) -> dict[str, Any]:
+    def head_object(self, Bucket: str, Key: str) -> _Head:
         super().head_object(Bucket, Key)
         return {"ContentLength": len(self.bytes[Key]), "Metadata": {}}
 
-    def get_object(self, Bucket: str, Key: str, Range: str | None = None) -> dict[str, Any]:
+    def get_object(self, Bucket: str, Key: str, Range: str | None = None) -> _Got:
         assert Range is not None
         a, b = (int(x) for x in Range.removeprefix("bytes=").split("-"))
         self.ops.append(("get", Key))
@@ -512,7 +555,7 @@ def _lay(**kw: Unpack[Layout]) -> Layout:
 def _copy(path: Path, lay: Layout) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     t = pa.table({"id": [3, 1, 2], "year": [2024, 2023, 2024], "place": ["b", "a", "c"]})
-    profile.write(t, {}, path, lay)
+    profile.write(t, cast("Header", {}), path, lay)
     return path
 
 

@@ -4,8 +4,9 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -17,6 +18,96 @@ from publicdata.store import Manifest
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from typing import TypedDict, Unpack
+
+    from publicdata.jsontypes import JSON, JSONObject
+    from publicdata.register import (
+        Chart,
+        Database,
+        Example,
+        Geometry,
+        Kind,
+        Sample,
+        Status,
+        TableSpec,
+        View,
+        Wide,
+    )
+    from publicdata.serialise.profile import Layout
+    from publicdata.store import ManifestLicence, ManifestSource
+
+    class DatasetFields(TypedDict, total=False):
+        """The Dataset fields a test may set; the rest keep make_dataset's values."""
+
+        slug: str
+        title: str
+        status: Status
+        publisher: Publisher
+        licence: Licence
+        source: Source
+        description: str
+        summary: str
+        collection: str
+        collection_title: str
+        key: tuple[str, ...]
+        partition_by: tuple[str, ...]
+        sort: tuple[str, ...]
+        lookup: tuple[str, ...]
+        int32: tuple[str, ...]
+        unpivot: str
+        wide: Wide | None
+        geometry: Geometry | None
+        enrich: tuple[str, ...]
+        suppression: tuple[str, ...]
+        note: str
+        blocked_reason: str
+        planned: str
+        temporal_start: str
+        order: int
+        search_title: str
+        also_known_as: tuple[str, ...]
+        keywords: tuple[str, ...]
+        faq: tuple[tuple[str, str], ...]
+        collection_description: str
+        landing: str
+        row_label: str
+        topics: tuple[str, ...]
+        example: Example | None
+        chart: Chart | None
+        sample: Sample | None
+        omit: dict[str, str]
+        source_withheld: str
+        collection_search_title: str
+        place_field: str
+        rebuild: int
+        query: bool
+        path: str
+        extra: dict[str, object]
+        kind: Kind
+        database: Database | None
+        tables: tuple[TableSpec, ...]
+        views: tuple[View, ...]
+
+    class ManifestFields(TypedDict, total=False):
+        """The Manifest fields a test may set; the rest keep make_manifest's values."""
+
+        dataset: str
+        version: str
+        as_at: str
+        fetched_at: str
+        sha256: str
+        bytes: int
+        filename: str
+        encoding: str
+        source: ManifestSource
+        licence: ManifestLicence
+        backfilled: bool
+        tombstone: JSONObject | None
+        notes: list[str]
+        rows_sha256: str
+        parquet: Layout
+        caps: int
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -106,39 +197,37 @@ def fixture_builds(
     return plain, cold, cache
 
 
-def make_dataset(fields: Iterable[Field], **kw: object) -> Dataset:
-    base: dict[str, Any] = {
-        "slug": "t",
-        "title": "Test",
-        "status": "live",
-        "publisher": Publisher("Test Agency", "Test", "Qld", "https://example.gov.au/"),
-        "licence": Licence(
+def make_dataset(fields: Iterable[Field], **kw: Unpack[DatasetFields]) -> Dataset:
+    base = Dataset(
+        slug="t",
+        title="Test",
+        status="live",
+        publisher=Publisher("Test Agency", "Test", "Qld", "https://example.gov.au/"),
+        licence=Licence(
             "CC-BY-4.0",
             "https://example.gov.au/data",
             "Test Agency, Test, sourced {sourced}. CC BY 4.0.",
         ),
-        "source": Source(adapter="ckan-resource", url="https://example.gov.au/data"),
-        "fields": tuple(fields),
-    }
-    base.update(kw)
-    return Dataset(**base)
+        source=Source(adapter="ckan-resource", url="https://example.gov.au/data"),
+        fields=tuple(fields),
+    )
+    return replace(base, **kw)
 
 
-def make_manifest(data: bytes, **kw: object) -> Manifest:
-    base: dict[str, Any] = {
-        "dataset": "t",
-        "version": "2026-01-02",
-        "as_at": "2025-12-31",
-        "fetched_at": "2026-01-02T01:00:00+00:00",
-        "sha256": hashlib.sha256(data).hexdigest(),
-        "bytes": len(data),
-        "filename": "source.csv",
-        "encoding": "utf-8",
-        "source": {"url": "https://example.gov.au/file.csv"},
-        "licence": {"id": "CC-BY-4.0", "title": "Creative Commons Attribution 4.0"},
-    }
-    base.update(kw)
-    return Manifest(**base)
+def make_manifest(data: bytes, **kw: Unpack[ManifestFields]) -> Manifest:
+    base = Manifest(
+        dataset="t",
+        version="2026-01-02",
+        as_at="2025-12-31",
+        fetched_at="2026-01-02T01:00:00+00:00",
+        sha256=hashlib.sha256(data).hexdigest(),
+        bytes=len(data),
+        filename="source.csv",
+        encoding="utf-8",
+        source={"url": "https://example.gov.au/file.csv"},
+        licence={"id": "CC-BY-4.0", "title": "Creative Commons Attribution 4.0"},
+    )
+    return replace(base, **kw)
 
 
 def present[T](x: T | None) -> T:
@@ -147,8 +236,29 @@ def present[T](x: T | None) -> T:
     return x
 
 
-def read_json(p: Path) -> Any:  # noqa: ANN401 - parsed JSON, read by the keys each test expects
-    return json.loads(p.read_text(encoding="utf-8"))
+def obj(v: JSON) -> JSONObject:
+    """v, which the test expects to be a JSON object."""
+    assert isinstance(v, dict)
+    return v
+
+
+def arr(v: JSON) -> list[JSON]:
+    """v, which the test expects to be a JSON array."""
+    assert isinstance(v, list)
+    return v
+
+
+def dig(v: JSON, *path: str | int) -> JSON:
+    """The value at path in parsed JSON, each step an object key or an array index."""
+    for step in path:
+        v = obj(v)[step] if isinstance(step, str) else arr(v)[step]
+    return v
+
+
+def read_json(p: Path) -> JSONObject:
+    """A JSON file the build writes, each of which holds one object."""
+    got: JSONObject = json.loads(p.read_text(encoding="utf-8"))
+    return got
 
 
 def as_parquet(db: Path) -> Path:

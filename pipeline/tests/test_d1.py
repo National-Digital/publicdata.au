@@ -5,7 +5,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, TypedDict, Unpack, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -21,6 +21,8 @@ from .conftest import ROOT, make_dataset
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from pathlib import Path
+
+    from publicdata.d1 import LoadManifest, Row
 
 
 @pytest.fixture(autouse=True)
@@ -312,14 +314,15 @@ class FakeD1:
             self.db.executescript(path.read_text())
         return what == "ok"
 
-    def query(self, sql: str) -> list[dict[str, Any]]:
+    def query(self, sql: str) -> list[Row]:
         try:
             cur = self.db.execute(sql)
         except sqlite3.OperationalError as e:
             raise RuntimeError(str(e)) from e
         cols = [c[0] for c in cur.description or []]
         self.db.commit()
-        return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
+        # The fake answers with SQLite's rows, as D1 answers with its own.
+        return [cast("Row", dict(zip(cols, r, strict=True))) for r in cur.fetchall()]
 
 
 def parts_for(
@@ -459,7 +462,7 @@ def test_a_version_is_checked_only_while_no_other_import_runs(tmp_path: Path) ->
                 importing[0] -= 1
             return super().file(path)
 
-        def query(self, sql: str) -> list[dict[str, Any]]:
+        def query(self, sql: str) -> list[Row]:
             time.sleep(0.005)
             with lock:
                 clashes.append(importing[0])
@@ -570,18 +573,18 @@ def _tables(fake: FakeD1) -> set[str]:
     return {r["name"] for r in fake.query("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
-def _manifest(folder: Path) -> dict[str, Any]:
+def _manifest(folder: Path) -> LoadManifest:
     (m,) = folder.glob("*.json")
-    got: dict[str, Any] = json.loads(m.read_text())
+    got: LoadManifest = json.loads(m.read_text())
     return got
 
 
-def _load_row(fake: FakeD1, slug: str) -> dict[str, Any] | None:
+def _load_row(fake: FakeD1, slug: str) -> Row | None:
     rows = fake.query(f"SELECT * FROM _loads WHERE slug = '{slug}'")
     return rows[0] if rows else None
 
 
-def _pending(fake: FakeD1, slug: str) -> dict[str, Any]:
+def _pending(fake: FakeD1, slug: str) -> Row:
     row = _load_row(fake, slug)
     assert row is not None
     return row
@@ -649,7 +652,9 @@ def test_a_failed_load_resumes_at_the_part_that_failed(tmp_path: Path) -> None:
     assert fake.files[0] == "x@2026-01-01.part004.sql"
     assert _served(fake, "x") == ("2026-01-01", 5, 5)
     (tbl,) = (r["tbl"] for r in d1._registry(fake).values())
-    assert [r["a"] for r in fake.query(f'SELECT a FROM "{tbl}" ORDER BY rowid')] == list(range(5))
+    assert [a for (a,) in fake.db.execute(f'SELECT a FROM "{tbl}" ORDER BY rowid')] == list(
+        range(5)
+    )
     assert _load_row(fake, "x") is None
 
 
@@ -665,7 +670,9 @@ def test_a_resume_whose_table_disagrees_with_its_progress_loads_from_part_one(
     assert failed == 0
     assert any("loading it from part 1" in x for x in lines)
     assert fake.files[0] == "x@2026-01-01.part001.sql"
-    assert [r["a"] for r in fake.query(f'SELECT a FROM "{tbl}" ORDER BY rowid')] == list(range(5))
+    assert [a for (a,) in fake.db.execute(f'SELECT a FROM "{tbl}" ORDER BY rowid')] == list(
+        range(5)
+    )
 
 
 def test_a_version_rebuilt_between_deploys_loads_afresh_and_drops_the_part_filled_table(
@@ -687,7 +694,7 @@ class Flaky(FakeD1):
 
     down = False
 
-    def query(self, sql: str) -> list[dict[str, Any]]:
+    def query(self, sql: str) -> list[Row]:
         if self.down and "COUNT(*)" in sql:
             msg = "D1 query failed: rate limited"
             raise RuntimeError(msg)

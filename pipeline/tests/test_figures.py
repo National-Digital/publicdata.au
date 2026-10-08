@@ -1,7 +1,7 @@
 import re
 import sqlite3
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from publicdata import figures
 from publicdata.register import Field, Publisher
@@ -12,8 +12,13 @@ from .conftest import as_parquet, make_dataset, make_manifest, present
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
+    from typing import Unpack
 
-    from publicdata.register import Dataset
+    from publicdata.explorer import Console, ConsoleField
+    from publicdata.figures import Cond
+    from publicdata.register import Chart, Dataset, Geometry, Sample
+
+    from .conftest import DatasetFields
 
 
 def _db(tmp_path: Path, rows: Iterable[tuple[object, ...]]) -> Path:
@@ -29,16 +34,13 @@ def _db(tmp_path: Path, rows: Iterable[tuple[object, ...]]) -> Path:
 def _ds() -> Dataset:
     return make_dataset(
         [
-            figures.__class__  # placeholder replaced below
-        ]
-        if False
-        else [
             Field("crash_year", "crash_year", "integer", label="Year"),
             Field("severity", "severity", "string", label="Severity"),
             Field("lon", "lon", "number", label="Longitude"),
             Field("lat", "lat", "number", label="Latitude"),
         ],
-        geometry={"lon": "lon", "lat": "lat", "crs": "EPSG:7844"},
+        # The map reads lon and lat alone, so the entry names no kind.
+        geometry=cast("Geometry", {"lon": "lon", "lat": "lat", "crs": "EPSG:7844"}),
         row_label="Crashes",
     )
 
@@ -66,7 +68,7 @@ def test_a_part_year_is_left_out_and_named(tmp_path: Path) -> None:
         2025,
     ]
     m = make_manifest(b"", as_at="2025-06-30", fetched_at="2026-01-01T00:00:00+00:00")
-    console: dict[str, Any] = {
+    console: Console = {
         "fields": [{"name": "severity", "type": "string", "values": ["Fatal", "Minor", "Serious"]}],
         "example": {"metric": "count", "group": [], "filters": []},
     }
@@ -215,7 +217,7 @@ def test_the_chart_condition_keeps_to_the_rows_it_names_and_says_so(tmp_path: Pa
             (2024, "Property damage only", 153.1, -27.5),
         ],
     )
-    where = {"field": "severity", "op": "!=", "value": "Property damage only"}
+    where: Cond = {"field": "severity", "op": "!=", "value": "Property damage only"}
     s = figures.series(
         db, "crash_year", "integer", "severity", "count", until="2024-12-31", where=where
     )
@@ -252,7 +254,8 @@ def _counts(tmp_path: Path) -> Path:
     return as_parquet(db)
 
 
-def _counts_ds(**kw: object) -> Dataset:
+def _counts_ds(**kw: Unpack[DatasetFields]) -> Dataset:
+    opts: DatasetFields = {"row_label": "Crashes", **kw}
     return make_dataset(
         [
             Field("crash_year", "crash_year", "integer", label="Year"),
@@ -261,12 +264,11 @@ def _counts_ds(**kw: object) -> Dataset:
             Field("killed", "killed", "integer", label="Fatalities"),
             Field("rate", "rate", "number", label="Rate per 100,000"),
         ],
-        row_label="Crashes",
-        **kw,
+        **opts,
     )
 
 
-CONSOLE_FIELDS = [
+CONSOLE_FIELDS: list[ConsoleField] = [
     {"name": "crash_year", "type": "integer", "values": [2023, 2024]},
     {"name": "severity", "type": "string", "values": ["Fatal", "Injury"]},
     {"name": "drink", "type": "boolean"},
@@ -277,7 +279,7 @@ CONSOLE_FIELDS = [
 
 def test_the_example_answers_with_every_operator_and_a_boolean(tmp_path: Path) -> None:
     db = _counts(tmp_path)
-    console: dict[str, Any] = {
+    console: Console = {
         "fields": CONSOLE_FIELDS,
         "example": {
             "filters": [
@@ -290,7 +292,7 @@ def test_the_example_answers_with_every_operator_and_a_boolean(tmp_path: Path) -
     }
     assert figures.example_rows(db, console) == [("Fatal", 3), ("Injury", 0)]
     console["example"].update(
-        filters=[{"field": "severity", "op": "neq", "value": "Injury"}], metric="avg.rate"
+        {"filters": [{"field": "severity", "op": "neq", "value": "Injury"}], "metric": "avg.rate"}
     )
     assert figures.example_rows(db, console) == [("Fatal", 4)]
 
@@ -309,7 +311,7 @@ def test_a_measure_reads_as_its_label_and_the_caption_names_how_it_is_worked_out
 def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_path: Path) -> None:
     db = _counts(tmp_path)
     m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
-    console: dict[str, Any] = {
+    console: Console = {
         "fields": CONSOLE_FIELDS,
         "example": {"filters": [], "group": ["severity"], "metric": "sum.killed"},
     }
@@ -321,7 +323,7 @@ def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_p
         2023: {"Fatal": 3, "Injury": 0},
         2024: {"Fatal": 2, "Injury": 0},
     }
-    chart: dict[str, Any] = {"where": (), "split": None, "metric": "avg.rate", "label": ""}
+    chart: Chart = {"where": (), "split": None, "metric": "avg.rate", "label": "", "year": ""}
     fig = figures.dataset_figures(_counts_ds(chart=chart), m, console, db, tmp_path)
     assert fig["chart_caption"].startswith("Average rate per 100,000 per year, 2023 to 2024.")
     assert fig["series"]["values"] == {2023: {"": 3}, 2024: {"": 7.5}}
@@ -330,6 +332,7 @@ def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_p
         "split": "",
         "metric": "",
         "label": "Deaths",
+        "year": "",
     }
     fig = figures.dataset_figures(_counts_ds(chart=chart), m, console, db, tmp_path)
     assert fig["chart_caption"].startswith(
@@ -341,11 +344,11 @@ def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_p
 def test_a_version_without_a_column_the_chart_names_draws_no_chart(tmp_path: Path) -> None:
     db = _counts(tmp_path)
     m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
-    console: dict[str, Any] = {
+    console: Console = {
         "fields": CONSOLE_FIELDS,
         "example": {"filters": [], "group": ["severity"], "metric": "count"},
     }
-    chart = {"where": (), "split": "", "metric": "avg.added_later", "label": ""}
+    chart: Chart = {"where": (), "split": "", "metric": "avg.added_later", "label": "", "year": ""}
     ds = _counts_ds(chart=chart)
     ds = ds.__class__(
         **{
@@ -371,11 +374,11 @@ def test_a_figure_keeps_its_fraction_and_an_average_is_never_added_up(tmp_path: 
     assert ">4.35<" in figures.hbars_svg([("Lending", 4.35), ("Deposit", 1.2)], "Rates")
     db = _counts(tmp_path)
     m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
-    console: dict[str, Any] = {
+    console: Console = {
         "fields": CONSOLE_FIELDS,
         "example": {"filters": [], "group": ["severity"], "metric": "sum.killed"},
     }
-    chart = {"where": (), "split": None, "metric": "avg.rate", "label": ""}
+    chart: Chart = {"where": (), "split": None, "metric": "avg.rate", "label": "", "year": ""}
     fig = figures.dataset_figures(_counts_ds(chart=chart), m, console, db, tmp_path)
     assert "in all" not in fig["chart"]
     assert "over 2 years" not in fig["spark"]
@@ -400,10 +403,10 @@ def test_the_sample_shows_the_newest_rows_with_each_partition_value_in_turn(tmp_
         "From the latest version, newest first by year, each severity in turn, then in the"
     )
     # A place page keeps to its place, so the place field takes no turns.
-    within = {"field": "severity", "op": "=", "value": "Injury"}
+    within: Cond = {"field": "severity", "op": "=", "value": "Injury"}
     s = _sample(_counts_ds(partition_by=("severity",), place_field="severity"), db, within)
     assert [r[:2] for r in s["rows"]] == [["2024", "Injury"], ["2023", "Injury"]]
-    sample = {
+    sample: Sample = {
         "where": ({"field": "crash_year", "op": "=", "value": "newest"},),
         "order": (("rate", True),),
         "spread": "",

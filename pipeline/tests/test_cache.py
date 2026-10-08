@@ -2,7 +2,7 @@ import filecmp
 import json
 import re
 import shutil
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -231,7 +231,7 @@ def _plain_and_cached(
     fixture_builds: tuple[Path, Path, Path],
     tmp_path: Path,
     formats: str | None = None,
-) -> tuple[Path, Path, Path, Callable[..., Any]]:
+) -> tuple[Path, Path, Path, Callable[[str], object]]:
     plain, cold, shared = fixture_builds
     cache = tmp_path / "cache"
     if formats:
