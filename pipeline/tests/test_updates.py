@@ -384,6 +384,11 @@ def test_a_table_too_large_for_one_file_is_its_parts_and_a_duckdb_file(
     vdir = tree(out, "test-rolling", "2026-09-15")
     assert not (vdir / "data.parquet").exists() and not (vdir / "data.csv").exists()
     assert (vdir / "data.duckdb").is_file() and o.latest.whole is False
+    # A finished part can be an earlier version's file, so the manifest names this version's
+    # attribution for the MCP server's answers.
+    m = manifest(out, "test-rolling", "2026-09-15")
+    assert m["attribution"] == "Test Licensing Office, CC BY 4.0"
+    assert {p["tree"] for p in m["parts"]} != {"2026-09-15"}
     import duckdb
 
     con = duckdb.connect(str(vdir / "data.duckdb"), read_only=True)

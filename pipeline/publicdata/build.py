@@ -22,7 +22,7 @@ from . import OPERATOR, SITE, published, store
 from .cache import BuildCache, _link_or_copy, digest, digests, entry_key, shape_layer
 from .diff import diff
 from .normalise import Table, normalise
-from .provenance import OPERATOR_URL
+from .provenance import OPERATOR_URL, attribution
 from .provenance import header as prov_header
 from .register import Dataset
 from .serialise import (
@@ -276,6 +276,10 @@ def build_version(
         man["measured_bytes"] = measured
         man["formats_left_out"] = gone
     man["url"] = base
+    if not whole:
+        # A finished part can be an earlier version's file, whose header names that version's
+        # fetch, so the manifest gives this version's attribution to the MCP server.
+        man["attribution"] = attribution(ds, m)
     (vdir / "manifest.json").write_text(pretty(man), encoding="utf-8")
     return tbl, VersionOut(
         m,
