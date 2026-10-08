@@ -10,6 +10,7 @@ account tokens onto S3 credentials.
 from __future__ import annotations
 
 import hashlib
+import io
 import mimetypes
 import os
 import re
@@ -86,11 +87,76 @@ def versioned(key: str) -> bool:
 
 
 def dated_file(key: str) -> bool:
-    """A dated version's file, which never changes, or a version's query copy, written once
-    under a key that names its profile. A dated page says whether it is the newest, so it may."""
+    """A dated version's file, which never changes, or a version's query copy, which push
+    rewrites only when its layout changes. A dated page says whether it is the newest, so it may."""
     if key.startswith("_q/"):
         return True
     return versioned(key) and not key.endswith(("/index.html", "/index.md"))
+
+
+def _scope(key: str, prefix: str) -> str:
+    """The listing a key is looked up in: its dataset's directory, or the query copies."""
+    if key.startswith("d/"):
+        return "/".join(key.split("/")[:2]) + "/"
+    return "_q/" if key.startswith("_q/") else prefix
+
+
+class _Ranged(io.RawIOBase):
+    """An object read by byte range, so a Parquet footer is read without the whole file."""
+
+    def __init__(self, s3, bucket: str, key: str):
+        self.s3, self.bucket, self.key, self.pos = s3, bucket, key, 0
+        self.size = s3.head_object(Bucket=bucket, Key=key)["ContentLength"]
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.pos
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        self.pos = (0, self.pos, self.size)[whence] + offset
+        return self.pos
+
+    def readinto(self, b) -> int:
+        n = min(len(b), self.size - self.pos)
+        if n <= 0:
+            return 0
+        rng = f"bytes={self.pos}-{self.pos + n - 1}"
+        got = self.s3.get_object(Bucket=self.bucket, Key=self.key, Range=rng)["Body"].read()
+        b[: len(got)] = got
+        self.pos += len(got)
+        return len(got)
+
+
+def _follows(s3, bucket: str, key: str, lay: dict, etags: dict[str, str]) -> bool | None:
+    """Whether the query copy R2 holds at key follows layout lay: True or False from the record
+    beside it, which the listing settles, or, for a copy written before records were kept, from
+    its footer, None meaning it follows but has no record yet."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from .serialise.profile import follows, layout_body, layout_key
+
+    mark = layout_key(key)
+    if mark in etags:
+        return etags[mark] == hashlib.md5(layout_body(lay), usedforsecurity=False).hexdigest()
+    try:
+        with _Ranged(s3, bucket, key) as f:
+            return None if follows(pq.read_metadata(f), lay) else False
+    except pa.ArrowInvalid:
+        return False
+
+
+def _record(s3, bucket: str, key: str, lay: dict) -> None:
+    from .serialise.profile import layout_body, layout_key
+
+    s3.put_object(
+        Bucket=bucket, Key=layout_key(key), Body=layout_body(lay), ContentType=TYPES[".json"]
+    )
 
 
 def push(
@@ -101,30 +167,62 @@ def push(
     immutable: Callable[[str], bool] = lambda key: True,
     expect: list[str] = (),
     include: Callable[[str], bool] = lambda key: True,
+    layouts: dict[str, dict] | None = None,
 ) -> int:
     """Upload every file under root that include accepts. An existing immutable key is skipped unless it starts
     with one of the replace prefixes, which name the versions whose serialisation was rebuilt on
-    purpose; the version notes for such a rebuild are committed separately. Every key in expect,
-    which a cached build left out, must already be in the bucket, or nothing is uploaded."""
+    purpose; the version notes for such a rebuild come from the pull request that made the fix. Every key in expect,
+    which a cached build left out, must already be in the bucket, or nothing is uploaded.
+
+    With layouts, each dataset's layout (`profile.layout`), a query copy is uploaded again only
+    when the copy R2 holds follows another, and every query copy in expect must follow its
+    dataset's."""
+    from concurrent.futures import ThreadPoolExecutor
+
     s3 = client()
     files = sorted(x for x in root.rglob("*") if x.is_file())
     files = [p for p in files if include(prefix + str(p.relative_to(root)).replace(os.sep, "/"))]
     keys = [prefix + str(p.relative_to(root)).replace(os.sep, "/") for p in files]
-    # One listing per dataset directory, which is a page per thousand keys.
-    scopes = sorted(
-        {
-            "/".join(k.split("/")[:2]) + "/" if k.startswith("d/") else prefix
-            for k in [*keys, *expect]
-        }
-    )
+    # One listing per dataset directory and one of the query copies, a page per thousand keys.
+    scopes = sorted({_scope(k, prefix) for k in [*keys, *expect]})
     etags: dict[str, str] = {}
     for sc in scopes:
         etags |= _etags(s3, bucket, sc)
     existing = set(etags)
     check_expected(expect, existing, replace)
+
+    def layout_of(key: str) -> dict | None:
+        if layouts is None or not key.startswith("_q/"):
+            return None
+        if key.split("/")[1] not in layouts:
+            sys.exit(f"{key} is a query copy of a dataset the register does not hold")
+        return layouts[key.split("/")[1]]
+
+    wrong = [k for p, k in zip(files, keys, strict=True) if not _built_to(p, layout_of(k))]
+    if wrong:
+        sys.exit(
+            f"{len(wrong)} query copies in the tree do not follow their entry's layout, e.g. "
+            + ", ".join(wrong[:5])
+        )
+    queries = [(k, lay) for k in expect if (lay := layout_of(k)) is not None]
+    with ThreadPoolExecutor(WORKERS) as pool:
+        kept = list(pool.map(lambda q: _follows(s3, bucket, *q, etags), queries))
+    stale = [k for (k, _), ok in zip(queries, kept, strict=True) if ok is False]
+    if stale:
+        sys.exit(
+            f"{len(stale)} query copies the cached build left out follow another layout in R2, e.g. "
+            + ", ".join(stale[:5])
+            + "; build without the cache so they are written again"
+        )
+    with ThreadPoolExecutor(WORKERS) as pool:
+        unrecorded = [q for q, ok in zip(queries, kept, strict=True) if ok is None]
+        list(pool.map(lambda q: _record(s3, bucket, *q), unrecorded))
     n = 0
     for p, key in zip(files, keys, strict=True):
         forced = key.startswith(replace or ("\0",))
+        if (lay := layout_of(key)) is not None:
+            n += _push_query(s3, bucket, p, key, lay, etags)
+            continue
         if key in existing and not forced and immutable(key):
             continue
         digest = None
@@ -148,6 +246,35 @@ def push(
         n += 1
         print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")
     return n
+
+
+def _built_to(p: Path, lay: dict | None) -> bool:
+    """Whether a local query copy follows lay, so the record written beside it is true."""
+    if lay is None:
+        return True
+    import pyarrow.parquet as pq
+
+    from .serialise.profile import follows
+
+    return follows(pq.read_metadata(p), lay)
+
+
+def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, etags: dict[str, str]) -> int:
+    """Upload a query copy unless R2's follows lay. The record is written after the upload, so it
+    never names a layout the copy in R2 does not follow."""
+    if key in etags and (ok := _follows(s3, bucket, key, lay, etags)) is not False:
+        if ok is None:
+            _record(s3, bucket, key, lay)
+        return 0
+    s3.upload_file(
+        str(p),
+        bucket,
+        key,
+        ExtraArgs={"ContentType": TYPES[".parquet"], "Metadata": {"sha256": _sha256(p)}},
+    )
+    _record(s3, bucket, key, lay)
+    print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")
+    return 1
 
 
 def check_expected(expect, existing: set[str], replace: tuple[str, ...] = ()) -> None:
@@ -194,25 +321,6 @@ def pull_store(
         st.verify(store, m)
         n += 1
         print(f"got {bucket}/{key}")
-    return n
-
-
-def pull_fonts(dest: Path, bucket: str = "publicdata-raw") -> int:
-    """Fetch the brand fonts the repository leaves out, checked against their pinned hashes."""
-    from .brand import FONT_KEY, FONT_SHA256
-
-    s3 = client()
-    dest.mkdir(parents=True, exist_ok=True)
-    n = 0
-    for name, sha in FONT_SHA256.items():
-        p = dest / name
-        if p.is_file() and _sha256(p) == sha:
-            continue
-        s3.download_file(bucket, FONT_KEY + name, str(p))
-        if _sha256(p) != sha:
-            p.unlink()
-            sys.exit(f"{bucket}/{FONT_KEY}{name} does not match its pinned SHA-256")
-        n += 1
     return n
 
 
@@ -413,7 +521,11 @@ def check_sources(roots: list[Path], bucket: str = "publicdata-raw") -> int:
     want = {}
     for r in roots:
         want |= source_keys(r)
-    have = set(_etags(s3, bucket, "")) if want else set()
+    from concurrent.futures import ThreadPoolExecutor
+
+    slugs = sorted({v.split("/")[0] + "/" for v in want.values()})
+    with ThreadPoolExecutor(WORKERS) as pool:
+        have = {k for got in pool.map(lambda sc: _etags(s3, bucket, sc), slugs) for k in got}
     missing = sorted(k for k, v in want.items() if v not in have)
     if missing:
         sys.exit(

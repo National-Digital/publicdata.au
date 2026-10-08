@@ -227,3 +227,4 @@ fields:
   type: integer
 omit:
   Licensee: The licensee's name, which for many venues is a person; the venue and licence are kept.
+rebuild: 1

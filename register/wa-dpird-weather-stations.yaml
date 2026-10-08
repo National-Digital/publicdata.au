@@ -125,3 +125,4 @@ omit:
   objectid: The layer's internal row number, which is not a publisher identifier.
   (longitude): The feature's point as the service returns it, which repeats the publisher's own longitude column.
   (latitude): The feature's point as the service returns it, which repeats the publisher's own latitude column.
+rebuild: 1

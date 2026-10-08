@@ -3,6 +3,17 @@ title: Urban public housing wait times, wait list and allocations, Northern Terr
 status: live
 topics:
 - housing
+example:
+  where: {as_at: newest, table: Wait Times, bedrooms: 1 bedroom}
+  group: value
+  metric: count
+  label: Regions by the estimated wait for a one-bedroom home in the newest release
+chart: none
+sample:
+  where: {region: Total, bedrooms: Total}
+  order: [as_at.asc, table.desc]
+  spread: none
+  label: The Territory totals in each release, oldest first, of applicants on the wait list and homes allocated in the twelve months before.
 order: 286
 publisher:
   name: Department of Housing, Local Government and Community Development
