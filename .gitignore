@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 dist/
 snapshots/
 raw/

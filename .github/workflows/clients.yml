@@ -38,6 +38,8 @@ jobs:
           activate-environment: true
       - run: uv pip install -e '.[pandas,duckdb,geo,dev]'
       - run: ruff check . && ruff format --check .
+      # pyproject.toml checks the types against Python 3.10, the oldest it claims.
+      - run: mypy
       - run: pytest -q tests
       - name: The oldest Python pyproject.toml claims passes the tests too
         run: |

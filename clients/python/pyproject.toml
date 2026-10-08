@@ -20,7 +20,16 @@ dependencies = []
 pandas = ["pandas>=2.0", "pyarrow>=14"]
 duckdb = ["duckdb>=1.1"]
 geo = ["geopandas>=0.14", "pyogrio>=0.7"]
-dev = ["pytest>=8", "ruff==0.16.10"]
+dev = [
+  "pytest>=8",
+  "ruff==0.16.10",
+  "mypy==2.4.0",
+  # pandas-stubs 3 needs Python 3.11; mypy runs on a newer Python and checks against 3.10.
+  "pandas-stubs==3.0.5.260914; python_version >= '3.11'",
+  "pyarrow-stubs==20.0.0.20260819",
+  "types-geopandas==1.1.4.20261006",
+  "types-shapely==2.1.0.20260728",
+]
 
 [project.urls]
 Homepage = "https://publicdata.au/"
@@ -41,8 +50,6 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-  # A type-checking change will enable these with real annotations.
-  "ANN",
   # These two fight ruff format, which owns trailing commas and joined strings.
   "COM812",
   "ISC001",
@@ -51,6 +58,13 @@ ignore = [
   # ruff format owns line length.
   "E501",
 ]
+
+[tool.mypy]
+strict = true
+# The oldest Python requires-python claims.
+python_version = "3.10"
+files = ["src", "tests"]
+enable_error_code = ["ignore-without-code"]
 
 [tool.ruff.lint.pydocstyle]
 # The docstrings open with their summary on the first line and often describe what a function

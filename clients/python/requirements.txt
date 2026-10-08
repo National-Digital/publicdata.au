@@ -1,16 +1,22 @@
 # Exact versions for the client's CI and its release build. The package itself keeps open
 # ranges for its users; these only fix what CI installs.
+ast-serialize==0.12.1
 certifi==2026.7.22
 duckdb==1.5.6
 geopandas==1.2.0
 hatchling==1.32.4
 iniconfig==2.3.1
+librt==0.16.0
+mypy==2.4.0
+mypy-extensions==1.1.0
 numpy==2.5.3
 packaging==26.3
 pandas==3.0.6
+pandas-stubs==3.0.5.260914
 pathspec==1.1.1
 pluggy==1.6.0
 pyarrow==25.0.1
+pyarrow-stubs==20.0.0.20260819
 pygments==2.21.0
 pyogrio==0.13.0
 pyproj==3.8.0
@@ -21,3 +27,6 @@ shapely==2.2.0
 six==1.17.0
 tomlkit==0.15.1
 trove-classifiers==2026.9.21.13
+types-geopandas==1.1.4.20261006
+types-shapely==2.1.0.20260728
+typing-extensions==4.16.0

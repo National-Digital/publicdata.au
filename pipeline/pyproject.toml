@@ -19,7 +19,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.1.1", "pytest-xdist>=3.8", "ruff==0.16.10"]
+dev = [
+  "pytest>=9.1.1",
+  "pytest-xdist>=3.8",
+  "ruff==0.16.10",
+  "mypy==2.4.0",
+  "boto3-stubs[s3]==1.43.108",
+  "pyarrow-stubs==20.0.0.20260819",
+  "types-openpyxl==3.1.5.20260827",
+  "types-PyYAML==6.0.12.20260906",
+  "types-requests==2.33.0.20261006",
+  "types-xlrd==2.0.0.20260518",
+]
 deploy = ["boto3>=1.43.106"]
 hubs = ["huggingface_hub>=2.0.0", "kaggle>=2.2.4"]
 
@@ -40,8 +51,6 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-  # A type-checking change will enable these with real annotations.
-  "ANN",
   # These two fight ruff format, which owns trailing commas and joined strings.
   "COM812",
   "ISC001",
@@ -90,6 +99,19 @@ convention = "google"
 # cost reads a publisher URL only once _sized has checked it is http or https, and otherwise
 # reads the site and GitHub's API.
 "publicdata/cost.py" = ["S310"]
+
+[tool.mypy]
+strict = true
+python_version = "3.14"
+files = ["publicdata", "tests"]
+enable_error_code = ["ignore-without-code"]
+# pmtiles marks itself typed but leaves its writer and tile helpers unannotated.
+untyped_calls_exclude = ["pmtiles"]
+
+[[tool.mypy.overrides]]
+# XlsxWriter ships no annotations and no stub package exists for it.
+module = ["xlsxwriter", "xlsxwriter.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

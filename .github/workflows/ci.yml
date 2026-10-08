@@ -44,6 +44,9 @@ jobs:
       - if: steps.check.outputs.exists == 'true'
         working-directory: pipeline
         run: ruff check . && ruff format --check .
+      - if: steps.check.outputs.exists == 'true'
+        working-directory: pipeline
+        run: mypy
       # Each worker builds the shared fixture site once; the tests spread over the runner's cores.
       - if: steps.check.outputs.exists == 'true'
         working-directory: pipeline
