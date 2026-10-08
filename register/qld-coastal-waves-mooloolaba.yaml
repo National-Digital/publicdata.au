@@ -108,3 +108,4 @@ fields:
   source: SST (degrees C)
   type: number
   null_values: *id001
+rebuild: 1

@@ -156,3 +156,4 @@ fields:
   source: datetime_UTC
   type: datetime
   date_format: '%Y-%m-%d %H:%M:%S|%Y-%m-%d'
+rebuild: 1
