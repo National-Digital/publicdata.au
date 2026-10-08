@@ -28,8 +28,14 @@ from .catalogue import SLUG as CATALOGUE
 from .serialise.profile import follows, layout_body, layout_key
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Set as AbstractSet
     from pathlib import Path
+
+    from botocore.exceptions import ClientError
+    from mypy_boto3_s3 import S3Client
+
+    from .serialise.profile import Layout
 
 TYPES = {
     ".parquet": "application/vnd.apache.parquet",
@@ -51,7 +57,7 @@ TYPES = {
 VERSIONED = re.compile(r"(^|/)v/\d{4}-\d{2}-\d{2}/")
 
 
-def client():
+def client() -> S3Client:
     import boto3  # noqa: PLC0415 - the deploy extra
     from botocore.config import Config  # noqa: PLC0415 - the deploy extra
 
@@ -72,7 +78,7 @@ def client():
     )
 
 
-def _etags(s3, bucket: str, prefix: str) -> dict[str, str]:
+def _etags(s3: S3Client, bucket: str, prefix: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
         out.update((o["Key"], o.get("ETag", "").strip('"')) for o in page.get("Contents", []))
@@ -120,7 +126,7 @@ def _scope(key: str, prefix: str) -> str:
 class _Ranged(io.RawIOBase):
     """An object read by byte range, so a Parquet footer is read without the whole file."""
 
-    def __init__(self, s3, bucket: str, key: str):
+    def __init__(self, s3: S3Client, bucket: str, key: str) -> None:
         self.s3, self.bucket, self.key, self.pos = s3, bucket, key, 0
         self.size = s3.head_object(Bucket=bucket, Key=key)["ContentLength"]
 
@@ -137,7 +143,7 @@ class _Ranged(io.RawIOBase):
         self.pos = (0, self.pos, self.size)[whence] + offset
         return self.pos
 
-    def readinto(self, b) -> int:
+    def readinto(self, b: bytearray | memoryview) -> int:  # type: ignore[override]  # io hands readinto a bytearray or a memoryview
         n = min(len(b), self.size - self.pos)
         if n <= 0:
             return 0
@@ -148,7 +154,9 @@ class _Ranged(io.RawIOBase):
         return len(got)
 
 
-def _follows(s3, bucket: str, key: str, lay: dict, etags: dict[str, str]) -> bool | None:
+def _follows(
+    s3: S3Client, bucket: str, key: str, lay: Layout, etags: dict[str, str]
+) -> bool | None:
     """Whether the query copy R2 holds at key follows layout lay.
 
     True or False comes from the record beside it, which the listing settles, or, for a copy
@@ -160,12 +168,13 @@ def _follows(s3, bucket: str, key: str, lay: dict, etags: dict[str, str]) -> boo
         return etags[mark] == hashlib.md5(layout_body(lay), usedforsecurity=False).hexdigest()
     try:
         with _Ranged(s3, bucket, key) as f:
-            return None if follows(pq.read_metadata(f), lay) else False
+            meta = pq.read_metadata(f)  # type: ignore[arg-type]  # pyarrow reads any file object; its stubs name only IO
+            return None if follows(meta, lay) else False
     except pa.ArrowInvalid:
         return False
 
 
-def _record(s3, bucket: str, key: str, lay: dict) -> None:
+def _record(s3: S3Client, bucket: str, key: str, lay: Layout) -> None:
     s3.put_object(
         Bucket=bucket, Key=layout_key(key), Body=layout_body(lay), ContentType=TYPES[".json"]
     )
@@ -182,9 +191,9 @@ def push(  # noqa: C901, PLR0913 - the upload rules in one place; the options ar
     replace: tuple[str, ...] = (),
     *,
     immutable: Callable[[str], bool] = lambda _key: True,
-    expect: list[str] = (),
+    expect: Sequence[str] = (),
     include: Callable[[str], bool] = lambda _key: True,
-    layouts: dict[str, dict] | None = None,
+    layouts: dict[str, Layout] | None = None,
 ) -> int:
     """Upload every file under root that include accepts.
 
@@ -209,7 +218,7 @@ def push(  # noqa: C901, PLR0913 - the upload rules in one place; the options ar
     existing = set(etags)
     check_expected(expect, existing, replace)
 
-    def layout_of(key: str) -> dict | None:
+    def layout_of(key: str) -> Layout | None:
         if layouts is None or not key.startswith("_q/"):
             return None
         if key.split("/")[1] not in layouts:
@@ -224,7 +233,7 @@ def push(  # noqa: C901, PLR0913 - the upload rules in one place; the options ar
         )
     queries = [(k, lay) for k in expect if (lay := layout_of(k)) is not None]
     with ThreadPoolExecutor(WORKERS) as pool:
-        kept = list(pool.map(lambda q: _follows(s3, bucket, *q, etags), queries))
+        kept = list(pool.map(lambda q: _follows(s3, bucket, q[0], q[1], etags), queries))
     stale = [k for (k, _), ok in zip(queries, kept, strict=True) if ok is False]
     if stale:
         sys.exit(
@@ -266,7 +275,7 @@ def push(  # noqa: C901, PLR0913 - the upload rules in one place; the options ar
     return n
 
 
-def _built_to(p: Path, lay: dict | None) -> bool:
+def _built_to(p: Path, lay: Layout | None) -> bool:
     """Whether a local query copy follows lay, so the record written beside it is true."""
     if lay is None:
         return True
@@ -274,7 +283,9 @@ def _built_to(p: Path, lay: dict | None) -> bool:
     return follows(pq.read_metadata(p), lay)
 
 
-def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, *, etags: dict[str, str]) -> int:  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _push_query(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    s3: S3Client, bucket: str, p: Path, key: str, lay: Layout, *, etags: dict[str, str]
+) -> int:
     """Upload a query copy unless R2's follows lay.
 
     The record is written after the upload, so it never names a layout the copy in R2 does not
@@ -295,7 +306,9 @@ def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, *, etags: dict[st
     return 1
 
 
-def check_expected(expect, existing: set[str], replace: tuple[str, ...] = ()) -> None:
+def check_expected(
+    expect: Iterable[str], existing: set[str], replace: tuple[str, ...] = ()
+) -> None:
     rebuilt = [k for k in expect if replace and k.startswith(replace)]
     if rebuilt:
         sys.exit(
@@ -315,7 +328,7 @@ def pull_store(
     store: Path,
     bucket: str = "publicdata-raw",
     only: tuple[str, ...] = (),
-    skip: set[tuple[str, str]] = frozenset(),
+    skip: AbstractSet[tuple[str, str]] = frozenset(),
 ) -> int:
     """Fetch every source file a committed manifest names and is missing locally.
 
@@ -372,7 +385,7 @@ GRACE_HOURS = 24
 WORKERS = 16
 
 
-def _missing(e) -> bool:
+def _missing(e: ClientError) -> bool:
     return e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey")
 
 
@@ -420,7 +433,7 @@ def cache_pull(root: Path, *, meta_only: bool = False, entries: set[str] | None 
         return sum(pool.map(get, [k for k in metas if k.split("/")[1] not in gone]))
 
 
-def _delete(s3, keys: list[str]) -> None:
+def _delete(s3: S3Client, keys: list[str]) -> None:
     for i in range(0, len(keys), 1000):
         r = s3.delete_objects(
             Bucket=CACHE_BUCKET,
@@ -434,7 +447,7 @@ def _delete(s3, keys: list[str]) -> None:
             )
 
 
-def _unused(s3) -> dict[str, str]:
+def _unused(s3: S3Client) -> dict[str, str]:
     from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
 
     try:
@@ -443,10 +456,11 @@ def _unused(s3) -> dict[str, str]:
         if _missing(e):
             return {}
         raise
-    return json.loads(body)
+    unused: dict[str, str] = json.loads(body)
+    return unused
 
 
-def cache_push(root: Path, *, prune: bool = False, now=None) -> tuple[int, int]:
+def cache_push(root: Path, *, prune: bool = False, now: datetime | None = None) -> tuple[int, int]:
     """Upload the entries under root that R2 lacks or holds in another form.
 
     Files go before each meta.json. With prune, R2's entries that root no longer holds are noted
@@ -533,7 +547,7 @@ def check_sources(roots: list[Path], bucket: str = "publicdata-raw") -> int:
     The raw store is where the site serves the file from. Returns how many were checked.
     """
     s3 = client()
-    want = {}
+    want: dict[str, str] = {}
     for r in roots:
         want |= source_keys(r)
 

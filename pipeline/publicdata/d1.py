@@ -26,12 +26,32 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
 from .records import connect
 from .serialise import SQLITE_TYPES, dumps
 from .serialise.profile import sha256, signature
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+    from typing import Any, Literal, Protocol, TypedDict
+
+    from .register import Dataset
+
+    type Kind = Literal["create", "insert", "update", "index", "fts", "register"]
+    type Stmt = tuple[Kind, str, int]
+    type Log = Callable[[str], object]
+
+    class D1(Protocol):
+        def file(self, path: Path) -> bool: ...
+        def query(self, sql: str) -> list[dict[str, Any]]: ...
+
+    class Registered(TypedDict):
+        tbl: str
+        rows: int
+
 
 KEEP = 2
 MAX_STATEMENT = 90_000  # D1 allows 100 KB per statement
@@ -106,7 +126,7 @@ def table_name(slug: str, version: str) -> str:
     return "v_" + re.sub(r"[^a-z0-9]", "_", slug) + "_" + version.replace("-", "")
 
 
-def literal(v) -> str:
+def literal(v: object) -> str:
     if v is None:
         return "NULL"
     if isinstance(v, bool):
@@ -128,7 +148,7 @@ def version_sql(  # noqa: PLR0913 - the options are keyword-only and named at ea
     tbl: str | None = None,
     *,
     fts: tuple[str, ...] = (),
-):
+) -> Iterator[str]:
     """Yields the statements that create and fill one table from a SQLite file.
 
     The file is shaped as a version's data.sqlite, as the catalogue and served indexes are.
@@ -137,7 +157,15 @@ def version_sql(  # noqa: PLR0913 - the options are keyword-only and named at ea
         yield stmt
 
 
-def _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl=None, *, fts=()):  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _sqlite_stmts(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    sqlite_path: Path,
+    slug: str,
+    version: str,
+    index_fields: tuple[str, ...],
+    tbl: str | None = None,
+    *,
+    fts: tuple[str, ...] = (),
+) -> Iterator[Stmt]:
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         cols = [(c[1], c[2]) for c in src.execute("PRAGMA table_info(records)").fetchall()]
@@ -159,8 +187,8 @@ def _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl=None, *, fts=())
 
 
 def parquet_version_sql(
-    parquet: Path, ds, version: str, index_fields: tuple[str, ...], tbl: str | None = None
-):
+    parquet: Path, ds: Dataset, version: str, index_fields: tuple[str, ...], tbl: str | None = None
+) -> Iterator[str]:
     """Yields the statements that create and fill one dataset version's table from its Parquet.
 
     The table is typed as its data.sqlite and filled in the Parquet's row order, which is the
@@ -170,7 +198,13 @@ def parquet_version_sql(
         yield stmt
 
 
-def _parquet_stmts(parquet, ds, version, index_fields, tbl=None):
+def _parquet_stmts(
+    parquet: Path,
+    ds: Dataset,
+    version: str,
+    index_fields: tuple[str, ...],
+    tbl: str | None = None,
+) -> Iterator[Stmt]:
     cols = parquet_columns(parquet, ds)
     header = {
         k: v if isinstance(v, str) else dumps(v)
@@ -195,14 +229,25 @@ def _q(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def parquet_columns(parquet: Path, ds) -> list[tuple[str, str]]:
+def parquet_columns(parquet: Path, ds: Dataset) -> list[tuple[str, str]]:
     """The records table's columns and SQLite types, as the SQLite writer declares them."""
     have = set(pq.read_schema(parquet).names)
     cols = [(f.name, SQLITE_TYPES[f.type]) for f in ds.fields if f.name in have]
     return cols + ([("suppressed", "TEXT")] if "suppressed" in have else [])
 
 
-def _table_sql(slug, version, index_fields, cols, header, *, fields, rows, tbl=None, fts=()):  # noqa: C901, PLR0912, PLR0913, PLR0915 - one table's statements, read in order
+def _table_sql(  # noqa: C901, PLR0912, PLR0913, PLR0915 - one table's statements, read in order
+    slug: str,
+    version: str,
+    index_fields: Sequence[str],
+    cols: Sequence[tuple[str, str]],
+    header: Mapping[str, str],
+    *,
+    fields: list[dict[str, str]],
+    rows: Iterable[Sequence[object]],
+    tbl: str | None = None,
+    fts: tuple[str, ...] = (),
+) -> Iterator[Stmt]:
     """Yields (kind, statement, rows it inserts).
 
     Kinds "create", "insert" and "update" fill the table; "index", "fts" and "register" finish it
@@ -221,7 +266,8 @@ def _table_sql(slug, version, index_fields, cols, header, *, fields, rows, tbl=N
     )
     head = f'INSERT INTO "{tbl}" ({", ".join(f"{chr(34)}{n}{chr(34)}" for n in names)}) VALUES '
     # D1's limit is in bytes, and a name or an address in another script takes several per letter.
-    batch, size, n = [], len(head.encode()), 0
+    batch: list[str] = []
+    size, n = len(head.encode()), 0
     wide: dict[int, int] = {}
     max_rows = max(1, MAX_VALUES // max(1, len(names)))
     for row in rows:
@@ -265,7 +311,7 @@ def _table_sql(slug, version, index_fields, cols, header, *, fields, rows, tbl=N
                 0,
             )
     # The provenance header every file of this version carries, parsed back to one object.
-    prov = {}
+    prov: dict[str, object] = {}
     for k, v in header.items():
         try:
             prov[k] = json.loads(v)
@@ -317,7 +363,7 @@ class TooWide(ValueError):  # noqa: N818 - named before the rule, and logs name 
     """A row larger than D1 holds; its version stays files-only."""
 
 
-def _raw_size(v) -> int:
+def _raw_size(v: object) -> int:
     if isinstance(v, str):
         return len(v.encode())
     if isinstance(v, bytes):
@@ -325,7 +371,15 @@ def _raw_size(v) -> int:
     return 0
 
 
-def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, *, wide: dict[int, int]):  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _wide_row(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    tbl: str,
+    head: str,
+    names: list[str],
+    row: Sequence[object],
+    rowid: int,
+    *,
+    wide: dict[int, int],
+) -> Iterator[Stmt]:
     """A row too long for one statement, inserted in pieces.
 
     It goes in with its longest text and blob values empty, and each of those is then appended a
@@ -336,7 +390,7 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, *, wide: d
         msg = f"row {rowid} is larger than D1 holds"
         raise TooWide(msg)
     lits = [literal(v) for v in row]
-    later = []
+    later: list[int] = []
     for i in sorted(range(len(row)), key=lambda i: -len(lits[i].encode())):
         if len(head.encode()) + sum(len(x.encode()) for x in lits) + len(lits) + 2 <= MAX_STATEMENT:
             break
@@ -360,17 +414,18 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, *, wide: d
                     0,
                 )
             continue
-        a = 0
-        while a < len(v):
-            k = room
-            while len(literal(v[a : a + k]).encode()) > room:
-                k = max(1, k * room // len(literal(v[a : a + k]).encode()) - 1)
-            yield "update", f'{stem}"{col}" || {literal(v[a : a + k])}{tail}', 0
-            a += k
+        if isinstance(v, str):
+            a = 0
+            while a < len(v):
+                k = room
+                while len(literal(v[a : a + k]).encode()) > room:
+                    k = max(1, k * room // len(literal(v[a : a + k]).encode()) - 1)
+                yield "update", f'{stem}"{col}" || {literal(v[a : a + k])}{tail}', 0
+                a += k
     wide[rowid] = sum(_raw_size(v) for v in row)
 
 
-def queryable(ds, csv_bytes: int | None) -> bool:
+def queryable(ds: Dataset, csv_bytes: int | None) -> bool:
     """Whether the query API serves this version, by the size of its data.csv.
 
     The build and the loader both ask here.
@@ -378,7 +433,7 @@ def queryable(ds, csv_bytes: int | None) -> bool:
     return bool(ds.query and csv_bytes and csv_bytes <= MAX_CSV)
 
 
-def _fields(src: sqlite3.Connection) -> list[dict]:
+def _fields(src: sqlite3.Connection) -> list[dict[str, str]]:
     """The fields of the records table, as _versions lists them for the API."""
     names = [c[1] for c in src.execute("PRAGMA table_info(records)").fetchall()]
     return [
@@ -388,7 +443,7 @@ def _fields(src: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def built_fields(ds, parquet: Path) -> list[dict]:
+def built_fields(ds: Dataset, parquet: Path) -> list[dict[str, str]]:
     """The field list a version registers, as its data.sqlite's fields table names them."""
     have = set(pq.read_schema(parquet).names)
     fields = [{"name": f.name, "type": f.type} for f in ds.fields if f.name in have]
@@ -403,7 +458,8 @@ def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:
         if p.exists():
             for res in json.loads(p.read_text(encoding="utf-8")).get("resources", []):
                 if str(res.get("path", "")).endswith(want):
-                    return res.get("bytes")
+                    size: int | None = res.get("bytes")
+                    return size
     return None
 
 
@@ -417,7 +473,7 @@ def rows_written(text: str) -> int:
     return n * {"": 1, "k": 10**3, "m": 10**6, "g": 10**9}[m[2].lower()]
 
 
-def load_table(slug: str, version: str, *content) -> str:
+def load_table(slug: str, version: str, *content: object) -> str:
     """The table one load fills: the version's name and a digest of what goes in it.
 
     That way a load never writes into a table the API reads, and a load resumed later is of the
@@ -448,7 +504,7 @@ def _sqlite_digest(path: Path, table: str = "records") -> bytes:
 
 def write_loads(  # noqa: PLR0913 - the options are keyword-only and named at each call
     roots: list[Path],
-    datasets,
+    datasets: Iterable[Dataset],
     loaded: dict[str, list[str]],
     out: Path,
     stamp: str = "",
@@ -464,7 +520,7 @@ def write_loads(  # noqa: PLR0913 - the options are keyword-only and named at ea
     rows were taken in another order than its Parquet's, is loaded again into a table of its own.
     """
     out.mkdir(parents=True, exist_ok=True)
-    written = []
+    written: list[Path] = []
     latest_json = next((r / "latest.json" for r in roots if (r / "latest.json").exists()), None)
     latest = json.loads(latest_json.read_text(encoding="utf-8")) if latest_json else {}
     for ds in datasets:
@@ -512,7 +568,18 @@ def write_loads(  # noqa: PLR0913 - the options are keyword-only and named at ea
     return written
 
 
-def _write_load(out, slug, version, tbl, stmts, *, stamp, keep, fts=False, after=()) -> list[Path]:  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _write_load(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    out: Path,
+    slug: str,
+    version: str,
+    tbl: str,
+    stmts: Iterable[Stmt],
+    *,
+    stamp: str,
+    keep: int,
+    fts: bool = False,
+    after: Iterable[str] = (),
+) -> list[Path]:
     """Writes one load's parts and its manifest.
 
     Every part but the last only adds rows, and `cum` records the rows the table holds after each,
@@ -548,7 +615,7 @@ def _write_load(out, slug, version, tbl, stmts, *, stamp, keep, fts=False, after
             f"{literal(version)} AND tbl = {literal(tbl)});"
         )
     key = f"{slug}@{version}"
-    paths = []
+    paths: list[Path] = []
     for i, part in enumerate([*body, finish], 1):
         path = out / f"{key}.part{i:03d}.sql"
         with path.open("w", encoding="utf-8", newline="\n") as f:
@@ -599,7 +666,7 @@ CATALOGUE_FIELDS = (
 FTS_ROWS = 20_000
 
 
-def catalogue_sqlite(path: Path, rows: list[dict], version: str) -> None:
+def catalogue_sqlite(path: Path, rows: Sequence[Mapping[str, object]], version: str) -> None:
     """The index as a SQLite file shaped like a version's data.sqlite, so it loads the same way."""
     path.unlink(missing_ok=True)
     db = sqlite3.connect(path)
@@ -669,7 +736,7 @@ SERVED_FIELDS = (
 )
 
 
-def served_table(path: Path, rows: list[dict]) -> str:
+def served_table(path: Path, rows: Sequence[Mapping[str, object]]) -> str:
     """Adds the served datasets to the catalogue index file.
 
     Returns the version, which is a hash of the rows so a changed register loads again without
@@ -726,7 +793,7 @@ def served_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str = "
 class Wrangler:
     """Runs D1 commands through wrangler. Tests pass a stand-in."""
 
-    def __init__(self, database: str = "publicdata"):
+    def __init__(self, database: str = "publicdata") -> None:
         self.database = database
 
     def file(self, path: Path) -> bool:
@@ -744,7 +811,7 @@ class Wrangler:
         ]
         return subprocess.run(cmd, check=False).returncode == 0
 
-    def query(self, sql: str) -> list[dict]:
+    def query(self, sql: str) -> list[dict[str, Any]]:
         cmd = [
             "npx",
             "--yes",
@@ -777,7 +844,7 @@ def _absent(e: Exception) -> bool:
     return "no such table" in str(e)
 
 
-def _ask(db, sql: str) -> list[dict]:
+def _ask(db: D1, sql: str) -> list[dict[str, Any]]:
     """A query, asked again when D1 fails to answer. A missing table is an answer."""
     for i in range(ASKS):
         try:
@@ -790,7 +857,7 @@ def _ask(db, sql: str) -> list[dict]:
     raise AssertionError(msg)
 
 
-def _registry(db) -> dict[tuple[str, str], dict]:
+def _registry(db: D1) -> dict[tuple[str, str], Registered]:
     try:
         rows = _ask(db, "SELECT slug, version, tbl, rows FROM _versions")
     except RuntimeError as e:
@@ -800,11 +867,11 @@ def _registry(db) -> dict[tuple[str, str], dict]:
     return {(r["slug"], r["version"]): {"tbl": r["tbl"], "rows": int(r["rows"])} for r in rows}
 
 
-def registered(db) -> dict[tuple[str, str], int]:
+def registered(db: D1) -> dict[tuple[str, str], int]:
     return {k: v["rows"] for k, v in _registry(db).items()}
 
 
-def _count(db, tbl: str) -> int | None:
+def _count(db: D1, tbl: str) -> int | None:
     """The rows a table holds, None when it does not exist. Raises Unknown when D1 does not say."""
     try:
         return int(_ask(db, f'SELECT COUNT(*) AS n FROM "{tbl}"')[0]["n"])
@@ -817,7 +884,7 @@ def _count(db, tbl: str) -> int | None:
         raise Unknown(msg) from e
 
 
-def holds(db, tbl: str, expected: int) -> bool:
+def holds(db: D1, tbl: str, expected: int) -> bool:
     """One COUNT per table, since D1 caps compound SELECTs at five terms.
 
     Raises Unknown rather than answer False when D1 cannot be asked.
@@ -874,7 +941,7 @@ class Job:
 
 
 def _jobs(folder: Path) -> list[Job]:
-    jobs = []
+    jobs: list[Job] = []
     for m in sorted(folder.glob("*.json")):
         d = json.loads(m.read_text(encoding="utf-8"))
         jobs.append(
@@ -895,7 +962,9 @@ def _jobs(folder: Path) -> list[Job]:
     return jobs
 
 
-def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], now: str):
+def plan(
+    jobs: list[Job], state: dict[str, dict[str, Any]], budget: int, retry: set[str], now: str
+) -> tuple[list[Job], list[Job]]:
     """Orders the loads and splits them into this deploy's and later ones'.
 
     A load that got part way goes first, then the dataset that has waited longest, then the
@@ -905,7 +974,7 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
     a load of it succeeds or `retry` names it; a failure also restarts its wait, so it goes behind
     the others.
     """
-    queue = []
+    queue: list[Job] = []
     for j in jobs:
         row = state.get(j.slug)
         j.since = row["since"] if row else now
@@ -925,7 +994,9 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
             continue
         queue.append(j)
     queue.sort(key=lambda j: (j.start == 0, j.since, j.planned(), j.key))
-    take, wait, used = [], [], 0
+    take: list[Job] = []
+    wait: list[Job] = []
+    used = 0
     for j in queue:
         if not take or used + j.planned() <= budget:
             take.append(j)
@@ -936,7 +1007,7 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
     return take, wait
 
 
-def _upsert(rows: list[tuple], *, since: bool = False) -> str:
+def _upsert(rows: list[tuple[object, ...]], *, since: bool = False) -> str:
     return (
         "INSERT INTO _loads (slug, version, tbl, part, rows, attempts, error, since, tried) VALUES "
         + ",".join("(" + ", ".join(literal(v) for v in r) + ")" for r in rows)
@@ -951,13 +1022,16 @@ def _drops(tbl: str) -> list[str]:
     return [f'DROP TABLE IF EXISTS "{tbl}_fts";', f'DROP TABLE IF EXISTS "{tbl}";']
 
 
-def _note_pending(db, jobs: list[Job], state: dict[str, dict], served: set[str], log) -> None:
+def _note_pending(
+    db: D1, jobs: list[Job], state: dict[str, dict[str, Any]], served: set[str], log: Log
+) -> None:
     """Records each pending load the registry of loads lacks or holds for another table.
 
     It keeps the time its dataset began to wait, and drops a table an earlier load left part
     filled. A row whose dataset is no longer pending goes, with any table it was filling.
     """
-    rows, sql = [], []
+    rows: list[tuple[object, ...]] = []
+    sql: list[str] = []
     pending = {j.slug for j in jobs}
     for j in jobs:
         row = state.get(j.slug)
@@ -1009,7 +1083,7 @@ class _Budget:
     the next deploy; the first in line always runs.
     """
 
-    def __init__(self, cap: int):
+    def __init__(self, cap: int) -> None:
         self.cap, self.spent, self.lock = cap, 0, threading.Lock()
 
     def reserve(self, j: Job, need: int) -> None:
@@ -1027,12 +1101,12 @@ class _Budget:
 
 
 class _Failed(Exception):  # noqa: N818 - a signal the load records
-    def __init__(self, done: int, why: str):
+    def __init__(self, done: int, why: str) -> None:
         super().__init__(why)
         self.done = done
 
 
-def _fill(db, j: Job, budget: _Budget, log) -> None:  # noqa: C901 - one load's parts and their retries, read in order
+def _fill(db: D1, j: Job, budget: _Budget, log: Log) -> None:  # noqa: C901 - one load's parts and their retries, read in order
     """Runs the parts that add rows.
 
     It starts from where the last load stopped if the table still holds exactly the rows that load
@@ -1075,7 +1149,7 @@ def _fill(db, j: Job, budget: _Budget, log) -> None:  # noqa: C901 - one load's 
             restamp(j.body[i], t)
 
 
-def _finish(db, j: Job, budget: _Budget, log) -> None:
+def _finish(db: D1, j: Job, budget: _Budget, log: Log) -> None:
     """Builds the indexes and registers the version, which holds only if the table is whole."""
     with IMPORT_LOCK:
         n = _count(db, j.tbl)
@@ -1106,7 +1180,7 @@ def _finish(db, j: Job, budget: _Budget, log) -> None:
     raise _Failed(len(j.body), "its indexes or registration did not complete")
 
 
-def _sweep(db, keep: set[str], log) -> None:
+def _sweep(db: D1, keep: set[str], log: Log) -> None:
     """Drops the load tables, and their full-text indexes, that nothing names.
 
     A table goes when no registration, pending load or load of this deploy names it; it is what a
@@ -1135,7 +1209,7 @@ def _sweep(db, keep: set[str], log) -> None:
             return
 
 
-def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> None:
+def _clean(db: D1, j: Job, reg: dict[tuple[str, str], Registered], folder: Path, log: Log) -> None:
     """Unregisters the versions beyond the ones kept, after the new table is registered.
 
     It then drops the tables no registration names any more, the one this load replaced among
@@ -1147,7 +1221,7 @@ def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> N
     kept += [v for v in others if v < j.version][: j.keep - 1 - len(kept)]
     gone = [v for v in others if v not in kept]
     names = {reg[(j.slug, v)]["tbl"] for v in kept} | {j.tbl}
-    stmts = []
+    stmts: list[str] = []
     for v in gone:
         stmts += [
             f"DELETE FROM _versions WHERE slug = {literal(j.slug)} AND version = {literal(v)};",
@@ -1167,7 +1241,7 @@ def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> N
             log(f"d1 load: {j.key} is loaded; dropping what it replaced reported an error")
 
 
-def _record_failure(db, j: Job, done: int, why: str, now: str, *, log) -> None:  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _record_failure(db: D1, j: Job, done: int, why: str, now: str, *, log: Log) -> None:  # noqa: PLR0913 - the options are keyword-only and named at each call
     j.attempts += 1
     rows = j.cum[done - 1] if done else 0
     try:
@@ -1184,7 +1258,15 @@ def _record_failure(db, j: Job, done: int, why: str, now: str, *, log) -> None: 
 
 
 def _run(  # noqa: PLR0913 - the options are keyword-only and named at each call
-    db, j: Job, reg, served: set[str], folder: Path, *, now: str, budget: _Budget, log
+    db: D1,
+    j: Job,
+    reg: dict[tuple[str, str], Registered],
+    served: set[str],
+    folder: Path,
+    *,
+    now: str,
+    budget: _Budget,
+    log: Log,
 ) -> None:
     try:
         if j.tbl in served:
@@ -1242,7 +1324,7 @@ def _stale(j: Job, now: str) -> bool:
 
 
 def _summary(  # noqa: PLR0913 - the options are keyword-only and named at each call
-    path: Path | None, jobs: list[Job], budget: int, log, spent: int = 0, *, now: str = ""
+    path: Path | None, jobs: list[Job], budget: int, log: Log, spent: int = 0, *, now: str = ""
 ) -> None:
     order = {"loaded": 0, "resumed": 0, "failed": 1, "unchecked": 2, "deferred": 3, "skipped": 4}
     jobs = sorted(jobs, key=lambda j: (order.get(j.outcome, 5), j.key))
@@ -1306,8 +1388,8 @@ def _summary(  # noqa: PLR0913 - the options are keyword-only and named at each 
 
 def load(  # noqa: PLR0913 - the options are keyword-only and named at each call
     folder: Path,
-    db,
-    log=print,
+    db: D1,
+    log: Log = print,
     workers: int = WORKERS,
     budget: int = BUDGET,
     *,
