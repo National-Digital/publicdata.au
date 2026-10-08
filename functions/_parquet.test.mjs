@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
@@ -8,6 +9,7 @@ import { decompress } from 'fzstd';
 import { answer } from './_api.js';
 import { aggregateQuery, rowsQuery } from './_query.js';
 import { BUDGET, BudgetError, addInto, glob, matches, openVersion, parquetAggregate, parquetRows, prepare } from './_parquet.js';
+import * as engine from './_parquet.js';
 import { onRequestPost } from './mcp.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 
@@ -23,21 +25,30 @@ const SLUG2 = 'crashes-unsorted';
 const SLUG = 'crashes', NEWEST = '2026-04-24', OLDER = '2025-01-01', UNSORTED = '2024-01-01';
 const URL_ = `https://publicdata.au/d/${SLUG}/v/${OLDER}/data.parquet`;
 
-// R2 as the binding behaves: suffix and offset ranges, and the size of the whole object.
+// R2 as the binding behaves: suffix and offset ranges, the size of the whole object, its ETag
+// (an MD5, as R2 gives for an object put whole) and onlyIf, which a changed object fails with
+// its metadata and no body.
 const objects = new Map();
 const reads = [];
+const etagOf = (b) => createHash('md5').update(b).digest('hex');
 const DIST = {
   async get(key, opts = {}) {
     const b = objects.get(key);
     if (!b) return null;
+    const etag = etagOf(b);
+    const want = opts.onlyIf && opts.onlyIf.etagMatches;
+    if (want !== undefined && want !== etag) return { size: b.length, etag };
     const r = opts.range || {};
     const start = r.suffix !== undefined ? Math.max(0, b.length - r.suffix) : r.offset || 0;
     const end = r.suffix !== undefined ? b.length : r.length !== undefined ? start + r.length : b.length;
     reads.push({ key, start, end });
     const out = b.subarray(start, end);
-    return { size: b.length, arrayBuffer: async () => out.buffer.slice(out.byteOffset, out.byteOffset + out.length) };
+    return { size: b.length, etag, arrayBuffer: async () => out.buffer.slice(out.byteOffset, out.byteOffset + out.length) };
   },
-  async head() { return null; },
+  async head(key) {
+    const b = objects.get(key);
+    return b ? { size: b.length, etag: etagOf(b) } : null;
+  },
 };
 // The published file at d/, and the build's internal profile copy at _q/ that no route serves.
 const put = (version, b = bytes, slug = SLUG) => objects.set(`d/${slug}/v/${version}/data.parquet`, b);
@@ -259,13 +270,17 @@ test('the budget error reaches the agent, and a file that cannot be read says wh
   } finally {
     BUDGET.groups = was;
   }
-  putQ(OLDER, bytes.subarray(0, 100));
+  const get = DIST.get;
+  DIST.get = async (key, o) => {
+    if (o && o.range && o.range.offset !== undefined) throw new Error('R2 503');
+    return get.call(DIST, key, o);
+  };
   try {
     const e = (await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['speed'] })).error;
     assert.match(e, /could not be read; its files are at/);
     assert.doesNotMatch(e, /_q/);
   } finally {
-    putQ(OLDER);
+    DIST.get = get;
   }
 });
 
@@ -501,4 +516,42 @@ test('the internal copy answers only while it matches the published file, and a 
   await assert.rejects(openVersion(flaky, SLUG, X), /R2 503/);
   fail = false;
   assert.equal((await openVersion(flaky, SLUG, X)).key, `_q/${SLUG}/${X}.parquet`);
+});
+
+test('a query copy written again in place is read afresh, and no answer from its old bytes is served', async () => {
+  const V = '2021-05-05';
+  put(V, plain);
+  putQ(V, bytes);
+  const cache = new Map();
+  const was = globalThis.caches;
+  globalThis.caches = {
+    default: {
+      match: async (k) => (cache.has(k.url) ? new Response(await cache.get(k.url)) : undefined),
+      put: async (k, r) => { cache.set(k.url, r.text()); },
+    },
+  };
+  const recheck = engine.RECHECK && engine.RECHECK.ms;
+  try {
+    const ask = { slug: SLUG, version: V, select: ['lga', 'year'], limit: 40 };
+    const lgas = (r) => r.rows.map((x) => x.lga);
+    const sorted = (await rowsOf(bytes)).map((r) => r.lga);
+    const publisher = (await rowsOf(unsortedBytes)).map((r) => r.lga);
+    assert.notDeepEqual(sorted, publisher);
+    assert.deepEqual(lgas(await call('query_rows', ask)), sorted);
+    // A layout edit writes the copy again under the same key, in the publisher's order.
+    putQ(V, unsortedBytes);
+    // A query not yet answered reads the new copy, though the isolate holds the old footer.
+    const count = await call('count_rows', { slug: SLUG, version: V, where: { lga: 'Logan' } });
+    assert.equal(count.error, undefined);
+    assert.equal(count.groups[0].count, 8);
+    // The answer cached from the old copy is not served for the new one.
+    assert.deepEqual(lgas(await call('query_rows', ask)), publisher);
+    // An isolate that reads nothing still notices the copy written again once its footer is old.
+    putQ(V, bytes);
+    if (engine.RECHECK) engine.RECHECK.ms = 0;
+    assert.deepEqual(lgas(await call('query_rows', ask)), sorted);
+  } finally {
+    globalThis.caches = was;
+    if (engine.RECHECK) engine.RECHECK.ms = recheck;
+  }
 });

@@ -27,6 +27,13 @@ const PROFILES = new Set(['1']);
 export const ENGINE = '2';
 
 export class BudgetError extends Error {}
+// A range read refused because the object is no longer the one its footer came from.
+export class StaleError extends Error {}
+
+// A query copy is written again in place when its entry's sort, lookup or int32 changes, so a
+// footer is held to the ETag it was read under. Past this age the copy's ETag is checked before
+// the footer, and any answer cached under its ETag, is trusted again.
+export const RECHECK = { ms: 60_000 };
 
 const compressors = { ZSTD: (input, n) => decompress(input, new Uint8Array(n)) };
 // Dates and times as the query API gives them, as ISO text.
@@ -102,9 +109,11 @@ export function cmp(a, b) {
 
 const footers = new Map();
 
-async function readRange(env, key, offset, length) {
-  const o = await env.DIST.get(key, { range: { offset, length } });
+async function readRange(env, key, offset, length, etag) {
+  const o = await env.DIST.get(key, { range: { offset, length }, onlyIf: { etagMatches: etag } });
   if (!o) throw new Error(`${key} is not in R2`);
+  // R2 answers a failed precondition with the object's metadata and no body.
+  if (typeof o.arrayBuffer !== 'function') throw new StaleError(`${key} changed since its footer was read`);
   const buf = new Uint8Array(await o.arrayBuffer());
   if (buf.byteLength !== length) throw new Error(`${key} gave ${buf.byteLength} bytes at ${offset}, not ${length}`);
   return buf;
@@ -113,13 +122,13 @@ async function readRange(env, key, offset, length) {
 async function readFooter(env, key) {
   const tail = await env.DIST.get(key, { range: { suffix: TAIL } });
   if (!tail) return null;
-  const size = tail.size;
+  const size = tail.size, etag = tail.etag;
   let buf = new Uint8Array(await tail.arrayBuffer());
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   if (buf.byteLength < 8 || view.getUint32(buf.byteLength - 4, true) !== 0x31524150) throw new Error(`${key} is not a Parquet file`);
   const len = view.getUint32(buf.byteLength - 8, true) + 8;
   if (len > FOOTER_MAX) throw new Error(`${key} has a footer of ${len} bytes`);
-  if (len > buf.byteLength) buf = await readRange(env, key, size - len, len);
+  if (len > buf.byteLength) buf = await readRange(env, key, size - len, len, etag);
   const metadata = parquetMetadata(buf.slice(buf.byteLength - len).buffer, { parsers });
   const kv = (metadata.key_value_metadata || []).find((x) => x.key === 'publicdata');
   const header = kv ? JSON.parse(kv.value) : null;
@@ -155,7 +164,7 @@ async function readFooter(env, key) {
   const leaves = metadata.row_groups.length ? metadata.row_groups[0].columns : [];
   const sortedBy = ((metadata.row_groups[0] && metadata.row_groups[0].sorting_columns) || [])
     .map((c) => ({ name: leaves[c.column_idx].meta_data.path_in_schema[0], desc: !!c.descending, nullsFirst: !!c.nulls_first }));
-  return { key, size, metadata, header, fields, types, elements, groups, rows: start, profiled, sortedBy, pages: new Map() };
+  return { key, size, etag, metadata, header, fields, types, elements, groups, rows: start, profiled, sortedBy, pages: new Map() };
 }
 
 // The build writes a profile copy of every version, old ones included, at _q/, which no public
@@ -170,9 +179,11 @@ async function locate(env, slug, version) {
     }),
     readFooter(env, `d/${slug}/v/${version}/data.parquet`),
   ]);
-  if (q && q.profiled && q.header && pub && sameVersion(q, pub)) return q;
+  // The copy's ETag is kept either way, so a copy written again later is noticed.
+  const copy = q ? q.etag : null;
+  if (q && q.profiled && q.header && pub && sameVersion(q, pub)) return Object.assign(q, { copy });
   if (q && pub) console.error(`_q ${slug} ${version}: the copy does not match the published file`);
-  return pub;
+  return pub && Object.assign(pub, { copy });
 }
 
 // Answers name the published file, so a copy answers only when it holds the same version of the
@@ -184,19 +195,44 @@ function sameVersion(q, pub) {
     && JSON.stringify(a.source && a.source.sha256) === JSON.stringify(b.source && b.source.sha256);
 }
 
-// One version's footer, read once per isolate. A version never changes, so it is never stale.
+// Whether the query copy in R2 is no longer the one a footer was located with.
+async function moved(env, slug, version, p) {
+  try {
+    const [e, now] = await Promise.all([p, env.DIST.head(`_q/${slug}/${version}.parquet`)]);
+    return !e || (now ? now.etag : null) !== e.copy;
+  } catch {
+    return true;
+  }
+}
+
+// One version's footer, read once per isolate. The published file never changes, but its query
+// copy can be written again, so every range read is held to the footer's ETag (StaleError) and an
+// old footer is checked against the copy's ETag.
 export async function openVersion(env, slug, version) {
   const id = `${slug}/${version}`;
-  let p = footers.get(id);
+  let hit = footers.get(id);
   // Least recently used goes first: a hit moves to the back of the map's order.
-  if (p) footers.delete(id);
-  else {
-    p = locate(env, slug, version);
-    p.then((e) => { if (!e && footers.get(id) === p) footers.delete(id); }, () => { if (footers.get(id) === p) footers.delete(id); });
+  if (hit) {
+    footers.delete(id);
+    if (Date.now() - hit.at >= RECHECK.ms) {
+      hit.at = Date.now();
+      if (await moved(env, slug, version, hit.p)) hit = null;
+    }
   }
-  footers.set(id, p);
+  if (!hit) {
+    const p = locate(env, slug, version);
+    hit = { p, at: Date.now() };
+    const drop = () => { if (footers.get(id) === hit) footers.delete(id); };
+    p.then((e) => { if (!e) drop(); }, drop);
+  }
+  footers.set(id, hit);
   if (footers.size > FOOTERS) footers.delete(footers.keys().next().value);
-  return p;
+  return hit.p;
+}
+
+// Drops a version's footer, after a read found its file changed.
+export function forget(slug, version) {
+  footers.delete(`${slug}/${version}`);
 }
 
 function coalesce(chunks) {
@@ -210,12 +246,12 @@ function coalesce(chunks) {
   return out;
 }
 
-async function fetchAll(env, key, ranges) {
+async function fetchAll(env, entry, ranges) {
   let next = 0;
   const work = async () => {
     while (next < ranges.length) {
       const r = ranges[next++];
-      r.buf = await readRange(env, key, r.start, r.end - r.start);
+      r.buf = await readRange(env, entry.key, r.start, r.end - r.start, entry.etag);
     }
   };
   await Promise.all(Array.from({ length: Math.min(PARALLEL, ranges.length) }, work));
@@ -244,7 +280,7 @@ async function pageIndex(env, entry, names) {
   if (todo.length) {
     const want = [];
     for (const n of todo) for (const g of entry.groups) { const c = g.chunks[n]; if (c.oi) want.push(c.oi, ...(c.ci ? [c.ci] : [])); }
-    const read = fetchAll(env, entry.key, coalesce(want));
+    const read = fetchAll(env, entry, coalesce(want));
     for (const n of todo) {
       entry.pages.set(n, read.then((blocks) => entry.groups.map((g) => {
         const c = g.chunks[n];
@@ -326,7 +362,7 @@ function blockFile(env, entry, blocks) {
         }
         return out.buffer;
       }
-      return readRange(env, entry.key, start, end - start).then((u) => u.buffer);
+      return readRange(env, entry.key, start, end - start, entry.etag).then((u) => u.buffer);
     },
   };
 }
@@ -392,7 +428,7 @@ class Scan {
   async read(todo) {
     const { want, ranges } = this.plan(todo);
     if (!todo.length) return;
-    const blocks = [...want.filter((r) => r.buf), ...(await fetchAll(this.env, this.entry.key, ranges))];
+    const blocks = [...want.filter((r) => r.buf), ...(await fetchAll(this.env, this.entry, ranges))];
     const file = blockFile(this.env, this.entry, blocks);
     for (const { i, names, from, to } of todo) {
       const g = this.entry.groups[i];

@@ -494,7 +494,11 @@ the published `data.parquet`, but only when that file carries the profile's foot
 from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
 benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A sorted profile
 file has a page index, and one without is read a column chunk at a time. Each version's
-footer, and the page index of each column a query touches, are read once per isolate. Row-group
+footer, and the page index of each column a query touches, are read once per isolate and held to
+the file's ETag. A query copy is written again in place when its entry's `sort`, `lookup` or
+`int32` changes, so every range read passes `onlyIf: { etagMatches }`; a read the copy refuses
+drops the footer, and the call reads it again once. A footer over a minute old is checked against
+the copy's ETag before it is used. Row-group
 statistics, and page statistics where there is a page index, rule out what cannot match, and
 rows that the statistics prove match are counted without being read. The pages left are fetched six at a time, ranges
 less than 256 KB apart read as one, and decoded with hyparquet a few row groups at a time.
@@ -513,7 +517,8 @@ one index per row. Without an order, and for ties, an answer from Parquet follow
 order: the declared sort, then the key, then the source position. D1 keeps the publisher's
 order, and the DuckDB SQL rebuilds the file's order from the published file with
 `file_row_number`. Footers are kept least recently used first. Answers are cached at the edge by
-version and engine version, and each links the version's manifest, since the query API path
+version, engine version and the ETag of the file read, so a copy written again never answers from
+the cache of the one before. Each answer links the version's manifest, since the query API path
 answers only while D1 holds the version. A file with no `publicdata` provenance key is refused.
 
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository

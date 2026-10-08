@@ -1,6 +1,6 @@
 import { answer } from './_api.js';
 import { QueryError, aggregateQuery, rowsQuery } from './_query.js';
-import { BudgetError, ENGINE, openVersion, parquetAggregate, parquetRows } from './_parquet.js';
+import { BudgetError, ENGINE, StaleError, forget, openVersion, parquetAggregate, parquetRows } from './_parquet.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 import { onRequestPost as castVote } from './api/v1/votes/[slug].js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
@@ -87,15 +87,16 @@ async function parquet(ctx, slug, version, op, qs) {
   if (await held(ctx.env, slug, v)) return null;
   const path = API + enc(slug) + '/versions/' + v + '/' + op + (qs.length ? '?' + qs.join('&') : '');
   const url = SITE + '/d/' + enc(slug) + '/v/' + v + '/data.parquet';
-  // The engine's version is in the key, so a fix is not hidden behind a year-long cached answer.
-  const key = new Request(SITE + '/_parquet/' + ENGINE + path);
-  const hit = await caches.default.match(key);
-  if (hit) return hit.json();
-  let r, entry;
+  let out;
   try {
-    entry = await openVersion(ctx.env, slug, v);
-    if (entry && !entry.header) throw new ToolError(`version ${v} of ${slug} carries no provenance in its file, so it is not answered here; its files are at ${SITE}/d/${slug}/v/${v}/`);
-    if (entry) r = await (op === 'rows' ? parquetRows : parquetAggregate)(ctx.env, entry, new URLSearchParams(qs.join('&')), url);
+    try {
+      out = await fromFile(ctx, slug, v, op, qs, path, url);
+    } catch (e) {
+      // The query copy was written again under this isolate's footer, so it is read afresh once.
+      if (!(e instanceof StaleError)) throw e;
+      forget(slug, v);
+      out = await fromFile(ctx, slug, v, op, qs, path, url);
+    }
   } catch (e) {
     if (e instanceof BudgetError) throw new ToolError(e.message);
     if (e instanceof ToolError) throw e;
@@ -103,15 +104,28 @@ async function parquet(ctx, slug, version, op, qs) {
     console.error(`parquet ${slug} ${v}: ${(e && e.stack) || e}`);
     throw new ToolError(`version ${v} of ${slug} could not be read; its files are at ${SITE}/d/${slug}/v/${v}/`);
   }
-  if (!entry) {
+  if (!out) {
     if (v === newest) return null;
     throw new ToolError(`${slug} has no version ${v}; get_dataset lists its versions`);
   }
+  return out;
+}
+
+async function fromFile(ctx, slug, v, op, qs, path, url) {
+  const entry = await openVersion(ctx.env, slug, v);
+  if (!entry) return null;
+  if (!entry.header) throw new ToolError(`version ${v} of ${slug} carries no provenance in its file, so it is not answered here; its files are at ${SITE}/d/${slug}/v/${v}/`);
+  // The key holds the engine's version, so a fix is not hidden behind a year-long cached answer,
+  // and the ETag of the file read, so an answer from a copy since written again is never served.
+  const key = new Request(SITE + '/_parquet/' + ENGINE + '/' + enc(entry.etag) + path);
+  const hit = await caches.default.match(key);
+  if (hit) return hit.json();
+  const r = await (op === 'rows' ? parquetRows : parquetAggregate)(ctx.env, entry, new URLSearchParams(qs.join('&')), url);
   // The query API answers this path only while D1 holds the version, so the manifest is linked for
   // the licence, source, hash and fetch time.
   const manifest = SITE + '/d/' + enc(slug) + '/v/' + v + '/manifest.json';
   const out = { version: v, rows: r.rows, more: r.more, matched: r.matched, query: SITE + path, attribution: entry.header.attribution ?? null, file: url, manifest };
-  // A version never changes, so its answer is kept as long as the edge keeps anything.
+  // The bytes under one ETag never change, so the answer is kept as long as the edge keeps anything.
   ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(out), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=31536000, immutable' } })));
   return out;
 }
