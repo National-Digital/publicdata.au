@@ -13,7 +13,7 @@ from functools import cache
 from pathlib import Path
 
 VOCAB = Path(__file__).parent / "schemaorg.json"
-LD_BLOCK = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.S)
+LD_BLOCK = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
 ISO_DATE = r"\d{4}(-\d{2}(-\d{2}(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?)?)?"
 ISO_INTERVAL = re.compile(rf"^({ISO_DATE}|\.\.)(/({ISO_DATE}|\.\.))?$")
 AGENT = {"Person", "Organization"}

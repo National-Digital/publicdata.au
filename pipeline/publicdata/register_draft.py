@@ -35,7 +35,7 @@ TABULAR = {
 DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y", "%Y%m%d")
 DATETIME_FORMATS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M")
 # Cells a publisher writes in place of a small or withheld count.
-SUPPRESSION = re.compile(r"^(<\s*\d+|n\.?p\.?|\*+|\.\.|c)$", re.I)
+SUPPRESSION = re.compile(r"^(<\s*\d+|n\.?p\.?|\*+|\.\.|c)$", re.IGNORECASE)
 GOVERNMENT = {
     "Cth": "Australian Government",
     "NSW": "NSW Government",
@@ -328,7 +328,7 @@ def to_yaml(entry: dict) -> str:
             rf"^{k}:",
             f"# TODO: write {k.replace('_', ' ')} before this entry goes live.\n{k}:",
             text,
-            flags=re.M,
+            flags=re.MULTILINE,
         )
     return text
 

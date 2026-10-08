@@ -1629,22 +1629,22 @@ def _md_twin_dataset(
 
 def html_to_md(body: str) -> str:
     s = body
-    s = re.sub(r"<h2[^>]*>(.*?)</h2>", r"\n## \1\n", s, flags=re.S)
-    s = re.sub(r"<h3[^>]*>(.*?)</h3>", r"\n### \1\n", s, flags=re.S)
-    s = re.sub(r"<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n", s, flags=re.S)
-    s = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1", s, flags=re.S)
-    s = re.sub(r"<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>", r"- \1: \2\n", s, flags=re.S)
+    s = re.sub(r"<h2[^>]*>(.*?)</h2>", r"\n## \1\n", s, flags=re.DOTALL)
+    s = re.sub(r"<h3[^>]*>(.*?)</h3>", r"\n### \1\n", s, flags=re.DOTALL)
+    s = re.sub(r"<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n", s, flags=re.DOTALL)
+    s = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1", s, flags=re.DOTALL)
+    s = re.sub(r"<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>", r"- \1: \2\n", s, flags=re.DOTALL)
     s = re.sub(
         r"<a [^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>",
         lambda m: (
             f"[{m.group(2)}]({m.group(1) if m.group(1).startswith('http') else SITE + m.group(1)})"
         ),
         s,
-        flags=re.S,
+        flags=re.DOTALL,
     )
-    s = re.sub(r"<(code|span class=\"mono\")>(.*?)</(code|span)>", r"`\2`", s, flags=re.S)
-    s = re.sub(r"<(b|strong)>(.*?)</(b|strong)>", r"**\2**", s, flags=re.S)
-    s = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n", s, flags=re.S)
+    s = re.sub(r"<(code|span class=\"mono\")>(.*?)</(code|span)>", r"`\2`", s, flags=re.DOTALL)
+    s = re.sub(r"<(b|strong)>(.*?)</(b|strong)>", r"**\2**", s, flags=re.DOTALL)
+    s = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n", s, flags=re.DOTALL)
     s = re.sub(r"<[^>]+>", "", s)
     s = html.unescape(s)
     return re.sub(r"\n{3,}", "\n\n", s).strip() + "\n"

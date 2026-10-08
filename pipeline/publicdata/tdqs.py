@@ -28,11 +28,11 @@ MAX_TOOLS = 20
 OVERLAP_NAMED, OVERLAP_DUPLICATE = 0.3, 0.7
 NOT_A_PURPOSE = {"a", "an", "the", "this", "it", "use", "used", "tool"}
 WRITE_VERBS = {"add", "create", "delete", "remove", "set", "update", "write"}
-LIMITS = re.compile(r"rate limit|queries each address may make", re.I)
+LIMITS = re.compile(r"rate limit|queries each address may make", re.IGNORECASE)
 RETURNS = re.compile(
     r"\bcomes? back\b|\bthe answer\b|\bone (?:answer|page)\b|\ba page holds\b"
     r"|\breturns? (?!(?:a |an )?(?:\d+ )?error)",
-    re.I,
+    re.IGNORECASE,
 )
 STOPWORDS = set(
     "a an and any as at be by for from has in into is it its of on one or so than that the this "

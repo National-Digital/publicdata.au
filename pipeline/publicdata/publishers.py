@@ -33,15 +33,16 @@ JUR_NAME = {code: name for code, _, name in JURISDICTIONS}
 PORTAL_JUR = {seg: code for code, seg, _ in JURISDICTIONS}
 LEVELS = ("federal", "state", "local", "other")
 LOCAL_RE = re.compile(
-    r"\b(council|shire|city of|town of|municipal|municipality|borough|regional council)\b", re.I
+    r"\b(council|shire|city of|town of|municipal|municipality|borough|regional council)\b",
+    re.IGNORECASE,
 )
 # Words portals append to an organisation's name that are not part of it.
-NOISE_RE = re.compile(r"\s*('s data hub|\bopen data hub\b|\bopen data\b)\s*$", re.I)
+NOISE_RE = re.compile(r"\s*('s data hub|\bopen data hub\b|\bopen data\b)\s*$", re.IGNORECASE)
 LISTED_KINDS = ("dataset", "dataflow")
 OTHER_RE = re.compile(
     r"\b(universit\w*|school of|college|institute of technology|pty\.? ?ltd|limited|ltd|sip register|foundation|association"
     r"|incorporated|inc\.|data network|research infrastructure|observing system|data discovery)\b",
-    re.I,
+    re.IGNORECASE,
 )
 # One aggregator republishes other bodies' records as "Government of X - Agency".
 PREFIX_RE = re.compile(
@@ -72,7 +73,7 @@ PREFIX_JUR = {
     "the Australian Capital Territory": "ACT",
 }
 PLACE_JUR = (
-    (re.compile(r"\b(Tasmanian?|Hobart|Launceston|the LIST)\b", re.I), "Tas"),
+    (re.compile(r"\b(Tasmanian?|Hobart|Launceston|the LIST)\b", re.IGNORECASE), "Tas"),
     (re.compile(r"\b(NSW|New South Wales|Sydney)\b"), "NSW"),
     (re.compile(r"\b(Victorian?|Melbourne|Geelong|Ballarat|Bendigo)\b"), "Vic"),
     (re.compile(r"\b(Queensland|Brisbane|Gold Coast|Moreton Bay|Townsville|Ipswich)\b"), "Qld"),
@@ -83,12 +84,12 @@ PLACE_JUR = (
 )
 COUNCIL_FORM_RE = re.compile(
     r"\b(city of|town of|shire|municipal|borough|city council|regional council|rural city|town council)\b",
-    re.I,
+    re.IGNORECASE,
 )
 COUNCIL_WORDS = re.compile(
     r"\b(city of|town of|shire of|municipality of|council|shire|city|regional|rural|municipal|"
     r"borough|town|open data|data hub|'s)\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 

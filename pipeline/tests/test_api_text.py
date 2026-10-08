@@ -89,7 +89,7 @@ def test_the_mcp_server_has_every_tool_from_api_json(site):
     for d in at.mcp_spec()["tools"]:
         assert d["annotations"]["title"] == d["title"], d["name"]
     js = (FUNCTIONS / "_tools.js").read_text(encoding="utf-8")
-    assert set(re.findall(r"^EXEC\.(\w+) = async", js, re.M)) == set(at.tool_names())
+    assert set(re.findall(r"^EXEC\.(\w+) = async", js, re.MULTILINE)) == set(at.tool_names())
     assert "/mcp" in json.loads((site / "_routes.json").read_text(encoding="utf-8"))["include"]
     ard = json.loads((site / ".well-known" / "ard.json").read_text(encoding="utf-8"))
     assert any(e["url"] == "https://publicdata.au/mcp/server-card" for e in ard["entries"])
@@ -219,7 +219,9 @@ def test_the_mcp_server_is_an_entity_the_directories_identify(site):
         page = (site / rel).read_text(encoding="utf-8")
         return [
             json.loads(m)
-            for m in re.findall(r'<script type="application/ld\+json">(.*?)</script>', page, re.S)
+            for m in re.findall(
+                r'<script type="application/ld\+json">(.*?)</script>', page, re.DOTALL
+            )
         ]
 
     for rel in ("index.html", "agents/index.html"):
@@ -258,7 +260,7 @@ def test_the_terms_page_is_linked_everywhere_a_directory_looks(site):
     home = (site / "index.html").read_text(encoding="utf-8")
     nodes = [
         json.loads(m)
-        for m in re.findall(r'<script type="application/ld\+json">(.*?)</script>', home, re.S)
+        for m in re.findall(r'<script type="application/ld\+json">(.*?)</script>', home, re.DOTALL)
     ]
     api = next(n for n in nodes if n.get("@type") == "WebAPI")
     assert api["termsOfService"] == "https://publicdata.au/terms/"

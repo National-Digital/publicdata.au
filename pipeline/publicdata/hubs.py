@@ -1058,7 +1058,7 @@ class Kaggle:
                 if self._throttled(r):
                     raise RuntimeError(f"Kaggle kept refusing the dataset list: {out[:300]}")
                 if r.returncode != 0 or re.search(
-                    r"\b(401|403)\b|forbidden|unauthori[sz]ed", out, re.I
+                    r"\b(401|403)\b|forbidden|unauthori[sz]ed", out, re.IGNORECASE
                 ):
                     raise RuntimeError(f"Kaggle refused the credentials: {out[:300]}")
                 refs = [
@@ -1203,7 +1203,7 @@ class Kaggle:
             bad = re.search(r"keywords are invalid: (.+)", out)
             if bad:
                 self._bad_tags |= set(re.findall(r'"([^"]+)"', bad.group(1)))
-            elif re.search(r"max category limit", out, re.I) and keep > 1:
+            elif re.search(r"max category limit", out, re.IGNORECASE) and keep > 1:
                 keep = max(1, min(keep, len(meta["keywords"])) - 2)
             elif self._throttled(r):
                 time.sleep(self.pause * (attempt + 1))
@@ -1320,7 +1320,7 @@ class Kaggle:
     @staticmethod
     def _check(r: subprocess.CompletedProcess, what: str) -> None:
         out = (r.stdout + r.stderr).strip()
-        if r.returncode != 0 or re.search(r"\berror\b", out, re.I):
+        if r.returncode != 0 or re.search(r"\berror\b", out, re.IGNORECASE):
             raise RuntimeError(f"{what}: {out[:500]}")
 
 

@@ -361,7 +361,7 @@ def _ld(page, kind):
     html = page.read_text("utf-8")
     nodes = [
         json.loads(b)
-        for b in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.S)
+        for b in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
     ]
     return next(n for n in nodes if n.get("@type") == kind)
 

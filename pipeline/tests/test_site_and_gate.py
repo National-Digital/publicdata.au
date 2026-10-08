@@ -385,11 +385,11 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_cop
 
     def console(slug):
         page = (out / "d" / slug / "index.html").read_text(encoding="utf-8")
-        data = re.search(r'id="ds-data">(.*?)</script>', page, re.S).group(1)
+        data = re.search(r'id="ds-data">(.*?)</script>', page, re.DOTALL).group(1)
         return page, json.loads(data)["console"]
 
     page, c = console("qld-road-casualties")
-    block = re.search(r'id="ds-data">(.*?)</script>', page, re.S).group(1)
+    block = re.search(r'id="ds-data">(.*?)</script>', page, re.DOTALL).group(1)
     assert "<" not in block and ">" not in block
     assert 'id="query"' in page and 'href="/api/v1/datasets/qld-road-casualties/rows?' in page
     # The register's example is the console's first query, and the tile answers it.
@@ -419,7 +419,7 @@ def test_every_dataset_gets_an_explorer_with_a_first_dashboard(register_dir, tmp
 
     def ex(slug, page="explore"):
         text = (out / "d" / slug / page / "index.html").read_text(encoding="utf-8")
-        block = re.search(r'id="ex-data">(.*?)</script>', text, re.S).group(1)
+        block = re.search(r'id="ex-data">(.*?)</script>', text, re.DOTALL).group(1)
         assert "<" not in block and ">" not in block
         return text, json.loads(block)
 
@@ -535,7 +535,7 @@ def test_labels_are_words_unique_and_never_a_field_name(register_dir):
 
 def test_every_operator_node_resolves_to_one_organisation(tmp_path, site_copy):
     out = site_copy
-    ld = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.S)
+    ld = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
 
     def nodes(v):
         if isinstance(v, dict):
@@ -799,7 +799,7 @@ def test_pages_invite_contributions_and_link_the_repository(fixture_site):
     assert 'id="add-a-dataset"' in contribute and "{repo}" not in contribute
     assert f"{REPO}/blob/main/CONTRIBUTING.md#add-a-serialisation" in contribute
 
-    ld = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.S)
+    ld = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
     home = [json.loads(b) for b in ld.findall((out / "index.html").read_text(encoding="utf-8"))]
     source = next(n for n in home if n["@type"] == "SoftwareSourceCode")
     catalog = next(n for n in home if n["@type"] == "DataCatalog")

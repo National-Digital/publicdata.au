@@ -17,7 +17,7 @@ from .serialise.geo import geo_kind
 from .serialise.profile import query_key
 
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
-PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.S)
+PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.DOTALL)
 
 
 def _partition_values(out: Path, slug: str) -> list[str]:
@@ -53,7 +53,7 @@ def _mcp_resources(out: Path) -> list[str]:
     listed = {r["uri"] for r in json.loads(listed_file.read_text(encoding="utf-8"))["resources"]}
     for page in sorted((out / "d").glob("*/index.html")) if (out / "d").exists() else []:
         slug = page.parent.name
-        m = re.search(r'id="ds-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.S)
+        m = re.search(r'id="ds-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.DOTALL)
         console = (json.loads(m.group(1)) if m else {}).get("console")
         uri = f"{SITE}/d/{slug}/fields.json"
         if not console:
@@ -156,9 +156,9 @@ def _social_card(rel: str, page: str, out: Path) -> list[str]:
     return errors
 
 
-DS_DATA = re.compile(r'id="ds-data">(.*?)</script>', re.S)
+DS_DATA = re.compile(r'id="ds-data">(.*?)</script>', re.DOTALL)
 QUERY_TILE = re.compile(
-    r'Filter and count from a URL</b><p class="mono small">(.*?)</p>(?:<p>(.*?)</p>)?', re.S
+    r'Filter and count from a URL</b><p class="mono small">(.*?)</p>(?:<p>(.*?)</p>)?', re.DOTALL
 )
 
 
@@ -345,7 +345,7 @@ def checked(
         return errors, []
     for page in sorted(ddir.glob("*/explore/index.html")) if ddir.exists() else []:
         rel = page.relative_to(out)
-        m = re.search(r'id="ex-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.S)
+        m = re.search(r'id="ex-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.DOTALL)
         data = json.loads(m.group(1)) if m else None
         if not data:
             errors.append(f"{rel}: no explorer data")

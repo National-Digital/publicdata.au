@@ -65,7 +65,7 @@ def parse_as_at(text: str, regex: str) -> str:
     """Pull an as-at date such as '30 June 2025' out of the publisher's own words."""
     if not regex:
         return ""
-    m = re.search(regex, text or "", re.I | re.S)
+    m = re.search(regex, text or "", re.IGNORECASE | re.DOTALL)
     if not m:
         return ""
     s = m.group(1).strip()
@@ -1158,7 +1158,7 @@ def _kiwis_batches(series: list[dict]) -> list[list[str]]:
 
 
 AIHW_LISTING = "https://www.aihw.gov.au/api/search/all-downloadable-resources"
-AIHW_ATTRS = re.compile(r'<div[^>]*class="s-downloadable-resources[^"]*"(.*?)>', re.S)
+AIHW_ATTRS = re.compile(r'<div[^>]*class="s-downloadable-resources[^"]*"(.*?)>', re.DOTALL)
 
 
 def _aihw_listing(page: bytes) -> dict:
@@ -1646,7 +1646,7 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
     return _stack_version(ds, store_dir, data, changed, source, licence)
 
 
-LINK_RE = re.compile(r"""<a\b[^>]*?href\s*=\s*["']([^"']+)["']""", re.I)
+LINK_RE = re.compile(r"""<a\b[^>]*?href\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
 
 
 def page_links(page: bytes, base: str, pattern: str) -> list[str]:

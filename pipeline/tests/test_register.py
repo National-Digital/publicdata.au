@@ -282,7 +282,10 @@ def test_two_entries_cannot_target_one_search_phrase(tmp_path):
         shutil.copy(src / name, tmp_path / name)
     text = (tmp_path / "qld-road-casualties.yaml").read_text(encoding="utf-8")
     text = re.sub(
-        r"^search_title: .*$", "search_title: Queensland road crash locations", text, flags=re.M
+        r"^search_title: .*$",
+        "search_title: Queensland road crash locations",
+        text,
+        flags=re.MULTILINE,
     )
     (tmp_path / "qld-road-casualties.yaml").write_text(text, encoding="utf-8")
     with pytest.raises(
