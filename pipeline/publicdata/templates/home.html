@@ -96,7 +96,7 @@
       </div>
       <div class="arrow" aria-hidden="true">→</div>
       <div class="outs">
-        <a class="out" href="/d/{{ becomes.slug }}/v/{{ becomes.version }}/"><span class="k">A dated version</span><b>{{ becomes.version }}</b><p class="mono">/d/{{ becomes.slug }}/v/{{ becomes.version }}/</p><p>Never changes. Cached for a year. The publisher's file sits beside it, byte for byte.</p></a>
+        <a class="out" href="/d/{{ becomes.slug }}/v/{{ becomes.version }}/"><span class="k">A dated version</span><b>{{ becomes.version }}</b><p class="mono">/d/{{ becomes.slug }}/v/{{ becomes.version }}/</p><p>Keeps its content. Cached for a year. The publisher's file sits beside it, byte for byte.</p></a>
         <a class="out" href="/d/{{ becomes.slug }}/#get"><span class="k">{{ becomes.formats|length }} formats</span><b>Same rows, your choice of file</b><div class="chips">{% for f in becomes.formats %}<span>{{ f }}</span>{% endfor %}</div><p>Change the extension and the same version comes back as a different file.</p></a>
         {% if becomes.map %}<a class="out" href="/d/{{ becomes.slug }}/"><span class="k">A map</span><b>{{ becomes.rows }} {{ becomes.what|lower }}</b><div class="thumb">{{ becomes.map|safe }}</div></a>{% endif %}
         {% if becomes.chart %}<a class="out wide" href="/d/{{ becomes.slug }}/"><span class="k">A chart</span><b>{{ becomes.what }} per year, {{ becomes.years }}</b><div class="thumb">{{ becomes.chart|safe }}</div></a>{% endif %}
@@ -114,13 +114,13 @@
   <div class="feat-text">
     <p class="eyebrow">Versions</p>
     <h2>Every release, kept</h2>
-    <p>A dataset here is the version history the portals do not keep. Each release becomes a dated version with the publisher's own file beside it, byte for byte, and a diff against the release before by the declared key. Cite a version URL and it will resolve to the same bytes in ten years.</p>
+    <p>A dataset here is the version history the portals do not keep. Each release becomes a dated version with the publisher's own file beside it, byte for byte, and a diff against the release before by the declared key. Cite a version URL and it will resolve to the same data in ten years.</p>
   </div>
   <div class="feat-demo card">
     <div class="k">The URL contract</div>
     <ul class="agent-list contract">
       <li><span class="path">/d/&lt;slug&gt;/latest/data.csv</span><span>302 to the newest dated version</span></li>
-      <li><span class="path">/d/&lt;slug&gt;/v/{{ keeps.view.version }}/data.csv</span><span>never changes, cached for a year</span></li>
+      <li><span class="path">/d/&lt;slug&gt;/v/{{ keeps.view.version }}/data.csv</span><span>keeps its content, cached for a year</span></li>
       <li><span class="path">/d/&lt;slug&gt;/v/{{ keeps.view.version }}/source.{{ keeps.view.ext }}</span><span>the publisher's file, byte for byte</span></li>
       <li><span class="path">/d/&lt;slug&gt;/v/{{ keeps.view.version }}/manifest.json</span><span>source URL, fetched-at, SHA-256</span></li>
       <li><span class="path">/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</span><span>rows added, removed and changed by key</span></li>
@@ -145,7 +145,7 @@
       <div class="pubfacts">
         <div class="pubfact"><b>0</b><span><i>changes to your rows.</i> Cells are typed and headers renamed. Nothing is added, ranked or derived.</span></div>
         <div class="pubfact"><b>{{ stats.formats }}</b><span><i>formats from one file.</i> CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON, GeoPackage and more.</span></div>
-        <div class="pubfact"><b>1</b><span><i>URL per version, kept.</i> A citation to it resolves to the same bytes in ten years.</span></div>
+        <div class="pubfact"><b>1</b><span><i>URL per version, kept.</i> A citation to it resolves to the same data in ten years.</span></div>
         <div class="pubfact"><b>$0</b><span><i>to the publisher and to the reader.</i> No keys, no accounts, no download limit.</span></div>
       </div>
     </div>
@@ -171,7 +171,7 @@
   <div class="feat-text">
     <p class="eyebrow">Files</p>
     <h2>One URL, {{ stats.formats }} formats</h2>
-    <p>Change the extension and the same version comes back as a different file. A dated version is cached for a year and never changes. <span class="mono">latest/</span> redirects to the newest one. Files have no download limit.</p>
+    <p>Change the extension and the same version comes back as a different file. A dated version is cached for a year and keeps its content. <span class="mono">latest/</span> redirects to the newest one. Files have no download limit.</p>
     <p class="muted small">Sizes are <a href="/d/{{ demo.slug }}/">{{ demo.title }}</a>, {{ demo.rows }} rows.</p>
   </div>
   <div class="feat-demo getter" id="getter">

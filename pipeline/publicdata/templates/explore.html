@@ -44,7 +44,7 @@
   <div class="tbl" tabindex="0" role="region" aria-label="Field names" data-conformance="aa"><table class="ledger schema"><thead><tr><th>In the explorer</th><th>Field name</th><th>Type</th><th>Note</th></tr></thead><tbody>
   {% for f in ds.fields %}<tr><td>{{ f.display }}</td><td class="mono">{{ f.name }}</td><td class="ty">{{ f.type }}</td><td>{{ f.description }}</td></tr>{% endfor %}
   </tbody></table></div></details>
-  <details><summary>How it runs</summary><p>The page downloads DuckDB and Perspective once, about {{ engine_size }}, then this version's <a href="{{ parquet_url }}" class="mono">data.parquet</a> ({{ parquet_size }}). Every chart is a query DuckDB answers in the browser, so there is no rate limit and the files stay the only source. Dated versions never change, so a saved dashboard over one shows the same numbers for good.{% if ds.geometry %} A map panel draws its background from OpenStreetMap tiles, so while one is on screen your browser asks OpenStreetMap for them and it sees your IP address. The data itself never leaves the browser.{% endif %}</p></details>
+  <details><summary>How it runs</summary><p>The page downloads DuckDB and Perspective once, about {{ engine_size }}, then this version's <a href="{{ parquet_url }}" class="mono">data.parquet</a> ({{ parquet_size }}). Every chart is a query DuckDB answers in the browser, so there is no rate limit and the files stay the only source. A saved dashboard over a dated version keeps showing that version's numbers.{% if ds.geometry %} A map panel draws its background from OpenStreetMap tiles, so while one is on screen your browser asks OpenStreetMap for them and it sees your IP address. The data itself never leaves the browser.{% endif %}</p></details>
   </div>
 </div>
 </div>

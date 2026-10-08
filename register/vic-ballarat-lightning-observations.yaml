@@ -98,3 +98,4 @@ fields:
   source: average_distance
   type: number
   description: The average distance to the strikes as the sensor reports it. The portal gives no unit.
+rebuild: 1

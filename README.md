@@ -9,8 +9,9 @@
 [![PyPI](https://img.shields.io/pypi/v/publicdata-au)](https://pypi.org/project/publicdata-au/)
 
 Australian government open data, republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs
-that never change. Every release the publisher makes becomes a dated, immutable version with its
-schema, provenance, the publisher's own file and a diff against the release before.
+that never change. Every release the publisher makes becomes a dated version that keeps its
+content, with its schema, provenance, the publisher's own file and a diff against the release
+before.
 
 This is an independent site run by National Digital. No government agency runs it, funds it or
 has endorsed it. Each dataset is republished under the publisher's licence with the attribution
@@ -43,6 +44,8 @@ says where to ask for a dataset or for help, and a vulnerability is reported pri
   `publicdata-au` on PyPI and `clients/r` is `publicdataau` for CRAN. They take any slug, so a new
   dataset needs no release.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) the rules that decide the code.
+- [`docs/CORRECTIONS.md`](docs/CORRECTIONS.md) how a fault in a published file is reported and
+  fixed, and the log of every correction.
 - [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) the WCAG 2.2 AAA target, what CI enforces and the exceptions.
 
 ## Run it

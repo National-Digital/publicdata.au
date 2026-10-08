@@ -193,7 +193,7 @@
     aggOrd.addEventListener('change', function () { S.aggOrder = aggOrd.value; update(); });
 
     var verSel = el('select', { 'aria-label': 'Version' }), fmtSel = el('select', { 'aria-label': 'Format' });
-    options(verSel, [['', 'Newest loaded']].concat(QC.versions.map(function (v) { return [v, v + ' (never changes)']; })), '');
+    options(verSel, [['', 'Newest loaded']].concat(QC.versions.map(function (v) { return [v, v + ' (pinned)']; })), '');
     options(fmtSel, [['json', 'JSON'], ['csv', 'CSV'], ['ndjson', 'NDJSON']], 'json');
     verSel.addEventListener('change', function () { S.version = verSel.value; update(); });
     fmtSel.addEventListener('change', function () { S.format = fmtSel.value; update(); });
