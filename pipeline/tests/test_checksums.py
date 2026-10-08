@@ -16,7 +16,7 @@ class FakeS3:
 
     def __init__(self, objects):
         self.objects = dict(objects)
-        self.heads, self.gets, self.puts = [], [], []
+        self.heads, self.gets, self.puts, self.deletes = [], [], [], []
 
     def get_paginator(self, name):
         fake = self
@@ -42,6 +42,10 @@ class FakeS3:
     def get_object(self, Bucket, Key):
         self.gets.append(Key)
         return {"Body": io.BytesIO(self.objects[Key][0])}
+
+    def delete_object(self, Bucket, Key):
+        self.deletes.append(Key)
+        del self.objects[Key]
 
     def put_object(self, Bucket, Key, Body, ContentType, Metadata):
         assert Metadata["sha256"] == sha(Body)
@@ -69,7 +73,7 @@ def test_render_parses_back_sorted():
 
 def test_writes_a_list_under_download_names_from_stored_hashes():
     s3 = FakeS3(version())
-    assert checksums.update(["x"], s3=s3) == (1, [])
+    assert checksums.update(["x"], s3=s3) == (1, [], [])
     assert s3.puts == [(V + "SHA256SUMS", "text/plain; charset=utf-8")]
     assert s3.gets == []
     sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
@@ -85,37 +89,73 @@ def test_a_current_list_is_left_alone():
     checksums.update(["x"], s3=s3)
     s3.heads.clear()
     s3.puts.clear()
-    assert checksums.update(["x"], s3=s3) == (0, [])
+    assert checksums.update(["x"], s3=s3) == (0, [], [])
     assert s3.heads == [] and s3.gets == [] and s3.puts == []
 
 
-def test_a_file_added_later_extends_the_list_without_rehashing_the_rest():
+def test_a_file_written_after_the_list_is_reported_and_the_list_is_kept():
     s3 = FakeS3(version())
     checksums.update(["x"], s3=s3)
-    s3.heads.clear()
+    before = s3.objects[V + "SHA256SUMS"]
+    s3.puts.clear()
     s3.objects[V + "data.xlsx"] = (b"PK", T0 + dt.timedelta(days=1), sha(b"PK"))
-    assert checksums.update(["x"], s3=s3)[0] == 1
-    assert s3.heads == [V + "data.xlsx"]
-    sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
-    assert sums["x_2026-04-24.xlsx"] == sha(b"PK")
-    assert len(sums) == 4
+    s3.objects[V + "data.csv"] = (b"b\n2\n", T0 + dt.timedelta(days=1), sha(b"b\n2\n"))
+    assert checksums.update(["x"], s3=s3) == (0, [], [V + "data.csv", V + "data.xlsx"])
+    assert s3.puts == [] and s3.deletes == []
+    assert s3.objects[V + "SHA256SUMS"] == before
 
 
-def test_a_replaced_version_is_hashed_again():
+def test_a_file_stored_again_with_the_bytes_its_line_holds_is_not_reported():
     s3 = FakeS3(version())
     checksums.update(["x"], s3=s3)
     s3.heads.clear()
-    assert checksums.update(["x"], s3=s3, replace=(V,))[0] == 1
-    assert len(s3.heads) == 3
+    s3.puts.clear()
+    s3.objects[V + "data.csv"] = (b"gzipped", T0 + dt.timedelta(days=1), sha(b"a\n1\n"))
+    assert checksums.update(["x"], s3=s3) == (0, [], [])
+    assert s3.heads == [V + "data.csv"] and s3.puts == []
+
+
+def test_a_resign_records_the_list_as_it_stands_and_never_rewrites_it():
+    s3 = FakeS3(version())
+    checksums.update(["x"], s3=s3)
+    before = s3.objects[V + "SHA256SUMS"]
+    s3.puts.clear()
+    s3.objects[V + "data.xlsx"] = (b"PK", T0 + dt.timedelta(days=1), sha(b"PK"))
+    lists: dict[str, str] = {}
+    n, _, changed = checksums.update(["x"], s3=s3, lists=lists, every=True, download=True)
+    assert n == 0 and changed == [V + "data.xlsx"] and s3.puts == []
+    assert lists == {V + "SHA256SUMS": sha(before[0])}
+
+
+def test_a_replaced_version_is_listed_again_from_scratch():
+    s3 = FakeS3(version())
+    checksums.update(["x"], s3=s3)
+    s3.heads.clear()
+    s3.objects[V + "data.csv"] = (b"b\n2\n", T0 + dt.timedelta(days=1), sha(b"b\n2\n"))
+    s3.objects[V + "data.xlsx"] = (b"PK", T0 + dt.timedelta(days=1), sha(b"PK"))
+    assert checksums.update(["x"], s3=s3, replace=(V,)) == (1, [], [])
+    assert s3.deletes == [V + "SHA256SUMS"] and len(s3.heads) == 4
+    sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
+    assert sums["x_2026-04-24.csv"] == sha(b"b\n2\n") and sums["x_2026-04-24.xlsx"] == sha(b"PK")
+
+
+def test_a_replace_that_stops_leaves_no_list_for_the_next_deploy_to_write():
+    objs = version()
+    s3 = FakeS3(objs)
+    checksums.update(["x"], s3=s3)
+    s3.objects[V + "data.csv"] = (b"b\n2\n", T0 + dt.timedelta(days=1), None)
+    assert checksums.update(["x"], s3=s3, replace=(V,)) == (0, [V], [])
+    assert V + "SHA256SUMS" not in s3.objects
+    assert checksums.update(["x"], s3=s3, download=True)[0] == 1
 
 
 def test_a_file_without_a_stored_hash_holds_the_version_unless_downloads_are_allowed():
     objs = version()
     objs[V + "data.csv"] = (b"a\n1\n", T0, None)
     s3 = FakeS3(objs)
-    assert checksums.update(["x"], s3=s3) == (0, [V])
+    assert checksums.update(["x"], s3=s3) == (0, [V], [])
     assert V + "SHA256SUMS" not in s3.objects
-    assert checksums.update(["x"], s3=s3, download=True) == (1, [])
+    assert checksums.update(["x"], s3=s3, download=True) == (1, [], [])
     sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
     assert sums["x_2026-04-24.csv"] == sha(b"a\n1\n")
 
@@ -147,7 +187,7 @@ def test_a_source_served_from_the_raw_store_takes_its_hash_from_the_manifest():
     objs = version()
     objs[V + "manifest.json"] = (manifest(), T0, sha(manifest()))
     s3 = FakeS3(objs)
-    assert checksums.update(["x"], s3=s3) == (1, [])
+    assert checksums.update(["x"], s3=s3) == (1, [], [])
     sums = checksums.parse(s3.objects[V + "SHA256SUMS"][0].decode())
     assert sums["x_2026-04-24_source.csv"] == sha(b"raw bytes")
     assert len(sums) == 5
@@ -177,7 +217,7 @@ def test_the_lists_written_are_recorded_to_attest_and_a_resign_adds_the_rest():
     checksums.update(["x"], s3=s3, lists=written)
     assert written == {V + "SHA256SUMS": sha(s3.objects[V + "SHA256SUMS"][0])}
     again: dict[str, str] = {}
-    assert checksums.update(["x"], s3=s3, lists=again) == (0, []) and again == {}
+    assert checksums.update(["x"], s3=s3, lists=again) == (0, [], []) and again == {}
     checksums.update(["x"], s3=s3, lists=again, every=True)
     assert again == written
 
@@ -190,3 +230,17 @@ def test_subjects_are_split_into_attestations_of_at_most_1024(tmp_path):
     assert len(first) == 1024 and len(second) == 476
     assert first | second == lists
     assert checksums.write_subjects({}, tmp_path / "none") == []
+
+
+def test_the_command_warns_of_a_file_written_after_the_list(tmp_path, monkeypatch, capsys):
+    from publicdata import __main__, r2
+
+    s3 = FakeS3(version())
+    checksums.update(["x"], s3=s3)
+    s3.objects[V + "data.xlsx"] = (b"PK", T0 + dt.timedelta(days=1), sha(b"PK"))
+    monkeypatch.setattr(r2, "client", lambda: s3)
+    (tmp_path / "d" / "x" / "v").mkdir(parents=True)
+    assert __main__.main(["checksums", "--root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert f"::warning::{V}data.xlsx was written after {V}SHA256SUMS, outside a replace." in out
+    assert "0 SHA256SUMS written" in out

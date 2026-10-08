@@ -599,7 +599,7 @@ def cmd_dist_push(args) -> int:
 
 
 def cmd_checksums(args) -> int:
-    from .checksums import slugs_in, slugs_in_bucket, update, write_subjects
+    from .checksums import KEY, slugs_in, slugs_in_bucket, update, write_subjects
     from .r2 import client
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
@@ -612,7 +612,7 @@ def cmd_checksums(args) -> int:
     s3 = client()
     slugs = slugs_in_bucket(s3) if args.all else slugs_in(Path(r) for r in args.root)
     lists: dict[str, str] = {}
-    n, held = update(
+    n, held, changed = update(
         slugs,
         replace=tuple(args.replace),
         download=args.download,
@@ -626,6 +626,15 @@ def cmd_checksums(args) -> int:
         print(f"checksums: {len(lists)} list(s) to attest in {len(parts)} part(s)")
     for prefix in held:
         print(f"::warning::{prefix}SHA256SUMS not written: a file has no stored SHA-256")
+    # A dated file changes only under a replace, which writes the list again. Anything else
+    # breaks that rule, so it is reported and the version's list keeps what it was first given.
+    for key in changed:
+        slug, version, _ = KEY.match(key).groups()
+        prefix = f"d/{slug}/v/{version}/"
+        print(
+            f"::warning::{key} was written after {prefix}SHA256SUMS, outside a replace. "
+            "A dated version's files never change, so its list is left as it is"
+        )
     if held:
         print(
             f"checksums: {len(held)} version(s) left without one; "
@@ -975,7 +984,7 @@ def main(argv=None) -> int:
         nargs="*",
         default=[],
         metavar="PREFIX",
-        help="versions rewritten on purpose, whose lists are made again from scratch",
+        help="versions a replace deploy rewrote, whose lists are made again from scratch",
     )
     ck.add_argument(
         "--subjects", metavar="DIR", help="write the lists to attest here, 1.sha256 and on"
@@ -983,7 +992,7 @@ def main(argv=None) -> int:
     ck.add_argument(
         "--resign",
         action="store_true",
-        help="add every current list to --subjects, not only those written, to attest them again",
+        help="add every list left as it is to --subjects, to attest it again; no list is rewritten",
     )
     ck.set_defaults(fn=cmd_checksums)
     pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")

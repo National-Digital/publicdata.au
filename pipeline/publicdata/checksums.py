@@ -5,8 +5,10 @@ names the file as the site saves it (`site.download_name`), so `sha256sum -c --i
 SHA256SUMS` checks the files a browser or `curl -OJ` downloaded. The hashes come from the SHA-256
 that `r2.push` stores with every object, and an object without one is read and hashed only when
 the caller allows it. A source file served from the raw store takes its hash from the version's
-manifest. A version's list is written again when R2 holds a file newer than it, which
-is how a format added to a cached version reaches the list, or when its prefix is replaced.
+manifest. A list is part of its version and is written once, when the version has none. It is
+made again only when the version's prefix is replaced, which purges the edge. A file newer than
+the list outside a replace breaks the rule that a version never changes, so it is reported and
+the list is left as it is, unless R2 stored it again with the SHA-256 the list already holds.
 The lists written are recorded as subjects, in the sha256sum format, for the deploy to attest.
 """
 
@@ -90,12 +92,14 @@ def _versions(s3, bucket: str, slug: str) -> dict[str, dict[str, dict]]:
     return out
 
 
-def stale(objects: dict[str, dict], replaced: bool) -> bool:
-    files = [o for rel, o in objects.items() if rel != NAME and rel not in PAGES]
-    if not files:
-        return False
-    sums = objects.get(NAME)
-    return replaced or sums is None or any(o["LastModified"] > sums["LastModified"] for o in files)
+def _files(objects: dict[str, dict]) -> dict[str, dict]:
+    return {rel: o for rel, o in objects.items() if rel != NAME and rel not in PAGES}
+
+
+def newer(objects: dict[str, dict]) -> list[str]:
+    """The files written after the version's list, by path within the version."""
+    sums = objects[NAME]["LastModified"]
+    return sorted(rel for rel, o in _files(objects).items() if o["LastModified"] > sums)
 
 
 def _stored_sha256(s3, bucket: str, key: str) -> str | None:
@@ -126,29 +130,15 @@ def version_sums(
     slug: str,
     version: str,
     objects: dict[str, dict],
-    replaced: bool = False,
     download: bool = False,
     pool: ThreadPoolExecutor | None = None,
 ) -> tuple[dict[str, str], list[str]]:
-    """The version's sums by download name, and the keys whose hash is unknown. A line in the
-    current list is kept for a file no newer than the list, unless the version was replaced."""
+    """The version's sums by download name, and the keys whose hash is unknown."""
     from .site import download_name
 
     prefix = f"d/{slug}/v/{version}/"
-    old: dict[str, str] = {}
-    sums_obj = objects.get(NAME)
-    if sums_obj is not None and not replaced:
-        old = parse(s3.get_object(Bucket=bucket, Key=prefix + NAME)["Body"].read().decode())
     sums: dict[str, str] = {}
-    todo: list[tuple[str, str]] = []
-    for rel, o in sorted(objects.items()):
-        if rel == NAME or rel in PAGES:
-            continue
-        name = download_name(slug, version, rel)
-        if name in old and o["LastModified"] <= sums_obj["LastModified"]:
-            sums[name] = old[name]
-        else:
-            todo.append((name, prefix + rel))
+    todo = [(download_name(slug, version, rel), prefix + rel) for rel in sorted(_files(objects))]
 
     def one(item: tuple[str, str]) -> tuple[str, str, str | None]:
         name, key = item
@@ -170,6 +160,22 @@ def version_sums(
     return sums, unknown
 
 
+def differing(s3, bucket: str, slug: str, version: str, rels: list[str]) -> list[str]:
+    """Of the files newer than the version's list, those whose stored SHA-256 is not the one the
+    list holds for them. A file R2 stored again with the same bytes, such as one compressed at
+    rest, matches its line and is left out."""
+    from .site import download_name
+
+    prefix = f"d/{slug}/v/{version}/"
+    listed = parse(s3.get_object(Bucket=bucket, Key=prefix + NAME)["Body"].read().decode())
+    return [
+        rel
+        for rel in rels
+        if (h := listed.get(download_name(slug, version, rel))) is None
+        or _stored_sha256(s3, bucket, prefix + rel) != h
+    ]
+
+
 def update(
     slugs: Iterable[str],
     bucket: str = BUCKET,
@@ -179,30 +185,37 @@ def update(
     workers: int = WORKERS,
     lists: dict[str, str] | None = None,
     every: bool = False,
-) -> tuple[int, list[str]]:
-    """Writes SHA256SUMS for every version of these datasets whose list is missing or stale.
-    Returns how many were written and the versions left without one because a file's hash is
-    unknown. Each list written goes into `lists` as key -> SHA-256, and with `every` so does
-    each current list left alone, so all of them can be attested again."""
+) -> tuple[int, list[str], list[str]]:
+    """Writes SHA256SUMS for every version of these datasets that has none, and again for a
+    replaced one. Returns how many were written, the versions left without one because a file's
+    hash is unknown, and the keys of files changed after their version's list outside a replace,
+    which no list is rewritten for. Each list written goes into `lists` as key -> SHA-256, and
+    with `every` so does each list left as it is, so all of them can be attested again."""
     if s3 is None:
         from .r2 import client
 
         s3 = client()
-    written, held = 0, []
+    written, held, changed = 0, [], []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for slug in slugs:
             for version, objects in sorted(_versions(s3, bucket, slug).items()):
                 prefix = f"d/{slug}/v/{version}/"
                 replaced = prefix.startswith(replace) if replace else False
-                if not stale(objects, replaced):
-                    if every and lists is not None and NAME in objects:
+                if not _files(objects):
+                    continue
+                if NAME in objects and not replaced:
+                    if late := newer(objects):
+                        changed += [prefix + r for r in differing(s3, bucket, slug, version, late)]
+                    if every and lists is not None:
                         h = _stored_sha256(s3, bucket, prefix + NAME)
                         if h:
                             lists[prefix + NAME] = h
                     continue
-                sums, unknown = version_sums(
-                    s3, bucket, slug, version, objects, replaced, download, pool
-                )
+                if NAME in objects:
+                    # Gone before the new one is made, so a run that stops leaves the version
+                    # with no list, which the next deploy writes, never with the old one.
+                    s3.delete_object(Bucket=bucket, Key=prefix + NAME)
+                sums, unknown = version_sums(s3, bucket, slug, version, objects, download, pool)
                 if unknown:
                     held.append(prefix)
                     print(
@@ -224,4 +237,4 @@ def update(
                     lists[prefix + NAME] = digest
                 written += 1
                 print(f"put {bucket}/{prefix}{NAME} ({len(sums)} files)")
-    return written, held
+    return written, held, changed
