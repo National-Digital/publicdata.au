@@ -2,27 +2,19 @@ import json
 import re
 import subprocess
 
-import pytest
-
 from publicdata import brand
 from publicdata.gate import _png_size
 
 from .conftest import ROOT
 
 
-@pytest.mark.skipif(not brand.has_fonts(), reason="the licensed fonts come from R2")
 def test_the_site_fonts_load_from_woff2():
-    for name in (brand.BOOK, brand.MEDIUM, brand.BOLD):
+    for name in (brand.REGULAR, brand.MEDIUM, brand.BOLD):
         assert brand._font(name, 20).getname()[0].startswith("Random Grotesque")
 
 
-def test_without_the_licensed_fonts_cards_use_pillows_own(monkeypatch, tmp_path):
-    monkeypatch.setattr(brand, "FONTS", tmp_path)
-    assert not brand.has_fonts()
-    assert brand._font(brand.BOLD, 20).getname()[0] == "Aileron"
-
-
-def test_the_repository_carries_no_font_files():
+def test_the_repository_carries_only_the_free_fonts_with_their_attribution():
+    # RM-EULA Type-C 4.3 covers the free package only; a paid style must never be committed.
     tracked = subprocess.run(
         ["git", "ls-files", "*.woff2", "*.woff", "*.ttf", "*.otf"],
         cwd=ROOT,
@@ -30,7 +22,9 @@ def test_the_repository_carries_no_font_files():
         text=True,
         check=True,
     ).stdout
-    assert tracked == ""
+    fonts = "pipeline/publicdata/static/fonts/"
+    assert set(tracked.split()) == {fonts + n for n in (brand.REGULAR, brand.MEDIUM, brand.BOLD)}
+    assert (brand.FONTS / "RandomGrotesque-EULA.txt").is_file()
 
 
 def test_cards_are_the_same_bytes_every_time(tmp_path):
@@ -149,5 +143,5 @@ def test_card_entries_outlast_the_first_prune_and_the_last_drops_the_unused(
     stale = cache / "card-stale"
     (stale / "files").mkdir(parents=True)
     (stale / "meta.json").write_text("{}")
-    assert main([*run, "--out", str(tmp_path / "b"), "--absent", str(tmp_path / "b.json")]) == 0
+    assert main([*run, "--out", str(tmp_path / "b"), "--absent", str(tmp_path / "b.json"), "--published", str(tmp_path / "a")]) == 0  # fmt: skip
     assert {p.name: p.joinpath("meta.json").stat().st_ino for p in cache.glob("card-*")} == cards

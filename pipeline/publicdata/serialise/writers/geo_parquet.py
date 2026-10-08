@@ -6,7 +6,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .. import dumps
+from .. import dumps, profile
 from ..geo import _connect, _with_geometry
 
 _PROJJSON: dict[str, dict] = {}
@@ -28,7 +28,7 @@ def projjson(crs: str) -> dict:
     return _PROJJSON[crs]
 
 
-def write_shape_parquet(tbl, header: dict, path: Path) -> None:
+def write_shape_parquet(tbl, header: dict, path: Path, lay: dict | None = None) -> None:
     """A layer's Parquet: the fields as data.parquet always holds them, then the WKB geometry in
     GDA2020, with the GeoParquet metadata, so every other format of the layer can be made from it."""
     from ...spine import DATUM
@@ -46,8 +46,13 @@ def write_shape_parquet(tbl, header: dict, path: Path) -> None:
             "geometry": {"encoding": "WKB", "geometry_types": kinds, "crs": projjson(DATUM)}
         },
     }
-    t = t.replace_schema_metadata({"publicdata": dumps(header), "geo": dumps(geo)})
-    pq.write_table(t, path, compression="zstd", write_statistics=True, row_group_size=65_536)
+    lay = tbl.manifest.parquet if lay is None else lay
+    if not lay:
+        t = t.replace_schema_metadata({"publicdata": dumps(header), "geo": dumps(geo)})
+        pq.write_table(t, path, compression="zstd", write_statistics=True, row_group_size=65_536)
+        return
+    perm = profile.order_of(tbl, lay["sort"], lay["key"])
+    profile.write(t, header, path, lay, perm, extra={"geo": dumps(geo)})
 
 
 def write_geo_parquet(tbl, header: dict, path: Path) -> None:

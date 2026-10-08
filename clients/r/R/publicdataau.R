@@ -325,7 +325,7 @@ query_path <- function(slug, kind, version) {
 #' @param .offset Rows to skip.
 #' @param .version A version date from [pd_versions()]. Without it the answer
 #'   comes from the newest version and changes when the publisher releases
-#'   again; with it the answer never changes.
+#'   again; with it the answer comes from that version alone.
 #' @param .all Follow every page and return all matching rows.
 #' @return A tibble, with each column typed as its field says (dates as `Date`,
 #'   booleans as logical) and labelled with the field's description.
@@ -411,7 +411,11 @@ save_file <- function(slug, format, version, path, table = NULL) {
 #' @param format One of `"parquet"`, `"csv"`, `"csv.gz"`, `"json"`,
 #'   `"ndjson"`, `"sqlite"`, `"duckdb"`, `"xlsx"`, `"arrow"`, `"geojson"`,
 #'   `"gpkg"` or `"geo.parquet"`. The last three are served only for
-#'   datasets with a location or a shape.
+#'   datasets with a location or a shape. Parquet, CSV, CSV (gzip), NDJSON and
+#'   DuckDB are on every version. Excel, JSON, GeoJSON and SQLite are left out
+#'   of a version whose table is over their size limits, and Arrow is only on
+#'   versions fetched before the format change, whose manifest has no `caps`
+#'   field.
 #' @param version A version date from [pd_versions()]. The newest when `NULL`.
 #' @param path Where to save the file. When `NULL`, a file in the session's
 #'   temporary directory named for the slug and version, or the file in the
@@ -419,7 +423,8 @@ save_file <- function(slug, format, version, path, table = NULL) {
 #' @param table For a database, one of its tables, which is served as Parquet.
 #'   See [pd_tables()].
 #' @param cache Keep the file in [pd_cache_dir()] and reuse it next time.
-#'   Versions never change, so a kept file never goes stale. Off unless
+#'   A correction to a version is recorded in its notes, and
+#'   [pd_cache_clear()] removes the old copy. Off unless
 #'   `options(publicdataau.cache = TRUE)` is set.
 #' @return The path of the saved file, invisibly, with the version it resolved
 #'   to in `attr(path, "version")`.
@@ -430,6 +435,36 @@ save_file <- function(slug, format, version, path, table = NULL) {
 pd_download <- function(slug, format = "parquet", version = NULL, path = NULL, table = NULL,
                         cache = NULL) {
   format <- match.arg(format, formats)
+  out <- tryCatch(
+    download_file(slug, format, version, path, table, cache),
+    httr2_http_404 = function(e) {
+      if (!is.null(table) || format %in% always) stop(e)
+      pd_abort(absent_why(slug, format), class = "publicdataau_not_offered")
+    }
+  )
+  invisible(out)
+}
+
+# On every table version; the others depend on the version's size, geometry and fetch.
+always <- c("parquet", "csv", "csv.gz", "ndjson", "duckdb")
+
+# Why a version may have no data.<format>, for a 404 on one.
+absent_why <- function(slug, format) {
+  head <- paste0("'", slug, "' has no data.", format, " in this version.")
+  tail <- paste0(paste(always, collapse = ", "), " are on every table version.")
+  why <- if (format %in% c("gpkg", "geo.parquet")) {
+    "Only datasets with a location or a shape have it."
+  } else if (format == "arrow") {
+    "Arrow is only on versions fetched before the format change, whose manifest has no caps field."
+  } else {
+    paste0("Excel, JSON, GeoJSON and SQLite are left out of a version whose table is over their size ",
+           "limits, and the version's manifest names the reason under formats_left_out.",
+           if (format == "geojson") " GeoJSON is only for datasets with a location or a shape." else "")
+  }
+  paste(head, why, tail)
+}
+
+download_file <- function(slug, format, version, path, table, cache) {
   if (use_cache(cache)) {
     got <- fetch_file(slug, format, version, table, cache = TRUE)
     if (!is.null(path)) {
@@ -453,7 +488,8 @@ pd_download <- function(slug, format = "parquet", version = NULL, path = NULL, t
 #' Read a whole table
 #'
 #' Downloads one version's Parquet file, or one table of a database, and reads
-#' it with 'arrow'.
+#' it with 'arrow'. Without 'arrow' built with zstd, a table is read from the
+#' version's gzipped CSV instead and typed from its fields.
 #'
 #' @inheritParams pd_download
 #' @param columns Fields to read, which saves memory on a wide table. Every
@@ -462,20 +498,22 @@ pd_download <- function(slug, format = "parquet", version = NULL, path = NULL, t
 #'   `attr(x, "publicdata")` is the provenance header the file itself carries:
 #'   version, licence, attribution, citation and source.
 #' @family files
-#' @examplesIf pd_available() && requireNamespace("arrow", quietly = TRUE) && arrow::codec_is_available("zstd")
+#' @examplesIf pd_available()
 #' crashes <- pd_read("qld-road-crash-factors")
 #' @export
 pd_read <- function(slug, version = NULL, table = NULL, cache = NULL, columns = NULL) {
-  need("arrow", "pd_read()")
-  if (!has_zstd()) {
-    pd_abort(
-      "pd_read() needs 'arrow' built with zstd, which publicdata.au's Parquet files use; ",
-      "reinstall it after Sys.setenv(ARROW_WITH_ZSTD = \"ON\"), or use pd_tbl()",
-      class = "publicdataau_no_zstd"
-    )
-  }
   if (!is.null(columns) && (!is.character(columns) || !length(columns))) {
     pd_abort("columns must be field names, as pd_fields() lists them")
+  }
+  if (!reads_parquet()) {
+    if (!is.null(table)) {
+      pd_abort(
+        "a table of a database is served only as Parquet, which pd_read() reads with 'arrow' ",
+        "built with zstd; reinstall it after Sys.setenv(ARROW_WITH_ZSTD = \"ON\"), or use pd_tbl()",
+        class = "publicdataau_no_zstd"
+      )
+    }
+    return(read_csv_gz(slug, version, cache, columns))
   }
   got <- fetch_file(slug, "parquet", version, table, cache)
   if (got$temp) on.exit(unlink(got$path), add = TRUE)
@@ -492,6 +530,67 @@ pd_read <- function(slug, version = NULL, table = NULL, cache = NULL, columns = 
 }
 
 has_zstd <- function() arrow::codec_is_available("zstd")
+
+reads_parquet <- function() requireNamespace("arrow", quietly = TRUE) && has_zstd()
+
+csv_classes <- c(string = "character", integer = "character", number = "numeric",
+                 boolean = "logical", date = "character", datetime = "character")
+
+# A table from the version's gzipped CSV, for a session that cannot read the Parquet file.
+read_csv_gz <- function(slug, version, cache, columns) {
+  rlang::inform(
+    "Reading the gzipped CSV, since 'arrow' with zstd is not installed.",
+    .frequency = "once", .frequency_id = "publicdataau_csv_gz"
+  )
+  f <- field_meta(slug, NULL, version)
+  if (!is.null(columns) && !is.null(f)) {
+    unknown <- setdiff(columns, f$name)
+    if (length(unknown)) pd_abort("unknown fields: ", paste(unknown, collapse = ", "))
+  }
+  got <- fetch_file(slug, "csv.gz", version, NULL, cache)
+  if (got$temp) on.exit(unlink(got$path), add = TRUE)
+  classes <- c(suppressed = "character")
+  if (!is.null(f)) classes <- c(stats::setNames(unname(csv_classes[f$type]), f$name), classes)
+  header <- names(utils::read.csv(gzfile(got$path), nrows = 0, check.names = FALSE))
+  classes <- classes[names(classes) %in% header]
+  if (!length(classes)) classes <- NA
+  df <- utils::read.csv(gzfile(got$path), colClasses = classes, na.strings = "",
+                        check.names = FALSE, stringsAsFactors = FALSE, encoding = "UTF-8")
+  if (!is.null(columns)) df <- df[, columns, drop = FALSE]
+  for (col in intersect(names(df), f$name[f$type == "integer"])) df[[col]] <- as_int64(df[[col]])
+  if ("suppressed" %in% names(df)) {
+    # The CSV joins the suppressed field names with ";"; the Parquet holds a list.
+    df$suppressed <- lapply(df$suppressed, function(x) {
+      if (is.na(x) || !nzchar(x)) character() else strsplit(x, ";", fixed = TRUE)[[1]]
+    })
+  }
+  df <- as_tbl(labelled(typed(df, f), f))
+  at <- if (is.null(got$version) || is.na(got$version)) version else got$version
+  attr(df, "publicdata") <- file_header(slug, at)
+  licence_notice(slug, attr(df, "publicdata")$licence)
+  df
+}
+
+# Whole numbers as 'arrow' reads a Parquet int64: integer when every value fits, else
+# bit64's integer64, read from the text so no digit is lost; double when 'bit64' is missing.
+as_int64 <- function(x) {
+  n <- suppressWarnings(as.numeric(x))
+  if (all(is.na(x) | abs(n) <= .Machine$integer.max)) return(as.integer(n))
+  if (requireNamespace("bit64", quietly = TRUE)) return(bit64::as.integer64(x))
+  n
+}
+
+# The provenance header every file of a version carries, from the first line of its NDJSON, read
+# with a range request so the rest is not downloaded.
+file_header <- function(slug, version) {
+  req <- httr2::req_headers(pd_request(file_url(slug, "ndjson", version)), Range = "bytes=0-65535")
+  tryCatch({
+    body <- rawToChar(httr2::resp_body_raw(pd_perform(req)))
+    Encoding(body) <- "UTF-8"
+    h <- jsonlite::fromJSON(strsplit(body, "\n", fixed = TRUE)[[1]][1], simplifyVector = FALSE)$publicdata
+    if (is.null(h)) list() else h
+  }, error = function(e) list())
+}
 
 need <- function(pkg, fn) {
   if (!requireNamespace(pkg, quietly = TRUE)) {

@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs | cost."""
 
 from __future__ import annotations
 
@@ -29,7 +29,26 @@ def cmd_register(args) -> int:
             print(
                 f"note: {d.slug} has {len(bare)} fields without a label; `publicdata register labels {d.slug}` drafts them"
             )
-    return 0
+    from .store import manifests
+    from .validate import int32_misfits
+
+    store_dir = Path(getattr(args, "store", STORE))
+    bad, unchecked = [], 0
+    for d in ds:
+        if not d.int32 or not d.publishable:
+            continue
+        for m in manifests(store_dir, d.slug):
+            found = int32_misfits(d, m, store_dir, [Path(b) for b in getattr(args, "built", [])])
+            if found is None:
+                unchecked += 1
+            bad += [f"{d.slug}/{m.version}: {x}" for x in found or []]
+    for b in bad:
+        print(f"int32: {b}")
+    if unchecked:
+        print(
+            f"int32: {unchecked} stored version(s) not checked, since neither their Parquet nor their source is here"
+        )
+    return 1 if bad else 0
 
 
 def cmd_labels(args) -> int:
@@ -154,10 +173,11 @@ def cmd_fetch(args) -> int:
     return 0
 
 
+R2 = "r2://"
+
+
 def cmd_build(args) -> int:
-    from .build import build_dataset
     from .register import load
-    from .site import render_site
 
     out = Path(args.out)
     store_dir = FIXTURES if args.fixtures else Path(args.store)
@@ -190,6 +210,26 @@ def cmd_build(args) -> int:
         if not args.slug:
             n = _prune_unusable(cache, datasets, store_dir)
             print(f"cache: {n} entries this build cannot use removed first")
+    from . import published
+
+    download = None
+    if args.published.startswith(R2):
+        from .r2 import downloader
+
+        download = downloader(args.published[len(R2) :])
+    source = Path(args.published) if args.published and not download else None
+    published.current = published.Published(out, args.built, source, download)
+    try:
+        return _build(args, out, store_dir, datasets, cache)
+    finally:
+        published.current = None
+
+
+def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
+    from . import published
+    from .build import build_dataset
+    from .site import render_site
+
     outs = []
     for d in datasets:
         if args.slug and d.slug not in args.slug:
@@ -211,6 +251,22 @@ def cmd_build(args) -> int:
 
     cat = catalogue_latest(store_dir)
     if not args.no_site:
+        # The pages draw their figures from every version's Parquet, so a cached version's comes
+        # back first; a page drawn without it would only lose its figures.
+        want = [
+            f"d/{o.dataset.slug}/v/{v.manifest.version}/data.parquet"
+            for o in outs
+            for v in o.versions
+            if "data.parquet" in v.absent
+        ]
+        missing = [
+            r for r, p in zip(want, published.current.paths(want), strict=True) if not p.exists()
+        ]
+        if missing:
+            sys.exit(
+                f"build: {len(missing)} cached version(s) have no Parquet to draw from, e.g. "
+                f"{missing[0]}; pass --published, or build without the cache"
+            )
         render_site(
             outs,
             out,
@@ -230,12 +286,19 @@ def cmd_build(args) -> int:
         )
         import json
 
+        # A file read back from R2 or a shard's tree is in this tree now.
         absent = sorted(
-            f"d/{o.dataset.slug}/v/{v.manifest.version}/{rel}"
+            r
             for o in outs
             for v in o.versions
             for rel in v.absent
+            if not (out / (r := f"d/{o.dataset.slug}/v/{v.manifest.version}/{rel}")).exists()
         )
+        # A cached version's query copy was pushed by the build that made it.
+        absent += sorted(
+            v.query for o in outs for v in o.versions if v.query and not (out / v.query).exists()
+        )
+        absent.sort()
         Path(args.absent).write_text(json.dumps(absent, indent=0) + "\n", encoding="utf-8")
         print(f"cache: {len(absent)} published file(s) left out, listed in {args.absent}")
     print(f"built {sum(1 for p in out.rglob('*') if p.is_file())} files into {out}")
@@ -261,6 +324,7 @@ def cmd_split(args) -> int:
     """Move files that R2 serves into a sibling tree: anything over the Pages per-file limit
     and, with --versioned, every file of a dated version, its page included. A file moved to R2
     is only reachable where _routes.json runs the function that reads it."""
+    from .serialise.profile import QUERY_DIR
     from .site import ROUTES
 
     routed = [
@@ -273,6 +337,13 @@ def cmd_split(args) -> int:
         if not p.is_file():
             continue
         rel = p.relative_to(out).as_posix()
+        if rel.startswith(f"{QUERY_DIR}/"):
+            # A query copy lives in R2 alone, where only the query engine reads it.
+            dest = large / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(p), dest)
+            moved += 1
+            continue
         versioned = args.versioned and VERSIONED_FILE.match(rel)
         if versioned or p.stat().st_size > limit:
             if not any(r.match("/" + rel) for r in routed):
@@ -344,15 +415,24 @@ def cmd_d1(args) -> int:
 
     loaded: dict[str, list[str]] = {}
     loaded_fields: dict[tuple[str, str], str] = {}
+    loaded_orders: dict[tuple[str, str], str] = {}
     if args.loaded and Path(args.loaded).exists():
         raw = json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")
         for r in _d1_rows(raw):
             loaded.setdefault(r["slug"], []).append(r["version"])
             if "fields" in r:
                 loaded_fields[(r["slug"], r["version"])] = r["fields"]
+            if r.get("ord") is not None:
+                loaded_orders[(r["slug"], r["version"])] = r["ord"]
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
     parts = write_loads(
-        [Path(r) for r in args.root], live, loaded, Path(args.out), args.stamp, loaded_fields
+        [Path(r) for r in args.root],
+        live,
+        loaded,
+        Path(args.out),
+        args.stamp,
+        loaded_fields,
+        loaded_orders,
     )
     if args.catalogue and Path(args.catalogue).exists():
         parts += catalogue_loads(
@@ -366,10 +446,27 @@ def cmd_d1(args) -> int:
     return 0
 
 
-def cmd_d1_load(args) -> int:
-    from .d1 import Wrangler, load
+def _rows_written(text: str) -> int:
+    import argparse
 
-    failed = load(Path(args.dir), Wrangler())
+    from .d1 import rows_written
+
+    try:
+        return rows_written(text or "0")
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
+def cmd_d1_load(args) -> int:
+    from .d1 import BUDGET, Wrangler, load
+
+    failed = load(
+        Path(args.dir),
+        Wrangler(),
+        budget=args.budget or BUDGET,
+        retry=set(args.retry.split()),
+        summary=Path(args.summary) if args.summary else None,
+    )
     print(f"d1 load: {failed} version(s) did not load")
     return 1 if failed else 0
 
@@ -412,17 +509,13 @@ def cmd_rollup(args) -> int:
 
 
 def cmd_store(args) -> int:
-    from .brand import FONTS
-    from .r2 import pull_fonts, pull_store, push
+    from .r2 import pull_store, push
 
     store_dir = Path(args.store)
     if args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
-        fonts = pull_fonts(FONTS)
-        print(
-            f"store pull: {n} file(s), {fonts} font(s), {len(cached)} version(s) already built in the cache"
-        )
+        print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
     else:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)
@@ -502,10 +595,18 @@ VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
 def cmd_spine_install(args) -> int:
-    from .spine import install
+    from .extension import install
 
     install()
     print("spine: DuckDB spatial extension installed")
+    return 0
+
+
+def cmd_spine_mirror(args) -> int:
+    from .extension import mirror
+
+    pin = mirror(Path(args.pin))
+    print(f"spine: pinned {pin['url']} ({pin['sha256']})")
     return 0
 
 
@@ -516,24 +617,34 @@ def cmd_dist_push(args) -> int:
     if bad:
         print(f"dist push: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
+    from .r2 import check_sources
+    from .register import load
+    from .serialise.profile import layout
+
+    # Before anything goes up, so a version whose source the site cannot serve is never published.
+    found = check_sources([Path(args.large)])
+    expect = _absent(args.expect)
+    queries = (Path(args.large) / "_q").is_dir() or any(k.startswith("_q/") for k in expect)
     n = push(
         Path(args.large),
         "publicdata-dist",
         replace=tuple(args.replace),
         immutable=dated_file,
-        expect=_absent(args.expect),
+        expect=expect,
         include=dated_file if args.dated_only else lambda key: True,
+        layouts={ds.slug: layout(ds) for ds in load(REGISTER)} if queries else None,
     )
     print(
         f"dist push: {n} file(s){' (replacing under ' + ', '.join(args.replace) + ')' if args.replace else ''}"
     )
+    print(f"dist push: {found} publisher's file(s) found in the raw store")
     return 0
 
 
 def cmd_purge(args) -> int:
     import os
 
-    from .edge import purge
+    from .edge import purge, with_answers
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
@@ -543,7 +654,7 @@ def cmd_purge(args) -> int:
     if not token:
         print("purge: CLOUDFLARE_PURGE_TOKEN is not set")
         return 2
-    print(f"purge: {purge(args.prefix, token)} prefix(es) purged from the edge")
+    print(f"purge: {purge(with_answers(args.prefix), token)} prefix(es) purged from the edge")
     return 0
 
 
@@ -565,6 +676,116 @@ def cmd_cache_prune(args) -> int:
     n = _prune_unusable(BuildCache(Path(args.cache)), load(REGISTER), Path(args.store))
     print(f"cache: {n} entries no version in the store can use removed")
     return 0
+
+
+def cmd_cache(args) -> int:
+    from .r2 import cache_pull, cache_push
+
+    root = Path(args.cache)
+    if args.sub == "pull":
+        entries = None
+        if args.only:
+            from .build import cache_keys
+            from .cache import BuildCache
+            from .register import load
+
+            if not args.store:
+                print("cache pull: --only needs --store")
+                return 2
+            cache = BuildCache(root)
+            entries = set().union(
+                *(
+                    cache_keys(cache, d, Path(args.store))
+                    for d in load(REGISTER)
+                    if d.slug in args.only
+                )
+            )
+        n = cache_pull(root, meta_only=args.meta_only, entries=entries)
+        print(f"cache pull: {n} entries")
+    else:
+        up, gone = cache_push(root, prune=args.prune)
+        print(
+            f"cache push: {up} file(s) uploaded, {gone} entries unused past the grace period deleted"
+        )
+    return 0
+
+
+def cmd_verify(args) -> int:
+    """plan prints the datasets the real-data check builds, or nothing when no changed path
+    shapes versions outside their key; run builds them and compares."""
+    from . import verify
+    from .register import load
+
+    datasets = load(REGISTER)
+    store_dir = Path(args.store)
+    mb = 1_000_000
+    cap = args.cap_mb * mb if args.cap_mb is not None else verify.CAP
+    if args.sub == "plan":
+        changed = []
+        if args.changed:
+            changed = Path(args.changed).read_text(encoding="utf-8").splitlines()
+        if args.before and (moved := verify.changed_defaults(Path(args.before))):
+            for k in moved:
+                print(
+                    f"::error::the default of {k} changed. A version's key leaves out every "
+                    "field at its default, so raise REBUILD in pipeline/publicdata/cache.py "
+                    "in the same change.",
+                    file=sys.stderr,
+                )
+            return 1
+        mods = verify.unkeyed(changed)
+        raised = verify.bumped(Path(args.before), datasets) if args.before else []
+        if not mods and not raised:
+            print("verify: no change to the build code outside the keys", file=sys.stderr)
+            return 0
+        budget = args.budget_mb * mb if args.budget_mb is not None else verify.BUDGET
+        if raised:
+            print(f"verify: rebuild raised for {' '.join(raised)}", file=sys.stderr)
+        if mods:
+            print(f"verify: {', '.join(mods)} changed", file=sys.stderr)
+        else:
+            budget = 0  # only the raised entries are checked
+        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap, raised)
+        if mods:
+            for line in verify.uncovered(datasets, store_dir, slugs):
+                print(f"verify: no dataset in the sample is built as {line}", file=sys.stderr)
+        if not slugs and not mods:
+            return 0
+        if not slugs:
+            print(
+                "verify: no stored dataset fits the budget, so nothing can be checked",
+                file=sys.stderr,
+            )
+            return 1
+        print(" ".join(slugs))
+        return 0
+    if not args.cache:
+        print("verify run: --cache is the build cache a deploy would reuse")
+        return 2
+    chosen = [d for d in datasets if d.publishable and (not args.slug or d.slug in args.slug)]
+    unknown = set(args.slug) - {d.slug for d in chosen}
+    if unknown:
+        print(f"verify run: not a publishable dataset: {sorted(unknown)}")
+        return 2
+    from . import published, serialise
+
+    serialise.LIMIT = None
+    import tempfile
+
+    out = Path(args.out or tempfile.mkdtemp(prefix="publicdata-verify-"))
+    out.mkdir(parents=True, exist_ok=True)
+    download = None
+    if args.published.startswith(R2):
+        from .r2 import downloader
+
+        download = downloader(args.published[len(R2) :])
+    source = Path(args.published) if args.published and not download else None
+    # A capped version keeps the format set its published manifest records.
+    published.current = published.Published(out, [], source, download)
+    try:
+        return verify.run(chosen, store_dir, Path(args.cache), out, cap)
+    finally:
+        published.current = None
 
 
 def cmd_shards(args) -> int:
@@ -631,11 +852,61 @@ def cmd_hubs(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_cost(args) -> int:
+    import datetime as dt
+
+    from . import cost
+    from .register import load
+
+    root = Path(args.root).resolve() if args.root else ROOT
+    register = root / "register"
+    changed, fresh, reshaped = set(args.slug), set(), {}
+    if args.base:
+        if links := cost.symlinks(root):
+            print(f"cost: the register may not hold symbolic links: {', '.join(links)}")
+            return 2
+        base, paths = cost.changed_paths(args.base, root)
+        entries = cost.changed_entries(register, paths, root)
+        priced = cost.costed(root, base, entries)
+        if same := sorted(set(entries) - priced):
+            print(f"cost: {', '.join(same)}: edited, but nothing the projection reads changed")
+        changed |= priced
+        fresh, reshaped = cost.entry_changes(root, base, {s: entries[s] for s in priced})
+    approve = None
+    if args.github_pr:
+        repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
+        approve = lambda: cost.approval(repo, args.github_pr, lambda p: cost._github(p, token))  # noqa: E731
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    return cost.run(
+        load(register),
+        Path(args.store),
+        args.catalog or cost.CATALOG,
+        changed,
+        today,
+        approved=args.approved,
+        probing=args.probe,
+        fresh=fresh,
+        summary=args.summary,
+        reshaped=reshaped,
+        approve=approve,
+    )
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("register").add_subparsers(dest="sub", required=True)
-    r.add_parser("validate").set_defaults(fn=cmd_register)
+    rv = r.add_parser("validate")
+    rv.add_argument(
+        "--store", default=str(STORE), help="the store whose versions int32 is checked against"
+    )
+    rv.add_argument(
+        "--built",
+        action="append",
+        default=[],
+        help="a built tree whose Parquet int32 is checked against, before the store's sources",
+    )
+    rv.set_defaults(fn=cmd_register)
     lb = r.add_parser("labels", help="draft labels for fields that have none")
     lb.add_argument("slug", nargs="*")
     lb.add_argument("--write", action="store_true", help="write the drafts into the register YAML")
@@ -692,8 +963,16 @@ def main(argv=None) -> int:
         metavar="DIR",
         help="a shard's built tree; a file the cache leaves out is linked in from it when there",
     )
+    b.add_argument(
+        "--published",
+        default="",
+        metavar="DIR|r2://BUCKET",
+        help="where a cached version's Parquet is read back from, as the site lays it out",
+    )
     b.set_defaults(fn=cmd_build)
-    pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
+    pg = sub.add_parser(
+        "purge", help="purge replaced versions and their query API answers from the edge cache"
+    )
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
     pg.set_defaults(fn=cmd_purge)
     sh = sub.add_parser("shards", help="split the versions the cache cannot serve over build jobs")
@@ -701,6 +980,41 @@ def main(argv=None) -> int:
     sh.add_argument("--cache", help="the build cache; without it every version is built")
     sh.add_argument("--count", type=int, default=4)
     sh.set_defaults(fn=cmd_shards)
+    vf = sub.add_parser(
+        "verify", help="build stored versions with this code and compare what a deploy reuses"
+    )
+    vf.add_argument("sub", choices=["plan", "run"])
+    vf.add_argument("slug", nargs="*", help="run: the datasets to check; every one without")
+    vf.add_argument("--store", default=str(STORE))
+    vf.add_argument("--cache", help="run: the build cache a deploy would reuse")
+    vf.add_argument("--out", default="", help="run: where each build goes; a temporary folder")
+    vf.add_argument("--published", default="", help="run: the published tree, or r2://<bucket>")
+    vf.add_argument("--changed", help="plan: a file listing the changed paths, one per line")
+    vf.add_argument("--seed", default="", help="plan: picks the datasets beyond one per stratum")
+    vf.add_argument(
+        "--before",
+        help="plan: a folder with the base's register.py and cache.py, and its copy of each "
+        "changed register entry at its path, to compare",
+    )
+    vf.add_argument("--budget-mb", type=int, help="plan: source megabytes to build (300)")
+    vf.add_argument(
+        "--cap-mb", type=int, help="the source MB of a dataset's newest versions checked (60)"
+    )
+    vf.set_defaults(fn=cmd_verify)
+    cc = sub.add_parser("cache", help="copy the build cache between this disk and R2")
+    cc.add_argument("sub", choices=["pull", "push"])
+    cc.add_argument("--cache", required=True)
+    cc.add_argument("--meta-only", action="store_true", help="pull each entry's record alone")
+    cc.add_argument("--store", help="the store whose manifests --only reads")
+    cc.add_argument(
+        "--only", nargs="+", metavar="SLUG", help="pull only the entries these datasets can use"
+    )
+    cc.add_argument(
+        "--prune",
+        action="store_true",
+        help="push, and delete the entries this disk has dropped once they stay unused a day",
+    )
+    cc.set_defaults(fn=cmd_cache)
     cpr = sub.add_parser("cache-prune", help="drop build cache entries no stored version uses")
     cpr.add_argument("--store", default=str(STORE))
     cpr.add_argument("--cache", required=True)
@@ -737,6 +1051,16 @@ def main(argv=None) -> int:
     d1s.set_defaults(fn=cmd_d1)
     d1l = d1.add_parser("load", help="run the load files against D1, verify and retry")
     d1l.add_argument("--dir", required=True)
+    d1l.add_argument(
+        "--budget",
+        type=_rows_written,
+        default=0,
+        help="rows written this deploy may plan, such as 10M (0: the default)",
+    )
+    d1l.add_argument(
+        "--retry", default="", help="dataset slugs, or all, to load again past their failures"
+    )
+    d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
     ro = sub.add_parser("rollup", help="write, push and prune the rollups of the versions D1 holds")
     ro.add_argument(
@@ -782,6 +1106,11 @@ def main(argv=None) -> int:
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
     ).set_defaults(fn=cmd_spine_install)
+    sm = sp.add_parser(
+        "mirror", help="copy the spatial extension for the installed DuckDB to R2 and pin it"
+    )
+    sm.add_argument("--pin", required=True, help="the spatial-extension.json to write")
+    sm.set_defaults(fn=cmd_spine_mirror)
     hb = sub.add_parser("hubs", help="copy each dataset's newest version to the data hubs")
     hb.add_argument("--site", default="https://publicdata.au")
     hb.add_argument("--hub", nargs="*", default=["huggingface", "zenodo", "kaggle"])
@@ -796,6 +1125,30 @@ def main(argv=None) -> int:
         help="re-apply cards, page settings and notebooks to versions a hub already holds",
     )
     hb.set_defaults(fn=cmd_hubs)
+    co = sub.add_parser(
+        "cost", help="project each entry's storage growth and D1 writes and gate changed ones"
+    )
+    co.add_argument("slug", nargs="*", help="entries to gate, as well as those --base finds")
+    co.add_argument("--base", help="gate the register entries changed since this ref")
+    co.add_argument("--store", default=str(STORE))
+    co.add_argument(
+        "--root", help="the checkout whose register and history are read (default this one)"
+    )
+    co.add_argument("--catalog", help="a catalog.json path or URL (default the live site's)")
+    co.add_argument("--today", help="the date versions are counted back from (YYYY-MM-DD)")
+    co.add_argument(
+        "--approved", action="store_true", help="treat an over-budget entry as approved"
+    )
+    co.add_argument(
+        "--github-pr", type=int, help="read this pull request's cost-approved label from GitHub"
+    )
+    co.add_argument(
+        "--probe", action="store_true", help="size a new or moved source from its portal or host"
+    )
+    co.add_argument(
+        "--summary", help="append the Markdown table here (default GITHUB_STEP_SUMMARY)"
+    )
+    co.set_defaults(fn=cmd_cost)
     args = ap.parse_args(argv)
     return args.fn(args)
 

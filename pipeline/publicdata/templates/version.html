@@ -5,7 +5,8 @@
 <div class="crumbs"><a href="/">Datasets</a> / <a href="/d/{{ ds.slug }}/">{{ ds.title }}</a> / {{ v.version }}</div>
 <div class="ds-head"><h1>{{ ds.title }}, version {{ v.version }}</h1>{% if is_latest %}<span class="chip live">latest</span>{% endif %}</div>
 <div class="meta-row">{% if v.as_at %}<span>As at <b>{{ v.as_at_long }}</b></span>{% endif %}<span>Rows <b>{{ v.rows_fmt }}</b></span><span>Fields <b>{{ v.fields }}</b></span><span>Fetched <b>{{ v.fetched_long }}</b></span><span>Source SHA-256 <b class="mono">{{ v.sha256[:16] }}…</b></span>{% if v.backfilled %}<span><span class="chip backlog">backfilled</span></span>{% endif %}</div>
-<p style="margin-top:14px">This version is immutable. Every file below will return the same bytes for as long as this site exists, so the URL can be cited. {% if ds.source_withheld %}{{ ds.source_withheld }}{% else %}The publisher's file is here as <span class="mono">source.{{ v.ext }}</span>, byte for byte.{% endif %}</p>
+<p style="margin-top:14px">This version is kept for as long as this site exists, and its URL can be cited. Its files change only for the reasons the <a href="/terms/">terms</a> give, and each change is recorded in its notes. {% if ds.source_withheld %}{{ ds.source_withheld }}{% else %}The publisher's file is here as <span class="mono">source.{{ v.ext }}</span>, byte for byte.{% endif %}</p>
+{% if v.notes %}<div class="caveats"><span class="k">About this version</span>{% for n in v.notes %}<p style="margin:6px 0 0">{{ n }}</p>{% endfor %}</div>{% endif %}
 {% if ds.licence.condition %}<div class="caveats"><span class="k">The licence has a condition</span><p style="margin:6px 0 0">{{ ds.licence.condition }}</p></div>{% endif %}
 </div>
 {% if fig.chart or change or others %}<div class="band figband slim"><div class="site"><div class="figgrid two{% if not fig.chart %} one{% endif %}">
@@ -24,6 +25,7 @@
   <ul class="files">
   {% for f in files %}<li><a href="{{ f.url }}" download="{{ f.download }}" class="mono">{{ f.name }}</a><span>{{ f.size }}</span></li>{% endfor %}
   </ul>
+  {% if left_out %}<p class="muted" style="font-size:14.5px">{{ left_out|join(' ') }}</p>{% endif %}
   {% if v.tables %}<p class="muted" style="font-size:14.5px">One Parquet file per table under <span class="mono">tables/</span>: {% for t, n in v.tables.items() %}<a href="{{ base }}v/{{ v.version }}/tables/{{ t }}.parquet" class="mono">{{ t }}</a> ({{ '{:,}'.format(n) }}){% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
   {% if partition_dirs %}<p class="muted" style="font-size:14.5px">Smaller files by field: {% for p in partition_dirs %}<a href="{{ base }}v/{{ v.version }}/by/{{ p }}/index.json" class="mono">by/{{ p }}/</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
   {% if change %}

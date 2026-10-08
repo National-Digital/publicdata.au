@@ -8,9 +8,10 @@
 [![DCO](https://img.shields.io/badge/DCO-sign--off%20required-blue.svg)](https://developercertificate.org/)
 [![PyPI](https://img.shields.io/pypi/v/publicdata-au)](https://pypi.org/project/publicdata-au/)
 
-Australian government open data, republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage at URLs
-that never change. Every release the publisher makes becomes a dated, immutable version with its
-schema, provenance, the publisher's own file and a diff against the release before.
+Australian government open data, republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs
+that never change. Every release the publisher makes becomes a dated version that keeps its
+content, with its schema, provenance, the publisher's own file and a diff against the release
+before.
 
 This is an independent site run by National Digital. No government agency runs it, funds it or
 has endorsed it. Each dataset is republished under the publisher's licence with the attribution
@@ -23,6 +24,11 @@ is one YAML file in `register/`, and a new file format is one writer in
 `pipeline/publicdata/serialise/writers/`. [CONTRIBUTING.md](CONTRIBUTING.md) has the steps for
 those and for adapters, fixes and the clients, and [publicdata.au/contribute](https://publicdata.au/contribute/)
 gives the overview. Every dataset page links to the register entry it is built from.
+
+Taking part means agreeing to the [Code of Conduct](CODE_OF_CONDUCT.md). [SUPPORT.md](SUPPORT.md)
+says where to ask for a dataset or for help, and a vulnerability is reported privately as
+[SECURITY.md](SECURITY.md) describes. [GOVERNANCE.md](GOVERNANCE.md) says who decides, and
+[AGENTS.md](AGENTS.md) is for coding agents.
 
 ## Layout
 
@@ -37,7 +43,9 @@ gives the overview. Every dataset page links to the register entry it is built f
 - `clients/` the packages that call the site from other languages: `clients/python` is
   `publicdata-au` on PyPI and `clients/r` is `publicdataau` for CRAN. They take any slug, so a new
   dataset needs no release.
-- `docs/ARCHITECTURE.md` the rules that decide the code.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) the rules that decide the code.
+- [`docs/CORRECTIONS.md`](docs/CORRECTIONS.md) how a fault in a published file is reported and
+  fixed, and the log of every correction.
 
 ## Run it
 
@@ -67,11 +75,11 @@ The code is licensed under the GNU Affero General Public License v3.0 or later (
 you run a modified copy as a service, you must offer its users the source of your changes. The
 clients in `clients/` are under the MIT licence in each package's `LICENSE`.
 
-The publicdata.au name and mark are not covered by the code licence; `BRAND.md` says what a copy
+The publicdata.au name and mark are not covered by the code licence; [`BRAND.md`](BRAND.md) says what a copy
 must change.
 
 The data is not ours to license. Each dataset is published under its publisher's licence, which
 its register entry, its manifest and every file name, with the attribution that licence asks for.
-The text we write for the register is under CC BY 4.0 (`LICENSE-DATA.md`). Test extracts, the
-brand typeface and the explorer's libraries are listed in `THIRD-PARTY-NOTICES.md`; the typeface
-is licensed to us and is not in the repository.
+The text we write for the register is under CC BY 4.0 ([`LICENSE-DATA.md`](LICENSE-DATA.md)). Test extracts, the
+brand typeface and the explorer's libraries are listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md); the typeface
+is RandomMaerks' free package, redistributed under its own licence.

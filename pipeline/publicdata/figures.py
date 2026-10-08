@@ -1,5 +1,5 @@
 """Build-time figures for the pages: rows per year and rows per map cell, read from a version's
-data.sqlite and drawn as inline SVG. A figure is a count of the rows in the file it sits
+data.parquet and drawn as inline SVG. A figure is a count of the rows in the file it sits
 beside, worked out in the build. Nothing else is added and the files are untouched."""
 
 from __future__ import annotations
@@ -9,13 +9,13 @@ import io
 import json
 import math
 import re
-import sqlite3
 from pathlib import Path
 
 from PIL import Image
 
 from .explorer import YEAR, split_field
 from .provenance import long_date
+from .records import connect
 from .register import WHERE_OPS
 
 STEP = 0.05
@@ -72,13 +72,15 @@ def cutoff(m) -> str:
 
 def year_field(ds) -> tuple[str, str] | None:
     """The field that gives a row its year: the register's chart year, else an integer year
-    field, else a date field. None when the register turns the chart off."""
+    field, else a date field. None when the register turns the chart off. A text chart year is a
+    financial year written 2018-19."""
     chart = getattr(ds, "chart", None) or {}
     if chart.get("off"):
         return None
     if chart.get("year"):
         f = ds.field(chart["year"])
-        return f.name, "integer" if f.type == "integer" else "date"
+        kind = {"integer": "integer", "string": "financial"}.get(f.type, "date")
+        return f.name, kind
     # A school grade (year_1) or an age rounded to a year is not the row's year.
     years = [
         f.name
@@ -96,6 +98,28 @@ def year_field(ds) -> tuple[str, str] | None:
     return None
 
 
+# A financial year with both its years, such as 2011-12, 2008/09, 2011-2012 or FY201213.
+FY_PAIR = re.compile(r"(?<!\d)(\d{4})\s*[-/]?\s*(\d{4}|\d{2})(?!\d)")
+# One written by the year it ends, as Australia names them: FY2010 is July 2009 to June 2010.
+FY_END = re.compile(r"^FY\s*(\d{4})$", re.I)
+FY_SHORT = re.compile(r"^FY\s*(\d{2})\s*-\s*(\d{2})$", re.I)
+
+
+def financial_start(text) -> int | None:
+    """The calendar year a financial year starts in, or None when the text is not one."""
+    t = re.sub(r"[\u2013\u2014]", "-", str(text)).strip()
+    if m := FY_END.match(t):
+        return int(m.group(1)) - 1
+    if m := FY_SHORT.match(t):
+        a, b = int(m.group(1)), int(m.group(2))
+        return 2000 + a if (a + 1) % 100 == b else None
+    pairs = FY_PAIR.findall(t)
+    if len(pairs) != 1:
+        return None
+    a, b = int(pairs[0][0]), pairs[0][1]
+    return a if int(b) == (a + 1 if len(b) == 4 else (a + 1) % 100) else None
+
+
 def series(
     db: Path,
     yf: str,
@@ -107,13 +131,16 @@ def series(
 ) -> dict:
     """Rows (or the summed count field) per year, split by a category, kept to the register's
     chart condition when it has one. A year that ends after the cut-off is left out and named,
-    so a chart never falls away at a part year."""
-    y = _q(yf) if kind == "integer" else f"CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
-    agg = _agg(metric)
+    so a chart never falls away at a part year. A financial year is drawn under the year it
+    starts in and named as the publisher writes it."""
+    y = {"integer": _q(yf), "financial": _q(yf)}.get(
+        kind, f"TRY_CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
+    )
     cols = f"{y}, {_q(split)}" if split else y
-    cond, params = _conditions(where)
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = connect(db)
     try:
+        cond, params = _conditions(where, con)
+        agg = _agg(metric, con)
         rows = con.execute(
             f"SELECT {cols}, {agg} FROM records WHERE {y} IS NOT NULL{cond} GROUP BY {'1, 2' if split else '1'}",
             params,
@@ -130,10 +157,13 @@ def series(
     finally:
         con.close()
     values: dict[int, dict[str, float]] = {}
+    names: dict[int, str] = {}
     for r in rows:
-        year = int(r[0])
-        if year < 1800 or year > 2200:
+        year = financial_start(r[0]) if kind == "financial" else int(r[0])
+        if year is None or year < 1800 or year > 2200:
             continue
+        if kind == "financial":
+            names[year] = min(names.get(year, str(r[0])), str(r[0]))
         key = str(r[1]) if split else ""
         values.setdefault(year, {})[key] = values.get(year, {}).get(key, 0) + (r[-1] or 0)
     years = sorted(values)
@@ -141,7 +171,8 @@ def series(
     end = min(until, last) if last else until
     # Dated rows that begin after January leave their first year short too.
     late = int(first[:4]) if first and first[5:] > "01-31" else None
-    full = [y for y in years if f"{y}-12-31" <= end and y != late]
+    ends = (lambda y: f"{y + 1}-06-30") if kind == "financial" else (lambda y: f"{y}-12-31")
+    full = [y for y in years if ends(y) <= end and y != late]
     partial = [y for y in years if y not in full]
     cats = sorted({k for v in values.values() for k in v}) if split else [""]
     if len(cats) > PALETTE:
@@ -158,24 +189,25 @@ def series(
         "first": first or "",
         "categories": cats,
         "values": {y: values[y] for y in full},
+        "names": {y: names.get(y, str(y)) for y in years},
         # An average, lowest or highest per year does not add up across the years.
         "additive": metric == "count" or metric.startswith("sum."),
     }
 
 
 def _columns(db: Path) -> set[str]:
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = connect(db)
     try:
-        return {r[1] for r in con.execute("PRAGMA table_info(records)")}
+        return set(con.columns())
     finally:
         con.close()
 
 
-def _agg(metric: str) -> str:
+def _agg(metric: str, con) -> str:
     if metric == "count":
         return "COUNT(*)"
     fn, name = metric.split(".", 1)
-    return f"{fn.upper()}({_q(name)})"
+    return con.agg(fn, name)
 
 
 AGG_WORDS = {"avg": "Average", "min": "Lowest", "max": "Highest"}
@@ -209,8 +241,9 @@ def basis(ds, metric: str) -> str:
     ] + f" of the {word} column"
 
 
-def _conditions(where) -> tuple[str, list]:
-    """One or more (field, op, value) conditions as SQL, each ANDed on."""
+def _conditions(where, con) -> tuple[str, list]:
+    """One or more (field, op, value) conditions as SQL, each ANDed on, with the values as the
+    connection's columns compare them."""
     if not where:
         return "", []
     conds = [where] if isinstance(where, dict) else list(where)
@@ -219,8 +252,8 @@ def _conditions(where) -> tuple[str, list]:
         if w["op"] not in ("=", "!=", ">", "<", ">=", "<="):
             raise ValueError(w["op"])
         sql += f" AND {_q(w['field'])} {w['op']} ?"
-        # SQLite holds a boolean as 1 or 0.
-        params.append({"true": 1, "false": 0}.get(w["value"], w["value"]))
+        # The records view holds a boolean as 1 or 0, as SQLite does.
+        params.append(con.param(w["field"], {"true": 1, "false": 0}.get(w["value"], w["value"])))
     return sql, params
 
 
@@ -242,13 +275,18 @@ def _tick(v: float) -> str:
     return f"{v:g}"
 
 
+def _name(s: dict, y: int) -> str:
+    return s.get("names", {}).get(y, str(y))
+
+
 def _summary(s: dict, totals: dict, peak: int) -> str:
     years = s["years"]
+    top, last = _name(s, peak), _name(s, years[-1])
     if s.get("additive", True):
-        return f", {fmt(sum(totals.values()))} in all, the highest {fmt(totals[peak])} in {peak}."
+        return f", {fmt(sum(totals.values()))} in all, the highest {fmt(totals[peak])} in {top}."
     if peak == years[-1]:
-        return f", the highest {fmt(totals[peak])} in {peak}, the latest year."
-    return f", the highest {fmt(totals[peak])} in {peak} and the latest {fmt(totals[years[-1]])} in {years[-1]}."
+        return f", the highest {fmt(totals[peak])} in {top}, the latest year."
+    return f", the highest {fmt(totals[peak])} in {top} and the latest {fmt(totals[years[-1]])} in {last}."
 
 
 def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
@@ -287,14 +325,14 @@ def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
                 continue
             hh = ih * n / top
             y0 = pt + ih - ih * (acc + n) / top
-            title = f"{y} {c}: {fmt(n)}" if c else f"{y}: {fmt(n)}"
+            title = f"{_name(s, y)} {c}: {fmt(n)}" if c else f"{_name(s, y)}: {fmt(n)}"
             out.append(
                 f'<rect x="{x:.1f}" y="{y0:.1f}" width="{cw - gap:.1f}" height="{hh:.1f}" fill="var(--s{k + 1})"><title>{_esc(title)}</title></rect>'
             )
             acc += n
         if (len(years) - 1 - i) % every == 0:
             out.append(
-                f'<text x="{x + (cw - gap) / 2:.1f}" y="{h - 10}" text-anchor="middle" class="tick">{y}</text>'
+                f'<text x="{x + (cw - gap) / 2:.1f}" y="{h - 10}" text-anchor="middle" class="tick">{_name(s, y)}</text>'
             )
     svg = (
         f'<svg viewBox="0 0 {w} {h}" width="100%" role="img" aria-label="{_esc(label)}" class="chart">'
@@ -335,9 +373,9 @@ def spark_svg(s: dict, w: int = 220, h: int = 56) -> str:
     ex, ey = pts[-1]
     peak = years[vals.index(mx)]
     alt = (
-        f"{fmt(sum(vals))} over {len(years)} years, {years[0]} to {years[-1]}, the highest {fmt(mx)} in {peak}."
+        f"{fmt(sum(vals))} over {len(years)} years, {year_span(s)}, the highest {fmt(mx)} in {_name(s, peak)}."
         if s.get("additive", True)
-        else f"{len(years)} years, {years[0]} to {years[-1]}"
+        else f"{len(years)} years, {year_span(s)}"
         + _summary(s, dict(zip(years, vals, strict=True)), peak)
     )
     return (
@@ -377,11 +415,11 @@ def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], flo
     when any are given: a (field, op, value) tuple, or one or more {field, op, value} dicts."""
     if isinstance(where, tuple):
         where = {"field": where[0], "op": where[1], "value": where[2]}
-    cond, params = _conditions(where)
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = connect(db)
     try:
+        cond, params = _conditions(where, con)
         rows = con.execute(
-            f"SELECT CAST(({_q(lon)} - {LON0}) / {STEP} AS INTEGER), CAST(({LAT1} - {_q(lat)}) / {STEP} AS INTEGER), COUNT(*)"
+            f"SELECT CAST(trunc(({_q(lon)} - {LON0}) / {STEP}) AS INTEGER), CAST(trunc(({LAT1} - {_q(lat)}) / {STEP}) AS INTEGER), COUNT(*)"
             f" FROM records WHERE {_q(lon)} BETWEEN {LON0} AND {LON1} AND {_q(lat)} BETWEEN {LAT0} AND {LAT1}{cond}"
             " GROUP BY 1, 2",
             params,
@@ -577,7 +615,7 @@ def year_span(s: dict) -> str:
     if not s["years"]:
         return ""
     a, b = s["years"][0], s["years"][-1]
-    return f"{a} to {b}" if a != b else str(a)
+    return f"{_name(s, a)} to {_name(s, b)}" if a != b else _name(s, a)
 
 
 def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=None) -> dict:
@@ -625,6 +663,7 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=Non
         # One bar is no trend, so a table of one year draws no chart.
         if len(s["years"]) >= 2:
             by = f" by {ds.field(split).display.lower()}" if split else ""
+            per = "per financial year" if yf[1] == "financial" else "per year"
             span = year_span(s)
             left = where_words(ds)
             head = [y for y in s["partial"] if s["first"] and y == int(s["first"][:4])]
@@ -634,7 +673,7 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=Non
                 )
             tail = [y for y in s["partial"] if y not in head or y > s["years"][-1]]
             if tail:
-                part = " and ".join(str(y) for y in tail)
+                part = " and ".join(_name(s, y) for y in tail)
                 verb = "is" if len(tail) == 1 else "are"
                 if m.as_at:
                     why = f"the file runs to {long_date(m.as_at)}"
@@ -646,10 +685,10 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=Non
             fig.update(
                 series=s,
                 years=span,
-                chart=stacked_svg(s, f"{what} per year{by}, {span}"),
-                chart_caption=f"{what} per year{by}, {span}.{left}",
+                chart=stacked_svg(s, f"{what} {per}{by}, {span}"),
+                chart_caption=f"{what} {per}{by}, {span}.{left}",
                 spark=spark_svg(s),
-                spark_caption=f"{what.lower()} per year, {span}.{left}",
+                spark_caption=f"{what.lower()} {per}, {span}.{left}",
             )
     if ds.geometry and ds.geometry.get("lon") and db.exists():
         c = cells(db, ds.geometry["lon"], ds.geometry["lat"], within)
@@ -683,28 +722,39 @@ def national_map(
     )
 
 
-def example_rows(db: Path, console: dict, limit: int = 8) -> list[tuple[str, float]]:
-    """The query console's first aggregate, answered from the same SQLite the API loads."""
+def example_rows(
+    db: Path, console: dict, limit: int = 8, key: tuple[str, ...] = ()
+) -> list[tuple[str, float]]:
+    """The query console's first aggregate, answered from the rows the API loads. key is the
+    dataset's key, which data.sqlite indexes."""
     ex = console["example"]
     group = (ex.get("group") or [None])[0]
     if not group or not db.exists():
         return []
-    agg = _agg(ex["metric"])
     types = {e["name"]: e["type"] for e in console["fields"]}
     where, params = [], []
     for f in ex.get("filters", []):
         where.append(f"{_q(f['field'])} {WHERE_OPS[f['op']]} ?")
-        # The API takes true and false for a boolean, which SQLite holds as 1 and 0.
+        # The API takes true and false for a boolean, which the records hold as 1 and 0.
         v = f["value"]
         params.append(
             {"true": 1, "false": 0}.get(v, v) if types.get(f["field"]) == "boolean" else v
         )
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    # Equal totals come in the order SQLite gives them: ascending when its key index hands it the
+    # groups in order, which it does for a key field whose earlier key fields are all pinned to
+    # one value, else descending.
+    pinned = {f["field"] for f in ex.get("filters", []) if f["op"] == "eq"}
+    indexed = any(k == group and set(key[:i]) <= pinned for i, k in enumerate(key))
+    con = connect(db)
     try:
+        params = [
+            con.param(f["field"], v) for f, v in zip(ex.get("filters", []), params, strict=True)
+        ]
+        agg = _agg(ex["metric"], con)
         rows = con.execute(
             f"SELECT {_q(group)}, {agg} FROM records"
             + (f" WHERE {' AND '.join(where)}" if where else "")
-            + f" GROUP BY 1 ORDER BY 2 DESC LIMIT {int(limit)}",
+            + f" GROUP BY 1 ORDER BY 2 DESC, 1 {'ASC' if indexed else 'DESC'} LIMIT {int(limit)}",
             params,
         ).fetchall()
     finally:
@@ -737,14 +787,14 @@ def sample_rows(
     spread: str = "",
 ) -> dict:
     """Some rows of some fields, for a preview table, kept to the rows the conditions match: in
-    the publisher's order, or by the (field, descending) order terms first, with the spread
+    the Parquet's order, or by the (field, descending) order terms first, with the spread
     field's values taking turns. A condition on newest stands for the field's newest value. A
     null cell is "" unless nulls asks for None, which a page shows as null."""
     if not db.exists() or not fields:
         return {"fields": [], "rows": []}
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = connect(db)
     try:
-        have = {r[1] for r in con.execute("PRAGMA table_info(records)")}
+        have = set(con.columns())
         cols = [f for f in fields if f in have]
         if not cols:
             return {"fields": [], "rows": []}
@@ -753,7 +803,7 @@ def sample_rows(
             if w["value"] == "newest":
                 w = {**w, "value": newest(con, w["field"])}
             conds.append(w)
-        cond, params = _conditions(conds)
+        cond, params = _conditions(conds, con)
         terms = [(_q(f), " DESC" if desc else "") for f, desc in order if f in have]
         by = ", ".join([*(f + d for f, d in terms), "rowid"])
         if spread in have:

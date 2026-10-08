@@ -10,6 +10,7 @@ version's manifest and schema.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import tempfile
 import zipfile
@@ -106,13 +107,6 @@ class SpineError(RuntimeError):
 
 def is_spine(source: str) -> bool:
     return source.startswith(SOURCE_PREFIX)
-
-
-def install() -> None:
-    """Fetch DuckDB's spatial extension once, so that a build only loads it and stays offline."""
-    import duckdb
-
-    duckdb.connect().install_extension("spatial")
 
 
 def connect():
@@ -232,12 +226,38 @@ def layer_shapes(layer: Layer, store_dir: Path, register_dir: Path) -> Shapes:
     return _LOADED[key]
 
 
-def spine_versions(keys: tuple[str, ...], store_dir: Path) -> str:
-    """What the join reads, for the build cache: each layer's newest source hash."""
+_ENTRIES: dict[tuple[str, bytes], str] = {}
+
+
+def _layer_entry(slug: str, register_dir: Path) -> str:
+    """The layer's register entry as a version key reads it, its rebuild number among it."""
+    import yaml
+
+    from .cache import entry_key
+    from .register import parse
+
+    p = register_dir / f"{slug}.yaml"
+    if not p.is_file():
+        p = next(iter(sorted(register_dir.rglob(f"{slug}.yaml"))), None)
+        if p is None:
+            return "missing"
+    raw = p.read_bytes()
+    if (slug, raw) not in _ENTRIES:
+        ds = parse(yaml.safe_load(raw.decode("utf-8")) or {}, p.name)
+        _ENTRIES[(slug, raw)] = hashlib.sha256(entry_key(ds).encode()).hexdigest()
+    return _ENTRIES[(slug, raw)]
+
+
+def spine_versions(keys: tuple[str, ...], store_dir: Path, register_dir: Path) -> str:
+    """What the join reads, for the build cache: each layer's newest source hash and the register
+    entry the layer is normalised with, so a change to either rebuilds the datasets joined to it."""
     parts = []
     for k in keys:
-        ms = store.manifests(store_dir, LAYERS[k].slug)
-        parts.append(f"{LAYERS[k].slug}@{ms[-1].sha256 if ms else 'missing'}")
+        slug = LAYERS[k].slug
+        ms = store.manifests(store_dir, slug)
+        parts.append(
+            f"{slug}@{ms[-1].sha256 if ms else 'missing'}@{_layer_entry(slug, register_dir)}"
+        )
     return "|".join(parts)
 
 

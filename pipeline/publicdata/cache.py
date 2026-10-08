@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -14,12 +16,27 @@ from importlib.metadata import version as dist_version
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent
-LIBRARIES = ("pyarrow", "xlsxwriter", "openpyxl", "zstandard", "pyyaml", "duckdb")
+# Raised in a reviewed change whose edit to the build code changes the bytes of versions across
+# datasets; it rebuilds every version. A register entry's `rebuild` does the same for one dataset.
+REBUILD = 1
+LIBRARIES = (
+    "pyarrow",
+    "xlsxwriter",
+    "openpyxl",
+    "xlrd",
+    "zstandard",
+    "pyyaml",
+    "duckdb",
+    "pmtiles",
+)
 # One module per format. A version's rows are shaped by everything else the build imports, so a
 # writer added or changed rewrites only its own file in a cached version; the JSON and GeoJSON
 # writers also make the partition files, so they shape the version and stay in the rows key.
 WRITERS_DIR_PARTS = ("serialise", "writers")
 ROW_WRITERS = ("json", "geojson")
+# Modules only one kind of dataset runs. They are in the keys of that kind's versions, since the
+# sample cannot afford to build such a dataset (G-NAF is the only database).
+KIND_MODULES = {"database": ("database.py",)}
 
 
 def _writers_dir() -> Path:
@@ -72,7 +89,9 @@ def _is_writer(p: Path) -> bool:
 
 def code_files() -> list[Path]:
     """build.py and everything it imports inside the package, except the format writers, which
-    are keyed one by one; the writers that shape a version are added back."""
+    are keyed one by one; the writers that shape a version are added back. These shape every
+    version's bytes but are not in its key: an edit to one is checked against real versions
+    (`publicdata verify`) and raises a rebuild number when it changes them."""
     seen: set[Path] = set()
     todo = [PACKAGE / "build.py", PACKAGE / "__init__.py"]
     todo += [p for w in ROW_WRITERS if (p := _writers_dir() / f"{w}.py").is_file()]
@@ -85,6 +104,52 @@ def code_files() -> list[Path]:
     return sorted(seen)
 
 
+@functools.cache
+def spatial_version() -> str:
+    """The installed DuckDB spatial extension, which joins the spine and draws the shapes."""
+    import duckdb
+
+    con = duckdb.connect()
+    try:
+        row = con.execute(
+            "SELECT extension_version FROM duckdb_extensions() "
+            "WHERE extension_name = 'spatial' AND installed"
+        ).fetchone()
+    finally:
+        con.close()
+    got = row[0] if row and row[0] else "none"
+    # The extension is fetched per runner, so every job of a deploy must key on the same build.
+    want = os.environ.get("PUBLICDATA_SPATIAL", "")
+    if want and want != got:
+        raise RuntimeError(
+            f"DuckDB spatial extension {got} is installed, and the plan keyed on {want}"
+        )
+    return got
+
+
+def spatial(ds) -> bool:
+    """Whether a dataset's build loads the spatial extension: a layer with geometry, or a dataset
+    joined to the place spine."""
+    return bool(ds.geometry or ds.enrich)
+
+
+def shape_layer(ds) -> bool:
+    """Whether a dataset's Parquet is written by the shape layer writer."""
+    from .serialise.geo import geo_kind
+
+    return geo_kind(ds) in ("polygon", "line")
+
+
+def kind_key(kind: str) -> str:
+    """The modules only this kind of dataset runs, or "" for a kind that has none."""
+    h = hashlib.sha256()
+    names = KIND_MODULES.get(kind, ())
+    for name in names:
+        p = PACKAGE / name
+        h.update(name.encode() + b"\0" + p.read_bytes() + b"\0")
+    return h.hexdigest() if names else ""
+
+
 def _runtime(h) -> None:
     h.update(sys.version.encode() + sqlite3.sqlite_version.encode())
     for lib in LIBRARIES:
@@ -92,31 +157,120 @@ def _runtime(h) -> None:
 
 
 def environment_key() -> str:
-    """What shapes a version's rows and its files other than the format writers'."""
-    h = hashlib.sha256()
-    for p in code_files():
-        h.update(str(p.relative_to(PACKAGE)).encode() + b"\0" + p.read_bytes() + b"\0")
-    _runtime(h)
-    return h.hexdigest()
-
-
-def writer_key(fmt: str) -> str:
-    """What shapes one format's file beyond the rows: its writer's module, the modules of the
-    formats it derives its file from, and the libraries."""
-    from .serialise import WRITER_DEPENDS, WRITER_MODULES
-
-    h = hashlib.sha256()
-    for f in (fmt, *WRITER_DEPENDS.get(fmt, ())):
-        p = _writers_dir() / f"{WRITER_MODULES[f]}.py"
+    """What every version's key shares: the global rebuild number, the writers that also make
+    the partition files, and the runtime and libraries."""
+    h = hashlib.sha256(f"rebuild={REBUILD}\0".encode())
+    for w in ROW_WRITERS:
+        p = _writers_dir() / f"{w}.py"
         h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
     _runtime(h)
     return h.hexdigest()
 
 
-def writer_keys() -> dict[str, str]:
+def _plain(v):
+    if dataclasses.is_dataclass(v) and not isinstance(v, type):
+        out = {}
+        for f in sorted(dataclasses.fields(v), key=lambda f: f.name):
+            x = getattr(v, f.name)
+            if not f.repr:
+                continue
+            if f.default is not dataclasses.MISSING and x == f.default:
+                continue
+            if f.default_factory is not dataclasses.MISSING and x == f.default_factory():
+                continue
+            out[f.name] = _plain(x)
+        from .register import Licence
+
+        if isinstance(v, Licence):
+            # Read from the grant files, and written into every format's header.
+            out |= {"title": v.title, "url": v.url, "condition": v.condition}
+        return out
+    if isinstance(v, (list, tuple)):
+        return [_plain(x) for x in v]
+    if isinstance(v, dict):
+        return {str(k): _plain(x) for k, x in v.items()}
+    return v
+
+
+def entry_key(ds) -> str:
+    """A register entry as its key reads it: the fields in its repr that differ from their
+    defaults, so a field added to the register changes no existing key."""
+    return json.dumps(_plain(ds), ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def digest(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def digests(root: Path, only=None, databases: bool = True) -> dict[str, str]:
+    """The SHA-256 of each file under root, or of those named in only. A DuckDB file's bytes
+    differ from one write to the next, so it gets a digest of its tables, rows and comments
+    instead, or none when databases is False, as for a database release of many gigabytes."""
+    from .serialise import duckdb_digest
+
+    rels = (
+        only
+        if only is not None
+        else [p.relative_to(root).as_posix() for p in sorted(root.rglob("*")) if p.is_file()]
+    )
+    out = {}
+    for rel in sorted(rels):
+        p = root / rel
+        if not p.is_file():
+            continue
+        if p.name != "data.duckdb":
+            out[rel] = digest(p)
+        elif databases:
+            out[rel] = "duckdb:" + duckdb_digest(p)
+    return out
+
+
+def writer_files(fmt: str, shape: bool | None = None) -> list[Path]:
+    """The writer modules one format's file comes from: those its entry in WRITERS calls, those
+    of the formats it derives its file from, and the writer modules each of them imports. A
+    format with a writer for shape layers (WRITER_VARIANTS) reads only the one a dataset runs
+    when shape says which; None reads both."""
+    from .serialise import WRITER_DEPENDS, WRITER_VARIANTS, WRITERS
+
+    todo = set()
+    for f in (fmt, *WRITER_DEPENDS.get(fmt, ())):
+        if shape is not None and f in WRITER_VARIANTS:
+            objs = [WRITER_VARIANTS[f][shape]]
+        else:
+            fn = WRITERS[f]
+            objs = [fn.__globals__.get(name) for name in fn.__code__.co_names]
+        for obj in objs:
+            mod = sys.modules.get(getattr(obj, "__module__", "") or "")
+            if mod is not None and getattr(mod, "__file__", None):
+                p = Path(mod.__file__).resolve()
+                if _is_writer(p):
+                    todo.add(p)
+    seen: set[Path] = set()
+    while todo:
+        p = todo.pop()
+        seen.add(p)
+        todo |= {q for q in _imports(p) if _is_writer(q)} - seen
+    return sorted(seen)
+
+
+def writer_key(fmt: str, shape: bool = False) -> str:
+    """What shapes one format's file beyond the rows: its writer modules and the libraries."""
+    h = hashlib.sha256()
+    for p in writer_files(fmt, shape):
+        h.update(p.name.encode() + b"\0" + p.read_bytes() + b"\0")
+    _runtime(h)
+    return h.hexdigest()
+
+
+def writer_keys(shape: bool = False) -> dict[str, str]:
+    """Each format's writer key for a table, or for a shape layer when shape is True."""
     from .serialise import WRITER_MODULES
 
-    return {fmt: writer_key(fmt) for fmt in WRITER_MODULES}
+    return {fmt: writer_key(fmt, shape) for fmt in WRITER_MODULES}
 
 
 def _link_or_copy(src: str, dst: str) -> None:
@@ -163,8 +317,16 @@ class BuildCache:
         self.hits += 1
         return json.loads(meta.read_text(encoding="utf-8"))
 
-    def put(self, key: str, meta: dict, src: Path | None = None, keep=lambda rel: True) -> None:
-        """Stores meta and the files under src that keep(relative path) accepts."""
+    def put(
+        self,
+        key: str,
+        meta: dict,
+        src: Path | None = None,
+        keep=lambda rel: True,
+        extra: dict[str, bytes] | None = None,
+    ) -> None:
+        """Stores meta, the files under src that keep(relative path) accepts, and `extra`, files
+        beside meta.json by name. meta.json is written last, so an entry is whole when it has one."""
         entry = self.root / key
         tmp = self.root / f".{key}.tmp"
         if tmp.exists():
@@ -180,6 +342,8 @@ class BuildCache:
                 dst = tmp / "files" / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 _link_or_copy(str(p), str(dst))
+        for name, data in (extra or {}).items():
+            (tmp / name).write_bytes(data)
         (tmp / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
         if entry.exists():
             shutil.rmtree(entry)

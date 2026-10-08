@@ -19,6 +19,15 @@ updates:
     groups:
       pipeline:
         patterns: ["*"]
+  - package-ecosystem: pip
+    directory: /clients/python
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
+    groups:
+      client:
+        patterns: ["*"]
   - package-ecosystem: npm
     directory: /
     schedule:

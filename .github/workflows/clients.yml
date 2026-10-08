@@ -12,13 +12,18 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+env:
+  UV_CONSTRAINT: ${{ github.workspace }}/clients/python/requirements.txt
+  UV_BUILD_CONSTRAINT: ${{ github.workspace }}/clients/python/requirements.txt
+  RSPM: https://packagemanager.posit.co/cran/__linux__/noble/2026-10-07
+
 permissions:
   contents: read
 
 jobs:
   python:
     name: Python client
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: clients/python
@@ -52,11 +57,12 @@ jobs:
 
   r:
     name: R client
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
         with:
+          r-version: 4.6.1
           use-public-rspm: true
       - uses: r-lib/actions/setup-r-dependencies@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
         with:
@@ -82,7 +88,7 @@ jobs:
     needs: python
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PYPI_PUBLISH == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: pypi
     permissions:
       contents: read

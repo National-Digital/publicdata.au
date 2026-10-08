@@ -15,7 +15,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event.repository.visibility == 'public'
     permissions:
       security-events: write

@@ -15,7 +15,8 @@ pd_read(slug, version = NULL, table = NULL, cache = NULL, columns = NULL)
 See [pd_tables()].}
 
 \item{cache}{Keep the file in [pd_cache_dir()] and reuse it next time.
-Versions never change, so a kept file never goes stale. Off unless
+A correction to a version is recorded in its notes, and
+[pd_cache_clear()] removes the old copy. Off unless
 `options(publicdataau.cache = TRUE)` is set.}
 
 \item{columns}{Fields to read, which saves memory on a wide table. Every
@@ -28,10 +29,11 @@ A tibble, each column labelled with its field's description.
 }
 \description{
 Downloads one version's Parquet file, or one table of a database, and reads
-it with 'arrow'.
+it with 'arrow'. Without 'arrow' built with zstd, a table is read from the
+version's gzipped CSV instead and typed from its fields.
 }
 \examples{
-\dontshow{if (pd_available() && requireNamespace("arrow", quietly = TRUE) && arrow::codec_is_available("zstd")) withAutoprint(\{ # examplesIf}
+\dontshow{if (pd_available()) withAutoprint(\{ # examplesIf}
 crashes <- pd_read("qld-road-crash-factors")
 \dontshow{\}) # examplesIf}
 }

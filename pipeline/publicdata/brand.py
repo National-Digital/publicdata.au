@@ -32,20 +32,17 @@ DOT_R = 7
 CARD_W, CARD_H = 1200, 630
 PAD = 72
 FONTS = Path(__file__).parent / "static" / "fonts"
-BOOK, MEDIUM, BOLD = "RG-StandardBook.woff2", "RG-StandardMedium.woff2", "RG-StandardBold.woff2"
-# Licensed for our site, not for redistribution, so the build pulls them from private R2.
-FONT_KEY = "_brand/fonts/"
-FONT_SHA256 = {
-    BOOK: "5b230e7c1ab0897fd894dcda6b44266642c0a9f55b10db1c6c68eaab5599bdd3",
-    MEDIUM: "ed5caeeec5e2a10c9d82bba31c5658fb999f89858e08337a2806af86f1653b75",
-    BOLD: "52441d130ee22b15dce18d822d964e84b3838ecc5eee8577aaa6cdd7e8cb045f",
-}
+REGULAR, MEDIUM, BOLD = (
+    "RG-StandardRegular.woff2",
+    "RG-StandardMedium.woff2",
+    "RG-StandardBold.woff2",
+)
 SUPERSAMPLE = 8
 
 NAME = SITE.replace("https://", "")
 SHORT_NAME = "publicdata"
 HEADLINE = "Australian government open data, in the format you and your AI need."
-DESCRIPTION = "Australian government open data as dated versions that never change, with schema, provenance and diffs."
+DESCRIPTION = "Australian government open data as dated versions that keep their content, with schema, provenance and diffs."
 
 
 def favicon_svg() -> str:
@@ -57,13 +54,7 @@ def favicon_svg() -> str:
     )
 
 
-def has_fonts() -> bool:
-    return all((FONTS / name).is_file() for name in FONT_SHA256)
-
-
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    if not has_fonts():
-        return ImageFont.load_default(size)
     try:
         return ImageFont.truetype(str(FONTS / name), size)
     except OSError as e:
@@ -144,7 +135,7 @@ def _card(eyebrow: str, title: str, lede: str, facts: list[str], wordmark_size: 
     width = CARD_W - 2 * PAD
     top = PAD + wordmark_size * 0.8
     _wordmark(d, PAD, top, wordmark_size)
-    by = _font(BOOK, 22)
+    by = _font(REGULAR, 22)
     d.text((CARD_W - PAD, top), f"by {OPERATOR}", font=by, fill=MUTED_ON_NAVY, anchor="rs")
 
     y = top + 84
@@ -165,14 +156,14 @@ def _card(eyebrow: str, title: str, lede: str, facts: list[str], wordmark_size: 
         d.text((PAD, y), ln, font=tf, fill=INK_ON_NAVY, anchor="ls")
         y += lh
     if lede:
-        lf, llines = _fit(lede, BOOK, range(32, 25, -2), width, 1)
+        lf, llines = _fit(lede, REGULAR, range(32, 25, -2), width, 1)
         y += 8
         for ln in llines:
             d.text((PAD, y), ln, font=lf, fill=MUTED_ON_NAVY, anchor="ls")
             y += round(lf.size * 1.3)
 
     foot = CARD_H - PAD + 8
-    ff = _font(BOOK, 20)
+    ff = _font(REGULAR, 20)
     d.text(
         (PAD, foot),
         "An independent republication. No government agency has endorsed this site.",
@@ -215,8 +206,8 @@ CARD_PREFIX = "card-"
 def _fingerprint() -> str:
     """Everything besides a card's own words that decides its pixels."""
     h = hashlib.sha256(Path(__file__).read_bytes())
-    for name in (BOOK, MEDIUM, BOLD):
-        h.update((FONTS / name).read_bytes() if has_fonts() else b"default")
+    for name in (REGULAR, MEDIUM, BOLD):
+        h.update((FONTS / name).read_bytes())
     h.update(f"{PIL.__version__} {features.version('freetype2')} {OPERATOR}".encode())
     return h.hexdigest()
 

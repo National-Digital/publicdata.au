@@ -1,7 +1,8 @@
 {
   "_comment": "Every sentence the site says about the query API and the agent tools. The tools under webmcp serve both the pages and the MCP server at /mcp. The build writes them into openapi.json, the agents page, llms.txt, each dataset page and its Markdown twin, site.js and functions/_tools.json. {name} is filled from limits; `code` becomes code in HTML. The gate checks limits, operators, metrics and parameters against functions/_query.js and functions/_api.js.",
   "site": {
-    "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, Arrow, GeoJSON and GeoPackage at URLs that never change. Every release is a dated, immutable version with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it."
+    "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs that never change. Every release is a dated version that keeps its content, with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it.",
+    "file_formats": "parquet, csv, csv.gz, ndjson and duckdb are on every table version. xlsx is there up to {xlsx_mb} MB of CSV and {excel_rows} rows, json up to {json_mb} MB of NDJSON, and sqlite up to {sqlite_mb} MB of CSV. gpkg, and geo.parquet for points, exist only for datasets that declare geometry, with geojson up to a {geojson_mb} MB file, and pmtiles only for polygon and line layers. A version's manifest.json lists each format the limits left out, with the reason, under formats_left_out, and that set never changes. A version whose manifest has no caps field was fetched before these limits: it also has arrow, its xlsx stops at the Excel row limit, and its json and geojson stop at {json_rows} rows."
   },
   "limits": {
     "requests": 60,
@@ -14,7 +15,7 @@
     "summary": "The query API returns only the rows you ask for, as JSON, NDJSON or CSV, from the same typed rows as the files. It needs no key.",
     "rows": "`/api/v1/datasets/<slug>/rows` filters, selects, orders and pages any dataset.",
     "aggregate": "`/api/v1/datasets/<slug>/aggregate` counts, sums, averages, minimums and maximums by group.",
-    "versions": "Without a version the API answers from the newest loaded version, and that answer changes when the publisher releases again. Put `versions/<date>/` before `rows` or `aggregate` for an answer that never changes. `/api/v1/datasets/<slug>/versions` lists the loaded versions.",
+    "versions": "Without a version the API answers from the newest loaded version, and that answer changes when the publisher releases again. Put `versions/<date>/` before `rows` or `aggregate` for an answer from that version alone. `/api/v1/datasets/<slug>/versions` lists the loaded versions.",
     "filters": "Each filter is `field=operator.value` in the query string, and every filter must match. A number or date field compares as a number or date, and a text field compares as text. Values are case-sensitive except with `ilike`. Prefix `not.` to negate a filter, as `not.eq.value`.",
     "provenance": "Every JSON answer carries the version, licence and attribution. CSV and NDJSON answers carry them in response headers.",
     "terms_limits": "The query API allows {requests} requests in {window_seconds} seconds from one address. The MCP server counts each row tool call as two requests, against its own limit of {requests} requests in {window_seconds} seconds from one address. Files have no rate limit.",
@@ -42,7 +43,7 @@
     "metric": { "on": "aggregate", "description": "`count`, `sum.field`, `avg.field`, `min.field` or `max.field`, comma-separated. `count` when absent." },
     "format": { "description": "`json`, `ndjson` or `csv`. JSON carries the provenance header, and the others carry it in response headers." },
     "slug": { "in": "path", "description": "The dataset's slug, as in its page URL `/d/<slug>/`." },
-    "version": { "in": "path", "description": "A dated version loaded for queries, from the versions path. Answers for a dated version never change." }
+    "version": { "in": "path", "description": "A dated version loaded for queries, from the versions path. A dated version's answers stay the same unless a correction rebuilds the version, which its notes record." }
   },
   "paths": {
     "rows": { "summary": "Query {title}", "description": "Rows of {title} in {when}, filtered and paged." },
@@ -105,7 +106,7 @@
       },
       "query_rows": {
         "title": "Query rows",
-        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nPage with offset until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
+        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nOne page holds up to limit rows, and offset steps through the rest until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "api": "rows",
         "input": {
@@ -138,7 +139,7 @@
       },
       "diff_versions": {
         "title": "Compare versions",
-        "description": "Compare two consecutive versions of a served dataset row by row on its key fields, to see what a publisher changed between releases. from and to must be adjacent dates in the version history from get_dataset, older first. Any other pair returns a 404 error, so step through a longer span one pair at a time. A dataset with no key, which list_fields shows as an empty key, gets row counts only, and a dataset with one version has nothing to compare. The call costs nothing against the rate limit.",
+        "description": "Compare two consecutive versions of a served dataset row by row on its key fields, to see what a publisher changed between releases. from and to must be adjacent dates in the version history from get_dataset, older first. Any other pair returns a 404 error, so step through a longer span one pair at a time. A dataset with no key, which list_fields shows as an empty key, gets row counts only, and a dataset with one version has nothing to compare. One answer holds the counts of rows added, removed, changed and unchanged, the keys of the rows added, removed and changed, and up to ten changed rows with their old and new values. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" },
@@ -171,7 +172,7 @@
       },
       "upvote_dataset": {
         "title": "Vote for a dataset",
-        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, and a second vote from the same caller on the same day adds nothing. The call costs nothing against the rate limit.",
+        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, and a second vote from the same caller on the same day adds nothing. The answer gives the dataset's vote total after this call. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "The vote key of a search_catalogue row, or a slug from /backlog.json" }

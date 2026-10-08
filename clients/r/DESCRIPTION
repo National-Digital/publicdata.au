@@ -1,6 +1,6 @@
 Package: publicdataau
 Title: Australian Government Open Data from 'publicdata.au'
-Version: 0.4.1
+Version: 0.5.0
 Authors@R: c(
     person("Cameron", "Young", role = c("aut", "cre"), email = "cameron@nationaldigital.com.au"),
     person("National Digital", role = c("cph", "fnd"))
@@ -13,7 +13,7 @@ Description: Search, filter, total and download the Australian government open
     and rows that carry the code of an area join to the Australian Bureau of
     Statistics boundaries in one call. The 'DuckDB' file of any version can be
     attached over the web and queried in place with 'DBI' or 'dplyr'.
-    Downloads can be kept in a cache, since a version never changes, the
+    Downloads can be kept in a cache, since a version keeps its content, the
     changes between versions are listed row by row, and the source file,
     fetch time and checksum of every version are on record. Every answer
     carries the version it came from and the attribution the publisher's
@@ -32,6 +32,7 @@ Imports:
     tibble
 Suggests:
     arrow,
+    bit64,
     DBI,
     dbplyr,
     dplyr,
