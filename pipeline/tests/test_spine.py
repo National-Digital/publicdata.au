@@ -5,6 +5,7 @@ import re
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import duckdb
 import pyarrow as pa
@@ -259,8 +260,8 @@ def test_a_partitioned_polygon_layer_writes_json_partitions_without_point_geojso
 def test_the_places_question_names_only_the_layers_a_dataset_joins():
     class V:
         manifest = store.manifests(FIXTURES, "qld-road-crash-locations")[-1]
-        files = {}
-        left_out = {}
+        files: ClassVar[dict] = {}
+        left_out: ClassVar[dict] = {}
         rows = 300
 
     qs = [q for q, _ in _faq(parse(crashes_raw(enrich=["postcode", "lga"]), "qld"), V, {})]

@@ -410,7 +410,7 @@ def probe(ds: Dataset, timeout: float = 30) -> Sized:
             return _sized(ds.source.url, timeout, ds.source.format and f"x.{ds.source.format}")
     except Unsized:
         raise
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         msg = f"the source could not be read ({type(e).__name__}: {e})"
         raise Unsized(msg) from e
     msg = f"the {ds.source.adapter} adapter's source is not sized ahead of a fetch"

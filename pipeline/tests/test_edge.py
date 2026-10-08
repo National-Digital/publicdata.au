@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from publicdata import edge
 
 
@@ -13,7 +15,7 @@ def test_purge_sends_prefixes_on_the_host_in_batches():
             pass
 
     class Session:
-        posts = []
+        posts: ClassVar[list] = []
 
         def get(self, url, **kw):
             return Resp({"result": [{"id": "z1"}]})

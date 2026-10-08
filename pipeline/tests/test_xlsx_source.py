@@ -1,6 +1,7 @@
 import datetime as dt
 import io
 from dataclasses import replace
+from typing import ClassVar
 
 import pyarrow as pa
 import pytest
@@ -118,7 +119,7 @@ def test_a_file_replaced_inside_one_resource_is_dated_by_the_resource_metadata(t
     }
 
     class S:
-        headers = {}
+        headers: ClassVar[dict] = {}
 
         def get(self, url, params=None, timeout=None, allow_redirects=None):
             return R(pkg) if "package_show" in url else R(content=body)
@@ -210,7 +211,7 @@ def test_a_later_file_date_than_the_portal_dates_the_version(tmp_path):
             pass
 
     class S:
-        headers = {}
+        headers: ClassVar[dict] = {}
 
         def get(self, url, params=None, timeout=None, allow_redirects=None):
             if "package_show" in url:

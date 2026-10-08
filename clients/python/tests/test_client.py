@@ -11,6 +11,7 @@ import urllib.parse
 import warnings
 from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import ClassVar
 
 import pytest
 
@@ -74,12 +75,12 @@ def _g_files():
 
 
 class Handler(BaseHTTPRequestHandler):
-    hits: list = []
+    hits: ClassVar[list] = []
     throttle = 0
     failing = 0
     duckdb_bytes = b""
     gpkg_bytes = b""
-    ranges: list = []
+    ranges: ClassVar[list] = []
 
     def log_message(self, *a):
         pass
