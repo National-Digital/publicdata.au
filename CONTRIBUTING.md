@@ -39,9 +39,10 @@ npx prettier --check .
 
 The last two lines are the JavaScript checks CI runs: ESLint over the Pages Functions, the scripts,
 the explorer and the site's browser scripts, and Prettier over the same files. `npx eslint --fix .`
-and `npx prettier --write .` correct most findings in place. Prettier reads only JavaScript, so
-templates and generated JSON keep the form their writers give them. A rule is switched off for one
-line at a time, with `// eslint-disable-next-line <rule> -- <reason>`.
+and `npx prettier --write .` correct most findings in place. Both read only the tracked
+JavaScript in those directories, so templates, generated JSON and anything untracked in the
+checkout are left alone. `site.js` is held to ES5 syntax, since browsers run it as written. A rule
+is switched off for one line at a time, with `// eslint-disable-next-line <rule> -- <reason>`.
 
 The fixtures are small and stand in for the real store. To build a real dataset, fetch it from
 the publisher into a local store and build from that:

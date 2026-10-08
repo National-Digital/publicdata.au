@@ -2,8 +2,21 @@ import js from '@eslint/js';
 import globals from 'globals';
 
 export default [
+  // Only the tracked JavaScript is linted, so a run from the root never walks build output or a
+  // working copy nested inside the checkout.
   {
-    ignores: ['dist/', 'dist-large/', '.build-cache/', '.wrangler/', '.venv*/', 'clients/*/dist/'],
+    ignores: [
+      '*',
+      '!functions/',
+      '!scripts/',
+      '!explorer/',
+      '!pipeline/',
+      'pipeline/*',
+      '!pipeline/publicdata/',
+      'pipeline/publicdata/*',
+      '!pipeline/publicdata/static/',
+      '!eslint.config.mjs',
+    ],
   },
   js.configs.recommended,
   {
