@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       replace:
-        description: Key prefixes whose existing R2 files this build may overwrite, space separated, e.g. d/<slug>/v/<date>/ (the version notes are added by a separate PR)
+        description: Key prefixes whose existing R2 files this build may overwrite, space separated, e.g. d/<slug>/v/<date>/ (the version notes come from the PR that made the fix)
         type: string
         default: ""
       d1_budget:
@@ -74,9 +74,16 @@ jobs:
       # The same install as the build, since the libraries and the spatial extension are part of
       # every cache key.
       - run: pip install -e './pipeline[deploy]'
+      # The extension build pinned in spatial-extension.json, from our copy in R2. The install
+      # stops when the pin is not for the duckdb in pipeline/requirements.txt or the bytes are not
+      # the pinned build.
       - run: python -m publicdata spine install
-      # Each runner fetches the extension, so every later job checks it got the build this plan
-      # keyed on (PUBLICDATA_SPATIAL) and stops when it did not.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      # Every later job checks it installed the build this plan keyed on (PUBLICDATA_SPATIAL) and
+      # stops when it did not.
       - name: Record the spatial extension
         id: spatial
         run: echo "version=$(python -c 'from publicdata.cache import spatial_version; print(spatial_version())')" >> "$GITHUB_OUTPUT"
@@ -154,6 +161,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/build-runner
+        with:
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       - name: Pull the sample's cache entries and sources
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -195,6 +206,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/build-runner
+        with:
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       - name: Pull the build cache from R2
         if: ${{ !github.event.inputs.replace }}
         env:
@@ -268,6 +283,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       deployed: ${{ steps.pages.outcome == 'success' }}
+      sign: ${{ steps.checksums.outputs.sign }}
     steps:
       - name: Stop when the build failed
         # A check that did not pass, timed out or cancelled included, stops it, so no tag is cut
@@ -280,6 +296,10 @@ jobs:
         with:
           fetch-depth: 0 # the tags, for scripts/next-version.mjs
       - uses: ./.github/actions/build-runner
+        with:
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-api-token-id: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       # A pull request previews the version it would release; a push to main releases it; a
       # dispatched redeploy keeps the version already released, so no number goes untagged.
       - name: Resolve the release version
@@ -407,6 +427,36 @@ jobs:
         run: |
           npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
           grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
+      # Made from the hashes R2 stored with each file, so the build and its cache key never see it.
+      # Straight after the site goes live, which links each list. A failure leaves the lists for the
+      # next deploy to catch up, so it never fails the deploy or holds back D1 and the release.
+      # Before the purge, so the edge drops a replaced version's old list with its other files.
+      - name: Write each version's SHA256SUMS
+        id: checksums
+        if: ${{ !cancelled() && env.HAS_CF == 'true' && github.event_name != 'pull_request' && steps.pages.outcome == 'success' }}
+        continue-on-error: true
+        # The first run hashes every version that has no list. Each list is kept as it is written,
+        # so a run stopped here leaves the rest to the next deploy and the D1 load is not held up.
+        timeout-minutes: 20
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          REPLACE: ${{ github.event.inputs.replace }}
+        run: |
+          python -m publicdata checksums --root "$DIST" --root "$DIST_LARGE" ${REPLACE:+--replace $REPLACE} --subjects "$RUNNER_TEMP/lists"
+          if [ -s "$RUNNER_TEMP/lists/1.sha256" ]; then echo "sign=true" >> "$GITHUB_OUTPUT"; fi
+          if [ -e "$RUNNER_TEMP/lists/2.sha256" ]; then
+            echo "::warning::over 1,024 lists were written, so only the first 1,024 are signed; run the Checksums workflow to sign the rest"
+          fi
+      - name: Hand the lists written to the signing job
+        if: ${{ !cancelled() && steps.checksums.outputs.sign == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checksum-lists
+          path: ${{ runner.temp }}/lists/1.sha256
+          retention-days: 1
       # A dated file is cached at the edge as immutable, so the versions a replace rewrote are
       # purged, or the edge serves the old files for a year.
       - name: Purge replaced versions from the edge
@@ -458,6 +508,27 @@ jobs:
   # Tags the released version and cuts a GitHub release with generated notes, then publishes the
   # MCP Registry entry when what a client sees has changed. A separate job, so the write token never
   # meets the build. Every step tolerates a re-run or a concurrent deploy that got there first.
+  # One attestation for the lists the deploy wrote. It is a job of its own so that only a deploy
+  # of main can sign: the deploy job also runs a pull request's code. Like the lists, a failure
+  # waits for the Checksums workflow to sign again, and never fails the deploy.
+  sign:
+    needs: deploy
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.deploy.outputs.sign == 'true' }}
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: checksum-lists
+          path: lists
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: lists/1.sha256
+
   release:
     needs: deploy
     # A deploy with no changed versions skips its shards; without !cancelled() that skip would

@@ -1,7 +1,7 @@
 # Architecture
 
 One job: take a dataset a government already publishes under an open licence and serve it
-as immutable, versioned, schema-carrying files that never send traffic back to the source.
+as dated, versioned, schema-carrying files that never send traffic back to the source.
 
 ## The shape
 
@@ -63,7 +63,7 @@ pipeline/publicdata/
    since review. A grant that is not Creative Commons is admitted only through
    `register/licences/`, which quotes the publisher on reproduction, adaptation, commercial use
    and attribution. Old versions stay up under the licence they were published under.
-6. Versions are immutable and dated by source change; unchanged hash, no version. The
+6. Versions are dated by source change and keep their content; unchanged hash, no version. The
    [Archive](#archive) section says how long they are kept and what may change.
 7. Serialisers are pure functions of the model. Two builds of one snapshot are byte-identical,
    and CI proves it.
@@ -111,6 +111,7 @@ pipeline/publicdata/
 /d/<slug>/v/<date>/by/<field>/<value>.json           where partition_by is declared
 /d/<slug>/v/<date>/manifest.json     source URL, fetched-at, SHA-256 of source bytes
 /d/<slug>/v/<date>/source.<ext>      the bytes as fetched, served from publicdata-raw
+/d/<slug>/v/<date>/SHA256SUMS        SHA-256 of every file, under its download name
 /d/<slug>/openapi.json               OpenAPI for this dataset's query paths
 /d/<slug>/explore/                   the explorer; ?view=<id> opens a saved dashboard
 /d/<slug>/embed/                     the same dashboard in a frame, with the attribution
@@ -120,7 +121,7 @@ pipeline/publicdata/
 /health.json
 ```
 
-Immutable versions are cached for a year. Every dataset page carries schema.org Dataset
+Dated versions are cached for a year. Every dataset page carries schema.org Dataset
 JSON-LD.
 
 ## What every dataset gets
@@ -129,9 +130,9 @@ A register entry that passes `register validate` and has a stored version gets a
 the build, with nothing written by hand:
 
 - the dataset page, its Markdown twin, schema.org Dataset JSON-LD and a catalogue record;
-- one dated, immutable version per source change, each with its files, its manifest, the
-  publisher's own file and a diff against the version before. Every table version has Parquet,
-  CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
+- one dated version per source change, which keeps its content, each with its files, its
+  manifest, the publisher's own file and a diff against the version before. Every table version
+  has Parquet, CSV, CSV (gzip), NDJSON and DuckDB. A table with coordinates adds GeoParquet as
   `data.geo.parquet` and a GeoPackage, and a polygon or line layer keeps its shapes in
   `data.parquet`, which is GeoParquet, with a GeoPackage and PMTiles vector tiles. The DuckDB
   file attaches read-only over HTTPS (the R2 function answers range requests), so a query runs
@@ -173,7 +174,8 @@ the key `publicdata.profile` holds the profile version, now `1`, beside the `pub
 provenance key. A reader checks that key before it relies on the order, the sizes or the page
 index.
 
-A published file never changes (ADR 0002), so the profile reaches a version in one of two ways.
+A published file keeps its bytes unless a correction rebuilds it (ADR 0002), so the profile
+reaches a version in one of two ways.
 
 - A version's own files keep the layout its fetch recorded. `fetch` writes the register entry's
   layout (`profile.layout`: the profile version, `sort`, `key`, `lookup` and `int32`) into the
@@ -269,9 +271,13 @@ files or Parquet are missing.
 
 This site is the version history the portals do not keep. The archive role has its own rules.
 
-- Every version is kept indefinitely. A version is never deleted or rewritten, including when
-  the publisher withdraws or replaces the source file. The only exception is a legal takedown,
-  which is recorded in `changes.json` as a tombstone that keeps the manifest and hash.
+- Every version is kept indefinitely. A version is never deleted, including when the publisher
+  withdraws or replaces the source file, and its source bytes never change. Its converted files
+  are rebuilt only to correct a fault in our conversion or in the publisher's attribution, to
+  comply with the law, or when a publisher asks for removal, and the change goes in the
+  version's notes. A file is removed only for a legal takedown or a publisher's request to
+  remove its dataset, and the version's `tombstone` keeps the manifest and hash on record.
+  [CORRECTIONS.md](CORRECTIONS.md) sets out the steps for each.
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
@@ -284,7 +290,7 @@ This site is the version history the portals do not keep. The archive role has i
 - `versions.json` per dataset lists every version with date, as-at, row count, field count,
   source hash and encoding. `/d/<slug>/history.tar.zst` bundles every version's data.parquet
   and manifest for offline use.
-- Publishers can cite a version URL knowing it will resolve to the same bytes in ten years.
+- Publishers can cite a version URL knowing it will resolve to the same data in ten years.
 
 ## Hosting
 
@@ -383,6 +389,33 @@ that listed it before main stopped using it still finds it whole. Source bytes a
 pulled only for versions the cache does not hold. A deploy dispatched with `replace` builds
 without it.
 
+Every dated version in R2 carries `SHA256SUMS`, one `sha256sum` line per file under the name the
+site saves it as (`site.download_name`), so `sha256sum -c --ignore-missing SHA256SUMS` checks a
+download (`shasum -a 256 -c` on a Mac). The build never writes it, so the cache key does not cover it and adding it rebuilt
+nothing. A production deploy runs `publicdata checksums` straight after the Pages deploy. It lists
+each dataset's versions in R2 and writes the list for any version that has none. The hashes are the
+SHA-256 that `dist-push` stores with each object, so no data file is read back. A source file served from
+the raw store takes the SHA-256 its `manifest.json` records. A version with a file stored without a
+hash is skipped and reported. The step may fail without failing the deploy, since the next deploy
+catches up.
+The list is part of its version (ADR 0002), so it is written once and served like every dated file,
+as immutable for a year. Only a `replace` dispatch makes it again. The step deletes the replaced
+version's list before it writes the new one, so a run that stops leaves no list for the next deploy
+to write, and it runs before the purge, which then drops the old list from the edge with the other
+files. Outside a replace, a file R2 holds that is newer than its version's list breaks the rule
+that dated files never change. The step names each one in a `::warning::` and leaves the list as
+it is. A file stored again with the SHA-256 its line already holds, as a file compressed at rest
+would be, passes without a warning.
+A deploy of main signs the lists it wrote with one GitHub artifact attestation (`--subjects`,
+then `actions/attest-build-provenance` in a `sign` job of its own, since the deploy job also runs a
+pull request's code). `gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au
+--source-ref refs/heads/main` ties a list to a run on main, which a pull request's run cannot
+sign as. An attestation takes
+at most 1,024 subjects; a deploy signs the first 1,024 and warns. The Checksums workflow, run by
+hand, writes any missing list across R2 (`--all --download`) and signs every list again
+(`--resign`) in parts of 1,024. It never rewrites a list that exists. It is the backfill once the lists first ship, and the catch-up
+after a failed write or signature.
+
 One runner's disk cannot hold a build of every version at once, so the deploy builds in shards.
 A plan job lists the versions the cache cannot serve, those with no entry and those a writer
 would grow (`publicdata shards`), and packs their datasets by source bytes into at most four
@@ -391,7 +424,7 @@ Each shard pulls only the cache entries its datasets key to (`cache pull --only`
 hands over the cache entries it wrote, with the version files a preview serves. The deploy job
 then builds the whole site from the cache those entries filled, links the preview files in with
 `build --built`, and pushes the pages. Every deploy is therefore limited by its largest single
-dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
+dataset, not by the sum of them. A replace dispatch plans every dataset, and purges the versions it rewrote and their query API answers from the edge cache (`publicdata purge`), which otherwise serves a dated file as immutable for a year; it needs the `CLOUDFLARE_PURGE_TOKEN` secret, with Zone Read and Cache Purge on the zone. `publicdata.com.au` and `publicdata.net.au` redirect here.
 
 Because the build code is not in a version's key, the deploy checks a change to it against real
 versions. The plan job lists the files the change touches since its base, which for a pull

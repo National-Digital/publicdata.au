@@ -104,3 +104,4 @@ fields:
   source: ObjectId
   type: integer
   description: The row's id in the publisher's service.
+rebuild: 1

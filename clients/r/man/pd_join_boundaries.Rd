@@ -17,7 +17,8 @@ such as `"lga_2025_code"`, when `NULL`. Numeric codes are compared as text,
 with leading zeros restored, so postcode 800 matches `"0800"`.}
 
 \item{cache}{Keep the file in [pd_cache_dir()] and reuse it next time.
-Versions never change, so a kept file never goes stale. Off unless
+A correction to a version is recorded in its notes, and
+[pd_cache_clear()] removes the old copy. Off unless
 `options(publicdataau.cache = TRUE)` is set.}
 }
 \value{
