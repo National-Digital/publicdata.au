@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow.parquet as pq
 
@@ -33,7 +33,12 @@ from .serialise import (
 )
 
 if TYPE_CHECKING:
-    from .register import Dataset, Field, TableSpec
+    from collections.abc import Callable
+
+    import duckdb
+
+    from .provenance import Header
+    from .register import Database, Dataset, Field, TableSpec
     from .store import Manifest
 
 # What a build may hold in memory while loading one table. The runner has more, and the rest is
@@ -62,7 +67,7 @@ def members(ds: Dataset, names: list[str]) -> dict[str, list[str]]:
 
     Members keep archive order within each table.
     """
-    rx = re.compile(ds.database.member_match)
+    rx = re.compile(ds.database.member_match)  # type: ignore[union-attr]  # a database entry has its archive layout
     out: dict[str, list[str]] = {}
     for n in names:
         m = rx.search(n)
@@ -99,13 +104,21 @@ def _expr(f: Field, dtype: str) -> str:
     return f"CAST({src} AS {dtype})"
 
 
-def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[str], *, tmp: Path):  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _load_table(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    con: duckdb.DuckDBPyConnection,
+    z: zipfile.ZipFile,
+    ds: Dataset,
+    t: TableSpec,
+    files: list[str],
+    *,
+    tmp: Path,
+) -> int:
     """Create the typed table and load each of its members in turn.
 
     Members are extracted one at a time so the disk holds one member's text, not a whole table's.
     Members load in archive order.
     """
-    db = ds.database
+    db: Database = ds.database  # type: ignore[assignment]  # a database entry has its archive layout
     cols = [f"{_ident(f.name)} {DUCKDB_TYPES[f.type]}" for f in t.fields]
     con.execute(f"CREATE TABLE {_ident(t.name)} ({', '.join(cols)})")
     exprs = ", ".join(f"{_expr(f, DUCKDB_TYPES[f.type])} AS {_ident(f.name)}" for f in t.fields)
@@ -120,10 +133,12 @@ def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[
             f"encoding={_lit(db.encoding)}, quote='\"', escape='\"')"
         )
         dest.unlink()
-    return con.execute(f"SELECT count(*) FROM {_ident(t.name)}").fetchone()[0]
+    return con.execute(f"SELECT count(*) FROM {_ident(t.name)}").fetchone()[0]  # type: ignore[index, no-any-return]  # count(*) returns one row
 
 
-def _write_parquet(con, t: TableSpec, header: dict, path: Path, *, profiled: bool) -> None:
+def _write_parquet(
+    con: duckdb.DuckDBPyConnection, t: TableSpec, header: Header, path: Path, *, profiled: bool
+) -> None:
     """One table in the publisher's order.
 
     The table is read under the Parquet profile, a row group at a time, for a version fetched
@@ -133,7 +148,7 @@ def _write_parquet(con, t: TableSpec, header: dict, path: Path, *, profiled: boo
     reader = con.execute(f"SELECT * FROM {_ident(t.name)}").to_arrow_reader(size)
     if not profiled:
         schema = reader.schema.with_metadata({"publicdata": dumps(header)})
-        opts = {"compression": "zstd", "write_statistics": True}
+        opts: dict[str, Any] = {"compression": "zstd", "write_statistics": True}
     else:
         schema = reader.schema.with_metadata(profile.metadata(header))
         opts = profile.options(schema)
@@ -142,8 +157,8 @@ def _write_parquet(con, t: TableSpec, header: dict, path: Path, *, profiled: boo
             w.write_batch(b, row_group_size=size if profiled else None)
 
 
-def _frictionless_field(f: Field) -> dict:
-    d = {"name": f.name, "type": f.type, "title": f.source}
+def _frictionless_field(f: Field) -> dict[str, Any]:
+    d: dict[str, Any] = {"name": f.name, "type": f.type, "title": f.source}
     if f.description:
         d["description"] = f.description
     if f.type == "date" and f.date_format != "%Y-%m-%d":
@@ -154,11 +169,11 @@ def _frictionless_field(f: Field) -> dict:
     return d
 
 
-def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict:
+def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict[str, Any]:
     """The tables as Frictionless Table Schemas with their keys and references, and the views."""
-    tables = []
+    tables: list[dict[str, Any]] = []
     for t in ds.tables:
-        d: dict = {
+        d: dict[str, Any] = {
             "name": t.name,
             "title": t.source,
             "description": t.description,
@@ -190,7 +205,7 @@ def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict:
     }
 
 
-def schema_sql(ds: Dataset, header: dict) -> str:
+def schema_sql(ds: Dataset, header: Header) -> str:
     """CREATE TABLE for every table with its keys and references, and the views.
 
     It also says how to load the Parquet files, for PostgreSQL and most SQL dialects.
@@ -231,7 +246,9 @@ def schema_sql(ds: Dataset, header: dict) -> str:
     return "\n".join(lines)
 
 
-def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> DatabaseOut:  # noqa: PLR0915 - a database's build steps, read in order
+def build_database(  # noqa: PLR0915 - a database's build steps, read in order
+    ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr: Callable[[int, str], Header]
+) -> DatabaseOut:
     """Write data.duckdb, tables/<name>.parquet, schema.json and schema.sql into vdir.
 
     `hdr(rows, rel)` gives the provenance header for a file. Tables load in register order.
@@ -239,7 +256,7 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
     if m.ext != "zip":
         msg = f"{ds.slug}: a database source is a zip, not .{m.ext}"
         raise NormaliseError(msg)
-    db = ds.database
+    db: Database = ds.database  # type: ignore[assignment]  # a database entry has its archive layout
     (vdir / "tables").mkdir(parents=True, exist_ok=True)
     out = DatabaseOut(0, {})
     with zipfile.ZipFile(src) as z, tempfile.TemporaryDirectory(prefix="publicdata-db-") as tmpdir:

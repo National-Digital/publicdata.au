@@ -11,9 +11,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 
-def write_xlsx(tbl: Table, header: dict, path: Path) -> None:  # noqa: C901, PLR0912 - one branch per cell type
+def write_xlsx(tbl: Table, header: Header, path: Path) -> None:  # noqa: C901, PLR0912 - one branch per cell type
     """One workbook: records, fields and publicdata sheets. Dates are real Excel dates."""
     ds = tbl.dataset
     when = dt.datetime.fromisoformat(header["version"] + "T00:00:00")

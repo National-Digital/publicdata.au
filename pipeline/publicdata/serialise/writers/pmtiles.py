@@ -22,8 +22,11 @@ from publicdata.serialise.geo import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
-def write_pmtiles(tbl, header: dict, path: Path) -> None:
+
+def write_pmtiles(tbl: Table, header: Header, path: Path) -> None:
     """Vector tiles of the layer from zoom 0 to geometry.maxzoom.
 
     There is one tile layer named by the dataset, and every field is a property. Each zoom's
@@ -32,7 +35,7 @@ def write_pmtiles(tbl, header: dict, path: Path) -> None:
     line, which a tile cannot hold, so only the parts of the layer's own kind are kept.
     """
     ds = tbl.dataset
-    maxzoom = int(ds.geometry.get("maxzoom", MAXZOOM))
+    maxzoom = int(ds.geometry.get("maxzoom", MAXZOOM))  # type: ignore[union-attr]  # a shape layer has its geometry
     con = _connect()
     _with_geometry(con, tbl)
     names = [f.name for f in ds.fields]
@@ -67,7 +70,7 @@ def write_pmtiles(tbl, header: dict, path: Path) -> None:
             """
         ).fetchall()
         tiles += [(zxy_to_tileid(z, x, y), bytes(tile)) for x, y, tile in rows]
-    box = con.execute(
+    box: tuple[float, float, float, float] = con.execute(  # type: ignore[assignment]  # an aggregate returns one row
         "WITH w AS (SELECT ST_Transform(geometry, "
         f"'{_crs(ds)}', 'EPSG:4326', always_xy := true) AS g FROM t WHERE geometry IS NOT NULL) "
         "SELECT min(ST_XMin(g)), min(ST_YMin(g)), max(ST_XMax(g)), max(ST_YMax(g)) FROM w"

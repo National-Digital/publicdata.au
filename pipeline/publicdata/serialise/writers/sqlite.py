@@ -9,9 +9,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 
-def write_sqlite(tbl: Table, header: dict, path: Path) -> None:
+def write_sqlite(tbl: Table, header: Header, path: Path) -> None:
     if path.exists():
         path.unlink()
     ds = tbl.dataset

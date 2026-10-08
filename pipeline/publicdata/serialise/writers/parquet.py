@@ -10,13 +10,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from publicdata.normalise import Table
+    from publicdata.provenance import Header
+    from publicdata.serialise.profile import Layout
 
 
 def write_parquet(
     tbl: Table,
-    header: dict,
+    header: Header,
     path: Path,
-    lay: dict | None = None,
+    lay: Layout | None = None,
 ) -> None:
     """The version's Parquet under the layout its manifest records, or `lay` for a query copy.
 

@@ -10,9 +10,10 @@ if TYPE_CHECKING:
     import pyarrow as pa
 
     from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 
-def write_json(tbl: Table, header: dict, path: Path, rows: pa.Table | None = None) -> None:
+def write_json(tbl: Table, header: Header, path: Path, rows: pa.Table | None = None) -> None:
     t = json_view(rows if rows is not None else tbl.table)
     with path.open("w", encoding="utf-8", newline="\n") as f:
         f.write('{"publicdata":')

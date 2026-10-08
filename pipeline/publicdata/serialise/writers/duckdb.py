@@ -17,9 +17,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 
-def write_duckdb(tbl: Table, header: dict, path: Path) -> None:
+def write_duckdb(tbl: Table, header: Header, path: Path) -> None:
     """One DuckDB database: a `records` table with the typed columns.
 
     The `fields` and `publicdata` tables sit beside it. The file attaches read-only over HTTPS,
@@ -38,7 +39,7 @@ def write_duckdb(tbl: Table, header: dict, path: Path) -> None:
         src = tbl.table
         if perm is not None:
             parts = (b for part in profile.chunks(src, perm) for b in part.to_batches())
-            src = pa.RecordBatchReader.from_batches(src.schema, parts)
+            src = pa.RecordBatchReader.from_batches(src.schema, parts)  # type: ignore[assignment]  # DuckDB registers either
         con.register("src", src)
         con.execute("INSERT INTO records SELECT * FROM src")
         con.unregister("src")
