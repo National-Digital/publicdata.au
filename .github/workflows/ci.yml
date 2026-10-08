@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Workflows land before the package does; skip until it exists.
       - id: check
         run: test -f pipeline/pyproject.toml && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -44,6 +46,32 @@ jobs:
       - if: steps.check.outputs.exists == 'true'
         working-directory: pipeline
         run: ruff check . && ruff format --check .
+      # Each tool is a pinned release checked against its hash. actionlint skips shellcheck without
+      # a word when it finds none, so shellcheck is pinned and named too. On PATH here, they let the
+      # pre-commit hook's tests run in pytest, and the Workflow lint job reuses this step.
+      - &lint-tools
+        name: Install zizmor, actionlint and shellcheck
+        env:
+          ZIZMOR_VERSION: 1.30.1
+          ZIZMOR_SHA256: e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          SHELLCHECK_VERSION: 0.11.0
+          SHELLCHECK_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
+        run: |
+          bin="$RUNNER_TEMP/lint-bin"
+          mkdir -p "$bin"
+          fetch() {
+            curl -fsSL -o "$RUNNER_TEMP/$1" "$2"
+            echo "$3  $RUNNER_TEMP/$1" | sha256sum -c -
+          }
+          fetch zizmor.tar.gz "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" "$ZIZMOR_SHA256"
+          tar xzf "$RUNNER_TEMP/zizmor.tar.gz" -C "$bin" zizmor
+          fetch actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" "$ACTIONLINT_SHA256"
+          tar xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$bin" actionlint
+          fetch shellcheck.tar.gz "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz" "$SHELLCHECK_SHA256"
+          tar xzf "$RUNNER_TEMP/shellcheck.tar.gz" -C "$bin" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          echo "$bin" >> "$GITHUB_PATH"
       # Each worker builds the shared fixture site once; the tests spread over the runner's cores.
       - if: steps.check.outputs.exists == 'true'
         working-directory: pipeline
@@ -54,6 +82,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
@@ -67,6 +97,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - id: check
         run: test -f pipeline/pyproject.toml && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
       - if: steps.check.outputs.exists == 'true'
@@ -84,6 +116,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - id: check
         run: test -f pipeline/pyproject.toml && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
       - if: steps.check.outputs.exists == 'true'
@@ -174,6 +208,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
@@ -201,8 +237,49 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
       # The query builder's SQL runs against node:sqlite, the same engine D1 uses.
       - run: node --test functions/*.test.mjs scripts/*.test.mjs
+
+  workflows:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The pipeline job's install step, by its anchor.
+      - *lint-tools
+      # The auditor persona reports every finding zizmor has, code smells and likely false
+      # positives included. The token lets its online audits ask GitHub whether each pinned commit
+      # belongs to its action and matches the version its comment names. --strict-collection fails
+      # on a workflow zizmor cannot parse, which it would otherwise leave out with a warning.
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --persona auditor --strict-collection --format github .github
+      - name: actionlint
+        run: actionlint -shellcheck "$RUNNER_TEMP/lint-bin/shellcheck"
+      # concurrency-limits is reported only at the pedantic persona and above, so finding it shows
+      # the strict persona is in force.
+      - name: Both tools still fail a workflow with known defects
+        env:
+          FIXTURE: .github/lint-fixtures/defects.yml
+        run: |
+          set +e
+          zizmor --offline --persona auditor --format plain "$FIXTURE" > "$RUNNER_TEMP/zizmor.txt" 2>&1
+          z=$?
+          actionlint -shellcheck "$RUNNER_TEMP/lint-bin/shellcheck" "$FIXTURE" > "$RUNNER_TEMP/actionlint.txt" 2>&1
+          a=$?
+          set -e
+          cat "$RUNNER_TEMP/zizmor.txt" "$RUNNER_TEMP/actionlint.txt"
+          [ "$z" -ne 0 ] && [ "$a" -ne 0 ]
+          for rule in unpinned-uses template-injection artipacked concurrency-limits; do
+            grep -q "\[$rule\]" "$RUNNER_TEMP/zizmor.txt" || { echo "::error::zizmor no longer reports $rule"; exit 1; }
+          done
+          grep -q 'github.event.pull_request.title" is potentially untrusted' "$RUNNER_TEMP/actionlint.txt" || { echo "::error::actionlint no longer reports the untrusted input"; exit 1; }
+          grep -q SC2086 "$RUNNER_TEMP/actionlint.txt" || { echo "::error::actionlint no longer runs shellcheck"; exit 1; }

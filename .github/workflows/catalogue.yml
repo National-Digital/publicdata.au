@@ -13,9 +13,9 @@ env:
   UV_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
   UV_BUILD_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
 
+# The fetch app's token pushes the branch and opens the pull request.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: catalogue
@@ -23,11 +23,12 @@ concurrency:
 
 jobs:
   harvest:
+    name: harvest
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
     # Some portals turn away cloud runners, so the harvest runs from the same Australian host as
     # the dataset fetch.
-    runs-on: [self-hosted, publicdata-fetch]
+    runs-on: [self-hosted, publicdata-fetch] # zizmor: ignore[self-hosted-runner] some portals turn cloud runners away
     environment: fetch
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,10 +101,11 @@ jobs:
           # main as it stands now; the new manifests are untracked and carry over.
           git fetch -q origin main
           git checkout -q --detach origin/main
-          git checkout -b "data/catalogue-$DATE-${{ github.run_id }}"
+          git checkout -b "data/catalogue-$DATE-$GITHUB_RUN_ID"
           git add store/catalogue/*/manifest.json
           git commit -s -m "data(catalogue): portal dataset lists harvested $DATE" -m "$(grep -E '^catalogue: new version' harvest.log)"
           git push -u origin HEAD
+          # shellcheck disable=SC2016 # the backticks are a Markdown fence
           gh pr create --title "data(catalogue): portal dataset lists harvested $DATE" --body "$(printf 'The harvest found changed portal dataset lists.\n\n```\n%s\n```\n\nThe snapshot is in R2 under publicdata-raw. Merging publishes it.' "$(cat harvest.log)")"
           gh pr merge --auto --squash || echo "::warning::auto-merge was not armed; merge the PR by hand."
       - name: Fail when a portal could not be read

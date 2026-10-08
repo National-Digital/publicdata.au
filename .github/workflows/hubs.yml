@@ -5,6 +5,7 @@ name: Hubs
 # production deploy and weekly, and each hub is compared first, so a run with nothing new uploads
 # nothing. A hub whose credentials are not set is skipped and named in the summary.
 on:
+  # zizmor: ignore[dangerous-triggers] runs main's own code after a push to main and reads nothing from the run
   workflow_run:
     workflows: [Deploy]
     types: [completed]
@@ -26,13 +27,12 @@ on:
         type: boolean
         default: false
 
-# Writes only to open the pull request that records where the copies are.
 env:
   PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
 
+# The fetch app's token pushes the branch and opens the pull request.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: hubs
@@ -40,6 +40,7 @@ concurrency:
 
 jobs:
   publish:
+    name: publish
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     runs-on: ubuntu-24.04
@@ -102,7 +103,7 @@ jobs:
             exit 0
           fi
           DATE=$(date -u +%Y-%m-%d)
-          BRANCH="data/hubs-$DATE-${{ github.run_id }}"
+          BRANCH="data/hubs-$DATE-$GITHUB_RUN_ID"
           git config user.name "publicdata fetch"
           git config user.email "fetch@publicdata.au"
           git checkout -q -b "$BRANCH"

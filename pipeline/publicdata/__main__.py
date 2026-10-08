@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | hubs | contribute | cost."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import re
 import shutil
 import sys
 from pathlib import Path
+
+from . import REPO, SITE
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTER = ROOT / "register"
@@ -297,6 +299,7 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             search=Path(args.search) if args.search else None,
             cache=cache,
             hubs=_hubs_record(store_dir),
+            tasks=_tasks(args.tasks),
         )
     if cache is not None:
         if not args.slug:
@@ -646,6 +649,51 @@ def cmd_dist_push(args) -> int:
     return 0
 
 
+def cmd_checksums(args) -> int:
+    from .checksums import KEY, slugs_in, slugs_in_bucket, update, write_subjects
+    from .r2 import client
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"checksums: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    if not args.all and not args.root:
+        print("checksums: name the built trees with --root, or pass --all")
+        return 2
+    s3 = client()
+    slugs = slugs_in_bucket(s3) if args.all else slugs_in(Path(r) for r in args.root)
+    lists: dict[str, str] = {}
+    n, held, changed = update(
+        slugs,
+        replace=tuple(args.replace),
+        download=args.download,
+        s3=s3,
+        lists=lists,
+        every=args.resign,
+    )
+    print(f"checksums: {n} SHA256SUMS written over {len(slugs)} dataset(s)")
+    if args.subjects:
+        parts = write_subjects(lists, Path(args.subjects))
+        print(f"checksums: {len(lists)} list(s) to attest in {len(parts)} part(s)")
+    for prefix in held:
+        print(f"::warning::{prefix}SHA256SUMS not written: a file has no stored SHA-256")
+    # A dated file changes only under a replace, which writes the list again. Anything else
+    # breaks that rule, so it is reported and the version's list keeps what it was first given.
+    for key in changed:
+        slug, version, _ = KEY.match(key).groups()
+        prefix = f"d/{slug}/v/{version}/"
+        print(
+            f"::warning::{key} was written after {prefix}SHA256SUMS, outside a replace. "
+            "A dated version's files never change, so its list is left as it is"
+        )
+    if held:
+        print(
+            f"checksums: {len(held)} version(s) left without one; "
+            "run the Checksums workflow to hash their files from R2 and sign the lists"
+        )
+    return 0
+
+
 def cmd_purge(args) -> int:
     import os
 
@@ -738,6 +786,19 @@ def cmd_verify(args) -> int:
                     file=sys.stderr,
                 )
             return 1
+        if args.before and (
+            bare := verify.unnoted_partitions(Path(args.before), datasets, store_dir, changed)
+        ):
+            for slug, prefixes in bare.items():
+                print(
+                    f"::error::{slug}: partition_by changed, which adds or drops by/ files in "
+                    f"{len(prefixes)} published version(s). That is a correction "
+                    "(docs/CORRECTIONS.md): add a dated note to each version's manifest in "
+                    "store/ in the same change, and once it is merged run the Deploy workflow "
+                    f"with replace set to {' '.join(prefixes)}",
+                    file=sys.stderr,
+                )
+            return 1
         mods = verify.unkeyed(changed)
         raised = verify.bumped(Path(args.before), datasets) if args.before else []
         if not mods and not raised:
@@ -817,6 +878,13 @@ def _hubs_record(store_dir: Path) -> dict:
     return json.loads(path.read_text("utf-8")) if path.exists() else {}
 
 
+def _tasks(path: str | None) -> dict[str, int]:
+    """The open contributor issues by dataset key; a build without the file shows none."""
+    import json
+
+    return json.loads(Path(path).read_text("utf-8")) if path else {}
+
+
 def cmd_hubs(args) -> int:
     from . import hubs
     from .register import load
@@ -855,6 +923,42 @@ def cmd_hubs(args) -> int:
         print(f"hubs: recorded {len(merged['datasets'])} dataset(s) in {path}")
     print(f"hubs: {len(entries)} dataset(s), {len(chosen)} hub(s), {failures} failure(s)")
     return 1 if failures else 0
+
+
+def cmd_contribute(args) -> int:
+    """Keep one issue open for each of the most-wanted datasets, or list the open ones."""
+    import json
+
+    from . import contribute
+    from .register import load
+
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    gh = contribute.GitHub(args.repo, contribute.session(token))
+    if args.sub == "issues":
+        tasks = contribute.open_tasks(gh.issues("open"))
+        Path(args.out).write_text(json.dumps(tasks, indent=1) + "\n", encoding="utf-8")
+        print(f"contribute: {len(tasks)} open task(s) written to {args.out}")
+        return 0
+    if args.votes < 1 or args.cap < 0:
+        sys.exit("contribute: --votes is at least 1 and --cap at least 0")
+    # Issues opened under any other account are invisible to the next scheduled run.
+    if not args.dry_run and os.environ.get("GITHUB_ACTIONS") != "true":
+        sys.exit("contribute: only the Contribute workflow changes issues; pass --dry-run")
+    try:
+        acts = contribute.sync(
+            load(REGISTER),
+            gh,
+            contribute.session(),
+            threshold=args.votes,
+            cap=args.cap,
+            dry_run=args.dry_run,
+            site=args.site,
+        )
+    except contribute.SyncError as e:
+        print(f"contribute: {e}", file=sys.stderr)
+        return 1
+    print(f"contribute: {len(acts)} change(s){' planned' if args.dry_run else ''}")
+    return 0
 
 
 def cmd_cost(args) -> int:
@@ -977,12 +1081,43 @@ def main(argv=None) -> int:
         help="a shard's built tree; a file the cache leaves out is linked in from it when there",
     )
     b.add_argument(
+        "--tasks",
+        metavar="FILE",
+        help="the open contributor issues by dataset key, as `contribute issues` writes them",
+    )
+    b.add_argument(
         "--published",
         default="",
         metavar="DIR|r2://BUCKET",
         help="where a cached version's Parquet is read back from, as the site lays it out",
     )
     b.set_defaults(fn=cmd_build)
+    ck = sub.add_parser("checksums", help="write SHA256SUMS beside each dated version in R2")
+    ck.add_argument(
+        "--root", action="append", default=[], help="a built tree whose datasets to cover; repeat"
+    )
+    ck.add_argument("--all", action="store_true", help="every dataset R2 holds, as a backfill")
+    ck.add_argument(
+        "--download",
+        action="store_true",
+        help="read and hash a file R2 stored without its SHA-256, instead of skipping its version",
+    )
+    ck.add_argument(
+        "--replace",
+        nargs="*",
+        default=[],
+        metavar="PREFIX",
+        help="versions a replace deploy rewrote, whose lists are made again from scratch",
+    )
+    ck.add_argument(
+        "--subjects", metavar="DIR", help="write the lists to attest here, 1.sha256 and on"
+    )
+    ck.add_argument(
+        "--resign",
+        action="store_true",
+        help="add every list left as it is to --subjects, to attest it again; no list is rewritten",
+    )
+    ck.set_defaults(fn=cmd_checksums)
     pg = sub.add_parser(
         "purge", help="purge replaced versions and their query API answers from the edge cache"
     )
@@ -1131,6 +1266,16 @@ def main(argv=None) -> int:
         help="re-apply cards, page settings and notebooks to versions a hub already holds",
     )
     hb.set_defaults(fn=cmd_hubs)
+
+    cb = sub.add_parser("contribute", help="the most-wanted datasets as contributor issues")
+    cb.add_argument("sub", choices=["sync", "issues"])
+    cb.add_argument("--repo", default=REPO.removeprefix("https://github.com/"))
+    cb.add_argument("--site", default=SITE)
+    cb.add_argument("--votes", type=int, default=1, help="sync: votes a catalogue record needs")
+    cb.add_argument("--cap", type=int, default=10, help="sync: the most issues open at once")
+    cb.add_argument("--dry-run", action="store_true", help="sync: print the changes, make none")
+    cb.add_argument("--out", default="contribute.json", help="issues: where the open ones go")
+    cb.set_defaults(fn=cmd_contribute)
     co = sub.add_parser(
         "cost", help="project each entry's storage growth and D1 writes and gate changed ones"
     )

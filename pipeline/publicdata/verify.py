@@ -120,6 +120,40 @@ def bumped(before: Path, datasets: list[Dataset]) -> list[str]:
     return sorted(out)
 
 
+def unnoted_partitions(
+    before: Path, datasets: list[Dataset], store_dir: Path, changed: list[str]
+) -> dict[str, list[str]]:
+    """The published versions, by dataset, whose entry's partition_by the change edits while their
+    manifest gains no note. Such an edit adds or drops by/ files in every stored version, so it is
+    a correction (docs/CORRECTIONS.md) and each version it reaches carries a note of it. before
+    holds the base's copy of each changed register entry and manifest at its path."""
+    import yaml
+
+    out = {}
+    for ds in datasets:
+        if not ds.path or not Path(ds.path).is_relative_to(REPO):
+            continue
+        old = before / Path(ds.path).relative_to(REPO)
+        if not old.is_file():
+            continue
+        raw = yaml.safe_load(old.read_text(encoding="utf-8")) or {}
+        if tuple(raw.get("partition_by") or ()) == ds.partition_by:
+            continue
+        bare = []
+        for m in store.manifests(store_dir, ds.slug):
+            rel = f"store/{ds.slug}/{m.version}/manifest.json"
+            if rel in changed:
+                if not (before / rel).is_file():
+                    continue  # a version this change adds, which nothing has published
+                was = json.loads((before / rel).read_text(encoding="utf-8")).get("notes") or []
+                if len(m.notes) > len(was):
+                    continue
+            bare.append(f"d/{ds.slug}/v/{m.version}/")
+        if bare:
+            out[ds.slug] = bare
+    return out
+
+
 def checked_versions(ds: Dataset, store_dir: Path, cap: int = CAP) -> list:
     """The versions the check builds: the newest ones whose source bytes fit in cap, and always
     the newest. The spine layers a joined dataset reads are left out: every joined dataset shares
