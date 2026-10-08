@@ -498,7 +498,10 @@ jobs:
           echo "CHROME_PATH=$path" >> "$GITHUB_ENV"
       - name: Run Lighthouse against the preview
         if: env.URL != ''
-        run: node scripts/lighthouse.mjs "$URL" | tee lighthouse.log
+        # A step with no shell set runs without pipefail, so tee would hide the script's failure.
+        run: |
+          set -o pipefail
+          node scripts/lighthouse.mjs "$URL" | tee lighthouse.log
       - name: Summarise
         if: always() && env.URL != ''
         run: |
