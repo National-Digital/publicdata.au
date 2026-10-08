@@ -238,7 +238,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     fn = (ROOT / "functions" / "d" / "[[path]].js").read_text(encoding="utf-8")
     assert "max-age=31536000, immutable" in fn
     assert "immutable, no-transform" in fn and "max-age=300, no-transform" in fn
-    assert "content-encoding" not in fn
+    # Only a stored gzipped text file is sent with Content-Encoding, and then as stored.
+    assert fn.count("set('content-encoding'") == 1 and "encodeBody: 'manual'" in fn
     assert "obj.range.suffix !== undefined" in fn
     assert (
         "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, or"

@@ -352,8 +352,8 @@ def duckdb_comment(con, table: str, column: str | None, text: str) -> None:
 def duckdb_digest(path: Path) -> str:
     """A digest of what a DuckDB file holds: every table's columns and rows in their stored
     order, every view's text, constraint, index and comment, the block size and the storage
-    version. The bytes of two files written from the same rows differ, since the storage
-    compresses by sampling, so the determinism check compares this instead."""
+    version. The bytes of two files written from the same rows differ, since the storage lays out
+    and packs its blocks differently each time, so the determinism check compares this instead."""
     import duckdb
 
     con = duckdb.connect()

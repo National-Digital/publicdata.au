@@ -233,8 +233,31 @@ def test_the_catalogue_is_summed_by_file_so_a_database_keeps_every_table():
         ],
     }  # fmt: skip
     files = cost.catalogue_sizes({"dataset": [rec]})["db"]
-    # DuckDB sizes are published to one significant figure, so the upper bound is counted.
-    assert files == {"data.duckdb": 250_000_000, "tables/a.parquet": 7, "tables/b.parquet": 9}
+    assert files == {
+        "data.duckdb": 2 * 16 + cost.DUCKDB_BLOCKS,
+        "tables/a.parquet": 7,
+        "tables/b.parquet": 9,
+    }
+
+
+def test_a_duckdb_file_counts_at_its_bound_from_the_files_whose_size_is_stated():
+    def sizes(**files):
+        rec = {
+            "identifier": "x",
+            "versionInfo": "2026-10-01",
+            "distribution": [
+                {"byteSize": n, "downloadURL": f"/d/x/v/2026-10-01/{p}"} if n else {"downloadURL": f"/d/x/v/2026-10-01/{p}"}
+                for p, n in files.items()
+            ],
+        }  # fmt: skip
+        return cost.catalogue_sizes({"dataset": [rec]})["x"]["data.duckdb"]
+
+    assert (
+        sizes(**{"data.csv": 40 * 10**6, "data.parquet": 9 * 10**6, "data.duckdb": 0})
+        == 50 * 10**6 + cost.DUCKDB_BLOCKS
+    )
+    assert sizes(**{"tables/a.parquet": 2 * GB, "data.duckdb": 0}) == 4 * GB + cost.DUCKDB_BLOCKS
+    assert sizes(**{"data.csv": 1000, "data.duckdb": 0}) == 1250 + cost.DUCKDB_BLOCKS
 
 
 def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path):
@@ -604,8 +627,11 @@ def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
         assert not any(p.name.startswith("source.") for p in files)
         versions = json.loads((vdir.parent.parent / "versions.json").read_text("utf-8"))
         v = next(x for x in versions["versions"] if x["version"] == vdir.name)
+        sizes = {p.relative_to(vdir).as_posix(): _size(p) for p in files}
+        if "data.duckdb" in sizes:
+            sizes["data.duckdb"] = cost.duckdb_bound(sizes)
         # No built tree holds the publisher's file; the raw store keeps it once.
-        n = sum(_size(p) for p in files) + v["bytes"]
+        n = sum(sizes.values()) + v["bytes"]
         stored += n
         latest[vdir.parent.parent.name] = (n, v["rows"], (vdir / "data.csv"))
     assert s["stored_bytes"] == stored > 0

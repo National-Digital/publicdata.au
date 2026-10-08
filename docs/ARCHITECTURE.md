@@ -252,8 +252,9 @@ Schema and keys, and `schema.sql` with the CREATE TABLE statements, references a
 database has no JSON, CSV, Excel or SQLite files, no partitions, no query API and no explorer; its
 page lists the tables and shows how to attach the file from R, Python and DuckDB, and two versions
 are compared table by table by row count. The DuckDB file's bytes are not reproducible, since its
-storage picks a compression for each block by sampling, so CI compares DuckDB files by content
-(`python -m publicdata.dbcheck`) and everything else byte for byte.
+storage lays out and packs its blocks differently on each write, and its length can differ too. CI
+compares DuckDB files by content (`python -m publicdata.dbcheck`) and everything else byte for
+byte, and no page or catalogue states a DuckDB file's size.
 
 What shapes the defaults is the register: field types, `key` and `partition_by`. A table keyed by
 several fields with a count field is charted as the sum of that count; any other table counts its
@@ -433,7 +434,38 @@ rewritten when its SHA-256 changes. `_routes.json` runs the function only on `la
 archive, so a dataset page and its JSON are served as Pages files; split refuses a large file no
 route reaches. The Pages Function under `functions/d/` serves a static file
 when Pages has it, redirects `latest/` from `latest.json`, and otherwise streams the object from
-R2 with byte ranges, a sized HEAD and immutable caching. A dataset missing from `latest.json` (the register withheld it)
+R2 with a sized HEAD and immutable caching.
+
+A dated text file (CSV, NDJSON, JSON, GeoJSON, `schema.sql` and any other text over 1 KB) is
+stored in R2 gzipped: deterministic gzip at level 6 with no name and mtime 0, marked
+`Content-Encoding: gzip`, with the decoded size and SHA-256 as metadata (`size`, `sha256`).
+`dist-push` gzips them on upload, with botocore's checksums set to `when_required` so that an
+upload is never marked `aws-chunked`; readers still treat Content-Encoding as a list of tokens.
+The query layer's files under `_q/` are never gzipped. The function sends the stored bytes with
+`Content-Encoding: gzip` to a client that accepts gzip, which it reads from
+`request.cf.clientAcceptEncoding` because the runtime always asks for gzip itself, and decodes
+them with `DecompressionStream` for any other client. Such a response drops `no-transform`, so the
+edge, which caches whichever encoding it was sent first, can decode it for a client that cannot.
+A HEAD gives the size of what a GET would send.
+
+Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles,
+`data.csv.gz` and the publisher's file, which are stored as written. A range asked of a CSV,
+NDJSON, JSON or GeoJSON file is answered 200 with the whole file and `Accept-Ranges: none`, which
+a range client reads as a server without ranges. A reader that scans lazily or seeks, such as
+polars `scan_csv` or `scan_ndjson` or an fsspec file opened over HTTP, should read `data.parquet`
+or `data.csv.gz` instead.
+
+A version's `data.csv.gz` is the CSV gzipped the same way, so `dist-push` stores no separate copy
+of it once the CSV is stored gzipped: the function serves `data.csv.gz` from the stored CSV's
+bytes as `application/gzip`, with no `Content-Encoding` and with byte ranges. A replace writes an
+existing `data.csv.gz` again, because the function serves a stored key before the alias. Versions
+pushed before this keep their own `data.csv.gz`. `publicdata r2 restore-gzip` rewrites the text
+files stored before this in place. It checks every object's hash before and after, makes both
+the rewrite and any rollback conditional on the ETag it read, so a deploy writing the same key is
+never undone, is a dry run from the listing unless given `--apply`, and skips what is already
+gzipped; `--dedupe-csv-gz` also deletes an old `data.csv.gz` whose bytes the gzipped CSV now
+holds. A deployment whose function predates gzip at rest serves these objects wrongly, so once
+they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe. A dataset missing from `latest.json` (the register withheld it)
 answers 410 for every file R2 still holds, `latest/` included, and so does each path in
 `withheld.json`, the publisher's files of an entry with `source_withheld`, which the build stops
 writing but R2 kept. Query copies (`_q/<slug>/<version>.parquet`) go to `publicdata-dist` alone:
@@ -655,6 +687,64 @@ It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, th
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
 then the endpoints answer 503 and point to the files. The query builder is tested against
 node:sqlite in CI.
+
+## Rollups
+
+The MCP tool `count_rows` answers from a version's rollup before it asks D1. A rollup is one
+gzipped JSON object in `publicdata-dist` under `_rollup/<slug>/<version>.json.gz`, outside the
+published tree, holding the version's counts and totals grouped several ways ("cubes"). It is a
+cache of answers the query API gives and is not offered as a download. It carries the version's
+provenance header. The build never imports `rollup.py`, so rollups shape no version and the build
+cache does not key on them.
+
+`publicdata rollup` runs after the D1 load and follows what D1 holds, which `_versions` lists, so
+a version too large or too wide for D1, an entry with `query: false` and a deploy with D1 off get
+no rollup. Each rollup is stored with the identity of the Parquet it was built from: the SHA-256
+the push stores with every object, or the ETag of one pushed before it did. A version whose
+published Parquet has another identity, or which `--replace` names, gets its rollup written
+again, and the rollups of versions D1 no longer holds are deleted. The Parquet is read from a
+built tree when the tree holds the same bytes, and from `publicdata-dist` otherwise, so a version
+this deploy took from the build cache still gets its rollup. DuckDB reads it on one thread with a
+float's NaN as null, as `data.sqlite` holds it, and totals floats with compensated summation, so
+the same Parquet always gives the same rollup. A version whose totals include an infinity has no
+JSON form and is left to D1.
+
+A published version keeps the schema it was built with, so a rollup takes its fields from the
+version. They are the fields `_versions` lists for it, or the register's when D1 lists none, kept
+only where the Parquet has the column and typed by the column when the stated type does not fit
+it. A version that fails for any other reason, such as a download error, is logged as a warning
+and skipped. Its rollup stays when it was built from the bytes R2 still publishes, the other
+versions are written and pushed, and the next deploy tries it again.
+
+A version gets a rollup when its table has at least 5,000 rows and its entry does not set
+`query: false`; a smaller table is answered at once by any engine. The candidate cubes are the
+field sets the entry's `example` and `chart` ask about, each field readers count by (at most
+1,000 values, or any date), and each pair of the 24 most likely such fields. They are taken
+greedily by the weight of questions each newly answers per byte (a register question 100, a
+count by one field 10, a pair 2) until 1 MB. A cube with more groups than half the rows is left
+out. Each cube totals up to four numeric fields, the register's example and chart measures
+first, as sum, non-null count, minimum and maximum, so counts, sums, averages, minima and
+maxima all come from it. The cap holds on the gzipped bytes: a rollup over it drops its
+last-chosen cubes and is built again.
+
+The function picks the smallest cube that holds every field a query filters or groups on and
+the field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the answer is
+the one `/aggregate` gives; `functions/_rollup.test.mjs` runs random queries through both on
+the fixture in `pipeline/tests/fixtures/rollup`, whose rollup the Python tests pin byte for
+byte. Each filter is decided once per distinct value, and LIKE patterns match without
+backtracking. `count_rows` orders equal totals by its groups, so its top groups are the same
+from either engine and from the query it cites. The function reads a rollup only while its
+stored identity matches the published Parquet's, and checks again after a minute. A query no
+cube holds, a version other than the two newest, a deploy without D1, and a withheld dataset
+fall through to D1. Answers name the version and its `/aggregate` URL.
+
+The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
+measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their
+Parquet, median 152 KB), which answer the fields of 84.5% of the register's example and chart
+questions, 98.2% of counts by one field and 78% of counts by one field filtered on another.
+Doubling the cap gains three points on pairs and doubles the parse time, while counts alone
+answer the same fields in a third of the bytes but none of the sums and averages most register
+questions ask for. In workerd a cold rollup answers in 6 to 25 ms and a warm one in about 1 ms.
 
 ## Catalogue
 

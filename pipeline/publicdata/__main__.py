@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | hubs | contribute | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip | hubs | contribute | cost."""
 
 from __future__ import annotations
 
@@ -422,6 +422,13 @@ def cmd_catalogue_publishers(args) -> int:
     return 0
 
 
+def _d1_rows(raw) -> list[dict]:
+    """The rows of a `wrangler d1 execute --json` answer, or a plain list of rows."""
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "results" in raw[0]:
+        return [r for part in raw for r in part.get("results", [])]
+    return raw or []
+
+
 def cmd_d1(args) -> int:
     """Write one SQL file per live dataset whose latest version the query API has not loaded."""
     import json
@@ -434,12 +441,7 @@ def cmd_d1(args) -> int:
     loaded_orders: dict[tuple[str, str], str] = {}
     if args.loaded and Path(args.loaded).exists():
         raw = json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")
-        rows = (
-            [r for part in raw for r in part.get("results", [])]
-            if isinstance(raw, list) and raw and "results" in raw[0]
-            else raw
-        )
-        for r in rows or []:
+        for r in _d1_rows(raw):
             loaded.setdefault(r["slug"], []).append(r["version"])
             if "fields" in r:
                 loaded_fields[(r["slug"], r["version"])] = r["fields"]
@@ -490,6 +492,43 @@ def cmd_d1_load(args) -> int:
     )
     print(f"d1 load: {failed} version(s) did not load")
     return 1 if failed else 0
+
+
+def cmd_rollup(args) -> int:
+    """Write the rollup of every version D1 holds whose rollup is missing or was built from other
+    bytes, push them, and delete the rollups of versions D1 no longer holds."""
+    import json
+
+    from .r2 import client
+    from .register import load
+    from .rollup import R2Store, held, held_fields, write
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"rollup: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    rows = _d1_rows(json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]"))
+    loaded = held(rows)
+    live = [d for d in load(REGISTER) if d.status in ("live", "building")]
+    store = R2Store(client(), args.bucket)
+    written, keep = write(
+        live,
+        loaded,
+        store,
+        Path(args.out),
+        [Path(r) for r in args.root],
+        args.replace,
+        fields=held_fields(rows),
+    )
+    stale = sorted(store.keys() - keep)
+    print(f"rollup: {len(written)} written, {len(keep) - len(written)} current, {len(stale)} stale")
+    if args.dry_run:
+        return 0
+    for w in written:
+        store.put(w)
+    if stale:
+        store.delete(stale)
+    return 0
 
 
 def cmd_store(args) -> int:
@@ -647,6 +686,18 @@ def cmd_dist_push(args) -> int:
     )
     print(f"dist push: {found} publisher's file(s) found in the raw store")
     return 0
+
+
+def cmd_r2_restore_gzip(args) -> int:
+    from .r2 import restore_gzip
+
+    t = restore_gzip(
+        prefix=args.prefix,
+        apply=args.apply,
+        workers=args.workers,
+        dedupe_csv_gz=args.dedupe_csv_gz,
+    )
+    return 1 if t["failed"] else 0
 
 
 def cmd_checksums(args) -> int:
@@ -1211,6 +1262,20 @@ def main(argv=None) -> int:
     )
     d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
+    ro = sub.add_parser("rollup", help="write, push and prune the rollups of the versions D1 holds")
+    ro.add_argument(
+        "--loaded", required=True, help="D1's _versions rows (slug, version, rows, fields) as JSON"
+    )
+    ro.add_argument(
+        "--root", action="append", default=[], help="a built tree to read Parquet from first"
+    )
+    ro.add_argument("--out", required=True)
+    ro.add_argument("--bucket", default="publicdata-dist")
+    ro.add_argument(
+        "--replace", nargs="*", default=[], help="d/<slug>/v/<date>/ prefixes to write again"
+    )
+    ro.add_argument("--dry-run", action="store_true", help="write rollups locally, push none")
+    ro.set_defaults(fn=cmd_rollup)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])
     st.add_argument("--store", default=str(STORE))
@@ -1243,6 +1308,20 @@ def main(argv=None) -> int:
         help="push only dated version files, leaving pages to the deploy that builds them all",
     )
     dp.set_defaults(fn=cmd_dist_push)
+    rr = sub.add_parser("r2").add_subparsers(dest="sub", required=True)
+    rg = rr.add_parser(
+        "restore-gzip",
+        help="store the dated text files in publicdata-dist gzipped, in place; a dry run unless --apply",
+    )
+    rg.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
+    rg.add_argument("--apply", action="store_true", help="rewrite the objects, not just count them")
+    rg.add_argument("--workers", type=int, default=4)
+    rg.add_argument(
+        "--dedupe-csv-gz",
+        action="store_true",
+        help="delete a version's data.csv.gz once the gzipped data.csv beside it holds its bytes",
+    )
+    rg.set_defaults(fn=cmd_r2_restore_gzip)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"

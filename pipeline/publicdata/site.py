@@ -597,7 +597,7 @@ def _dataset_jsonld(ds: Dataset, o: DatasetOut, copies: list[dict] | None = None
                 "@type": "DataDownload",
                 "encodingFormat": MEDIA[fmt],
                 "contentUrl": f"{vbase}{name}",
-                "contentSize": str(v.files.get(name, "")),
+                **({"contentSize": str(n)} if (n := v.size(name)) is not None else {}),
             }
         )
     return {
@@ -724,7 +724,7 @@ def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict:
                 "mediaType": MEDIA[fmt],
                 "accessURL": f"{base}latest/{name}",
                 "downloadURL": f"{vbase}{name}",
-                "byteSize": v.files.get(name),
+                **({"byteSize": n} if (n := v.size(name)) is not None else {}),
                 "conformsTo": f"{base}schema.json",
                 **({"title": name.split("/")[-1].rsplit(".", 1)[0]} if "/" in name else {}),
             }
@@ -833,7 +833,7 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
     order = sorted(_fmts(ds, latest), key=lambda f: f != first)
     formats = [{"key": f, "label": FORMAT_LABEL[f], "file": f"data.{f}"} for f in order]
     for f in formats:
-        f["size"] = fmt_size(latest.files.get(f["file"]))
+        f["size"] = fmt_size(latest.size(f["file"]))
     fmt_data = {
         f["key"]: {
             "file": f["file"],
@@ -1372,7 +1372,7 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict:
                 ],
                 "refs": sorted({f.references.split(".", 1)[0] for f in t.fields if f.references}),
                 "parquet": vb + name,
-                "size": fmt_size(v.files.get(name)),
+                "size": fmt_size(v.size(name)),
             }
         )
     largest = max(tables, key=lambda t: t["rows"]) if tables else None
@@ -1380,7 +1380,6 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict:
         "tables": tables,
         "views": [{"name": x.name, "description": x.description, "sql": x.sql} for x in ds.views],
         "duckdb": vb + "data.duckdb",
-        "duckdb_size": "about " + fmt_size(v.files.get("data.duckdb")),
         "parquet_size": fmt_size(
             sum(v.files.get(f"tables/{t.name}.parquet", 0) for t in ds.tables)
         ),
@@ -1608,7 +1607,7 @@ def _md_twin_database(
         *([f"Also called: {', '.join(ds.also_known_as)}.", ""] if ds.also_known_as else []),
         "## Files",
         "",
-        f"- DuckDB, every table and view: {vbase}data.duckdb (about {fmt_size(v.files.get('data.duckdb'))}). Attach it read-only over HTTPS: ATTACH '{vbase}data.duckdb' AS db (READ_ONLY);",
+        f"- DuckDB, every table and view: {vbase}data.duckdb. Attach it read-only over HTTPS: ATTACH '{vbase}data.duckdb' AS db (READ_ONLY);",
         f"- Parquet, one file per table: {vbase}tables/<table>.parquet",
         f"- SQL: {vbase}schema.sql (CREATE TABLE with keys, references and the views)",
         f"- Schema: {vbase}schema.json",
@@ -1702,7 +1701,8 @@ def _md_twin_dataset(
         "",
     ]
     for fmt in _fmts(ds, v):
-        lines.append(f"- {fmt}: {base}latest/data.{fmt} ({fmt_size(v.files.get(f'data.{fmt}'))})")
+        size = fmt_size(v.size(f"data.{fmt}"))
+        lines.append(f"- {fmt}: {base}latest/data.{fmt}" + (f" ({size})" if size else ""))
     if why := _left_out(ds, v):
         lines += ["", *why]
     lines += [
@@ -1997,7 +1997,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects. A table the publisher resends whole, or a feed of what is current, serves its newest read at the same path with a five-minute cache instead, and lists every read's changes in <code>/d/&lt;slug&gt;/changes/index.json</code>.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there. Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles, csv.gz and the publisher's file. CSV, NDJSON, JSON and GeoJSON are sent whole, gzipped when the client accepts it, so a reader that scans lazily or seeks, such as polars <code>scan_csv</code> or fsspec, should read data.parquet or data.csv.gz.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/SHA256SUMS</code> lists the SHA-256 of every file in the version, each under the name it downloads as, such as <code>&lt;slug&gt;_&lt;date&gt;.csv</code>. Run <code>sha256sum -c --ignore-missing SHA256SUMS</code> beside the files (<code>shasum -a 256 -c --ignore-missing SHA256SUMS</code> on a Mac), or save them with <code>curl -OJ</code> so the names match. Each list carries a GitHub artifact attestation from the deploy that wrote it, which <code>gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au --source-ref refs/heads/main</code> checks.</li>
 </ul>
@@ -2837,7 +2837,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
             "/d/{slug}/v/{version}/data.{format}": {
                 "get": {
                     "tags": ["version"],
-                    "summary": "The whole dataset in one format. Cached one year. Range requests are honoured.",
+                    "summary": "The whole dataset in one format. Cached one year. Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles and csv.gz. CSV, NDJSON, JSON and GeoJSON are sent whole, gzipped when the client accepts it, so a lazy or range reader should use parquet or csv.gz.",
                     "operationId": "getData",
                     "parameters": [slug_p, ver_p, fmt_p],
                     "responses": {
@@ -3355,11 +3355,11 @@ def render_site(
             files = [
                 {
                     "name": k,
-                    "size": fmt_size(s),
+                    "size": fmt_size(v.size(k)),
                     "url": f"{version_url(ds.slug, v.manifest.version)}{k}",
                     "download": download_name(ds.slug, v.manifest.version, k),
                 }
-                for k, s in v.files.items()
+                for k in v.files
                 if "/" not in k
             ]
             md = "\n".join(
@@ -3386,7 +3386,10 @@ def render_site(
                         if ds.licence.condition
                         else []
                     ),
-                    *[f"- {f['name']}: {f['url']} ({f['size']})" for f in files],
+                    *[
+                        f"- {f['name']}: {f['url']}" + (f" ({f['size']})" if f["size"] else "")
+                        for f in files
+                    ],
                     "",
                     *[f"{why}\n" for why in _left_out(ds, v)],
                     f"SHA-256 of every file, under the names they download as: {version_url(ds.slug, v.manifest.version)}SHA256SUMS",
