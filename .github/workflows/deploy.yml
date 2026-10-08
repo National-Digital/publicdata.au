@@ -36,7 +36,6 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   # A runner's disk cannot hold a build of every version at once, so the versions the build cache
@@ -295,6 +294,9 @@ jobs:
     env:
       HAS_CF: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_API_TOKEN_ID != '' }}
       PUBLICDATA_SPATIAL: ${{ needs.plan.outputs.spatial }}
+    permissions:
+      contents: read
+      pull-requests: write # the preview URL comment
     outputs:
       version: ${{ steps.release.outputs.version }}
       deployed: ${{ steps.pages.outcome == 'success' }}
@@ -506,7 +508,7 @@ jobs:
     runs-on: ubuntu-24.04
     environment: production
     permissions:
-      contents: write
+      contents: write # pushes the release tag and creates the GitHub release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

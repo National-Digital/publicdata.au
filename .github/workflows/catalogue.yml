@@ -13,9 +13,9 @@ env:
   UV_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
   UV_BUILD_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
 
+# The fetch app's token pushes the branch and opens the pull request.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: catalogue

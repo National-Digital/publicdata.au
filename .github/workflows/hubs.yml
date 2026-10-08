@@ -26,13 +26,12 @@ on:
         type: boolean
         default: false
 
-# Writes only to open the pull request that records where the copies are.
 env:
   PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
 
+# The fetch app's token pushes the branch and opens the pull request.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: hubs

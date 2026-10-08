@@ -16,13 +16,21 @@ env:
   UV_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
   UV_BUILD_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
 
+# The fetch app's token pushes the branches and opens the pull requests.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
+
+# Runs queue one at a time on the fetch host, as the catalogue harvest does.
+concurrency:
+  group: fetch
+  cancel-in-progress: false
 
 jobs:
   fetch:
+    name: fetch
+    permissions:
+      contents: read
+      issues: write # keeps the manual downloads issue current
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
     # Some portals, Queensland's among them, turn away cloud runners, so the fetch runs from an

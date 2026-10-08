@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      pull-requests: write
-      actions: read
+      pull-requests: write # approves the pull request, or dismisses an earlier approval
+      actions: read # reads the run that cut the branch
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}

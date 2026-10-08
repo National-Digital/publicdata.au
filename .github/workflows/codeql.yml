@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.event.repository.visibility == 'public'
     permissions:
-      security-events: write
+      security-events: write # uploads the scan's results to code scanning
       contents: read
     strategy:
       fail-fast: false
