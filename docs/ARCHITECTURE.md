@@ -79,7 +79,8 @@ pipeline/publicdata/
     performance 90 or more on the median of three runs, and accessibility, best practices, SEO
     and agentic browsing at 100, audit by audit (`scripts/lighthouse.mjs`, the Lighthouse job in
     `deploy.yml`). The preview is served noindex, so only the crawlability audit is left to
-    production, where the explorer is exempt from it because it is noindex by design. A weekly PageSpeed Insights run holds production to the same targets with the
+    production, where `/d/qld-road-crash-locations/explore/` is exempt from it because it is noindex
+    by design. A weekly PageSpeed Insights run holds production to the same targets with the
     Lighthouse Google ships, and opens an issue labelled `psi` when it falls short (`psi.yml`).
 
 ## Licence gate
