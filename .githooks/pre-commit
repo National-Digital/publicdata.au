@@ -3,6 +3,46 @@
 # clients/python/, each from its own directory so its own settings apply, reading the staged
 # content so an unstaged fix cannot hide a fault. Skip once with git commit --no-verify.
 
+# Workflow lint: actionlint with shellcheck, and zizmor at CI's persona, over a copy of the staged
+# .github tree. zizmor runs offline, so the hook needs no network or token. A failure here still
+# lets the Python check below run, and the EXIT trap then fails the commit.
+if [ -n "$(git diff --cached --name-only -- .github)" ]; then
+  wf_ci=$(git show :.github/workflows/ci.yml 2>/dev/null)
+  wf_failed=0
+  for wf_tool in actionlint shellcheck zizmor; do
+    case $wf_tool in
+      actionlint) wf_var=ACTIONLINT_VERSION wf_how=https://github.com/rhysd/actionlint/releases/tag/v ;;
+      shellcheck) wf_var=SHELLCHECK_VERSION wf_how=https://github.com/koalaman/shellcheck/releases/tag/v ;;
+      zizmor) wf_var=ZIZMOR_VERSION wf_how="uv tool install zizmor==" ;;
+    esac
+    wf_pin=$(printf '%s\n' "$wf_ci" | sed -n "s/^ *$wf_var: *//p" | head -n 1)
+    if ! command -v "$wf_tool" >/dev/null 2>&1; then
+      echo "pre-commit: $wf_tool not found; install $wf_tool $wf_pin, the version ci.yml pins: $wf_how$wf_pin"
+      wf_failed=1
+      continue
+    fi
+    wf_have=$("$wf_tool" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+    [ "$wf_have" = "$wf_pin" ] ||
+      echo "pre-commit: warning: $wf_tool is ${wf_have:-of unknown version} here and $wf_pin in CI"
+  done
+  # actionlint finds its project, and so actionlint.yaml, by a .git beside .github.
+  if [ "$wf_failed" -eq 0 ]; then
+    if wf_tree=$(mktemp -d) && mkdir "$wf_tree/.git" &&
+      git ls-files -z -- .github | git checkout-index -z --stdin --prefix="$wf_tree/"; then
+      (cd "$wf_tree" && actionlint -shellcheck "$(command -v shellcheck)") || wf_failed=1
+      (cd "$wf_tree" && zizmor --offline --persona auditor --format plain --no-progress .github) ||
+        wf_failed=1
+    else
+      wf_failed=1
+    fi
+    [ -z "$wf_tree" ] || rm -rf "$wf_tree"
+  fi
+  if [ "$wf_failed" -ne 0 ]; then
+    echo "pre-commit: workflow lint found problems; fix them or commit with --no-verify"
+    trap 'exit 1' EXIT
+  fi
+fi
+
 files=$(git diff --cached --name-only --diff-filter=ACMR -- 'pipeline/*.py' 'clients/python/*.py')
 [ -n "$files" ] || exit 0
 

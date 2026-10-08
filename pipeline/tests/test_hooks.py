@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -139,6 +140,128 @@ def test_pre_commit_skips_when_ruff_is_missing(repo, tmp_path):
     out = _commit(repo, {"pipeline/publicdata/bad.py": "import os\n"}, [_bin(tmp_path)])
     assert out.returncode == 0, out.stdout + out.stderr
     assert "ruff not found, lint skipped" in out.stdout + out.stderr
+
+
+WORKFLOW_TOOLS = {t: shutil.which(t) for t in ("actionlint", "shellcheck", "zizmor")}
+needs_workflow_tools = pytest.mark.skipif(
+    None in WORKFLOW_TOOLS.values(), reason="actionlint, shellcheck or zizmor is not installed"
+)
+CI_PINS = dict(
+    re.findall(
+        r"^ +([A-Z]+)_VERSION: (\S+)$", (ROOT / ".github/workflows/ci.yml").read_text(), re.M
+    )
+)
+CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
+WORKFLOW = """name: Check
+on: pull_request
+permissions:
+  contents: read
+concurrency:
+  group: check-${{{{ github.ref }}}}
+  cancel-in-progress: true
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: {uses}
+        with:
+          persist-credentials: false
+      - run: {run}
+"""
+
+
+def _workflow(uses=CHECKOUT, run="echo ok") -> dict[str, str]:
+    return {".github/workflows/check.yml": WORKFLOW.format(uses=uses, run=run)}
+
+
+@pytest.fixture
+def wf_repo(repo) -> Path:
+    """The fixture repository with CI's workflow and actionlint config committed."""
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    shutil.copy(ROOT / ".github" / "workflows" / "ci.yml", repo / ".github" / "workflows")
+    shutil.copy(ROOT / ".github" / "actionlint.yaml", repo / ".github")
+    _run([GIT, "add", "."], repo, [], check=True)
+    _run([GIT, "commit", "-q", "--no-verify", "-m", "ci: workflows"], repo, [], check=True)
+    return repo
+
+
+def _wf_bin(tmp_path, **tools) -> Path:
+    """_bin plus the utilities the workflow check calls, which a developer's PATH always has."""
+    utils = {t: shutil.which(t) for t in ("sed", "grep", "head", "mktemp", "mkdir", "rm")}
+    return _bin(tmp_path, **utils, **tools)
+
+
+def _fake(tmp_path, name, text) -> Path:
+    f = tmp_path / f"fake-{name}"
+    f.write_text(f"#!/bin/sh\n{text}\n", encoding="utf-8")
+    f.chmod(0o755)
+    return f
+
+
+@needs_workflow_tools
+def test_pre_commit_passes_a_clean_workflow(wf_repo, tmp_path):
+    out = _commit(wf_repo, _workflow(), [_wf_bin(tmp_path, **WORKFLOW_TOOLS)])
+    assert out.returncode == 0, out.stdout + out.stderr
+
+
+@needs_workflow_tools
+def test_pre_commit_stops_an_unpinned_action_and_names_the_file_and_rule(wf_repo, tmp_path):
+    out = _commit(
+        wf_repo, _workflow(uses="actions/checkout@v7"), [_wf_bin(tmp_path, **WORKFLOW_TOOLS)]
+    )
+    assert out.returncode != 0
+    assert ".github/workflows/check.yml" in out.stdout + out.stderr
+    assert "unpinned-uses" in out.stdout + out.stderr
+
+
+@needs_workflow_tools
+def test_pre_commit_stops_a_template_injection_in_a_run_block(wf_repo, tmp_path):
+    run = 'echo "${{ github.event.pull_request.title }}"'
+    out = _commit(wf_repo, _workflow(run=run), [_wf_bin(tmp_path, **WORKFLOW_TOOLS)])
+    assert out.returncode != 0
+    assert "template-injection" in out.stdout + out.stderr
+    assert '"github.event.pull_request.title" is potentially untrusted' in out.stdout + out.stderr
+
+
+@needs_workflow_tools
+def test_pre_commit_checks_the_staged_workflow(wf_repo, tmp_path):
+    path = [_wf_bin(tmp_path, **WORKFLOW_TOOLS)]
+    ((name, bad),) = _workflow(uses="actions/checkout@v7").items()
+    (wf_repo / name).write_text(bad, encoding="utf-8")
+    _run([GIT, "add", "."], wf_repo, path, check=True)
+    (wf_repo / name).write_text(_workflow()[name], encoding="utf-8")
+    out = _run([GIT, "commit", "-m", "test: change"], wf_repo, path)
+    assert out.returncode != 0
+    assert "unpinned-uses" in out.stdout + out.stderr
+
+
+def test_pre_commit_runs_no_workflow_check_without_staged_workflows(wf_repo, tmp_path):
+    fake = _fake(tmp_path, "lint", f"{shutil.which('touch')} {tmp_path / 'ran'}\nexit 1")
+    files = {"register/x.yaml": "slug: x\n", "docs/github.md": "# X\n", "github/x.yml": "x: 1\n"}
+    out = _commit(
+        wf_repo, files, [_wf_bin(tmp_path, actionlint=fake, shellcheck=fake, zizmor=fake)]
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert not (tmp_path / "ran").exists()
+
+
+def test_pre_commit_fails_when_actionlint_is_missing(wf_repo, tmp_path):
+    fake = _fake(tmp_path, "lint", "exit 0")
+    out = _commit(wf_repo, _workflow(), [_wf_bin(tmp_path, shellcheck=fake, zizmor=fake)])
+    assert out.returncode != 0
+    pin = CI_PINS["ACTIONLINT"]
+    assert f"actionlint not found; install actionlint {pin}" in out.stdout + out.stderr
+
+
+def test_pre_commit_warns_when_a_tool_is_not_the_version_ci_pins(wf_repo, tmp_path):
+    fake = _fake(tmp_path, "lint", "echo 0.0.1")
+    out = _commit(
+        wf_repo, _workflow(), [_wf_bin(tmp_path, actionlint=fake, shellcheck=fake, zizmor=fake)]
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+    pin = CI_PINS["ZIZMOR"]
+    assert f"warning: zizmor is 0.0.1 here and {pin} in CI" in out.stdout + out.stderr
 
 
 def _push(repo, tmp_path, files: dict[str, str], path):
