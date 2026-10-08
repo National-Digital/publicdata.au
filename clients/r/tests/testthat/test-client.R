@@ -195,7 +195,7 @@ local_fake <- function(env = parent.frame()) {
 query_of <- function(url) httr2::url_parse(url)$query
 
 test_that("filters render in the API's operator form", {
-  expect_identical(pd_gte(2020L)$expr, "gte.2020")
+  expect_identical(pd_gte(2020.0)$expr, "gte.2020")
   expect_identical(pd_in("QLD", "NSW")$expr, "in.(QLD,NSW)")
   expect_identical(pd_in(c("a", "b"))$expr, "in.(a,b)")
   expect_identical(pd_not(pd_eq("x"))$expr, "not.eq.x")
@@ -207,15 +207,15 @@ test_that("filters render in the API's operator form", {
   expect_error(pd_eq(NA), "pd_is_null")
   expect_error(pd_gt(NA_real_), "pd_is_null")
   expect_error(pd_in("a", NA), "pd_is_null")
-  expect_error(pd_eq(c(1L, 2L)), "pd_in")
+  expect_error(pd_eq(c(1.0, 2.0)), "pd_in")
   expect_identical(pd_eq(FALSE)$expr, "eq.false")
 })
 
 test_that("rows sends conditions, select, order and limit", {
   local_fake()
   r <- pd_rows("a",
-    state = "QLD", year = pd_gte(2020L), lga = NA, sex = c("F", "M"),
-    .select = c("n", "m"), .order = "n.desc", .limit = 2L
+    state = "QLD", year = pd_gte(2020.0), lga = NA, sex = c("F", "M"),
+    .select = c("n", "m"), .order = "n.desc", .limit = 2.0
   )
   q <- query_of(tail(grep("/rows", seen$urls, value = TRUE, fixed = TRUE), 1L))
   expect_identical(
@@ -238,7 +238,7 @@ test_that("an answer carries its version and attribution", {
 
 test_that(".all follows every page and keeps the provenance", {
   local_fake()
-  r <- pd_rows("a", .all = TRUE, .limit = 2L)
+  r <- pd_rows("a", .all = TRUE, .limit = 2.0)
   expect_equal(r$n, 0L:4L, ignore_attr = TRUE)
   expect_null(attr(r, "next"))
   expect_identical(pd_attribution(r), "Publisher, CC BY 4.0.")
@@ -257,7 +257,7 @@ test_that("a dated version goes on the path and a bad one is refused", {
 
 test_that("aggregate sends group, metric and conditions", {
   local_fake()
-  a <- pd_aggregate("a", group = c("g", "h"), metric = c("count", "sum.n"), x = 1L)
+  a <- pd_aggregate("a", group = c("g", "h"), metric = c("count", "sum.n"), x = 1.0)
   expect_identical(
     query_of(tail(seen$urls, 1L))[c("x", "group", "metric")],
     list(x = "eq.1", group = "g,h", metric = "count,sum.n")
@@ -307,7 +307,7 @@ test_that("the live site answers", {
   skip_if_offline("publicdata.au")
   skip_if(!nzchar(Sys.getenv("PUBLICDATA_LIVE")), "set PUBLICDATA_LIVE=1 to query the live site")
   expect_true("au-road-deaths" %in% pd_datasets()$slug)
-  r <- pd_rows("au-road-deaths", state = "QLD", .limit = 1L)
+  r <- pd_rows("au-road-deaths", state = "QLD", .limit = 1.0)
   expect_identical(nrow(r), 1L)
   expect_match(pd_attribution(r), "CC BY")
   f <- pd_download("qld-road-crash-factors", "csv")
@@ -601,7 +601,7 @@ test_that("pd_catalogue searches the portals and maps the jurisdiction", {
   local_fake()
   out <- pd_catalogue(
     "water",
-    jurisdiction = "Queensland", status = c("votable", "served"), limit = 5L
+    jurisdiction = "Queensland", status = c("votable", "served"), limit = 5.0
   )
   expect_identical(out$title, c("Water", "Rain"))
   expect_identical(out$jurisdiction, c("qld", "qld"))
@@ -610,6 +610,9 @@ test_that("pd_catalogue searches the portals and maps the jurisdiction", {
   q <- query_of(tail(seen$urls, 1L))
   expect_identical(q$jur, "qld")
   expect_identical(q$state, "votable,served")
+  expect_identical(q$limit, "5")
+  pd_catalogue(limit = 1.0e5)
+  expect_identical(query_of(tail(seen$urls, 1L))$limit, "100000")
   expect_error(pd_catalogue(jurisdiction = "Narnia"), "jurisdiction is one of")
 })
 
@@ -655,7 +658,7 @@ test_that("pd_join_boundaries finds the layer from the column and joins in order
   y <- data.frame(council = c(1.0, 2.0))
   by_council <- pd_join_boundaries(y, layer = "lga", by = "council")
   expect_identical(by_council$lga_2025_name, c("One", "Two"))
-  expect_error(pd_join_boundaries(data.frame(z = 1L)), "no column named for a boundary code")
+  expect_error(pd_join_boundaries(data.frame(z = 1.0)), "no column named for a boundary code")
   expect_error(pd_join_boundaries(x, layer = "nowhere"), "no boundary layer")
   expect_error(pd_join_boundaries(m), "already has a geometry")
 })
@@ -737,7 +740,7 @@ test_that("pd_read reads only the columns asked for", {
   df <- pd_read("a", columns = "n")
   expect_named(df, "n")
   expect_identical(attr(df$n, "label"), "A count.")
-  expect_error(pd_read("a", columns = 1L), "field names")
+  expect_error(pd_read("a", columns = 1.0), "field names")
 })
 
 test_that("a pinned version is typed and labelled from that version's own fields", {
