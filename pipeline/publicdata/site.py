@@ -11,7 +11,7 @@ import re
 import shutil
 import urllib.parse
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
@@ -52,14 +52,197 @@ from .spine import LAYERS as SPINE_LAYERS
 from .topics import TOPICS
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
+    from typing import NotRequired, ReadOnly
 
     from .cache import BuildCache
+    from .catalogue import Record
     from .directory import Directory, Page
+    from .explorer import Console, ConsoleExample, ConsoleField, ExampleFilter
+    from .figures import Cond, Figures, Preview
+    from .hubs import HubRecord
+    from .jsontypes import JSON
     from .publishers import Publisher
     from .records import Records
-    from .register import Example, Field, Sample
+    from .register import Condition, Example, Field
+    from .serialise import PartitionEntry
     from .store import Manifest
+
+    class QuickLink(TypedDict):
+        name: str
+        url: str
+
+    class VersionView(TypedDict):
+        """A version as the dataset and version pages list it."""
+
+        version: str
+        as_at: str
+        as_at_long: str
+        rows: int
+        rows_fmt: str
+        fields: int
+        tables: dict[str, int]
+        encoding: str
+        sha256: str
+        backfilled: bool
+        notes: list[str]
+        change: Mapping[str, JSON] | None
+        fetched_long: str
+        ext: str
+        source_url: str
+        portal_licence: str
+
+    class Copy(TypedDict):
+        """Where a dataset is also published."""
+
+        hub: str
+        url: str
+        note: str
+        doi: NotRequired[str]
+
+    class FormatButton(TypedDict):
+        key: str
+        label: str
+        file: str
+        size: NotRequired[str]
+
+    class FormatNote(TypedDict):
+        file: str
+        note: str
+
+    class SampleTable(Preview):
+        heading: str
+        note: str
+
+    class RelatedRow(TypedDict):
+        slug: str
+        title: str
+        jur: str
+
+    class PlaceEntry(TypedDict):
+        """A value of the place field, with its partition file."""
+
+        value: str
+        slug: str
+        rows: int
+        rows_fmt: str
+        href: str
+        json: str
+        geojson: str | None
+
+    class ExploreVersion(TypedDict):
+        version: str
+        as_at_long: str
+        rows_fmt: str
+        parquet: str
+        size: int
+
+    class ExploreView(TypedDict):
+        """What the explorer page needs, written into it as JSON."""
+
+        slug: str
+        title: str
+        site: str
+        page: str
+        embed_page: str
+        views: str
+        vendor: str
+        versions: list[ExploreVersion]
+        int32: list[str]
+        labels: dict[str, str]
+        text: list[str]
+        yesno: list[str]
+        defaults: dict[str, object]
+
+    class _SampleView(TypedDict, total=False):
+        """A dataset's sample, or nothing set, as the preview reads it."""
+
+        where: ReadOnly[tuple[Condition, ...]]
+        order: ReadOnly[tuple[tuple[str, bool], ...]]
+        spread: ReadOnly[str | None]
+        label: ReadOnly[str]
+
+    class DbTable(TypedDict):
+        """A database's table as its page lists it."""
+
+        name: str
+        source: str
+        description: str
+        rows: int
+        rows_fmt: str
+        key: list[str]
+        fields: list[dict[str, str]]
+        refs: list[str]
+        parquet: str
+        size: str
+
+    class CollectionTable(TypedDict):
+        slug: str
+        title: str
+        summary: str
+        rows: str
+        fields: int
+        version: str
+        quick: list[QuickLink]
+
+    class ComingRef(TypedDict):
+        title: str
+        slug: str
+
+    class TopicRow(TypedDict):
+        slug: str
+        name: str
+        blurb: str
+        href: str
+        count: int
+        rows: str
+        titles: list[str]
+        coming: list[ComingRef]
+        search: str
+
+    class ArdDoc(TypedDict):
+        specVersion: str
+        host: dict[str, str]
+        entries: list[dict[str, object]]
+
+    class OpenApiDoc(TypedDict):
+        openapi: str
+        info: dict[str, object]
+        servers: list[dict[str, str]]
+        tags: list[dict[str, str]]
+        paths: dict[str, object]
+        components: dict[str, object]
+
+    class DatasetRow(TypedDict):
+        """A dataset as a card or table row lists it, on the home, topic and publisher pages."""
+
+        slug: str
+        title: str
+        summary: str
+        fields: int
+        kind: str
+        spark: str
+        spark_caption: str
+        publisher: str
+        publisher_name: str
+        jur: str
+        status: str
+        status_label: str
+        licence: str
+        licence_url: str
+        planned: str
+        blocked_reason: str
+        live: bool
+        latest: str
+        rows: str
+        done_label: str
+        collection: str
+        collection_title: str
+        url: str
+        source_url: str
+        topics: list[str]
+        quick: NotRequired[list[QuickLink]]
+
 
 HOST = SITE.replace("https://", "")
 # One entity for the site, which the home page describes and every dataset is included in.
@@ -107,7 +290,7 @@ STATUS_LABEL = {"blocked": "blocked by licence", "assessing": "licence under rev
 # None for every row) and the states its rows cover ("all", or None for the publisher's own).
 # A state no dataset covers is drawn hatched, so it reads as unpublished rather than empty.
 class _HeroDataset(TypedDict):
-    where: dict[str, Any] | None
+    where: Cond | None
     states: str
 
 
@@ -204,7 +387,7 @@ def _write(out: Path, rel: str, text: str) -> None:
     p.write_text(text, encoding="utf-8")
 
 
-def _change_words(c: dict[str, Any] | None) -> str:
+def _change_words(c: Mapping[str, JSON] | None) -> str:
     """A diff without a key, or a database's, compares row counts and has no added or removed."""
     if not c:
         return ""
@@ -213,7 +396,7 @@ def _change_words(c: dict[str, Any] | None) -> str:
     return f" ({c['added']} added, {c['removed']} removed, {c['changed']} changed)"
 
 
-def _version_view(ds: Dataset, v: VersionOut, change: dict[str, Any] | None) -> dict[str, Any]:
+def _version_view(ds: Dataset, v: VersionOut, change: Mapping[str, JSON] | None) -> VersionView:
     m = v.manifest
     return {
         "version": m.version,
@@ -379,7 +562,7 @@ def _seo_description(ds: Dataset, v: VersionOut, span: str = "") -> str:
 
 
 def _faq(
-    ds: Dataset, v: VersionOut, partitions: dict[str, Any], span: str = ""
+    ds: Dataset, v: VersionOut, partitions: Mapping[str, Sequence[PartitionEntry]], span: str = ""
 ) -> list[tuple[str, str]]:
     m = v.manifest
     base = dataset_url(ds.slug)
@@ -500,14 +683,14 @@ def _temporal(ds: Dataset, m: Manifest) -> str | None:
     return None
 
 
-def copies_of(record: dict[str, Any] | None, slug: str) -> list[dict[str, Any]]:
+def copies_of(record: HubRecord | None, slug: str) -> list[Copy]:
     """Where a dataset is also published, in a fixed order.
 
     It is read from the record the Hubs job commits in store/hubs.json. Only copies the job found
     are listed.
     """
     found = ((record or {}).get("datasets") or {}).get(slug) or {}
-    out = []
+    out: list[Copy] = []
     if found.get("huggingface"):
         repo = found["huggingface"].split("/datasets/", 1)[-1]
         out.append(
@@ -524,8 +707,8 @@ def copies_of(record: dict[str, Any] | None, slug: str) -> list[dict[str, Any]]:
 
 
 def _dataset_jsonld(
-    ds: Dataset, o: DatasetOut, copies: list[dict[str, Any]] | None = None
-) -> dict[str, Any]:
+    ds: Dataset, o: DatasetOut, copies: list[Copy] | None = None
+) -> dict[str, object]:
     copies = copies or []
     doi = next((c["doi"] for c in copies if c.get("doi")), None)
     v = _newest(o)
@@ -603,7 +786,7 @@ def _dataset_jsonld(
     }
 
 
-def _breadcrumbs(items: list[tuple[str, str]]) -> dict[str, Any]:
+def _breadcrumbs(items: list[tuple[str, str]]) -> dict[str, object]:
     return {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
@@ -614,7 +797,7 @@ def _breadcrumbs(items: list[tuple[str, str]]) -> dict[str, Any]:
     }
 
 
-def _faq_jsonld(faq: list[tuple[str, str]]) -> dict[str, Any]:
+def _faq_jsonld(faq: list[tuple[str, str]]) -> dict[str, object]:
     return {
         "@context": "https://schema.org",
         "@type": "FAQPage",
@@ -625,7 +808,7 @@ def _faq_jsonld(faq: list[tuple[str, str]]) -> dict[str, Any]:
     }
 
 
-def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict[str, Any]:
+def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict[str, object]:
     v = _newest(o)
     m = v.manifest
     base = dataset_url(ds.slug)
@@ -697,16 +880,16 @@ def _all_fields(ds: Dataset) -> list[tuple[str, Field]]:
     return [(f.name, f) for f in ds.fields]
 
 
-def _row(ds: Dataset, o: DatasetOut | None, fig: dict[str, Any] | None = None) -> dict[str, Any]:
+def _row(ds: Dataset, o: DatasetOut | None, fig: Figures | None = None) -> DatasetRow:
     latest = o.latest if o and o.versions else None
-    d = {
+    d: DatasetRow = {
         "slug": ds.slug,
         "title": ds.title,
         "summary": ds.summary,
         "fields": ds.field_count,
         "kind": ds.kind,
-        "spark": (fig or {}).get("spark", ""),
-        "spark_caption": (fig or {}).get("spark_caption", ""),
+        "spark": fig["spark"] if fig else "",
+        "spark_caption": fig["spark_caption"] if fig else "",
         "publisher": ds.publisher.short,
         "publisher_name": ds.publisher.name,
         "jur": ds.publisher.jurisdiction,
@@ -774,17 +957,19 @@ def _default_format(ds: Dataset, latest: VersionOut) -> str:
     return "csv" if "csv" in have else next(iter(_fmts(ds, latest)))
 
 
-def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[FormatButton], dict[str, FormatNote]]:
     """The format buttons and what site.js needs for each: the file and its note.
 
     The default format comes first and is the one pressed.
     """
     first = _default_format(ds, latest)
     order = sorted(_fmts(ds, latest), key=lambda f: f != first)
-    formats = [{"key": f, "label": FORMAT_LABEL[f], "file": f"data.{f}"} for f in order]
+    formats: list[FormatButton] = [
+        {"key": f, "label": FORMAT_LABEL[f], "file": f"data.{f}"} for f in order
+    ]
     for f in formats:
         f["size"] = fmt_size(latest.files.get(f["file"]))
-    fmt_data = {
+    fmt_data: dict[str, FormatNote] = {
         f["key"]: {
             "file": f["file"],
             "note": _format_note(ds, f["key"], latest.rows),
@@ -817,21 +1002,21 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict[str, Any]], dict
 SAMPLE_ROWS = 10
 
 
-def _sample(ds: Dataset, db: Path, within: dict[str, Any] | None = None) -> dict[str, Any]:
+def _sample(ds: Dataset, db: Path, within: Cond | None = None) -> SampleTable:
     """The page's sample rows, with a heading and a note that say how they were picked.
 
     The rows are the register's sample, else the newest rows first with the partition field's
     values taking turns, so a table filed oldest first or one sex after the other shows more than
     one corner.
     """
-    spec: Sample | dict[str, Any] = ds.sample or {}
+    spec: _SampleView = ds.sample or {}
     yf = figures.year_field(ds)
     order = spec.get("order") or (((yf[0], True),) if yf else ())
     spread = spec.get("spread")
     if spread is None:
         skip = {yf[0] if yf else "", ds.place_field if within else ""}
         spread = next((f for f in ds.partition_by if f not in skip), "")
-    where = [*([within] if within else []), *spec.get("where", ())]
+    where: list[Cond] = [*([within] if within else []), *spec.get("where", ())]
     out = figures.sample_rows(
         db,
         [f.name for f in ds.fields],
@@ -843,9 +1028,10 @@ def _sample(ds: Dataset, db: Path, within: dict[str, Any] | None = None) -> dict
     )
     # The records hold a boolean as 1 or 0; the table shows it as the JSON does.
     flags = [i for i, f in enumerate(out["fields"]) if ds.field(f).type == "boolean"]
+    shown: dict[str | None, str | None] = {"1": "true", "0": "false"}
     for r in out["rows"]:
         for i in flags:
-            r[i] = {"1": "true", "0": "false"}.get(r[i], r[i])
+            r[i] = shown.get(r[i], r[i])
     n = len(out["rows"])
 
     def low(name: str) -> str:
@@ -878,9 +1064,12 @@ def _sample(ds: Dataset, db: Path, within: dict[str, Any] | None = None) -> dict
         how = f"From the latest version, {source_order}, with every field."
     plain = not (order or spread or spec.get("where") or spec.get("label"))
     rows = "row" if n == 1 else "rows"
-    out["heading"] = f"The first {n} {rows}" if plain else f"A sample of {n} {rows}"
-    out["note"] = f"{how} A blank cell is shown as null."
-    return out
+    return {
+        "fields": out["fields"],
+        "rows": out["rows"],
+        "heading": f"The first {n} {rows}" if plain else f"A sample of {n} {rows}",
+        "note": f"{how} A blank cell is shown as null.",
+    }
 
 
 # Words that name a place, a time or the shape of a table, which say nothing of the subject.
@@ -905,7 +1094,7 @@ def _subject_words(d: Dataset) -> set[str]:
     return {w for w in words if len(w) >= RELATED_MIN_CHARS and w not in RELATED_STOP}
 
 
-def _related(ds: Dataset, live: list[DatasetOut]) -> list[dict[str, Any]]:
+def _related(ds: Dataset, live: list[DatasetOut]) -> list[RelatedRow]:
     """Datasets under the same topic from another publisher that share words of subject.
 
     They are listed most shared first, so a reader who has one state's table finds the others
@@ -929,11 +1118,11 @@ def _related(ds: Dataset, live: list[DatasetOut]) -> list[dict[str, Any]]:
     ]
 
 
-def _places(ds: Dataset, latest: VersionOut) -> list[dict[str, Any]]:
+def _places(ds: Dataset, latest: VersionOut) -> list[PlaceEntry]:
     """One entry per value of the place field, from the partition index the build wrote."""
     if not ds.place_field:
         return []
-    out = []
+    out: list[PlaceEntry] = []
     for e in latest.partitions.get(ds.place_field, []):
         if e["value"] is None:
             continue
@@ -955,17 +1144,17 @@ def _places(ds: Dataset, latest: VersionOut) -> list[dict[str, Any]]:
 def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     o: DatasetOut,
-    latest_view: dict[str, Any],
-    console: dict[str, Any] | None,
+    latest_view: VersionView,
+    console: Console | None,
     db: Path,
     *,
     out: Path,
     page: Page,
-    places: list[dict[str, Any]],
+    places: list[PlaceEntry],
     card: brand.Card,
     crumbs: list[tuple[str, str]],
-    links: dict[str, Any],
-    citation: dict[str, Any],
+    links: dict[str, object],
+    citation: Mapping[str, str],
 ) -> list[str]:
     """A page for every value of the place field.
 
@@ -985,7 +1174,7 @@ def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at e
     total = fmt_int(latest.rows)
     urls = []
     for p in places:
-        within = {"field": ds.place_field, "op": "=", "value": p["value"]}
+        within: Cond = {"field": ds.place_field, "op": "=", "value": p["value"]}
         fig = figures.dataset_figures(ds, m, console, db, out, within=within)
         years = fig.get("years", "")
         heading = f"{what} in {p['value']}"
@@ -1112,7 +1301,7 @@ def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at e
     return urls
 
 
-def licence_record(ds: Dataset, m: Manifest) -> dict[str, Any]:
+def licence_record(ds: Dataset, m: Manifest) -> dict[str, object]:
     """Where and when the licence was read.
 
     It was read by a person, from the register, and by the fetch that made the latest version,
@@ -1149,13 +1338,13 @@ def _words(ds: Dataset, name: str) -> str:
         return name.replace("_", " ")
 
 
-def _asked(ds: Dataset, console: dict[str, Any]) -> str:
+def _asked(ds: Dataset, console: Console) -> str:
     """What the example query counts or sums, in words."""
     ex = console["example"]
     return figures.measure(ds, ex["metric"], ex.get("label", ""))
 
 
-def _example_title(ds: Dataset, console: dict[str, Any]) -> str:
+def _example_title(ds: Dataset, console: Console) -> str:
     """The example query in words.
 
     That is the register's label when it is a whole phrase, else what it counts, by its group,
@@ -1168,7 +1357,7 @@ def _example_title(ds: Dataset, console: dict[str, Any]) -> str:
     return f"{_asked(ds, console)} by {_words(ds, ex['group'][0])}{_filter_words(ds, console)}"
 
 
-def _filter_words(ds: Dataset, console: dict[str, Any]) -> str:
+def _filter_words(ds: Dataset, console: Console) -> str:
     parts = [
         f"{_words(ds, f['field'])} {OP_WORDS[f['op']]} {f['value']}"
         for f in console["example"]["filters"]
@@ -1218,7 +1407,7 @@ def _script_json(value: object) -> str:
     return _escape_script(json.dumps(value, ensure_ascii=False))
 
 
-def _md_twin_explore(ds: Dataset, explore: dict[str, Any], attr: str) -> str:
+def _md_twin_explore(ds: Dataset, explore: ExploreView, attr: str) -> str:
     page = SITE + explore["page"]
     return "\n".join(
         [
@@ -1247,13 +1436,13 @@ def _md_twin_explore(ds: Dataset, explore: dict[str, Any], attr: str) -> str:
     )
 
 
-def _db_view(ds: Dataset, v: VersionOut) -> dict[str, Any]:
+def _db_view(ds: Dataset, v: VersionOut) -> dict[str, object]:
     """What the database page lists.
 
     That is each table with its rows, size, key and references, the views, and the files.
     """
     vb = version_url(ds.slug, v.manifest.version)
-    tables: list[dict[str, Any]] = []
+    tables: list[DbTable] = []
     for t in ds.tables:
         name = f"tables/{t.name}.parquet"
         tables.append(
@@ -1298,7 +1487,7 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict[str, Any]:
     }
 
 
-def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict[str, Any]]:
+def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict[str, str]]:
     """How to open the dataset from Excel, Power BI, R, Python, DuckDB and a script.
 
     These are as the connect tabs show them. Code uses the dated version's URL, since a pinned file
@@ -1459,11 +1648,11 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
 def _md_twin_database(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     o: DatasetOut,
-    views: list[dict[str, Any]],
+    views: list[VersionView],
     faq: Sequence[tuple[str, str]] = (),
-    citation: dict[str, Any] | None = None,
+    citation: Mapping[str, str] | None = None,
     *,
-    related: Sequence[dict[str, Any]] = (),
+    related: Sequence[RelatedRow] = (),
 ) -> str:
     v = _newest(o)
     m = v.manifest
@@ -1548,15 +1737,15 @@ def _md_twin_database(  # noqa: PLR0913 - the options are keyword-only and named
 def _md_twin_dataset(  # noqa: C901, PLR0912, PLR0913 - the page's sections in order; the options are keyword-only
     ds: Dataset,
     o: DatasetOut,
-    views: list[dict[str, Any]],
+    views: list[VersionView],
     siblings: list[Dataset],
     faq: Sequence[tuple[str, str]] = (),
     *,
-    citation: dict[str, Any] | None = None,
-    console: dict[str, Any] | None = None,
+    citation: Mapping[str, str] | None = None,
+    console: Console | None = None,
     explore: bool = False,
-    related: Sequence[dict[str, Any]] = (),
-    places: Sequence[dict[str, Any]] = (),
+    related: Sequence[RelatedRow] = (),
+    places: Sequence[PlaceEntry] = (),
 ) -> str:
     v = _newest(o)
     m = v.manifest
@@ -2033,7 +2222,7 @@ GLAMA_CLAIM = "glama_claim_6RT87z1LNOY2Um2-9t5ats8O7u6Nyz4w"
 OPENAI_APPS_CHALLENGE = "WMdjLxFbqZsMxKB4xz4o3sAnuyJu1zFwN8jcBnjG3aw"
 
 
-def _api_doc() -> dict[str, Any]:
+def _api_doc() -> dict[str, object]:
     """The query API's help on each dataset page, as HTML."""
     spec = at.spec()
     api_spec = spec["api"]
@@ -2105,24 +2294,32 @@ def _agents_tools() -> str:
 PATH_HINT_VALUES = 20
 
 
+def _hint_values(known: Mapping[str, ConsoleField], name: str) -> list[object]:
+    e = known.get(name)
+    return (e.get("values") or []) if e else []
+
+
+def _hint(known: Mapping[str, ConsoleField], name: str) -> str:
+    e = known.get(name)
+    values = _hint_values(known, name)
+    if values and len(values) <= PATH_HINT_VALUES:
+        return " Values: " + ", ".join(str(v) for v in values) + "."
+    if e and "min" in e:
+        return f" From {e['min']} to {e['max']}."
+    return ""
+
+
 def _query_paths(
     live: list[DatasetOut],
-    slug_p: dict[str, Any],
-    hints: dict[str, Any] | None = None,
+    slug_p: dict[str, object],
+    hints: Mapping[str, ConsoleField] | None = None,
     *,
     generic: bool = False,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """One rows path per live dataset with its fields as typed filters, and one aggregate path."""
-    hints = hints or {}
-
-    def hint(name: str) -> str:
-        e = hints.get(name) or {}
-        if e.get("values") and len(e["values"]) <= PATH_HINT_VALUES:
-            return " Values: " + ", ".join(str(v) for v in e["values"]) + "."
-        if "min" in e:
-            return f" From {e['min']} to {e['max']}."
-        return ""
-
+    known = hints or {}
+    values_of: Callable[[str], list[object]] = lambda name: _hint_values(known, name)  # noqa: E731
+    hint: Callable[[str], str] = lambda name: _hint(known, name)  # noqa: E731
     spec = at.spec()
     lim, responses, path_specs = spec["limits"], spec["responses"], spec["paths"]
     schemas = {
@@ -2140,7 +2337,7 @@ def _query_paths(
         "metric": {"type": "string", "default": "count"},
     }
 
-    def param(name: str) -> dict[str, Any]:
+    def param(name: str) -> dict[str, object]:
         return {
             "name": name,
             "in": "query",
@@ -2149,7 +2346,7 @@ def _query_paths(
         }
 
     common = [param(n) for n in ("select", "order", "limit", "offset", "format")]
-    ver_p = {
+    ver_p: dict[str, object] = {
         "name": "version",
         "in": "path",
         "required": True,
@@ -2190,8 +2387,8 @@ def _query_paths(
             },
         },
     }
-    paths = {}
-    filters = []
+    paths: dict[str, object] = {}
+    filters: list[dict[str, object]] = []
     if generic:
         # The site's document stays one size whatever the number of datasets; each dataset's own
         # document names its fields as filters.
@@ -2229,11 +2426,7 @@ def _query_paths(
                 "in": "query",
                 "schema": {"type": "string"},
                 "description": f"{f.type}. {f.description}".strip() + hint(f.name),
-                **(
-                    {"examples": [f"eq.{hints[f.name]['values'][-1]}"]}
-                    if hints.get(f.name, {}).get("values")
-                    else {}
-                ),
+                **({"examples": [f"eq.{values_of(f.name)[-1]}"]} if values_of(f.name) else {}),
             }
             for f in ds.fields
         ]
@@ -2302,7 +2495,7 @@ def _query_paths(
 HINT_VALUES = 150  # a field with more distinct values than this gets no value list
 
 
-def _fields_resource(o: DatasetOut, console: dict[str, Any]) -> dict[str, Any]:
+def _fields_resource(o: DatasetOut, console: Console) -> dict[str, object]:
     """A dataset's fields as the MCP server's resource: what the query console knows, as data."""
     ds, m = o.dataset, _newest(o).manifest
     api = f"{SITE}/api/v1/datasets/{ds.slug}/"
@@ -2324,7 +2517,7 @@ def _fields_resource(o: DatasetOut, console: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _console(ds: Dataset, parquet: Path) -> dict[str, Any]:
+def _console(ds: Dataset, parquet: Path) -> Console:
     """Fields with value hints and a first query for the dataset page's query console.
 
     Both are read from the same rows the query API is loaded from.
@@ -2340,10 +2533,10 @@ def _console(ds: Dataset, parquet: Path) -> dict[str, Any]:
             + " FROM records"
         )
     )
-    fields: list[dict[str, Any]] = []
+    fields: list[ConsoleField] = []
     for i, f in enumerate(f for f in ds.fields if f.name in cols):
         distinct, lo, hi = stats[i * 3 : i * 3 + 3]
-        e: dict[str, Any] = {"name": f.name, "type": f.type}
+        e: ConsoleField = {"name": f.name, "type": f.type}
         if f.description:
             e["description"] = f.description
         if f.type in ("integer", "number", "date", "datetime") and lo is not None:
@@ -2371,20 +2564,22 @@ def _console(ds: Dataset, parquet: Path) -> dict[str, Any]:
     return {"fields": fields, "example": example}
 
 
-def _register_example(ds: Dataset, ex: Example, con: Records, by: dict[str, Any]) -> dict[str, Any]:
+def _register_example(
+    ds: Dataset, ex: Example, con: Records, by: Mapping[str, ConsoleField]
+) -> ConsoleExample:
     """The register's example, with each newest standing for the field's newest value."""
     measured = [ex["metric"].split(".", 1)[1]] if ex["metric"] != "count" else []
     for name in (*(f["field"] for f in ex["filters"]), *ex["group"], *measured):
         if name not in by:
             msg = f"{ds.slug}: the example names {name}, which the version lacks"
             raise ValueError(msg)
-    filters: list[dict[str, Any]] = []
+    filters: list[ExampleFilter] = []
     for f in ex["filters"]:
         value: object = f["value"]
         if value == NEWEST:
             value = figures.newest(con, f["field"])
         filters.append({**f, "value": str(value)})
-    out: dict[str, Any] = {"filters": filters, "group": list(ex["group"]), "metric": ex["metric"]}
+    out: ConsoleExample = {"filters": filters, "group": list(ex["group"]), "metric": ex["metric"]}
     if ex["label"]:
         out["label"] = ex["label"]
     return out
@@ -2397,7 +2592,7 @@ ID_NAME = re.compile(r"(^|_)(id|no|number|code)$")
 EXAMPLE_GROUP_MIN, EXAMPLE_GROUP_MAX = 2, 30
 
 
-def _picked_example(ds: Dataset, con: Records, fields: list[dict[str, Any]]) -> dict[str, Any]:
+def _picked_example(ds: Dataset, con: Records, fields: list[ConsoleField]) -> ConsoleExample:
     """A first query from the field statistics, for an entry whose register names none.
 
     It is a filter on the partition field or a short list of values, a group with more than one
@@ -2416,7 +2611,9 @@ def _picked_example(ds: Dataset, con: Records, fields: list[dict[str, Any]]) -> 
         and not ID_NAME.search(e["name"])
     )
     first = next((n for n in ds.partition_by if n in by), None) or next(listed, None)
-    filters, cond, params = [], "", []
+    filters: list[ExampleFilter] = []
+    cond = ""
+    params: list[object] = []
     if first:
         e = by[first]
         # The newest value with a page of rows, so the first run shows something.
@@ -2470,12 +2667,12 @@ def _picked_example(ds: Dataset, con: Records, fields: list[dict[str, Any]]) -> 
         # With nothing to split inside the filter, the filter's own field is the split, so the
         # tile answers with its values instead of nothing.
         "filters": filters if group or not first else [],
-        "group": [group or first] if group or first else [],
+        "group": [shown] if (shown := group or first) else [],
         "metric": f"sum.{tally}" if tally else "count",
     }
 
 
-def _example_query(slug: str, console: dict[str, Any], op: str) -> str:
+def _example_query(slug: str, console: Console, op: str) -> str:
     ex = console["example"]
     # A value such as "% Total" or "A&E" is quoted whole, so the URL keeps its meaning.
     parts = [
@@ -2493,7 +2690,7 @@ def _example_query(slug: str, console: dict[str, Any], op: str) -> str:
     return f"/api/v1/datasets/{slug}/{op}?" + "&".join(p.replace(" ", "%20") for p in parts)
 
 
-def _dataset_openapi(o: DatasetOut, console: dict[str, Any]) -> dict[str, Any]:
+def _dataset_openapi(o: DatasetOut, console: Console) -> dict[str, object]:
     """OpenAPI 3.1 for one dataset's query paths, with each field's values or range."""
     ds = o.dataset
     slug_p = {
@@ -2521,7 +2718,7 @@ def _dataset_openapi(o: DatasetOut, console: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict[str, Any]:
+def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
     """OpenAPI 3.1 for every public path. The dataset slugs are an enum so tools can validate."""
     slugs = [o.dataset.slug for o in live]
     versions = sorted({v.manifest.version for o in live for v in o.versions})
@@ -2545,7 +2742,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict[str, Any
             "not_endorsed": {"type": "string"},
         },
     }
-    slug_p = {
+    slug_p: dict[str, object] = {
         "name": "slug",
         "in": "path",
         "required": True,
@@ -2567,13 +2764,13 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict[str, Any
         "description": _file_formats_text(),
     }
 
-    def j(desc: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
+    def j(desc: str, schema: dict[str, object] | None = None) -> dict[str, object]:
         return {
             "description": desc,
             "content": {"application/json": {"schema": schema or {"type": "object"}}},
         }
 
-    doc: dict[str, Any] = {
+    doc: OpenApiDoc = {
         "openapi": "3.1.0",
         "info": {
             "title": HOST,
@@ -3116,7 +3313,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict[str, Any
     return doc
 
 
-def _served_row(o: DatasetOut, dirx: Directory) -> dict[str, Any]:
+def _served_row(o: DatasetOut, dirx: Directory) -> dict[str, object]:
     """What search_datasets finds a served dataset by, and what it answers with."""
     ds = o.dataset
 
@@ -3162,11 +3359,11 @@ SAMPLE_FIELDS = 8
 def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in the order they are written
     outs: list[DatasetOut],
     out: Path,
-    records: list[dict[str, Any]] | None = None,
+    records: Sequence[Record] | None = None,
     curated: list[Publisher] | None = None,
     catalogue_as_at: str = "",
     *,
-    catalogue_stats: dict[str, Any] | None = None,
+    catalogue_stats: Mapping[str, object] | None = None,
     search: Path | None = None,
     cache: BuildCache | None = None,
     hubs: dict | None = None,
@@ -3208,7 +3405,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         catalogue_sqlite(search, directory.search_rows(dirx), catalogue_as_at)
         served_table(search, [_served_row(o, dirx) for o in live])
 
-    def trail(ds: Dataset) -> tuple[list[tuple[str, str]], dict[str, Any]]:
+    def trail(ds: Dataset) -> tuple[list[tuple[str, str]], dict[str, object]]:
         pub = dirx.ds_pub[ds.slug]
         jp = dirx.jur_path(pub.jurisdiction)
         crumbs = [
@@ -3263,9 +3460,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     def version_pages(  # noqa: PLR0913 - the options are keyword-only and named at each call
         o: DatasetOut,
         ds: Dataset,
-        views: list[dict[str, Any]],
-        fig: dict[str, Any],
-        hints: dict[str, Any] | None,
+        views: list[VersionView],
+        fig: Figures,
+        hints: Console | None,
         *,
         card: brand.Card,
         base: str,
@@ -3359,9 +3556,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     # Dataset pages and version pages.
     resources = []
     queried: list[DatasetOut] = []
-    figs: dict[str, dict[str, Any]] = {}
-    consoles: dict[str, dict[str, Any] | None] = {}
-    views_by: dict[str, list[dict[str, Any]]] = {}
+    figs: dict[str, Figures] = {}
+    consoles: dict[str, Console | None] = {}
+    views_by: dict[str, list[VersionView]] = {}
     explored: set[str] = set()  # slugs whose Parquet is small enough for an explorer page
     place_urls: dict[str, list[str]] = {}
     for o in live:
@@ -3469,8 +3666,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         consoles[ds.slug] = console
         views_by[ds.slug] = views
         example = figures.example_rows(rows_path, console, key=ds.key) if console else []
-        explore: dict[str, Any] | None = None
-        ex_versions = [
+        explore: ExploreView | None = None
+        ex_versions: list[ExploreVersion] = [
             {
                 "version": view["version"],
                 "as_at_long": view["as_at_long"],
@@ -3697,7 +3894,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         pub = first.dataset.publisher
         m = _newest(first).manifest
         curl = collection_url(coll)
-        table: list[dict[str, Any]] = [
+        table: list[CollectionTable] = [
             {
                 "slug": o.dataset.slug,
                 "title": o.dataset.title,
@@ -3855,7 +4052,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             not ho
             or not ho.versions
             or not ho.dataset.geometry
-            or not figs.get(slug, {}).get("cells")
+            or not (slug in figs and figs[slug].get("cells"))
         ):
             continue
         states = (
@@ -3918,14 +4115,14 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     show = next((o for o in queried if o.dataset.slug == SHOWCASE), None) or (
         hero if hero in queried else (queried[0] if queried else None)
     )
-    query_demo: dict[str, Any] | None = None
-    agent_demo: dict[str, Any] | None = None
+    query_demo: dict[str, object] | None = None
+    agent_demo: dict[str, object] | None = None
     con = consoles.get(show.dataset.slug) if show else None
     if show and con:
         sd, sm = show.dataset, _newest(show).manifest
         db = out / "d" / sd.slug / "v" / sm.version / "data.parquet"
         srows = figures.example_rows(db, con, key=sd.key)
-        group = (con["example"]["group"] or [None])[0]
+        group = next(iter(con["example"]["group"]), None)
         # The demo adds the groups up and hands the agent its filters as exact matches.
         adds = con["example"]["metric"].split(".")[0] in ("count", "sum")
         exact = all(f["op"] == "eq" for f in con["example"]["filters"])
@@ -3978,7 +4175,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         (
             o
             for o in live
-            if o.dataset.slug in explored and figs.get(o.dataset.slug, {}).get("chart")
+            if o.dataset.slug in explored
+            and o.dataset.slug in figs
+            and figs[o.dataset.slug]["chart"]
         ),
         key=lambda o: (len(_fmts(o.dataset, _newest(o))), _newest(o).rows),
         default=None,
@@ -4063,12 +4262,12 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         ]
     )
     # Topics are the way in: each counts what is served under it and what is coming.
-    topic_rows: list[dict[str, Any]] = []
+    topic_rows: list[TopicRow] = []
     for tslug, tinfo in TOPICS.items():
         members = sorted(
             (o for o in live if tslug in o.dataset.topics), key=lambda o: -_newest(o).rows
         )
-        coming = [
+        coming: list[ComingRef] = [
             {"title": d.title, "slug": d.slug}
             for d in datasets
             if tslug in d.topics and d.status in ("building", "backlog", "assessing")
@@ -4124,7 +4323,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     # What the hero's file became: the pieces of its page, side by side.
     hm, hfig, hview = (
         _newest(hero).manifest,
-        figs.get(hero.dataset.slug, {}),
+        figs.get(hero.dataset.slug),
         views_by[hero.dataset.slug][-1],
     )
     hcon = consoles.get(hero.dataset.slug)
@@ -4140,12 +4339,12 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "version": hm.version,
         "rows": fmt_int(_newest(hero).rows),
         "formats": _fmts(hero.dataset, _newest(hero)),
-        "map": hfig.get("map", ""),
-        "map_caption": hfig.get("map_caption", ""),
-        "chart": hfig.get("chart", ""),
-        "chart_caption": hfig.get("chart_caption", ""),
-        "what": hfig.get("what", "Rows"),
-        "years": hfig.get("years", ""),
+        "map": hfig["map"] if hfig else "",
+        "map_caption": hfig["map_caption"] if hfig else "",
+        "chart": hfig["chart"] if hfig else "",
+        "chart_caption": hfig["chart_caption"] if hfig else "",
+        "what": hfig["what"] if hfig else "Rows",
+        "years": hfig["years"] if hfig else "",
         "query": _example_query(hero.dataset.slug, hcon, "aggregate") if hcon else "",
         "change": hview["change"],
         "versions": len(hero.versions),
@@ -4214,7 +4413,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 key=lambda o: -_newest(o).rows,
             )
         ]
-        coming = [
+        upcoming = [
             _row(d, None)
             for d in datasets
             if tr["slug"] in d.topics and d.status in ("building", "backlog", "assessing")
@@ -4235,7 +4434,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                     for r in topic_cards
                 ],
                 "",
-                *([f"Coming: {', '.join(r['title'] for r in coming)}.", ""] if coming else []),
+                *([f"Coming: {', '.join(r['title'] for r in upcoming)}.", ""] if upcoming else []),
                 f"Every dataset on the portals can be searched at {SITE}{tr['search']} and voted for.",
                 "",
             ]
@@ -4249,7 +4448,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             nav="datasets",
             topic=tr,
             cards=topic_cards,
-            coming=coming,
+            coming=upcoming,
             extra_jsonld=[
                 json.dumps(
                     _breadcrumbs([("Datasets", SITE + "/"), (tr["name"], SITE + tr["href"])]),
@@ -4628,7 +4827,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         )
         _write(out, name, "\n".join(doc))
     urn: Callable[[str, str], str] = lambda ns, n: f"urn:air:{HOST}:{ns}:{n}"  # noqa: E731
-    ard: dict[str, Any] = {
+    ard: ArdDoc = {
         "specVersion": "1.0",
         "host": {"displayName": HOST, "identifier": HOST, "logoUrl": f"{SITE}/icon-512.png"},
         "entries": [

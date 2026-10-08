@@ -12,13 +12,18 @@ import os
 import sys
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 import requests
 
 from . import SITE
 from .api_text import directory_listing, mcp_spec
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from .jsontypes import JSONObject
 
 API = "https://api.smithery.ai"
 NAME = "national-digital/publicdata-au"
@@ -66,10 +71,10 @@ def _session(key: str) -> requests.Session:
     return s
 
 
-def live(s: requests.Session) -> dict[str, Any]:
+def live(s: requests.Session) -> JSONObject:
     r = s.get(f"{API}/servers/{quote(NAME, safe='')}", timeout=30)
     r.raise_for_status()
-    got: dict[str, Any] = r.json()
+    got: JSONObject = r.json()
     # Only the search listing carries the homepage.
     r = s.get(
         f"{API}/servers",
@@ -77,11 +82,11 @@ def live(s: requests.Session) -> dict[str, Any]:
         timeout=30,
     )
     r.raise_for_status()
-    row: dict[str, Any] = next((x for x in r.json()["servers"] if x["qualifiedName"] == NAME), {})
+    row: JSONObject = next((x for x in r.json()["servers"] if x["qualifiedName"] == NAME), {})
     return {**got, "homepage": row.get("homepage")}
 
 
-def drift(current: dict[str, Any]) -> dict[str, str]:
+def drift(current: Mapping[str, object]) -> dict[str, str]:
     return {k: v for k, v in listing().items() if current.get(k) != v}
 
 

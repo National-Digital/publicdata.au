@@ -13,7 +13,7 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from typing import TYPE_CHECKING, NotRequired, ReadOnly, TypedDict, TypeIs
 
 from PIL import Image
 
@@ -25,12 +25,42 @@ from .register import WHERE_OPS
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
+    from .explorer import Console, ExampleFilter
     from .records import Records
-    from .register import Chart, Dataset
+    from .register import Condition, Dataset
     from .store import Manifest
 
-# A {field, op, value} condition, or several ANDed together.
-type Where = dict[str, Any] | Iterable[Mapping[str, Any]] | None
+    class _ChartView(TypedDict, total=False):
+        """A dataset's chart, or nothing set, as the figures read it."""
+
+        off: ReadOnly[bool]
+        where: ReadOnly[tuple[Condition, ...]]
+        split: ReadOnly[str | None]
+        metric: ReadOnly[str]
+        label: ReadOnly[str]
+        year: ReadOnly[str]
+
+    class _ExampleView(TypedDict, total=False):
+        """The query console's first query, or none, as the chart's caption reads it."""
+
+        filters: ReadOnly[list[ExampleFilter]]
+        label: ReadOnly[str]
+
+
+class Cond(TypedDict):
+    """A {field, op, value} condition; its value may be a register's text or a row's value."""
+
+    field: ReadOnly[str]
+    op: ReadOnly[str]
+    value: ReadOnly[object]
+
+
+# A condition, or several ANDed together.
+type Where = Cond | Iterable[Cond] | None
+
+
+def _one(where: Where) -> TypeIs[Cond]:
+    return isinstance(where, dict)
 
 
 class Series(TypedDict):
@@ -42,6 +72,29 @@ class Series(TypedDict):
     values: dict[int, dict[str, float]]
     names: NotRequired[dict[int, str]]
     additive: NotRequired[bool]
+
+
+class Figures(TypedDict):
+    """What a dataset or version page draws for one version, each figure "" when there is none."""
+
+    what: str
+    basis: str
+    chart: str
+    chart_caption: str
+    spark: str
+    spark_caption: str
+    map: str
+    map_caption: str
+    years: str
+    series: NotRequired[Series]
+    cells: NotRequired[dict[tuple[int, int], float]]
+
+
+class Preview(TypedDict):
+    """Some rows of some fields, each cell as the preview table shows it."""
+
+    fields: list[str]
+    rows: list[list[str | None]]
 
 
 STEP = 0.05
@@ -299,14 +352,15 @@ def _conditions(where: Where, con: Records) -> tuple[str, list[object]]:
     """
     if not where:
         return "", []
-    conds = [where] if isinstance(where, dict) else list(where)
+    conds = [where] if _one(where) else list(where)
     sql, params = "", list[object]()
     for w in conds:
         if w["op"] not in ("=", "!=", ">", "<", ">=", "<="):
             raise ValueError(w["op"])
         sql += f" AND {_q(w['field'])} {w['op']} ?"
         # The records view holds a boolean as 1 or 0, as SQLite does.
-        params.append(con.param(w["field"], {"true": 1, "false": 0}.get(w["value"], w["value"])))
+        flags: dict[object, object] = {"true": 1, "false": 0}
+        params.append(con.param(w["field"], flags.get(w["value"], w["value"])))
     return sql, params
 
 
@@ -697,31 +751,31 @@ def year_span(s: Series) -> str:
 def dataset_figures(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     m: Manifest,
-    console: dict[str, Any] | None,
+    console: Console | None,
     db: Path,
     out: Path,
     *,
-    within: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    within: Cond | None = None,
+) -> Figures:
     """Everything a dataset or version page draws for one version.
 
     That is the yearly chart, its caption, a sparkline for a card and a map when the rows have
     coordinates. within is a {field, op, value} condition a place page adds, so its figures draw
     its rows alone.
     """
-    chart: Chart | dict[str, Any] = ds.chart or {}
+    chart: _ChartView = ds.chart or {}
     metric = chart.get("metric") or (console["example"]["metric"] if console else "count")
     yf = year_field(ds)
     # The example's words fit the chart only when the chart keeps the rows the example keeps,
     # which it does when the example filters on nothing but the year it draws.
-    ex = console["example"] if console else {}
+    ex: _ExampleView = console["example"] if console else {}
     kept = all(f["field"] == (yf[0] if yf else "") for f in ex.get("filters", ()))
     kept = kept and not PHRASE.search(ex.get("label", ""))
     label = chart.get("label") or (
         ex.get("label", "") if console and not chart.get("metric") and kept else ""
     )
     what = measure(ds, metric, label)
-    fig: dict[str, Any] = {
+    fig: Figures = {
         "what": what,
         "basis": basis(ds, metric),
         "chart": "",
@@ -745,7 +799,7 @@ def dataset_figures(  # noqa: PLR0913 - the options are keyword-only and named a
     named |= {w["field"] for w in chart.get("where", ())} | ({split} if split else set())
     named |= {metric.split(".", 1)[1]} if metric != "count" else set()
     if yf and db.exists() and named <= _columns(db):
-        conds = [*chart.get("where", ()), *([within] if within else [])]
+        conds: list[Cond] = [*chart.get("where", ()), *([within] if within else [])]
         s = series(db, yf[0], yf[1], split, metric, until=until, where=conds)
         # One bar is no trend, so a table of one year draws no chart.
         if len(s["years"]) > 1:
@@ -770,12 +824,14 @@ def dataset_figures(  # noqa: PLR0913 - the options are keyword-only and named a
                     why = f"the year was not over when the publisher released this version on {long_date(until)}"
                 left += f" {part} {verb} not drawn because {why}."
             fig.update(
-                series=s,
-                years=span,
-                chart=stacked_svg(s, f"{what} {per}{by}, {span}"),
-                chart_caption=f"{what} {per}{by}, {span}.{left}",
-                spark=spark_svg(s),
-                spark_caption=f"{what.lower()} {per}, {span}.{left}",
+                {
+                    "series": s,
+                    "years": span,
+                    "chart": stacked_svg(s, f"{what} {per}{by}, {span}"),
+                    "chart_caption": f"{what} {per}{by}, {span}.{left}",
+                    "spark": spark_svg(s),
+                    "spark_caption": f"{what.lower()} {per}, {span}.{left}",
+                }
             )
     if ds.geometry and ds.geometry.get("lon") and db.exists():
         c = cells(db, ds.geometry["lon"], ds.geometry["lat"], within)
@@ -817,18 +873,19 @@ def national_map(
 
 
 def example_rows(
-    db: Path, console: dict[str, Any], limit: int = 8, key: tuple[str, ...] = ()
+    db: Path, console: Console, limit: int = 8, key: tuple[str, ...] = ()
 ) -> list[tuple[str, float]]:
     """The query console's first aggregate, answered from the rows the API loads.
 
     key is the dataset's key, which data.sqlite indexes.
     """
     ex = console["example"]
-    group = (ex.get("group") or [None])[0]
+    group = next(iter(ex.get("group") or []), None)
     if not group or not db.exists():
         return []
     types = {e["name"]: e["type"] for e in console["fields"]}
-    where, params = [], []
+    where: list[str] = []
+    params: list[object] = []
     for f in ex.get("filters", []):
         where.append(f"{_q(f['field'])} {WHERE_OPS[f['op']]} ?")
         # The API takes true and false for a boolean, which the records hold as 1 and 0.
@@ -885,7 +942,7 @@ def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at ea
     nulls: bool = False,
     order: Iterable[tuple[str, bool]] = (),
     spread: str = "",
-) -> dict[str, Any]:
+) -> Preview:
     """Some rows of some fields, for a preview table.
 
     The rows are kept to those the conditions match: in the Parquet's order, or by the
@@ -901,10 +958,10 @@ def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at ea
         cols = [f for f in fields if f in have]
         if not cols:
             return {"fields": [], "rows": []}
-        conds: list[Mapping[str, Any]] = []
+        conds: list[Cond] = []
         conds.extend(
             ({**w, "value": newest(con, w["field"])} if w["value"] == "newest" else w)
-            for w in ([where] if isinstance(where, dict) else list(where or ()))
+            for w in ([where] if _one(where) else list(where or ()))
         )
         cond, params = _conditions(conds, con)
         terms = [(_q(f), " DESC" if desc else "") for f, desc in order if f in have]

@@ -15,12 +15,47 @@ import subprocess
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import NotRequired, TypedDict
 
     from .register import Dataset
+
+    class ConsoleField(TypedDict):
+        """A field as the query console lists it, with the hints read from the rows."""
+
+        name: str
+        type: str
+        description: NotRequired[str]
+        # The column's least and greatest value, of the field's type.
+        min: NotRequired[object]
+        max: NotRequired[object]
+        values: NotRequired[list[object]]
+        distinct: NotRequired[int]
+
+    class ExampleFilter(TypedDict):
+        field: str
+        op: str
+        value: str
+
+    class ConsoleExample(TypedDict):
+        filters: list[ExampleFilter]
+        group: list[str]
+        metric: str
+        label: NotRequired[str]
+
+    class Console(TypedDict):
+        """The query console's fields and first query, as a dataset page carries them."""
+
+        fields: list[ConsoleField]
+        example: ConsoleExample
+        # Set when the query API serves the dataset.
+        api: NotRequired[str]
+        site: NotRequired[str]
+        versions: NotRequired[list[str]]
+
 
 ROOT = Path(__file__).resolve().parents[2]
 NODE_MODULES = ROOT / "node_modules"
@@ -184,7 +219,7 @@ YEAR = re.compile(r"(^|_)(year|yr)(_|$)")
 CALENDAR = re.compile(r"(^|_)(month|day|day_of_week|weekday)(_|$)")
 
 
-def labels(ds: Dataset, console: dict[str, Any]) -> dict[str, str]:
+def labels(ds: Dataset, console: Console) -> dict[str, str]:
     """The explorer's column names: each field's register label.
 
     Every menu, axis and legend then reads in words. The browser renames the columns as it loads
@@ -194,7 +229,7 @@ def labels(ds: Dataset, console: dict[str, Any]) -> dict[str, str]:
     return {f.name: f.display for f in ds.fields if f.name in present}
 
 
-def text_fields(console: dict[str, Any]) -> list[str]:
+def text_fields(console: Console) -> list[str]:
     """Year fields, which the browser loads as text.
 
     A chart then gives each year its own label instead of a numeric axis ("2.0K"), and a filter
@@ -205,7 +240,7 @@ def text_fields(console: dict[str, Any]) -> list[str]:
     ]
 
 
-def yes_no_fields(console: dict[str, Any]) -> list[str]:
+def yes_no_fields(console: Console) -> list[str]:
     """True-or-false fields, which the browser shows as Yes and No."""
     return [e["name"] for e in console["fields"] if e["type"] == "boolean"]
 
@@ -215,7 +250,7 @@ CATEGORY_MIN, CATEGORY_MAX = 2, 30
 SPLIT_MIN, SPLIT_MAX = 3, 8
 
 
-def categories(console: dict[str, Any]) -> list[str]:
+def categories(console: Console) -> list[str]:
     """Text fields with a short list of values, which a chart can group by."""
     return [
         e["name"]
@@ -226,7 +261,7 @@ def categories(console: dict[str, Any]) -> list[str]:
     ]
 
 
-def split_field(console: dict[str, Any]) -> str | None:
+def split_field(console: Console) -> str | None:
     """The field colour carries: severity where the dataset has it, else a short list."""
     fields = {e["name"]: e for e in console["fields"]}
     cats = categories(console)
@@ -239,7 +274,7 @@ def split_field(console: dict[str, Any]) -> str | None:
 PERSPECTIVE_AGG = {"sum": "sum", "avg": "avg", "min": "low", "max": "high"}
 
 
-def defaults(ds: Dataset, console: dict[str, Any]) -> dict[str, Any]:  # noqa: C901, PLR0915 - the explorer's panels in the order they are laid out
+def defaults(ds: Dataset, console: Console) -> dict[str, object]:  # noqa: C901, PLR0915 - the explorer's panels in the order they are laid out
     """The first dashboard, drawn from the same field hints as the query console.
 
     It holds a stacked bar of the main category that filters the other panels, the same split
@@ -261,7 +296,7 @@ def defaults(ds: Dataset, console: dict[str, Any]) -> dict[str, Any]:  # noqa: C
         what, expressions, aggregates = measure, {}, {measure: PERSPECTIVE_AGG[fn]}
     cats = categories(console)
     split = split_field(console)
-    group = (console["example"]["group"] or [None])[0]
+    group: str | None = next(iter(console["example"]["group"]), None)
     if group == split or group not in cats:
         group = next((n for n in cats if n != split and "region" in n), None) or next(
             (n for n in cats if n != split), None
@@ -279,7 +314,7 @@ def defaults(ds: Dataset, console: dict[str, Any]) -> dict[str, Any]:  # noqa: C
     }
     col: Callable[[str], str] = lambda n: lab.get(n, n)  # noqa: E731
     by = f" and {word(split)}" if split else ""
-    panels: dict[str, dict[str, Any]] = {}
+    panels: dict[str, dict[str, object]] = {}
     if group:
         panels["by-group"] = {
             **base,
@@ -326,14 +361,14 @@ def defaults(ds: Dataset, console: dict[str, Any]) -> dict[str, Any]:  # noqa: C
         }
     panels["rows"] = {"table": TABLE, "plugin": "Datagrid", "title": "Rows"}
 
-    tab: Callable[..., dict[str, Any]] = lambda *ids: {  # noqa: E731
+    tab: Callable[[*tuple[str, ...]], dict[str, object]] = lambda *ids: {  # noqa: E731
         "type": "tab-layout",
         "tabs": [i for i in ids if i in panels],
     }
 
     def row(
-        *items: dict[str, Any] | None, sizes: list[float] | None = None
-    ) -> dict[str, Any] | None:
+        *items: dict[str, object] | None, sizes: list[float] | None = None
+    ) -> dict[str, object] | None:
         keep = [
             (i, z)
             for i, z in zip(items, sizes or [1] * len(items), strict=True)
@@ -364,13 +399,13 @@ def defaults(ds: Dataset, console: dict[str, Any]) -> dict[str, Any]:  # noqa: C
         if top
         else bottom
     )
-    ws: dict[str, Any] = {"panels": panels, "layout": layout}
+    ws: dict[str, object] = {"panels": panels, "layout": layout}
     if "by-group" in panels:
         ws["masters"] = ["by-group"]
     return ws
 
 
-def int32_fields(console: dict[str, Any]) -> list[str]:
+def int32_fields(console: Console) -> list[str]:
     """Integer fields whose whole range fits 32 bits.
 
     DuckDB reads Parquet int64 as BIGINT, which Perspective shows as a float, so the browser casts
@@ -380,7 +415,9 @@ def int32_fields(console: dict[str, Any]) -> list[str]:
         e["name"]
         for e in console["fields"]
         if e["type"] == "integer"
-        and e.get("min") is not None
-        and e["min"] >= -INT32
-        and e["max"] < INT32
+        # An integer field's range is two ints, or no value at all.
+        and isinstance(lo := e.get("min"), int)
+        and isinstance(hi := e.get("max"), int)
+        and lo >= -INT32
+        and hi < INT32
     ]
