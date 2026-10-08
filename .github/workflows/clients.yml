@@ -20,6 +20,12 @@ env:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels its run. Every other run has a group of its own, so a
+# pending run on main that may publish is never replaced.
+concurrency:
+  group: clients-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   python:
     name: Python client
@@ -29,6 +35,8 @@ jobs:
         working-directory: clients/python
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - id: py
         run: echo "version=$(cat .python-version)" >> "$GITHUB_OUTPUT"
         working-directory: .
@@ -60,6 +68,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
         with:
           r-version: 4.6.1
@@ -92,9 +102,11 @@ jobs:
     environment: pypi
     permissions:
       contents: read
-      id-token: write
+      id-token: write # PyPI's trusted publishing exchanges this token for an upload token
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - id: py
         run: echo "version=$(cat .python-version)" >> "$GITHUB_OUTPUT"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -123,4 +135,6 @@ jobs:
         with:
           packages-dir: clients/python/dist
       - if: steps.pypi.outputs.publish == 'true'
-        run: echo "Published publicdata-au ${{ steps.pypi.outputs.version }} to PyPI." >> "$GITHUB_STEP_SUMMARY"
+        env:
+          VERSION: ${{ steps.pypi.outputs.version }}
+        run: echo "Published publicdata-au $VERSION to PyPI." >> "$GITHUB_STEP_SUMMARY"

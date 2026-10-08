@@ -62,6 +62,18 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   takes the settings CI uses for it. It names each file and rule that fails and stops the commit. A
   commit with no staged Python file in either directory runs no check. It takes well under a
   second.
+- `pre-commit` also checks the files the Workflow lint job reads, when a commit stages one of
+  them: `.github/workflows/`, `.github/actions/`, `.github/actionlint.yaml` and
+  `.github/dependabot.yml`. A change to a template, `CODEOWNERS` or the lint fixture runs no
+  check. It writes those staged files to a temporary directory, so an unstaged edit cannot hide a
+  fault, and runs actionlint with shellcheck and
+  `zizmor --offline --persona auditor --strict-collection` over that copy, so a workflow zizmor
+  cannot parse fails too. It names each file and rule that fails and stops the commit once the
+  Python check has run. Offline, zizmor leaves out the audits that ask GitHub: `impostor-commit`,
+  `ref-confusion`, `known-vulnerable-actions`, `stale-action-refs` and `ref-version-mismatch`.
+  The Workflow lint job in CI runs those too, so a commit the hook passes can still fail there.
+  Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
+  versions, when one differs, and runs it anyway.
 - `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
   and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
   It should take under a minute on a laptop.
@@ -72,8 +84,14 @@ and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI
 
 A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
 through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
-tests, and `node` for the JavaScript tests. To skip the hooks once, pass `--no-verify` to
-`git commit` or `git push`.
+tests, and `node` for the JavaScript tests. The workflow check is the exception: a commit that
+stages `.github/` fails when actionlint, shellcheck or zizmor is missing, with a line naming the
+version CI pins and where to get it. To skip the hooks once, pass `--no-verify` to `git commit` or
+`git push`.
+
+CI's pipeline job puts the same pinned actionlint, shellcheck and zizmor on its PATH, so the
+hook's tests in `pipeline/tests/test_hooks.py` run there. Locally they skip when a tool is not
+installed.
 
 ## Private copies
 
@@ -104,6 +122,19 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   the fetch app opened them from a run on `main`, with one signed-off commit of store manifests.
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
+- A change under `.github/` must pass the Workflow lint job in `ci.yml`. It runs zizmor at its
+  auditor persona, which reports every finding zizmor has, and actionlint with shellcheck over every
+  workflow's `run:` blocks. actionlint does not read the composite action in `.github/actions/`, so
+  its steps get zizmor alone. The `pre-commit` hook runs both offline (see Git hooks). The online
+  audits need a token, so run zizmor with one before you push, at the versions that job pins:
+
+  ```sh
+  GH_TOKEN=$(gh auth token) uvx zizmor==1.30.1 --persona auditor --strict-collection .github
+  actionlint -shellcheck "$(command -v shellcheck)"
+  ```
+
+  Fix each finding. Where a rule truly cannot apply, a `# zizmor: ignore[<rule>]` comment on the
+  line it covers, or a `# shellcheck disable=<code>` comment on the line before, gives the reason.
 
 ## Reviewing a pull request
 
@@ -327,6 +358,7 @@ each version lives in one file that the workflows or the pipeline read:
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
 | R and its CRAN snapshot date | `.github/workflows/clients.yml` |
 | DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
+| zizmor, actionlint and shellcheck | `.github/workflows/ci.yml` |
 
 An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
 npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed
