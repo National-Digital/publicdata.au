@@ -30,7 +30,8 @@ jur_codes <- c(
 #' @examplesIf pd_available()
 #' pd_catalogue("water quality", jurisdiction = "Queensland", limit = 5)
 #' @export
-pd_catalogue <- function(q = NULL, jurisdiction = NULL, status = NULL, limit = 20L, offset = 0L) {
+# nolint next: implicit_integer_linter. The usage users read shows the plain numbers they pass.
+pd_catalogue <- function(q = NULL, jurisdiction = NULL, status = NULL, limit = 20, offset = 0) {
   jur <- NULL
   if (!is.null(jurisdiction)) {
     jur <- unname(jur_codes[one_text(jurisdiction, "jurisdiction")])
