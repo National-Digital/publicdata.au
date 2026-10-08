@@ -1,5 +1,6 @@
 """A cached version's Parquet, which its cache entry leaves out, read back from where the build
-that made it put it: a shard's tree, or the published files in R2."""
+that made it put it: a shard's tree, or the published files in R2.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +25,8 @@ class Published:
         download: Callable[[str, Path], bool] | None = None,
     ):
         """source is a directory laid out as the published site; download(rel, path) fetches a
-        published file into path and says whether it was there."""
+        published file into path and says whether it was there.
+        """
         self.out = out
         self.roots = [Path(r) for r in roots] + ([Path(source)] if source else [])
         self.source = Path(source) if source else None
@@ -35,7 +37,8 @@ class Published:
 
     def path(self, rel: str) -> Path:
         """out/rel, linked or downloaded in when the build left it out. A file no one holds
-        stays missing, so the reader that needed it fails on its name."""
+        stays missing, so the reader that needed it fails on its name.
+        """
         p = self.out / rel
         if p.exists():
             return p
@@ -54,7 +57,8 @@ class Published:
     def copy(self, rel: str) -> Path | None:
         """The file the site already serves at rel, or None when it serves none yet. A dated file
         is never overwritten outside a replace, so this can be older bytes than the build made
-        at out/rel, which stays as it is."""
+        at out/rel, which stays as it is.
+        """
         with self._lock:
             if rel in self._copies:
                 return self._copies[rel]
@@ -97,7 +101,8 @@ def path(out: Path, rel: str) -> Path:
 def served(out: Path, rel: str) -> tuple[Path, bool]:
     """rel as the site serves it, and whether that is the copy already published: the history
     archive, the diffs and a grown format are made from it, so a version built again without a
-    replace still yields what the published files hold, and the check can make the same."""
+    replace still yields what the published files hold, and the check can make the same.
+    """
     if current is not None and current.out == out and (p := current.copy(rel)) is not None:
         return p, True
     return path(out, rel), False

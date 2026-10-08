@@ -1,6 +1,7 @@
 """Build-time figures for the pages: rows per year and rows per map cell, read from a version's
 data.parquet and drawn as inline SVG. A figure is a count of the rows in the file it sits
-beside, worked out in the build. Nothing else is added and the files are untouched."""
+beside, worked out in the build. Nothing else is added and the files are untouched.
+"""
 
 from __future__ import annotations
 
@@ -52,7 +53,8 @@ CITIES = (
 
 def fmt(n: float) -> str:
     """A figure as the pages print it: whole numbers with separators, and a fraction to two
-    places under ten and one under a thousand, so an average reads 4.35 or 19.3, not 4 or 19."""
+    places under ten and one under a thousand, so an average reads 4.35 or 19.3, not 4 or 19.
+    """
     if float(n).is_integer():
         return f"{int(n):,}"
     if abs(n) < 10:
@@ -66,7 +68,8 @@ def _q(name: str) -> str:
 
 def cutoff(m) -> str:
     """The last day the version's rows can run to: the publisher's as-at date, else the day the
-    publisher released the version or the file was fetched, whichever is earlier."""
+    publisher released the version or the file was fetched, whichever is earlier.
+    """
     return m.as_at or min(m.fetched_at[:10], m.version)
 
 
@@ -220,7 +223,8 @@ PHRASE = re.compile(r"\b(by|each|per|newest|first)\b")
 
 def measure(ds, metric: str, label: str = "") -> str:
     """What a figure counts or sums, in words: the register's label for it, else the row label
-    for a count and the field's label for a sum."""
+    for a count and the field's label for a sum.
+    """
     if label:
         return label
     if metric == "count":
@@ -243,7 +247,8 @@ def basis(ds, metric: str) -> str:
 
 def _conditions(where, con) -> tuple[str, list]:
     """One or more (field, op, value) conditions as SQL, each ANDed on, with the values as the
-    connection's columns compare them."""
+    connection's columns compare them.
+    """
     if not where:
         return "", []
     conds = [where] if isinstance(where, dict) else list(where)
@@ -412,7 +417,8 @@ def hbars_svg(rows: list[tuple[str, float]], label: str, w: int = 420) -> str:
 
 def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], float]:
     """Rows per cell of STEP degrees, counted in SQL, kept to the rows the conditions match
-    when any are given: a (field, op, value) tuple, or one or more {field, op, value} dicts."""
+    when any are given: a (field, op, value) tuple, or one or more {field, op, value} dicts.
+    """
     if isinstance(where, tuple):
         where = {"field": where[0], "op": where[1], "value": where[2]}
     con = connect(db)
@@ -431,7 +437,8 @@ def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], flo
 
 def _raster(cells_: dict, box: tuple[int, int, int, int], floor: float = 0.35) -> bytes:
     """The cells as a PNG with the brand colour and an alpha that grows with the count. Pixels
-    are cells, so the browser scales it without smoothing."""
+    are cells, so the browser scales it without smoothing.
+    """
     i0, j0, i1, j1 = box
     w, h = i1 - i0, j1 - j0
     mx = max(cells_.values()) or 1
@@ -450,7 +457,8 @@ def _raster(cells_: dict, box: tuple[int, int, int, int], floor: float = 0.35) -
 
 def _png(out: Path, data: bytes) -> str:
     """The PNG written once under maps/, named by its content, so a page links a file that
-    never changes and the SVG over it stays vector."""
+    never changes and the SVG over it stays vector.
+    """
     rel = f"maps/{hashlib.sha256(data).hexdigest()[:16]}.png"
     path = out / rel
     if not path.exists():
@@ -468,7 +476,8 @@ def _join(names) -> str:
 
 def map_alt(cells_: dict, what: str, gaps: dict[str, str] | None = None) -> str:
     """What the map draws, in words worked out from the cells: the rows, the cells, the
-    fullest cell and any state hatched."""
+    fullest cell and any state hatched.
+    """
     total = int(round(sum(cells_.values())))
     text = (
         f"{fmt(total)} {what.lower()} drawn in {fmt(len(cells_))} cells of {STEP:g} degrees, "
@@ -496,7 +505,8 @@ def map_html(
     a vector SVG over it for the state outlines, the city names and any state hatched. gaps
     names the states drawn hatched, with the reason under the name, so a state without data
     never reads as a state without rows. A bare map is the cells alone, no outlines and no
-    city names, with only a gap still hatched."""
+    city names, with only a gap still hatched.
+    """
     if not cells_:
         return ""
     nx, ny = int((LON1 - LON0) / STEP) + 1, int((LAT1 - LAT0) / STEP) + 1
@@ -621,7 +631,8 @@ def year_span(s: dict) -> str:
 def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=None) -> dict:
     """Everything a dataset or version page draws for one version: the yearly chart, its
     caption, a sparkline for a card and a map when the rows have coordinates. within is a
-    {field, op, value} condition a place page adds, so its figures draw its rows alone."""
+    {field, op, value} condition a place page adds, so its figures draw its rows alone.
+    """
     chart = ds.chart or {}
     metric = chart.get("metric") or (console["example"]["metric"] if console else "count")
     yf = year_field(ds)
@@ -705,7 +716,8 @@ def national_map(
 ) -> str:
     """The home page map: the cells of every located dataset overlaid, with each state that
     publishes none drawn hatched and named. covered names the states whose datasets have
-    located rows; a state whose rows all miss the drawing's condition is covered, not a gap."""
+    located rows; a state whose rows all miss the drawing's condition is covered, not a gap.
+    """
     covered = {state for state, _ in parts} | (covered or set())
     gaps = {n: why for n in STATES if n not in covered}
     nx, ny = int((LON1 - LON0) / STEP) + 1, int((LAT1 - LAT0) / STEP) + 1
@@ -726,7 +738,8 @@ def example_rows(
     db: Path, console: dict, limit: int = 8, key: tuple[str, ...] = ()
 ) -> list[tuple[str, float]]:
     """The query console's first aggregate, answered from the rows the API loads. key is the
-    dataset's key, which data.sqlite indexes."""
+    dataset's key, which data.sqlite indexes.
+    """
     ex = console["example"]
     group = (ex.get("group") or [None])[0]
     if not group or not db.exists():
@@ -769,7 +782,8 @@ def _num(v) -> int | float:
 
 def newest(con, field: str):
     """A field's newest value: its largest, among the values that start with a digit when there
-    are any, so a text period such as "bef 30 Jun 2018" never outranks "2024/25"."""
+    are any, so a text period such as "bef 30 Jun 2018" never outranks "2024/25".
+    """
     f = _q(field)
     top = con.execute(
         f"SELECT MAX({f}) FROM records WHERE CAST({f} AS TEXT) GLOB '[0-9]*'"
@@ -789,7 +803,8 @@ def sample_rows(
     """Some rows of some fields, for a preview table, kept to the rows the conditions match: in
     the Parquet's order, or by the (field, descending) order terms first, with the spread
     field's values taking turns. A condition on newest stands for the field's newest value. A
-    null cell is "" unless nulls asks for None, which a page shows as null."""
+    null cell is "" unless nulls asks for None, which a page shows as null.
+    """
     if not db.exists() or not fields:
         return {"fields": [], "rows": []}
     con = connect(db)
@@ -838,7 +853,8 @@ CELL_MAX = 120
 
 def _preview_cell(v) -> str:
     """A value as a preview table shows it: a float without its binary noise and long text cut
-    with an ellipsis."""
+    with an ellipsis.
+    """
     if isinstance(v, float):
         return format(v, ".12g")
     text = str(v)

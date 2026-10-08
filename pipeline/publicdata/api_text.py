@@ -111,7 +111,8 @@ RESOURCE_ANNOTATIONS = {"audience": ["assistant"], "priority": 0.8}
 
 def release() -> str:
     """The site's semantic version. The deploy sets it from the last tag and the merged PR's
-    title (scripts/next-version.mjs); anywhere else it is a development build."""
+    title (scripts/next-version.mjs); anywhere else it is a development build.
+    """
     return os.environ.get("PUBLICDATA_RELEASE") or "0.0.0-dev"
 
 

@@ -1,5 +1,6 @@
 """The register's cadence text read as versions a year. The cost check and the hubs both read it
-here, so the two never disagree about how often a dataset changes."""
+here, so the two never disagree about how often a dataset changes.
+"""
 
 from __future__ import annotations
 
@@ -62,7 +63,8 @@ KAGGLE_SLOWER = re.compile(r"several times a year")
 
 def kaggle_frequency(text: str) -> str:
     """Kaggle's fixed choices. A rate between two takes the slower one, so a page never promises
-    updates more often than the publisher makes them."""
+    updates more often than the publisher makes them.
+    """
     if known := KAGGLE_KNOWN.get(text.strip().lower()):
         return known
     n = per_year(text)

@@ -10,7 +10,8 @@ from .csv import write_csv
 
 def write_csv_gz(tbl: Table, path: Path, vdir: Path | None = None) -> None:
     """The CSV again, gzipped with no name or mtime so the bytes are reproducible. The CSV
-    beside the target is read when it is there, as in a full build; else it is written first."""
+    beside the target is read when it is there, as in a full build; else it is written first.
+    """
     csv_path = (vdir or path.parent) / "data.csv"
     if not csv_path.exists():
         write_csv(tbl, csv_path)

@@ -1,5 +1,6 @@
 """The in-browser explorer: Perspective over DuckDB-WASM, vendored from the npm lockfile, and a
-first dashboard for each dataset drawn from the same field hints as the query console."""
+first dashboard for each dataset drawn from the same field hints as the query console.
+"""
 
 from __future__ import annotations
 
@@ -135,7 +136,8 @@ def _stage(dest: Path) -> None:
 
 def vendor(out: Path) -> str:
     """Copy the explorer's libraries under a content-hashed path and return that path, so a new
-    library version never meets a browser's cached copy of the old one."""
+    library version never meets a browser's cached copy of the old one.
+    """
     _need_node_modules()
     key = hashlib.sha256()
     for p in (ROOT / "package-lock.json", ROOT / "explorer" / "duckdb.js", Path(__file__)):
@@ -175,14 +177,16 @@ CALENDAR = re.compile(r"(^|_)(month|day|day_of_week|weekday)(_|$)")
 
 def labels(ds, console: dict) -> dict[str, str]:
     """The explorer's column names: each field's register label, so every menu, axis and legend
-    reads in words. The browser renames the columns as it loads the Parquet."""
+    reads in words. The browser renames the columns as it loads the Parquet.
+    """
     present = {e["name"] for e in console["fields"]}
     return {f.name: f.display for f in ds.fields if f.name in present}
 
 
 def text_fields(console: dict) -> list[str]:
     """Year fields, which the browser loads as text: a chart then gives each year its own label
-    instead of a numeric axis ("2.0K"), and a filter offers the years as a list."""
+    instead of a numeric axis ("2.0K"), and a filter offers the years as a list.
+    """
     return [
         e["name"] for e in console["fields"] if e["type"] == "integer" and YEAR.search(e["name"])
     ]
@@ -220,7 +224,8 @@ PERSPECTIVE_AGG = {"sum": "sum", "avg": "avg", "min": "low", "max": "high"}
 def defaults(ds, console: dict) -> dict:
     """The first dashboard, drawn from the same field hints as the query console: a stacked bar
     of the main category that filters the other panels, the same split over time, a heatmap of
-    category by year, a map where the dataset has coordinates, and the rows."""
+    category by year, a map where the dataset has coordinates, and the rows.
+    """
     fields = {e["name"]: e for e in console["fields"]}
     lab = labels(ds, console)
     word = lambda n: lab.get(n, n).lower()  # noqa: E731
@@ -342,7 +347,8 @@ def defaults(ds, console: dict) -> dict:
 
 def int32_fields(console: dict) -> list[str]:
     """Integer fields whose whole range fits 32 bits. DuckDB reads Parquet int64 as BIGINT, which
-    Perspective shows as a float, so the browser casts these back to INTEGER."""
+    Perspective shows as a float, so the browser casts these back to INTEGER.
+    """
     return [
         e["name"]
         for e in console["fields"]

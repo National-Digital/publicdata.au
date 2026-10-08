@@ -84,7 +84,8 @@ LIMIT: set[str] | None = None
 
 def capped(manifest) -> bool:
     """Whether a version takes the capped format set: its store manifest, or the built manifest's
-    dict, carries the fetch's caps stamp."""
+    dict, carries the fetch's caps stamp.
+    """
     caps = manifest.get("caps") if isinstance(manifest, dict) else getattr(manifest, "caps", 0)
     return bool(caps)
 
@@ -150,14 +151,16 @@ def _row_reason(fmt: str) -> str:
 
 def reasons(rows: int, geometry: bool | str, gone: dict[str, str] | None) -> dict[str, str]:
     """Each format a version lacks, with the reason: a capped version's recorded
-    formats_left_out, or the row limits of a version without the caps stamp."""
+    formats_left_out, or the row limits of a version without the caps stamp.
+    """
     return dict(gone) if gone is not None else legacy_left_out(rows, geometry)
 
 
 def formats_for(rows: int, geometry: bool | str, gone: dict[str, str] | None = None) -> list[str]:
     """The formats a version carries. `geometry` is the dataset's geometry kind, or True for
     points. `gone` is a capped version's formats_left_out, as its manifest records it; None gives
-    the set of a version without the caps stamp."""
+    the set of a version without the caps stamp.
+    """
     kind = _kind(geometry)
     base = LEGACY_FORMATS if gone is None else FORMATS
     over = reasons(rows, kind, gone)
@@ -310,7 +313,8 @@ def duckdb_connect(path: Path, rows: int | None, name: str = "db", threads: int 
     `rows` picks the block size: a small table takes 16 KB blocks, and None keeps DuckDB's
     default, as a database of many tables does. One thread by default: a table is written
     once, and a bounded build matters more than speed; a database build passes None and takes
-    every core."""
+    every core.
+    """
     import duckdb
 
     if path.exists():
@@ -353,7 +357,8 @@ def duckdb_digest(path: Path) -> str:
     """A digest of what a DuckDB file holds: every table's columns and rows in their stored
     order, every view's text, constraint, index and comment, the block size and the storage
     version. The bytes of two files written from the same rows differ, since the storage
-    compresses by sampling, so the determinism check compares this instead."""
+    compresses by sampling, so the determinism check compares this instead.
+    """
     import duckdb
 
     con = duckdb.connect()
@@ -460,7 +465,8 @@ def write_partitions(tbl: Table, header_for, out: Path) -> dict:
 
 def write_dictionary(ds, header: dict, path: Path) -> None:
     """The field list as a workbook: one row per field, then the provenance. The created date
-    is the version date, so two builds write the same bytes."""
+    is the version date, so two builds write the same bytes.
+    """
     when = dt.datetime.fromisoformat(header["version"] + "T00:00:00")
     wb = xlsxwriter.Workbook(str(path), {"default_date_format": "yyyy-mm-dd"})
     wb.set_properties(
@@ -508,7 +514,8 @@ def write_dictionary(ds, header: dict, path: Path) -> None:
 
 def _fixed_zip(path: Path, stamp: tuple) -> None:
     """Rewrite a zip so every entry carries one timestamp. XlsxWriter uses the clock. A zip
-    cannot record a date before 1980, so an older version is stamped 1 January 1980."""
+    cannot record a date before 1980, so an older version is stamped 1 January 1980.
+    """
     stamp = max(tuple(stamp), (1980, 1, 1, 0, 0, 0))
     tmp = path.with_suffix(path.suffix + ".tmp")
     with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:

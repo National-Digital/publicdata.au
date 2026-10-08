@@ -1,7 +1,8 @@
 """Projected R2 storage growth and D1 rows written per register entry, and the gate on entries a
 pull request changes.
 
-Kept out of build.py's imports so it never enters the build cache key."""
+Kept out of build.py's imports so it never enters the build cache key.
+"""
 
 from __future__ import annotations
 
@@ -59,7 +60,8 @@ class Unsized(Exception):
 
 def retry(fn, attempts: int | None = None, wait: float = 1.0):
     """Calls fn until it returns, backing off on a dropped connection, a truncated body or a 5xx
-    or 429; any other HTTP error is final."""
+    or 429; any other HTTP error is final.
+    """
     attempts = attempts or ATTEMPTS
     for i in range(attempts):
         try:
@@ -78,7 +80,8 @@ def retry(fn, attempts: int | None = None, wait: float = 1.0):
 @dataclass(frozen=True)
 class Sized:
     """A source file: its bytes, its unpacked bytes when they could be read, and its kind
-    (plain, zip, gzip or spreadsheet)."""
+    (plain, zip, gzip or spreadsheet).
+    """
 
     bytes: int
     kind: str = "plain"
@@ -87,7 +90,8 @@ class Sized:
 
 def estimate(ds: Dataset, s: Sized) -> int:
     """A version's bytes in R2 from its source: the published files, conservatively, and the
-    publisher's file once in the raw store."""
+    publisher's file once in the raw store.
+    """
     mult = SPATIAL_MULTIPLIER if ds.geometry else SOURCE_MULTIPLIER
     if s.kind == "spreadsheet":
         published = s.bytes * max(mult, SPREADSHEET_MULTIPLIER)
@@ -168,7 +172,8 @@ class Projection:
 
 def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple[float, str]:
     """The larger of the declared rate and the versions stored in the last year. A new entry
-    takes its cadence's rate in full; a feed is fetched daily whatever its cadence says."""
+    takes its cadence's rate in full; a feed is fetched daily whatever its cadence says.
+    """
     if not ds.publishable:
         return 0.0, "not publishable"
     declared = per_year(ds.source.cadence, ds.source.feed, today)
@@ -213,7 +218,8 @@ def catalogue_sizes(catalog: dict) -> dict[str, dict[str, int]]:
 def measured_bytes(ds: Dataset, files: dict[str, int], source_bytes: int) -> int:
     """A version's bytes in R2: its data files, the publisher's file once in the raw store, and
     the partition files, which hold the table again once per partition field. NDJSON stands in
-    for the partitions' JSON because data.json is not written for a large table."""
+    for the partitions' JSON because data.json is not written for a large table.
+    """
     total = sum(files.values()) + source_bytes
     rows_json = files.get("data.ndjson") or files.get("data.json", 0)
     per_part = rows_json
@@ -247,7 +253,8 @@ def _head(url: str, timeout: float) -> tuple[int | None, str, str]:
 
 def _get(url: str, timeout: float) -> tuple[int | None, str, str]:
     """The headers of a GET, closed before its body is read; a Range would apply to a redirect
-    itself on some hosts. Without a length, a one-byte range of the final URL gives the size."""
+    itself on some hosts. Without a length, a one-byte range of the final URL gives the size.
+    """
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with _open(req, timeout) as r:
         ct, n, final = r.headers.get("Content-Type", ""), r.headers.get("Content-Length"), _final(r, url)  # fmt: skip
@@ -263,7 +270,8 @@ def _get(url: str, timeout: float) -> tuple[int | None, str, str]:
 
 def _size(url: str, timeout: float) -> tuple[int | None, str, str]:
     """Bytes, type and the URL after redirects. A presigned S3 redirect refuses HEAD, so a GET's
-    headers are read instead."""
+    headers are read instead.
+    """
     try:
         n, ct, final = retry(lambda: _head(url, timeout))
         if n:
@@ -321,7 +329,8 @@ class _RangeFile(io.RawIOBase):
 
 def unpacked_bytes(url: str, size: int, kind: str, timeout: float = 30) -> int | None:
     """A zip's members' unpacked bytes from its central directory, or a small gzip's from its
-    trailer. A member that is itself compressed is counted at the compressed multiplier."""
+    trailer. A member that is itself compressed is counted at the compressed multiplier.
+    """
     try:
         if kind == "zip":
             with zipfile.ZipFile(_RangeFile(url, size, timeout)) as z:
@@ -355,7 +364,8 @@ def _sized(url: str, timeout: float, hint: str = "") -> Sized:
 
 def probe(ds: Dataset, timeout: float = 30) -> Sized:
     """The file the fetch would read: the CKAN resource the entry resolves to, the way the fetch
-    picks it, or a fixed file URL. Other adapters are not sized and raise Unsized."""
+    picks it, or a fixed file URL. Other adapters are not sized and raise Unsized.
+    """
     try:
         if ds.source.adapter == "ckan-resource":
             import requests
@@ -383,7 +393,8 @@ def probe(ds: Dataset, timeout: float = 30) -> Sized:
 
 def live_rows(slugs: list[str], site: str = SITE, workers: int = 16) -> dict[str, int]:
     """Rows of each dataset's newest version, from its versions.json; a slug that cannot be read
-    is left out."""
+    is left out.
+    """
 
     def one(slug: str) -> tuple[str, int | None]:
         req = urllib.request.Request(f"{site}/d/{slug}/versions.json", headers={"User-Agent": UA})
@@ -421,7 +432,8 @@ def project(
     `fresh` are changed entries whose source or output shape moved: sized from the new file,
     and never below what the newest version measures. `reshaped` holds the base copy of each
     entry whose output shape changed, so the rebuild of its stored versions is counted. `rows`
-    are each served entry's rows per version."""
+    are each served entry's rows per version.
+    """
     reshaped = reshaped or {}
     rows = rows or {}
     out = []
@@ -523,7 +535,8 @@ def fleet(projections: list[Projection]) -> Fleet:
 
 def build_version_bytes(ds: Dataset, v) -> int:
     """A built version's bytes in R2: every file it lists, and the publisher's file in the raw
-    store, which a withheld source keeps without listing."""
+    store, which a withheld source keeps without listing.
+    """
     return sum(v.files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
 
 
@@ -554,7 +567,8 @@ def changed_paths(base: str, root: Path) -> tuple[str, list[str]]:
 
 def symlinks(root: Path) -> list[str]:
     """Symbolic links in the register, committed or on disk. An entry reached through one could
-    change without its path changing, so the check refuses them."""
+    change without its path changing, so the check refuses them.
+    """
     found = {
         line.split("\t", 1)[1]
         for line in _git(root, "ls-tree", "-r", "HEAD", "--", "register").splitlines()
@@ -574,7 +588,8 @@ def symlinks(root: Path) -> list[str]:
 
 def changed_entries(register_dir: Path, paths: list[str], root: Path) -> dict[str, str]:
     """Slug to path for register entries among changed paths; publishers, licences and deleted
-    files are not entries."""
+    files are not entries.
+    """
     out = {}
     for p in paths:
         full = (root / p).resolve()
@@ -633,7 +648,8 @@ def entry_changes(
 ) -> tuple[set[str], dict[str, dict]]:
     """Changed entries whose source or output shape differs from the base's, so the stored
     file no longer says how big a version will be, and the base copy of each entry whose
-    output shape changed. An entry with no base copy counts as moved."""
+    output shape changed. An entry with no base copy counts as moved.
+    """
     fresh, reshaped = set(), {}
     base_paths = _base_paths(root, base)
     for slug, path in entries.items():
@@ -732,7 +748,8 @@ WRITE_ROLES = ("admin", "maintain", "write")
 def approval(repo: str, pr: int, get) -> tuple[bool, str]:
     """Whether the pull request's newest commit carries an approval: the label is on, it was
     last added by someone with write access who did not open the pull request, after the head
-    commit arrived and after any change of base. `get` reads a GitHub API path."""
+    commit arrived and after any change of base. `get` reads a GitHub API path.
+    """
     pull = get(f"repos/{repo}/pulls/{pr}")
     if APPROVAL_LABEL not in {lb["name"] for lb in pull.get("labels", [])}:
         return False, "the label is not on the pull request"
@@ -768,7 +785,8 @@ def approval(repo: str, pr: int, get) -> tuple[bool, str]:
 def head_since(repo: str, pull: dict, get, workflow: str = "cost.yml") -> str | None:
     """When the pull request's head became its current commit: the first of this check's runs in
     the unbroken run of runs on that commit, newest first. Run times are the server's, where a
-    commit's own date is whatever its author wrote."""
+    commit's own date is whatever its author wrote.
+    """
     head = pull["head"]
     branch = urllib.parse.quote(head["ref"], safe="")
     path = f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request_target&branch={branch}"  # fmt: skip
@@ -894,7 +912,8 @@ def run(
     prober=probe,
 ) -> int:
     """`approve` is asked only when a changed entry is over budget, and returns (approved, why).
-    `rows` defaults to reading each served entry's rows from the site."""
+    `rows` defaults to reading each served entry's rows from the site.
+    """
     known = {d.slug for d in datasets}
     if missing := sorted(changed - known):
         print(f"cost: no register entry named {', '.join(missing)}")

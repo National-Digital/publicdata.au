@@ -40,7 +40,8 @@ def _flat(c: pa.ChunkedArray) -> pa.ChunkedArray:
 
 def _differs(x: pa.ChunkedArray, y: pa.ChunkedArray) -> pa.ChunkedArray:
     """True where the two cells would serialise differently. Values of different types always
-    do, unless both are null."""
+    do, unless both are null.
+    """
     if x.type != y.type:
         return pc.or_(pc.is_valid(x), pc.is_valid(y))
     x, y = _flat(x), _flat(y)

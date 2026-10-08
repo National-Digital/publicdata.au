@@ -71,7 +71,8 @@ def _is(node, *names: str) -> bool:
 
 def _literal_ok(value, rng: set[str]) -> bool:
     """A literal fits a range if the range admits that datatype, or the literal is a URL
-    standing in for an entity."""
+    standing in for an entity.
+    """
     kinds = set().union(*(_ancestors(r) for r in rng))
     if isinstance(value, bool):
         return "Boolean" in kinds
@@ -216,7 +217,8 @@ def _faq(n: dict, at: str) -> list[str]:
 
 def _catalog(n: dict, at: str) -> list[str]:
     """Google reads every entry in dataset as a Dataset item on this page, so a bare
-    reference is an invalid item."""
+    reference is an invalid item.
+    """
     return [
         f"{at}.dataset[{i}]: must be a full Dataset, not a reference"
         for i, v in enumerate(_values(n.get("dataset")))

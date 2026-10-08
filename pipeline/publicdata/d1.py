@@ -128,7 +128,8 @@ def version_sql(
     fts: tuple[str, ...] = (),
 ):
     """Yields the statements that create and fill one table from a SQLite file shaped as a
-    version's data.sqlite, as the catalogue and served indexes are."""
+    version's data.sqlite, as the catalogue and served indexes are.
+    """
     for _, stmt, _ in _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl, fts):
         yield stmt
 
@@ -151,7 +152,8 @@ def parquet_version_sql(
 ):
     """Yields the statements that create and fill one dataset version's table from its Parquet,
     typed as its data.sqlite and in the Parquet's row order, which is the publisher's unless
-    the version was written under a sort."""
+    the version was written under a sort.
+    """
     for _, stmt, _ in _parquet_stmts(parquet, ds, version, index_fields, tbl):
         yield stmt
 
@@ -186,7 +188,8 @@ def parquet_columns(parquet: Path, ds) -> list[tuple[str, str]]:
 def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None, fts=()):
     """Yields (kind, statement, rows it inserts). Kinds "create", "insert" and "update" fill the
     table; "index", "fts" and "register" finish it and can run again. The registration names the
-    table and holds only if the table has every row and every index."""
+    table and holds only if the table has every row and every index.
+    """
     tbl = tbl or table_name(slug, version)
     names = [c for c, _ in cols]
     if fts:
@@ -299,7 +302,8 @@ def _raw_size(v) -> int:
 def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict[int, int]):
     """A row too long for one statement: it goes in with its longest text and blob values empty,
     and each of those is then appended a piece at a time. The table is new and fills in order, so
-    the row is the `rowid`th. Records the row's bytes in `wide` for the check at registration."""
+    the row is the `rowid`th. Records the row's bytes in `wide` for the check at registration.
+    """
     if sum(_raw_size(v) for v in row) > MAX_ROW:
         raise TooWide(f"row {rowid} is larger than D1 holds")
     lits = [literal(v) for v in row]
@@ -338,7 +342,8 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict
 
 def queryable(ds, csv_bytes: int | None) -> bool:
     """Whether the query API serves this version, by the size of its data.csv. The build and
-    the loader both ask here."""
+    the loader both ask here.
+    """
     return bool(ds.query and csv_bytes and csv_bytes <= MAX_CSV)
 
 
@@ -382,7 +387,8 @@ def rows_written(text: str) -> int:
 
 def load_table(slug: str, version: str, *content) -> str:
     """The table one load fills: the version's name and a digest of what goes in it, so a load
-    never writes into a table the API reads, and a load resumed later is of the same rows."""
+    never writes into a table the API reads, and a load resumed later is of the same rows.
+    """
     h = hashlib.sha256(LOADER.encode())
     for c in content:
         h.update(b"\0" + (c if isinstance(c, bytes) else json.dumps(c).encode()))
@@ -419,7 +425,8 @@ def write_loads(
     in name order, with a manifest the loader plans from. `roots` are the built trees to look for
     data.parquet in, such as dist and the tree split off for R2. A loaded version whose fields
     differ from the built one, as when a column is joined in, or whose rows were taken in another
-    order than its Parquet's, is loaded again into a table of its own."""
+    order than its Parquet's, is loaded again into a table of its own.
+    """
     out.mkdir(parents=True, exist_ok=True)
     written = []
     latest_json = next((r / "latest.json" for r in roots if (r / "latest.json").exists()), None)
@@ -470,7 +477,8 @@ def write_loads(
 def _write_load(out, slug, version, tbl, stmts, stamp, keep, fts=False, after=()) -> list[Path]:
     """Writes one load's parts and its manifest. Every part but the last only adds rows, and
     `cum` records the rows the table holds after each, which is what a resumed load checks. The
-    last part builds the indexes and registers the version, and can run again."""
+    last part builds the indexes and registers the version, and can run again.
+    """
     body: list[list[str]] = []
     cum: list[int] = []
     finish = [REGISTRY, ORDERS]
@@ -577,7 +585,8 @@ def catalogue_sqlite(path: Path, rows: list[dict], version: str) -> None:
 def catalogue_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str = "") -> list[Path]:
     """Load parts for the catalogue index when this harvest is not loaded yet. A harvest is a new
     version only when the portals' lists changed, so an unchanged catalogue never loads again.
-    One index is kept."""
+    One index is kept.
+    """
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     version = dict(src.execute("SELECT key, value FROM publicdata").fetchall())["catalogue_read"]
     src.close()
@@ -621,7 +630,8 @@ SERVED_FIELDS = (
 
 def served_table(path: Path, rows: list[dict]) -> str:
     """Adds the served datasets to the catalogue index file. Returns the version, which is a hash
-    of the rows so a changed register loads again without waiting for a harvest."""
+    of the rows so a changed register loads again without waiting for a harvest.
+    """
     body = json.dumps([[r[f] for f in SERVED_FIELDS] for r in rows], ensure_ascii=False)
     version = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
     db = sqlite3.connect(path)
@@ -763,7 +773,8 @@ def _count(db, tbl: str) -> int | None:
 
 def holds(db, tbl: str, expected: int) -> bool:
     """One COUNT per table: D1 caps compound SELECTs at five terms. Raises Unknown rather than
-    answer False when D1 cannot be asked."""
+    answer False when D1 cannot be asked.
+    """
     return _count(db, tbl) == expected
 
 
@@ -843,7 +854,8 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
     while they fit the budget, and the first in line is taken whatever its size, so a version
     larger than the budget loads alone in some deploy and none waits for good. A dataset whose
     loads failed in MAX_FAILURES deploys, of any versions, is skipped until a load of it succeeds
-    or `retry` names it; a failure also restarts its wait, so it goes behind the others."""
+    or `retry` names it; a failure also restarts its wait, so it goes behind the others.
+    """
     queue = []
     for j in jobs:
         row = state.get(j.slug)
@@ -889,7 +901,8 @@ def _drops(tbl: str) -> list[str]:
 def _note_pending(db, jobs: list[Job], state: dict[str, dict], served: set[str], log) -> None:
     """Records each pending load the registry of loads lacks or holds for another table, keeping
     the time its dataset began to wait, and drops a table an earlier load left part filled. A row
-    whose dataset is no longer pending goes, with any table it was filling."""
+    whose dataset is no longer pending goes, with any table it was filling.
+    """
     rows, sql = [], []
     pending = {j.slug for j in jobs}
     for j in jobs:
@@ -937,7 +950,8 @@ class _Defer(Exception):
 class _Budget:
     """Rows written so far in this deploy. A load reserves its plan before it writes, and each
     part run again, or a resume that has to start over, is charged on top. Once retries have
-    used it up, loads not yet started wait for the next deploy; the first in line always runs."""
+    used it up, loads not yet started wait for the next deploy; the first in line always runs.
+    """
 
     def __init__(self, cap: int):
         self.cap, self.spent, self.lock = cap, 0, threading.Lock()
@@ -963,7 +977,8 @@ class _Failed(Exception):
 
 def _fill(db, j: Job, budget: _Budget, log) -> None:
     """Runs the parts that add rows, from where the last load stopped if the table still holds
-    exactly the rows that load recorded. Raises _Failed with the parts known to be in place."""
+    exactly the rows that load recorded. Raises _Failed with the parts known to be in place.
+    """
     start = j.start
     if start:
         try:
@@ -1035,7 +1050,8 @@ def _finish(db, j: Job, budget: _Budget, log) -> None:
 def _sweep(db, keep: set[str], log) -> None:
     """Drops the load tables, and their full-text indexes, that no registration, pending load
     or load of this deploy names: what a confirmation D1 did not answer, or a cleanup that
-    failed, left behind. Only names shaped as load_table makes them are touched."""
+    failed, left behind. Only names shaped as load_table makes them are touched.
+    """
     try:
         names = {
             r["name"]
@@ -1060,7 +1076,8 @@ def _sweep(db, keep: set[str], log) -> None:
 
 def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> None:
     """After the new table is registered: unregisters the versions beyond the ones kept, then
-    drops the tables no registration names any more, the one this load replaced among them."""
+    drops the tables no registration names any more, the one this load replaced among them.
+    """
     others = sorted((v for s, v in reg if s == j.slug and v != j.version), reverse=True)
     # Newer versions are kept first, so a re-run of an older deploy never drops one.
     kept = [v for v in others if v > j.version][: j.keep - 1]
@@ -1234,7 +1251,8 @@ def load(
     A part that reports an error is counted: one that applied is kept, one that did not is run
     again, anything else fails the version. A failed version keeps its progress and the version
     before it keeps serving. Up to `workers` versions load at once. Returns the number of
-    versions that failed in this deploy."""
+    versions that failed in this deploy.
+    """
     jobs = _jobs(folder)
     now = now or datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     for ddl in (REGISTRY, ORDERS, LOADS):

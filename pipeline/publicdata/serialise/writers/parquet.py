@@ -16,7 +16,8 @@ def write_parquet(
 ) -> None:
     """The version's Parquet under the layout its manifest records, or `lay` for a query copy.
     A version fetched before the profile records none and keeps the writer it was published
-    with."""
+    with.
+    """
     lay = tbl.manifest.parquet if lay is None else lay
     if not lay:
         t = tbl.table.replace_schema_metadata({"publicdata": dumps(header)})

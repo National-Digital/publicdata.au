@@ -22,7 +22,8 @@ def write_pmtiles(tbl, header: dict, path: Path) -> None:
     dataset, every field a property. Each zoom's shapes are simplified to a tile pixel first, and
     a shape the publisher drew invalid is repaired for the tiles only. A repair can return a
     collection, such as a polygon with a stray line, which a tile cannot hold, so only the parts of
-    the layer's own kind are kept."""
+    the layer's own kind are kept.
+    """
     from pmtiles.tile import Compression, TileType, zxy_to_tileid
     from pmtiles.writer import Writer
 

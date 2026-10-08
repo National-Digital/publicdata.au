@@ -142,7 +142,8 @@ def _shape_path(data: bytes, ext: str, member: str, tmp: Path) -> str:
 
 def _read_layer(data: bytes, ext: str, member: str):
     """The layer loaded into DuckDB as `src`: the connection, the geometry column, the attribute
-    columns cast to text, and the file's order."""
+    columns cast to text, and the file's order.
+    """
     con = connect()
     with tempfile.TemporaryDirectory() as t:
         path = _shape_path(data, ext, member, Path(t))
@@ -157,7 +158,8 @@ def _read_layer(data: bytes, ext: str, member: str):
 
 def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table, pa.Array]:
     """The layer's attributes as text, in the file's order, and each feature's geometry as WKB in
-    GDA2020. The publisher's datum is the register's `geometry.crs`."""
+    GDA2020. The publisher's datum is the register's `geometry.crs`.
+    """
     con, geom, text, order = _read_layer(data, ext, member)
     moved = (
         f'"{geom}"'
@@ -174,7 +176,8 @@ def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table,
 
 def read_points(data: bytes, ext: str, member: str) -> pa.Table:
     """A point layer's attributes as text and each point's coordinates as published, under the
-    longitude and latitude source names a GeoJSON point is read with."""
+    longitude and latitude source names a GeoJSON point is read with.
+    """
     from .register import LAT_SOURCE, LON_SOURCE
 
     con, geom, text, order = _read_layer(data, ext, member)
@@ -250,7 +253,8 @@ def _layer_entry(slug: str, register_dir: Path) -> str:
 
 def spine_versions(keys: tuple[str, ...], store_dir: Path, register_dir: Path) -> str:
     """What the join reads, for the build cache: each layer's newest source hash and the register
-    entry the layer is normalised with, so a change to either rebuilds the datasets joined to it."""
+    entry the layer is normalised with, so a change to either rebuilds the datasets joined to it.
+    """
     parts = []
     for k in keys:
         slug = LAYERS[k].slug

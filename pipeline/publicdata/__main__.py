@@ -55,7 +55,8 @@ def cmd_register(args) -> int:
 
 def cmd_labels(args) -> int:
     """Draft a label for every field that has none: the label another entry already gives a field
-    of the same name, or else one worked out from the name. --write puts them in the YAML."""
+    of the same name, or else one worked out from the name. --write puts them in the YAML.
+    """
     from .register import draft_label, load
 
     datasets = load(REGISTER)
@@ -326,7 +327,8 @@ VERSIONED_FILE = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/")
 def cmd_split(args) -> int:
     """Move files that R2 serves into a sibling tree: anything over the Pages per-file limit
     and, with --versioned, every file of a dated version, its page included. A file moved to R2
-    is only reachable where _routes.json runs the function that reads it."""
+    is only reachable where _routes.json runs the function that reads it.
+    """
     from .serialise.profile import QUERY_DIR
     from .site import ROUTES
 
@@ -721,7 +723,8 @@ def cmd_cache(args) -> int:
 
 def cmd_verify(args) -> int:
     """plan prints the datasets the real-data check builds, or nothing when no changed path
-    shapes versions outside their key; run builds them and compares."""
+    shapes versions outside their key; run builds them and compares.
+    """
     from . import verify
     from .register import load
 

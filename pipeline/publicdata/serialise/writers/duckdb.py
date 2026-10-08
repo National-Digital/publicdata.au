@@ -11,7 +11,8 @@ from .. import DUCKDB_TYPES, duckdb_comment, duckdb_connect, duckdb_meta, field_
 def write_duckdb(tbl: Table, header: dict, path: Path) -> None:
     """One DuckDB database: a `records` table with the typed columns, plus the `fields` and
     `publicdata` tables. The file attaches read-only over HTTPS, so a query can run against it
-    without a download. Its rows are in the Parquet's order."""
+    without a download. Its rows are in the Parquet's order.
+    """
     ds = tbl.dataset
     con = duckdb_connect(path, tbl.rows)
     try:

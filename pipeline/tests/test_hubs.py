@@ -502,7 +502,8 @@ def test_kaggle_lists_every_page_of_the_accounts_datasets(tmp_path):
 
 def kaggle_cli(tmp_path, status="ready", extra=""):
     """A fake CLI that logs each call, keeps what metadata --update and kernels push were given,
-    and answers status with `status`."""
+    and answers status with `status`.
+    """
     log, kept = tmp_path / "args", tmp_path / "kept"
     kept.mkdir(exist_ok=True)
     return (

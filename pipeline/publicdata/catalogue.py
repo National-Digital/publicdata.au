@@ -184,7 +184,8 @@ OPEN_IDS = {"CC0-1.0", "PDM", "PDDL-1.0", "ODC-BY-1.0", "ODBL-1.0", "other-open"
 
 def licence_id(title: str) -> str:
     """A portal's licence title onto an SPDX-style id. A title nothing here recognises is kept as
-    the portal states it, so it shows up in review rather than being guessed."""
+    the portal states it, so it shows up in review rather than being guessed.
+    """
     t = re.sub(r"\s+", " ", (title or "").strip()).lower()
     if not t or t in KNOWN_LICENCES:
         return KNOWN_LICENCES.get(t, "")
@@ -230,7 +231,8 @@ def cc_url(url: str) -> str:
 
 def is_open(lic: str) -> bool | None:
     """True for licences that allow republication with changes, False for ones that do not,
-    None when the portal states no licence."""
+    None when the portal states no licence.
+    """
     if not lic:
         return None
     if lic in OPEN_IDS:
@@ -272,7 +274,8 @@ def _day(iso: str) -> str:
 
 def record_id(portal: str, source_id: str) -> str:
     """Stable across renames: CKAN's package UUID, Socrata's four-by-four, the ABS dataflow id.
-    Shaped to fit a vote key."""
+    Shaped to fit a vote key.
+    """
     return re.sub(r"[^a-z0-9-]+", "-", f"{portal}-{source_id}".lower()).strip("-")[:64]
 
 
@@ -456,7 +459,8 @@ def _council_record(portal: Portal, **kw) -> dict:
 
 def ods(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
     """An Opendatasoft portal. A dataset with records can be exported in every format the
-    platform offers; one without is a page of links, which is listed with no files."""
+    platform offers; one without is a page of links, which is listed with no files.
+    """
     out, off, total = [], 0, 0
     while True:
         res = get_json(
@@ -531,7 +535,8 @@ def _epoch_day(ms) -> str:
 
 def hub_licence(x: dict) -> tuple[str, str]:
     """Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
-    Commons deed, written out in licenseInfo."""
+    Commons deed, written out in licenseInfo.
+    """
     lic = (x.get("license") or "").strip()
     raw = x.get("licenseInfo") or ""
     text = summary(raw)
@@ -587,7 +592,8 @@ def harvest(
 ) -> tuple[list[dict], dict]:
     """A portal that cannot be read keeps its records from the previous snapshot and says so in
     the stats, so an outage never reads as datasets withdrawn. With no previous snapshot its
-    records are absent and the stats say it was not read."""
+    records are absent and the stats say it was not read.
+    """
     s = requests.Session()
     s.headers["User-Agent"] = UA
     records, stats = [], {}
@@ -629,7 +635,8 @@ def _title_key(title: str) -> str:
 def _drop_copies(records: list[dict], portals, stats: dict) -> list[dict]:
     """A record in an organisation a council portal replaces is dropped when the council portal
     lists the same title or the record's source is on the council portal. Anything else that
-    organisation holds is kept, since it may come from somewhere the council portal does not."""
+    organisation holds is kept, since it may come from somewhere the council portal does not.
+    """
     have = {r["portal"] for r in records}
     scope = {o: p for p in portals if p.code in have for o in p.replaces}
     if not scope:

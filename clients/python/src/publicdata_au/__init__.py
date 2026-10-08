@@ -126,7 +126,8 @@ class SiteUnreachable(PublicDataError):
 class LicenceCondition(UserWarning):
     """A dataset's licence sets a condition on its use beyond attribution, such as G-NAF's rule
     on mail compilation. Shown once per dataset per process; silence it with
-    `warnings.simplefilter("ignore", publicdata_au.LicenceCondition)`."""
+    `warnings.simplefilter("ignore", publicdata_au.LicenceCondition)`.
+    """
 
 
 class Filter:
@@ -219,7 +220,8 @@ class Rows(list):
     """A list of row dicts that also carries where they came from.
 
     `version`, `attribution`, `cite` and `licence` come from the answer itself, so they always
-    name the version the rows were read from."""
+    name the version the rows were read from.
+    """
 
     def __init__(self, rows=(), meta: Mapping | None = None, page: Mapping | None = None):
         super().__init__(rows)
@@ -248,7 +250,8 @@ class Rows(list):
 
     def to_pandas(self):
         """The rows as a DataFrame. Dates are already `datetime.date`; `df.attrs["fields"]` maps
-        each column to its field's description."""
+        each column to its field's description.
+        """
         import pandas as pd
 
         df = pd.DataFrame(list(self))
@@ -268,7 +271,8 @@ class Results(list):
 
 class Connection:
     """A DuckDB connection from `connect()`: every method of the connection, plus `publicdata`,
-    which names the dataset, the version, the file's URL and its licence."""
+    which names the dataset, the version, the file's URL and its licence.
+    """
 
     def __init__(self, con, publicdata: dict):
         self._con = con
@@ -381,7 +385,8 @@ class Client:
         `q` searches titles, summaries, publishers, keywords and field names. `publisher` is
         part of a publisher's name, `topic` a topic such as "roads" or "crime", and
         `jurisdiction` a code such as "Qld" or a name such as "Queensland", all ignoring case.
-        Every condition given must match."""
+        Every condition given must match.
+        """
         out = self._json("/api/v1/datasets", {"q": q} if q else None)["results"]
         if publisher is None and topic is None and jurisdiction is None:
             return out
@@ -427,7 +432,8 @@ class Client:
 
     def dataset(self, slug: str) -> dict:
         """The dataset's Frictionless data package: title, licence, attribution, fields and
-        every file of the newest version."""
+        every file of the newest version.
+        """
         return self._json(f"/d/{_slug(slug)}/datapackage.json")
 
     def versions(self, slug: str) -> list[dict]:
@@ -440,13 +446,15 @@ class Client:
 
     def schema(self, slug: str, version: str | None = None) -> dict:
         """A version's schema.json: the fields of a table, or every table of a database with
-        its fields, keys and references, and the views."""
+        its fields, keys and references, and the views.
+        """
         at = f"v/{_date(version)}" if version else "latest"
         return self._json(f"/d/{_slug(slug)}/{at}/schema.json")
 
     def tables(self, slug: str, version: str | None = None) -> list[dict]:
         """The tables of a database, each with its name, description, rows, fields and keys.
-        A dataset that is one table has one entry, `records`."""
+        A dataset that is one table has one entry, `records`.
+        """
         s = self.schema(slug, version)
         if s.get("kind") == "database":
             return s["tables"]
@@ -474,7 +482,8 @@ class Client:
         publisher's views; for a single table it holds `records`. `con.publicdata` names the
         version, the URL and the file's provenance. Pass a date from `versions()` to pin a
         version. With `cache=True` the whole file is downloaded into `cache_dir()` once and
-        attached from there, which makes repeated scans of a large database much faster."""
+        attached from there, which makes repeated scans of a large database much faster.
+        """
         import duckdb
 
         version = _date(version) if version else self.latest(slug)
@@ -517,7 +526,8 @@ class Client:
         `.aggregate()`, `.project()` and `.order()` build SQL that runs only when `.df()`,
         `.arrow()` or `.fetchall()` asks, reading only the blocks it needs. `table` defaults to
         `records`, the one table of most datasets; a database such as G-NAF needs a table or
-        view name from `tables()`. Calls for the same dataset and version share a connection."""
+        view name from `tables()`. Calls for the same dataset and version share a connection.
+        """
         version = _date(version) if version else self.latest(slug)
         key = (_slug(slug), version, self._caching(cache))
         con = self._relations.get(key)
@@ -574,7 +584,8 @@ class Client:
         Without `version` the answer comes from the newest version and changes when the
         publisher releases again; with a date from `versions()` it comes from that version alone. `all=True`
         follows every page. For a whole table, `read()` or `download()` is faster and has no
-        rate limit."""
+        rate limit.
+        """
         if all and limit is None:
             limit = PAGE_MAX
         params = {
@@ -606,7 +617,8 @@ class Client:
         """Counts, sums, averages, minimums and maximums by group, from the query API.
 
         `metric` is `count`, `sum.<field>`, `avg.<field>`, `min.<field>` or `max.<field>`, or a
-        list of them. `where` works as it does for `rows()`."""
+        list of them. `where` works as it does for `rows()`.
+        """
         params = {"group": _list(group), "metric": _list(metric)}
         body = self._query(slug, "aggregate", where, version, params)
         out = Rows(body.get("rows", ()), body.get("publicdata"), _page(body))
@@ -618,7 +630,8 @@ class Client:
         "datetime") and description, with `min` and `max` for a number or date and `values`
         when it holds few. For a database such as G-NAF each entry also names its `table`.
         Without `version` the fields are the newest version's; a pinned version is described by
-        its schema, without ranges or values."""
+        its schema, without ranges or values.
+        """
         if not version:
             try:
                 return self._json(f"/d/{_slug(slug)}/fields.json")["fields"]
@@ -643,7 +656,8 @@ class Client:
 
     def _typed(self, slug: str, out: Rows, version: str | None = None) -> Rows:
         """Values as the fields of the version they came from say: the API sends dates as text
-        and booleans as 0 or 1. A value that does not parse is left as it came."""
+        and booleans as 0 or 1. A value that does not parse is left as it came.
+        """
         fields = self._field_types(slug, version)
         out.page["fields"] = {
             n: f.get("description") for n, f in fields.items() if f.get("description")
@@ -667,7 +681,8 @@ class Client:
         table: str | None = None,
     ) -> str:
         """The URL of a version's file: data.<format>, or with `table` one table of a database
-        as tables/<table>.parquet."""
+        as tables/<table>.parquet.
+        """
         if format not in FORMATS:
             raise ValueError(f"format must be one of {', '.join(FORMATS)}")
         at = f"v/{_date(version)}" if version else "latest"
@@ -707,7 +722,8 @@ class Client:
         """Saves one version's file, the newest by default, and returns where. Without `path`
         the file is named `<slug>-<version>.<format>` in the working directory, or with the
         cache on it is the kept file in `cache_dir()`. `table` saves one table of a database,
-        as Parquet. Files have no rate limit."""
+        as Parquet. Files have no rate limit.
+        """
         if self._caching(cache):
             kept = self._fetch(slug, format, version, table, cache=True)[0]
             if path is None:
@@ -733,7 +749,8 @@ class Client:
         `table` one table of a database. `columns` reads only those fields. `df.attrs["publicdata"]`
         is the provenance header the file itself carries: version, licence, attribution,
         citation and source. Without pyarrow the table is read from the gzipped CSV instead,
-        typed by the version's fields."""
+        typed by the version's fields.
+        """
         if columns is not None and (isinstance(columns, str) or not columns):
             raise ValueError("columns must be a list of field names, as fields() lists them")
         pq = _parquet_module()
@@ -783,7 +800,8 @@ class Client:
 
     def _file_header(self, slug: str, version: str | None) -> dict:
         """The provenance header every file of a version carries, from the first line of its
-        NDJSON, read with a range request so the rest is not downloaded."""
+        NDJSON, read with a range request so the rest is not downloaded.
+        """
         url = self.file_url(slug, "ndjson", version if version != "latest" else None)
         req = urllib.request.Request(
             url, headers={"User-Agent": self.user_agent, "Range": "bytes=0-65535"}
@@ -799,7 +817,8 @@ class Client:
         """A dataset's map layer as a geopandas GeoDataFrame, read from the version's
         GeoPackage. Datasets with a location or a shape have one; the coordinates are in the
         reference system the publisher used, usually GDA2020 (EPSG:7844). Needs the [geo]
-        extra. `gdf.attrs["publicdata"]` is the provenance the file carries."""
+        extra. `gdf.attrs["publicdata"]` is the provenance the file carries.
+        """
         import geopandas as gpd
 
         with tempfile.TemporaryDirectory() as d:
@@ -831,7 +850,8 @@ class Client:
         """Every comparison of a version with the one before it, oldest first: the two
         versions, their rows, rows added, removed, changed and unchanged, the schema changes
         and the URL of the full comparison. `since` and `until` bound the versions compared.
-        A database is compared by each table's row count."""
+        A database is compared by each table's row count.
+        """
         out = self._json(f"/d/{_slug(slug)}/changes.json")["changes"]
         if since:
             out = [c for c in out if c["from"] >= _date(since)]
@@ -842,7 +862,8 @@ class Client:
     def diff(self, slug: str, version: str | None = None) -> dict:
         """The full comparison of `version`, the newest by default, with the version before
         it: the counts, the keys of the rows added, removed and changed (up to 50,000 of each,
-        `truncated` says when there were more) and up to ten changed rows field by field."""
+        `truncated` says when there were more) and up to ten changed rows field by field.
+        """
         version = _date(version) if version else self.latest(slug)
         for c in self.changes(slug):
             if c["to"] == version:
@@ -855,7 +876,8 @@ class Client:
     def cite(self, slug: str, version: str | None = None, *, format: str = "text") -> str:
         """How to cite one version, the newest by default: `format="text"` for the citation
         the site gives, with the attribution the licence requires, or `"bibtex"` for a
-        reference manager."""
+        reference manager.
+        """
         if format not in ("text", "bibtex"):
             raise ValueError('format must be "text" or "bibtex"')
         dp = self._json(f"/d/{_slug(slug)}/datapackage.json")
@@ -890,7 +912,8 @@ class Client:
     def provenance(self, slug: str, version: str | None = None) -> dict:
         """The record kept with a version: the publisher's file it was read from, with its
         address, name, size and SHA-256, when it was fetched, the licence as the publisher stated
-        it and when that was read, and the rows and fields it holds."""
+        it and when that was read, and the rows and fields it holds.
+        """
         at = f"v/{_date(version)}" if version else "latest"
         return self._json(f"/d/{_slug(slug)}/{at}/manifest.json")
 
@@ -915,7 +938,8 @@ class Client:
         site serves a small part. Each record has its `id`, `title`, `summary`, `publisher`,
         `jurisdiction`, portal `url`, `licence`, `formats`, `modified`, `status` ("served",
         "votable", "chosen" or "closed"), the site's `page` when served and the `reason` when
-        closed. `jurisdiction` is a code such as "qld" or a name such as "Queensland"."""
+        closed. `jurisdiction` is a code such as "qld" or a name such as "Queensland".
+        """
         jur = None
         if jurisdiction is not None:
             jur = _JUR_CODES.get(str(jurisdiction).lower())
@@ -937,7 +961,8 @@ class Client:
     def boundary_layers(self) -> list[dict]:
         """The ABS boundary layers rows join to: council areas, SA2s, suburbs, postal areas and
         state and federal electorates, each with its `key`, `slug`, `title`, the `code` and
-        `name` fields that identify an area, and the `version` served."""
+        `name` fields that identify an area, and the `version` served.
+        """
         if "places" not in self._memo:
             self._memo["places"] = self._json("/places.json")["layers"]
         return self._memo["places"]
@@ -952,7 +977,8 @@ class Client:
 
     def boundaries(self, layer: str, *, cache: bool | None = None):
         """A boundary layer, such as "lga", "sa2", "suburb", "postcode", "state_electorate" or
-        "federal_electorate", as a GeoDataFrame in GDA2020 (EPSG:7844). Needs the [geo] extra."""
+        "federal_electorate", as a GeoDataFrame in GDA2020 (EPSG:7844). Needs the [geo] extra.
+        """
         return self.read_geo(self._layer(layer)["slug"], cache=cache)
 
     def join_boundaries(
@@ -963,7 +989,8 @@ class Client:
         `layer` is None; `by` names the column of codes when it is called something else.
         Numeric codes are compared as text with leading zeros restored, so postcode 800 matches
         "0800". A row whose code matches no area gets no geometry. Aggregate first: 500 council
-        areas draw faster than 80,000 rows each carrying its area's shape."""
+        areas draw faster than 80,000 rows each carrying its area's shape.
+        """
         import geopandas as gpd
         import pandas as pd
 
@@ -1050,7 +1077,8 @@ class Client:
 
     def cache_clear(self, slug: str | None = None, version: str | None = None) -> int:
         """Deletes kept files, every one or one dataset's or one version's, and returns the
-        bytes freed."""
+        bytes freed.
+        """
         root = self._cache_root(slug, version)
         if not root.is_dir():
             return 0
@@ -1132,7 +1160,8 @@ def _csv_column(col, kind):
     """One column of the gzipped CSV, typed as pyarrow types the Parquet file's column: numbers
     as int64 or float64 (float64 when a whole number is missing), "nan" as NaN, dates as
     datetime.date, timestamps as datetime64 or datetime when out of its range, booleans as bool
-    or objects when some are missing, and the suppressed names as arrays."""
+    or objects when some are missing, and the suppressed names as arrays.
+    """
     import numpy as np
     import pandas as pd
 
@@ -1231,7 +1260,8 @@ _JUR_CODES = {
 
 def _norm_codes(col, ref) -> list:
     """Codes as text, with the leading zeros a number lost restored when every code has one
-    width."""
+    width.
+    """
     import pandas as pd
 
     widths = {len(r) for r in ref if isinstance(r, str)}

@@ -31,7 +31,8 @@ G_FIELDS = [
 
 def _g_files():
     """One table as the pipeline writes it: Parquet, and the CSV gzipped, with the suppressed
-    names joined by ";" as the CSV writer joins them."""
+    names joined by ";" as the CSV writer joins them.
+    """
     import datetime as dt
     import gzip
 

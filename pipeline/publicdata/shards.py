@@ -1,6 +1,7 @@
 """Which datasets a deploy builds in its own jobs, and in how many. A runner has one disk, so
 the versions the cache cannot serve are spread over up to `count` jobs by source bytes, and the
-deploy then builds the site from the cache those jobs filled."""
+deploy then builds the site from the cache those jobs filled.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +17,8 @@ def plan(weights: dict[str, int], count: int, floor: int = FLOOR) -> list[list[s
     """Datasets packed largest first into jobs of at most max(total / count, floor) bytes, or of
     one dataset when it alone is larger. When that needs more than `count` jobs, each dataset
     goes to the lightest of `count` jobs instead, which holds every job within a third over the
-    lightest packing `count` jobs allow."""
+    lightest packing `count` jobs allow.
+    """
     todo = sorted(((w, s) for s, w in weights.items() if w > 0), key=lambda x: (-x[0], x[1]))
     if not todo:
         return []
@@ -38,7 +40,8 @@ def plan(weights: dict[str, int], count: int, floor: int = FLOOR) -> list[list[s
 
 def weights(datasets: list[Dataset], store_dir: Path, cache_dir: Path | None) -> dict[str, int]:
     """Each dataset's source bytes still to build: every version without a cache, else those the
-    cache cannot serve as they are."""
+    cache cannot serve as they are.
+    """
     from . import store
     from .build import pending
     from .cache import BuildCache, shape_layer, writer_keys

@@ -22,7 +22,8 @@ PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.S)
 
 def _partition_values(out: Path, slug: str) -> list[str]:
     """The publisher's own values that a dataset's pages name as places and partitions, longest
-    first, so the copy checks read only this site's words."""
+    first, so the copy checks read only this site's words.
+    """
     vals: set[str] = set()
     for idx in (out / "d" / slug / "v").glob("*/by/*/index.json"):
         for e in json.loads(idx.read_text(encoding="utf-8")).get("partitions", []):
@@ -164,7 +165,8 @@ QUERY_TILE = re.compile(
 def examples(out: Path, datasets: dict) -> tuple[list[str], list[str]]:
     """Each dataset page's first query and what its tile answers, marked by where the query came
     from: the register's example, or the build's pick for a reader to look over. A register
-    example that answers nothing is an error, since a person chose it to be read."""
+    example that answers nothing is an error, since a person chose it to be read.
+    """
     report, errors = [], []
     for page in sorted((out / "d").glob("*/index.html")) if (out / "d").exists() else []:
         slug = page.parent.name
@@ -193,7 +195,8 @@ def checked(
 ) -> tuple[list[str], list[str]]:
     """The gate's errors, and the list of every dataset page's first query. absent lists files a cached build left out because an earlier build published them; the
     deploy's push refuses to go ahead unless R2 holds every one. Without site, only the dated
-    versions are checked, as a deploy shard builds them without pages."""
+    versions are checked, as a deploy shard builds them without pages.
+    """
     errors: list[str] = []
     absent = set(absent)
     datasets = {d.slug: d for d in load(register_dir)}

@@ -1,5 +1,6 @@
 """Checks register validate runs against the versions already stored, where their files are at
-hand: a CI checkout has the manifests alone, a fetch runner or a working copy has more."""
+hand: a CI checkout has the manifests alone, a fetch runner or a working copy has more.
+"""
 
 from __future__ import annotations
 
@@ -37,7 +38,8 @@ def _parquet_misfits(path: Path, cols) -> list[str]:
 
 def int32_misfits(ds, m, store_dir: Path, built: list[Path]) -> list[str] | None:
     """The entry's int32 fields this stored version does not fit, or None when neither a built
-    Parquet of it nor its source is at hand."""
+    Parquet of it nor its source is at hand.
+    """
     rel = f"d/{ds.slug}/v/{m.version}/data.parquet"
     for root in built:
         for p in (root / rel, root / query_key(ds.slug, m.version)):

@@ -106,7 +106,8 @@ ACRONYMS = {"abs", "id", "lga", "dca", "nsw", "qld", "sa2", "sa3", "sa4"}
 
 def draft_label(name: str, names) -> str:
     """A first label for review, from the field name: a prefix most of the dataset's fields share
-    is dropped (crash_ in crash_severity), involving_x reads as X involved, and count_x as X."""
+    is dropped (crash_ in crash_severity), involving_x reads as X involved, and count_x as X.
+    """
     heads = [n.split("_", 1)[0] for n in names if "_" in n]
     words = name.split("_")
     if len(words) > 1 and heads.count(words[0]) >= max(3, len(heads) // 4):
@@ -651,7 +652,8 @@ def parse(raw: dict, ctx: str) -> Dataset:
 
 def _profile(raw: dict, fields: list[Field], kind: str, ctx: str) -> dict:
     """`sort`, `lookup` and `int32`: declared fields, each named once. A boolean has two values,
-    which a bloom filter cannot tell apart, and only an integer field can be INT32."""
+    which a bloom filter cannot tell apart, and only an integer field can be INT32.
+    """
     by = {f.name: f for f in fields}
     out = {}
     for name in ("sort", "lookup", "int32"):
@@ -856,7 +858,8 @@ GEOMETRY_KINDS = ("point", "polygon", "line")
 def _geometry(raw, seen: set[str], ctx: str) -> dict | None:
     """Points name their longitude and latitude fields; polygons and lines are read whole from a
     shapefile, GeoPackage or GeoJSON and carry their geometry beside the fields. `crs` is the
-    publisher's datum."""
+    publisher's datum.
+    """
     if not raw:
         return None
     g = dict(raw)
@@ -895,7 +898,8 @@ NEWEST = "newest"
 
 def _where(raw, by: dict[str, Field], ctx: str) -> tuple[dict, ...]:
     """field: value for an exact match, or field: {op: value, ...} for the query API's other
-    operators, where neq may take a list."""
+    operators, where neq may take a list.
+    """
     if not isinstance(raw, dict):
         raise RegisterError(f"{ctx}: where maps each field to a value")
     out = []
@@ -933,7 +937,8 @@ def _metric(raw, by: dict[str, Field], ctx: str) -> str:
 def _example(raw, fields: list[Field], ctx: str) -> dict | None:
     """The dataset page's first query, chosen for what a reader comes to the table to ask, which
     the query tile answers and the console starts from. Without it the build picks one from the
-    field statistics."""
+    field statistics.
+    """
     if raw is None:
         return None
     ctx = f"{ctx}: example"
@@ -955,7 +960,8 @@ def _chart(raw, fields: list[Field], ctx: str) -> dict | None:
     """What the yearly chart and its sparkline draw, where the example's measure or the build's
     choice of colour reads wrong: the rows kept, such as leaving out the crashes a publisher
     stopped recording, the field colour splits by (none for one series), the measure and its
-    words. The rows themselves are never filtered."""
+    words. The rows themselves are never filtered.
+    """
     if raw is None:
         return None
     ctx = f"{ctx}: chart"
@@ -986,7 +992,8 @@ def _chart(raw, fields: list[Field], ctx: str) -> dict | None:
 def _sample(raw, fields: list[Field], ctx: str) -> dict | None:
     """The rows the dataset page shows, where the build's pick of the newest rows reads dull:
     the rows kept, the order as the query API writes it, the field whose values take turns
-    (none for no turns) and the words that say how the rows were picked."""
+    (none for no turns) and the words that say how the rows were picked.
+    """
     if raw is None:
         return None
     ctx = f"{ctx}: sample"

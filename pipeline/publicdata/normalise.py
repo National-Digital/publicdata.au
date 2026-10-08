@@ -168,7 +168,8 @@ def _cell(v) -> str:
 
 def xls_to_xlsx(data: bytes) -> bytes:
     """A legacy Excel 97-2003 workbook as an xlsx one, sheet for sheet and cell for cell, so every
-    workbook reader reads it the same way. Date cells stay dates."""
+    workbook reader reads it the same way. Date cells stay dates.
+    """
     import openpyxl
     import xlrd
 
@@ -199,7 +200,8 @@ def xls_to_xlsx(data: bytes) -> bytes:
 
 def _distinct(header: list[str]) -> list[str]:
     """A header that repeats a name, such as Rank and Count once per block, numbers each repeat
-    "Count (2)" and on, so every column can be named in the register. Blank names stay blank."""
+    "Count (2)" and on, so every column can be named in the register. Blank names stay blank.
+    """
     seen: dict[str, int] = {}
     out = []
     for h in header:
@@ -238,7 +240,8 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
     """A presentation table as one row per data cell, or per group of cells when the last header
     row names the fields. Header cells left blank beside a filled one are merged cells and take
     its value, as do row headers named in fill_down. A row with no data is a note and is skipped.
-    Values of the last header row that no field names are returned as held."""
+    Values of the last header row that no field names are returned as held.
+    """
     import openpyxl
 
     w = ds.wide
@@ -321,7 +324,8 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
 
 def read_geojson(data: bytes) -> pa.Table:
     """One row per feature: its properties in first-seen order, then the point's longitude and
-    latitude under LON_SOURCE and LAT_SOURCE. Every cell is text so typing follows one path."""
+    latitude under LON_SOURCE and LAT_SOURCE. Every cell is text so typing follows one path.
+    """
     fc = json.loads(data.decode("utf-8-sig"))
     feats = fc.get("features") or []
     header: list[str] = []
@@ -354,7 +358,8 @@ def read_xml(data: bytes, record: str) -> pa.Table:
     """One row per element named `record`, wherever it sits and whatever its namespace. Its
     attributes are columns named @attribute, each child element's text a column named by the
     child, and each child attribute child@attribute. A child that repeats within a record gives
-    its values in document order joined by XML_JOIN. Every cell is text."""
+    its values in document order joined by XML_JOIN. Every cell is text.
+    """
     import xml.etree.ElementTree as ET
 
     root = ET.fromstring(data.decode("utf-8-sig").encode("utf-8"))
@@ -415,7 +420,8 @@ DATE_HEADER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 def unpivot(raw: pa.Table, ds: Dataset) -> tuple[pa.Table, list[str]]:
     """One row per identifying row and dated column, ordered by the source row then the column.
-    Headers that are not dates are returned as held, like any column the register does not name."""
+    Headers that are not dates are returned as held, like any column the register does not name.
+    """
     keep = [f.source for f in ds.fields if f.source not in (HEADER_SOURCE, CELL_SOURCE)]
     names = {c.strip(): c for c in raw.column_names}
     missing = [k for k in keep if k not in names]
@@ -458,7 +464,8 @@ THOUSANDS = r"^-?\d{1,3}(,\d{3})+(\.\d+)?$"
 
 def _plain_number(arr: pa.ChunkedArray) -> pa.ChunkedArray:
     """A figure a publisher wrote with thousands separators, 19,918, as 19918. Only a cell that
-    is wholly such a figure is touched."""
+    is wholly such a figure is touched.
+    """
     grouped = pc.fill_null(pc.match_substring_regex(arr, THOUSANDS), False)
     if not pc.any(grouped).as_py():
         return arr
@@ -468,7 +475,8 @@ def _plain_number(arr: pa.ChunkedArray) -> pa.ChunkedArray:
 def _strptime(arr: pa.ChunkedArray, f: Field) -> pa.ChunkedArray:
     """Dates in the field's format, or in any of several formats written as one string joined
     by |, since a publisher's workbooks may hold a date as a date in one and as text in another.
-    A value in none of them stops the build."""
+    A value in none of them stops the build.
+    """
     formats = f.date_format.split("|")
     if len(formats) == 1:
         return pc.strptime(arr, format=formats[0], unit="s")

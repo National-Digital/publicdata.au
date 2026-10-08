@@ -1,5 +1,6 @@
 """Cloudflare's edge cache. A dated file is cached as immutable, so a version replaced in R2 is
-served stale until its prefix is purged."""
+served stale until its prefix is purged.
+"""
 
 from __future__ import annotations
 

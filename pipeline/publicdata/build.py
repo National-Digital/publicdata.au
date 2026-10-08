@@ -1,5 +1,6 @@
 """Turn the register and the raw store into dist/. Never touches upstream: a cached version's
-Parquet comes back through published, from the tree or R2 that holds it."""
+Parquet comes back through published, from the tree or R2 that holds it.
+"""
 
 from __future__ import annotations
 
@@ -77,7 +78,8 @@ KEPT = re.compile(r"^(manifest\.json|schema\.json|schema\.sql)$")
 
 def source_name(ds: Dataset, m: store.Manifest) -> str:
     """The publisher's file as a version lists it. Its bytes stay in the raw store, which the /d/
-    function serves it from, so no built tree holds it."""
+    function serves it from, so no built tree holds it.
+    """
     return "" if ds.source_withheld else f"source.{m.ext}"
 
 
@@ -113,7 +115,8 @@ def version_url(slug: str, version: str) -> str:
 def _size(p: Path) -> int:
     """A file's size in bytes. A DuckDB file's size differs from one write to the next, since
     its storage lays out blocks by sampling, so it is given to one significant figure and two
-    builds of one snapshot still agree."""
+    builds of one snapshot still agree.
+    """
     n = p.stat().st_size
     if p.name != "data.duckdb" or n < 10:
         return n
@@ -133,7 +136,8 @@ def build_database_version(
     ds: Dataset, m: store.Manifest, src: Path, out: Path
 ) -> tuple[None, VersionOut]:
     """A database version: the archive's tables as one DuckDB file and one Parquet per table,
-    with the schema, the script, the publisher's archive and the manifest beside them."""
+    with the schema, the script, the publisher's archive and the manifest beside them.
+    """
     from .database import build_database
 
     vdir = out / "d" / ds.slug / "v" / m.version
@@ -253,7 +257,8 @@ def _sorted_once(tbl: Table, lay: dict) -> Table:
 def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
     """The version's query copy under the current profile and register entry, at its internal
     key: the version's own data.parquet when that already follows them, else written again.
-    Returns its path in the tree."""
+    Returns its path in the tree.
+    """
     from .serialise.writers.geo_parquet import write_shape_parquet
     from .serialise.writers.parquet import write_parquet
 
@@ -273,7 +278,8 @@ def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
 
 def _published_record(ds: Dataset, m: store.Manifest, out: Path) -> dict | None:
     """The format record of a capped version already published: its manifest's
-    formats_left_out and measured_bytes, which no later build changes."""
+    formats_left_out and measured_bytes, which no later build changes.
+    """
     p = published.path(out, f"d/{ds.slug}/v/{m.version}/manifest.json")
     if not p.is_file():
         return None
@@ -288,7 +294,8 @@ def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
     NDJSON and CSV are written first and measured, and a format measured on itself is written,
     measured and deleted when it is over. A file --formats excludes is deleted once measured. A
     version already published keeps its recorded set, and only the sizes of the files this build
-    keeps are taken again."""
+    keeps are taken again.
+    """
     from . import serialise
 
     kind = geo_kind(ds)
@@ -470,7 +477,8 @@ def version_key(
     the spatial extension when its build loads it, the modules only its kind runs, and for a
     dataset joined to the place spine, the spine layers it reads and their register entries.
     The rest of the build code is not in it, so an edit to that code reuses every version until
-    a rebuild number is raised."""
+    a rebuild number is raised.
+    """
     from .cache import kind_key, spatial, spatial_version
 
     extra = [f"spatial={spatial_version()}"] if spatial(ds) else []
@@ -551,7 +559,8 @@ def pending(
     cache: BuildCache, ds: Dataset, store_dir: Path, now: dict[str, str] | None = None
 ) -> int:
     """The source bytes of the versions a build of this dataset would write from their sources
-    or grow: those with no cache entry, and table versions a writer has changed since."""
+    or grow: those with no cache entry, and table versions a writer has changed since.
+    """
     from .cache import writer_keys
 
     if not ds.publishable:
@@ -567,7 +576,8 @@ def pending(
 
 def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
     """Files another job built for versions this build took from the cache, linked in from that
-    job's tree so a preview serves them. Returns how many."""
+    job's tree so a preview serves them. Returns how many.
+    """
     n = 0
     for o in outs:
         for v in o.versions:
@@ -593,7 +603,8 @@ def grow_cached(
     entry has not seen, or saw in another form, is written again from the cached Parquet, the
     way the diff reads a version back, and a format no longer made is dropped from the record.
     Returns the entry's new metadata, or None when the entry cannot be grown and the version
-    must be built from its source."""
+    must be built from its source.
+    """
     from .cache import writer_keys
 
     if ds.kind == "database":
@@ -690,7 +701,8 @@ def _cached_version(
     ds: Dataset, m: store.Manifest, store_dir: Path, out: Path, cache: BuildCache | None, key: str
 ) -> tuple[Table | None, VersionOut]:
     """A version from the cache when its entry exists, without touching the source bytes, else
-    built from them. A cached version keeps only the files kept() names."""
+    built from them. A cached version keeps only the files kept() names.
+    """
     vdir = out / "d" / ds.slug / "v" / m.version
     if cache is not None:
         hit = cache.get(key, vdir)
@@ -741,7 +753,8 @@ def _order_file(tbl: Table, parquet: Path) -> dict[str, bytes]:
 def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Table | None:
     """A table read back from its sorted Parquet, in the publisher's order again, or None when
     the cache entry records no order for that very file, as when the published file is another
-    build's, and the version must be built from its source."""
+    build's, and the version must be built from its source.
+    """
     p = cache.root / key / ORDER
     if not p.is_file() or not parquet.is_file():
         return None
@@ -769,7 +782,8 @@ def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Tab
 
 def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:
     """Two versions of a database compared table by table, by row count. The tables are not
-    read back: a release of a hundred million rows is compared by what each version holds."""
+    read back: a release of a hundred million rows is compared by what each version holds.
+    """
     tables = sorted(set(a.tables) | set(b.tables))
     return {
         "dataset": ds.slug,
@@ -809,7 +823,8 @@ def _built_table(ds: Dataset, m: store.Manifest, out: Path, parquet: Path | None
 
 def _served_table(ds: Dataset, m: store.Manifest, tbl: Table | None, out: Path) -> Table:
     """A version's rows as the site serves them: its published Parquet when there is one, which
-    a version built again without a replace leaves in place, else what this build made."""
+    a version built again without a replace leaves in place, else what this build made.
+    """
     p, published_copy = published.served(out, f"d/{ds.slug}/v/{m.version}/data.parquet")
     if tbl is not None and not published_copy:
         return tbl
@@ -824,7 +839,8 @@ def build_dataset(
     newest: int | None = None,
 ) -> DatasetOut:
     """Every version of a dataset, or with newest only that many of the latest, as the real-data
-    check builds a large dataset."""
+    check builds a large dataset.
+    """
     dout = DatasetOut(ds)
     if not ds.publishable:
         return dout

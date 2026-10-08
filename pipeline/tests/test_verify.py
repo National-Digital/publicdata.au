@@ -402,7 +402,8 @@ def test_a_changed_register_default_needs_the_global_number(tmp_path):
 
 def _old_r2(t, s, tmp_path, monkeypatch):
     """The published tree as an older build left it: rows another normalise made, which a
-    version built again without a replace leaves in R2."""
+    version built again without a replace leaves in R2.
+    """
     with monkeypatch.context() as mp:
         _changed_normalise(mp)
         build_dataset(t, s, tmp_path / "r2")

@@ -213,7 +213,8 @@ def for_dataset(
     portal_by_host: dict[str, str],
 ) -> Publisher:
     """The publisher page a register dataset sits under: through its catalogue record when the
-    catalogue holds it, then by the publisher's name, and otherwise a page of its own."""
+    catalogue holds it, then by the publisher's name, and otherwise a page of its own.
+    """
     host = re.sub(r"^https?://(www\.)?", "", ds.source.portal or ds.source.url).split("/")[0]
     portal = portal_by_host.get(host)
     rec = records_by_name.get((portal, ds.source.package)) if portal else None
@@ -246,7 +247,8 @@ def suggest(records: list[dict], curated: list[Publisher], lgas: dict[str, str])
     """Proposed curation for the organisations data.gov.au and the Infrastructure catalogue list,
     which the portal cannot place: the jurisdiction, the level, a cleaned name and a merge with the
     same body on a state portal. `lgas` maps a council area's name to its jurisdiction. Output is
-    for review, never applied automatically."""
+    for review, never applied automatically.
+    """
     claimed = {o for p in curated for o in p.orgs}
     titles: dict[str, str] = {}
     for r in records:

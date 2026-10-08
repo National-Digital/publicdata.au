@@ -6,7 +6,8 @@ both.
 A published file never changes (ADR 0002), so a version's data.parquet follows the layout its
 manifest records from the fetch that made it (`Manifest.parquet`), and a version fetched before
 the profile keeps the writer it was published with. Every table version also gets a query copy
-under the current profile and register entry, at an internal key (`query_key`)."""
+under the current profile and register entry, at an internal key (`query_key`).
+"""
 
 from __future__ import annotations
 
@@ -52,7 +53,8 @@ def layout(ds) -> dict:
 
 def query_key(slug: str, version: str) -> str:
     """A version's query copy. A later profile writes beside it, so a reader of one profile
-    never meets a file of another under the same key."""
+    never meets a file of another under the same key.
+    """
     tag = "" if VERSION == "1" else f".p{VERSION}"
     return f"{QUERY_DIR}/{slug}/{version}{tag}.parquet"
 
@@ -74,7 +76,8 @@ def sort_columns(sort: Sequence[str], key: Sequence[str]) -> list[str]:
 def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Array | None:
     """The source positions of t's rows in profile order, or None when no sort is declared and
     the rows keep the publisher's order. Ties after the sort and the key fall to the source
-    position, so the order is complete. DuckDB sorts, since it spills to disk."""
+    position, so the order is complete. DuckDB sorts, since it spills to disk.
+    """
     if not sort:
         return None
     import duckdb
@@ -98,7 +101,8 @@ def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Arra
 
 def order_of(tbl, sort: Sequence[str], key: Sequence[str]) -> pa.Array | None:
     """The permutation for tbl's rows, taken from the one the build worked out for this table
-    and this sort when it has it, so a version is sorted once."""
+    and this sort when it has it, so a version is sorted once.
+    """
     known = getattr(tbl, "order", None)
     if known and known[0] is tbl.table and known[1] == (tuple(sort), tuple(key)):
         return known[2]
@@ -117,7 +121,8 @@ def ordered(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Table:
 
 def misfits(t: pa.Table, cols: Sequence[str]) -> list[str]:
     """Each named integer column holding a value outside 32 bits, said with its range. The fetch
-    asks before it stores a version, and register validate asks of the versions held."""
+    asks before it stores a version, and register validate asks of the versions held.
+    """
     out = []
     for c in cols:
         if c not in t.column_names:
@@ -130,7 +135,8 @@ def misfits(t: pa.Table, cols: Sequence[str]) -> list[str]:
 
 def int32_schema(t: pa.Table, cols: Sequence[str]) -> pa.Schema:
     """t's schema with the named integer columns as INT32. A value outside 32 bits stops the
-    build; the fetch holds such a version back, so this means a field declared since."""
+    build; the fetch holds such a version back, so this means a field declared since.
+    """
     bad = misfits(t, cols)
     if bad:
         raise ValueError("; ".join(bad) + "; take it out of int32")
@@ -179,7 +185,8 @@ def options(
 ) -> dict:
     """Writer options for a file in profile order, written ROW_GROUP_ROWS rows to a group.
     `sorted_by` names the columns a sorted file is ordered by, and `lookup` maps each lookup
-    field to its count of distinct values."""
+    field to its count of distinct values.
+    """
     opts = dict(
         compression="zstd",
         use_dictionary=True,
@@ -212,7 +219,8 @@ def write(
     extra: dict[str, str] | None = None,
 ) -> None:
     """t as one profile file at path under layout `lay`. `perm` is t's order when the caller has
-    it."""
+    it.
+    """
     if lay.get("profile") != VERSION:
         # A version keeps the profile it was published under, so a later one keeps this writer.
         raise ValueError(f"no writer for Parquet profile {lay.get('profile')!r}")
@@ -239,7 +247,8 @@ def signature(path: Path) -> str:
 
 def follows(meta: pq.FileMetaData, lay: dict) -> bool:
     """Whether a Parquet footer shows layout `lay`: its profile key, the sorting columns of every
-    row group, the fields with a bloom filter and the fields written as INT32."""
+    row group, the fields with a bloom filter and the fields written as INT32.
+    """
     if (meta.metadata or {}).get(KEY.encode()) != lay["profile"].encode():
         return False
     names = [meta.schema.column(i).name for i in range(meta.num_columns)]

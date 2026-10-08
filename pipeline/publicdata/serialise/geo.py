@@ -1,5 +1,6 @@
 """What the geometry writers share: a dataset's geometry kind, and its rows with their geometry in
-a DuckDB table. The writers themselves are modules under writers/."""
+a DuckDB table. The writers themselves are modules under writers/.
+"""
 
 from __future__ import annotations
 
