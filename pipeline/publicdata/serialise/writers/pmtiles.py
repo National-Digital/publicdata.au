@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from pmtiles.tile import Compression, TileType, zxy_to_tileid
 from pmtiles.writer import Writer
 
+from publicdata.records import one_row
 from publicdata.serialise import dumps
 from publicdata.serialise.geo import (
     MAXZOOM,
@@ -70,11 +71,13 @@ def write_pmtiles(tbl: Table, header: Header, path: Path) -> None:
             """
         ).fetchall()
         tiles += [(zxy_to_tileid(z, x, y), bytes(tile)) for x, y, tile in rows]
-    box: tuple[float, float, float, float] = con.execute(  # type: ignore[assignment]  # an aggregate returns one row
-        "WITH w AS (SELECT ST_Transform(geometry, "
-        f"'{_crs(ds)}', 'EPSG:4326', always_xy := true) AS g FROM t WHERE geometry IS NOT NULL) "
-        "SELECT min(ST_XMin(g)), min(ST_YMin(g)), max(ST_XMax(g)), max(ST_YMax(g)) FROM w"
-    ).fetchone()
+    box = one_row(
+        con.execute(
+            "WITH w AS (SELECT ST_Transform(geometry, "
+            f"'{_crs(ds)}', 'EPSG:4326', always_xy := true) AS g FROM t WHERE geometry IS NOT NULL) "
+            "SELECT min(ST_XMin(g)), min(ST_YMin(g)), max(ST_XMax(g)), max(ST_YMax(g)) FROM w"
+        )
+    )
     con.close()
     tiles.sort(key=lambda x: x[0])
     with path.open("wb") as f:

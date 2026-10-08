@@ -32,7 +32,7 @@ from .provenance import (
     long_date,
 )
 from .publishers import JUR_NAME, JUR_SEGMENT, JURISDICTIONS
-from .records import connect
+from .records import connect, one_row
 from .register import NEWEST, WHERE_OPS, Dataset
 from .serialise import (
     FORMAT_LABEL,
@@ -2330,11 +2330,13 @@ def _console(ds: Dataset, parquet: Path) -> dict[str, Any]:
     cols = set(con.columns())
     names = [f.name for f in ds.fields if f.name in cols]
     q: Callable[[str], str] = lambda n: '"' + n + '"'  # noqa: E731
-    stats: tuple[Any, ...] = con.execute(
-        "SELECT "
-        + ", ".join(f"COUNT(DISTINCT {q(n)}), MIN({q(n)}), MAX({q(n)})" for n in names)
-        + " FROM records"
-    ).fetchone()  # type: ignore[assignment]  # an aggregate query always returns one row
+    stats = one_row(
+        con.execute(
+            "SELECT "
+            + ", ".join(f"COUNT(DISTINCT {q(n)}), MIN({q(n)}), MAX({q(n)})" for n in names)
+            + " FROM records"
+        )
+    )
     fields: list[dict[str, Any]] = []
     for i, f in enumerate(f for f in ds.fields if f.name in cols):
         distinct, lo, hi = stats[i * 3 : i * 3 + 3]
@@ -2427,13 +2429,13 @@ def _picked_example(ds: Dataset, con: Records, fields: list[dict[str, Any]]) -> 
     def splits(n: str) -> bool:
         # A group that is one value under the filter, such as a state's name under its code,
         # answers with a single bar.
-        distinct: int = con.execute(
-            f"SELECT COUNT(DISTINCT {q(n)}) FROM records{cond}", params
-        ).fetchone()[0]  # type: ignore[index]  # an aggregate query always returns one row
+        distinct: int = one_row(
+            con.execute(f"SELECT COUNT(DISTINCT {q(n)}) FROM records{cond}", params)
+        )[0]
         return distinct > 1
 
     # A field with a value per row, such as a name or an identifier, splits into ones.
-    total = con.execute("SELECT COUNT(*) FROM records").fetchone()[0]  # type: ignore[index]  # an aggregate query always returns one row
+    total = one_row(con.execute("SELECT COUNT(*) FROM records"))[0]
     strings = [
         e
         for e in fields

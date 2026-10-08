@@ -19,7 +19,7 @@ from PIL import Image
 
 from .explorer import YEAR, split_field
 from .provenance import long_date
-from .records import connect
+from .records import connect, one_row
 from .register import WHERE_OPS
 
 if TYPE_CHECKING:
@@ -178,11 +178,13 @@ def series(  # noqa: PLR0913 - the options are keyword-only and named at each ca
             params,
         ).fetchall()
         first, last = (
-            con.execute(  # type: ignore[misc]  # an aggregate query always returns one row
-                f"SELECT MIN(substr({_q(yf)}, 1, 10)), MAX(substr({_q(yf)}, 1, 10)) FROM records"
-                f" WHERE {_q(yf)} IS NOT NULL{cond}",
-                params,
-            ).fetchone()
+            one_row(
+                con.execute(
+                    f"SELECT MIN(substr({_q(yf)}, 1, 10)), MAX(substr({_q(yf)}, 1, 10)) FROM records"
+                    f" WHERE {_q(yf)} IS NOT NULL{cond}",
+                    params,
+                )
+            )
             if kind == "date"
             else (None, None)
         )
@@ -854,10 +856,10 @@ def newest(con: Records, field: str) -> object:
     "bef 30 Jun 2018" never outranks "2024/25".
     """
     f = _q(field)
-    top = con.execute(
-        f"SELECT MAX({f}) FROM records WHERE CAST({f} AS TEXT) GLOB '[0-9]*'"
-    ).fetchone()[0]  # type: ignore[index]  # an aggregate query always returns one row
-    return top if top is not None else con.execute(f"SELECT MAX({f}) FROM records").fetchone()[0]  # type: ignore[index]  # an aggregate query always returns one row
+    top = one_row(
+        con.execute(f"SELECT MAX({f}) FROM records WHERE CAST({f} AS TEXT) GLOB '[0-9]*'")
+    )[0]
+    return top if top is not None else one_row(con.execute(f"SELECT MAX({f}) FROM records"))[0]
 
 
 def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at each call

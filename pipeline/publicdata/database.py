@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import pyarrow.parquet as pq
 
 from .normalise import NormaliseError
+from .records import one_row
 from .serialise import (
     DUCKDB_TYPES,
     SQL_TYPES,
@@ -133,7 +134,8 @@ def _load_table(  # noqa: PLR0913 - the options are keyword-only and named at ea
             f"encoding={_lit(db.encoding)}, quote='\"', escape='\"')"
         )
         dest.unlink()
-    return con.execute(f"SELECT count(*) FROM {_ident(t.name)}").fetchone()[0]  # type: ignore[index, no-any-return]  # count(*) returns one row
+    n: int = one_row(con.execute(f"SELECT count(*) FROM {_ident(t.name)}"))[0]
+    return n
 
 
 def _write_parquet(

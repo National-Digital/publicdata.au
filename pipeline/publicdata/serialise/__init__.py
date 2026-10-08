@@ -19,6 +19,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import xlsxwriter
 
+from publicdata.records import one_row
 from publicdata.spine import DATUM, LAYERS, is_spine
 
 if TYPE_CHECKING:
@@ -403,12 +404,14 @@ def duckdb_digest(path: Path) -> str:
         for (t,) in tables:
             names = ", ".join(f'"{c}"' for tn, c, _ in cols if tn == t)
             # The row id is each row's place, so rows written in another order differ.
-            n, h = con.execute(
-                f'SELECT count(*), coalesce(bit_xor(hash(rowid, {names})), 0) FROM d."{t}"'
-            ).fetchone()  # type: ignore[misc]  # an aggregate returns one row
-            s = con.execute(
-                f'SELECT coalesce(sum(hash(rowid, {names}) % 1000003), 0) FROM d."{t}"'
-            ).fetchone()[0]  # type: ignore[index]  # an aggregate returns one row
+            n, h = one_row(
+                con.execute(
+                    f'SELECT count(*), coalesce(bit_xor(hash(rowid, {names})), 0) FROM d."{t}"'
+                )
+            )
+            s = one_row(
+                con.execute(f'SELECT coalesce(sum(hash(rowid, {names}) % 1000003), 0) FROM d."{t}"')
+            )[0]
             parts.append(f"{t}:{n}:{h}:{s}")
         parts.extend(
             dumps(con.execute(q).fetchall())

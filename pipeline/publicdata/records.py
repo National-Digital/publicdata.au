@@ -11,7 +11,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 import duckdb
 import pyarrow as pa
@@ -20,6 +20,11 @@ import pyarrow.parquet as pq
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
     from pathlib import Path
+
+
+class _Cursor(Protocol):
+    def fetchone(self) -> tuple[Any, ...] | None: ...
+
 
 # A value as SQLite holds it.
 type SQLValue = str | int | float | bytes | None
@@ -161,6 +166,15 @@ class Records:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+def one_row(cur: _Cursor) -> tuple[Any, ...]:
+    """The row an aggregate query answers, which it always does."""
+    row = cur.fetchone()
+    if row is None:
+        msg = "an aggregate query answered no row"
+        raise RuntimeError(msg)
+    return row
 
 
 def connect(parquet: Path, names: list[str] | None = None) -> Records:
