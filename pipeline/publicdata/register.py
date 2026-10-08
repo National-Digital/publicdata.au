@@ -1119,7 +1119,8 @@ def _chart(raw: object, fields: list[Field], ctx: str) -> Chart | None:
     by = {f.name: f for f in fields}
     year = str(raw.get("year", ""))
     if year and (year not in by or by[year].type not in ("integer", "date", "datetime", "string")):
-        raise RegisterError(f"{ctx}.year must name an integer, date or financial-year field")
+        msg = f"{ctx}.year must name an integer, date or financial-year field"
+        raise RegisterError(msg)
     where = _where(raw.get("where") or {}, by, ctx)
     if any(w["value"] == NEWEST for w in where):
         msg = f"{ctx}.where cannot use {NEWEST}; the chart draws every year"

@@ -23,7 +23,7 @@ from .records import connect, one_row
 from .register import WHERE_OPS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from .records import Records
     from .register import Chart, Dataset
@@ -40,6 +40,7 @@ class Series(TypedDict):
     first: str
     categories: list[str]
     values: dict[int, dict[str, float]]
+    names: NotRequired[dict[int, str]]
     additive: NotRequired[bool]
 
 
@@ -101,10 +102,12 @@ def cutoff(m: Manifest) -> str:
     return m.as_at or min(m.fetched_at[:10], m.version)
 
 
-def year_field(ds) -> tuple[str, str] | None:
-    """The field that gives a row its year: the register's chart year, else an integer year
-    field, else a date field. None when the register turns the chart off. A text chart year is a
-    financial year written 2018-19."""
+def year_field(ds: Dataset) -> tuple[str, str] | None:
+    """The field that gives a row its year.
+
+    That is the register's chart year, else an integer year field, else a date field. None when
+    the register turns the chart off. A text chart year is a financial year written 2018-19.
+    """
     chart = getattr(ds, "chart", None) or {}
     if chart.get("off"):
         return None
@@ -132,23 +135,30 @@ def year_field(ds) -> tuple[str, str] | None:
 # A financial year with both its years, such as 2011-12, 2008/09, 2011-2012 or FY201213.
 FY_PAIR = re.compile(r"(?<!\d)(\d{4})\s*[-/]?\s*(\d{4}|\d{2})(?!\d)")
 # One written by the year it ends, as Australia names them: FY2010 is July 2009 to June 2010.
-FY_END = re.compile(r"^FY\s*(\d{4})$", re.I)
-FY_SHORT = re.compile(r"^FY\s*(\d{2})\s*-\s*(\d{2})$", re.I)
+FY_END = re.compile(r"^FY\s*(\d{4})$", re.IGNORECASE)
+FY_SHORT = re.compile(r"^FY\s*(\d{2})\s*-\s*(\d{2})$", re.IGNORECASE)
+# A century's two-digit years, as a short financial year writes its second.
+CENTURY = 100
+YEAR_DIGITS = 4
 
 
-def financial_start(text) -> int | None:
+def financial_start(text: object) -> int | None:
     """The calendar year a financial year starts in, or None when the text is not one."""
     t = re.sub(r"[\u2013\u2014]", "-", str(text)).strip()
     if m := FY_END.match(t):
         return int(m.group(1)) - 1
     if m := FY_SHORT.match(t):
         a, b = int(m.group(1)), int(m.group(2))
-        return 2000 + a if (a + 1) % 100 == b else None
+        return 2000 + a if (a + 1) % CENTURY == b else None
     pairs = FY_PAIR.findall(t)
     if len(pairs) != 1:
         return None
     a, b = int(pairs[0][0]), pairs[0][1]
-    return a if int(b) == (a + 1 if len(b) == 4 else (a + 1) % 100) else None
+    return a if int(b) == (a + 1 if len(b) == YEAR_DIGITS else (a + 1) % CENTURY) else None
+
+
+# A year outside these is a fault in the data, and the chart leaves it out.
+PLAUSIBLE_YEARS = range(1800, 2201)
 
 
 def series(  # noqa: PLR0913 - the options are keyword-only and named at each call
@@ -159,12 +169,14 @@ def series(  # noqa: PLR0913 - the options are keyword-only and named at each ca
     metric: str,
     *,
     until: str,
-    where: dict | None = None,
-) -> dict:
-    """Rows (or the summed count field) per year, split by a category, kept to the register's
-    chart condition when it has one. A year that ends after the cut-off is left out and named,
-    so a chart never falls away at a part year. A financial year is drawn under the year it
-    starts in and named as the publisher writes it."""
+    where: Where = None,
+) -> Series:
+    """Rows (or the summed count field) per year, split by a category.
+
+    The rows are kept to the register's chart condition when it has one. A year that ends after
+    the cut-off is left out and named, so a chart never falls away at a part year. A financial
+    year is drawn under the year it starts in and named as the publisher writes it.
+    """
     y = {"integer": _q(yf), "financial": _q(yf)}.get(
         kind, f"TRY_CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
     )
@@ -194,7 +206,7 @@ def series(  # noqa: PLR0913 - the options are keyword-only and named at each ca
     names: dict[int, str] = {}
     for r in rows:
         year = financial_start(r[0]) if kind == "financial" else int(r[0])
-        if year is None or year < 1800 or year > 2200:
+        if year is None or year not in PLAUSIBLE_YEARS:
             continue
         if kind == "financial":
             names[year] = min(names.get(year, str(r[0])), str(r[0]))
@@ -205,7 +217,9 @@ def series(  # noqa: PLR0913 - the options are keyword-only and named at each ca
     end = min(until, last) if last else until
     # Dated rows that begin after January leave their first year short too.
     late = int(first[:4]) if first and first[5:] > "01-31" else None
-    ends = (lambda y: f"{y + 1}-06-30") if kind == "financial" else (lambda y: f"{y}-12-31")
+    ends: Callable[[int], str] = (
+        (lambda y: f"{y + 1}-06-30") if kind == "financial" else (lambda y: f"{y}-12-31")
+    )
     full = [y for y in years if ends(y) <= end and y != late]
     partial = [y for y in years if y not in full]
     cats = sorted({k for v in values.values() for k in v}) if split else [""]
@@ -314,11 +328,11 @@ def _tick(v: float) -> str:
     return f"{v:g}"
 
 
-def _name(s: dict, y: int) -> str:
+def _name(s: Series, y: int) -> str:
     return s.get("names", {}).get(y, str(y))
 
 
-def _summary(s: dict, totals: dict, peak: int) -> str:
+def _summary(s: Series, totals: Mapping[int, float], peak: int) -> str:
     years = s["years"]
     top, last = _name(s, peak), _name(s, years[-1])
     if s.get("additive", True):
