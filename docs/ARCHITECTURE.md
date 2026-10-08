@@ -75,6 +75,12 @@ pipeline/publicdata/
     (`scripts/a11y.mjs`). A map is a PNG file under `maps/` in an `img` whose alt is worked
     out from the cells, with a vector SVG over it; no SVG embeds a raster, and every figure's
     label is derived from what it draws.
+12. Every pull request's preview passes Lighthouse on six kinds of page, mobile and desktop:
+    performance 90 or more on the median of three runs, and accessibility, best practices, SEO
+    and agentic browsing at 100, audit by audit (`scripts/lighthouse.mjs`, the Lighthouse job in
+    `deploy.yml`). The preview is served noindex, so only the crawlability audit is left to
+    production, where the explorer is exempt from it because it is noindex by design. A weekly PageSpeed Insights run holds production to the same targets with the
+    Lighthouse Google ships, and opens an issue labelled `psi` when it falls short (`psi.yml`).
 
 ## Licence gate
 
