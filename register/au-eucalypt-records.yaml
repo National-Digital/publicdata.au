@@ -234,3 +234,4 @@ fields:
   type: datetime
   date_format: '%Y-%m-%dT%H:%M:%SZ'
   description: When the Atlas first loaded the record.
+rebuild: 1

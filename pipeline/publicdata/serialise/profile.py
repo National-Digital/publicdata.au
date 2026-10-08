@@ -11,6 +11,7 @@ under the current profile and register entry, at an internal key (`query_key`)."
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -54,6 +55,15 @@ def query_key(slug: str, version: str) -> str:
     never meets a file of another under the same key."""
     tag = "" if VERSION == "1" else f".p{VERSION}"
     return f"{QUERY_DIR}/{slug}/{version}{tag}.parquet"
+
+
+def layout_key(query: str) -> str:
+    """Where R2 records, beside a query copy, the layout the copy follows (`layout_body`)."""
+    return query.removesuffix(".parquet") + ".layout.json"
+
+
+def layout_body(lay: dict) -> bytes:
+    return json.dumps(lay, sort_keys=True, separators=(",", ":")).encode()
 
 
 def sort_columns(sort: Sequence[str], key: Sequence[str]) -> list[str]:
@@ -225,6 +235,33 @@ def signature(path: Path) -> str:
         return ""
     cols = meta.row_group(0).sorting_columns or ()
     return ",".join(meta.schema.column(c.column_index).name for c in cols)
+
+
+def follows(meta: pq.FileMetaData, lay: dict) -> bool:
+    """Whether a Parquet footer shows layout `lay`: its profile key, the sorting columns of every
+    row group, the fields with a bloom filter and the fields written as INT32."""
+    if (meta.metadata or {}).get(KEY.encode()) != lay["profile"].encode():
+        return False
+    names = [meta.schema.column(i).name for i in range(meta.num_columns)]
+    narrow = {f.name for f in meta.schema.to_arrow_schema() if pa.types.is_int32(f.type)}
+    if narrow != {c for c in lay["int32"] if c in names}:
+        return False
+    order = (
+        [(c, False, False) for c in sort_columns(lay["sort"], lay["key"])] if lay["sort"] else []
+    )
+    for g in range(meta.num_row_groups):
+        rg = meta.row_group(g)
+        got = [
+            (names[c.column_index], c.descending, c.nulls_first) for c in rg.sorting_columns or ()
+        ]
+        blooms = {
+            names[i]
+            for i in range(meta.num_columns)
+            if rg.column(i).bloom_filter_offset is not None
+        }
+        if got != order or blooms != set(lay["lookup"]):
+            return False
+    return True
 
 
 def sha256(path: Path) -> str:
