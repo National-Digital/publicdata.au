@@ -1,0 +1,13 @@
+# Only first-party JavaScript and this tooling's config are formatted. Templates, generated JSON
+# such as functions/_tools.json, and register and store data keep the form their writers give them.
+*
+!*/
+!*.js
+!*.mjs
+!/.prettierrc.json
+dist/
+dist-large/
+.build-cache/
+.wrangler/
+.venv*/
+clients/*/dist/

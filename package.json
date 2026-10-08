@@ -12,8 +12,12 @@
     "@perspective-dev/viewer-datagrid": "5.5.1"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "axe-core": "^4.13.0",
     "esbuild": "0.28.2",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "prettier": "3.9.9",
     "puppeteer-core": "^25.12.0",
     "wrangler": "4.148.0"
   }
