@@ -142,6 +142,14 @@ def part_dir(slug: str, rec: dict, version: str) -> str:
     return where(slug, version, LATEST) if rec["tree"] == LATEST else where(slug, rec["tree"])
 
 
+def part_files(out: Path, slug: str, version: str, records: list[dict]) -> list[Path]:
+    """A version's Parquet parts in the manifest's order, each from wherever it was written."""
+    return [
+        published.path(out, f"{part_dir(slug, r, version)}/{r['files']['parquet']['path']}")
+        for r in records
+    ]
+
+
 def _size(p: Path) -> int:
     return p.stat().st_size
 
@@ -1105,12 +1113,8 @@ def _built_table(
         # a part written before the column types narrowed is widened to meet the rest.
         t = pa.concat_tables(
             [
-                pq.read_table(
-                    published.path(
-                        out, f"{part_dir(ds.slug, r, m.version)}/{r['files']['parquet']['path']}"
-                    )
-                ).replace_schema_metadata(None)
-                for r in built["parts"]
+                pq.read_table(p).replace_schema_metadata(None)
+                for p in part_files(out, ds.slug, m.version, built["parts"])
             ],
             promote_options="permissive",
         )

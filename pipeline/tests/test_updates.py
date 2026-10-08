@@ -406,7 +406,7 @@ def test_a_table_too_large_for_one_file_is_its_parts_and_a_duckdb_file(
 
 
 def test_a_parts_only_version_says_what_it_leaves_out_and_lists_only_its_files(
-    fetched, tmp_path, monkeypatch
+    fetched, built, tmp_path, monkeypatch
 ):
     from publicdata.site import render_site
 
@@ -421,6 +421,18 @@ def test_a_parts_only_version_says_what_it_leaves_out_and_lists_only_its_files(
     line = next(x for x in llms.splitlines() if "/d/test-rolling/" in x)
     assert "data.duckdb" in line and "data.csv" not in line and "data.parquet" not in line
     assert gate.query_explained(out, registered()) == []
+    # The MCP server's row tools answer it from its parts, so its field list is read from them.
+    fields = json.loads((out / "d/test-rolling/fields.json").read_text("utf-8"))
+    assert fields["version"] == "2026-09-15" and "rows_url" not in fields
+    # The same as the whole table's, which a build with a data.parquet reads.
+    whole, _ = built
+    from publicdata.site import _console
+
+    rows = tree(whole, "test-rolling", "2026-09-15") / "data.parquet"
+    assert fields["fields"] == _console(registered()["test-rolling"], rows)["fields"]
+    assert {f["name"] for f in fields["fields"]} >= {"id", "opened"}
+    listed = json.loads((out / "mcp/resources.json").read_text("utf-8"))
+    assert any(r["name"] == "test-rolling" for r in listed["resources"])
     bare = page.replace("data-no-query", "")
     (out / "d/test-rolling/index.html").write_text(bare, encoding="utf-8")
     assert "says no reason" in gate.query_explained(out, registered())[0]
