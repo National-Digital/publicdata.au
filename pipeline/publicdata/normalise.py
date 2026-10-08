@@ -371,9 +371,7 @@ def read_xml(data: bytes, record: str) -> pa.Table:
     child, and each child attribute child@attribute. A child that repeats within a record gives
     its values in document order joined by XML_JOIN. Every cell is text.
     """
-    # Expat 2.4.1 and later refuse entity expansion attacks, and ElementTree loads no external
-    # entity.
-    root = ET.fromstring(data.decode("utf-8-sig").encode("utf-8"))  # noqa: S314
+    root = ET.fromstring(data.decode("utf-8-sig").encode("utf-8"))  # noqa: S314 - Expat refuses entity expansion and loads no external entity
     records = [e for e in root.iter() if _local(e.tag) == record]
     if not records:
         msg = f"the XML holds no <{record}> element"
