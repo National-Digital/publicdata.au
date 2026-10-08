@@ -184,7 +184,10 @@ Edit `register/<slug>.yaml` and open a `fix(register): ...` pull request. A fiel
 renamed, a resource that moved or a header that changed row are the usual causes. The fix applies
 from the next version. When a fault in our conversion or a wrong attribution has already reached
 published versions, those versions are rebuilt as [docs/CORRECTIONS.md](docs/CORRECTIONS.md)
-describes. When the publisher changes its licence, the fetch stops that dataset until a
+describes. An edit to `partition_by` changes the `by/` files of every version already published,
+so it is a correction too, and the deploy's plan fails it until each of those versions' manifests
+carries a note ([A change to `partition_by`](docs/CORRECTIONS.md#a-change-to-partition_by)).
+When the publisher changes its licence, the fetch stops that dataset until a
 person has read the new licence and updated `licence` and `licence.reviewed`.
 
 ## Manual sources
