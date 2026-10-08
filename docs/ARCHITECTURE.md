@@ -484,7 +484,9 @@ one at a time.
 
 The MCP server's `query_rows` and `count_rows` answer from D1 for the versions it holds. Any
 other version, older than the two loaded, over the size limit or in an entry with `query: false`,
-is read from Parquet in R2 (`functions/_parquet.js`) with the same filters. The build writes a
+is read from Parquet in R2 (`functions/_parquet.js`) with the same filters. The build writes a field list,
+`d/<slug>/fields.json`, for every dataset whose newest version has a data.parquet, from that file
+and whether or not D1 loads it, so `list_fields` answers for every dataset the row tools serve. The build writes a
 profile copy of every version, old ones included, at `_q/<slug>/<version>.parquet` in
 `publicdata-dist`, which no route serves, and the engine reads that first when its row count,
 version and source hash match the published file's footer. A failed read of the copy fails the

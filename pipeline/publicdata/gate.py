@@ -44,7 +44,8 @@ def _without_publisher_values(text: str, page: Path, out: Path, cache: dict) -> 
 
 
 def _mcp_resources(out: Path) -> list[str]:
-    """Every dataset page with a query console is an MCP resource whose fields are the page's own."""
+    """Every dataset page with a query console has a field list whose fields are the console's,
+    and every field list is an MCP resource."""
     errors: list[str] = []
     listed_file = out / "mcp" / "resources.json"
     if not listed_file.exists():
@@ -55,16 +56,17 @@ def _mcp_resources(out: Path) -> list[str]:
         m = re.search(r'id="ds-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.S)
         console = (json.loads(m.group(1)) if m else {}).get("console")
         uri = f"{SITE}/d/{slug}/fields.json"
-        if not console:
-            if uri in listed:
-                errors.append(f"mcp/resources.json: {slug} is listed but has no query console")
+        f = page.parent / "fields.json"
+        if not f.exists():
+            if console:
+                errors.append(f"d/{slug}/fields.json: missing")
+            elif uri in listed:
+                errors.append(f"mcp/resources.json: {slug} is listed but has no fields.json")
+            listed.discard(uri)
             continue
         if uri not in listed:
             errors.append(f"mcp/resources.json: {slug} is not listed")
-        f = page.parent / "fields.json"
-        if not f.exists():
-            errors.append(f"d/{slug}/fields.json: missing")
-        elif json.loads(f.read_text(encoding="utf-8")).get("fields") != console["fields"]:
+        if console and json.loads(f.read_text(encoding="utf-8")).get("fields") != console["fields"]:
             errors.append(f"d/{slug}/fields.json: fields differ from the page's query console")
         listed.discard(uri)
     errors += [f"mcp/resources.json: {u} has no dataset page" for u in sorted(listed)]
