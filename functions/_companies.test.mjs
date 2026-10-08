@@ -91,7 +91,7 @@ test('a page of rows by type and year agrees with DuckDB, and the next page carr
 
 test('a page the budget refuses for counting every match takes its count from the rollup', async () => {
   const q = want.rows[2];
-  const entry = await openVersion(env, SLUG, V);
+  const entry = (await openVersion(env, SLUG, V)).files[0];
   const params = new URLSearchParams(`status=eq.DRGD&limit=${q.limit}&select=${q.select.join(',')}`);
   const was = BUDGET.values;
   BUDGET.values = 3_000;
@@ -111,7 +111,7 @@ test('a page the budget refuses for counting every match takes its count from th
 });
 
 test('the known-count page is the page a full scan gives, at every offset', async () => {
-  const entry = await openVersion(env, SLUG, V);
+  const entry = (await openVersion(env, SLUG, V)).files[0];
   const url = `https://publicdata.au/${PUB}`;
   for (const qs of [
     'type=eq.APTY&registration_date=gte.2024-01-01&registration_date=lte.2024-12-31',
@@ -133,7 +133,7 @@ test('the known-count page is the page a full scan gives, at every offset', asyn
 });
 
 test('the known-count path stops at the count and reads only the pages its picks are on', async () => {
-  const entry = await openVersion(env, SLUG, V);
+  const entry = (await openVersion(env, SLUG, V)).files[0];
   const url = `https://publicdata.au/${PUB}`;
   const run = (qs, known) => parquetRows(env, entry, new URLSearchParams(qs), url, BUDGET, known);
   const drgd = 'status=eq.DRGD&limit=100&select=acn';
