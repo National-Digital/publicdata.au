@@ -20,7 +20,7 @@ dependencies = []
 pandas = ["pandas>=2.0", "pyarrow>=14"]
 duckdb = ["duckdb>=1.1"]
 geo = ["geopandas>=0.14", "pyogrio>=0.7"]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff==0.16.10"]
 
 [project.urls]
 Homepage = "https://publicdata.au/"
@@ -39,5 +39,25 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "W"]
-ignore = ["E501"]
+select = ["ALL"]
+ignore = [
+  # A type-checking change will enable these with real annotations.
+  "ANN",
+  # These two fight ruff format, which owns trailing commas and joined strings.
+  "COM812",
+  "ISC001",
+  # No file carries a copyright header; LICENSE covers the code.
+  "CPY",
+  # ruff format owns line length.
+  "E501",
+]
+
+[tool.ruff.lint.pydocstyle]
+# The docstrings open with their summary on the first line and often describe what a function
+# gives back, which Google's convention allows and PEP 257's imperative mood would rewrite.
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# pytest asserts with assert, and an expected value reads more plainly as a literal. The tests
+# are not a package, and only the public API in src/ needs docstrings.
+"tests/**" = ["S101", "PLR2004", "D1", "INP001"]
