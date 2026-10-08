@@ -281,9 +281,11 @@ This site is the version history the portals do not keep. The archive role has i
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
-- Raw bytes are kept for every version in append-only object storage with versioning on, and
-  a `history` branch in git holds every manifest and diff report, so the archive can be
-  rebuilt from either.
+- Raw bytes are kept for every version in the R2 bucket `publicdata-raw`, and a `history`
+  branch in git holds every manifest and diff report, so the archive can be rebuilt from
+  either. R2 keeps no earlier copies of an object, so the push keeps the bucket append-only:
+  `publicdata store push` skips any object that already exists under a version whose manifest
+  is committed, and it takes no option to replace one.
 - Any two versions can be compared: `/d/<slug>/diff/<a>..<b>.json` lists added, removed and
   changed rows by the declared key, and field-level schema differences. `changes.json` is
   the same for consecutive pairs.
@@ -491,7 +493,10 @@ cancelled stops the deploy too. A fork's pull request has no access to the store
 first checked on the push to main, and a failure there stops every deploy until it is fixed. The reference is the cache entry because it records
 what the build made when the version was last built, which is what a reuse stands for. A dated
 file in R2 is never overwritten outside a replace dispatch, so it keeps the bytes of the version's
-first build, and a raised number alone does not change it. The diffs and the history archive are
+first build, and a raised number alone does not change it. Outside a replace, a push also adds no
+partition file to a version whose manifest R2 holds. An edit to `partition_by` builds every
+stored version again, and `dist-push` stops before it writes the new `by/` files and names the
+versions for a replace dispatch ([CORRECTIONS.md](CORRECTIONS.md#a-change-to-partition_by)). The diffs and the history archive are
 therefore made from the published copy of each version's Parquet and manifest wherever R2 holds
 one, in a deploy and in the check alike (`published.served`), so they describe the files the site
 serves and old bytes in R2 are no difference. When the sampled datasets that differ are more than
@@ -632,6 +637,12 @@ functions/_catalogue.js, held together by tests) and casts a vote for the record
 it does not hold is not stored; the answer points to National Digital's contact form. Both endpoints keep the query API's fair-use limit per address in the edge cache
 (`functions/_limit.js`), as the MCP server does, because the zone's rule covers
 `/api/v1/datasets/*` only.
+
+The most-wanted datasets become issues a contributor can start on (`contribute.py`,
+CONTRIBUTING.md "Pick up a dataset task"). A daily workflow reads the votes and the catalogue
+records they name from the public API and writes issues from those records and the register
+alone, so text from a vote never reaches one. The deploy reads the open issues before the build
+(`contribute issues`, `build --tasks`) and the backlog and publisher pages link each one.
 
 ## Site-wide files
 

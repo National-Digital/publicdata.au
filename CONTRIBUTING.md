@@ -62,6 +62,18 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   takes the settings CI uses for it. It names each file and rule that fails and stops the commit. A
   commit with no staged Python file in either directory runs no check. It takes well under a
   second.
+- `pre-commit` also checks the files the Workflow lint job reads, when a commit stages one of
+  them: `.github/workflows/`, `.github/actions/`, `.github/actionlint.yaml` and
+  `.github/dependabot.yml`. A change to a template, `CODEOWNERS` or the lint fixture runs no
+  check. It writes those staged files to a temporary directory, so an unstaged edit cannot hide a
+  fault, and runs actionlint with shellcheck and
+  `zizmor --offline --persona auditor --strict-collection` over that copy, so a workflow zizmor
+  cannot parse fails too. It names each file and rule that fails and stops the commit once the
+  Python check has run. Offline, zizmor leaves out the audits that ask GitHub: `impostor-commit`,
+  `ref-confusion`, `known-vulnerable-actions`, `stale-action-refs` and `ref-version-mismatch`.
+  The Workflow lint job in CI runs those too, so a commit the hook passes can still fail there.
+  Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
+  versions, when one differs, and runs it anyway.
 - `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
   and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
   It should take under a minute on a laptop.
@@ -72,8 +84,14 @@ and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI
 
 A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
 through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
-tests, and `node` for the JavaScript tests. To skip the hooks once, pass `--no-verify` to
-`git commit` or `git push`.
+tests, and `node` for the JavaScript tests. The workflow check is the exception: a commit that
+stages `.github/` fails when actionlint, shellcheck or zizmor is missing, with a line naming the
+version CI pins and where to get it. To skip the hooks once, pass `--no-verify` to `git commit` or
+`git push`.
+
+CI's pipeline job puts the same pinned actionlint, shellcheck and zizmor on its PATH, so the
+hook's tests in `pipeline/tests/test_hooks.py` run there. Locally they skip when a tool is not
+installed.
 
 ## Private copies
 
@@ -104,6 +122,19 @@ delete `.github/dependabot.yml` in a private copy if you do not want its pull re
   the fetch app opened them from a run on `main`, with one signed-off commit of store manifests.
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
+- A change under `.github/` must pass the Workflow lint job in `ci.yml`. It runs zizmor at its
+  auditor persona, which reports every finding zizmor has, and actionlint with shellcheck over every
+  workflow's `run:` blocks. actionlint does not read the composite action in `.github/actions/`, so
+  its steps get zizmor alone. The `pre-commit` hook runs both offline (see Git hooks). The online
+  audits need a token, so run zizmor with one before you push, at the versions that job pins:
+
+  ```sh
+  GH_TOKEN=$(gh auth token) uvx zizmor==1.30.1 --persona auditor --strict-collection .github
+  actionlint -shellcheck "$(command -v shellcheck)"
+  ```
+
+  Fix each finding. Where a rule truly cannot apply, a `# zizmor: ignore[<rule>]` comment on the
+  line it covers, or a `# shellcheck disable=<code>` comment on the line before, gives the reason.
 
 ## Reviewing a pull request
 
@@ -148,6 +179,29 @@ publicdata.au has four kinds of version, and each has its own rule.
 
 The pipeline package in `pipeline/` is not published, so it makes no versioning promise.
 
+## Pick up a dataset task
+
+Some of the most-wanted datasets have an issue labelled `good first issue` and `dataset`, with the
+portal page, the licence and its evidence, the vote count and a starting register entry. Say on the
+issue that you are taking it, follow Add a dataset below, and write `Closes #<issue>` in the pull
+request.
+
+`.github/workflows/contribute.yml` keeps these issues each day with `python -m publicdata
+contribute sync`. It opens them, most voted first, for backlog entries whose licence is open and
+for catalogue records with an open licence, a file and at least `CONTRIBUTE_VOTES` votes (1 when
+unset), and never leaves more than `CONTRIBUTE_CAP` (10 when unset) open. Both are repository
+variables. An open issue keeps its place when another dataset gains votes; when the cap is
+lowered, the least wanted close first and an entry already `building` closes last.
+
+An issue is written only from the register and the catalogue's own record; a vote adds only its
+count. The sync changes only issues it opened, finds them again by the key in a hidden marker,
+updates their text, and closes one when its dataset is live, when its licence or status takes it
+off the list, or when it falls outside the cap. A dataset whose issue was closed does not get
+another; a maintainer reopens the old one instead. `--dry-run` prints what a run would do and
+changes nothing. Only the workflow runs it without, because the next run reads only the issues the
+workflow's own account opened. The backlog and the publisher's page link an open issue from the
+deploy after the sync opens it until the deploy after it closes; the catalogue search does not.
+
 ## Add a dataset
 
 1. Find the dataset on its publisher's portal and read the licence. It must be open (CC BY, CC0 or
@@ -184,7 +238,10 @@ Edit `register/<slug>.yaml` and open a `fix(register): ...` pull request. A fiel
 renamed, a resource that moved or a header that changed row are the usual causes. The fix applies
 from the next version. When a fault in our conversion or a wrong attribution has already reached
 published versions, those versions are rebuilt as [docs/CORRECTIONS.md](docs/CORRECTIONS.md)
-describes. When the publisher changes its licence, the fetch stops that dataset until a
+describes. An edit to `partition_by` changes the `by/` files of every version already published,
+so it is a correction too, and the deploy's plan fails it until each of those versions' manifests
+carries a note ([A change to `partition_by`](docs/CORRECTIONS.md#a-change-to-partition_by)).
+When the publisher changes its licence, the fetch stops that dataset until a
 person has read the new licence and updated `licence` and `licence.reviewed`.
 
 ## Manual sources
@@ -302,8 +359,9 @@ each version lives in one file that the workflows or the pipeline read:
 | npm packages, wrangler, and the Chrome build the accessibility check runs (from `puppeteer-core`) | `package-lock.json` |
 | GitHub Actions | the commit SHA in each `uses:` |
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
-| R and its CRAN snapshot date | `.github/workflows/clients.yml` |
+| R, its CRAN snapshot date and the R client's lint tools | `.github/workflows/clients.yml` |
 | DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
+| zizmor, actionlint and shellcheck | `.github/workflows/ci.yml` |
 
 An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
 npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed
@@ -353,6 +411,20 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
    Python tests and `R CMD check --as-cran`.
 3. On merge, the Python client publishes to PyPI by trusted publishing when the version is new.
    A maintainer builds the R tarball and submits it to CRAN by hand, with `cran-comments.md`.
+
+The R client is held to lintr and styler on every pull request. `clients/r/.lintr` turns on every
+linter lintr has and names the few it turns off, each with its reason. The Clients workflow fails
+on any finding and on any file styler would change. To check before pushing, install the package
+and run both from `clients/r`:
+
+```
+R CMD INSTALL .
+Rscript -e 'lintr::lint_package()'
+Rscript -e 'styler::style_pkg()'
+```
+
+`style_pkg()` rewrites the files in place, so commit what it changes. A line that has to break a
+rule carries `# nolint: <linter>. <reason>`.
 
 ## Reference
 

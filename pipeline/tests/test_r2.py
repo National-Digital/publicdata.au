@@ -60,6 +60,59 @@ def test_push_skips_existing_keys_unless_replace(tmp_path, monkeypatch):
     ]
 
 
+def test_a_published_version_gains_partition_files_only_under_replace(tmp_path, monkeypatch):
+    import pytest
+
+    v = tmp_path / "d" / "x" / "v" / "2026-04-24"
+    (v / "by" / "lga").mkdir(parents=True)
+    (v / "by" / "lga" / "index.json").write_text("{}")
+    (v / "manifest.json").write_text("{}")
+    fake = FakeS3({"d/x/v/2026-04-24/manifest.json"})
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    with pytest.raises(SystemExit, match="replace set to d/x/v/2026-04-24/"):
+        r2.push(tmp_path, "b")
+    assert fake.puts == []
+    assert r2.push(tmp_path, "b", replace=("d/x/v/2026-04-24/",)) == 2
+    # A version R2 holds no manifest of is new, or was cut short, and its push goes on.
+    fake = FakeS3({"d/x/v/2026-04-24/by/lga/a.json"})
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    assert r2.push(tmp_path, "b") == 2
+    assert [k for k, _ in fake.puts] == [
+        "d/x/v/2026-04-24/by/lga/index.json",
+        "d/x/v/2026-04-24/manifest.json",
+    ]
+
+
+def test_a_partition_by_edit_cannot_reach_r2_without_a_replace(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    import pytest
+
+    from publicdata import store
+    from publicdata.build import build_dataset
+    from publicdata.cache import BuildCache
+    from publicdata.register import Field
+
+    from .conftest import make_dataset, make_manifest
+
+    csv = b"Id,V\n1,a\n2,b\n"
+    store.write(tmp_path / "store", make_manifest(csv, dataset="t", version="2026-01-01"), csv)
+    ds = make_dataset([Field("id", "Id", "integer"), Field("v", "V")], key=("id",))
+    cache = BuildCache(tmp_path / "cache")
+    build_dataset(ds, tmp_path / "store", tmp_path / "a", cache)
+    held = {p.relative_to(tmp_path / "a").as_posix() for p in (tmp_path / "a").rglob("*")}
+    # The edit changes the version's key, so the cache rebuilds it with the new partitions.
+    build_dataset(replace(ds, partition_by=("v",)), tmp_path / "store", tmp_path / "b", cache)
+    assert cache.hits == 0
+    fake = FakeS3({k for k in held if r2.dated_file(k)})
+    monkeypatch.setattr(r2, "client", lambda: fake)
+    with pytest.raises(SystemExit, match="replace set to d/t/v/2026-01-01/$"):
+        r2.push(tmp_path / "b", "b", immutable=r2.dated_file)
+    assert fake.puts == []
+    r2.push(tmp_path / "b", "b", replace=("d/t/v/2026-01-01/",), immutable=r2.dated_file)
+    assert "d/t/v/2026-01-01/by/v/a.json" in {k for k, _ in fake.puts}
+
+
 def test_immutable_existing_keys_are_not_hashed(tmp_path, monkeypatch):
     v = tmp_path / "d" / "x" / "v" / "2026-04-24"
     v.mkdir(parents=True)

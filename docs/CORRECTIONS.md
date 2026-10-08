@@ -58,6 +58,22 @@ beside every version as `source.<ext>` with its SHA-256 in `manifest.json`.
 5. **Close the issue.** The issue links the pull request, the `replace` run and the versions it
    rebuilt, and the correction goes in the log below.
 
+## A change to `partition_by`
+
+The partition files under `by/<field>/` are part of each version, so an edit to an entry's
+`partition_by` corrects every version already published. The field is in each version's key, so
+the deploy builds every stored version again with the new partitions and no rebuild number is
+needed. The pull request notes each stored version as step 2 sets out. The deploy's plan fails it
+until every stored version's manifest gains a note, and its error names the prefixes the
+`replace` run takes.
+
+The deploy the merge starts builds the new partition files and stops before it writes any of them.
+Outside a `replace`, `dist-push` refuses to add a file under `by/` to a version whose
+`manifest.json` R2 already holds, and it names those versions. Every deploy of `main` stops at
+that point until a maintainer runs the Deploy workflow with `replace` set to the prefixes, so the
+dispatch follows the merge straight away. A replace overwrites and adds files and deletes none, so
+the files of a field taken out of `partition_by` stay in R2 under each version.
+
 ## What a rebuild does not reach
 
 The Deploy run replaces the files in R2, and `publicdata purge` clears `d/<slug>/v/<date>/` and
