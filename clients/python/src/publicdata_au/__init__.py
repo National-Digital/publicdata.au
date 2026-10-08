@@ -1366,8 +1366,11 @@ class Client:
             msg = f"format must be one of {', '.join(FORMATS)}"
             raise ValueError(msg)
         if not self._caching(cache=cache):
+            if tmp is None:
+                msg = "a download that is not cached needs a folder to go in"
+                raise ValueError(msg)
             name = f"tables-{table}.parquet" if table else f"data.{format}"
-            return self._save(slug, format, version, tmp / name, table)  # type: ignore[operator]  # a caller that does not cache passes tmp
+            return self._save(slug, format, version, tmp / name, table)
         version = _date(version) if version else self.latest(slug)
         name = f"tables/{_table(table)}.parquet" if table else f"data.{format}"
         dest = self.cache_dir() / _slug(slug) / version / name
