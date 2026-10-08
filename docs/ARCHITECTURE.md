@@ -525,8 +525,8 @@ Create budget alert), set up by a member with billing access. Budget alerts exis
 Pay-as-you-go accounts only.
 
 - Threshold: USD 10 of usage-based spend in a billing period, about 680 GB stored with nothing
-  else billed. The alert counts the whole account's usage-based spend, not R2 alone, and emails
-  once each time spend crosses it in a period.
+  else billed. The alert counts the usage-based spend of the whole account, R2 included, and
+  emails once each time spend crosses it in a period.
 - Recipients: every member of the Cloudflare account with the Super Administrator role, which is
   the maintainers at National Digital. A maintainer who leaves is removed from the account and
   from the alert.
