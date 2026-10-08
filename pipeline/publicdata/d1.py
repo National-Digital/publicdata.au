@@ -29,6 +29,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
+from .records import connect
 from .serialise import SQLITE_TYPES, dumps
 from .serialise.profile import sha256, signature
 
@@ -161,8 +162,6 @@ def parquet_version_sql(
 
 
 def _parquet_stmts(parquet, ds, version, index_fields, tbl=None):
-    from .records import connect
-
     cols = parquet_columns(parquet, ds)
     header = {
         k: v if isinstance(v, str) else dumps(v)

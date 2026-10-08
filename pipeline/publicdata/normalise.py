@@ -13,13 +13,16 @@ import datetime as dt
 import io
 import json
 import re
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import openpyxl
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv as pcsv
+import xlrd
 
 from .register import (
     CELL_OF_RE,
@@ -33,6 +36,7 @@ from .register import (
     Dataset,
     Field,
 )
+from .spine import is_spine, read_points, read_shapes
 
 if TYPE_CHECKING:
     from .store import Manifest
@@ -175,9 +179,6 @@ def xls_to_xlsx(data: bytes) -> bytes:
 
     Every workbook reader then reads it the same way. Date cells stay dates.
     """
-    import openpyxl
-    import xlrd
-
     book = xlrd.open_workbook(file_contents=data)
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -221,8 +222,6 @@ def _distinct(header: list[str]) -> list[str]:
 
 
 def read_xlsx(data: bytes, sheet: str, header_row: int) -> pa.Table:
-    import openpyxl
-
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
     if sheet and sheet not in wb.sheetnames:
         msg = f"sheet '{sheet}' not in workbook: {wb.sheetnames}"
@@ -252,8 +251,6 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
     in fill_down. A row with no data is a note and is skipped. Values of the last header row that
     no field names are returned as held.
     """
-    import openpyxl
-
     w = ds.wide
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
     sheets = w["sheets"] or [ds.source.sheet or wb.sheetnames[0]]
@@ -374,8 +371,6 @@ def read_xml(data: bytes, record: str) -> pa.Table:
     child, and each child attribute child@attribute. A child that repeats within a record gives
     its values in document order joined by XML_JOIN. Every cell is text.
     """
-    import xml.etree.ElementTree as ET
-
     # Expat 2.4.1 and later refuse entity expansion attacks, and ElementTree loads no external
     # entity.
     root = ET.fromstring(data.decode("utf-8-sig").encode("utf-8"))  # noqa: S314
@@ -561,12 +556,8 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
     short: list[int] = []
     shapes = None
     if ds.geometry and ds.geometry["kind"] != "point":
-        from .spine import read_shapes
-
         raw, shapes = read_shapes(data, m.ext, ds.source.member, ds.geometry["crs"])
     elif ds.geometry and _is_shapefile(m.ext, ds.source.member):
-        from .spine import read_points
-
         raw = read_points(data, m.ext, ds.source.member)
     else:
         data, ext = unwrap(data, m.ext, ds.source.member)
@@ -591,7 +582,6 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
             raw = read_csv(data, enc, ds.source.delimiter, ds.source.header_row, short)
     if ds.unpivot:
         raw, held = unpivot(raw, ds)
-    from .spine import is_spine
 
     upstream = {c.strip(): c for c in raw.column_names}
     own = [f for f in ds.fields if not is_spine(f.source)]

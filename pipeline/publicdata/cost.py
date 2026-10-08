@@ -23,9 +23,10 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import requests
 import yaml
 
-from . import SITE, store
+from . import SITE, fetch, store
 from .cadence import FEED_MAX, per_year
 from .d1 import MAX_CSV, queryable
 
@@ -392,14 +393,12 @@ def probe(ds: Dataset, timeout: float = 30) -> Sized:
     """
     try:
         if ds.source.adapter == "ckan-resource":
-            import requests
-
-            from .fetch import _package, pick_resource
-
             s = requests.Session()
             s.headers["User-Agent"] = UA
             api = f"{ds.source.portal.rstrip('/')}/api/3/action"
-            res = pick_resource(ds, retry(lambda: _package(ds, s, api))["resources"])
+            # The fetch's own package call, so the size is the resource the fetch would pick.
+            package = fetch._package  # noqa: SLF001
+            res = fetch.pick_resource(ds, retry(lambda: package(ds, s, api))["resources"])
             hint = f"x.{str(res.get('format') or '').lower()}" if res.get("format") else ""
             hint = hint if kind_of(hint) != "plain" else str(res.get("url") or "")
             # Some portals give the size as text ("2 MiB"); the host's headers are exact.

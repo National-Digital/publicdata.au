@@ -22,8 +22,19 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import zstandard
 
-from . import OPERATOR, SITE, published, store
-from .cache import BuildCache, _link_or_copy, digest, digests, entry_key, shape_layer
+from . import OPERATOR, SITE, published, serialise, store
+from . import cache as cache_mod
+from .cache import (
+    BuildCache,
+    _link_or_copy,
+    digest,
+    digests,
+    entry_key,
+    kind_key,
+    shape_layer,
+    spatial,
+)
+from .database import build_database
 from .diff import diff
 from .normalise import Table, normalise
 from .provenance import OPERATOR_URL
@@ -53,6 +64,9 @@ from .serialise.profile import (
     signature,
     widen,
 )
+from .serialise.writers.geo_parquet import write_shape_parquet
+from .serialise.writers.parquet import write_parquet
+from .spine import enrich, spine_versions
 
 if TYPE_CHECKING:
     from .register import Dataset
@@ -150,8 +164,6 @@ def build_database_version(
     The archive's tables become one DuckDB file and one Parquet per table, with the schema, the
     script, the publisher's archive and the manifest beside them.
     """
-    from .database import build_database
-
     vdir = out / "d" / ds.slug / "v" / m.version
     if vdir.exists():
         shutil.rmtree(vdir)
@@ -196,8 +208,6 @@ def build_version(
 ) -> tuple[Table, VersionOut]:
     tbl = normalise(ds, m, data)
     if ds.enrich:
-        from .spine import enrich
-
         if store_dir is None:
             msg = f"{ds.slug}: joining the place spine needs the store"
             raise ValueError(msg)
@@ -274,9 +284,6 @@ def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
     This is the version's own data.parquet when that already follows them, else it is written
     again. Returns its path in the tree.
     """
-    from .serialise.writers.geo_parquet import write_shape_parquet
-    from .serialise.writers.parquet import write_parquet
-
     ds, m = tbl.dataset, tbl.manifest
     rel = query_key(ds.slug, m.version)
     p = out / rel
@@ -314,8 +321,6 @@ def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
     measured. A version already published keeps its recorded set, and only the sizes of the files
     this build keeps are taken again.
     """
-    from . import serialise
-
     kind = geo_kind(ds)
     selfish = [f for f in cappable(kind) if CAPS[f][0] == f]
     probe = [*MEASURED, *(f for f in selfish if record is None or f not in record["left_out"])]
@@ -499,13 +504,9 @@ def version_key(
     build code is not in it, so an edit to that code reuses every version until a rebuild number
     is raised.
     """
-    from .cache import kind_key, spatial, spatial_version
-
-    extra = [f"spatial={spatial_version()}"] if spatial(ds) else []
+    extra = [f"spatial={cache_mod.spatial_version()}"] if spatial(ds) else []
     extra += [k] if (k := kind_key(ds.kind)) else []
     if ds.enrich:
-        from .spine import spine_versions
-
         if store_dir is None:
             msg = f"{ds.slug}: a spine-joined version's key needs the store"
             raise ValueError(msg)
@@ -583,11 +584,9 @@ def pending(
 
     These are the versions with no cache entry, and table versions a writer has changed since.
     """
-    from .cache import writer_keys
-
     if not ds.publishable:
         return 0
-    now = now or writer_keys(shape_layer(ds))
+    now = now or cache_mod.writer_keys(shape_layer(ds))
     n = 0
     for m in store.manifests(store_dir, ds.slug):
         meta = cache.root / version_key(cache, ds, m, store_dir) / "meta.json"
@@ -629,12 +628,10 @@ def grow_cached(
     dropped from the record. Returns the entry's new metadata, or None when the entry cannot be
     grown and the version must be built from its source.
     """
-    from .cache import writer_keys
-
     if ds.kind == "database":
         return hit
     want = _want(ds, hit["rows"], hit.get("left_out"))
-    now = writer_keys(shape_layer(ds))
+    now = cache_mod.writer_keys(shape_layer(ds))
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
     stale = list(changed)
@@ -682,8 +679,6 @@ def grow_cached(
     # A format no longer made is dropped from the record, unless the build is limited to a
     # subset by --formats: the files are still published, and a limited build never shrinks
     # an entry a full build will grow again.
-    from . import serialise
-
     files = {
         k: v
         for k, v in hit["files"].items()
@@ -744,9 +739,7 @@ def _cached_version(
     else:
         tbl, vout = build_version(ds, m, src.read_bytes(), out, store_dir)
     if cache is not None:
-        from .cache import writer_keys
-
-        now = writer_keys(shape_layer(ds))
+        now = cache_mod.writer_keys(shape_layer(ds))
         writers = (
             {}
             if ds.kind == "database"

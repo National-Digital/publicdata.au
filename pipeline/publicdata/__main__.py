@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from . import REPO, SITE
@@ -19,8 +23,6 @@ FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
 
 
 def cmd_register(args) -> int:
-    from .register import load
-
     ds = load(REGISTER)
     for d in ds:
         print(f"{d.status:9s} {d.slug:40s} {d.licence.id:14s} {d.publisher.short}")
@@ -31,15 +33,12 @@ def cmd_register(args) -> int:
             print(
                 f"note: {d.slug} has {len(bare)} fields without a label; `publicdata register labels {d.slug}` drafts them"
             )
-    from .store import manifests
-    from .validate import int32_misfits
-
     store_dir = Path(getattr(args, "store", STORE))
     bad, unchecked = [], 0
     for d in ds:
         if not d.int32 or not d.publishable:
             continue
-        for m in manifests(store_dir, d.slug):
+        for m in store.manifests(store_dir, d.slug):
             found = int32_misfits(d, m, store_dir, [Path(b) for b in getattr(args, "built", [])])
             if found is None:
                 unchecked += 1
@@ -59,8 +58,6 @@ def cmd_labels(args) -> int:
     The label is the one another entry already gives a field of the same name, or else one
     worked out from the name. --write puts them in the YAML.
     """
-    from .register import draft_label, load
-
     datasets = load(REGISTER)
     known = {}
     for d in datasets:
@@ -95,12 +92,6 @@ def cmd_labels(args) -> int:
 
 def cmd_draft(args) -> int:
     """Write a first register entry for a CKAN portal dataset, for a person to review."""
-    import requests
-
-    from .catalogue import PortalError
-    from .publishers import load_curated
-    from .register_draft import DraftError, draft, to_yaml, write
-
     try:
         slug, entry, notes = draft(
             args.url,
@@ -124,21 +115,18 @@ def cmd_draft(args) -> int:
 
 
 def cmd_fetch(args) -> int:
-    import requests
-
-    from .fetch import MANUAL, ManualDue, fetch
-    from .register import load
-
     store_dir = Path(args.store)
     for pair in args.file:
         slug, _, path = pair.partition("=")
         if not path or not Path(path).exists():
             sys.exit(f"--file {pair}: give SLUG=PATH for a file, or a stack's folder, that exists")
-        MANUAL[slug] = Path(path)
+        fetch.MANUAL[slug] = Path(path)
     datasets = load(REGISTER)
     manual = {d.slug for d in datasets if d.source.manual}
-    if set(MANUAL) - manual:
-        sys.exit(f"--file: {sorted(set(MANUAL) - manual)} not a manual source in the register")
+    if set(fetch.MANUAL) - manual:
+        sys.exit(
+            f"--file: {sorted(set(fetch.MANUAL) - manual)} not a manual source in the register"
+        )
     changed = failed = due = 0
     groups: dict[str, list[str]] = {}
     for d in datasets:
@@ -150,8 +138,8 @@ def cmd_fetch(args) -> int:
             continue
         # One dataset that cannot be fetched is reported and the rest go ahead.
         try:
-            m = fetch(d, store_dir)
-        except ManualDue as e:
+            m = fetch.fetch(d, store_dir)
+        except fetch.ManualDue as e:
             due += 1
             print(f"{d.slug}: MANUAL {e}")
             continue
@@ -170,8 +158,6 @@ def cmd_fetch(args) -> int:
                 f"{d.slug}: new version {m.version} ({m.bytes} bytes, {m.encoding}, sha256 {m.sha256[:12]})"
             )
     if args.groups:
-        import json
-
         Path(args.groups).write_text(json.dumps(groups, indent=2, sort_keys=True) + "\n")
     print(f"{changed} new version(s), {failed} failed, {due} manual download(s) due")
     return 0
@@ -181,11 +167,8 @@ R2 = "r2://"
 
 
 def cmd_build(args) -> int:
-    from .register import load
-
     out = Path(args.out)
     store_dir = FIXTURES if args.fixtures else Path(args.store)
-    from . import serialise
 
     serialise.LIMIT = None
     if args.formats:
@@ -208,18 +191,13 @@ def cmd_build(args) -> int:
             "--cache needs --absent: a cached version leaves out files that are already published"
         )
     if args.cache:
-        from .cache import BuildCache
-
         cache = BuildCache(Path(args.cache))
         if not args.slug:
             n = _prune_unusable(cache, datasets, store_dir)
             print(f"cache: {n} entries this build cannot use removed first")
-    from . import published
 
     download = None
     if args.published.startswith(R2):
-        from .r2 import downloader
-
         download = downloader(args.published[len(R2) :])
     source = Path(args.published) if args.published and not download else None
     published.current = published.Published(out, args.built, source, download)
@@ -230,10 +208,6 @@ def cmd_build(args) -> int:
 
 
 def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
-    from . import published
-    from .build import build_dataset
-    from .site import render_site
-
     outs = []
     for d in datasets:
         if args.slug and d.slug not in args.slug:
@@ -245,13 +219,8 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             )
         outs.append(o)
     if args.built:
-        from .build import take_built
-
         n = sum(take_built(outs, out, Path(root)) for root in args.built)
         print(f"build: {n} file(s) linked in from the shard builds")
-    from .catalogue import latest as catalogue_latest
-    from .catalogue import load as load_catalogue
-    from .publishers import load_curated
 
     cat = catalogue_latest(store_dir)
     if not args.no_site:
@@ -289,7 +258,6 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
         print(
             f"cache: {cache.hits} reused, {cache.misses} built, {cache.grown} file(s) written into reused versions"
         )
-        import json
 
         # A file read back from R2 or a shard's tree is in this tree now.
         absent = sorted(
@@ -311,14 +279,10 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
 
 
 def cmd_gate(args) -> int:
-    from .gate import main
-
-    return main(Path(args.out), REGISTER, _absent(args.absent), not args.versions_only)
+    return gate.main(Path(args.out), REGISTER, _absent(args.absent), not args.versions_only)
 
 
 def _absent(path: str | None) -> list[str]:
-    import json
-
     return json.loads(Path(path).read_text(encoding="utf-8")) if path else []
 
 
@@ -332,9 +296,6 @@ def cmd_split(args) -> int:
     version, its page included. A file moved to R2 is only reachable where _routes.json runs the
     function that reads it.
     """
-    from .serialise.profile import QUERY_DIR
-    from .site import ROUTES
-
     routed = [
         re.compile("^/" + re.escape(r.lstrip("/")).replace(r"\*", ".*") + "$") for r in ROUTES
     ]
@@ -370,12 +331,8 @@ def cmd_split(args) -> int:
 
 
 def cmd_catalogue(args) -> int:
-    import requests
-
-    from .catalogue import PortalError, fetch
-
     try:
-        fetch(Path(args.store))
+        catalogue.fetch(Path(args.store))
     except (PortalError, OSError, ValueError, requests.RequestException) as e:
         print(f"catalogue: FAILED {e}")
         return 1
@@ -384,12 +341,6 @@ def cmd_catalogue(args) -> int:
 
 def cmd_catalogue_publishers(args) -> int:
     """Print proposed curation for data.gov.au organisations no curated publisher claims yet."""
-    import requests
-    import yaml
-
-    from .catalogue import load
-    from .publishers import load_curated, suggest
-
     codes = requests.get(
         "https://data.api.abs.gov.au/rest/codelist/ABS/CL_LGA_2024",
         headers={"Accept": "application/vnd.sdmx.structure+json"},
@@ -403,7 +354,7 @@ def cmd_catalogue_publishers(args) -> int:
         for c in codes
         if len(c["id"]) == LGA_CODE_DIGITS and c["id"][0] in state
     }
-    rows = suggest(load(Path(args.store)), load_curated(PUBLISHERS), lgas)
+    rows = suggest(load_catalogue(Path(args.store)), load_curated(PUBLISHERS), lgas)
     print(yaml.safe_dump(rows, sort_keys=False, allow_unicode=True, width=100))
     print(f"# {len(rows)} organisation(s) to review", file=sys.stderr)
     return 0
@@ -411,11 +362,6 @@ def cmd_catalogue_publishers(args) -> int:
 
 def cmd_d1(args) -> int:
     """Write one SQL file per live dataset whose latest version the query API has not loaded."""
-    import json
-
-    from .d1 import CATALOGUE, SERVED, catalogue_loads, served_loads, write_loads
-    from .register import load
-
     loaded: dict[str, list[str]] = {}
     loaded_fields: dict[tuple[str, str], str] = {}
     loaded_orders: dict[tuple[str, str], str] = {}
@@ -455,10 +401,6 @@ def cmd_d1(args) -> int:
 
 
 def _rows_written(text: str) -> int:
-    import argparse
-
-    from .d1 import rows_written
-
     try:
         return rows_written(text or "0")
     except ValueError as e:
@@ -466,9 +408,7 @@ def _rows_written(text: str) -> int:
 
 
 def cmd_d1_load(args) -> int:
-    from .d1 import BUDGET, Wrangler, load
-
-    failed = load(
+    failed = load_d1(
         Path(args.dir),
         Wrangler(),
         budget=args.budget or BUDGET,
@@ -480,8 +420,6 @@ def cmd_d1_load(args) -> int:
 
 
 def cmd_store(args) -> int:
-    from .r2 import pull_store, push
-
     store_dir = Path(args.store)
     if args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
@@ -505,8 +443,6 @@ def cmd_store(args) -> int:
 
 def _committed_versions(store_dir: Path) -> set[tuple[str, str]]:
     """The versions whose manifest git tracks; outside a checkout, every version on disk."""
-    import subprocess
-
     found = [p.relative_to(store_dir) for p in store_dir.glob("*/*/manifest.json")]
     try:
         out = subprocess.run(
@@ -522,9 +458,6 @@ def _committed_versions(store_dir: Path) -> set[tuple[str, str]]:
 
 def _with_layers(only: list[str]) -> tuple[str, ...]:
     """The slugs, and the spine layers any of them joins, whose sources a joined build reads."""
-    from .register import load
-    from .spine import LAYERS
-
     if not only:
         return ()
     joins = {LAYERS[k].slug for d in load(REGISTER) if d.slug in only for k in d.enrich}
@@ -533,12 +466,6 @@ def _with_layers(only: list[str]) -> tuple[str, ...]:
 
 def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     """The versions the build will take from the cache, so their source bytes are not needed."""
-    from . import store
-    from .build import version_key
-    from .cache import BuildCache
-    from .register import load
-    from .spine import LAYERS
-
     cache = BuildCache(cache_dir)
     datasets = [d for d in load(REGISTER) if d.publishable]
     cached = {
@@ -585,15 +512,10 @@ def cmd_spine_mirror(args) -> int:
 
 
 def cmd_dist_push(args) -> int:
-    from .r2 import dated_file, push
-
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
         print(f"dist push: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
-    from .r2 import check_sources
-    from .register import load
-    from .serialise.profile import layout
 
     # Before anything goes up, so a version whose source the site cannot serve is never published.
     found = check_sources([Path(args.large)])
@@ -661,10 +583,6 @@ def cmd_checksums(args) -> int:
 
 
 def cmd_purge(args) -> int:
-    import os
-
-    from .edge import purge, with_answers
-
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
         print(f"purge: takes d/<slug>/v/<date>/ prefixes only, not {bad}")
@@ -679,9 +597,6 @@ def cmd_purge(args) -> int:
 
 def _prune_unusable(cache, datasets, store_dir: Path) -> int:
     """Removes the entries no version in the store keys to, which reads the manifests only."""
-    from .brand import CARD_PREFIX
-    from .build import cache_keys
-
     usable = set().union(*(cache_keys(cache, d, store_dir) for d in datasets))
     if cache.root.is_dir():
         usable |= {p.name for p in cache.root.glob(CARD_PREFIX + "*")}
@@ -689,25 +604,16 @@ def _prune_unusable(cache, datasets, store_dir: Path) -> int:
 
 
 def cmd_cache_prune(args) -> int:
-    from .cache import BuildCache
-    from .register import load
-
     n = _prune_unusable(BuildCache(Path(args.cache)), load(REGISTER), Path(args.store))
     print(f"cache: {n} entries no version in the store can use removed")
     return 0
 
 
 def cmd_cache(args) -> int:
-    from .r2 import cache_pull, cache_push
-
     root = Path(args.cache)
     if args.sub == "pull":
         entries = None
         if args.only:
-            from .build import cache_keys
-            from .cache import BuildCache
-            from .register import load
-
             if not args.store:
                 print("cache pull: --only needs --store")
                 return 2
@@ -719,7 +625,7 @@ def cmd_cache(args) -> int:
                     if d.slug in args.only
                 )
             )
-        n = cache_pull(root, meta_only=args.meta_only, entries=entries)
+        n = r2.cache_pull(root, meta_only=args.meta_only, entries=entries)
         print(f"cache pull: {n} entries")
     else:
         up, gone = cache_push(root, prune=args.prune)
@@ -735,9 +641,6 @@ def cmd_verify(args) -> int:
     plan prints the datasets the check builds, or nothing when no changed path shapes versions
     outside their key; run builds them and compares.
     """
-    from . import verify
-    from .register import load
-
     datasets = load(REGISTER)
     store_dir = Path(args.store)
     mb = 1_000_000
@@ -789,17 +692,13 @@ def cmd_verify(args) -> int:
     if unknown:
         print(f"verify run: not a publishable dataset: {sorted(unknown)}")
         return 2
-    from . import published, serialise
 
     serialise.LIMIT = None
-    import tempfile
 
     out = Path(args.out or tempfile.mkdtemp(prefix="publicdata-verify-"))
     out.mkdir(parents=True, exist_ok=True)
     download = None
     if args.published.startswith(R2):
-        from .r2 import downloader
-
         download = downloader(args.published[len(R2) :])
     source = Path(args.published) if args.published and not download else None
     # A capped version keeps the format set its published manifest records.
@@ -812,11 +711,6 @@ def cmd_verify(args) -> int:
 
 def cmd_shards(args) -> int:
     """Prints a JSON list of build jobs, each a space-separated list of dataset slugs."""
-    import json
-
-    from .register import load
-    from .shards import plan, weights
-
     w = weights(load(REGISTER), Path(args.store), Path(args.cache) if args.cache else None)
     jobs = plan(w, args.count)
     for i, slugs in enumerate(jobs):
@@ -828,8 +722,6 @@ def cmd_shards(args) -> int:
 
 def _hubs_record(store_dir: Path) -> dict:
     """Where the Hubs job found each copy, committed beside the manifests."""
-    import json
-
     path = store_dir / "hubs.json"
     return json.loads(path.read_text("utf-8")) if path.exists() else {}
 
@@ -842,9 +734,6 @@ def _tasks(path: str | None) -> dict[str, int]:
 
 
 def cmd_hubs(args) -> int:
-    from . import hubs
-    from .register import load
-
     only = set(args.only) if args.only else None
     registered = {d.slug: d for d in load(REGISTER)}
     entries = list(hubs.read_site(args.site, only, register=registered))
@@ -856,7 +745,6 @@ def cmd_hubs(args) -> int:
     for line in skipped:
         print(line)
     chosen = {n: make() for n, make in available.items() if n in args.hub}
-    import json
 
     path = Path(args.record) if args.record else None
     old = json.loads(path.read_text("utf-8")) if path and path.exists() else {}
@@ -918,11 +806,6 @@ def cmd_contribute(args) -> int:
 
 
 def cmd_cost(args) -> int:
-    import datetime as dt
-
-    from . import cost
-    from .register import load
-
     root = Path(args.root).resolve() if args.root else ROOT
     register = root / "register"
     changed, fresh, reshaped = set(args.slug), set(), {}

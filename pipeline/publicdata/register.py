@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from .spine import LAYERS, SOURCE_PREFIX
 from .topics import TOPICS
 
 OPEN_LICENCES = {
@@ -452,8 +453,6 @@ def parse(raw: dict, ctx: str) -> Dataset:
     geometry = _geometry(raw.get("geometry"), seen, ctx)
     enrich = tuple(str(x) for x in raw.get("enrich") or ())
     if enrich:
-        from .spine import LAYERS, SOURCE_PREFIX
-
         if not geometry or geometry["kind"] != "point":
             msg = f"{ctx}: enrich joins points to the place spine; declare point geometry"
             raise RegisterError(msg)

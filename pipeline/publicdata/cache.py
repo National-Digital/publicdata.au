@@ -15,6 +15,12 @@ import sys
 from importlib.metadata import version as dist_version
 from pathlib import Path
 
+import duckdb
+
+from .register import Licence
+from .serialise import WRITER_DEPENDS, WRITER_MODULES, WRITER_VARIANTS, WRITERS, duckdb_digest
+from .serialise.geo import geo_kind
+
 PACKAGE = Path(__file__).resolve().parent
 # Raised in a reviewed change whose edit to the build code changes the bytes of versions across
 # datasets; it rebuilds every version. A register entry's `rebuild` does the same for one dataset.
@@ -110,8 +116,6 @@ def code_files() -> list[Path]:
 @functools.cache
 def spatial_version() -> str:
     """The installed DuckDB spatial extension, which joins the spine and draws the shapes."""
-    import duckdb
-
     con = duckdb.connect()
     try:
         row = con.execute(
@@ -139,8 +143,6 @@ def spatial(ds) -> bool:
 
 def shape_layer(ds) -> bool:
     """Whether a dataset's Parquet is written by the shape layer writer."""
-    from .serialise.geo import geo_kind
-
     return geo_kind(ds) in ("polygon", "line")
 
 
@@ -186,7 +188,6 @@ def _plain(v):
             if f.default_factory is not dataclasses.MISSING and x == f.default_factory():
                 continue
             out[f.name] = _plain(x)
-        from .register import Licence
 
         if isinstance(v, Licence):
             # Read from the grant files, and written into every format's header.
@@ -223,8 +224,6 @@ def digests(root: Path, only=None, databases: bool = True) -> dict[str, str]:
     rows and comments instead, or none when databases is False, as for a database release of
     many gigabytes.
     """
-    from .serialise import duckdb_digest
-
     rels = (
         only
         if only is not None
@@ -249,8 +248,6 @@ def writer_files(fmt: str, shape: bool | None = None) -> list[Path]:
     from, and the writer modules each of them imports. A format with a writer for shape layers
     (WRITER_VARIANTS) reads only the one a dataset runs when shape says which; None reads both.
     """
-    from .serialise import WRITER_DEPENDS, WRITER_VARIANTS, WRITERS
-
     todo = set()
     for f in (fmt, *WRITER_DEPENDS.get(fmt, ())):
         if shape is not None and f in WRITER_VARIANTS:
@@ -283,8 +280,6 @@ def writer_key(fmt: str, shape: bool = False) -> str:
 
 def writer_keys(shape: bool = False) -> dict[str, str]:
     """Each format's writer key for a table, or for a shape layer when shape is True."""
-    from .serialise import WRITER_MODULES
-
     return {fmt: writer_key(fmt, shape) for fmt in WRITER_MODULES}
 
 

@@ -11,11 +11,21 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import mimetypes
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from . import store as st
+from .catalogue import SLUG as CATALOGUE
+from .serialise.profile import follows, layout_body, layout_key
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,8 +52,8 @@ VERSIONED = re.compile(r"(^|/)v/\d{4}-\d{2}-\d{2}/")
 
 
 def client():
-    import boto3
-    from botocore.config import Config
+    import boto3  # noqa: PLC0415 - the deploy extra
+    from botocore.config import Config  # noqa: PLC0415 - the deploy extra
 
     token = os.environ.get("CLOUDFLARE_API_TOKEN")
     token_id = os.environ.get("CLOUDFLARE_API_TOKEN_ID")
@@ -145,11 +155,6 @@ def _follows(s3, bucket: str, key: str, lay: dict, etags: dict[str, str]) -> boo
     written before records were kept, from its footer, None meaning it follows but has no record
     yet.
     """
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    from .serialise.profile import follows, layout_body, layout_key
-
     mark = layout_key(key)
     if mark in etags:
         return etags[mark] == hashlib.md5(layout_body(lay), usedforsecurity=False).hexdigest()
@@ -161,8 +166,6 @@ def _follows(s3, bucket: str, key: str, lay: dict, etags: dict[str, str]) -> boo
 
 
 def _record(s3, bucket: str, key: str, lay: dict) -> None:
-    from .serialise.profile import layout_body, layout_key
-
     s3.put_object(
         Bucket=bucket, Key=layout_key(key), Body=layout_body(lay), ContentType=TYPES[".json"]
     )
@@ -193,8 +196,6 @@ def push(
     when the copy R2 holds follows another, and every query copy in expect must follow its
     dataset's.
     """
-    from concurrent.futures import ThreadPoolExecutor
-
     s3 = client()
     files = sorted(x for x in root.rglob("*") if x.is_file())
     files = [p for p in files if include(prefix + str(p.relative_to(root)).replace(os.sep, "/"))]
@@ -268,9 +269,6 @@ def _built_to(p: Path, lay: dict | None) -> bool:
     """Whether a local query copy follows lay, so the record written beside it is true."""
     if lay is None:
         return True
-    import pyarrow.parquet as pq
-
-    from .serialise.profile import follows
 
     return follows(pq.read_metadata(p), lay)
 
@@ -323,9 +321,6 @@ def pull_store(
     The versions in skip are left out, since the build takes them from its cache. Only the newest
     catalogue snapshot is needed to build.
     """
-    from . import store as st
-    from .catalogue import SLUG as CATALOGUE
-
     s3 = client()
     n = 0
     paths = sorted(store.glob("*/*/manifest.json"))
@@ -350,7 +345,7 @@ def downloader(bucket: str) -> Callable[[str, Path], bool]:
 
     One client serves every thread.
     """
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
 
     s3 = client()
 
@@ -387,9 +382,7 @@ def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = N
     it was copied is left out. With meta_only, the records alone are copied, which is all a plan
     needs. With entries, only those are copied.
     """
-    from concurrent.futures import ThreadPoolExecutor
-
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
 
     s3 = client()
     keys = [
@@ -441,9 +434,7 @@ def _delete(s3, keys: list[str]) -> None:
 
 
 def _unused(s3) -> dict[str, str]:
-    import json
-
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
 
     try:
         body = s3.get_object(Bucket=CACHE_BUCKET, Key=UNUSED)["Body"].read()
@@ -462,10 +453,6 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
     it only from a build that pruned root to the entries the store can use. Returns (uploaded,
     deleted).
     """
-    import json
-    from concurrent.futures import ThreadPoolExecutor
-    from datetime import UTC, datetime, timedelta
-
     s3 = client()
     remote = {k: v for k, v in _etags(s3, CACHE_BUCKET, CACHE_PREFIX).items() if k != UNUSED}
     local = {
@@ -528,17 +515,13 @@ def source_keys(root: Path) -> dict[str, str]:
 
     Each is keyed by the URL path the /d/ function serves it at.
     """
-    import json
-
-    from . import store
-
     out = {}
     for man in sorted(root.glob("d/*/v/*/manifest.json")):
         m = json.loads(man.read_text(encoding="utf-8"))
         if m.get("source_withheld"):
             continue
         slug, version = man.parts[-4], man.parts[-2]
-        ext = store.ext_of(m.get("filename", ""))
+        ext = st.ext_of(m.get("filename", ""))
         out[f"d/{slug}/v/{version}/source.{ext}"] = f"{slug}/{version}/source.{ext}"
     return out
 
@@ -552,7 +535,6 @@ def check_sources(roots: list[Path], bucket: str = "publicdata-raw") -> int:
     want = {}
     for r in roots:
         want |= source_keys(r)
-    from concurrent.futures import ThreadPoolExecutor
 
     slugs = sorted({v.split("/")[0] + "/" for v in want.values()})
     with ThreadPoolExecutor(WORKERS) as pool:

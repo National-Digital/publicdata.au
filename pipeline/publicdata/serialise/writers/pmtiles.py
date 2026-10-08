@@ -4,6 +4,9 @@ import gzip
 import json
 from typing import TYPE_CHECKING
 
+from pmtiles.tile import Compression, TileType, zxy_to_tileid
+from pmtiles.writer import Writer
+
 from publicdata.serialise import dumps
 from publicdata.serialise.geo import (
     MAXZOOM,
@@ -28,9 +31,6 @@ def write_pmtiles(tbl, header: dict, path: Path) -> None:
     repaired for the tiles only. A repair can return a collection, such as a polygon with a stray
     line, which a tile cannot hold, so only the parts of the layer's own kind are kept.
     """
-    from pmtiles.tile import Compression, TileType, zxy_to_tileid
-    from pmtiles.writer import Writer
-
     ds = tbl.dataset
     maxzoom = int(ds.geometry.get("maxzoom", MAXZOOM))
     con = _connect()

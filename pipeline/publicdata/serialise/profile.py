@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import duckdb
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
@@ -88,7 +89,6 @@ def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Arra
     """
     if not sort:
         return None
-    import duckdb
 
     cols = sort_columns(sort, key)
     keys = t.select(cols).append_column(POSITION, pa.array(range(t.num_rows), pa.int64()))

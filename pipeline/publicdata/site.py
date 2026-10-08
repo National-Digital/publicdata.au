@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import OPERATOR, REPO, SITE, brand, explorer, figures
+from . import OPERATOR, REPO, SITE, brand, directory, explorer, figures, serialise
 from . import api_text as at
 from .build import DatasetOut, VersionOut, dataset_url, version_url
 from .cost import fleet_from_build
-from .d1 import KEEP, queryable
+from .d1 import KEEP, catalogue_sqlite, queryable, served_table
 from .provenance import (
     CITE_REQUEST,
     NOT_ENDORSED,
@@ -27,9 +27,11 @@ from .provenance import (
     OPERATOR_URL,
     attribution,
     cite,
+    header,
     landing,
     long_date,
 )
+from .publishers import JUR_NAME, JUR_SEGMENT, JURISDICTIONS
 from .records import connect
 from .register import NEWEST, WHERE_OPS, Dataset
 from .serialise import (
@@ -41,6 +43,7 @@ from .serialise import (
     pretty,
     profile,
     reasons,
+    write_dictionary,
 )
 from .serialise.geo import geo_kind
 from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
@@ -256,12 +259,11 @@ SITE_ORDER = (
 
 def _file_formats_text() -> str:
     """Which formats a version has, from api.json, with the limits filled in from CAPS."""
-    from .serialise import CAPS, EXCEL_MAX_ROWS, JSON_MAX_ROWS
-
-    mb = {f"{f}_mb": CAPS[f][1] // 1_000_000 for f in CAPS}
+    caps = serialise.CAPS
+    mb = {f"{f}_mb": caps[f][1] // 1_000_000 for f in caps}
     return at.fill(
         at.spec()["site"]["file_formats"],
-        {**mb, "excel_rows": EXCEL_MAX_ROWS, "json_rows": JSON_MAX_ROWS},
+        {**mb, "excel_rows": serialise.EXCEL_MAX_ROWS, "json_rows": serialise.JSON_MAX_ROWS},
     )
 
 
@@ -440,9 +442,7 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
             )
         )
     if ds.enrich:
-        from .spine import ATTRIBUTION, LAYERS
-
-        layers = [LAYERS[k] for k in ds.enrich]
+        layers = [SPINE_LAYERS[k] for k in ds.enrich]
         names = [x.name[1] for x in layers]
         what = ", ".join(names[:-1]) + f" and {names[-1]}" if len(names) > 1 else names[0]
         nouns = [x.noun for x in layers]
@@ -455,7 +455,7 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
                 + ", ".join(f"{dataset_url(x.slug)}" for x in layers)
                 + f", and {ds.publisher.short} did not publish them. The schema marks each one as joined and names the boundary version. "
                 "A row without coordinates, or a point outside every area, has them blank. "
-                + ATTRIBUTION,
+                + SPINE_ATTRIBUTION,
             )
         )
     return out
@@ -1096,9 +1096,6 @@ def licence_record(ds: Dataset, m) -> dict:
 
 
 def serialise_dictionary(ds: Dataset, latest: VersionOut, path: Path) -> None:
-    from .provenance import header
-    from .serialise import write_dictionary
-
     m = latest.manifest
     path.parent.mkdir(parents=True, exist_ok=True)
     write_dictionary(ds, header(ds, m, latest.rows, f"{version_url(ds.slug, m.version)}"), path)
@@ -3073,7 +3070,6 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
 def _served_row(o: DatasetOut, dirx) -> dict:
     """What search_datasets finds a served dataset by, and what it answers with."""
     ds = o.dataset
-    from .publishers import JUR_SEGMENT
 
     words = [ds.search_title, *ds.also_known_as, *ds.keywords, ds.collection_title]
     return {
@@ -3152,16 +3148,11 @@ def render_site(
         out, len(live), len({o.dataset.publisher.name for o in live}), cache
     )
 
-    from . import directory
-    from .publishers import JUR_NAME, JURISDICTIONS
-
     dirx = directory.plan(
         datasets, list(records or []), list(curated or []), catalogue_as_at, catalogue_stats or {}
     )
     dirx.tasks = dict(tasks or {})
     if search and catalogue_as_at:
-        from .d1 import catalogue_sqlite, served_table
-
         catalogue_sqlite(search, directory.search_rows(dirx), catalogue_as_at)
         served_table(search, [_served_row(o, dirx) for o in live])
 
@@ -4712,8 +4703,6 @@ def render_site(
     urls += dir_urls
     # One sitemap per government and one for everything else, under a sitemap index, so no file
     # nears the 50,000 URLs a sitemap may hold.
-    from .publishers import JUR_SEGMENT
-
     segs = set(JUR_SEGMENT.values())
     by_jur: dict[str, list[str]] = {}
     for u in urls:

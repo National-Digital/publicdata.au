@@ -13,6 +13,7 @@ from contextlib import closing
 from functools import lru_cache
 from typing import TYPE_CHECKING, Self
 
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -71,8 +72,6 @@ class Records:
     """
 
     def __init__(self, parquet: Path, names: list[str] | None = None):
-        import duckdb
-
         schema = pq.read_schema(parquet)
         have = [n for n in schema.names if n != "geometry"]
         # The SQLite file lists the register's fields in their order, then the flags.

@@ -6,6 +6,7 @@ the portal, until it is serialised here and has a dataset page.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import math
 import re
@@ -248,7 +249,6 @@ def find(url, by_name, by_id, by_url, portal_by_host) -> dict | None:
     hit = locate(url or "")
     if not hit:
         return None
-    from .catalogue import record_id
 
     host, kind, value = hit
     code = portal_by_host.get(host)
@@ -889,7 +889,6 @@ def _bar(n: int, top: int) -> int:
 def _long(iso: str) -> str:
     if not iso:
         return "never"
-    import datetime as dt
 
     x = dt.date.fromisoformat(iso[:10])
     return f"{x.day} {x.strftime('%B %Y')}"

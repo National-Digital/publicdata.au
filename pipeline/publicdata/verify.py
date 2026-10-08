@@ -20,7 +20,18 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from . import published, store
+import yaml
+
+from . import build, published, store
+from .build import (
+    _built_table,
+    _source_order,
+    _want,
+    build_dataset,
+    prov_header,
+    version_key,
+    write_formats,
+)
 from .cache import (
     KIND_MODULES,
     PACKAGE,
@@ -34,6 +45,9 @@ from .cache import (
     writer_files,
     writer_keys,
 )
+from .serialise import WRITERS
+from .serialise.geo import geo_kind
+from .serialise.profile import QUERY_DIR
 
 if TYPE_CHECKING:
     from .register import Dataset
@@ -51,8 +65,6 @@ def unkeyed(changed: list[str]) -> list[str]:
     A writer module in a format's writer key is keyed, so an edit to it writes that format again;
     one no format's key reads is checked like the rest of the build code.
     """
-    from .serialise import WRITERS
-
     keyed = {p for f in WRITERS for p in writer_files(f)}
     keyed |= {PACKAGE / n for names in KIND_MODULES.values() for n in names}
     writers = {p for p in _writers_dir().glob("*.py") if _is_writer(p)}
@@ -118,8 +130,6 @@ def bumped(before: Path, datasets: list[Dataset]) -> list[str]:
     Two changes that raise the same number merge without a conflict, so the later one is checked
     against the entries the earlier built.
     """
-    import yaml
-
     out = []
     for ds in datasets:
         if not ds.path or not Path(ds.path).is_relative_to(REPO):
@@ -156,8 +166,6 @@ def source_bytes(ds: Dataset, store_dir: Path, cap: int = CAP) -> int:
 
 def _stratum(ds: Dataset) -> tuple:
     """What picks the code paths a dataset's build runs through."""
-    from .serialise.geo import geo_kind
-
     return (
         ds.kind,
         ds.source.adapter,
@@ -251,9 +259,6 @@ def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, rels: list[
     The deploy grew them from the Parquet the site serves, and they are made again the same way,
     by name. Returns None when that Parquet is gone.
     """
-    from .build import _built_table, _source_order, prov_header, version_url, write_formats
-    from .serialise import WRITERS
-
     vrel = f"d/{ds.slug}/v/{m.version}"
     parquet, _ = published.served(out, f"{vrel}/data.parquet")
     if not parquet.is_file():
@@ -263,7 +268,7 @@ def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, rels: list[
         tbl = _source_order(tbl, cache, key, parquet)
         if tbl is None:
             return None
-    base = version_url(ds.slug, m.version)
+    base = build.version_url(ds.slug, m.version)
     names = {r[5:] for r in rels}
     with tempfile.TemporaryDirectory() as tmp:
         vdir = Path(tmp)
@@ -282,9 +287,6 @@ def _version(
     ds: Dataset, meta: dict, vout, out: Path, entry: Path, cache: BuildCache, key: str
 ) -> list[str]:
     """How a version built now differs from the cache entry a deploy would reuse for it."""
-    from .build import _want
-    from .serialise import WRITERS
-
     vdir = out / "d" / ds.slug / "v" / vout.manifest.version
     now = writer_keys(shape_layer(ds))
     seen = meta.get("writers", {})
@@ -376,8 +378,6 @@ def check(
     differences, each naming its file, and how many versions were compared and how many a deploy
     would build again anyway.
     """
-    from .build import build_dataset, version_key
-
     ms = checked_versions(ds, store_dir, cap)
     whole = len(ms) == len(store.manifests(store_dir, ds.slug))
     fresh = build_dataset(ds, store_dir, out, newest=len(ms))
@@ -414,8 +414,6 @@ def check(
 def run(
     datasets: list[Dataset], store_dir: Path, cache_dir: Path, out: Path, cap: int = CAP
 ) -> int:
-    from .serialise.profile import QUERY_DIR
-
     cache = BuildCache(cache_dir)
     problems, failed, compared, rebuilt = [], [], 0, 0
     for ds in datasets:

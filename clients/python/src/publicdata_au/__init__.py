@@ -31,13 +31,16 @@ import json
 import math
 import os
 import shutil
+import sqlite3
 import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import warnings
+import webbrowser
 from collections.abc import Mapping
+from contextlib import closing
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
@@ -283,7 +286,7 @@ class Rows(list):
         Dates are already `datetime.date`; `df.attrs["fields"]` maps each column to its field's
         description.
         """
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415 - an optional extra
 
         df = pd.DataFrame(list(self))
         df.attrs["publicdata"] = self.meta
@@ -536,7 +539,7 @@ class Client:
         version. With `cache=True` the whole file is downloaded into `cache_dir()` once and
         attached from there, which makes repeated scans of a large database much faster.
         """
-        import duckdb
+        import duckdb  # noqa: PLC0415 - an optional extra
 
         version = _date(version) if version else self.latest(slug)
         url = self.file_url(slug, "duckdb", version)
@@ -834,7 +837,7 @@ class Client:
         return df
 
     def _read_csv(self, slug, version, cache, columns):
-        import pandas as pd
+        import pandas as pd  # noqa: PLC0415 - an optional extra
 
         fields = self._field_types(slug, version)
         if columns:
@@ -886,7 +889,7 @@ class Client:
         system the publisher used, usually GDA2020 (EPSG:7844). Needs the [geo] extra.
         `gdf.attrs["publicdata"]` is the provenance the file carries.
         """
-        import geopandas as gpd
+        import geopandas as gpd  # noqa: PLC0415 - an optional extra
 
         with tempfile.TemporaryDirectory() as d:
             try:
@@ -902,9 +905,6 @@ class Client:
                 raise
             gdf = gpd.read_file(p, layer="records")
             try:
-                import sqlite3
-                from contextlib import closing
-
                 with closing(sqlite3.connect(p)) as db:
                     header = _header(db.execute("SELECT key, value FROM publicdata").fetchall())
             except sqlite3.Error:
@@ -993,8 +993,6 @@ class Client:
 
     def browse(self, slug: str, version: str | None = None) -> str:
         """Opens the dataset's page, or one version's, in the browser and returns its URL."""
-        import webbrowser
-
         url = f"{self.site}/d/{_slug(slug)}/" + (f"v/{_date(version)}/" if version else "")
         webbrowser.open(url)
         return url
@@ -1073,8 +1071,8 @@ class Client:
         Aggregate first: 500 council areas draw faster than 80,000 rows each carrying its area's
         shape.
         """
-        import geopandas as gpd
-        import pandas as pd
+        import geopandas as gpd  # noqa: PLC0415 - an optional extra
+        import pandas as pd  # noqa: PLC0415 - an optional extra
 
         if isinstance(df, gpd.GeoDataFrame):
             msg = "df already has a geometry; drop it first"
@@ -1238,7 +1236,7 @@ class Client:
 
 def _parquet_module():
     try:
-        import pyarrow.parquet as pq
+        import pyarrow.parquet as pq  # noqa: PLC0415 - an optional extra
     except ImportError:
         return None
     return pq
@@ -1252,8 +1250,8 @@ def _csv_column(col, kind):
     booleans become bool or objects when some are missing, and the suppressed names become
     arrays.
     """
-    import numpy as np
-    import pandas as pd
+    import numpy as np  # noqa: PLC0415 - an optional extra
+    import pandas as pd  # noqa: PLC0415 - an optional extra
 
     present = col.notna()
 
@@ -1353,7 +1351,7 @@ def _norm_codes(col, ref) -> list:
 
     The zeros come back only when every code in `ref` has one width.
     """
-    import pandas as pd
+    import pandas as pd  # noqa: PLC0415 - an optional extra
 
     widths = {len(r) for r in ref if isinstance(r, str)}
     width = next(iter(widths)) if len(widths) == 1 else 0

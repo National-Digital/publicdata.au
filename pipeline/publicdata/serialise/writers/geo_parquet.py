@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from typing import TYPE_CHECKING
 
 import pyarrow as pa
@@ -8,6 +9,7 @@ import pyarrow.parquet as pq
 
 from publicdata.serialise import dumps, profile
 from publicdata.serialise.geo import _connect, _with_geometry
+from publicdata.spine import DATUM
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -18,8 +20,6 @@ _PROJJSON: dict[str, dict] = {}
 def projjson(crs: str) -> dict:
     """The coordinate system's PROJJSON, as DuckDB's own GeoParquet writer states it."""
     if crs not in _PROJJSON:
-        import tempfile
-
         con = _connect()
         with tempfile.TemporaryDirectory() as t:
             con.execute(
@@ -37,8 +37,6 @@ def write_shape_parquet(tbl, header: dict, path: Path, lay: dict | None = None) 
     The geometry is WKB in GDA2020, with the GeoParquet metadata, so every other format of the
     layer can be made from it.
     """
-    from publicdata.spine import DATUM
-
     t = tbl.table.append_column("geometry", tbl.geometry.cast(pa.binary()))
     kinds = (
         ["Polygon", "MultiPolygon"]

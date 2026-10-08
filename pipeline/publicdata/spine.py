@@ -17,7 +17,9 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import duckdb
 import pyarrow as pa
+import yaml
 
 from . import store
 
@@ -110,8 +112,6 @@ def is_spine(source: str) -> bool:
 
 
 def connect():
-    import duckdb
-
     con = duckdb.connect()
     con.execute("SET enable_progress_bar = false")
     # Each connection is held to a share of the machine, since the build opens several in turn
@@ -185,7 +185,7 @@ def read_points(data: bytes, ext: str, member: str) -> pa.Table:
     The coordinates go under the longitude and latitude source names a GeoJSON point is read
     with.
     """
-    from .register import LAT_SOURCE, LON_SOURCE
+    from .register import LAT_SOURCE, LON_SOURCE  # noqa: PLC0415 - register imports this module
 
     con, geom, text, order = _read_layer(data, ext, member)
     xy = (
@@ -212,8 +212,8 @@ _LOADED: dict[tuple[str, str], Shapes] = {}
 
 def layer_shapes(layer: Layer, store_dir: Path, register_dir: Path) -> Shapes:
     """The newest version of the layer's entry in the store, normalised, read once per build."""
-    from .normalise import normalise
-    from .register import load
+    from .normalise import normalise  # noqa: PLC0415 - normalise imports this module
+    from .register import load  # noqa: PLC0415 - register imports this module
 
     ms = store.manifests(store_dir, layer.slug)
     if not ms:
@@ -243,10 +243,8 @@ _ENTRIES: dict[tuple[str, bytes], str] = {}
 
 def _layer_entry(slug: str, register_dir: Path) -> str:
     """The layer's register entry as a version key reads it, its rebuild number among it."""
-    import yaml
-
-    from .cache import entry_key
-    from .register import parse
+    from .cache import entry_key  # noqa: PLC0415 - cache imports this module in turn
+    from .register import parse  # noqa: PLC0415 - register imports this module
 
     p = register_dir / f"{slug}.yaml"
     if not p.is_file():

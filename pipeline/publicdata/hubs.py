@@ -25,10 +25,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import requests
+from PIL import Image
+from urllib3.util.retry import Retry
 
 from .cadence import kaggle_frequency
 from .provenance import NOT_ENDORSED
-from .register import GRANTS, LICENCE_CONDITIONS, OPEN_LICENCES
+from .register import GRANTS, LICENCE_CONDITIONS, OPEN_LICENCES, draft_label
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -184,8 +186,6 @@ def _described(fields, registered) -> list[dict]:
     The description is the schema's own, else the register's description or label, else a label
     drafted from the field name.
     """
-    from .register import draft_label
-
     reg = {f.name: f for f in getattr(registered, "fields", ()) or ()}
     names = [f["name"] for f in fields]
     out = []
@@ -704,8 +704,6 @@ def cover_image(card: Path, dest: Path) -> Path:
     Kaggle crops its header at 560 by 280 from the top left and its thumbnail as the middle
     square, so the card is sized to exactly that.
     """
-    from PIL import Image
-
     with Image.open(card) as src:
         im = src.convert("RGB")
         w, h = im.size
@@ -777,8 +775,6 @@ def zenodo_metadata(e: Entry, community: str | None = None) -> dict:
 
 
 def _http() -> requests.Session:
-    from urllib3.util.retry import Retry
-
     s = requests.Session()
     s.headers["User-Agent"] = UA
     # A run reads a few thousand files from the site, and one dropped connection should not cost
@@ -855,7 +851,7 @@ class HuggingFace:
     name = "huggingface"
 
     def __init__(self, token: str, namespace: str):
-        from huggingface_hub import HfApi
+        from huggingface_hub import HfApi  # noqa: PLC0415 - the hubs extra
 
         self.api = HfApi(token=token)
         self.namespace = namespace
@@ -871,7 +867,7 @@ class HuggingFace:
         return f"https://huggingface.co/datasets/{self.repo(e)}" if self.held(e) else None
 
     def held(self, e: Entry) -> set[str]:
-        from huggingface_hub.errors import RepositoryNotFoundError
+        from huggingface_hub.errors import RepositoryNotFoundError  # noqa: PLC0415 - the hubs extra
 
         try:
             refs = self.api.list_repo_refs(self.repo(e), repo_type="dataset")

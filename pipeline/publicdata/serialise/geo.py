@@ -6,6 +6,8 @@ writers themselves are modules under writers/.
 
 from __future__ import annotations
 
+from publicdata.spine import DATUM, connect
+
 from . import json_view
 
 WEB_MERCATOR = 20037508.342789244
@@ -20,8 +22,6 @@ def geo_kind(ds) -> str:
 
 
 def _connect():
-    from publicdata.spine import connect
-
     con = connect()
     # One thread: an aggregate's input order, and so each file's bytes, are then the same each run.
     con.execute("SET threads = 1")
@@ -30,8 +30,6 @@ def _connect():
 
 
 def _crs(ds) -> str:
-    from publicdata.spine import DATUM
-
     return DATUM if geo_kind(ds) != "point" else str(ds.geometry.get("crs") or DATUM)
 
 

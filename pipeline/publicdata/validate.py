@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
+from . import normalise, store
 from .serialise.profile import INT32, misfits, query_key
 
 if TYPE_CHECKING:
@@ -51,14 +52,11 @@ def int32_misfits(ds, m, store_dir: Path, built: list[Path]) -> list[str] | None
         for p in (root / rel, root / query_key(ds.slug, m.version)):
             if p.is_file():
                 return _parquet_misfits(p, ds.int32)
-    from . import store
-    from .normalise import normalise
-
     src = store.source_path(store_dir, m)
     if not src.is_file():
         return None
     try:
-        table = normalise(ds, m, src.read_bytes()).table
+        table = normalise.normalise(ds, m, src.read_bytes()).table
     except Exception as e:  # noqa: BLE001 - any failure to normalise is the finding
         return [f"its source no longer normalises ({e})"]
     return misfits(table, ds.int32)

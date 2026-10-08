@@ -23,10 +23,13 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import openpyxl
 import requests
 
-from . import catalogue, store
-from .normalise import detect_encoding
+from . import catalogue, normalise, store
+from .normalise import _cell, _distinct, detect_encoding, xls_to_xlsx
+from .register import FILE_SOURCE
+from .serialise.profile import layout, misfits
 
 if TYPE_CHECKING:
     from .register import Dataset
@@ -1442,15 +1445,9 @@ def _stack_rows(
     of the rows below it when the pattern matches, and is a footnote otherwise. With
     footnote_marks, a footnote number at the end of the first cell moves to a Note column.
     """
-    from .normalise import _cell, _distinct
-
     if filename.lower().endswith(".xls"):
-        from .normalise import xls_to_xlsx
-
         data, filename = xls_to_xlsx(data), filename + "x"
     if _is_xlsx(filename):
-        import openpyxl
-
         wb = openpyxl.load_workbook(
             io.BytesIO(data), read_only=True, data_only=True, keep_links=False
         )
@@ -1508,8 +1505,6 @@ def _stack_rows(
 
 
 def _section_rows(rows, filename: str, header_match: str, section_match: str) -> list[list[str]]:
-    from .normalise import _cell
-
     rx = re.compile(section_match)
     out: list[list[str]] = []
     section, header = "", []
@@ -1548,8 +1543,6 @@ def _stack(
     row two files share kept once. Each file is a dict with url, filename and whatever the manifest
     should say of it.
     """
-    from .register import FILE_SOURCE
-
     named = any(x.source == FILE_SOURCE for x in ds.fields)
     header: list[str] = []
     rows: list[list[str]] = []
@@ -1957,7 +1950,6 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
     if data is None:
         return None
     m.rows_sha256, n, misfit = _rows(ds, m, data)
-    from .serialise.profile import layout
 
     m.parquet = layout(ds)
     existing = store.manifests(store_dir, ds.slug)
@@ -1997,13 +1989,10 @@ def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None,
 
     The row count is None when the file does not normalise here.
     """
-    from .normalise import normalise
-    from .serialise.profile import misfits
-
     if ds.kind != "table":
         return "", None, []
     try:
-        tbl = normalise(ds, m, data)
+        tbl = normalise.normalise(ds, m, data)
     except Exception:  # noqa: BLE001 - any failure falls back to the byte comparison
         return "", None, []
     cols = [tbl.table.column(n).to_pylist() for n in tbl.table.column_names]

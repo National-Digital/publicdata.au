@@ -7,15 +7,19 @@ bytes. Two runs over the same snapshot are byte-identical, which CI checks.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import re
 import shutil
 import zipfile
 from typing import TYPE_CHECKING
 
+import duckdb
 import pyarrow as pa
 import pyarrow.compute as pc
 import xlsxwriter
+
+from publicdata.spine import DATUM, LAYERS, is_spine
 
 if TYPE_CHECKING:
     import sqlite3
@@ -213,8 +217,6 @@ def iter_rows(t: pa.Table, batch: int = 20_000):
 
 
 def table_schema(tbl: Table) -> dict:
-    from publicdata.spine import LAYERS, is_spine
-
     ds = tbl.dataset
     used = {p["layer"]: p for p in tbl.places}
     fields = []
@@ -253,8 +255,6 @@ def table_schema(tbl: Table) -> dict:
     if ds.suppression:
         schema["publicdata:suppressionTokens"] = list(ds.suppression)
     if ds.geometry:
-        from publicdata.spine import DATUM
-
         kind = ds.geometry["kind"]
         schema["publicdata:geometry"] = {
             "kind": kind,
@@ -324,8 +324,6 @@ def duckdb_connect(path: Path, rows: int | None, name: str = "db", threads: int 
     and a bounded build matters more than speed; a database build passes None and takes every
     core.
     """
-    import duckdb
-
     if path.exists():
         path.unlink()
     con = duckdb.connect()
@@ -370,8 +368,6 @@ def duckdb_digest(path: Path) -> str:
     files written from the same rows differ, since the storage compresses by sampling, so the
     determinism check compares this instead.
     """
-    import duckdb
-
     con = duckdb.connect()
     con.execute("SET threads = 1")
     con.execute(f"ATTACH '{path.as_posix()}' AS d (READ_ONLY)")
@@ -432,7 +428,6 @@ def duckdb_digest(path: Path) -> str:
         )
     finally:
         con.close()
-    import hashlib
 
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 

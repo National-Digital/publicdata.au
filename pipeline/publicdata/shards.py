@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from . import cache as cache_mod
+from . import store
+from .build import pending
+from .cache import BuildCache, shape_layer
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -48,10 +53,6 @@ def weights(datasets: list[Dataset], store_dir: Path, cache_dir: Path | None) ->
 
     These are every version without a cache, else those the cache cannot serve as they are.
     """
-    from . import store
-    from .build import pending
-    from .cache import BuildCache, shape_layer, writer_keys
-
     if cache_dir is None:
         return {
             d.slug: sum(max(m.bytes, 1) for m in store.manifests(store_dir, d.slug))
@@ -59,5 +60,5 @@ def weights(datasets: list[Dataset], store_dir: Path, cache_dir: Path | None) ->
             if d.publishable
         }
     cache = BuildCache(cache_dir)
-    now = {shape: writer_keys(shape) for shape in (False, True)}
+    now = {shape: cache_mod.writer_keys(shape) for shape in (False, True)}
     return {d.slug: pending(cache, d, store_dir, now[shape_layer(d)]) for d in datasets}
