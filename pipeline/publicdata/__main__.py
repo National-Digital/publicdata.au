@@ -275,11 +275,14 @@ def _build(
             for v in o.versions
             if "data.parquet" in v.absent
         ]
+        if published.current is None:
+            msg = "build: the published tree is not open"
+            raise RuntimeError(msg)
         missing = [
             r
             for r, p in zip(
                 want,
-                published.current.paths(want),  # type: ignore[union-attr]  # cmd_build sets it around every call
+                published.current.paths(want),
                 strict=True,
             )
             if not p.exists()
@@ -872,10 +875,13 @@ def cmd_hubs(args) -> int:
     def save(found: dict[str, Any]) -> dict[str, Any]:
         # Written after every dataset, so a run stopped part way keeps what it recorded, and
         # swapped into place whole, so a stop mid-write leaves the last good record.
+        if path is None:
+            msg = "hubs: there is no record to save to"
+            raise RuntimeError(msg)
         merged = hubs.merge_record(old, found)
-        tmp = path.with_name(path.name + ".tmp")  # type: ignore[union-attr]  # save runs only when path is set
+        tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", "utf-8")
-        tmp.replace(path)  # type: ignore[arg-type]  # save runs only when path is set
+        tmp.replace(path)
         return merged
 
     found: dict[str, Any] = {}

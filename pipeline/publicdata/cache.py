@@ -269,8 +269,9 @@ def writer_files(fmt: str, *, shape: bool | None = None) -> list[Path]:
             objs = [fn.__globals__.get(name) for name in fn.__code__.co_names]
         for obj in objs:
             mod = sys.modules.get(getattr(obj, "__module__", "") or "")
-            if mod is not None and getattr(mod, "__file__", None):
-                p = Path(mod.__file__).resolve()  # type: ignore[arg-type]  # the getattr above found it
+            file = getattr(mod, "__file__", None) if mod is not None else None
+            if file:
+                p = Path(file).resolve()
                 if _is_writer(p):
                     todo.add(p)
     seen: set[Path] = set()

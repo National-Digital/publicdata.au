@@ -555,7 +555,7 @@ def _fixed_zip(path: Path, stamp: tuple[int, int, int, int, int, int]) -> None:
     XlsxWriter uses the clock. A zip cannot record a date before 1980, so an older version is
     stamped 1 January 1980.
     """
-    stamp = max(tuple(stamp), (1980, 1, 1, 0, 0, 0))  # type: ignore[assignment]  # still six parts
+    stamp = max(stamp, (1980, 1, 1, 0, 0, 0))
     tmp = path.with_suffix(path.suffix + ".tmp")
     with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
         for info in src.infolist():

@@ -47,9 +47,8 @@ def compact(src: Path, version: str) -> dict[str, Any]:
 
 @cache
 def _vocab() -> dict[str, Any]:
-    return json.loads(  # type: ignore[no-any-return]  # the vocabulary file is a JSON object
-        VOCAB.read_text(encoding="utf-8")
-    )
+    vocab: dict[str, Any] = json.loads(VOCAB.read_text(encoding="utf-8"))
+    return vocab
 
 
 @cache

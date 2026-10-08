@@ -237,7 +237,10 @@ def _version_view(ds: Dataset, v: VersionOut, change: dict[str, Any] | None) -> 
 
 def _newest(o: DatasetOut) -> VersionOut:
     """The newest version of a dataset the site lists, which always has one."""
-    return o.latest  # type: ignore[return-value]  # every dataset the site lists has a version
+    if o.latest is None:
+        msg = f"{o.dataset.slug}: a listed dataset has no version"
+        raise ValueError(msg)
+    return o.latest
 
 
 def collection_url(collection: str) -> str:

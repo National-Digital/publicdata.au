@@ -26,6 +26,10 @@ def ext_of(filename: str) -> str:
     return Path(filename).suffix.lstrip(".").lower() or "bin"
 
 
+def _legacy_layout() -> Layout:
+    return {}
+
+
 @dataclass
 class Manifest:
     dataset: str
@@ -45,7 +49,7 @@ class Manifest:
     rows_sha256: str = ""
     # The Parquet layout the fetch found in the register (serialise.profile.layout), which the
     # version's data.parquet keeps for good; empty for a version fetched before the profile.
-    parquet: Layout = field(default_factory=dict)  # type: ignore[assignment]  # empty is the legacy layout
+    parquet: Layout = field(default_factory=_legacy_layout)
     # CAPS_VERSION when the fetch that wrote this manifest knew the caps, else 0.
     caps: int = 0
 

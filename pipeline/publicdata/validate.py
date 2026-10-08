@@ -41,7 +41,7 @@ def _parquet_misfits(path: Path, cols: Iterable[str]) -> list[str]:
                 break
             lo = st.min if lo is None else min(lo, st.min)
             hi = st.max if hi is None else max(hi, st.max)
-        if lo is not None and not (INT32[0] <= lo and hi <= INT32[1]):  # type: ignore[operator]  # hi is set with lo
+        if lo is not None and hi is not None and not (INT32[0] <= lo and hi <= INT32[1]):
             out.append(f"{c} holds {lo} to {hi}, outside 32 bits")
     return out
 
