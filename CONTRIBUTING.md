@@ -165,6 +165,15 @@ The pipeline package in `pipeline/` is not published, so it makes no versioning 
    example query; if it reads poorly, set `example` and `chart` in the entry.
 6. Set `status: live` and open a pull request titled `data(register): add <what it is>`. Say where
    the licence evidence is and what you checked.
+7. The Storage cost check projects what the entry adds in a year: the bytes one version stores
+   in R2 times the versions its cadence implies, plus a rebuild of every stored version when an
+   edit changes what a version publishes, and the rows its versions write to D1, once for the
+   table and once for each index. An entry over 5 GB or 10,000,000 D1 rows a year fails it until
+   a maintainer other than the pull request's author adds the `cost-approved` label. The label
+   approves the commit it was added on: a later push, reopening the pull request or changing its
+   base needs it added again. The check runs the base branch's code against the pull request's
+   register, so a change to the check takes effect once it is merged. Run
+   `python -m publicdata cost <slug>` to see the figures first.
 
 A dataset that cannot be published yet keeps its entry at `backlog`, `assessing` or `blocked`, with
 the reason, so the site can say why.
@@ -438,10 +447,10 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   fit 32 bits, such as a year, a count or a short identifier. A new version holding a larger
   value is held at its fetch, so leave out anything that can grow past 2,147,483,647.
 - A version keeps the `sort`, `lookup` and `int32` its fetch found, so an edit to them changes
-  the files of later versions and the query copies not yet written. A query copy already in R2
-  keeps the order it was written in, since its key names only the profile version; each copy
-  records its own order in its footer (`sorting_columns`), so a reader takes the order from the
-  file. None of the three applies to a `kind: database` entry.
+  the files of later versions and never a published one. The query copy of every version
+  follows the edit from the next deploy, which writes each copy again in R2. Each copy records
+  its own order in its footer (`sorting_columns`), so a reader takes the order from the file.
+  None of the three applies to a `kind: database` entry.
 - The fetch checks every `int32` field against a new version before it stores it, and holds the
   dataset with an error naming the field when a value does not fit. Before declaring `int32` on
   a field, run `python -m publicdata register validate`, which checks the stored versions whose

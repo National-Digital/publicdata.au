@@ -15,8 +15,8 @@ ROOT = Path(__file__).resolve().parents[2]
 # or is named in SLOW_TESTS (relative to tests/, without parameters).
 SLOW_FIXTURES = {"fixture_site", "site_copy", "fixture_builds", "site", "fixture_store"}
 SLOW_TESTS = {
-    "test_cache.py::test_a_rebuild_prunes_the_old_entries_before_it_builds",
     "test_cache.py::test_a_new_version_diffs_against_the_cached_one_without_its_source",
+    "test_cache.py::test_a_rebuild_prunes_the_old_entries_before_it_builds",
     "test_cache.py::test_a_register_change_rebuilds_and_prune_drops_the_old_entry",
     "test_cache.py::test_a_warm_build_needs_no_source_bytes_and_matches_less_the_published_formats",
     "test_cache.py::test_cached_files_are_read_only",

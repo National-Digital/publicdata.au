@@ -18,6 +18,7 @@ from . import OPERATOR, REPO, SITE, brand, explorer, figures
 from . import api_text as at
 from .build import DatasetOut, VersionOut, dataset_url, version_url
 from .cache import BuildCache
+from .cost import fleet_from_build
 from .d1 import KEEP, queryable
 from .provenance import (
     CITE_REQUEST,
@@ -4377,6 +4378,7 @@ def render_site(
                 "datasets_live": len(live),
                 "versions": sum(len(o.versions) for o in live),
                 "rows": sum(o.latest.rows for o in live),
+                "storage": fleet_from_build(live, dt.date.fromisoformat(built_at[:10])).as_json(),
             }
         ),
     )
