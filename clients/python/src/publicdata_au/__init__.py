@@ -1272,9 +1272,13 @@ class Client:
         out[col] = codes
         if lay["name"] not in out.columns:
             out[lay["name"]] = [b[lay["name"]].iloc[i] if i is not None else None for i in pos]
-        geometry = gpd.GeoSeries(
-            [b.geometry.iloc[i] if i is not None else None for i in pos], crs=b.crs, index=out.index
+        # A row with no boundary gets a missing shape, which GeoSeries takes from an object Series.
+        shapes = pd.Series(
+            [b.geometry.iloc[i] if i is not None else None for i in pos],
+            index=out.index,
+            dtype=object,
         )
+        geometry = gpd.GeoSeries(shapes, crs=b.crs)
         gdf = gpd.GeoDataFrame(out, geometry=geometry, crs=b.crs)
         gdf.attrs["publicdata"] = dict(getattr(frame, "attrs", {}).get("publicdata") or {})
         gdf.attrs["boundaries"] = b.attrs.get("publicdata", {})
