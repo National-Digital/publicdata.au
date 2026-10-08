@@ -135,7 +135,7 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     # A visitor gets the office format first; Parquet stays a click away.
     assert ds.index('data-fmt="xlsx"') < ds.index('data-fmt="parquet"')
     assert (
-        'id="url" tabindex="0">https://publicdata.au/d/qld-road-crash-locations/latest/data.xlsx'
+        'id="url" tabindex="0" role="region" aria-label="Latest file URL">https://publicdata.au/d/qld-road-crash-locations/latest/data.xlsx'
         in ds
     )
     # The register's own questions are the caveats box, above the fold; the generated ones stay.
