@@ -31,6 +31,7 @@ cd pipeline
 python -m publicdata register validate
 python -m publicdata build --fixtures --out /tmp/pd
 python -m publicdata gate /tmp/pd
+ruff check . && ruff format --check .
 pytest -n auto
 cd .. && node --test functions/*.test.mjs scripts/*.test.mjs
 ```
@@ -379,7 +380,14 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
 
 ## Reference
 
-- Comments state constraints the code cannot show, in one or two lines of *why*.
+- Comments state constraints the code cannot show, in one or two lines of *why*. The Python
+  client's public API carries a docstring on each function, class and method, since `help()` and
+  editors show it; anywhere else a docstring is optional and holds a *why*, as a comment does.
+- Both Python packages select every ruff rule, with ruff pinned in each `pyproject.toml`. An
+  ignore states its reason beside it in `pyproject.toml`, and a `# noqa` names its code, with a
+  reason when the line does not make it plain. Run `ruff check . && ruff format --check .` in
+  `pipeline/` or `clients/python/`, as CI does; `ruff check --fix` and `ruff format` apply the
+  fixes ruff is sure of.
 - Before writing a helper, search for one that already exists. Follow the conventions of the
   neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
