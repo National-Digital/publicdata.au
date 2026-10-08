@@ -387,7 +387,8 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   ignore states its reason beside it in `pyproject.toml`, and a `# noqa` names its code, with a
   reason when the line does not make it plain. Run `ruff check . && ruff format --check .` in
   `pipeline/` or `clients/python/`, as CI does; `ruff check --fix` and `ruff format` apply the
-  fixes ruff is sure of.
+  fixes ruff is sure of. Since `ALL` means every rule the pinned version knows, a ruff upgrade
+  goes in a pull request of its own that fixes the findings its new rules bring.
 - Before writing a helper, search for one that already exists. Follow the conventions of the
   neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
