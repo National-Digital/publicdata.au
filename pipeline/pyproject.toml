@@ -52,11 +52,6 @@ ignore = [
   # Outside the client's public API a docstring is optional and holds a why, as CONTRIBUTING.md
   # says; a forced one would be filler.
   "D1",
-  # Every subprocess call passes an argument list with no shell, and its arguments come from the
-  # repository and the register; S603 flags each call whatever it runs. git and npx are found on
-  # PATH, as CI installs them.
-  "S603",
-  "S607",
   # The gate and the validators list each check as a loop that appends a problem when it fails,
   # which reads as the rule it checks; the speed PERF401 offers is nothing on lists this short.
   "PERF401",
@@ -74,6 +69,15 @@ convention = "google"
 # test may call the private helper it tests. A spreadsheet or Parquet timestamp in a fixture has
 # no zone, as the data has none.
 "tests/**" = ["S101", "PLR2004", "ARG", "SLF001", "DTZ001"]
+# These modules run git, npx (wrangler), esbuild, the Kaggle CLI or the build itself. Each call
+# passes an argument list with no shell, built from the repository and the register, and git and
+# npx are found on PATH as CI installs them.
+"publicdata/{cost,d1,explorer,hubs}.py" = ["S603"]
+"publicdata/{__main__,cost}.py" = ["S607"]
+"tests/{conftest,test_cost,test_d1,test_directory,test_hooks,test_r2,test_site_and_gate}.py" = [
+  "S603",
+]
+"tests/test_{brand,cost,r2}.py" = ["S607"]
 # The fake S3 client takes boto3's keyword names.
 "tests/test_r2.py" = ["N803"]
 # The command line, the commands it hands to (gate.main, cost.run, verify.run) and the modules run
