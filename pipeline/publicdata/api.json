@@ -2,7 +2,14 @@
   "_comment": "Every sentence the site says about the query API and the agent tools. The tools under webmcp serve both the pages and the MCP server at /mcp. The build writes them into openapi.json, the agents page, llms.txt, each dataset page and its Markdown twin, site.js and functions/_tools.json. {name} is filled from limits; `code` becomes code in HTML. The gate checks limits, operators, metrics and parameters against functions/_query.js and functions/_api.js.",
   "site": {
     "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs that never change. Every release is a dated version that keeps its content, with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it.",
+    "suppressed": "A cell the publisher suppressed, such as \"<5\", is null, and the row's `suppressed` field names each field suppressed in that row. Report such a value as withheld by the publisher.",
     "file_formats": "parquet, csv, csv.gz, ndjson and duckdb are on every table version. xlsx is there up to {xlsx_mb} MB of CSV and {excel_rows} rows, json up to {json_mb} MB of NDJSON, and sqlite up to {sqlite_mb} MB of CSV. gpkg, and geo.parquet for points, exist only for datasets that declare geometry, with geojson up to a {geojson_mb} MB file, and pmtiles only for polygon and line layers. A version's manifest.json lists each format the limits left out, with the reason, under formats_left_out, and that set never changes. A version whose manifest has no caps field was fetched before these limits: it also has arrow, its xlsx stops at the Excel row limit, and its json and geojson stop at {json_rows} rows."
+  },
+  "skill": {
+    "name": "publicdata-au",
+    "title": "Using publicdata.au",
+    "description": "Use when a question needs Australian government open data. It finds a dataset on publicdata.au, reads its rows through the MCP server, the query API or the files, and cites the publisher's attribution with the dated version the answer came from.",
+    "queries": ["find australian government open data", "query an australian government dataset from an agent", "cite a dataset from publicdata.au"]
   },
   "limits": {
     "requests": 60,

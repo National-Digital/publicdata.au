@@ -14,13 +14,15 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: read # gh pr list checks the branch has an open pull request
 
 concurrency:
   group: spatial-extension
+  cancel-in-progress: false
 
 jobs:
   mirror:
+    name: mirror
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -96,7 +98,7 @@ jobs:
           git config user.email "fetch@publicdata.au"
           git add pipeline/publicdata/spatial-extension.json
           git commit -q -s -m "build: pin DuckDB's spatial extension for duckdb $VERSION" \
-            -m "Copied to R2 by the Spatial extension workflow, run ${{ github.run_id }}." \
+            -m "Copied to R2 by the Spatial extension workflow, run $GITHUB_RUN_ID." \
             -- pipeline/publicdata/spatial-extension.json
           git push -q origin "HEAD:refs/heads/$BRANCH"
           echo "Pinned the spatial extension for duckdb $VERSION on $BRANCH." >> "$GITHUB_STEP_SUMMARY"

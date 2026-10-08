@@ -16,6 +16,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 
 from . import OPERATOR, REPO, SITE, brand, explorer, figures
 from . import api_text as at
+from . import ard as ardspec
 from .build import DatasetOut, VersionOut, dataset_url, version_url
 from .cache import BuildCache
 from .cost import fleet_from_build
@@ -1117,6 +1118,68 @@ ROUTES = (
 )
 
 
+SKILL_PATH = f"skills/{at.spec()['skill']['name']}/SKILL.md"
+SKILL_URL = f"{SITE}/{SKILL_PATH}"
+RFC9727 = "https://www.rfc-editor.org/info/rfc9727"
+
+
+def _skill(for_agents: str, query_line: str) -> str:
+    """The Agent Skill the discovery manifest lists, built from the words llms.txt and the MCP
+    server already use."""
+    s = at.spec()
+    return "\n".join(
+        [
+            "---",
+            f"name: {s['skill']['name']}",
+            f"description: {s['skill']['description']}",
+            "---",
+            "",
+            f"# {s['skill']['title']}",
+            "",
+            s["site"]["summary"],
+            "",
+            "## With the MCP server",
+            "",
+            s["mcp"]["intro"],
+            "",
+            s["mcp"]["instructions"],
+            "",
+            "## With the files and the query API",
+            "",
+            for_agents,
+            "",
+            query_line,
+            "",
+            f"Every live dataset is listed in {SITE}/llms.txt with its latest download URLs, and {SITE}/llms-full.txt adds each field. {SITE}/catalog.json is the same list as a DCAT catalogue.",
+            "",
+        ]
+    )
+
+
+def _api_catalog() -> dict:
+    """The RFC 9727 API catalogue: the query API and the MCP server, each with its description."""
+    return {
+        "linkset": [
+            {
+                "anchor": f"{SITE}/api/v1/",
+                "service-desc": [
+                    {"href": f"{SITE}/openapi.json", "type": "application/vnd.oai.openapi+json"}
+                ],
+                "service-doc": [{"href": f"{SITE}/agents/", "type": "text/html"}],
+                "status": [{"href": f"{SITE}/health.json", "type": "application/json"}],
+            },
+            {
+                "anchor": f"{SITE}/mcp",
+                "service-desc": [
+                    {"href": f"{SITE}/mcp/server-card", "type": "application/mcp-server-card+json"}
+                ],
+                "service-doc": [{"href": f"{SITE}/agents/#mcp", "type": "text/html"}],
+                "status": [{"href": f"{SITE}/health.json", "type": "application/json"}],
+            },
+        ]
+    }
+
+
 # The map chart fetches OpenStreetMap tiles from its worker, and only when a map panel is shown.
 MAP_TILES = "https://tile.openstreetmap.org"
 
@@ -1782,7 +1845,7 @@ PROSE = {
 <li id="query-api">{query_api}</li>
 <li><a href="/catalogue/publishers.json"><code>/catalogue/publishers.json</code></a> lists every publisher on Australia's government portals with its page and counts. Each publisher page has a <code>catalogue.json</code> of the datasets it lists, with licence, formats and the portal URL.</li>
 <li><a href="/llms.txt"><code>/llms.txt</code></a> lists every dataset with its latest download URLs. <a href="/llms-full.txt"><code>/llms-full.txt</code></a> adds the field list for each.</li>
-<li><a href="/.well-known/ard.json"><code>/.well-known/ard.json</code></a> is the Agentic Resource Discovery manifest, with a display name and representative queries per dataset. The same document is at <code>/.well-known/ai-catalog.json</code>.</li>
+<li><a href="/.well-known/ard.json"><code>/.well-known/ard.json</code></a> is the Agentic Resource Discovery manifest. It lists the MCP server, an agent skill at <a href="/{skill_path}"><code>/{skill_path}</code></a>, a bundle of the catalogues and the API description, and a bundle for each dataset that holds its files and the server that queries it, with representative queries for each. The same document is at <code>/.well-known/ai-catalog.json</code>, and <a href="/.well-known/api-catalog"><code>/.well-known/api-catalog</code></a> lists the APIs as RFC 9727 asks.</li>
 <li><a href="/catalog.json"><code>/catalog.json</code></a> is a DCAT catalogue in JSON-LD, one record per live dataset with a distribution per format.</li>
 <li><a href="/openapi.json"><code>/openapi.json</code></a> is an OpenAPI 3.1 document for every public path, with the dataset slugs as an enum. Load it into any client generator or an agent's tool list.</li>
 <li><a href="/backlog.json"><code>/backlog.json</code></a> is every register entry with its status, licence and the reason if it is blocked. <code>/api/v1/votes</code> has the current vote counts.</li>
@@ -1844,7 +1907,7 @@ PROSE = {
 <p>The code that builds publicdata.au is open source. It is on GitHub under the GNU Affero General Public License, and anyone can propose a change to it. A maintainer at National Digital reviews every pull request, and a merged change goes live with the next release.</p>
 <p><a class="gh" href="{repo}">{gh}National-Digital/publicdata.au</a></p>
 <h2 id="add-a-dataset">Add a dataset</h2>
-<p>Any dataset in the <a href="/backlog/">backlog</a> with an open licence can be added by anyone. A dataset is one YAML file in the <code>register/</code> folder, which names the source, the licence with the publisher's own statement as evidence, the attribution and the fields to publish. <code>python -m publicdata register draft</code> writes a first draft from the dataset's portal page. You finish it by hand and build it locally to check it, and the <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-dataset">contributing guide</a> has the steps.</p>
+<p>Any dataset in the <a href="/backlog/">backlog</a> with an open licence can be added by anyone. A dataset is one YAML file in the <code>register/</code> folder, which names the source, the licence with the publisher's own statement as evidence, the attribution and the fields to publish. <code>python -m publicdata register draft</code> writes a first draft from the dataset's portal page. You finish it by hand and build it locally to check it, and the <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-dataset">contributing guide</a> has the steps. Some of the most-wanted datasets have an <a href="{repo}/issues?q=is%3Aissue%20is%3Aopen%20label%3Adataset">open issue</a> with the portal page, the licence evidence and a starting entry.</p>
 <p>The licence is the only thing that stops a dataset. A non-commercial or no-derivatives licence, or none at all, means it cannot be published here, however useful it is.</p>
 <h2 id="add-a-format">Add a file format</h2>
 <p>Each format is a writer that takes one normalised table and its provenance and returns the bytes of the file. A writer reads no network, clock or random value, so two builds of one version give identical files. A new format is added to every dataset at the next deploy. The guide's section on <a href="{repo}/blob/main/CONTRIBUTING.md#add-a-serialisation">serialisation</a> lists what a writer needs.</p>
@@ -3043,6 +3106,7 @@ def render_site(
     search: Path | None = None,
     cache: BuildCache | None = None,
     hubs: dict | None = None,
+    tasks: dict[str, int] | None = None,
 ) -> None:
     e = env()
     static_src = Path(__file__).parent / "static"
@@ -3078,6 +3142,7 @@ def render_site(
     dirx = directory.plan(
         datasets, list(records or []), list(curated or []), catalogue_as_at, catalogue_stats or {}
     )
+    dirx.tasks = dict(tasks or {})
     if search and catalogue_as_at:
         from .d1 import catalogue_sqlite, served_table
 
@@ -4109,7 +4174,13 @@ def render_site(
 
     # Backlog.
     present = {p.jurisdiction for p in dirx.pubs.values()}
-    all_rows = [_row(d, by_slug.get(d.slug)) for d in datasets]
+    all_rows = [
+        {
+            **_row(d, by_slug.get(d.slug)),
+            "task": "" if d.status == "live" else dirx.task_url(d.slug),
+        }
+        for d in datasets
+    ]
     order = {"live": 0, "building": 1, "backlog": 2, "assessing": 2, "blocked": 3}
     all_rows.sort(key=lambda r: (order[r["status"]], r["title"]))
     backlog_md = "\n".join(
@@ -4137,6 +4208,7 @@ def render_site(
             ),
             *[
                 f"- **{r['title']}** ({r['publisher_name']}, {r['licence']}): {r['status_label']}. {r['summary']} {r['planned']} {r['blocked_reason']}".rstrip()
+                + (f" Open as a contributor task: {r['task']}" if r["task"] else "")
                 for r in all_rows
             ],
             "",
@@ -4179,6 +4251,7 @@ def render_site(
             .replace("{mcp_privacy}", at.as_html(at.spec()["mcp"]["privacy"]))
             .replace("{terms_limits}", at.as_html(at.spec()["api"]["terms_limits"]))
             .replace("{terms_changed}", TERMS_CHANGED[0])
+            .replace("{skill_path}", SKILL_PATH)
             .replace("{repo}", REPO)
             .replace("{gh}", GH_MARK)
         )
@@ -4379,6 +4452,17 @@ def render_site(
             }
         ),
     )
+    for_agents = (
+        "No keys or accounts, and no download limit on files. "
+        + at.spec()["api"]["rate_limit"]
+        + " `latest/` redirects (302) to the newest dated version; dated versions keep their content. Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a `publicdata` header with the publisher, licence, attribution, a ready-made `cite` string and the source SHA-256. "
+        + at.spec()["site"]["suppressed"]
+        + " When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL."
+    )
+    query_line = (
+        f"Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
+        + FILTER_HELP
+    )
     llms = [
         f"# {HOST}",
         "",
@@ -4386,16 +4470,15 @@ def render_site(
         "",
         "## For agents",
         "",
-        "No keys or accounts, and no download limit on files. "
-        + at.spec()["api"]["rate_limit"]
-        + " `latest/` redirects (302) to the newest dated version; dated versions keep their content. Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a `publicdata` header with the publisher, licence, attribution, a ready-made `cite` string and the source SHA-256. When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL.",
+        for_agents,
         "",
         f"- Catalogue (DCAT JSON-LD): {SITE}/catalog.json",
         f"- Discovery manifest (ARD): {SITE}/.well-known/ard.json",
+        f"- Agent skill: {SKILL_URL}",
+        f"- API catalogue (RFC 9727): {SITE}/.well-known/api-catalog",
         f"- OpenAPI 3.1 for every path: {SITE}/openapi.json",
         "- MCP server: " + at.plain(at.spec()["mcp"]["intro"]),
-        f"- Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
-        + FILTER_HELP,
+        f"- {query_line}",
         f"- Every dataset on Australia's government portals, by government and publisher: {SITE}/browse/ (as data: {SITE}/catalogue/publishers.json, and catalogue.json on each publisher page)",
         f"- Backlog and licences: {SITE}/backlog.json",
         f"- Vote counts: {SITE}/api/v1/votes",
@@ -4462,82 +4545,113 @@ def render_site(
             "",
         ]
         _write(out, name, "\n".join(doc))
+    _write(out, SKILL_PATH, _skill(for_agents, query_line))
     urn = lambda ns, n: f"urn:air:{HOST}:{ns}:{n}"  # noqa: E731
+    host = {"displayName": HOST, "identifier": HOST, "logoUrl": f"{SITE}/icon-512.png"}
+    mcp = {
+        "identifier": urn("mcp", "server"),
+        "displayName": "MCP server",
+        "type": "application/mcp-server-card+json",
+        "tags": ["mcp", "open-data"],
+        "capabilities": at.tool_names(),
+        "description": at.plain(at.spec()["mcp"]["intro"]),
+        "url": f"{SITE}/mcp/server-card",
+        "representativeQueries": [
+            "mcp server for australian government data",
+            "query australian open data from an agent",
+            "count road crashes by year with an mcp tool",
+        ],
+    }
+    skill = at.spec()["skill"]
+    resources = [
+        {
+            "identifier": urn("catalog", "dcat"),
+            "displayName": "Dataset catalogue",
+            "type": "application/ld+json",
+            "tags": ["dcat", "open-data"],
+            "description": "DCAT catalogue of every live dataset with a distribution per format.",
+            "url": f"{SITE}/catalog.json",
+            "representativeQueries": [
+                "which Australian government datasets are available as Parquet",
+                "list open data on publicdata.au",
+                "find a dataset by publisher",
+            ],
+        },
+        {
+            "identifier": urn("llms-txt", "index"),
+            "displayName": "llms.txt",
+            "type": "text/plain",
+            "description": "Every dataset with its latest download URLs and instructions for agents.",
+            "url": f"{SITE}/llms.txt",
+            "representativeQueries": [
+                "how do I download a dataset from publicdata.au",
+                "what is the latest version of a dataset",
+            ],
+        },
+        {
+            "identifier": urn("openapi", "json"),
+            "displayName": "OpenAPI description",
+            "type": "application/json",
+            "tags": ["openapi"],
+            "description": "OpenAPI 3.1 document for every public path: catalogue, dataset files, versions, diffs, votes and requests.",
+            "url": f"{SITE}/openapi.json",
+            "representativeQueries": [
+                "what endpoints does publicdata.au have",
+                "how do I call the publicdata.au vote API",
+                "openapi spec for publicdata.au",
+            ],
+        },
+        {
+            "identifier": urn("backlog", "json"),
+            "displayName": "Backlog",
+            "type": "application/json",
+            "description": "Every requested dataset with status, licence and the reason if blocked.",
+            "url": f"{SITE}/backlog.json",
+            "representativeQueries": [
+                "which datasets are blocked by licence",
+                "what has been requested on publicdata.au",
+            ],
+        },
+    ]
     ard = {
         "specVersion": "1.0",
-        "host": {"displayName": HOST, "identifier": HOST, "logoUrl": f"{SITE}/icon-512.png"},
+        "host": host,
         "entries": [
+            mcp,
             {
-                "identifier": urn("catalog", "dcat"),
-                "displayName": "Dataset catalogue",
-                "type": "application/ld+json",
-                "tags": ["dcat", "open-data"],
-                "description": "DCAT catalogue of every live dataset with a distribution per format.",
-                "url": f"{SITE}/catalog.json",
+                "identifier": urn("skill", skill["name"]),
+                "displayName": skill["title"],
+                "type": ardspec.SKILL,
+                "tags": ["agent-skills", "open-data"],
+                "description": skill["description"],
+                "url": SKILL_URL,
+                "representativeQueries": skill["queries"],
+            },
+            {
+                "identifier": urn("catalog", "site"),
+                "displayName": "Catalogues and API description",
+                "type": ardspec.CATALOGUE,
+                "tags": ["dcat", "openapi", "open-data"],
+                "description": "The DCAT catalogue, llms.txt, the OpenAPI description and the backlog.",
+                "url": f"{SITE}/agents/ai-catalog.json",
                 "representativeQueries": [
-                    "which Australian government datasets are available as Parquet",
                     "list open data on publicdata.au",
-                    "find a dataset by publisher",
-                ],
-            },
-            {
-                "identifier": urn("llms-txt", "index"),
-                "displayName": "llms.txt",
-                "type": "text/plain",
-                "description": "Every dataset with its latest download URLs and instructions for agents.",
-                "url": f"{SITE}/llms.txt",
-                "representativeQueries": [
-                    "how do I download a dataset from publicdata.au",
-                    "what is the latest version of a dataset",
-                ],
-            },
-            {
-                "identifier": urn("openapi", "json"),
-                "displayName": "OpenAPI description",
-                "type": "application/json",
-                "tags": ["openapi"],
-                "description": "OpenAPI 3.1 document for every public path: catalogue, dataset files, versions, diffs, votes and requests.",
-                "url": f"{SITE}/openapi.json",
-                "representativeQueries": [
                     "what endpoints does publicdata.au have",
-                    "how do I call the publicdata.au vote API",
-                    "openapi spec for publicdata.au",
-                ],
-            },
-            {
-                "identifier": urn("mcp", "server"),
-                "displayName": "MCP server",
-                "type": "application/mcp-server-card+json",
-                "tags": ["mcp", "open-data"],
-                "description": at.plain(at.spec()["mcp"]["intro"]),
-                "url": f"{SITE}/mcp/server-card",
-                "representativeQueries": [
-                    "mcp server for australian government data",
-                    "query australian open data from an agent",
-                    "count road crashes by year with an mcp tool",
-                ],
-            },
-            {
-                "identifier": urn("backlog", "json"),
-                "displayName": "Backlog",
-                "type": "application/json",
-                "description": "Every requested dataset with status, licence and the reason if blocked.",
-                "url": f"{SITE}/backlog.json",
-                "representativeQueries": [
                     "which datasets are blocked by licence",
-                    "what has been requested on publicdata.au",
                 ],
             },
         ],
     }
+    # Each dataset is a bundle of its files and the server that queries it, so a search service
+    # can match a question to one dataset and still read only agent types at the top level.
     for o in live:
         ds, m = o.dataset, o.latest.manifest
-        main_file, main_fmt = _files_of(ds, o.latest)[0]
+        vb = version_url(ds.slug, m.version)
         ard["entries"].append(
             {
                 "identifier": urn("dataset", ds.slug),
                 "displayName": ds.title,
-                "type": MEDIA[main_fmt],
+                "type": ardspec.CATALOGUE,
                 "tags": ["open-data", ds.publisher.jurisdiction.lower(), ds.licence.id.lower()],
                 "description": f"{ds.summary} Latest version {m.version}, {fmt_int(o.latest.rows)} rows. "
                 + (
@@ -4545,17 +4659,45 @@ def render_site(
                     if ds.kind == "database"
                     else "Also JSON, CSV, SQLite, DuckDB and NDJSON at the same path."
                 ),
-                "url": f"{version_url(ds.slug, m.version)}{main_file}",
+                "url": f"{dataset_url(ds.slug)}ai-catalog.json",
+                "version": m.version,
+                "updatedAt": m.fetched_at,
                 "representativeQueries": [
                     ds.title.lower(),
                     f"{ds.publisher.short.lower()} {ds.title.split(',')[0].lower()} data",
                     f"download {ds.title.split(',')[0].lower()} as parquet",
-                ][:5],
+                ],
             }
         )
+        files = [
+            {
+                "identifier": urn(f"dataset:{ds.slug}", name.replace("/", ".")),
+                "displayName": f"{ds.title}, "
+                + (
+                    f"table {name[7:-8]}"
+                    if name.startswith("tables/")
+                    else FORMAT_LABEL.get(fmt, fmt)
+                ),
+                "type": MEDIA[fmt],
+                "url": f"{vb}{name}",
+                "version": m.version,
+            }
+            for name, fmt in _files_of(ds, o.latest)
+        ]
+        _write(
+            out,
+            f"d/{ds.slug}/ai-catalog.json",
+            pretty({"specVersion": "1.0", "host": host, "entries": [*files, mcp]}),
+        )
+    _write(
+        out,
+        "agents/ai-catalog.json",
+        pretty({"specVersion": "1.0", "host": host, "entries": resources}),
+    )
     body = pretty(ard)
     _write(out, ".well-known/ard.json", body)
     _write(out, ".well-known/ai-catalog.json", body)
+    _write(out, ".well-known/api-catalog", pretty(_api_catalog()))
     # What a connector directory's form asks for, so a submission copies it and never drifts.
     _write(out, "mcp/listing.json", pretty(at.directory_listing()))
     card = pretty(at.server_card())
@@ -4695,7 +4837,20 @@ def render_site(
                 "/llms.txt",
                 "  Content-Type: text/plain; charset=utf-8",
                 "/mcp/server-card",
-                "  Content-Type: application/json; charset=utf-8",
+                "  Content-Type: application/mcp-server-card+json",
+                "/.well-known/mcp/server-card.json",
+                "  Content-Type: application/mcp-server-card+json",
+                "/.well-known/ard.json",
+                f"  Content-Type: {ardspec.CATALOGUE}",
+                "/.well-known/ai-catalog.json",
+                f"  Content-Type: {ardspec.CATALOGUE}",
+                "/d/:slug/ai-catalog.json",
+                f"  Content-Type: {ardspec.CATALOGUE}",
+                "/agents/ai-catalog.json",
+                f"  Content-Type: {ardspec.CATALOGUE}",
+                "/.well-known/api-catalog",
+                f'  Content-Type: application/linkset+json; profile="{RFC9727}"',
+                '  Link: </.well-known/api-catalog>; rel="api-catalog"',
                 "/.well-known/mcp-registry-auth",
                 "  Content-Type: text/plain; charset=utf-8",
                 "/.well-known/openai-apps-challenge",

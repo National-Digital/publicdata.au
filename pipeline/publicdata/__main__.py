@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | hubs | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | hubs | contribute | cost."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import re
 import shutil
 import sys
 from pathlib import Path
+
+from . import REPO, SITE
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTER = ROOT / "register"
@@ -277,6 +279,7 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             search=Path(args.search) if args.search else None,
             cache=cache,
             hubs=_hubs_record(store_dir),
+            tasks=_tasks(args.tasks),
         )
     if cache is not None:
         if not args.slug:
@@ -739,6 +742,19 @@ def cmd_verify(args) -> int:
                     file=sys.stderr,
                 )
             return 1
+        if args.before and (
+            bare := verify.unnoted_partitions(Path(args.before), datasets, store_dir, changed)
+        ):
+            for slug, prefixes in bare.items():
+                print(
+                    f"::error::{slug}: partition_by changed, which adds or drops by/ files in "
+                    f"{len(prefixes)} published version(s). That is a correction "
+                    "(docs/CORRECTIONS.md): add a dated note to each version's manifest in "
+                    "store/ in the same change, and once it is merged run the Deploy workflow "
+                    f"with replace set to {' '.join(prefixes)}",
+                    file=sys.stderr,
+                )
+            return 1
         mods = verify.unkeyed(changed)
         raised = verify.bumped(Path(args.before), datasets) if args.before else []
         if not mods and not raised:
@@ -818,6 +834,13 @@ def _hubs_record(store_dir: Path) -> dict:
     return json.loads(path.read_text("utf-8")) if path.exists() else {}
 
 
+def _tasks(path: str | None) -> dict[str, int]:
+    """The open contributor issues by dataset key; a build without the file shows none."""
+    import json
+
+    return json.loads(Path(path).read_text("utf-8")) if path else {}
+
+
 def cmd_hubs(args) -> int:
     from . import hubs
     from .register import load
@@ -856,6 +879,42 @@ def cmd_hubs(args) -> int:
         print(f"hubs: recorded {len(merged['datasets'])} dataset(s) in {path}")
     print(f"hubs: {len(entries)} dataset(s), {len(chosen)} hub(s), {failures} failure(s)")
     return 1 if failures else 0
+
+
+def cmd_contribute(args) -> int:
+    """Keep one issue open for each of the most-wanted datasets, or list the open ones."""
+    import json
+
+    from . import contribute
+    from .register import load
+
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    gh = contribute.GitHub(args.repo, contribute.session(token))
+    if args.sub == "issues":
+        tasks = contribute.open_tasks(gh.issues("open"))
+        Path(args.out).write_text(json.dumps(tasks, indent=1) + "\n", encoding="utf-8")
+        print(f"contribute: {len(tasks)} open task(s) written to {args.out}")
+        return 0
+    if args.votes < 1 or args.cap < 0:
+        sys.exit("contribute: --votes is at least 1 and --cap at least 0")
+    # Issues opened under any other account are invisible to the next scheduled run.
+    if not args.dry_run and os.environ.get("GITHUB_ACTIONS") != "true":
+        sys.exit("contribute: only the Contribute workflow changes issues; pass --dry-run")
+    try:
+        acts = contribute.sync(
+            load(REGISTER),
+            gh,
+            contribute.session(),
+            threshold=args.votes,
+            cap=args.cap,
+            dry_run=args.dry_run,
+            site=args.site,
+        )
+    except contribute.SyncError as e:
+        print(f"contribute: {e}", file=sys.stderr)
+        return 1
+    print(f"contribute: {len(acts)} change(s){' planned' if args.dry_run else ''}")
+    return 0
 
 
 def cmd_cost(args) -> int:
@@ -968,6 +1027,11 @@ def main(argv=None) -> int:
         default=[],
         metavar="DIR",
         help="a shard's built tree; a file the cache leaves out is linked in from it when there",
+    )
+    b.add_argument(
+        "--tasks",
+        metavar="FILE",
+        help="the open contributor issues by dataset key, as `contribute issues` writes them",
     )
     b.add_argument(
         "--published",
@@ -1143,6 +1207,16 @@ def main(argv=None) -> int:
         help="re-apply cards, page settings and notebooks to versions a hub already holds",
     )
     hb.set_defaults(fn=cmd_hubs)
+
+    cb = sub.add_parser("contribute", help="the most-wanted datasets as contributor issues")
+    cb.add_argument("sub", choices=["sync", "issues"])
+    cb.add_argument("--repo", default=REPO.removeprefix("https://github.com/"))
+    cb.add_argument("--site", default=SITE)
+    cb.add_argument("--votes", type=int, default=1, help="sync: votes a catalogue record needs")
+    cb.add_argument("--cap", type=int, default=10, help="sync: the most issues open at once")
+    cb.add_argument("--dry-run", action="store_true", help="sync: print the changes, make none")
+    cb.add_argument("--out", default="contribute.json", help="issues: where the open ones go")
+    cb.set_defaults(fn=cmd_contribute)
     co = sub.add_parser(
         "cost", help="project each entry's storage growth and D1 writes and gate changed ones"
     )

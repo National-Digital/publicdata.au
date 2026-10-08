@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlparse
 
-from . import SITE
+from . import REPO, SITE
 from .catalogue import BY_CODE
 from .provenance import OPERATOR_ORG
 from .publishers import (
@@ -113,6 +113,14 @@ class Directory:
     as_at: str = ""
     unread: dict[str, dict] = field(default_factory=dict)  # portal code -> harvest stats
     jur_rows: list[dict] = field(default_factory=list)  # filled by render, for the home page
+    tasks: dict[str, int] = field(default_factory=dict)  # vote key -> open contributor issue
+
+    def task_url(self, key: str) -> str:
+        """The open contributor issue for a register slug or record id, or ''."""
+        n = self.tasks.get(key) or self.tasks.get(self.chosen.get(key, ""))
+        if not n:
+            n = next((v for k, v in self.tasks.items() if self.chosen.get(k) == key), 0)
+        return f"{REPO}/issues/{int(n)}" if n else ""
 
     def notes(self, jurisdiction: str | None = None) -> list[str]:
         """A sentence for each portal the latest harvest could not read."""
@@ -321,7 +329,7 @@ def _reason(r: dict) -> str:
     return "no download"
 
 
-def _row(r: dict, served: dict[str, str], chosen: dict[str, str]) -> dict:
+def _row(r: dict, served: dict[str, str], chosen: dict[str, str], task: str = "") -> dict:
     fmts = r["formats"]
     return {
         "id": r["id"],
@@ -336,6 +344,7 @@ def _row(r: dict, served: dict[str, str], chosen: dict[str, str]) -> dict:
         "vote": chosen.get(r["id"], r["id"]),
         "reason": _reason(r),
         "portal": BY_CODE[r["portal"]].host.removeprefix("www."),
+        "task": "" if r["id"] in served else task,
     }
 
 
@@ -391,7 +400,9 @@ def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -
         portals = sorted({BY_CODE[r["portal"]].host.removeprefix("www.") for r in recs})
         st = _stats(recs, len([x for x in live if x["latest"]]))
         listed = [r for r in recs if r["kind"] in LISTED_KINDS]
-        rows = [_row(r, d.served, d.chosen) for r in listed]
+        rows = [_row(r, d.served, d.chosen, d.task_url(r["id"])) for r in listed]
+        # A record with an open contributor issue is listed even past the newest SHOWN.
+        rows = rows[:SHOWN] + [r for r in rows[SHOWN:] if r["task"]]
         index = have and (st["listed_n"] >= INDEX_MIN or st["live"] > 0 or len(recs) >= INDEX_MIN)
         entry = {
             "slug": p.slug,
@@ -490,7 +501,8 @@ def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -
                         "",
                         *[
                             f"- [{r['title']}]({r['url']}) ({r['formats'] or 'no files'}; {r['licence']}; updated {r['modified'] or 'unknown'})"
-                            for r in rows[:SHOWN]
+                            + (f" Open as a contributor task: {r['task']}" if r["task"] else "")
+                            for r in rows
                         ],
                         "",
                         f"Full list: {SITE}{p.path}catalogue.json",
@@ -524,7 +536,7 @@ def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -
             stats={**st, "shown": min(len(rows), SHOWN)},
             portals=portals,
             live=live,
-            rows=rows[:SHOWN],
+            rows=rows,
             other_kinds=_other_kinds(recs, portals),
             as_at_long=as_at_long,
             jsonld=json.dumps(jsonld, ensure_ascii=False),

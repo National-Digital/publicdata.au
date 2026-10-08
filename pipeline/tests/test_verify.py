@@ -589,3 +589,55 @@ def test_the_duckdb_digest_sees_row_order_and_block_size(tmp_path):
     assert write("a.duckdb", [1, 2], 2) == write("b.duckdb", [1, 2], 2)
     assert write("c.duckdb", [2, 1], 2) != write("a.duckdb", [1, 2], 2)
     assert write("d.duckdb", [1, 2], None) != write("a.duckdb", [1, 2], 2)
+
+
+def test_a_partition_by_edit_needs_a_note_in_each_published_version(two_datasets, tmp_path):
+    import json
+
+    from publicdata.verify import REPO, unnoted_partitions
+
+    s, t, u = two_datasets
+    t = replace(t, partition_by=("v",), path=str(REPO / "register" / "t.yaml"))
+    u = replace(u, path=str(REPO / "register" / "u.yaml"))
+    before = tmp_path / "before"
+    (before / "register").mkdir(parents=True)
+    (before / "register" / "t.yaml").write_text("slug: t\n", encoding="utf-8")
+    (before / "register" / "u.yaml").write_text("slug: u\n", encoding="utf-8")
+    changed = ["register/t.yaml", "register/u.yaml"]
+    assert unnoted_partitions(before, [t, u], s, changed) == {
+        "t": ["d/t/v/2026-01-01/", "d/t/v/2026-02-01/"]
+    }
+    # The change notes one version; the other still needs its note.
+    rel = "store/t/2026-01-01/manifest.json"
+    (before / rel).parent.mkdir(parents=True)
+    (before / rel).write_bytes((s / "t" / "2026-01-01" / "manifest.json").read_bytes())
+    m = json.loads((s / "t" / "2026-01-01" / "manifest.json").read_text(encoding="utf-8"))
+    m["notes"] = ["2026-10-08: partitioned by v."]
+    (s / "t" / "2026-01-01" / "manifest.json").write_text(json.dumps(m), encoding="utf-8")
+    changed.append(rel)
+    assert unnoted_partitions(before, [t, u], s, changed) == {"t": ["d/t/v/2026-02-01/"]}
+    # A version the same change adds has nothing published to correct.
+    changed.append("store/t/2026-02-01/manifest.json")
+    assert unnoted_partitions(before, [t, u], s, changed) == {}
+    # An entry whose partition_by is as the base had it needs nothing.
+    (before / "register" / "t.yaml").write_text("slug: t\npartition_by: [v]\n", encoding="utf-8")
+    assert unnoted_partitions(before, [t, u], s, changed[:2]) == {}
+
+
+def test_the_plan_fails_a_partition_by_edit_and_names_the_replace(
+    two_datasets, tmp_path, monkeypatch, capsys
+):
+    from publicdata import register
+    from publicdata.__main__ import main
+    from publicdata.verify import REPO
+
+    s, t, _u = two_datasets
+    t = replace(t, partition_by=("v",), path=str(REPO / "register" / "t.yaml"))
+    monkeypatch.setattr(register, "load", lambda _: [t])
+    before = tmp_path / "before"
+    (before / "register").mkdir(parents=True)
+    (before / "register" / "t.yaml").write_text("slug: t\n", encoding="utf-8")
+    (tmp_path / "changed.txt").write_text("register/t.yaml\n", encoding="utf-8")
+    argv = ["verify", "plan", "--store", str(s), "--changed", str(tmp_path / "changed.txt")]
+    assert main([*argv, "--before", str(before)]) == 1
+    assert "replace set to d/t/v/2026-01-01/ d/t/v/2026-02-01/" in capsys.readouterr().err

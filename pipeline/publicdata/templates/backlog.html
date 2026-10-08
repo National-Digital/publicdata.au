@@ -46,7 +46,7 @@
 <thead><tr><th>Dataset</th><th>Publisher</th><th>Licence</th><th>Status</th><th>Votes</th></tr></thead>
 <tbody>
 {% for d in rows %}
-<tr><td class="t">{% if d.live %}<a href="/d/{{ d.slug }}/">{{ d.title }}</a>{% else %}{{ d.title }}{% endif %}<span class="sub{% if d.status == 'blocked' %} reason{% endif %}">{{ d.summary }}{% if d.planned %} {{ d.planned }}{% endif %}{% if d.blocked_reason %} {{ d.blocked_reason }}{% endif %}</span></td>
+<tr><td class="t">{% if d.live %}<a href="/d/{{ d.slug }}/">{{ d.title }}</a>{% else %}{{ d.title }}{% endif %}<span class="sub{% if d.status == 'blocked' %} reason{% endif %}">{{ d.summary }}{% if d.planned %} {{ d.planned }}{% endif %}{% if d.blocked_reason %} {{ d.blocked_reason }}{% endif %}</span>{% if d.task %}<span class="sub">Open as a contributor task: <a href="{{ d.task }}" rel="noopener">GitHub issue {{ d.task.rsplit('/', 1)[1] }}</a></span>{% endif %}</td>
 <td>{{ d.publisher }} <span class="chip jur">{{ d.jur }}</span></td>
 <td>{% if d.licence_url %}<a href="{{ d.licence_url }}">{{ d.licence }}</a>{% else %}{{ d.licence }}{% endif %}</td>
 <td><span class="chip {{ d.status }}">{{ d.status_label }}</span></td>

@@ -1,0 +1,16 @@
+# A workflow with one defect for each kind the Workflow lint job guards against. The job fails
+# when the pinned tools stop finding any of them. It sits outside workflows/, so it never runs.
+name: Defects
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  defects:
+    name: defects
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: echo "${{ github.event.pull_request.title }}"
+      - env:
+          SLUGS: a b
+        run: ls $SLUGS
