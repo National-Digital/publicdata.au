@@ -230,6 +230,7 @@ if TYPE_CHECKING:
         status_label: str
         licence: str
         licence_url: str
+        task: NotRequired[str]
         planned: str
         blocked_reason: str
         live: bool
@@ -3366,7 +3367,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     catalogue_stats: Mapping[str, PortalStats] | None = None,
     search: Path | None = None,
     cache: BuildCache | None = None,
-    hubs: dict | None = None,
+    hubs: HubRecord | None = None,
     tasks: dict[str, int] | None = None,
 ) -> None:
     e = env()
@@ -4458,8 +4459,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         )
 
     # Backlog.
-    present = {p.jurisdiction for p in dirx.pubs.values()}
-    all_rows = [
+    governed = {p.jurisdiction for p in dirx.pubs.values()}
+    all_rows: list[DatasetRow] = [
         {
             **_row(d, by_slug.get(d.slug)),
             "task": "" if d.status == "live" else dirx.task_url(d.slug),

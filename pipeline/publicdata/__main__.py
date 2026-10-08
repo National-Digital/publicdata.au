@@ -860,12 +860,11 @@ def _hubs_record(store_dir: Path) -> HubRecord:
 
 def _tasks(path: str | None) -> dict[str, int]:
     """The open contributor issues by dataset key; a build without the file shows none."""
-    import json
+    tasks: dict[str, int] = json.loads(Path(path).read_text("utf-8")) if path else {}
+    return tasks
 
-    return json.loads(Path(path).read_text("utf-8")) if path else {}
 
-
-def cmd_hubs(args) -> int:
+def cmd_hubs(args: argparse.Namespace) -> int:
     from . import hubs  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
 
@@ -907,12 +906,10 @@ def cmd_hubs(args) -> int:
     return 1 if failures else 0
 
 
-def cmd_contribute(args) -> int:
+def cmd_contribute(args: argparse.Namespace) -> int:
     """Keep one issue open for each of the most-wanted datasets, or list the open ones."""
-    import json
-
-    from . import contribute
-    from .register import load
+    from . import contribute  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     gh = contribute.GitHub(args.repo, contribute.session(token))
@@ -943,7 +940,7 @@ def cmd_contribute(args) -> int:
     return 0
 
 
-def cmd_cost(args) -> int:
+def cmd_cost(args: argparse.Namespace) -> int:
     from . import cost  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
 

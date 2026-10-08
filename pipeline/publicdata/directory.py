@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Protocol
 from urllib.parse import parse_qs, urlparse
 
 from . import REPO, SITE
-from .catalogue import BY_CODE
+from .catalogue import BY_CODE, record_id
 from .provenance import OPERATOR_ORG
 from .publishers import (
     JUR_NAME,
@@ -77,6 +77,7 @@ if TYPE_CHECKING:
         vote: str
         reason: str
         portal: str
+        task: str
 
     class Stats(TypedDict):
         records: int
@@ -212,8 +213,8 @@ class Directory:
     served: dict[str, str] = field(default_factory=dict)  # record id -> path of its page here
     chosen: dict[str, str] = field(default_factory=dict)  # record id -> register slug not built yet
     as_at: str = ""
-    unread: dict[str, dict] = field(default_factory=dict)  # portal code -> harvest stats
-    jur_rows: list[dict] = field(default_factory=list)  # filled by render, for the home page
+    unread: dict[str, PortalStats] = field(default_factory=dict)  # portal code -> harvest stats
+    jur_rows: list[JurRow] = field(default_factory=list)  # filled by render, for the home page
     tasks: dict[str, int] = field(default_factory=dict)  # vote key -> open contributor issue
 
     def task_url(self, key: str) -> str:
@@ -441,7 +442,10 @@ def _reason(r: Record) -> str:
     return "no download"
 
 
-def _row(r: dict, served: dict[str, str], chosen: dict[str, str], task: str = "") -> dict:
+SHOWN_FORMATS = 4
+
+
+def _row(r: Record, served: dict[str, str], chosen: dict[str, str], task: str = "") -> RecordRow:
     fmts = r["formats"]
     return {
         "id": r["id"],

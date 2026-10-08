@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from publicdata.d1 import SERVED, catalogue_loads, served_loads
-from publicdata.directory import locate, plan, render, search_rows
+from publicdata.directory import Directory, locate, plan, render, search_rows
 from publicdata.publishers import Publisher, clean_title, load_curated, resolve, slugify
 from publicdata.register import RegisterError, load
 
@@ -424,7 +424,7 @@ def test_the_operator_names_its_hub_accounts_on_the_home_page(site: Path) -> Non
     ]
 
 
-def test_a_dataset_with_an_open_contributor_issue_links_it(site):
+def test_a_dataset_with_an_open_contributor_issue_links_it(site: Path) -> None:
     issue = "https://github.com/National-Digital/publicdata.au/issues/"
     backlog = (site / "backlog" / "index.html").read_text(encoding="utf-8")
     assert (
@@ -437,9 +437,7 @@ def test_a_dataset_with_an_open_contributor_issue_links_it(site):
     assert tmr.count(issue) == 1
 
 
-def test_a_record_claimed_by_an_entry_shows_the_issue_under_either_key():
-    from publicdata.directory import Directory
-
+def test_a_record_claimed_by_an_entry_shows_the_issue_under_either_key() -> None:
     d = Directory(pubs={}, ds_pub={}, chosen={"gov-1": "abn-bulk-extract"})
     d.tasks = {"gov-1": 4}
     assert d.task_url("abn-bulk-extract").endswith("/issues/4")
