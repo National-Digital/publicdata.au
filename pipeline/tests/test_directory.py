@@ -273,9 +273,7 @@ def test_a_planned_register_entry_takes_the_votes_of_its_catalogue_record():
     assert rows["gov-1"]["jur"] == "cth" and rows["gov-1"]["host"] == "data.gov.au"
     assert d.votable == 2
     written = {}
-    render(
-        d, lambda *a, **k: None, lambda rel, text: written.__setitem__(rel, text), {}, lambda c: {}
-    )
+    render(d, lambda *a, **k: None, written.__setitem__, {}, lambda c: {})
     shards = {
         k
         for rel, t in written.items()

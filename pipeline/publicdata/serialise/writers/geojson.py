@@ -38,6 +38,7 @@ def write_geojson(tbl: Table, header: dict, path: Path, rows: pa.Table | None = 
             f.write("\n")
             f.write(dumps({"type": "Feature", "geometry": geom, "properties": row}))
         f.write("\n]}\n")
+    return None
 
 
 def _write_shapes(tbl, header: dict, path: Path) -> None:

@@ -381,7 +381,7 @@ def test_query_copies_go_to_r2_alone(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "over,match",
+    ("over", "match"),
     [
         ({"sort": ["nope"]}, "sort field 'nope' is not a declared field"),
         ({"sort": ["a", "a"]}, "sort names a field twice"),

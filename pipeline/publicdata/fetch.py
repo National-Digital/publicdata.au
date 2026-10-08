@@ -1834,7 +1834,7 @@ def normalise_licence_id(portal_id: str, portal: str = "") -> str:
 
 def _normal_iso(iso: str) -> str:
     """Portal timestamps carry no zone and are UTC."""
-    x = dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    x = dt.datetime.fromisoformat(iso)
     return (x if x.tzinfo else x.replace(tzinfo=dt.UTC)).astimezone(dt.UTC).isoformat()
 
 

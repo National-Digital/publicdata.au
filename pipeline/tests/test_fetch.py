@@ -373,7 +373,7 @@ def _ala_session(rows, lat_of=lambda r: r[2]):
             return lat_of(r) is None
         if f == "decimalLatitude:*":
             return lat_of(r) is not None
-        if f.startswith("decimalLatitude:[") or f.startswith("decimalLongitude:["):
+        if f.startswith(("decimalLatitude:[", "decimalLongitude:[")):
             lo, hi, ex = rng(f)
             v = lat_of(r) if f.startswith("decimalLat") else 150.0
             return v is not None and (

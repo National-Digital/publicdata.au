@@ -11,6 +11,7 @@ difference.
 from __future__ import annotations
 
 import ast
+import itertools
 import json
 import random
 import shutil
@@ -384,7 +385,7 @@ def check(
         diffs = _version(ds, meta, v, out, cache.root / key, cache, key)
         problems += [f"{where}: {d}" for d in diffs]
     pairs = list(zip(fresh.versions, keys, strict=True))
-    for (a, ka), (b, kb) in zip(pairs, pairs[1:], strict=False):
+    for (a, ka), (b, kb) in itertools.pairwise(pairs):
         rel = f"d/{ds.slug}/diff/{a.manifest.version}..{b.manifest.version}.json"
         meta = _entry(cache, cache.key(ka, kb, "diff"))
         if meta is not None and meta != json.loads((out / rel).read_text(encoding="utf-8")):

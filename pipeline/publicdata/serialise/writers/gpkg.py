@@ -144,6 +144,7 @@ def write_gpkg(tbl: Table, header: dict, path: Path) -> None:
     con.commit()
     con.execute("VACUUM")
     con.close()
+    return None
 
 
 def _gpkg_blob(wkb: bytes, env: tuple[float, float, float, float], srs: int) -> bytes:

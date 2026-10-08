@@ -726,7 +726,7 @@ def test_a_gzip_is_sized_from_its_trailer(monkeypatch, no_sleep):
             "https://x/a",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "spreadsheet",
-        ),  # fmt: skip
+        ),
         ("https://x/a.csv", "text/csv", "plain"),
     ],
 )
@@ -867,7 +867,7 @@ RUNS = [_run("h2", "2026-10-07T11:05:00Z"), _run("h2", "2026-10-07T11:00:00Z"),
             [
                 _label("maint", "2026-10-07T11:01:00Z"),
                 _label("bot", "2026-10-07T11:02:00Z", "unlabeled"),
-            ],  # fmt: skip
+            ],
             {},
             False,
             "no labelling",
@@ -876,7 +876,7 @@ RUNS = [_run("h2", "2026-10-07T11:05:00Z"), _run("h2", "2026-10-07T11:00:00Z"),
             [
                 _label("maint", "2026-10-07T11:01:00Z"),
                 {"event": "base_ref_changed", "created_at": "2026-10-07T11:03:00Z"},
-            ],  # fmt: skip
+            ],
             {},
             False,
             "change of base",

@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -148,7 +148,7 @@ class Records:
     def close(self) -> None:
         self.con.close()
 
-    def __enter__(self) -> Records:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc) -> None:

@@ -290,9 +290,8 @@ def test_formats_over_their_caps_are_left_out_and_the_pages_say_why(
     assert "latest/data.ndjson" in page and "v/2026-04-24/data.json" not in page
     title = page.split("<title>", 1)[1].split("</title>", 1)[0]
     assert "JSON" not in title and "CSV, Parquet, SQLite" in title
-    assert (
-        "data.json"
-        not in [ln for ln in (out / "llms.txt").read_text().splitlines() if slug in ln][0]
+    assert "data.json" not in next(
+        ln for ln in (out / "llms.txt").read_text().splitlines() if slug in ln
     )
     assert gone["geojson"] in page
     assert check(out, register_dir) == []

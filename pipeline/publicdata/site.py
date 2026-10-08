@@ -3753,7 +3753,7 @@ def render_site(
         c = figures.cells(db, g["lon"], g["lat"], spec["where"])
         if c:
             parts.append((states[0], c))
-            hero_total += int(round(sum(c.values())))
+            hero_total += round(sum(c.values()))
     hero_map = None
     if parts:
         covered = present

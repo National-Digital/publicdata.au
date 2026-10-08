@@ -296,6 +296,7 @@ class Handler(BaseHTTPRequestHandler):
             pq.write_table(t, buf)
             return self.send(200, buf.getvalue(), "application/vnd.apache.parquet")
         self.send(404, {"error": "not here"})
+        return None
 
 
 def last_api_hit():

@@ -408,8 +408,7 @@ def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = N
 
     with ThreadPoolExecutor(WORKERS) as pool:
         list(pool.map(get, files))
-        got = sum(pool.map(get, [k for k in metas if k.split("/")[1] not in gone]))
-    return got
+        return sum(pool.map(get, [k for k in metas if k.split("/")[1] not in gone]))
 
 
 def _delete(s3, keys: list[str]) -> None:

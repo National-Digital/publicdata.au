@@ -262,8 +262,11 @@ def checked(
             return (vdir / name).exists() or f"{rel}/{name}" in absent
 
         if ds.kind == "database":
-            need = ("data.duckdb", "schema.json", "schema.sql") + tuple(
-                f"tables/{t.name}.parquet" for t in ds.tables
+            need = (
+                "data.duckdb",
+                "schema.json",
+                "schema.sql",
+                *(f"tables/{t.name}.parquet" for t in ds.tables),
             )
         else:
             rows = int(m.get("rows", 0))

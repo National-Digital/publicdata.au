@@ -5,6 +5,7 @@ Parquet comes back through published, from the tree or R2 that holds it.
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import re
 import shutil
@@ -504,7 +505,7 @@ def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
     if not ds.publishable:
         return set()
     keys = [version_key(cache, ds, m, store_dir) for m in store.manifests(store_dir, ds.slug)]
-    diffs = {cache.key(a, b, "diff") for a, b in zip(keys, keys[1:], strict=False)}
+    diffs = {cache.key(a, b, "diff") for a, b in itertools.pairwise(keys)}
     return {*keys, *diffs, *([cache.key(*keys, "history")] if keys else [])}
 
 

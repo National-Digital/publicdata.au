@@ -183,7 +183,7 @@ def series(
         other = [c for c in cats if c not in keep]
         for v in values.values():
             v["Other"] = sum(v.pop(c, 0) for c in other)
-        cats = sorted(keep) + ["Other"]
+        cats = [*sorted(keep), "Other"]
     return {
         "years": full,
         "partial": partial,
@@ -478,7 +478,7 @@ def map_alt(cells_: dict, what: str, gaps: dict[str, str] | None = None) -> str:
     """What the map draws, in words worked out from the cells: the rows, the cells, the
     fullest cell and any state hatched.
     """
-    total = int(round(sum(cells_.values())))
+    total = round(sum(cells_.values()))
     text = (
         f"{fmt(total)} {what.lower()} drawn in {fmt(len(cells_))} cells of {STEP:g} degrees, "
         f"the fullest with {fmt(max(cells_.values()))}."

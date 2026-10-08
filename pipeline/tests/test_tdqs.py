@@ -56,7 +56,7 @@ def test_a_parameter_without_a_description_names_the_tool_and_parameter(monkeypa
 
 
 @pytest.mark.parametrize(
-    "quality,sentence",
+    ("quality", "sentence"),
     [
         ("limits", "Each call costs one of the 60 queries each address may make in 10 seconds."),
         ("returns", "Up to 50 matches come back in one answer, with no paging."),
@@ -130,7 +130,7 @@ def test_removing_the_purpose_sentence_fails_purpose():
 
 
 @pytest.mark.parametrize(
-    "quality,change",
+    ("quality", "change"),
     [
         (
             "purpose",

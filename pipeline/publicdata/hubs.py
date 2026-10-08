@@ -1405,7 +1405,7 @@ def run(
     rest carry on; the return is the number of failures. Where each copy is goes into `record`,
     and `on_record` is called with it after every dataset so a caller can save as the run goes.
     """
-    fetch = fetch or (lambda url, dest: download(url, dest))
+    fetch = fetch or download
     failures = 0
     entries = list(entries)
     for name, hub in hubs.items():

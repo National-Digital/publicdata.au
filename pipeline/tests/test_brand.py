@@ -51,7 +51,7 @@ def test_a_title_too_long_for_three_lines_is_cut_at_a_word(tmp_path):
 
 def test_every_page_names_its_card_and_the_manifest_its_icons(fixture_site):
     out = fixture_site
-    slug = sorted(p.name for p in (out / "d").iterdir() if (p / "index.html").exists())[0]
+    slug = min(p.name for p in (out / "d").iterdir() if (p / "index.html").exists())
     ds = (out / "d" / slug / "index.html").read_text(encoding="utf-8")
     assert re.search(rf'og:image" content="https://publicdata.au/og/d/{slug}.png\?v=\w{{12}}"', ds)
     home = (out / "index.html").read_text(encoding="utf-8")
