@@ -29,7 +29,7 @@ def _guarded(jobs: dict[str, Any], name: str) -> bool:
 
 
 def test_every_job_with_side_effects_runs_only_in_the_public_repo() -> None:
-    unguarded = []
+    unguarded: list[str] = []
     for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
         jobs = yaml.safe_load(f.read_text(encoding="utf-8"))["jobs"]
         allowed = CHECKS.get(f.name, set())

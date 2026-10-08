@@ -887,7 +887,7 @@ def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at ea
         cols = [f for f in fields if f in have]
         if not cols:
             return {"fields": [], "rows": []}
-        conds = []
+        conds: list[Mapping[str, Any]] = []
         conds.extend(
             ({**w, "value": newest(con, w["field"])} if w["value"] == "newest" else w)
             for w in ([where] if isinstance(where, dict) else list(where or ()))

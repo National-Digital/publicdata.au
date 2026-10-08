@@ -107,7 +107,7 @@ def _usage(t: Tool, siblings: Sequence[str]) -> list[str]:
 
 def _parameters(t: Tool) -> list[str]:
     s = t.get("inputSchema") or {}
-    out = []
+    out: list[str] = []
     if s.get("type") != "object":
         return ["inputSchema must be an object schema"]
     props = s.get("properties") or {}

@@ -83,7 +83,7 @@ class ZenodoHttp(Protocol):
     @property
     def headers(self) -> MutableMapping[str, str | bytes]: ...
 
-    def request(
+    def request(  # noqa: PLR0913 - the part of requests.Session.request Zenodo calls
         self,
         method: str,
         url: str,

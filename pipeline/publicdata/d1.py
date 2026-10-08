@@ -371,7 +371,7 @@ def _raw_size(v: object) -> int:
     return 0
 
 
-def _wide_row(  # noqa: PLR0913 - the options are keyword-only and named at each call
+def _wide_row(  # noqa: C901, PLR0913 - one branch per kind of long value; the options are keyword-only
     tbl: str,
     head: str,
     names: list[str],

@@ -19,7 +19,7 @@ NAME = "data.duckdb"
 
 def compare(a: Path, b: Path) -> list[str]:
     """Every data.duckdb under a must be under b with the same content, and the other way."""
-    problems = []
+    problems: list[str] = []
     fa = {p.relative_to(a).as_posix(): p for p in a.rglob(NAME)}
     fb = {p.relative_to(b).as_posix(): p for p in b.rglob(NAME)}
     problems.extend(
