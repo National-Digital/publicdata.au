@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from html import escape
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 import requests
 from PIL import Image
@@ -33,7 +33,74 @@ from .provenance import NOT_ENDORSED
 from .register import GRANTS, LICENCE_CONDITIONS, OPEN_LICENCES, draft_label
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping
+    from typing import BinaryIO
+
+    type Fetch = Callable[[str, Path], object]
+    type Log = Callable[[str], object]
+    type Outcome = Entry | Refused
+    # Kaggle publishes a first version differently, so it is named apart from the protocol.
+    type AnyHub = Hub | Kaggle
+
+
+class _LicenceId(Protocol):
+    @property
+    def id(self) -> str: ...
+
+
+class Registered(Protocol):
+    @property
+    def licence(self) -> _LicenceId: ...
+
+
+class _SiteResponse(Protocol):
+    @property
+    def status_code(self) -> int: ...
+
+    def raise_for_status(self) -> None: ...
+
+    def json(self) -> Any: ...  # noqa: ANN401 - the site's JSON, read before it is checked
+
+
+class SiteHttp(Protocol):
+    def get(self, url: str, *, timeout: float) -> _SiteResponse: ...
+
+
+class _ZenodoResponse(Protocol):
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def content(self) -> bytes: ...
+
+    @property
+    def text(self) -> str: ...
+
+    def json(self) -> Any: ...  # noqa: ANN401 - Zenodo's JSON
+
+
+class ZenodoHttp(Protocol):
+    @property
+    def headers(self) -> MutableMapping[str, str | bytes]: ...
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        timeout: float,
+        params: Mapping[str, str | int] | None = None,
+        data: BinaryIO | None = None,
+        headers: Mapping[str, str] | None = None,
+        json: object = None,
+    ) -> _ZenodoResponse: ...
+
+
+class Hub(Protocol):
+    def held(self, e: Entry, /) -> set[str]: ...
+
+    def publish(self, e: Entry, work: Path, fetch: Fetch, /) -> str: ...
+
 
 SITE = "https://publicdata.au"
 UA = "publicdata-hubs (+https://publicdata.au/)"
@@ -83,15 +150,15 @@ class Entry:
     version: str
     keywords: tuple[str, ...]
     rows: int
-    fields: tuple[dict, ...]
+    fields: tuple[dict[str, Any], ...]
     formats: int
-    files: dict = field(default_factory=dict)
-    manifest: dict = field(default_factory=dict)
+    files: dict[str, str] = field(default_factory=dict)
+    manifest: dict[str, Any] = field(default_factory=dict)
     queryable: bool = False
     topics: tuple[str, ...] = ()
     cadence: str = ""
     search_title: str = ""
-    sizes: dict = field(default_factory=dict)
+    sizes: dict[str, int] = field(default_factory=dict)
     site: str = SITE
 
     @property
@@ -104,7 +171,7 @@ class Entry:
 
     @property
     def source_page(self) -> str:
-        s = self.manifest.get("source") or {}
+        s: dict[str, str] = self.manifest.get("source") or {}
         if s.get("portal") and s.get("package"):
             return f"{s['portal'].rstrip('/')}/dataset/{s['package']}"
         return self.publisher_url
@@ -119,14 +186,14 @@ class Excluded(Refused):
 
 
 def entry(  # noqa: PLR0913 - the options are keyword-only and named at each call
-    record: dict,
-    versions: dict,
-    schema: dict,
-    manifest: dict,
+    record: dict[str, Any],
+    versions: dict[str, Any],
+    schema: dict[str, Any],
+    manifest: dict[str, Any],
     *,
     queryable: bool = False,
     site: str = SITE,
-    registered=None,
+    registered: object = None,
 ) -> Entry:
     """One dataset's newest version as the hubs see it.
 
@@ -181,7 +248,7 @@ def entry(  # noqa: PLR0913 - the options are keyword-only and named at each cal
     )
 
 
-def _described(fields, registered) -> list[dict]:
+def _described(fields: Iterable[dict[str, Any]], registered: object) -> list[dict[str, Any]]:
     """Every field with a description, so no hub shows a column without one.
 
     The description is the schema's own, else the register's description or label, else a label
@@ -199,7 +266,7 @@ def _described(fields, registered) -> list[dict]:
     return out
 
 
-def authorised(record: dict, registered) -> None:
+def authorised(record: dict[str, Any], registered: Registered | None) -> None:
     """The register decides what may be copied, whatever the live catalogue says.
 
     The entry must exist, be live, hold an open licence, and name the same licence the catalogue
@@ -227,7 +294,7 @@ def authorised(record: dict, registered) -> None:
         raise Refused(msg)
 
 
-def provenance(e: Entry) -> dict:
+def provenance(e: Entry) -> dict[str, Any]:
     """publicdata.json, which travels with every copy so the link back survives a re-upload."""
     return {
         "dataset": e.slug,
@@ -248,15 +315,16 @@ def _cell(s: str) -> str:
     return " ".join(str(s).split()).replace("|", "\\|")
 
 
-def _text(f: dict) -> str:
+def _text(f: dict[str, Any]) -> str:
     """A field's description, else its title unless the title only names the source cell."""
     for text in (f.get("description"), f.get("title")):
         if text and not text.strip().startswith("("):
-            return text.strip()
+            stripped: str = text.strip()
+            return stripped
     return ""
 
 
-def _about(f: dict) -> str:
+def _about(f: dict[str, Any]) -> str:
     return _cell(_text(f))
 
 
@@ -378,7 +446,7 @@ def hf_card(e: Entry, repo: str) -> str:
     return "---\n" + _yaml(meta) + "---\n\n" + body
 
 
-def _yaml(meta: dict) -> str:
+def _yaml(meta: dict[str, Any]) -> str:
     """Card frontmatter. JSON strings are valid YAML scalars, so no YAML library is needed."""
     out = []
     for k, v in meta.items():
@@ -423,7 +491,7 @@ LATITUDE = re.compile(r"(^|_)lat(itude)?$")
 LONGITUDE = re.compile(r"(^|_)(lon|lng|long|longitude)$")
 
 
-def kaggle_type(f: dict) -> str:
+def kaggle_type(f: dict[str, Any]) -> str:
     if f.get("type") in ("number", "integer"):
         if LATITUDE.search(f["name"]):
             return "latitude"
@@ -472,7 +540,7 @@ KAGGLE_TITLE_MIN, KAGGLE_TITLE_MAX = 6, 50
 KAGGLE_SUBTITLE_MIN = 20
 
 
-def kaggle_metadata(e: Entry, owner: str) -> dict:
+def kaggle_metadata(e: Entry, owner: str) -> dict[str, Any]:
     if not KAGGLE_SLUG_MIN <= len(e.slug) <= KAGGLE_SLUG_MAX:
         msg = f"slug {e.slug!r} is outside Kaggle's 3 to 50 characters"
         raise Refused(msg)
@@ -609,7 +677,7 @@ def _notebook_title(e: Entry) -> str:
     return f"{e.slug[:33].rstrip('-')} {digest} quick start"
 
 
-def kaggle_notebook(e: Entry, owner: str) -> tuple[dict, dict]:
+def kaggle_notebook(e: Entry, owner: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """A public starter notebook over the dataset: its kernel-metadata.json and the notebook."""
     title = _notebook_title(e)
     meta = {
@@ -681,11 +749,11 @@ def kaggle_notebook(e: Entry, owner: str) -> tuple[dict, dict]:
     return meta, nb
 
 
-def _md(text: str) -> dict:
+def _md(text: str) -> dict[str, Any]:
     return {"cell_type": "markdown", "metadata": {}, "source": text}
 
 
-def _code(text: str) -> dict:
+def _code(text: str) -> dict[str, Any]:
     return {
         "cell_type": "code",
         "metadata": {},
@@ -714,13 +782,13 @@ def cover_image(card: Path, dest: Path) -> Path:
         else:
             nh = w // 2
             im = im.crop((0, (h - nh) // 2, w, (h - nh) // 2 + nh))
-        im.resize((560, 280), Image.LANCZOS).save(dest, "PNG")
+        im.resize((560, 280), Image.Resampling.LANCZOS).save(dest, "PNG")
     return dest
 
 
-def zenodo_metadata(e: Entry, community: str | None = None) -> dict:
-    p = lambda s: f"<p>{escape(s)}</p>"  # noqa: E731
-    link = lambda u: f'<a href="{escape(u)}">{escape(u)}</a>'  # noqa: E731
+def zenodo_metadata(e: Entry, community: str | None = None) -> dict[str, Any]:
+    p: Callable[[str], str] = lambda s: f"<p>{escape(s)}</p>"  # noqa: E731
+    link: Callable[[str], str] = lambda u: f'<a href="{escape(u)}">{escape(u)}</a>'  # noqa: E731
     description = "".join(
         [
             p(e.description),
@@ -792,8 +860,11 @@ def _http() -> requests.Session:
 
 
 def read_site(
-    site: str = SITE, only: set[str] | None = None, http=None, register: dict | None = None
-):
+    site: str = SITE,
+    only: set[str] | None = None,
+    http: SiteHttp | None = None,
+    register: Mapping[str, Registered] | None = None,
+) -> Iterator[tuple[str, Outcome]]:
     """Yields (slug, Entry or Refused) for every dataset in the live catalogue.
 
     `register` maps a slug to its register entry; when it is given, a dataset the register does
@@ -803,12 +874,12 @@ def read_site(
     checked = register is not None
     register = register or {}
 
-    def get(url):
+    def get(url: str) -> Any:  # noqa: ANN401 - the site's JSON, read before it is checked
         r = http.get(url, timeout=60)
         r.raise_for_status()
         return r.json()
 
-    def served(slug):
+    def served(slug: str) -> bool:
         r = http.get(f"{site}/api/v1/datasets/{slug}/versions", timeout=60)
         return r.status_code == HTTPStatus.OK
 
@@ -839,7 +910,7 @@ def read_site(
             yield slug, Refused(str(err))
 
 
-def download(url: str, dest: Path, http=None) -> Path:
+def download(url: str, dest: Path, http: requests.Session | None = None) -> Path:
     http = http or _http()
     with http.get(url, stream=True, timeout=300) as r:
         r.raise_for_status()
@@ -851,7 +922,7 @@ def download(url: str, dest: Path, http=None) -> Path:
 class HuggingFace:
     name = "huggingface"
 
-    def __init__(self, token: str, namespace: str):
+    def __init__(self, token: str, namespace: str) -> None:
         from huggingface_hub import HfApi  # noqa: PLC0415 - the hubs extra
 
         self.api = HfApi(token=token)
@@ -876,7 +947,7 @@ class HuggingFace:
             return set()
         return {t.name[1:] for t in refs.tags if t.name.startswith("v")}
 
-    def files(self, e: Entry, work: Path, fetch: Callable) -> list[Path]:
+    def files(self, e: Entry, work: Path, fetch: Fetch) -> list[Path]:
         (work / "README.md").write_text(hf_card(e, self.repo(e)), "utf-8")
         _write_json(work / "publicdata.json", provenance(e))
         paths = [work / "README.md", work / "publicdata.json"]
@@ -885,7 +956,7 @@ class HuggingFace:
             paths.append(work / f"data.{fmt}")
         return paths
 
-    def publish(self, e: Entry, work: Path, fetch: Callable) -> str:
+    def publish(self, e: Entry, work: Path, fetch: Fetch) -> str:
         self.files(e, work, fetch)
         repo = self.repo(e)
         self.api.create_repo(repo, repo_type="dataset", exist_ok=True, private=False)
@@ -900,7 +971,7 @@ class HuggingFace:
         self.api.create_tag(repo, tag=f"v{e.version}", repo_type="dataset", exist_ok=True)
         return f"https://huggingface.co/datasets/{repo}"
 
-    def refresh(self, e: Entry, work: Path, fetch: Callable) -> str:
+    def refresh(self, e: Entry, work: Path, fetch: Fetch) -> str:
         """Rewrites the card, publicdata.json and the data files of a version already held.
 
         That way a format added since the version was published reaches the repository's copy.
@@ -922,15 +993,17 @@ ZENODO_PAGE = 100
 class Zenodo:
     name = "zenodo"
 
-    def __init__(self, token: str, base: str = "https://zenodo.org", community: str | None = None):
+    def __init__(
+        self, token: str, base: str = "https://zenodo.org", community: str | None = None
+    ) -> None:
         self.base = base.rstrip("/")
         self.community = community
         self.pause = 30.0
-        self.http = _http()
+        self.http: ZenodoHttp = _http()
         self.http.headers["Authorization"] = f"Bearer {token}"
-        self._records: list[dict] | None = None
+        self._records: list[dict[str, Any]] | None = None
 
-    def _call(self, method: str, path: str, **kw):
+    def _call(self, method: str, path: str, **kw: Any) -> Any:  # noqa: ANN401 - Zenodo's JSON, and the keywords requests takes
         url = path if path.startswith("http") else f"{self.base}/api{path}"
         r = self.http.request(method, url, timeout=kw.pop("timeout", 120), **kw)
         if r.status_code >= HTTPStatus.BAD_REQUEST:
@@ -957,9 +1030,10 @@ class Zenodo:
             else:
                 return
 
-    def records(self) -> list[dict]:
+    def records(self) -> list[dict[str, Any]]:
         if self._records is None:
-            out, page = [], 1
+            out: list[dict[str, Any]] = []
+            page = 1
             while True:
                 batch = self._call(
                     "GET",
@@ -974,27 +1048,27 @@ class Zenodo:
         return self._records
 
     @staticmethod
-    def _page(rec: dict) -> set[str]:
+    def _page(rec: dict[str, Any]) -> set[str]:
         return {
             r.get("identifier")
             for r in (rec.get("metadata") or {}).get("related_identifiers") or ()
             if r.get("relation") == "isVersionOf"
         }
 
-    def _ours(self, e: Entry) -> list[dict]:
+    def _ours(self, e: Entry) -> list[dict[str, Any]]:
         # Oldest first, so a dataset Zenodo holds under two concept records keeps growing the
         # original and is located by it.
         return sorted(
             (r for r in self.records() if e.page in self._page(r)), key=lambda r: int(r["id"])
         )
 
-    def _search(self, e: Entry) -> list[dict]:
+    def _search(self, e: Entry) -> list[dict[str, Any]]:
         """The records that name this dataset, asked for directly.
 
         The full listing is paged, and a page boundary can lose a record while Zenodo is still
         indexing the last publish; a query for one dataset has no boundary to lose it at.
         """
-        return self._call(
+        found: list[dict[str, Any]] = self._call(
             "GET",
             "/deposit/depositions",
             params={
@@ -1003,8 +1077,9 @@ class Zenodo:
                 "q": f'metadata.related_identifiers.identifier:"{e.page}"',
             },
         )
+        return found
 
-    def _remember(self, *recs: dict, forget: Iterable[int] = ()) -> None:
+    def _remember(self, *recs: dict[str, Any], forget: Iterable[int] = ()) -> None:
         # Publishing is the only change this run makes, so the listing is kept in step by hand
         # rather than read again while Zenodo's index is still settling.
         gone = set(forget)
@@ -1012,21 +1087,23 @@ class Zenodo:
         ids = {r["id"] for r in kept}
         self._records = kept + [r for r in recs if r["id"] not in ids]
 
-    account = None
+    account: str | None = None
 
     def location(self, e: Entry) -> str | None:
         """The concept DOI, which resolves to the newest version and names them all."""
         for r in self._ours(e):
             if r.get("submitted") and r.get("conceptdoi"):
-                return r["conceptdoi"]
+                doi: str = r["conceptdoi"]
+                return doi
         return None
 
     def held(self, e: Entry) -> set[str]:
-        return {
+        versions: set[str | None] = {
             (r.get("metadata") or {}).get("version") for r in self._ours(e) if r.get("submitted")
-        } - {None}
+        }
+        return {v for v in versions if v is not None}
 
-    def files(self, e: Entry, work: Path, fetch: Callable) -> list[Path]:
+    def files(self, e: Entry, work: Path, fetch: Fetch) -> list[Path]:
         _write_json(work / "publicdata.json", provenance(e))
         _write_json(work / "schema.json", {"fields": list(e.fields)})
         paths = []
@@ -1035,7 +1112,7 @@ class Zenodo:
             paths.append(work / f"data.{fmt}")
         return [*paths, work / "schema.json", work / "publicdata.json"]
 
-    def publish(self, e: Entry, work: Path, fetch: Callable) -> str:
+    def publish(self, e: Entry, work: Path, fetch: Fetch) -> str:
         paths = self.files(e, work, fetch)
         mine = self._ours(e)
         if not mine:
@@ -1045,7 +1122,7 @@ class Zenodo:
                 mine = self._ours(e)
         # A draft left by a run that failed before publishing is discarded, so it cannot block
         # the new version and never gets a DOI.
-        dropped = []
+        dropped: list[int] = []
         for r in mine:
             if not r.get("submitted"):
                 self._call("DELETE", f"/deposit/depositions/{r['id']}")
@@ -1080,7 +1157,8 @@ class Zenodo:
             self._remember(forget=dropped)
             raise
         self._remember(done, forget=dropped)
-        return done.get("doi_url") or done.get("links", {}).get("html", "")
+        url: str = done.get("doi_url") or done.get("links", {}).get("html", "")
+        return url
 
 
 KAGGLE_PAGE = 200
@@ -1092,7 +1170,7 @@ KAGGLE_UNREGISTERED_WAITS = 20
 class Kaggle:
     name = "kaggle"
 
-    def __init__(self, owner: str, token: str, cli: str = "kaggle"):
+    def __init__(self, owner: str, token: str, cli: str = "kaggle") -> None:
         self.owner = owner
         self.token = token
         self.cli = cli
@@ -1101,7 +1179,7 @@ class Kaggle:
         self._bad_tags: set[str] = set()
         self._notebooks_limited = False
 
-    def _run(self, *args: str, tries: int = 6) -> subprocess.CompletedProcess:
+    def _run(self, *args: str, tries: int = 6) -> subprocess.CompletedProcess[str]:
         # The CLI reads its token from KAGGLE_API_TOKEN; the legacy KAGGLE_KEY is not read.
         # A caller with its own retries, or one a refusal still counts against, passes tries=1.
         env = {**os.environ, "KAGGLE_API_TOKEN": self.token}
@@ -1126,7 +1204,8 @@ class Kaggle:
         does not exist, so existence is read from here.
         """
         if self._mine is None:
-            found, page = set(), 1
+            found: set[str] = set()
+            page = 1
             while True:
                 r = self._run(
                     "datasets",
@@ -1196,7 +1275,7 @@ class Kaggle:
                 raise RuntimeError(msg)
             return {json.loads((Path(d) / "publicdata.json").read_text("utf-8"))["version"]}
 
-    def files(self, e: Entry, work: Path, fetch: Callable) -> list[Path]:
+    def files(self, e: Entry, work: Path, fetch: Fetch) -> list[Path]:
         # Creating a dataset counts every tag offered, unknown ones included, against Kaggle's
         # category limit, so uploads carry none and the settings update sets them.
         _write_json(
@@ -1209,7 +1288,7 @@ class Kaggle:
             paths.append(work / f"data.{fmt}")
         return paths
 
-    def publish(self, e: Entry, work: Path, fetch: Callable, *, first: bool) -> str:
+    def publish(self, e: Entry, work: Path, fetch: Fetch, *, first: bool) -> str:
         """Publishes a version, with every upload following the settings.
 
         Kaggle scores a dataset's page from its newest version, and attaches file and column
@@ -1242,7 +1321,7 @@ class Kaggle:
             shutil.rmtree(meta, ignore_errors=True)
         return f"https://www.kaggle.com/datasets/{ref}"
 
-    def refresh(self, e: Entry, work: Path, fetch: Callable) -> str:
+    def refresh(self, e: Entry, work: Path, fetch: Fetch) -> str:
         """Gives a version Kaggle already holds the current settings and uploads its files again.
 
         The upload attaches their descriptions and has the page scored afresh, and the notebook is
@@ -1272,7 +1351,7 @@ class Kaggle:
             time.sleep(self.pause * (attempt + 1))
         self._check(r, f"Kaggle refused a version of {e.slug}")
 
-    def settings(self, e: Entry, meta_dir: Path, fetch: Callable) -> None:
+    def settings(self, e: Entry, meta_dir: Path, fetch: Fetch) -> None:
         """Tags, update frequency, sources and the cover image.
 
         Kaggle takes these only through a metadata update.
@@ -1324,7 +1403,7 @@ class Kaggle:
         msg = f"Kaggle could not say whether {ref} exists: {out.strip()[:300]}"
         raise RuntimeError(msg)
 
-    def ensure(self, e: Entry, work: Path, fetch: Callable) -> str | None:  # noqa: ARG002 - takes what refresh takes
+    def ensure(self, e: Entry, work: Path, fetch: Fetch) -> str | None:  # noqa: ARG002 - takes what refresh takes
         """Pushes the starter notebook a held dataset lacks.
 
         Such a dataset may be one Kaggle's limit on saving notebooks turned away. Returns what was
@@ -1398,7 +1477,7 @@ class Kaggle:
         raise RuntimeError(msg)
 
     @staticmethod
-    def _throttled(r: subprocess.CompletedProcess) -> bool:
+    def _throttled(r: subprocess.CompletedProcess[str]) -> bool:
         # Kaggle answers a burst of calls with a page the CLI cannot parse as JSON, or a 429,
         # and the CLI prints the 429 and still exits 0.
         out = r.stdout + r.stderr
@@ -1417,23 +1496,27 @@ class Kaggle:
             if r.returncode != 0 or not f.exists():
                 return None
             meta = json.loads(f.read_text("utf-8"))
-            return (meta.get("info") or meta).get("usabilityRating")
+            rating: float | None = (meta.get("info") or meta).get("usabilityRating")
+            return rating
 
     @staticmethod
-    def _check(r: subprocess.CompletedProcess, what: str) -> None:
+    def _check(r: subprocess.CompletedProcess[str], what: str) -> None:
         out = (r.stdout + r.stderr).strip()
         if r.returncode != 0 or re.search(r"\berror\b", out, re.IGNORECASE):
             msg = f"{what}: {out[:500]}"
             raise RuntimeError(msg)
 
 
-def _write_json(path: Path, data) -> None:
+def _write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", "utf-8")
 
 
-def configured(env=os.environ) -> tuple[dict, list[str]]:
+def configured(
+    env: Mapping[str, str] = os.environ,
+) -> tuple[dict[str, Callable[[], AnyHub]], list[str]]:
     """The hubs whose credentials are present, and a line for each one that is skipped."""
-    hubs, skipped = {}, []
+    hubs: dict[str, Callable[[], AnyHub]] = {}
+    skipped: list[str] = []
     if env.get("HF_TOKEN"):
         hubs["huggingface"] = lambda: HuggingFace(
             env["HF_TOKEN"], env.get("HF_NAMESPACE") or "publicdata-au"
@@ -1460,15 +1543,15 @@ def configured(env=os.environ) -> tuple[dict, list[str]]:
 
 
 def run(  # noqa: C901, PLR0913 - each hub's steps in order; the options are keyword-only
-    hubs: dict,
-    entries,
-    fetch: Callable | None = None,
+    hubs: Mapping[str, AnyHub],
+    entries: Iterable[tuple[str, Outcome]],
+    fetch: Fetch | None = None,
     work_root: Path | None = None,
-    log: Callable = print,
+    log: Log = print,
     *,
     refresh: bool = False,
-    record: dict | None = None,
-    on_record: Callable | None = None,
+    record: dict[str, Any] | None = None,
+    on_record: Callable[[dict[str, Any]], object] | None = None,
 ) -> int:
     """Publishes each entry's version to each hub that lacks it.
 
@@ -1478,9 +1561,9 @@ def run(  # noqa: C901, PLR0913 - each hub's steps in order; the options are key
     """
     fetch = fetch or download
     failures = 0
-    entries = list(entries)
+    listed = list(entries)
     for name, hub in hubs.items():
-        for slug, e in entries:
+        for slug, e in listed:
             if isinstance(e, Excluded):
                 log(f"{name} {slug}: not copied, {e}")
                 continue
@@ -1504,20 +1587,20 @@ def run(  # noqa: C901, PLR0913 - each hub's steps in order; the options are key
                     record.setdefault("datasets", {}).setdefault(slug, {})[name] = where
                     if on_record:
                         on_record(record)
-        if record is not None and getattr(hub, "account", None):
-            record.setdefault("accounts", {})[name] = hub.account
+        if record is not None and (account := getattr(hub, "account", None)):
+            record.setdefault("accounts", {})[name] = account
     return failures
 
 
 def _one(  # noqa: PLR0913 - the options are keyword-only and named at each call
     name: str,
-    hub,
+    hub: AnyHub,
     slug: str,
     e: Entry,
-    fetch: Callable,
+    fetch: Fetch,
     *,
     work_root: Path | None,
-    log: Callable,
+    log: Log,
     refresh: bool,
 ) -> None:
     held = hub.held(e)
@@ -1553,7 +1636,7 @@ def _one(  # noqa: PLR0913 - the options are keyword-only and named at each call
     log(f"{name} {slug}: published {e.version} {url}")
 
 
-def merge_record(old: dict, new: dict) -> dict:
+def merge_record(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     """The committed record with this run's findings laid over it.
 
     A dataset or hub this run did not reach keeps what was recorded, so a run limited to some
@@ -1570,7 +1653,10 @@ def merge_record(old: dict, new: dict) -> dict:
 
 
 def render(
-    entries, out: Path, namespace: str = "publicdata-au", owner: str = "publicdataau"
+    entries: Iterable[tuple[str, Outcome]],
+    out: Path,
+    namespace: str = "publicdata-au",
+    owner: str = "publicdataau",
 ) -> None:
     """Writes what each hub would receive, without the data files, for review."""
     for slug, e in entries:
