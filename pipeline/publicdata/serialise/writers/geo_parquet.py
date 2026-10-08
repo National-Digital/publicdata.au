@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from publicdata.serialise import dumps, profile
 from publicdata.serialise.geo import _connect, _with_geometry
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _PROJJSON: dict[str, dict] = {}
 

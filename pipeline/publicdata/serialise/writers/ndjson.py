@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from publicdata.normalise import Table
 from publicdata.serialise import dumps, iter_rows, json_view
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 
 def write_ndjson(tbl: Table, header: dict, path: Path) -> None:

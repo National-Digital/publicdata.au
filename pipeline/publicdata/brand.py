@@ -9,12 +9,15 @@ import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import PIL
 from PIL import Image, ImageDraw, ImageFont, features
 
 from . import OPERATOR, SITE
-from .cache import BuildCache
+
+if TYPE_CHECKING:
+    from .cache import BuildCache
 
 NAVY = "#040453"
 ORANGE = "#f26324"

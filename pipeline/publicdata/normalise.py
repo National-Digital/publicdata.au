@@ -15,6 +15,7 @@ import json
 import re
 import zipfile
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -32,7 +33,9 @@ from .register import (
     Dataset,
     Field,
 )
-from .store import Manifest
+
+if TYPE_CHECKING:
+    from .store import Manifest
 
 ARROW_TYPES = {
     "string": pa.string(),

@@ -20,12 +20,15 @@ import time
 import urllib.parse
 import zoneinfo
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import requests
 
 from . import catalogue, store
 from .normalise import detect_encoding
-from .register import Dataset
+
+if TYPE_CHECKING:
+    from .register import Dataset
 
 TZ = zoneinfo.ZoneInfo("Australia/Brisbane")
 UNREADABLE_DATE = (TypeError, ValueError)

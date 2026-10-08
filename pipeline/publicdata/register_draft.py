@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import requests
@@ -21,6 +21,9 @@ from .fetch import UA, normalise_licence_id
 from .normalise import NormaliseError, convert, detect_encoding, read_csv, read_xlsx, xls_to_xlsx
 from .publishers import JUR_SEGMENT, PORTAL_JUR, Publisher, clean_title, slugify
 from .register import CLOSED_LICENCES, OPEN_LICENCES, Field, draft_label
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 SAMPLE_BYTES = 20_000_000
 WORKBOOK_BYTES = 200_000_000

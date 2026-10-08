@@ -11,13 +11,13 @@ import re
 import shutil
 import urllib.parse
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from . import OPERATOR, REPO, SITE, brand, explorer, figures
 from . import api_text as at
 from .build import DatasetOut, VersionOut, dataset_url, version_url
-from .cache import BuildCache
 from .cost import fleet_from_build
 from .d1 import KEEP, queryable
 from .provenance import (
@@ -47,6 +47,9 @@ from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
 from .spine import DATUM as SPINE_DATUM
 from .spine import LAYERS as SPINE_LAYERS
 from .topics import TOPICS
+
+if TYPE_CHECKING:
+    from .cache import BuildCache
 
 HOST = SITE.replace("https://", "")
 # One entity for the site, which the home page describes and every dataset is included in.

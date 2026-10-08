@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import gzip
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from publicdata.serialise import dumps
 from publicdata.serialise.geo import (
@@ -15,6 +15,9 @@ from publicdata.serialise.geo import (
     _with_geometry,
     geo_kind,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def write_pmtiles(tbl, header: dict, path: Path) -> None:

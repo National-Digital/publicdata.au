@@ -17,16 +17,19 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import requests
 
 from .cadence import kaggle_frequency
 from .provenance import NOT_ENDORSED
 from .register import GRANTS, LICENCE_CONDITIONS, OPEN_LICENCES
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
 
 SITE = "https://publicdata.au"
 UA = "publicdata-hubs (+https://publicdata.au/)"

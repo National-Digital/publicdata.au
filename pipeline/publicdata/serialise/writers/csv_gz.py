@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import gzip
 import shutil
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from publicdata.normalise import Table
 from .csv import write_csv
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 
 def write_csv_gz(tbl: Table, path: Path, vdir: Path | None = None) -> None:

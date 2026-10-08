@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import datetime as dt
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import xlsxwriter
 
-from publicdata.normalise import Table
 from publicdata.serialise import _fixed_zip, dumps, field_rows
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 
 def write_xlsx(tbl: Table, header: dict, path: Path) -> None:

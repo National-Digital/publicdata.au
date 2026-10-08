@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import sqlite3
 import struct
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from publicdata.normalise import Table
 from publicdata.serialise import SQLITE_TYPES, _meta_tables, json_view
 from publicdata.serialise.geo import _connect, _with_geometry, geo_kind
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 # OGC WKT 1 for the CRSs the register may declare. Each resolves to its EPSG code under GDAL 3.
 GPKG_SRS = {

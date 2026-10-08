@@ -10,15 +10,18 @@ import datetime as dt
 import json
 import re
 import shutil
-import sqlite3
 import zipfile
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.compute as pc
 import xlsxwriter
 
-from publicdata.normalise import Table
+if TYPE_CHECKING:
+    import sqlite3
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 # Every whole-table format, in the order the site lists them. A version whose store manifest has
 # no `caps` stamp keeps the set it was built with, Arrow included.

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from .normalise import Table
 from .serialise import json_view
+
+if TYPE_CHECKING:
+    from .normalise import Table
 
 CAP = 50_000
 EXAMPLES = 10

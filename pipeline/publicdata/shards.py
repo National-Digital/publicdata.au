@@ -5,9 +5,12 @@ deploy then builds the site from the cache those jobs filled.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .register import Dataset
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .register import Dataset
 
 # A job's share is never under this many source bytes, so a few small changes build in one job.
 FLOOR = 1_000_000_000

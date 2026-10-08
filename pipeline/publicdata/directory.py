@@ -11,6 +11,7 @@ import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
 from . import REPO, SITE
@@ -27,7 +28,9 @@ from .publishers import (
     org_key,
     resolve,
 )
-from .register import Dataset
+
+if TYPE_CHECKING:
+    from .register import Dataset
 
 HOST = SITE.replace("https://", "")
 # A publisher page with fewer listed datasets than this, and nothing served, is kept out of the

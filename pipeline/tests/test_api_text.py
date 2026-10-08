@@ -2,7 +2,7 @@ import html
 import json
 import re
 import shutil
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -10,6 +10,9 @@ from publicdata import api_text as at
 from publicdata import register
 
 from .conftest import ROOT
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 FUNCTIONS = ROOT / "functions"
 S = at.spec()

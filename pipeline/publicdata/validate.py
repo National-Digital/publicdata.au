@@ -4,11 +4,14 @@ hand: a CI checkout has the manifests alone, a fetch runner or a working copy ha
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
 from .serialise.profile import INT32, misfits, query_key
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _parquet_misfits(path: Path, cols) -> list[str]:

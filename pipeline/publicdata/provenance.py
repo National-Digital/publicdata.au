@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import TYPE_CHECKING
 
 from . import OPERATOR, SITE
-from .register import Dataset
 from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
 from .spine import LAYERS
-from .store import Manifest
+
+if TYPE_CHECKING:
+    from .register import Dataset
+    from .store import Manifest
 
 NOT_ENDORSED = "This is an independent republication. The publisher has not endorsed this site."
 OPERATOR_URL = "https://nationaldigital.com.au/"

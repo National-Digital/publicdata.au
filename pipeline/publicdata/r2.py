@@ -15,8 +15,11 @@ import mimetypes
 import os
 import re
 import sys
-from collections.abc import Callable
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
 TYPES = {
     ".parquet": "application/vnd.apache.parquet",

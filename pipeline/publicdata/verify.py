@@ -16,6 +16,7 @@ import random
 import shutil
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import published, store
 from .cache import (
@@ -31,7 +32,9 @@ from .cache import (
     writer_files,
     writer_keys,
 )
-from .register import Dataset
+
+if TYPE_CHECKING:
+    from .register import Dataset
 
 REPO = PACKAGE.parents[1]
 # A pull request's check builds about this many source bytes, and of each dataset only the newest

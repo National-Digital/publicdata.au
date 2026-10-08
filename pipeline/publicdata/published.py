@@ -6,11 +6,14 @@ from __future__ import annotations
 
 import tempfile
 import threading
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .cache import _link_or_copy
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # The deploy reads every version's Parquet for its figures, so downloads run side by side.
 WORKERS = 16

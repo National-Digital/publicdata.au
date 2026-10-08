@@ -10,10 +10,13 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from functools import lru_cache
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 ROWID = "rowid"
 # SQLite sums floats with Kahan-Babuska-Neumaier compensation, in row order, and averages the

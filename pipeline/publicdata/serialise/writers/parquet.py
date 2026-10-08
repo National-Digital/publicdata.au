@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
-from publicdata.normalise import Table
 from publicdata.serialise import dumps, profile
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 
 def write_parquet(

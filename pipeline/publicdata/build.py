@@ -12,6 +12,7 @@ import tarfile
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -24,7 +25,6 @@ from .diff import diff
 from .normalise import Table, normalise
 from .provenance import OPERATOR_URL
 from .provenance import header as prov_header
-from .register import Dataset
 from .serialise import (
     CAPS,
     MEASURED,
@@ -50,6 +50,9 @@ from .serialise.profile import (
     signature,
     widen,
 )
+
+if TYPE_CHECKING:
+    from .register import Dataset
 
 REGISTER_DIR = Path(__file__).resolve().parents[2] / "register"
 

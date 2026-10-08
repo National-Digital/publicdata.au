@@ -14,14 +14,17 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
-from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from . import dumps
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 VERSION = "1"
 # The footer key a reader checks before it relies on the order, the sizes and the page index.

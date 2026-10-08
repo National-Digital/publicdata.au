@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 
-from publicdata.normalise import Table
 from publicdata.serialise import (
     DUCKDB_TYPES,
     duckdb_comment,
@@ -13,6 +12,11 @@ from publicdata.serialise import (
     field_rows,
     profile,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 
 def write_duckdb(tbl: Table, header: dict, path: Path) -> None:

@@ -20,13 +20,16 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
 from . import SITE, store
 from .cadence import FEED_MAX, per_year
 from .d1 import MAX_CSV, queryable
-from .register import Dataset
+
+if TYPE_CHECKING:
+    from .register import Dataset
 
 GB = 10**9
 BUDGET_GB_YEAR = 5.0

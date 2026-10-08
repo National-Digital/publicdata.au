@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pyarrow as pa
-
-from publicdata.normalise import Table
 from publicdata.serialise import dumps, iter_rows, json_view
 from publicdata.serialise.geo import _connect, _with_geometry, geo_kind
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pyarrow as pa
+
+    from publicdata.normalise import Table
 
 
 def write_geojson(tbl: Table, header: dict, path: Path, rows: pa.Table | None = None) -> None:

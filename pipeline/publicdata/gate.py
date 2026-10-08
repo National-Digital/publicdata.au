@@ -9,12 +9,15 @@ import struct
 import sys
 from html import escape as html_escape
 from html import unescape as html_unescape
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import SITE, explorer, serialise, structured
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
 from .serialise.profile import query_key
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
 PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.DOTALL)

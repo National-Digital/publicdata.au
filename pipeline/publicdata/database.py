@@ -14,11 +14,11 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
 from .normalise import NormaliseError
-from .register import Dataset, Field, TableSpec
 from .serialise import (
     DUCKDB_TYPES,
     SQL_TYPES,
@@ -29,7 +29,10 @@ from .serialise import (
     pretty,
     profile,
 )
-from .store import Manifest
+
+if TYPE_CHECKING:
+    from .register import Dataset, Field, TableSpec
+    from .store import Manifest
 
 # What a build may hold in memory while loading one table. The runner has more, and the rest is
 # left for the operating system's file cache, which the reads lean on.

@@ -16,12 +16,15 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote, urlparse
 
 import requests
 
 from . import store
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 UA = "publicdata.au catalogue (+https://publicdata.au/about/)"
 SLUG = "catalogue"

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 
-from publicdata.normalise import Table
 from publicdata.serialise import dumps
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 
 def write_arrow(tbl: Table, header: dict, path: Path) -> None:
