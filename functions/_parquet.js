@@ -133,6 +133,7 @@ async function readFooter(env, key) {
   const len = view.getUint32(buf.byteLength - 8, true) + 8;
   if (len > FOOTER_MAX) throw new Error(`${key} has a footer of ${len} bytes`);
   if (len > buf.byteLength) buf = await readRange(env, key, size - len, len, etag);
+  const from = size - buf.byteLength;
   const metadata = parquetMetadata(buf.slice(buf.byteLength - len).buffer, { parsers });
   const kv = (metadata.key_value_metadata || []).find((x) => x.key === 'publicdata');
   const header = kv ? JSON.parse(kv.value) : null;
@@ -162,13 +163,18 @@ async function readFooter(env, key) {
     start += rows;
     return out;
   });
+  // The page index is written just before the footer, so the tail read often holds all of it;
+  // that much of the tail is kept, and no read is spent on the index.
+  const spans = groups.flatMap((g) => Object.values(g.chunks).flatMap((c) => [c.ci, c.oi].filter(Boolean)));
+  const lo = spans.length ? Math.min(...spans.map((x) => x.start)) : -1;
+  const index = lo >= from ? { start: lo, end: size - len, buf: buf.slice(lo - from, buf.byteLength - len) } : null;
   const mark = (metadata.key_value_metadata || []).find((x) => x.key === PROFILE);
   const profiled = !!mark && PROFILES.has(mark.value);
   // The order a profile file is written in: its sort, then the key, then the source position.
   const leaves = metadata.row_groups.length ? metadata.row_groups[0].columns : [];
   const sortedBy = ((metadata.row_groups[0] && metadata.row_groups[0].sorting_columns) || [])
     .map((c) => ({ name: leaves[c.column_idx].meta_data.path_in_schema[0], desc: !!c.descending, nullsFirst: !!c.nulls_first }));
-  return { key, size, etag, metadata, header, fields, types, elements, groups, rows: start, profiled, sortedBy, pages: new Map() };
+  return { key, size, etag, metadata, header, fields, types, elements, groups, rows: start, profiled, sortedBy, pages: new Map(), index };
 }
 
 // Where a version's rows are: { files, parts, copy }, or null when the version has none.
@@ -402,7 +408,10 @@ async function pageIndex(env, entry, names) {
   if (todo.length) {
     const want = [];
     for (const n of todo) for (const g of entry.groups) { const c = g.chunks[n]; if (c.oi) want.push(c.oi, ...(c.ci ? [c.ci] : [])); }
-    const read = fetchAll(env, entry, coalesce(want));
+    const held = entry.index;
+    const inTail = (r) => held && held.start <= r.start && r.end <= held.end;
+    const read = fetchAll(env, entry, coalesce(want.filter((r) => !inTail(r))))
+      .then((got) => (want.some(inTail) ? [held, ...got] : got));
     for (const n of todo) {
       entry.pages.set(n, read.then((blocks) => entry.groups.map((g) => {
         const c = g.chunks[n];

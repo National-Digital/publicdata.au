@@ -713,7 +713,8 @@ returns the same rows in the same order. An answer names the periods it read and
 manifest, and takes the attribution the manifest records. A sorted profile
 file has a page index, and one without is read a column chunk at a time. Each version's
 footer, and the page index of each column a query touches, are read once per isolate and held to
-the file's ETag. A query copy is written again in place when its entry's `sort`, `lookup` or
+the file's ETag. The page index is written just before the footer, so when the 64 KB read of a
+file's tail holds it too, that part of the tail is kept and the index costs no read of its own. A query copy is written again in place when its entry's `sort`, `lookup` or
 `int32` changes, so every range read passes `onlyIf: { etagMatches }`; a read the copy refuses
 drops the footer, and the call reads it again once. A footer over a minute old is checked against
 the copy's ETag before it is used. Row-group

@@ -195,6 +195,16 @@ test('every range a call reads across parts is charged to its budget, with near 
   }
 });
 
+test("a part's page index comes with its footer in one read, when the tail holds both", async () => {
+  forget(BY_YEAR, V);
+  reads.length = 0;
+  const r = await parquetAggregate(env, at[BY_YEAR], new URLSearchParams('year=eq.2020&lga=eq.Logan&group=day'), manifestUrl(BY_YEAR));
+  const key = `d/${BY_YEAR}/v/2026-03-01/parts/2020.parquet`;
+  assert.ok(r.used.ranges > 0);
+  // One read of the tail for the footer and the page index, then only the data the budget counts.
+  assert.equal(reads.filter((x) => x.key === key).length, 1 + r.used.ranges, JSON.stringify(reads));
+});
+
 test('the period bounds of a part are never narrower than its rows', () => {
   assert.deepEqual(periodStat('2019', 'year', 'integer', 3), { min: 2019, max: 2019, nulls: 0, rows: 3 });
   assert.deepEqual(periodStat('2019-Q4', 'quarter', 'date', 3), { min: '2019-10-01', max: '2019-12-31', nulls: 0, rows: 3 });
