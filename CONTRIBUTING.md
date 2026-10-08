@@ -32,6 +32,7 @@ python -m publicdata register validate
 python -m publicdata build --fixtures --out /tmp/pd
 python -m publicdata gate /tmp/pd
 ruff check . && ruff format --check .
+mypy
 pytest -n auto
 cd .. && node --test functions/*.test.mjs scripts/*.test.mjs
 ```
@@ -389,6 +390,12 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   `pipeline/` or `clients/python/`, as CI does; `ruff check --fix` and `ruff format` apply the
   fixes ruff is sure of. Since `ALL` means every rule the pinned version knows, a ruff upgrade
   goes in a pull request of its own that fixes the findings its new rules bring.
+- Both Python packages are type checked by mypy in strict mode, tests included. mypy, the stub
+  packages and its settings are pinned in each `pyproject.toml`. Run `mypy` in `pipeline/` or
+  `clients/python/`, as CI does. The client is checked against Python 3.10, the oldest it
+  supports. An ignore names its code and gives its reason on the same line, as in
+  `# type: ignore[attr-defined]  # the stubs lack Table.sort_by`, and mypy fails one that is no
+  longer needed.
 - Before writing a helper, search for one that already exists. Follow the conventions of the
   neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
