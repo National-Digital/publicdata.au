@@ -10,7 +10,6 @@ import pytest
 from publicdata.diff import diff
 from publicdata.normalise import Table, normalise
 from publicdata.register import Field
-from publicdata.register import Field as F2
 from publicdata.serialise import iter_rows, json_view
 
 from .conftest import make_dataset, make_manifest
@@ -35,7 +34,7 @@ def test_diff_by_key():
 
 
 def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys():
-    fields = [F2("id", "Id", "integer"), F2("n", "N", "integer")]
+    fields = [Field("id", "Id", "integer"), Field("n", "N", "integer")]
     ds = make_dataset(fields, key=("id",), suppression=("<5",))
     a_csv, b_csv = b"Id,N\n1,<5\n2,7\n", b"Id,N\n1,<5\n2,8\n"
     a = normalise(ds, make_manifest(a_csv, version="2026-01-01"), a_csv)
@@ -140,7 +139,7 @@ def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions():
     rng = random.Random(7)  # noqa: S311 - a seeded sample, repeatable on purpose
     for trial in range(60):
         key = ("id",) if trial % 3 else ("region", "id")
-        fields = [F2(n, n) for n in ("id", "region", "n", "x", "day", "ok")]
+        fields = [Field(n, n) for n in ("id", "region", "n", "x", "day", "ok")]
         ds = make_dataset(fields, key=key)
         kt = rng.choice(["integer", "string"])
         ta = _random_table(rng, kt, False, False, rng.randint(0, 40))
@@ -163,7 +162,7 @@ def test_the_arrow_diff_matches_the_per_row_reference_on_random_versions():
 
 
 def test_a_blank_key_part_matches_itself_across_versions():
-    fields = [F2("offence", "Offence"), F2("sub", "Sub"), F2("n", "N", "integer")]
+    fields = [Field("offence", "Offence"), Field("sub", "Sub"), Field("n", "N", "integer")]
     ds = make_dataset(fields, key=("offence", "sub"))
     a_csv = b"Offence,Sub,N\nAssault,,5\nTheft,Shop,3\nArson,,1\n"
     b_csv = b"Offence,Sub,N\nAssault,,6\nTheft,Shop,3\nFraud,,2\n"

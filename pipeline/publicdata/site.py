@@ -1569,11 +1569,11 @@ def _md_twin_dataset(
     ]
     if console:
         api = f"{SITE}/api/v1/datasets/{ds.slug}/"
-        A = at.spec()["api"]
+        api_spec = at.spec()["api"]
         lines += [
             "## Query",
             "",
-            f"{A['summary']} Rows: {api}rows. Counts and sums: {api}aggregate.",
+            f"{api_spec['summary']} Rows: {api}rows. Counts and sums: {api}aggregate.",
             "",
             f"- Rows: {SITE}{_example_query(ds.slug, console, 'rows')}",
             f"- Aggregate: {SITE}{_example_query(ds.slug, console, 'aggregate')}",
@@ -1582,7 +1582,7 @@ def _md_twin_dataset(
             "",
             *[f"- `{n}`: {at.param_text(n)}" for n in at.query_params()],
             "",
-            f"{A['versions']} {A['rate_limit']} OpenAPI for this dataset: {base}openapi.json",
+            f"{api_spec['versions']} {api_spec['rate_limit']} OpenAPI for this dataset: {base}openapi.json",
             "",
         ]
     if explore:
@@ -1998,31 +1998,31 @@ OPENAI_APPS_CHALLENGE = "WMdjLxFbqZsMxKB4xz4o3sAnuyJu1zFwN8jcBnjG3aw"
 
 def _api_doc() -> dict:
     """The query API's help on each dataset page, as HTML."""
-    S = at.spec()
-    A = S["api"]
+    spec = at.spec()
+    api_spec = spec["api"]
     return {
-        "limits": S["limits"],
-        "summary": at.as_html(A["summary"], "mono"),
-        "filters": at.as_html(A["filters"], "mono"),
+        "limits": spec["limits"],
+        "summary": at.as_html(api_spec["summary"], "mono"),
+        "filters": at.as_html(api_spec["filters"], "mono"),
         "operators": [
-            (o["syntax"], at.as_html(o["description"], "mono")) for o in S["operators"].values()
+            (o["syntax"], at.as_html(o["description"], "mono")) for o in spec["operators"].values()
         ],
         "params": [(n, at.as_html(at.param_text(n), "mono")) for n in at.query_params()],
-        "versions": at.as_html(A["versions"], "mono"),
-        "rate_limit": at.as_html(A["rate_limit"], "mono"),
-        "mcp": at.as_html(S["mcp"]["intro"], "mono"),
+        "versions": at.as_html(api_spec["versions"], "mono"),
+        "rate_limit": at.as_html(api_spec["rate_limit"], "mono"),
+        "mcp": at.as_html(spec["mcp"]["intro"], "mono"),
     }
 
 
 def _agents_query_api() -> str:
-    A = at.spec()["api"]
+    api_spec = at.spec()["api"]
     rows = "/api/v1/datasets/au-road-deaths/rows?year=eq.2025&amp;state=eq.QLD"
     agg = "/api/v1/datasets/au-road-deaths/aggregate?group=state&amp;metric=count&amp;year=eq.2025"
     return (
-        f'{at.as_html(A["rows"])} For example <a href="{rows}&amp;select=month,road_user,age&amp;limit=5"><code>{rows}</code></a>. '
-        f'{at.as_html(A["aggregate"])} For example <a href="{agg}"><code>?group=state&amp;metric=count&amp;year=eq.2025</code></a>. '
-        f"{at.as_html(A['versions'])} {at.as_html(at.filter_help())} {at.as_html(A['provenance'])} "
-        f"<code>/openapi.json</code> describes every path, and each dataset's <code>/d/&lt;slug&gt;/openapi.json</code> lists its fields as parameters. {at.as_html(A['rate_limit'])}"
+        f'{at.as_html(api_spec["rows"])} For example <a href="{rows}&amp;select=month,road_user,age&amp;limit=5"><code>{rows}</code></a>. '
+        f'{at.as_html(api_spec["aggregate"])} For example <a href="{agg}"><code>?group=state&amp;metric=count&amp;year=eq.2025</code></a>. '
+        f"{at.as_html(api_spec['versions'])} {at.as_html(at.filter_help())} {at.as_html(api_spec['provenance'])} "
+        f"<code>/openapi.json</code> describes every path, and each dataset's <code>/d/&lt;slug&gt;/openapi.json</code> lists its fields as parameters. {at.as_html(api_spec['rate_limit'])}"
     )
 
 
@@ -2082,8 +2082,8 @@ def _query_paths(
             return f" From {e['min']} to {e['max']}."
         return ""
 
-    S = at.spec()
-    lim, R, P = S["limits"], S["responses"], S["paths"]
+    spec = at.spec()
+    lim, responses, path_specs = spec["limits"], spec["responses"], spec["paths"]
     schemas = {
         "select": {"type": "string"},
         "order": {"type": "string"},
@@ -2116,19 +2116,19 @@ def _query_paths(
         "description": at.param_text("version"),
     }
     ok = {
-        "200": {"description": R["200"]},
-        "400": {"description": R["400"]},
-        "404": {"description": R["404"]},
+        "200": {"description": responses["200"]},
+        "400": {"description": responses["400"]},
+        "404": {"description": responses["404"]},
         "429": {
-            "description": R["429"],
+            "description": responses["429"],
             "headers": {
                 "Retry-After": {
                     "schema": {"type": "integer"},
-                    "description": R["retry_after"],
+                    "description": responses["retry_after"],
                 },
                 "RateLimit-Policy": {
                     "schema": {"type": "string"},
-                    "description": R["ratelimit_policy"],
+                    "description": responses["ratelimit_policy"],
                 },
             },
             "content": {
@@ -2166,10 +2166,10 @@ def _query_paths(
             paths[path] = {
                 "get": {
                     "tags": ["query"],
-                    "summary": at.fill(P["rows"]["summary"], {"title": "any dataset"}),
+                    "summary": at.fill(path_specs["rows"]["summary"], {"title": "any dataset"}),
                     "operationId": op_id,
                     "description": at.fill(
-                        P["rows"]["description"], {"title": "a dataset", "when": when}
+                        path_specs["rows"]["description"], {"title": "a dataset", "when": when}
                     )
                     + " "
                     + FILTER_HELP
@@ -2208,10 +2208,10 @@ def _query_paths(
             paths[path] = {
                 "get": {
                     "tags": ["query"],
-                    "summary": at.fill(P["rows"]["summary"], {"title": ds.title}),
+                    "summary": at.fill(path_specs["rows"]["summary"], {"title": ds.title}),
                     "operationId": f"queryRows_{op}{suffix}",
                     "description": at.fill(
-                        P["rows"]["description"], {"title": ds.title, "when": when}
+                        path_specs["rows"]["description"], {"title": ds.title, "when": when}
                     )
                     + " "
                     + FILTER_HELP,
@@ -2233,9 +2233,9 @@ def _query_paths(
         paths[path] = {
             "get": {
                 "tags": ["query"],
-                "summary": P["aggregate"]["summary"],
+                "summary": path_specs["aggregate"]["summary"],
                 "operationId": op_id,
-                "description": at.fill(P["aggregate"]["description"], {"when": when})
+                "description": at.fill(path_specs["aggregate"]["description"], {"when": when})
                 + " "
                 + FILTER_HELP,
                 "parameters": [slug_p, *extra, *agg],
@@ -2245,11 +2245,11 @@ def _query_paths(
     paths["/api/v1/datasets/{slug}/versions"] = {
         "get": {
             "tags": ["query"],
-            "summary": P["versions"]["summary"],
+            "summary": path_specs["versions"]["summary"],
             "operationId": "queryVersions",
             "parameters": [slug_p],
             "responses": {
-                "200": {"description": R["200_versions"]},
+                "200": {"description": responses["200_versions"]},
                 "404": ok["404"],
                 "429": ok["429"],
             },
@@ -2458,14 +2458,14 @@ def _dataset_openapi(o: DatasetOut, console: dict) -> dict:
         "description": at.param_text("slug"),
     }
     paths = _query_paths([o], slug_p, {e["name"]: e for e in console["fields"]})
-    A = at.spec()["api"]
+    api_spec = at.spec()["api"]
     return {
         "openapi": "3.1.0",
         "info": {
             "title": f"{ds.title} query API",
             "version": o.latest.manifest.version,
             "summary": f"Filter, page and aggregate {ds.title} from {ds.publisher.name}.",
-            "description": f"{A['summary']} {A['rate_limit']} {A['provenance']} {ds.publisher.name} has not endorsed this site. The whole site is described in {SITE}/openapi.json.",
+            "description": f"{api_spec['summary']} {api_spec['rate_limit']} {api_spec['provenance']} {ds.publisher.name} has not endorsed this site. The whole site is described in {SITE}/openapi.json.",
             "license": {"name": ds.licence.title, "url": ds.licence.url},
         },
         "servers": [{"url": SITE}],

@@ -43,18 +43,18 @@ def write_pmtiles(tbl, header: dict, path: Path) -> None:
         "FROM t WHERE geometry IS NOT NULL"
     )
     props = ", ".join(f"'{n}': \"{n}\"" for n in names)
-    W = WEB_MERCATOR
+    mercator = WEB_MERCATOR
     tiles: list[tuple[int, bytes]] = []
     for z in range(maxzoom + 1):
-        m = 2 * W / 2**z
+        m = 2 * mercator / 2**z
         rows = con.execute(
             f"""
             WITH s AS (SELECT * EXCLUDE (g), ST_SimplifyPreserveTopology(g, {m / TILE_EXTENT}) AS g FROM f),
             b AS (SELECT *,
-                    greatest(0, floor((ST_XMin(g) + {W}) / {m}))::INTEGER AS x0,
-                    least({2**z - 1}, floor((ST_XMax(g) + {W}) / {m}))::INTEGER AS x1,
-                    greatest(0, floor(({W} - ST_YMax(g)) / {m}))::INTEGER AS y0,
-                    least({2**z - 1}, floor(({W} - ST_YMin(g)) / {m}))::INTEGER AS y1
+                    greatest(0, floor((ST_XMin(g) + {mercator}) / {m}))::INTEGER AS x0,
+                    least({2**z - 1}, floor((ST_XMax(g) + {mercator}) / {m}))::INTEGER AS x1,
+                    greatest(0, floor(({mercator} - ST_YMax(g)) / {m}))::INTEGER AS y0,
+                    least({2**z - 1}, floor(({mercator} - ST_YMin(g)) / {m}))::INTEGER AS y1
                   FROM s WHERE NOT ST_IsEmpty(g)),
             t AS (SELECT b.*, rx.x::INTEGER AS x, ry.y::INTEGER AS y
                   FROM b, range(x0, x1 + 1) rx(x), range(y0, y1 + 1) ry(y)),
