@@ -29,7 +29,7 @@ def projjson(crs: str) -> dict[str, object]:
             con.execute(
                 f"COPY (SELECT ST_SetCRS(ST_Point(0, 0), '{crs}') AS g) TO '{t}/c.parquet' (FORMAT parquet)"
             )
-            geo = json.loads(pq.read_metadata(f"{t}/c.parquet").metadata[b"geo"])  # type: ignore[index]  # DuckDB writes the geo key
+            geo = json.loads((pq.read_metadata(f"{t}/c.parquet").metadata or {})[b"geo"])
         con.close()
         _PROJJSON[crs] = geo["columns"]["g"]["crs"]
     return _PROJJSON[crs]

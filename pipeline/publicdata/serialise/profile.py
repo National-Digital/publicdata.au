@@ -154,9 +154,9 @@ def misfits(t: pa.Table, cols: Sequence[str]) -> list[str]:
     for c in cols:
         if c not in t.column_names:
             continue
-        mm = pc.min_max(t.column(c)).as_py()
-        if mm["min"] is not None and not (INT32[0] <= mm["min"] and mm["max"] <= INT32[1]):  # type: ignore[call-overload]  # min_max answers a struct, which as_py gives as a dict
-            out.append(f"{c} holds {mm['min']} to {mm['max']}, outside 32 bits")  # type: ignore[call-overload]  # min_max answers a struct, a dict in Python
+        mm: dict[str, Any] = pc.min_max(t.column(c)).as_py()  # type: ignore[assignment]  # pyarrow-stubs 20 gives a struct's as_py as a list
+        if mm["min"] is not None and not (INT32[0] <= mm["min"] and mm["max"] <= INT32[1]):
+            out.append(f"{c} holds {mm['min']} to {mm['max']}, outside 32 bits")
     return out
 
 

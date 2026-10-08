@@ -11,8 +11,7 @@ if TYPE_CHECKING:
 
     from .normalise import Arr
 
-# The stubs type fill_null as coalesce, whose fill must be an Arrow value and not a Python one.
-_fill_null: Callable[[Arr, object], Arr] = pc.fill_null  # type: ignore[assignment]  # as above
+_fill_null: Callable[[Arr, object], Arr] = pc.fill_null  # type: ignore[assignment]  # the stubs type fill_null as coalesce
 
 
 def fill_null(values: Arr, fill: object) -> Arr:

@@ -36,10 +36,10 @@ def write_duckdb(tbl: Table, header: Header, path: Path) -> None:
         lay = tbl.manifest.parquet
         perm = profile.order_of(tbl, lay["sort"], lay["key"]) if lay else None
         # One insert: DuckDB writes a larger file when the rows arrive in several.
-        src = tbl.table
+        src: pa.Table | pa.RecordBatchReader = tbl.table
         if perm is not None:
-            parts = (b for part in profile.chunks(src, perm) for b in part.to_batches())
-            src = pa.RecordBatchReader.from_batches(src.schema, parts)  # type: ignore[assignment]  # DuckDB registers either
+            parts = (b for part in profile.chunks(tbl.table, perm) for b in part.to_batches())
+            src = pa.RecordBatchReader.from_batches(tbl.table.schema, parts)
         con.register("src", src)
         con.execute("INSERT INTO records SELECT * FROM src")
         con.unregister("src")

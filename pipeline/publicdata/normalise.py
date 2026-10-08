@@ -178,7 +178,7 @@ def _drop_blank_rows(t: pa.Table) -> pa.Table:
 
 def _blank(c: pa.ChunkedArray[Any]) -> Arr:
     trimmed = pc.utf8_trim_whitespace(fill_null(c, ""))
-    blank: Arr = pc.equal(trimmed, "")  # type: ignore[call-overload]  # the stubs take no Python scalar
+    blank: Arr = pc.equal(trimmed, "")  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
     return blank
 
 
