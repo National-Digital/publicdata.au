@@ -1860,7 +1860,7 @@ PROSE = {
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
 <li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there. Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles, csv.gz and the publisher's file. CSV, NDJSON, JSON and GeoJSON are sent whole, gzipped when the client accepts it, so a reader that scans lazily or seeks, such as polars <code>scan_csv</code> or fsspec, should read data.parquet or data.csv.gz.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/SHA256SUMS</code> lists the SHA-256 of every file in the version, each under the name it downloads as, such as <code>&lt;slug&gt;_&lt;date&gt;.csv</code>. Run <code>sha256sum -c --ignore-missing SHA256SUMS</code> beside the files (<code>shasum -a 256 -c --ignore-missing SHA256SUMS</code> on a Mac), or save them with <code>curl -OJ</code> so the names match. Each list carries a GitHub artifact attestation from the deploy that wrote it, which <code>gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au --source-ref refs/heads/main</code> checks.</li>
 </ul>
@@ -2700,7 +2700,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
             "/d/{slug}/v/{version}/data.{format}": {
                 "get": {
                     "tags": ["version"],
-                    "summary": "The whole dataset in one format. Cached one year. Range requests are honoured.",
+                    "summary": "The whole dataset in one format. Cached one year. Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles and csv.gz. CSV, NDJSON, JSON and GeoJSON are sent whole, gzipped when the client accepts it, so a lazy or range reader should use parquet or csv.gz.",
                     "operationId": "getData",
                     "parameters": [slug_p, ver_p, fmt_p],
                     "responses": {
