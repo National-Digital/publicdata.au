@@ -11,7 +11,7 @@ import re
 import shutil
 import urllib.parse
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
@@ -52,7 +52,14 @@ from .spine import LAYERS as SPINE_LAYERS
 from .topics import TOPICS
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
     from .cache import BuildCache
+    from .directory import Directory, Page
+    from .publishers import Publisher
+    from .records import Records
+    from .register import Example, Field, Sample
+    from .store import Manifest
 
 HOST = SITE.replace("https://", "")
 # One entity for the site, which the home page describes and every dataset is included in.
@@ -94,10 +101,24 @@ JUR_LONG = {
     "Local": "Local government",
 }
 STATUS_LABEL = {"blocked": "blocked by licence", "assessing": "licence under review"}
+
+
 # The home page map: the datasets drawn, each with the condition that keeps the rows drawn (or
 # None for every row) and the states its rows cover ("all", or None for the publisher's own).
 # A state no dataset covers is drawn hatched, so it reads as unpublished rather than empty.
-HERO = {
+class _HeroDataset(TypedDict):
+    where: dict[str, Any] | None
+    states: str
+
+
+class _Hero(TypedDict):
+    datasets: dict[str, _HeroDataset]
+    lede: str
+    what: str
+    why: str
+
+
+HERO: _Hero = {
     "datasets": {"au-eucalypt-records": {"where": None, "states": "all"}},
     "lede": "{total} eucalypt records from the herbaria and flora atlases of every state and territory, since 1770.",
     "what": "eucalypt records",
@@ -143,7 +164,7 @@ def fmt_size(n: int | None) -> str:
     return f"{n} B"
 
 
-def fmt_int(n: int) -> str:
+def fmt_int(n: float) -> str:
     return f"{n:,}"
 
 
@@ -183,7 +204,7 @@ def _write(out: Path, rel: str, text: str) -> None:
     p.write_text(text, encoding="utf-8")
 
 
-def _change_words(c: dict | None) -> str:
+def _change_words(c: dict[str, Any] | None) -> str:
     """A diff without a key, or a database's, compares row counts and has no added or removed."""
     if not c:
         return ""
@@ -192,7 +213,7 @@ def _change_words(c: dict | None) -> str:
     return f" ({c['added']} added, {c['removed']} removed, {c['changed']} changed)"
 
 
-def _version_view(ds: Dataset, v, change: dict | None) -> dict:
+def _version_view(ds: Dataset, v: VersionOut, change: dict[str, Any] | None) -> dict[str, Any]:
     m = v.manifest
     return {
         "version": m.version,
@@ -214,11 +235,16 @@ def _version_view(ds: Dataset, v, change: dict | None) -> dict:
     }
 
 
+def _newest(o: DatasetOut) -> VersionOut:
+    """The newest version of a dataset the site lists, which always has one."""
+    return o.latest  # type: ignore[return-value]  # every dataset the site lists has a version
+
+
 def collection_url(collection: str) -> str:
     return f"{SITE}/c/{collection}/"
 
 
-def _years(ds: Dataset, m, span: str = "") -> str:
+def _years(ds: Dataset, m: Manifest, span: str = "") -> str:
     """The years the data covers, in words.
 
     That is '2001 to 2026' when both ends are the publisher's own, else the full years the chart
@@ -261,8 +287,9 @@ def _file_formats_text() -> str:
     """Which formats a version has, from api.json, with the limits filled in from CAPS."""
     caps = serialise.CAPS
     mb = {f"{f}_mb": caps[f][1] // 1_000_000 for f in caps}
+    text: str = at.spec()["site"]["file_formats"]
     return at.fill(
-        at.spec()["site"]["file_formats"],
+        text,
         {**mb, "excel_rows": serialise.EXCEL_MAX_ROWS, "json_rows": serialise.JSON_MAX_ROWS},
     )
 
@@ -348,7 +375,9 @@ def _seo_description(ds: Dataset, v: VersionOut, span: str = "") -> str:
     return " ".join(parts)
 
 
-def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[tuple[str, str]]:
+def _faq(
+    ds: Dataset, v: VersionOut, partitions: dict[str, Any], span: str = ""
+) -> list[tuple[str, str]]:
     m = v.manifest
     base = dataset_url(ds.slug)
     vbase = version_url(ds.slug, m.version)
@@ -461,14 +490,14 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
     return out
 
 
-def _temporal(ds: Dataset, m) -> str | None:
+def _temporal(ds: Dataset, m: Manifest) -> str | None:
     """Only what the publisher states: a start from the register and the publisher's as-at."""
     if ds.temporal_start and m.as_at:
         return f"{ds.temporal_start}/{m.as_at}"
     return None
 
 
-def copies_of(record: dict | None, slug: str) -> list[dict]:
+def copies_of(record: dict[str, Any] | None, slug: str) -> list[dict[str, Any]]:
     """Where a dataset is also published, in a fixed order.
 
     It is read from the record the Hubs job commits in store/hubs.json. Only copies the job found
@@ -491,10 +520,12 @@ def copies_of(record: dict | None, slug: str) -> list[dict]:
     return out
 
 
-def _dataset_jsonld(ds: Dataset, o: DatasetOut, copies: list[dict] | None = None) -> dict:
+def _dataset_jsonld(
+    ds: Dataset, o: DatasetOut, copies: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     copies = copies or []
     doi = next((c["doi"] for c in copies if c.get("doi")), None)
-    v = o.latest
+    v = _newest(o)
     m = v.manifest
     base = dataset_url(ds.slug)
     vbase = version_url(ds.slug, m.version)
@@ -569,7 +600,7 @@ def _dataset_jsonld(ds: Dataset, o: DatasetOut, copies: list[dict] | None = None
     }
 
 
-def _breadcrumbs(items: list[tuple[str, str]]) -> dict:
+def _breadcrumbs(items: list[tuple[str, str]]) -> dict[str, Any]:
     return {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
@@ -580,7 +611,7 @@ def _breadcrumbs(items: list[tuple[str, str]]) -> dict:
     }
 
 
-def _faq_jsonld(faq: list[tuple[str, str]]) -> dict:
+def _faq_jsonld(faq: list[tuple[str, str]]) -> dict[str, Any]:
     return {
         "@context": "https://schema.org",
         "@type": "FAQPage",
@@ -591,8 +622,8 @@ def _faq_jsonld(faq: list[tuple[str, str]]) -> dict:
     }
 
 
-def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict:
-    v = o.latest
+def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict[str, Any]:
+    v = _newest(o)
     m = v.manifest
     base = dataset_url(ds.slug)
     vbase = version_url(ds.slug, m.version)
@@ -656,14 +687,14 @@ def _files_of(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
     return [(f"data.{fmt}", fmt) for fmt in sorted(_fmts(ds, v), key=lambda f: f != "parquet")]
 
 
-def _all_fields(ds: Dataset) -> list[tuple[str, object]]:
+def _all_fields(ds: Dataset) -> list[tuple[str, Field]]:
     """(name, field) for every published field; a database's are named table.field."""
     if ds.kind == "database":
         return [(f"{t.name}.{f.name}", f) for t in ds.tables for f in t.fields]
     return [(f.name, f) for f in ds.fields]
 
 
-def _row(ds: Dataset, o: DatasetOut | None, fig: dict | None = None) -> dict:
+def _row(ds: Dataset, o: DatasetOut | None, fig: dict[str, Any] | None = None) -> dict[str, Any]:
     latest = o.latest if o and o.versions else None
     d = {
         "slug": ds.slug,
@@ -720,7 +751,7 @@ def _format_note(ds: Dataset, key: str, rows: int) -> str:
     return note.format(
         rows=fmt_int(rows),
         kind=kind,
-        maxzoom=(ds.geometry or {}).get("maxzoom", 10),
+        maxzoom=ds.geometry.get("maxzoom", 10) if ds.geometry else 10,
     )
 
 
@@ -740,7 +771,7 @@ def _default_format(ds: Dataset, latest: VersionOut) -> str:
     return "csv" if "csv" in have else next(iter(_fmts(ds, latest)))
 
 
-def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
+def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """The format buttons and what site.js needs for each: the file and its note.
 
     The default format comes first and is the one pressed.
@@ -783,14 +814,14 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
 SAMPLE_ROWS = 10
 
 
-def _sample(ds: Dataset, db: Path, within: dict | None = None) -> dict:
+def _sample(ds: Dataset, db: Path, within: dict[str, Any] | None = None) -> dict[str, Any]:
     """The page's sample rows, with a heading and a note that say how they were picked.
 
     The rows are the register's sample, else the newest rows first with the partition field's
     values taking turns, so a table filed oldest first or one sex after the other shows more than
     one corner.
     """
-    spec = ds.sample or {}
+    spec: Sample | dict[str, Any] = ds.sample or {}
     yf = figures.year_field(ds)
     order = spec.get("order") or (((yf[0], True),) if yf else ())
     spread = spec.get("spread")
@@ -871,7 +902,7 @@ def _subject_words(d: Dataset) -> set[str]:
     return {w for w in words if len(w) >= RELATED_MIN_CHARS and w not in RELATED_STOP}
 
 
-def _related(ds: Dataset, live: list[DatasetOut]) -> list[dict]:
+def _related(ds: Dataset, live: list[DatasetOut]) -> list[dict[str, Any]]:
     """Datasets under the same topic from another publisher that share words of subject.
 
     They are listed most shared first, so a reader who has one state's table finds the others
@@ -887,7 +918,7 @@ def _related(ds: Dataset, live: list[DatasetOut]) -> list[dict]:
             continue
         shared = len(mine & _subject_words(d))
         if shared:
-            scored.append((-shared, d.publisher.jurisdiction, -o.latest.rows, d))
+            scored.append((-shared, d.publisher.jurisdiction, -_newest(o).rows, d))
     scored.sort(key=lambda t: t[:3])
     return [
         {"slug": d.slug, "title": d.title, "jur": d.publisher.jurisdiction}
@@ -895,7 +926,7 @@ def _related(ds: Dataset, live: list[DatasetOut]) -> list[dict]:
     ]
 
 
-def _places(ds: Dataset, latest: VersionOut) -> list[dict]:
+def _places(ds: Dataset, latest: VersionOut) -> list[dict[str, Any]]:
     """One entry per value of the place field, from the partition index the build wrote."""
     if not ds.place_field:
         return []
@@ -921,17 +952,17 @@ def _places(ds: Dataset, latest: VersionOut) -> list[dict]:
 def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     o: DatasetOut,
-    latest_view: dict,
-    console: dict | None,
+    latest_view: dict[str, Any],
+    console: dict[str, Any] | None,
     db: Path,
     *,
     out: Path,
-    page,
-    places: list[dict],
-    card,
+    page: Page,
+    places: list[dict[str, Any]],
+    card: brand.Card,
     crumbs: list[tuple[str, str]],
-    links: dict,
-    citation: dict,
+    links: dict[str, Any],
+    citation: dict[str, Any],
 ) -> list[str]:
     """A page for every value of the place field.
 
@@ -940,7 +971,7 @@ def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at e
     """
     if not places:
         return []
-    latest = o.latest
+    latest = _newest(o)
     m = latest.manifest
     base = dataset_url(ds.slug)
     vbase = version_url(ds.slug, m.version)
@@ -1078,7 +1109,7 @@ def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at e
     return urls
 
 
-def licence_record(ds: Dataset, m) -> dict:
+def licence_record(ds: Dataset, m: Manifest) -> dict[str, Any]:
     """Where and when the licence was read.
 
     It was read by a person, from the register, and by the fetch that made the latest version,
@@ -1115,13 +1146,13 @@ def _words(ds: Dataset, name: str) -> str:
         return name.replace("_", " ")
 
 
-def _asked(ds: Dataset, console: dict) -> str:
+def _asked(ds: Dataset, console: dict[str, Any]) -> str:
     """What the example query counts or sums, in words."""
     ex = console["example"]
     return figures.measure(ds, ex["metric"], ex.get("label", ""))
 
 
-def _example_title(ds: Dataset, console: dict) -> str:
+def _example_title(ds: Dataset, console: dict[str, Any]) -> str:
     """The example query in words.
 
     That is the register's label when it is a whole phrase, else what it counts, by its group,
@@ -1129,11 +1160,12 @@ def _example_title(ds: Dataset, console: dict) -> str:
     """
     ex = console["example"]
     if figures.PHRASE.search(ex.get("label", "")):
-        return ex["label"]
+        label: str = ex["label"]
+        return label
     return f"{_asked(ds, console)} by {_words(ds, ex['group'][0])}{_filter_words(ds, console)}"
 
 
-def _filter_words(ds: Dataset, console: dict) -> str:
+def _filter_words(ds: Dataset, console: dict[str, Any]) -> str:
     parts = [
         f"{_words(ds, f['field'])} {OP_WORDS[f['op']]} {f['value']}"
         for f in console["example"]["filters"]
@@ -1178,12 +1210,12 @@ def _escape_script(text: str) -> str:
     return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
-def _script_json(value) -> str:
+def _script_json(value: object) -> str:
     """JSON for a script block. Values come from the data, so nothing in them may close it."""
     return _escape_script(json.dumps(value, ensure_ascii=False))
 
 
-def _md_twin_explore(ds: Dataset, explore: dict, attr: str) -> str:
+def _md_twin_explore(ds: Dataset, explore: dict[str, Any], attr: str) -> str:
     page = SITE + explore["page"]
     return "\n".join(
         [
@@ -1212,13 +1244,13 @@ def _md_twin_explore(ds: Dataset, explore: dict, attr: str) -> str:
     )
 
 
-def _db_view(ds: Dataset, v: VersionOut) -> dict:
+def _db_view(ds: Dataset, v: VersionOut) -> dict[str, Any]:
     """What the database page lists.
 
     That is each table with its rows, size, key and references, the views, and the files.
     """
     vb = version_url(ds.slug, v.manifest.version)
-    tables = []
+    tables: list[dict[str, Any]] = []
     for t in ds.tables:
         name = f"tables/{t.name}.parquet"
         tables.append(
@@ -1263,7 +1295,7 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict:
     }
 
 
-def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict]:
+def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict[str, Any]]:
     """How to open the dataset from Excel, Power BI, R, Python, DuckDB and a script.
 
     These are as the connect tabs show them. Code uses the dated version's URL, since a pinned file
@@ -1424,13 +1456,13 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
 def _md_twin_database(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     o: DatasetOut,
-    views: list[dict],
-    faq: list[tuple[str, str]] = (),
-    citation: dict | None = None,
+    views: list[dict[str, Any]],
+    faq: Sequence[tuple[str, str]] = (),
+    citation: dict[str, Any] | None = None,
     *,
-    related: list[dict] = (),
+    related: Sequence[dict[str, Any]] = (),
 ) -> str:
-    v = o.latest
+    v = _newest(o)
     m = v.manifest
     base = dataset_url(ds.slug)
     vbase = version_url(ds.slug, m.version)
@@ -1513,17 +1545,17 @@ def _md_twin_database(  # noqa: PLR0913 - the options are keyword-only and named
 def _md_twin_dataset(  # noqa: C901, PLR0912, PLR0913 - the page's sections in order; the options are keyword-only
     ds: Dataset,
     o: DatasetOut,
-    views: list[dict],
+    views: list[dict[str, Any]],
     siblings: list[Dataset],
-    faq: list[tuple[str, str]] = (),
+    faq: Sequence[tuple[str, str]] = (),
     *,
-    citation: dict | None = None,
-    console: dict | None = None,
+    citation: dict[str, Any] | None = None,
+    console: dict[str, Any] | None = None,
     explore: bool = False,
-    related: list[dict] = (),
-    places: list[dict] = (),
+    related: Sequence[dict[str, Any]] = (),
+    places: Sequence[dict[str, Any]] = (),
 ) -> str:
-    v = o.latest
+    v = _newest(o)
     m = v.manifest
     base = dataset_url(ds.slug)
     vbase = version_url(ds.slug, m.version)
@@ -1998,7 +2030,7 @@ GLAMA_CLAIM = "glama_claim_6RT87z1LNOY2Um2-9t5ats8O7u6Nyz4w"
 OPENAI_APPS_CHALLENGE = "WMdjLxFbqZsMxKB4xz4o3sAnuyJu1zFwN8jcBnjG3aw"
 
 
-def _api_doc() -> dict:
+def _api_doc() -> dict[str, Any]:
     """The query API's help on each dataset page, as HTML."""
     spec = at.spec()
     api_spec = spec["api"]
@@ -2071,8 +2103,12 @@ PATH_HINT_VALUES = 20
 
 
 def _query_paths(
-    live: list[DatasetOut], slug_p: dict, hints: dict | None = None, *, generic: bool = False
-) -> dict:
+    live: list[DatasetOut],
+    slug_p: dict[str, Any],
+    hints: dict[str, Any] | None = None,
+    *,
+    generic: bool = False,
+) -> dict[str, Any]:
     """One rows path per live dataset with its fields as typed filters, and one aggregate path."""
     hints = hints or {}
 
@@ -2101,7 +2137,7 @@ def _query_paths(
         "metric": {"type": "string", "default": "count"},
     }
 
-    def param(name: str) -> dict:
+    def param(name: str) -> dict[str, Any]:
         return {
             "name": name,
             "in": "query",
@@ -2263,9 +2299,9 @@ def _query_paths(
 HINT_VALUES = 150  # a field with more distinct values than this gets no value list
 
 
-def _fields_resource(o: DatasetOut, console: dict) -> dict:
+def _fields_resource(o: DatasetOut, console: dict[str, Any]) -> dict[str, Any]:
     """A dataset's fields as the MCP server's resource: what the query console knows, as data."""
-    ds, m = o.dataset, o.latest.manifest
+    ds, m = o.dataset, _newest(o).manifest
     api = f"{SITE}/api/v1/datasets/{ds.slug}/"
     return {
         "slug": ds.slug,
@@ -2274,7 +2310,7 @@ def _fields_resource(o: DatasetOut, console: dict) -> dict:
         "licence": ds.licence.id,
         "attribution": attribution(ds, m),
         "version": m.version,
-        "rows": o.latest.rows,
+        "rows": _newest(o).rows,
         "dataset_page": dataset_url(ds.slug),
         "rows_url": api + "rows",
         "aggregate_url": api + "aggregate",
@@ -2285,7 +2321,7 @@ def _fields_resource(o: DatasetOut, console: dict) -> dict:
     }
 
 
-def _console(ds: Dataset, parquet: Path) -> dict:
+def _console(ds: Dataset, parquet: Path) -> dict[str, Any]:
     """Fields with value hints and a first query for the dataset page's query console.
 
     Both are read from the same rows the query API is loaded from.
@@ -2293,16 +2329,16 @@ def _console(ds: Dataset, parquet: Path) -> dict:
     con = connect(parquet, [f.name for f in ds.fields])
     cols = set(con.columns())
     names = [f.name for f in ds.fields if f.name in cols]
-    q = lambda n: '"' + n + '"'  # noqa: E731
-    stats = con.execute(
+    q: Callable[[str], str] = lambda n: '"' + n + '"'  # noqa: E731
+    stats: tuple[Any, ...] = con.execute(
         "SELECT "
         + ", ".join(f"COUNT(DISTINCT {q(n)}), MIN({q(n)}), MAX({q(n)})" for n in names)
         + " FROM records"
-    ).fetchone()
-    fields = []
+    ).fetchone()  # type: ignore[assignment]  # an aggregate query always returns one row
+    fields: list[dict[str, Any]] = []
     for i, f in enumerate(f for f in ds.fields if f.name in cols):
         distinct, lo, hi = stats[i * 3 : i * 3 + 3]
-        e = {"name": f.name, "type": f.type}
+        e: dict[str, Any] = {"name": f.name, "type": f.type}
         if f.description:
             e["description"] = f.description
         if f.type in ("integer", "number", "date", "datetime") and lo is not None:
@@ -2318,7 +2354,11 @@ def _console(ds: Dataset, parquet: Path) -> dict:
         fields.append(e)
     by = {e["name"]: e for e in fields}
     try:
-        example = _register_example(ds, con, by) if ds.example else _picked_example(ds, con, fields)
+        example = (
+            _register_example(ds, ds.example, con, by)
+            if ds.example
+            else _picked_example(ds, con, fields)
+        )
     finally:
         con.close()
     for e in fields:
@@ -2326,21 +2366,20 @@ def _console(ds: Dataset, parquet: Path) -> dict:
     return {"fields": fields, "example": example}
 
 
-def _register_example(ds: Dataset, con, by: dict) -> dict:
+def _register_example(ds: Dataset, ex: Example, con: Records, by: dict[str, Any]) -> dict[str, Any]:
     """The register's example, with each newest standing for the field's newest value."""
-    ex = ds.example
     measured = [ex["metric"].split(".", 1)[1]] if ex["metric"] != "count" else []
     for name in (*(f["field"] for f in ex["filters"]), *ex["group"], *measured):
         if name not in by:
             msg = f"{ds.slug}: the example names {name}, which the version lacks"
             raise ValueError(msg)
-    filters = []
+    filters: list[dict[str, Any]] = []
     for f in ex["filters"]:
-        value = f["value"]
+        value: object = f["value"]
         if value == NEWEST:
             value = figures.newest(con, f["field"])
         filters.append({**f, "value": str(value)})
-    out = {"filters": filters, "group": list(ex["group"]), "metric": ex["metric"]}
+    out: dict[str, Any] = {"filters": filters, "group": list(ex["group"]), "metric": ex["metric"]}
     if ex["label"]:
         out["label"] = ex["label"]
     return out
@@ -2353,13 +2392,13 @@ ID_NAME = re.compile(r"(^|_)(id|no|number|code)$")
 EXAMPLE_GROUP_MIN, EXAMPLE_GROUP_MAX = 2, 30
 
 
-def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
+def _picked_example(ds: Dataset, con: Records, fields: list[dict[str, Any]]) -> dict[str, Any]:
     """A first query from the field statistics, for an entry whose register names none.
 
     It is a filter on the partition field or a short list of values, a group with more than one
     value inside it, and a count, or the count field's sum for a table of counts.
     """
-    q = lambda n: '"' + n + '"'  # noqa: E731
+    q: Callable[[str], str] = lambda n: '"' + n + '"'  # noqa: E731
     by = {e["name"]: e for e in fields}
     unique = set(ds.key) if len(ds.key) == 1 else set()
     # A measure or an identifier makes a filter that matches a row or two.
@@ -2388,13 +2427,13 @@ def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
     def splits(n: str) -> bool:
         # A group that is one value under the filter, such as a state's name under its code,
         # answers with a single bar.
-        return (
-            con.execute(f"SELECT COUNT(DISTINCT {q(n)}) FROM records{cond}", params).fetchone()[0]
-            > 1
-        )
+        distinct: int = con.execute(
+            f"SELECT COUNT(DISTINCT {q(n)}) FROM records{cond}", params
+        ).fetchone()[0]  # type: ignore[index]  # an aggregate query always returns one row
+        return distinct > 1
 
     # A field with a value per row, such as a name or an identifier, splits into ones.
-    total = con.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+    total = con.execute("SELECT COUNT(*) FROM records").fetchone()[0]  # type: ignore[index]  # an aggregate query always returns one row
     strings = [
         e
         for e in fields
@@ -2431,7 +2470,7 @@ def _picked_example(ds: Dataset, con, fields: list[dict]) -> dict:
     }
 
 
-def _example_query(slug: str, console: dict, op: str) -> str:
+def _example_query(slug: str, console: dict[str, Any], op: str) -> str:
     ex = console["example"]
     # A value such as "% Total" or "A&E" is quoted whole, so the URL keeps its meaning.
     parts = [
@@ -2449,7 +2488,7 @@ def _example_query(slug: str, console: dict, op: str) -> str:
     return f"/api/v1/datasets/{slug}/{op}?" + "&".join(p.replace(" ", "%20") for p in parts)
 
 
-def _dataset_openapi(o: DatasetOut, console: dict) -> dict:
+def _dataset_openapi(o: DatasetOut, console: dict[str, Any]) -> dict[str, Any]:
     """OpenAPI 3.1 for one dataset's query paths, with each field's values or range."""
     ds = o.dataset
     slug_p = {
@@ -2465,7 +2504,7 @@ def _dataset_openapi(o: DatasetOut, console: dict) -> dict:
         "openapi": "3.1.0",
         "info": {
             "title": f"{ds.title} query API",
-            "version": o.latest.manifest.version,
+            "version": _newest(o).manifest.version,
             "summary": f"Filter, page and aggregate {ds.title} from {ds.publisher.name}.",
             "description": f"{api_spec['summary']} {api_spec['rate_limit']} {api_spec['provenance']} {ds.publisher.name} has not endorsed this site. The whole site is described in {SITE}/openapi.json.",
             "license": {"name": ds.licence.title, "url": ds.licence.url},
@@ -2477,7 +2516,7 @@ def _dataset_openapi(o: DatasetOut, console: dict) -> dict:
     }
 
 
-def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
+def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict[str, Any]:
     """OpenAPI 3.1 for every public path. The dataset slugs are an enum so tools can validate."""
     slugs = [o.dataset.slug for o in live]
     versions = sorted({v.manifest.version for o in live for v in o.versions})
@@ -2523,13 +2562,13 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
         "description": _file_formats_text(),
     }
 
-    def j(desc, schema=None):
+    def j(desc: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
         return {
             "description": desc,
             "content": {"application/json": {"schema": schema or {"type": "object"}}},
         }
 
-    doc = {
+    doc: dict[str, Any] = {
         "openapi": "3.1.0",
         "info": {
             "title": HOST,
@@ -3072,7 +3111,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> dict:
     return doc
 
 
-def _served_row(o: DatasetOut, dirx) -> dict:
+def _served_row(o: DatasetOut, dirx: Directory) -> dict[str, Any]:
     """What search_datasets finds a served dataset by, and what it answers with."""
     ds = o.dataset
 
@@ -3085,13 +3124,15 @@ def _served_row(o: DatasetOut, dirx) -> dict:
         "jur": JUR_SEGMENT.get(dirx.ds_pub[ds.slug].jurisdiction, ""),
         "licence": ds.licence.url,
         "page": dataset_url(ds.slug),
-        "latest": f"{dataset_url(ds.slug)}latest/{_files_of(ds, o.latest)[0][0]}",
+        "latest": f"{dataset_url(ds.slug)}latest/{_files_of(ds, _newest(o))[0][0]}",
         "keywords": " ".join(w for w in words if w),
         "fields": " ".join(f"{name} {f.display}" for name, f in _all_fields(ds)),
     }
 
 
-def _dataset_card(out: Path, ds: Dataset, v, rel: str, cache: BuildCache | None) -> brand.Card:
+def _dataset_card(
+    out: Path, ds: Dataset, v: VersionOut, rel: str, cache: BuildCache | None
+) -> brand.Card:
     return brand.dataset_card(
         out,
         rel,
@@ -3116,11 +3157,11 @@ SAMPLE_FIELDS = 8
 def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in the order they are written
     outs: list[DatasetOut],
     out: Path,
-    records: list[dict] | None = None,
-    curated: list | None = None,
+    records: list[dict[str, Any]] | None = None,
+    curated: list[Publisher] | None = None,
     catalogue_as_at: str = "",
     *,
-    catalogue_stats: dict | None = None,
+    catalogue_stats: dict[str, Any] | None = None,
     search: Path | None = None,
     cache: BuildCache | None = None,
     hubs: dict | None = None,
@@ -3162,7 +3203,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         catalogue_sqlite(search, directory.search_rows(dirx), catalogue_as_at)
         served_table(search, [_served_row(o, dirx) for o in live])
 
-    def trail(ds: Dataset) -> tuple[list[tuple[str, str]], dict]:
+    def trail(ds: Dataset) -> tuple[list[tuple[str, str]], dict[str, Any]]:
         pub = dirx.ds_pub[ds.slug]
         jp = dirx.jur_path(pub.jurisdiction)
         crumbs = [
@@ -3195,7 +3236,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "tool_titles": {n: t["title"] for n, t in at.spec()["webmcp"]["tools"].items()},
     }
 
-    def page(rel: str, template: str, md: str, **ctx) -> None:
+    def page(rel: str, template: str, md: str, **ctx: object) -> None:
         canonical = (
             SITE + "/" + rel.rsplit("index.html", 1)[0]
             if rel.endswith("index.html")
@@ -3214,7 +3255,17 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             md,
         )
 
-    def version_pages(o, ds, views, fig, hints, *, card, base, latest) -> None:  # noqa: PLR0913 - the options are keyword-only and named at each call
+    def version_pages(  # noqa: PLR0913 - the options are keyword-only and named at each call
+        o: DatasetOut,
+        ds: Dataset,
+        views: list[dict[str, Any]],
+        fig: dict[str, Any],
+        hints: dict[str, Any] | None,
+        *,
+        card: brand.Card,
+        base: str,
+        latest: VersionOut,
+    ) -> None:
         """One page per dated version: its files, its change from the version before and its figure."""
         for v, view in zip(o.versions, views, strict=True):
             vfig = (
@@ -3303,15 +3354,15 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     # Dataset pages and version pages.
     resources = []
     queried: list[DatasetOut] = []
-    figs: dict[str, dict] = {}
-    consoles: dict[str, dict | None] = {}
-    views_by: dict[str, list[dict]] = {}
+    figs: dict[str, dict[str, Any]] = {}
+    consoles: dict[str, dict[str, Any] | None] = {}
+    views_by: dict[str, list[dict[str, Any]]] = {}
     explored: set[str] = set()  # slugs whose Parquet is small enough for an explorer page
     place_urls: dict[str, list[str]] = {}
     for o in live:
         ds = o.dataset
         base = dataset_url(ds.slug)
-        latest = o.latest
+        latest = _newest(o)
         m = latest.manifest
         changes_by_to = {c["to"]: c for c in o.changes}
         views = [_version_view(ds, v, changes_by_to.get(v.manifest.version)) for v in o.versions]
@@ -3413,7 +3464,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         consoles[ds.slug] = console
         views_by[ds.slug] = views
         example = figures.example_rows(rows_path, console, key=ds.key) if console else []
-        explore = None
+        explore: dict[str, Any] | None = None
         ex_versions = [
             {
                 "version": view["version"],
@@ -3462,7 +3513,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         attr = attribution(ds, m)
         publisher_note = ""
         if ds.collection:
-            dated = {o.dataset.slug: o.latest.manifest.version for o in live}
+            dated = {o.dataset.slug: _newest(o).manifest.version for o in live}
             n = len(siblings) + 1
             if all(dated.get(d.slug) == m.version for d in siblings):
                 publisher_note = f"The publisher releases {ds.collection_title} as {n} files at once, so all {n} tables here share a version date."
@@ -3533,7 +3584,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             explore_url=explore["page"] if explore else "",
             fig=fig,
             example_rows=[(k, figures.fmt(v)) for k, v in example],
-            example_words=(_example_title(ds, console) if example else ""),
+            example_words=(_example_title(ds, console) if example and console else ""),
             rows_example=_example_query(ds.slug, console, "rows") if console else "",
             aggregate_example=_example_query(ds.slug, console, "aggregate") if console else "",
             format_count=len(formats) - (1 if fmt_data.get("partition") else 0),
@@ -3639,23 +3690,23 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             "",
         )
         pub = first.dataset.publisher
-        m = first.latest.manifest
+        m = _newest(first).manifest
         curl = collection_url(coll)
-        table = [
+        table: list[dict[str, Any]] = [
             {
                 "slug": o.dataset.slug,
                 "title": o.dataset.title,
                 "summary": o.dataset.summary,
-                "rows": fmt_int(o.latest.rows),
+                "rows": fmt_int(_newest(o).rows),
                 "fields": o.dataset.field_count,
-                "version": o.latest.manifest.version,
+                "version": _newest(o).manifest.version,
                 "quick": [
                     {
                         "name": f,
-                        "url": f"{version_url(o.dataset.slug, o.latest.manifest.version)}data.{f}",
+                        "url": f"{version_url(o.dataset.slug, _newest(o).manifest.version)}data.{f}",
                     }
                     for f in ("parquet", "json", "csv", "xlsx", "sqlite")
-                    if f"data.{f}" in o.latest.files
+                    if f"data.{f}" in _newest(o).files
                 ],
             }
             for o in members
@@ -3675,7 +3726,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         )
         coll_desc = (
             f"{title}: the {len(members)} tables {pub.name} releases together, {years + ', ' if years else ''}"
-            f"{fmt_int(sum(o.latest.rows for o in members))} rows in all, as CSV, JSON, Parquet, SQLite and GeoJSON. "
+            f"{fmt_int(sum(_newest(o).rows for o in members))} rows in all, as CSV, JSON, Parquet, SQLite and GeoJSON. "
             f"{pub.short} {first.dataset.licence.title}. No login, no key."
         )
         coll_jsonld = {
@@ -3779,12 +3830,12 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     # A database has no format picker, so the hero is a table where there is one.
     hero = max(
         [o for o in live if o.dataset.kind != "database"] or live,
-        key=lambda o: (len(_fmts(o.dataset, o.latest)), o.latest.rows),
+        key=lambda o: (len(_fmts(o.dataset, _newest(o))), _newest(o).rows),
     )
     governments = sorted({dirx.ds_pub[o.dataset.slug].jurisdiction for o in live})
     stats = {
         "live": len(live),
-        "rows": fmt_int(sum(o.latest.rows for o in live)),
+        "rows": fmt_int(sum(_newest(o).rows for o in live)),
         "versions": sum(len(o.versions) for o in live),
         "formats": len(FORMATS) + len(SHAPE_FORMATS),
         "governments": len(governments),
@@ -3794,18 +3845,23 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     # The map: every located crash dataset overlaid, states without one hatched.
     parts, hero_total, present, hero_slug = [], 0, [], ""
     for slug, spec in HERO["datasets"].items():
-        o = by_slug.get(slug)
-        if not o or not o.versions or not o.dataset.geometry or not figs.get(slug, {}).get("cells"):
+        ho = by_slug.get(slug)
+        if (
+            not ho
+            or not ho.versions
+            or not ho.dataset.geometry
+            or not figs.get(slug, {}).get("cells")
+        ):
             continue
         states = (
             list(figures.STATES)
             if spec["states"] == "all"
-            else [JUR_LONG[o.dataset.publisher.jurisdiction]]
+            else [JUR_LONG[ho.dataset.publisher.jurisdiction]]
         )
         present += [x for x in states if x not in present]
         hero_slug = hero_slug or slug
-        g = o.dataset.geometry
-        db = out / "d" / slug / "v" / o.latest.manifest.version / "data.parquet"
+        g = ho.dataset.geometry
+        db = out / "d" / slug / "v" / _newest(ho).manifest.version / "data.parquet"
         c = figures.cells(db, g["lon"], g["lat"], spec["where"])
         if c:
             parts.append((states[0], c))
@@ -3829,12 +3885,12 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             "explore_label": "Explore the map" if hero_slug in explored else "See the dataset",
         }
     # The format picker, over the largest table.
-    demo_formats, demo_data = _picker(hero.dataset, hero.latest)
+    demo_formats, demo_data = _picker(hero.dataset, _newest(hero))
     demo = {
         "slug": hero.dataset.slug,
         "title": hero.dataset.title,
-        "version": hero.latest.manifest.version,
-        "rows": fmt_int(hero.latest.rows),
+        "version": _newest(hero).manifest.version,
+        "rows": fmt_int(_newest(hero).rows),
         "formats": [f for f in demo_formats if f["key"] != "partition"],
         "ds_data": _escape_script(
             json.dumps(
@@ -3842,7 +3898,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                     "slug": hero.dataset.slug,
                     "title": hero.dataset.title,
                     "base": dataset_url(hero.dataset.slug),
-                    "latest": hero.latest.manifest.version,
+                    "latest": _newest(hero).manifest.version,
                     "formats": demo_data,
                     "example_field": hero.dataset.partition_by[0]
                     if hero.dataset.partition_by
@@ -3857,10 +3913,11 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     show = next((o for o in queried if o.dataset.slug == SHOWCASE), None) or (
         hero if hero in queried else (queried[0] if queried else None)
     )
-    query_demo = agent_demo = None
-    if show and consoles.get(show.dataset.slug):
-        sd, sm = show.dataset, show.latest.manifest
-        con = consoles[sd.slug]
+    query_demo: dict[str, Any] | None = None
+    agent_demo: dict[str, Any] | None = None
+    con = consoles.get(show.dataset.slug) if show else None
+    if show and con:
+        sd, sm = show.dataset, _newest(show).manifest
         db = out / "d" / sd.slug / "v" / sm.version / "data.parquet"
         srows = figures.example_rows(db, con, key=sd.key)
         group = (con["example"]["group"] or [None])[0]
@@ -3898,7 +3955,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "answer": f"{top}, with {fmt_int(top_n)} of the {fmt_int(total)} {what.lower()}{where}.",
             }
     # The version history, shown on the dataset with the most releases.
-    kept = max(live, key=lambda o: (len(o.versions), o.latest.rows))
+    kept = max(live, key=lambda o: (len(o.versions), _newest(o).rows))
     kv = views_by[kept.dataset.slug][-1]
     keeps = {
         "slug": kept.dataset.slug,
@@ -3918,15 +3975,17 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             for o in live
             if o.dataset.slug in explored and figs.get(o.dataset.slug, {}).get("chart")
         ),
-        key=lambda o: (len(_fmts(o.dataset, o.latest)), o.latest.rows),
+        key=lambda o: (len(_fmts(o.dataset, _newest(o))), _newest(o).rows),
         default=None,
     )
     if shown:
         hf = figs[shown.dataset.slug]
-        hdb = out / "d" / shown.dataset.slug / "v" / shown.latest.manifest.version / "data.parquet"
+        hdb = (
+            out / "d" / shown.dataset.slug / "v" / _newest(shown).manifest.version / "data.parquet"
+        )
         hcon = consoles.get(shown.dataset.slug)
         hrows = figures.example_rows(hdb, hcon, key=shown.dataset.key) if hcon else []
-        bars_title = _example_title(shown.dataset, hcon) if hrows else ""
+        bars_title = _example_title(shown.dataset, hcon) if hrows and hcon else ""
         preview = {
             "slug": shown.dataset.slug,
             "title": shown.dataset.title,
@@ -3981,7 +4040,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             "## Datasets",
             "",
             *[
-                f"- [{o.dataset.title}]({dataset_url(o.dataset.slug)}): {o.dataset.summary} Publisher {o.dataset.publisher.name}, {o.dataset.licence.title}, latest {o.latest.manifest.version}, {o.latest.rows} rows."
+                f"- [{o.dataset.title}]({dataset_url(o.dataset.slug)}): {o.dataset.summary} Publisher {o.dataset.publisher.name}, {o.dataset.licence.title}, latest {_newest(o).manifest.version}, {_newest(o).rows} rows."
                 for o in live
             ],
             "",
@@ -3999,10 +4058,10 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         ]
     )
     # Topics are the way in: each counts what is served under it and what is coming.
-    topic_rows = []
+    topic_rows: list[dict[str, Any]] = []
     for tslug, tinfo in TOPICS.items():
         members = sorted(
-            (o for o in live if tslug in o.dataset.topics), key=lambda o: -o.latest.rows
+            (o for o in live if tslug in o.dataset.topics), key=lambda o: -_newest(o).rows
         )
         coming = [
             {"title": d.title, "slug": d.slug}
@@ -4016,7 +4075,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "blurb": tinfo["blurb"],
                 "href": f"/topics/{tslug}/",
                 "count": len(members),
-                "rows": fmt_int(sum(o.latest.rows for o in members)),
+                "rows": fmt_int(sum(_newest(o).rows for o in members)),
                 "titles": [o.dataset.title for o in members[:3]],
                 "coming": coming[:3],
                 "search": f"/backlog/?q={urllib.parse.quote(tinfo['search'])}",
@@ -4026,10 +4085,10 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     newest = sorted(
         (
             {
-                "version": o.latest.manifest.version,
+                "version": _newest(o).manifest.version,
                 "slug": o.dataset.slug,
                 "title": o.dataset.title,
-                "rows": fmt_int(o.latest.rows),
+                "rows": fmt_int(_newest(o).rows),
                 "as_at_long": views_by[o.dataset.slug][-1]["as_at_long"],
                 "change": views_by[o.dataset.slug][-1]["change"],
                 "new": len(o.versions) == 1,
@@ -4040,17 +4099,18 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         reverse=True,
     )[:8]
     # The showcase: the largest table under each topic, then the largest left, six in all.
-    showcase, used = [], set()
+    showcase: list[DatasetOut] = []
+    used: set[str] = set()
     for tslug in TOPICS:
         best = max(
             (o for o in live if tslug in o.dataset.topics and o.dataset.slug not in used),
-            key=lambda o: o.latest.rows,
+            key=lambda o: _newest(o).rows,
             default=None,
         )
         if best and len(showcase) < SHOWCASE_TABLES:
             showcase.append(best)
             used.add(best.dataset.slug)
-    for o in sorted(live, key=lambda o: -o.latest.rows):
+    for o in sorted(live, key=lambda o: -_newest(o).rows):
         if len(showcase) >= SHOWCASE_TABLES:
             break
         if o.dataset.slug not in used:
@@ -4058,7 +4118,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             used.add(o.dataset.slug)
     # What the hero's file became: the pieces of its page, side by side.
     hm, hfig, hview = (
-        hero.latest.manifest,
+        _newest(hero).manifest,
         figs.get(hero.dataset.slug, {}),
         views_by[hero.dataset.slug][-1],
     )
@@ -4073,8 +4133,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "fetched": long_date(hm.fetched_at),
         "sha": hm.sha256[:12],
         "version": hm.version,
-        "rows": fmt_int(hero.latest.rows),
-        "formats": _fmts(hero.dataset, hero.latest),
+        "rows": fmt_int(_newest(hero).rows),
+        "formats": _fmts(hero.dataset, _newest(hero)),
         "map": hfig.get("map", ""),
         "map_caption": hfig.get("map_caption", ""),
         "chart": hfig.get("chart", ""),
@@ -4087,15 +4147,14 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "key": ", ".join(hero.dataset.key),
         "cite": cite(hero.dataset, hm, version_url(hero.dataset.slug, hm.version))["text"],
     }
-    if agent_demo:
-        sd, sm = show.dataset, show.latest.manifest
-        con = consoles[sd.slug]
+    if agent_demo and show and con:
+        sd, sm = show.dataset, _newest(show).manifest
         group = con["example"]["group"][0]
         agent_demo["steps"] = [
             {
                 "tool": "search_datasets",
                 "args": f'query="{sd.keywords[0] if sd.keywords else sd.title}"',
-                "result": f"{sd.slug} · {sd.title} · {sd.publisher.short} · {fmt_int(show.latest.rows)} rows",
+                "result": f"{sd.slug} · {sd.title} · {sd.publisher.short} · {fmt_int(_newest(show).rows)} rows",
             },
             {
                 "tool": "list_fields",
@@ -4143,11 +4202,11 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
 
     # Topic pages: what is served under each topic, and what is coming.
     for tr in topic_rows:
-        members = [
+        topic_cards = [
             live_rows[o.dataset.slug]
             for o in sorted(
                 (o for o in live if tr["slug"] in o.dataset.topics),
-                key=lambda o: -o.latest.rows,
+                key=lambda o: -_newest(o).rows,
             )
         ]
         coming = [
@@ -4168,7 +4227,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "",
                 *[
                     f"- [{r['title']}]({dataset_url(r['slug'])}): {r['summary']} {r['publisher_name']}, {r['licence']}, latest {r['latest']}, {r['rows']} rows."
-                    for r in members
+                    for r in topic_cards
                 ],
                 "",
                 *([f"Coming: {', '.join(r['title'] for r in coming)}.", ""] if coming else []),
@@ -4184,7 +4243,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             description=f"{tr['blurb']} {tr['count']} dataset{'' if tr['count'] == 1 else 's'} served as CSV, JSON, Parquet and more, with a query API and an MCP server.",
             nav="datasets",
             topic=tr,
-            cards=members,
+            cards=topic_cards,
             coming=coming,
             extra_jsonld=[
                 json.dumps(
@@ -4257,7 +4316,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         rows=all_rows,
         catalogue_total=fmt_int(dirx.listed) if dirx.listed else "",
         jurisdictions=[
-            {"seg": seg, "name": name} for code, seg, name in JURISDICTIONS if code in present
+            {"seg": seg, "name": name} for code, seg, name in JURISDICTIONS if code in governed
         ],
     )
 
@@ -4390,12 +4449,12 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                         "code": layer.code[0],
                         "name": layer.name[0],
                         "noun": layer.noun,
-                        "version": by_slug[layer.slug].latest.manifest.version,
+                        "version": _newest(by_slug[layer.slug]).manifest.version,
                         **(
                             {
-                                "gpkg": f"{version_url(layer.slug, by_slug[layer.slug].latest.manifest.version)}data.gpkg"
+                                "gpkg": f"{version_url(layer.slug, _newest(by_slug[layer.slug]).manifest.version)}data.gpkg"
                             }
-                            if "data.gpkg" in by_slug[layer.slug].latest.files
+                            if "data.gpkg" in _newest(by_slug[layer.slug]).files
                             else {}
                         ),
                     }
@@ -4444,7 +4503,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             }
         ),
     )
-    _write(out, "latest.json", pretty({o.dataset.slug: o.latest.manifest.version for o in live}))
+    _write(out, "latest.json", pretty({o.dataset.slug: _newest(o).manifest.version for o in live}))
     # The publisher's files a register entry no longer republishes. R2 still holds the copies
     # made before, so the /d/ function refuses each path listed here.
     _write(
@@ -4470,7 +4529,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "built_from": built_at,
                 "datasets_live": len(live),
                 "versions": sum(len(o.versions) for o in live),
-                "rows": sum(o.latest.rows for o in live),
+                "rows": sum(_newest(o).rows for o in live),
                 "storage": fleet_from_build(live, dt.date.fromisoformat(built_at[:10])).as_json(),
             }
         ),
@@ -4502,15 +4561,15 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     ]
     full = list(llms)
     for o in live:
-        ds, m = o.dataset, o.latest.manifest
+        ds, m = o.dataset, _newest(o).manifest
         vb = version_url(ds.slug, m.version)
         if ds.kind == "database":
-            line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(o.latest.rows)} rows in {len(ds.tables)} tables. DuckDB {vb}data.duckdb (attaches read-only over HTTPS) · Parquet per table {vb}tables/<table>.parquet · SQL {vb}schema.sql · Markdown {dataset_url(ds.slug)}index.md"
+            line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(_newest(o).rows)} rows in {len(ds.tables)} tables. DuckDB {vb}data.duckdb (attaches read-only over HTTPS) · Parquet per table {vb}tables/<table>.parquet · SQL {vb}schema.sql · Markdown {dataset_url(ds.slug)}index.md"
             llms.append(line)
             full += (
                 [line]
                 + [
-                    f"  Table {t.name} ({fmt_int(o.latest.tables.get(t.name, 0))} rows): "
+                    f"  Table {t.name} ({fmt_int(_newest(o).tables.get(t.name, 0))} rows): "
                     + ", ".join(f"{f.name} ({f.type})" for f in t.fields)
                     for t in ds.tables
                 ]
@@ -4522,9 +4581,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         files = " · ".join(
             f"{FORMAT_LABEL[f]} {vb}data.{f}"
             for f in ("parquet", "json", "csv", "xlsx", "sqlite", "duckdb", "geojson", "gpkg")
-            if f"data.{f}" in o.latest.files
+            if f"data.{f}" in _newest(o).files
         )
-        line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(o.latest.rows)} rows, {len(ds.fields)} fields. {files} · Markdown {dataset_url(ds.slug)}index.md"
+        line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(_newest(o).rows)} rows, {len(ds.fields)} fields. {files} · Markdown {dataset_url(ds.slug)}index.md"
         llms.append(line)
         full += [line, "  Fields: " + ", ".join(f"{f.name} ({f.type})" for f in ds.fields)]
         if ds.key:
@@ -4563,8 +4622,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             ]
         )
         _write(out, name, "\n".join(doc))
-    urn = lambda ns, n: f"urn:air:{HOST}:{ns}:{n}"  # noqa: E731
-    ard = {
+    urn: Callable[[str, str], str] = lambda ns, n: f"urn:air:{HOST}:{ns}:{n}"  # noqa: E731
+    ard: dict[str, Any] = {
         "specVersion": "1.0",
         "host": {"displayName": HOST, "identifier": HOST, "logoUrl": f"{SITE}/icon-512.png"},
         "entries": [
@@ -4632,15 +4691,15 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         ],
     }
     for o in live:
-        ds, m = o.dataset, o.latest.manifest
-        main_file, main_fmt = _files_of(ds, o.latest)[0]
+        ds, m = o.dataset, _newest(o).manifest
+        main_file, main_fmt = _files_of(ds, _newest(o))[0]
         ard["entries"].append(
             {
                 "identifier": urn("dataset", ds.slug),
                 "displayName": ds.title,
                 "type": MEDIA[main_fmt],
                 "tags": ["open-data", ds.publisher.jurisdiction.lower(), ds.licence.id.lower()],
-                "description": f"{ds.summary} Latest version {m.version}, {fmt_int(o.latest.rows)} rows. "
+                "description": f"{ds.summary} Latest version {m.version}, {fmt_int(_newest(o).rows)} rows. "
                 + (
                     f"One DuckDB database of {len(ds.tables)} tables, and one Parquet file per table under tables/."
                     if ds.kind == "database"
@@ -4659,9 +4718,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     _write(out, ".well-known/ai-catalog.json", body)
     # What a connector directory's form asks for, so a submission copies it and never drifts.
     _write(out, "mcp/listing.json", pretty(at.directory_listing()))
-    card = pretty(at.server_card())
-    _write(out, "mcp/server-card", card)
-    _write(out, ".well-known/mcp/server-card.json", card)
+    server_card = pretty(at.server_card())
+    _write(out, "mcp/server-card", server_card)
+    _write(out, ".well-known/mcp/server-card.json", server_card)
     _write(out, ".well-known/mcp-registry-auth", f"v=MCPv1; k=ed25519; p={MCP_REGISTRY_KEY}\n")
     _write(out, ".well-known/openai-apps-challenge", OPENAI_APPS_CHALLENGE)
     _write(
@@ -4724,14 +4783,14 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         head = u.removeprefix(SITE).strip("/").split("/")[0]
         by_jur.setdefault(head if head in segs else "site", []).append(u)
     for o in live:
-        coll = collection_url(o.dataset.collection) if o.dataset.collection else None
+        coll_url = collection_url(o.dataset.collection) if o.dataset.collection else None
         seg = JUR_SEGMENT.get(dirx.ds_pub[o.dataset.slug].jurisdiction, "site")
-        group = by_jur.setdefault(seg, [])
-        if coll and coll in by_jur.get("site", []):
-            by_jur["site"].remove(coll)
-            group.append(coll)
-        group.append(dataset_url(o.dataset.slug))
-        group += place_urls.get(o.dataset.slug, [])
+        jur_urls = by_jur.setdefault(seg, [])
+        if coll_url and coll_url in by_jur.get("site", []):
+            by_jur["site"].remove(coll_url)
+            jur_urls.append(coll_url)
+        jur_urls.append(dataset_url(o.dataset.slug))
+        jur_urls += place_urls.get(o.dataset.slug, [])
     children = []
     for name in sorted(by_jur, key=lambda k: (k != "site", k)):
         rel = f"sitemaps/{name}.xml"

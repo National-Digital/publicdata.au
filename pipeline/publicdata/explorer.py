@@ -15,6 +15,12 @@ import subprocess
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .register import Dataset
 
 ROOT = Path(__file__).resolve().parents[2]
 NODE_MODULES = ROOT / "node_modules"
@@ -178,7 +184,7 @@ YEAR = re.compile(r"(^|_)(year|yr)(_|$)")
 CALENDAR = re.compile(r"(^|_)(month|day|day_of_week|weekday)(_|$)")
 
 
-def labels(ds, console: dict) -> dict[str, str]:
+def labels(ds: Dataset, console: dict[str, Any]) -> dict[str, str]:
     """The explorer's column names: each field's register label.
 
     Every menu, axis and legend then reads in words. The browser renames the columns as it loads
@@ -188,7 +194,7 @@ def labels(ds, console: dict) -> dict[str, str]:
     return {f.name: f.display for f in ds.fields if f.name in present}
 
 
-def text_fields(console: dict) -> list[str]:
+def text_fields(console: dict[str, Any]) -> list[str]:
     """Year fields, which the browser loads as text.
 
     A chart then gives each year its own label instead of a numeric axis ("2.0K"), and a filter
@@ -199,7 +205,7 @@ def text_fields(console: dict) -> list[str]:
     ]
 
 
-def yes_no_fields(console: dict) -> list[str]:
+def yes_no_fields(console: dict[str, Any]) -> list[str]:
     """True-or-false fields, which the browser shows as Yes and No."""
     return [e["name"] for e in console["fields"] if e["type"] == "boolean"]
 
@@ -209,7 +215,7 @@ CATEGORY_MIN, CATEGORY_MAX = 2, 30
 SPLIT_MIN, SPLIT_MAX = 3, 8
 
 
-def categories(console: dict) -> list[str]:
+def categories(console: dict[str, Any]) -> list[str]:
     """Text fields with a short list of values, which a chart can group by."""
     return [
         e["name"]
@@ -220,7 +226,7 @@ def categories(console: dict) -> list[str]:
     ]
 
 
-def split_field(console: dict) -> str | None:
+def split_field(console: dict[str, Any]) -> str | None:
     """The field colour carries: severity where the dataset has it, else a short list."""
     fields = {e["name"]: e for e in console["fields"]}
     cats = categories(console)
@@ -233,7 +239,7 @@ def split_field(console: dict) -> str | None:
 PERSPECTIVE_AGG = {"sum": "sum", "avg": "avg", "min": "low", "max": "high"}
 
 
-def defaults(ds, console: dict) -> dict:  # noqa: C901, PLR0915 - the explorer's panels in the order they are laid out
+def defaults(ds: Dataset, console: dict[str, Any]) -> dict[str, Any]:  # noqa: C901, PLR0915 - the explorer's panels in the order they are laid out
     """The first dashboard, drawn from the same field hints as the query console.
 
     It holds a stacked bar of the main category that filters the other panels, the same split
@@ -242,7 +248,7 @@ def defaults(ds, console: dict) -> dict:  # noqa: C901, PLR0915 - the explorer's
     """
     fields = {e["name"]: e for e in console["fields"]}
     lab = labels(ds, console)
-    word = lambda n: lab.get(n, n).lower()  # noqa: E731
+    word: Callable[[str], str] = lambda n: lab.get(n, n).lower()  # noqa: E731
     metric = console["example"]["metric"]
     if metric == "count":
         what = getattr(ds, "row_label", "") or "Rows"
@@ -271,9 +277,9 @@ def defaults(ds, console: dict) -> dict:  # noqa: C901, PLR0915 - the explorer's
         "expressions": expressions,
         "aggregates": aggregates,
     }
-    col = lambda n: lab.get(n, n)  # noqa: E731
+    col: Callable[[str], str] = lambda n: lab.get(n, n)  # noqa: E731
     by = f" and {word(split)}" if split else ""
-    panels = {}
+    panels: dict[str, dict[str, Any]] = {}
     if group:
         panels["by-group"] = {
             **base,
@@ -320,9 +326,14 @@ def defaults(ds, console: dict) -> dict:  # noqa: C901, PLR0915 - the explorer's
         }
     panels["rows"] = {"table": TABLE, "plugin": "Datagrid", "title": "Rows"}
 
-    tab = lambda *ids: {"type": "tab-layout", "tabs": [i for i in ids if i in panels]}  # noqa: E731
+    tab: Callable[..., dict[str, Any]] = lambda *ids: {  # noqa: E731
+        "type": "tab-layout",
+        "tabs": [i for i in ids if i in panels],
+    }
 
-    def row(*items, sizes=None):
+    def row(
+        *items: dict[str, Any] | None, sizes: list[float] | None = None
+    ) -> dict[str, Any] | None:
         keep = [
             (i, z)
             for i, z in zip(items, sizes or [1] * len(items), strict=True)
@@ -330,12 +341,12 @@ def defaults(ds, console: dict) -> dict:  # noqa: C901, PLR0915 - the explorer's
         ]
         if len(keep) <= 1:
             return keep[0][0] if keep else None
-        items, sizes = [i for i, _ in keep], [z for _, z in keep]
+        kept, kept_sizes = [i for i, _ in keep], [z for _, z in keep]
         return {
             "type": "split-layout",
             "orientation": "horizontal",
-            "sizes": [z / sum(sizes) for z in sizes],
-            "children": items,
+            "sizes": [z / sum(kept_sizes) for z in kept_sizes],
+            "children": kept,
         }
 
     top = row(tab("by-group"), tab("over-time"), sizes=[0.42, 0.58])
@@ -353,13 +364,13 @@ def defaults(ds, console: dict) -> dict:  # noqa: C901, PLR0915 - the explorer's
         if top
         else bottom
     )
-    ws = {"panels": panels, "layout": layout}
+    ws: dict[str, Any] = {"panels": panels, "layout": layout}
     if "by-group" in panels:
         ws["masters"] = ["by-group"]
     return ws
 
 
-def int32_fields(console: dict) -> list[str]:
+def int32_fields(console: dict[str, Any]) -> list[str]:
     """Integer fields whose whole range fits 32 bits.
 
     DuckDB reads Parquet int64 as BIGINT, which Perspective shows as a float, so the browser casts

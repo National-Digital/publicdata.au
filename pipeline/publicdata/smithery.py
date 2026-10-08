@@ -12,6 +12,7 @@ import os
 import sys
 from http import HTTPStatus
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import requests
@@ -27,7 +28,7 @@ UA = "publicdata.au release (+https://publicdata.au/about/)"
 MIN_DESCRIPTION = 20
 
 
-def listing() -> dict:
+def listing() -> dict[str, str]:
     d = directory_listing()
     return {"displayName": d["name"], "description": d["description"], "homepage": SITE + "/"}
 
@@ -38,7 +39,7 @@ def problems() -> list[str]:
     Tool naming is left out: Smithery wants dotted names, which the Claude and OpenAI tool APIs
     refuse.
     """
-    out = []
+    out: list[str] = []
     for t in mcp_spec()["tools"]:
         n = t["name"]
         if not t.get("description", "").strip():
@@ -65,10 +66,10 @@ def _session(key: str) -> requests.Session:
     return s
 
 
-def live(s: requests.Session) -> dict:
+def live(s: requests.Session) -> dict[str, Any]:
     r = s.get(f"{API}/servers/{quote(NAME, safe='')}", timeout=30)
     r.raise_for_status()
-    got = r.json()
+    got: dict[str, Any] = r.json()
     # Only the search listing carries the homepage.
     r = s.get(
         f"{API}/servers",
@@ -76,11 +77,11 @@ def live(s: requests.Session) -> dict:
         timeout=30,
     )
     r.raise_for_status()
-    row = next((x for x in r.json()["servers"] if x["qualifiedName"] == NAME), {})
+    row: dict[str, Any] = next((x for x in r.json()["servers"] if x["qualifiedName"] == NAME), {})
     return {**got, "homepage": row.get("homepage")}
 
 
-def drift(current: dict) -> dict:
+def drift(current: dict[str, Any]) -> dict[str, str]:
     return {k: v for k, v in listing().items() if current.get(k) != v}
 
 
@@ -116,7 +117,7 @@ def _summary(line: str) -> None:
             f.write(line + "\n")
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv != ["sync"]:
         errors = problems()
@@ -140,8 +141,8 @@ def main(argv=None) -> int:
         print(f"::warning::the Smithery listing could not be checked: {e}")
         _summary(f"The Smithery listing could not be checked: {e}")
         return 0
-    for e in errors:
-        print("Smithery: " + e, file=sys.stderr)
+    for err in errors:
+        print("Smithery: " + err, file=sys.stderr)
     _summary(
         "The Smithery listing's fields match api.json."
         if not errors

@@ -13,6 +13,7 @@ import json
 import math
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from PIL import Image
 
@@ -20,6 +21,27 @@ from .explorer import YEAR, split_field
 from .provenance import long_date
 from .records import connect
 from .register import WHERE_OPS
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+    from .records import Records
+    from .register import Chart, Dataset
+    from .store import Manifest
+
+# A {field, op, value} condition, or several ANDed together.
+type Where = dict[str, Any] | Iterable[Mapping[str, Any]] | None
+
+
+class Series(TypedDict):
+    years: list[int]
+    partial: list[int]
+    last: str
+    first: str
+    categories: list[str]
+    values: dict[int, dict[str, float]]
+    additive: NotRequired[bool]
+
 
 STEP = 0.05
 LON0, LON1, LAT0, LAT1 = 112.0, 154.5, -44.5, -9.0
@@ -70,7 +92,7 @@ def _q(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def cutoff(m) -> str:
+def cutoff(m: Manifest) -> str:
     """The last day the version's rows can run to.
 
     That is the publisher's as-at date, else the day the publisher released the version or the
@@ -156,7 +178,7 @@ def series(  # noqa: PLR0913 - the options are keyword-only and named at each ca
             params,
         ).fetchall()
         first, last = (
-            con.execute(
+            con.execute(  # type: ignore[misc]  # an aggregate query always returns one row
                 f"SELECT MIN(substr({_q(yf)}, 1, 10)), MAX(substr({_q(yf)}, 1, 10)) FROM records"
                 f" WHERE {_q(yf)} IS NOT NULL{cond}",
                 params,
@@ -213,7 +235,7 @@ def _columns(db: Path) -> set[str]:
         con.close()
 
 
-def _agg(metric: str, con) -> str:
+def _agg(metric: str, con: Records) -> str:
     if metric == "count":
         return "COUNT(*)"
     fn, name = metric.split(".", 1)
@@ -228,7 +250,7 @@ AGG_WORDS = {"avg": "Average", "min": "Lowest", "max": "Highest"}
 PHRASE = re.compile(r"\b(by|each|per|newest|first)\b")
 
 
-def measure(ds, metric: str, label: str = "") -> str:
+def measure(ds: Dataset, metric: str, label: str = "") -> str:
     """What a figure counts or sums, in words.
 
     That is the register's label for it, else the row label for a count and the field's label for
@@ -243,7 +265,7 @@ def measure(ds, metric: str, label: str = "") -> str:
     return word if fn == "sum" else f"{AGG_WORDS[fn]} {word[0].lower()}{word[1:]}"
 
 
-def basis(ds, metric: str) -> str:
+def basis(ds: Dataset, metric: str) -> str:
     """How the figure is worked out from the rows, for the caption."""
     if metric == "count":
         return "a count of rows"
@@ -254,7 +276,7 @@ def basis(ds, metric: str) -> str:
     ] + f" of the {word} column"
 
 
-def _conditions(where, con) -> tuple[str, list]:
+def _conditions(where: Where, con: Records) -> tuple[str, list[object]]:
     """One or more (field, op, value) conditions as SQL, each ANDed on.
 
     The values are given as the connection's columns compare them.
@@ -262,7 +284,7 @@ def _conditions(where, con) -> tuple[str, list]:
     if not where:
         return "", []
     conds = [where] if isinstance(where, dict) else list(where)
-    sql, params = "", []
+    sql, params = "", list[object]()
     for w in conds:
         if w["op"] not in ("=", "!=", ">", "<", ">=", "<="):
             raise ValueError(w["op"])
@@ -304,7 +326,7 @@ def _summary(s: dict, totals: dict, peak: int) -> str:
     return f", the highest {fmt(totals[peak])} in {top} and the latest {fmt(totals[years[-1]])} in {last}."
 
 
-def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
+def stacked_svg(s: Series, label: str, w: int = 680, h: int = 300) -> str:
     """Bars per year, stacked by category, with a legend in HTML beside the drawing."""
     years, cats = s["years"], s["categories"]
     if not years:
@@ -366,7 +388,7 @@ def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
     return svg
 
 
-def spark_svg(s: dict, w: int = 220, h: int = 56) -> str:
+def spark_svg(s: Series, w: int = 220, h: int = 56) -> str:
     """A small line of the yearly totals for a card."""
     years = s["years"]
     if len(years) <= 1:
@@ -428,7 +450,9 @@ def hbars_svg(rows: list[tuple[str, float]], label: str, w: int = 420) -> str:
     )
 
 
-def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], float]:
+def cells(
+    db: Path, lon: str, lat: str, where: Where | tuple[str, str, object] = None
+) -> dict[tuple[int, int], float]:
     """Rows per cell of STEP degrees, counted in SQL.
 
     The rows are kept to those the conditions match when any are given: a (field, op, value)
@@ -450,7 +474,9 @@ def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], flo
     return {(int(i), int(j)): float(n or 0) for i, j, n in rows if n}
 
 
-def _raster(cells_: dict, box: tuple[int, int, int, int], floor: float = 0.35) -> bytes:
+def _raster(
+    cells_: Mapping[tuple[int, int], float], box: tuple[int, int, int, int], floor: float = 0.35
+) -> bytes:
     """The cells as a PNG with the brand colour and an alpha that grows with the count.
 
     Pixels are cells, so the browser scales it without smoothing.
@@ -484,14 +510,16 @@ def _png(out: Path, data: bytes) -> str:
     return "/" + rel
 
 
-def _join(names) -> str:
-    names = list(names)
-    if not names:
+def _join(names: Iterable[str]) -> str:
+    listed = list(names)
+    if not listed:
         return ""
-    return ", ".join(names[:-1]) + (" and " if len(names) > 1 else "") + names[-1]
+    return ", ".join(listed[:-1]) + (" and " if len(listed) > 1 else "") + listed[-1]
 
 
-def map_alt(cells_: dict, what: str, gaps: dict[str, str] | None = None) -> str:
+def map_alt(
+    cells_: Mapping[tuple[int, int], float], what: str, gaps: dict[str, str] | None = None
+) -> str:
     """What the map draws, in words worked out from the cells.
 
     That is the rows, the cells, the fullest cell and any state hatched.
@@ -511,11 +539,11 @@ def _cell(lon: float, lat: float) -> tuple[float, float]:
 
 
 def map_html(  # noqa: PLR0913 - the options are keyword-only and named at each call
-    cells_: dict,
+    cells_: Mapping[tuple[int, int], float],
     what: str,
     out: Path,
     gaps: dict[str, str] | None = None,
-    box=None,
+    box: tuple[int, int, int, int] | None = None,
     *,
     floor: float = 0.35,
     bare: bool = False,
@@ -547,24 +575,24 @@ def map_html(  # noqa: PLR0913 - the options are keyword-only and named at each 
         f'<img class="mapimg" src="{_png(out, _raster(cells_, box, floor))}"'
         f' alt="{_esc(map_alt(cells_, what, gaps))}" width="{w}" height="{h}" loading="lazy" decoding="async">'
     )
-    out = [f'<svg viewBox="{i0} {j0} {w} {h}" class="map" aria-hidden="true" focusable="false">']
+    parts = [f'<svg viewBox="{i0} {j0} {w} {h}" class="map" aria-hidden="true" focusable="false">']
     if gaps:
-        out.append(
+        parts.append(
             '<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
             '<line x1="0" y1="0" x2="0" y2="6" stroke="var(--band-muted)" stroke-opacity=".35" stroke-width="1"/></pattern></defs>'
         )
     if not bare:
-        out += [
+        parts += [
             f'<path class="state" vector-effect="non-scaling-stroke" d="{d}"/>'
             for n, d in STATES.items()
             if n not in (gaps or {})
         ]
-    out += [
+    parts += [
         f'<path class="nodata" vector-effect="non-scaling-stroke" d="{STATES[n]}"/>'
         for n in (gaps or {})
         if n in STATES
     ]
-    out.append(f'<g style="font-size:{fs:.1f}px">')
+    parts.append(f'<g style="font-size:{fs:.1f}px">')
     for name, lon, lat, anchor, major in CITIES:
         x, y = _cell(lon, lat)
         if bare or (gaps and not major):
@@ -574,21 +602,21 @@ def map_html(  # noqa: PLR0913 - the options are keyword-only and named at each 
         if not (i0 + fs < left and right < i1 and j0 + fs < y < j1 - fs):
             continue
         dx = fs * 0.4 if anchor == "start" else -fs * 0.4
-        out.append(
+        parts.append(
             f'<text x="{x + dx:.1f}" y="{y + fs * 0.35:.1f}" text-anchor="{anchor}" class="mlabel">{name}</text>'
         )
     for name, why in (gaps or {}).items():
-        lon, lat = GAP_LABEL.get(name, (None, None))
-        if lon is None:
+        at = GAP_LABEL.get(name)
+        if at is None:
             continue
-        x, y = _cell(lon, lat)
-        out.append(
+        x, y = _cell(*at)
+        parts.append(
             f'<text x="{x:.1f}" y="{y:.1f}" text-anchor="middle" class="nlabel">{_esc(name)}</text>'
             f'<text x="{x:.1f}" y="{y + fs * 1.2:.1f}" text-anchor="middle" class="nlabel small">{_esc(why)}</text>'
         )
-    out.append("</g></svg>")
+    parts.append("</g></svg>")
     # An overlay with nothing but its empty label group is left out.
-    svg = "".join(out) if len(out) > 3 else ""  # noqa: PLR2004 - the three wrapping parts
+    svg = "".join(parts) if len(parts) > 3 else ""  # noqa: PLR2004 - the three wrapping parts
     return f'<div class="mapbox" style="--ar:{w}/{h}">{img}{svg}</div>'
 
 
@@ -604,7 +632,9 @@ GAP_LABEL = {
 }
 
 
-def merge(parts: list[dict]) -> dict:
+def merge(
+    parts: Iterable[Mapping[tuple[int, int], float]],
+) -> dict[tuple[int, int], float]:
     total: dict[tuple[int, int], float] = {}
     for p in parts:
         for k, v in p.items():
@@ -632,30 +662,38 @@ VERBS = {
 }
 
 
-def where_words(ds) -> str:
+def where_words(ds: Dataset) -> str:
     """The chart conditions as a caption clause, blank when there are none."""
-    conds = (ds.chart or {}).get("where") or ()
+    conds = (ds.chart.get("where") if ds.chart else None) or ()
     if not conds:
         return ""
     parts = [f"{ds.field(w['field']).display.lower()} {VERBS[w['op']]} {w['value']}" for w in conds]
     return f" Rows where {' and '.join(parts)} are drawn."
 
 
-def year_span(s: dict) -> str:
+def year_span(s: Series) -> str:
     if not s["years"]:
         return ""
     a, b = s["years"][0], s["years"][-1]
     return f"{_name(s, a)} to {_name(s, b)}" if a != b else _name(s, a)
 
 
-def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, *, within=None) -> dict:  # noqa: PLR0913 - the options are keyword-only and named at each call
+def dataset_figures(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    ds: Dataset,
+    m: Manifest,
+    console: dict[str, Any] | None,
+    db: Path,
+    out: Path,
+    *,
+    within: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Everything a dataset or version page draws for one version.
 
     That is the yearly chart, its caption, a sparkline for a card and a map when the rows have
     coordinates. within is a {field, op, value} condition a place page adds, so its figures draw
     its rows alone.
     """
-    chart = ds.chart or {}
+    chart: Chart | dict[str, Any] = ds.chart or {}
     metric = chart.get("metric") or (console["example"]["metric"] if console else "count")
     yf = year_field(ds)
     # The example's words fit the chart only when the chart keeps the rows the example keeps,
@@ -667,7 +705,7 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, *, within=
         ex.get("label", "") if console and not chart.get("metric") and kept else ""
     )
     what = measure(ds, metric, label)
-    fig: dict = {
+    fig: dict[str, Any] = {
         "what": what,
         "basis": basis(ds, metric),
         "chart": "",
@@ -734,7 +772,11 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, *, within=
 
 
 def national_map(
-    parts: list[tuple[str, dict]], what: str, why: str, out: Path, covered: set[str] | None = None
+    parts: list[tuple[str, dict[tuple[int, int], float]]],
+    what: str,
+    why: str,
+    out: Path,
+    covered: set[str] | None = None,
 ) -> str:
     """The home page map: the cells of every located dataset overlaid.
 
@@ -759,7 +801,7 @@ def national_map(
 
 
 def example_rows(
-    db: Path, console: dict, limit: int = 8, key: tuple[str, ...] = ()
+    db: Path, console: dict[str, Any], limit: int = 8, key: tuple[str, ...] = ()
 ) -> list[tuple[str, float]]:
     """The query console's first aggregate, answered from the rows the API loads.
 
@@ -800,12 +842,12 @@ def example_rows(
     return [(str(k) if k is not None else "blank", _num(v)) for k, v in rows]
 
 
-def _num(v) -> int | float:
+def _num(v: float | None) -> int | float:
     v = v or 0
     return int(v) if float(v).is_integer() else float(v)
 
 
-def newest(con, field: str):
+def newest(con: Records, field: str) -> object:
     """A field's newest value, which is its largest.
 
     When some values start with a digit, only those count, so a text period such as
@@ -814,20 +856,20 @@ def newest(con, field: str):
     f = _q(field)
     top = con.execute(
         f"SELECT MAX({f}) FROM records WHERE CAST({f} AS TEXT) GLOB '[0-9]*'"
-    ).fetchone()[0]
-    return top if top is not None else con.execute(f"SELECT MAX({f}) FROM records").fetchone()[0]
+    ).fetchone()[0]  # type: ignore[index]  # an aggregate query always returns one row
+    return top if top is not None else con.execute(f"SELECT MAX({f}) FROM records").fetchone()[0]  # type: ignore[index]  # an aggregate query always returns one row
 
 
 def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at each call
     db: Path,
     fields: list[str],
     n: int = 3,
-    where=None,
+    where: Where = None,
     *,
     nulls: bool = False,
-    order: tuple = (),
+    order: Iterable[tuple[str, bool]] = (),
     spread: str = "",
-) -> dict:
+) -> dict[str, Any]:
     """Some rows of some fields, for a preview table.
 
     The rows are kept to those the conditions match: in the Parquet's order, or by the
@@ -881,7 +923,7 @@ def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at ea
 CELL_MAX = 120
 
 
-def _preview_cell(v) -> str:
+def _preview_cell(v: object) -> str:
     """A value as a preview table shows it.
 
     A float loses its binary noise and long text is cut with an ellipsis.

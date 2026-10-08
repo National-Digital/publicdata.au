@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from .register import Dataset, RegisterError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
     from pathlib import Path
 
 # Register code, URL segment, long name.
@@ -133,13 +134,15 @@ class Publisher:
 
 def load_curated(folder: Path) -> list[Publisher]:  # noqa: C901 - one check per curated field
     """One file per government, each a list of publishers."""
-    raw = []
+    raw: list[tuple[str, int, dict[str, Any]]] = []
     for p in sorted(folder.glob("*.yaml")) if folder.is_dir() else []:
         raw += [
             (p.name, i, e)
             for i, e in enumerate(yaml.safe_load(p.read_text(encoding="utf-8")) or [])
         ]
-    out, seen_slug, seen_org = [], set(), {}
+    out: list[Publisher] = []
+    seen_slug: set[tuple[str, str]] = set()
+    seen_org: dict[str, str] = {}
     for fname, i, e in raw:
         ctx = f"publishers/{fname}[{i}]"
         for k in ("slug", "name", "jurisdiction"):
@@ -186,11 +189,13 @@ def load_curated(folder: Path) -> list[Publisher]:  # noqa: C901 - one check per
     return out
 
 
-def org_key(rec: dict) -> str:
+def org_key(rec: Mapping[str, Any]) -> str:
     return f"{rec['portal']}:{rec['org'] or 'unknown'}"
 
 
-def resolve(records: list[dict], curated: list[Publisher], portal_jur: dict[str, str]):
+def resolve(
+    records: Iterable[Mapping[str, Any]], curated: list[Publisher], portal_jur: dict[str, str]
+) -> tuple[dict[tuple[str, str], Publisher], dict[str, Publisher]]:
     """Returns (publishers by (jurisdiction, slug), publisher for each org key)."""
     pubs: dict[tuple[str, str], Publisher] = {(p.jurisdiction, p.slug): p for p in curated}
     by_org: dict[str, Publisher] = {o: p for p in curated for o in p.orgs}
@@ -223,7 +228,7 @@ def for_dataset(
     ds: Dataset,
     pubs: dict[tuple[str, str], Publisher],
     by_org: dict[str, Publisher],
-    records_by_name: dict[tuple[str, str], dict],
+    records_by_name: Mapping[tuple[str, str], Mapping[str, Any]],
     portal_by_host: dict[str, str],
 ) -> Publisher:
     """The publisher page a register dataset sits under.
@@ -242,9 +247,9 @@ def for_dataset(
         if j == jur and (p.name.lower() in want or (p.short and p.short.lower() in want)):
             return p
     slug = slugify(ds.publisher.name)
-    p = pubs.get((jur, slug))
-    if p is None:
-        p = pubs[(jur, slug)] = Publisher(
+    got = pubs.get((jur, slug))
+    if got is None:
+        got = pubs[(jur, slug)] = Publisher(
             slug=slug,
             name=ds.publisher.name,
             jurisdiction=jur,
@@ -252,14 +257,16 @@ def for_dataset(
             short=ds.publisher.short if ds.publisher.short != ds.publisher.name else "",
             url=ds.publisher.url,
         )
-    return p
+    return got
 
 
 def _council_base(name: str) -> str:
     return re.sub(r"\s+", " ", COUNCIL_WORDS.sub(" ", name)).strip(" -").lower()
 
 
-def suggest(records: list[dict], curated: list[Publisher], lgas: dict[str, str]) -> list[dict]:  # noqa: C901, PLR0912, PLR0915 - one rule per way an organisation is matched
+def suggest(  # noqa: C901, PLR0912, PLR0915 - one rule per way an organisation is matched
+    records: Iterable[Mapping[str, Any]], curated: list[Publisher], lgas: dict[str, str]
+) -> list[dict[str, Any]]:
     """Proposed curation for the organisations that the portal cannot place.
 
     These are the organisations data.gov.au and the Infrastructure catalogue list. The proposal
@@ -272,15 +279,15 @@ def suggest(records: list[dict], curated: list[Publisher], lgas: dict[str, str])
     for r in records:
         if r["kind"] in LISTED_KINDS:
             titles.setdefault(org_key(r), r.get("org_title") or r["org"])
-    state_orgs = {}
+    state_orgs: dict[str, str] = {}
     for key, t in titles.items():
         if key.split(":")[0] not in ("gov", "infra", "abs"):
             state_orgs.setdefault(re.sub(r"[^a-z]", "", clean_title(t).lower()), key)
-    lga_by_base = {}
+    lga_by_base: dict[str, set[str]] = {}
     for n, jur in lgas.items():
         base = re.sub(r"\s*\((nsw|vic\.|qld|sa|wa|tas\.|nt|act)\)$", "", n.lower())
         lga_by_base.setdefault(base, set()).add(jur)
-    out = []
+    out: list[dict[str, Any]] = []
     for key, raw in sorted(titles.items()):
         portal = key.split(":")[0]
         if portal not in ("gov", "infra") or key in claimed:
