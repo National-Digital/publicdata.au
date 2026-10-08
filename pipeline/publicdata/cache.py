@@ -14,7 +14,7 @@ import stat
 import sys
 from importlib.metadata import version as dist_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import duckdb
 
@@ -23,8 +23,9 @@ from .serialise import WRITER_DEPENDS, WRITER_MODULES, WRITER_VARIANTS, WRITERS,
 from .serialise.geo import geo_kind
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
 
+    from .jsontypes import JSONObject
     from .register import Dataset
 
     class _Hasher(Protocol):
@@ -325,7 +326,7 @@ class BuildCache:
     def has(self, key: str) -> bool:
         return (self.root / key / "meta.json").is_file()
 
-    def get(self, key: str, dest: Path | None = None) -> dict[str, Any] | None:
+    def get(self, key: str, dest: Path | None = None) -> JSONObject | None:
         """The entry's metadata, with its files linked into dest when one is given."""
         entry = self.root / key
         meta = entry / "meta.json"
@@ -338,13 +339,13 @@ class BuildCache:
             shutil.copytree(entry / "files", dest, copy_function=_link_or_copy)
         self.used.add(key)
         self.hits += 1
-        got: dict[str, Any] = json.loads(meta.read_text(encoding="utf-8"))
+        got: JSONObject = json.loads(meta.read_text(encoding="utf-8"))
         return got
 
     def put(
         self,
         key: str,
-        meta: dict[str, Any],
+        meta: Mapping[str, object],
         src: Path | None = None,
         keep: Callable[[str], bool] = lambda _rel: True,
         extra: dict[str, bytes] | None = None,

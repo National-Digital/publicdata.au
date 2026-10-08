@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
 
 import yaml
 
@@ -13,7 +13,163 @@ from .spine import LAYERS, SOURCE_PREFIX
 from .topics import TOPICS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
+
+    # An entry as the YAML holds it, before parse checks it. A value parse converts with str()
+    # or checks itself is an object; the rest are what the register's format writes there.
+    class RawPublisher(TypedDict, total=False):
+        name: object
+        short: object
+        jurisdiction: object
+        url: object
+
+    class RawLicence(TypedDict, total=False):
+        id: object
+        evidence: object
+        attribution: object
+        portal_id: object
+        statement: object
+        reviewed: object
+
+    class RawSource(TypedDict, total=False):
+        adapter: object
+        url: object
+        portal: object
+        package: object
+        resource: object
+        cadence: object
+        encoding: object
+        delimiter: object
+        manual: object
+        header_match: object
+        section_match: object
+        header_depth: int
+        group_match: object
+        footnote_marks: object
+        file_match: object
+        as_at_regex: object
+        sheet: object
+        header_row: int
+        package_match: object
+        resource_match: object
+        member: object
+        search: object
+        providers: list[object]
+        feed: object
+        record: object
+        format: object
+        page_size: int
+        browser: object
+
+    class RawField(TypedDict, total=False):
+        name: object
+        source: object
+        type: object
+        description: object
+        true_values: list[str]
+        false_values: list[str]
+        date_format: object
+        note: object
+        null_values: list[object]
+        label: object
+        references: object
+
+    class RawUnpivot(TypedDict, total=False):
+        headers: object
+
+    class RawWide(TypedDict, total=False):
+        sheets: list[object]
+        header_row: int
+        header_rows: int
+        first_column: int
+        row_headers: int
+        fill_down: list[int]
+        column_match: object
+        sheet_match: object
+
+    class RawFaq(TypedDict, total=False):
+        q: object
+        a: object
+
+    class RawDatabase(TypedDict, total=False):
+        member_match: object
+        delimiter: object
+        encoding: object
+
+    class RawTable(TypedDict, total=False):
+        name: object
+        source: object
+        description: object
+        fields: list[RawField]
+        key: list[object]
+
+    class RawView(TypedDict, total=False):
+        name: object
+        sql: object
+        description: object
+        example: object
+
+    class RawEntry(TypedDict, total=False):
+        slug: object
+        status: object
+        title: object
+        publisher: RawPublisher
+        licence: RawLicence
+        source: RawSource
+        chart_where: object
+        kind: object
+        fields: list[RawField]
+        geometry: object
+        enrich: list[object]
+        key: list[str]
+        partition_by: list[str]
+        unpivot: RawUnpivot
+        wide: RawWide
+        description: object
+        summary: object
+        collection: object
+        collection_title: object
+        sort: object
+        lookup: object
+        int32: object
+        suppression: list[str]
+        note: object
+        blocked_reason: object
+        planned: object
+        temporal_start: object
+        order: int
+        search_title: object
+        also_known_as: list[object]
+        keywords: list[object]
+        faq: list[RawFaq]
+        collection_description: object
+        landing: object
+        row_label: object
+        topics: list[object]
+        example: object
+        chart: object
+        sample: object
+        collection_search_title: object
+        place_field: object
+        rebuild: object
+        query: object
+        omit: object
+        source_withheld: object
+        database: RawDatabase
+        tables: list[RawTable]
+        views: list[RawView]
+
+    class RawGrant(TypedDict, total=False):
+        id: object
+        kind: object
+        read: object
+        grants: dict[str, object]
+        letter: object
+        title: object
+        url: object
+        hub: object
+        condition: object
+
 
 OPEN_LICENCES = {
     "CC-BY-4.0": ("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"),
@@ -430,14 +586,14 @@ def _rebuild(v: object, ctx: str) -> int:
     return v
 
 
-def _req(d: dict[str, Any], key: str, ctx: str) -> object:
+def _req(d: Mapping[str, object], key: str, ctx: str) -> object:
     if key not in d or d[key] in (None, ""):
         msg = f"{ctx}: missing '{key}'"
         raise RegisterError(msg)
     return d[key]
 
 
-def parse(raw: dict[str, Any], ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 - one check per register field, in the entry's order
+def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 - one check per register field, in the entry's order
     slug = str(_req(raw, "slug", ctx))
     if not SLUG_RE.match(slug):
         msg = f"{ctx}: bad slug '{slug}'"
@@ -745,13 +901,19 @@ def parse(raw: dict[str, Any], ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR
     return ds
 
 
+class _DatabaseParts(TypedDict, total=False):
+    database: Database
+    tables: tuple[TableSpec, ...]
+    views: tuple[View, ...]
+
+
 class _Profile(TypedDict):
     sort: tuple[str, ...]
     lookup: tuple[str, ...]
     int32: tuple[str, ...]
 
 
-def _profile(raw: dict[str, Any], fields: list[Field], kind: str, ctx: str) -> _Profile:
+def _profile(raw: RawEntry, fields: list[Field], kind: str, ctx: str) -> _Profile:
     """The Parquet profile an entry declares.
 
     `sort`, `lookup` and `int32` must be declared fields, each named once. A boolean has two
@@ -789,7 +951,7 @@ def _profile(raw: dict[str, Any], fields: list[Field], kind: str, ctx: str) -> _
 LABEL_MAX = 60
 
 
-def _fields(raw: list[dict[str, Any]], ctx: str) -> list[Field]:
+def _fields(raw: list[RawField], ctx: str) -> list[Field]:
     fields = []
     seen = set()
     for i, f in enumerate(raw):
@@ -833,7 +995,7 @@ def _fields(raw: list[dict[str, Any]], ctx: str) -> list[Field]:
     return fields
 
 
-def _database(raw: dict[str, Any], ctx: str) -> dict[str, Any]:  # noqa: C901, PLR0912, PLR0915 - one check per database field
+def _database(raw: RawEntry, ctx: str) -> _DatabaseParts:  # noqa: C901, PLR0912, PLR0915 - one check per database field
     """The tables, views and archive layout of a database entry."""
     db = raw.get("database") or {}
     match = str(_req(db, "member_match", f"{ctx}.database"))
@@ -888,13 +1050,13 @@ def _database(raw: dict[str, Any], ctx: str) -> dict[str, Any]:  # noqa: C901, P
             )
         )
     by_name = {t.name: t for t in tables}
-    for t in tables:
-        for f in t.fields:
+    for spec in tables:
+        for f in spec.fields:
             if not f.references:
                 continue
             target, _, column = f.references.partition(".")
             if target not in by_name or column not in {x.name for x in by_name[target].fields}:
-                msg = f"{ctx}.tables: {t.name}.{f.name} references '{f.references}', which is not a table.field here"
+                msg = f"{ctx}.tables: {spec.name}.{f.name} references '{f.references}', which is not a table.field here"
                 raise RegisterError(msg)
     views = []
     for i, v in enumerate(raw.get("views") or []):
@@ -921,7 +1083,7 @@ def _database(raw: dict[str, Any], ctx: str) -> dict[str, Any]:  # noqa: C901, P
     }
 
 
-def _wide(raw: dict[str, Any], fields: list[Field], ctx: str) -> Wide:  # noqa: C901 - one check per wide-layout field
+def _wide(raw: RawWide, fields: list[Field], ctx: str) -> Wide:  # noqa: C901 - one check per wide-layout field
     unknown = set(raw) - WIDE_KEYS
     if unknown:
         msg = f"{ctx}: wide has unknown keys {sorted(unknown)}"
@@ -992,7 +1154,7 @@ def _geometry(raw: object, seen: set[str], ctx: str) -> Geometry | None:
     if not raw:
         return None
     # A mapping from the YAML, checked below; keys the build does not read pass through.
-    g = cast("Geometry", dict(cast("dict[str, Any]", raw)))
+    g = cast("Geometry", dict(cast("Mapping[str, object]", raw)))
     g["kind"] = str(g.get("kind", "point"))
     if g["kind"] not in GEOMETRY_KINDS:
         msg = f"{ctx}: geometry.kind '{g['kind']}' not one of {GEOMETRY_KINDS}"
@@ -1187,7 +1349,7 @@ class Grant:
     letter: str = ""
 
 
-def parse_grant(raw: dict[str, Any], ctx: str, root: Path) -> Grant:
+def parse_grant(raw: RawGrant, ctx: str, root: Path) -> Grant:
     gid = str(_req(raw, "id", ctx))
     if gid in CC_LICENCES or gid in CLOSED_LICENCES:
         msg = f"{ctx}: {gid} is a Creative Commons id, not a grant"
@@ -1249,7 +1411,7 @@ def load(register_dir: Path) -> list[Dataset]:
     )
     for p in paths:
         name = p.relative_to(register_dir).as_posix()
-        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        raw: RawEntry = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         ds = parse(raw, name)
         if ds.slug != p.stem:
             msg = f"{name}: slug '{ds.slug}' does not match filename"

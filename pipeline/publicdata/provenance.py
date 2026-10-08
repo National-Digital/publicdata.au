@@ -3,18 +3,83 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from . import OPERATOR, SITE
 from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
 from .spine import LAYERS
 
 if TYPE_CHECKING:
+    from .jsontypes import JSON
     from .register import Dataset
     from .store import Manifest
 
-# The header every payload carries, as JSON: its shape is what header() below writes.
-type Header = dict[str, Any]
+    class HeaderOperator(TypedDict):
+        name: str
+        url: str
+
+    class HeaderPublisher(TypedDict):
+        name: str
+        jurisdiction: str
+        url: str
+
+    class HeaderLicence(TypedDict):
+        id: str
+        title: str
+        url: str
+        condition: NotRequired[str]
+
+    class HeaderSource(TypedDict):
+        url: str | None
+        filename: str
+        fetched_at: str
+        sha256: str
+        bytes: int
+        encoding: str
+        backfilled: bool
+
+    class HeaderPlaces(TypedDict):
+        datasets: list[str]
+        attribution: str
+
+    class HeaderPartition(TypedDict):
+        field: str
+        value: JSON
+
+    class _Condition(TypedDict, total=False):
+        condition: str
+
+    class _Places(TypedDict, total=False):
+        places: HeaderPlaces
+
+    class _Database(TypedDict, total=False):
+        kind: str
+        tables: list[str]
+
+    class Header(TypedDict):
+        """The header every payload carries, as JSON, in the order header() below writes it."""
+
+        site: str
+        operator: HeaderOperator
+        dataset: str
+        title: str
+        version: str
+        as_at: str | None
+        url: str
+        publisher: HeaderPublisher
+        licence: HeaderLicence
+        attribution: str
+        cite: str
+        cite_request: str
+        source: HeaderSource
+        places: NotRequired[HeaderPlaces]
+        rows: int
+        fields: int
+        kind: NotRequired[str]
+        tables: NotRequired[list[str]]
+        not_endorsed: str
+        partition: NotRequired[HeaderPartition]
+
 
 NOT_ENDORSED = "This is an independent republication. The publisher has not endorsed this site."
 OPERATOR_URL = "https://nationaldigital.com.au/"
@@ -88,6 +153,20 @@ def cite(ds: Dataset, m: Manifest, version_url: str) -> dict[str, str]:
 
 def header(ds: Dataset, m: Manifest, rows: int, url: str) -> Header:
     version_url = url.rsplit("/", 1)[0] + "/"
+    condition: _Condition = {"condition": ds.licence.condition} if ds.licence.condition else {}
+    places: _Places = (
+        {
+            "places": {
+                "datasets": [LAYERS[k].slug for k in ds.enrich],
+                "attribution": SPINE_ATTRIBUTION,
+            }
+        }
+        if ds.enrich
+        else {}
+    )
+    database: _Database = (
+        {"kind": "database", "tables": [t.name for t in ds.tables]} if ds.kind == "database" else {}
+    )
     return {
         "site": SITE,
         "operator": {"name": OPERATOR, "url": OPERATOR_URL},
@@ -105,7 +184,7 @@ def header(ds: Dataset, m: Manifest, rows: int, url: str) -> Header:
             "id": ds.licence.id,
             "title": ds.licence.title,
             "url": ds.licence.url,
-            **({"condition": ds.licence.condition} if ds.licence.condition else {}),
+            **condition,
         },
         "attribution": attribution(ds, m),
         "cite": cite(ds, m, version_url)["text"],
@@ -119,22 +198,9 @@ def header(ds: Dataset, m: Manifest, rows: int, url: str) -> Header:
             "encoding": m.encoding,
             "backfilled": m.backfilled,
         },
-        **(
-            {
-                "places": {
-                    "datasets": [LAYERS[k].slug for k in ds.enrich],
-                    "attribution": SPINE_ATTRIBUTION,
-                }
-            }
-            if ds.enrich
-            else {}
-        ),
+        **places,
         "rows": rows,
         "fields": ds.field_count,
-        **(
-            {"kind": "database", "tables": [t.name for t in ds.tables]}
-            if ds.kind == "database"
-            else {}
-        ),
+        **database,  # type: ignore[typeddict-item]  # partition comes later, from write_partitions
         "not_endorsed": NOT_ENDORSED,
     }

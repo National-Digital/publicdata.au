@@ -105,6 +105,13 @@ strict = true
 python_version = "3.14"
 files = ["publicdata", "tests"]
 enable_error_code = ["ignore-without-code"]
+# Any is narrowed once, where a value enters at the parse of JSON, YAML or a library's answer.
+# disallow_any_expr stays off: it would flag every use of such a value before and after that
+# narrowing, which is every pyarrow, JSON and YAML value.
+disallow_any_explicit = true
+disallow_any_decorated = true
+disallow_any_unimported = true
+disallow_any_generics = true
 # pmtiles marks itself typed but leaves its writer and tile helpers unannotated.
 untyped_calls_exclude = ["pmtiles"]
 

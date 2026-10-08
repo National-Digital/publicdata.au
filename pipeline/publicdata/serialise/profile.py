@@ -16,7 +16,7 @@ import hashlib
 import json
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 import duckdb
 import pyarrow as pa
@@ -28,9 +28,33 @@ from . import dumps
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-    from publicdata.normalise import Table
+    from publicdata.normalise import ArrowArray, Table
     from publicdata.provenance import Header
     from publicdata.register import Dataset
+
+
+class MinMax(TypedDict):
+    min: int | None
+    max: int | None
+
+
+class Bloom(TypedDict):
+    ndv: int
+    fpp: float
+
+
+class WriterOptions(TypedDict, total=False):
+    """The keywords a profile file's ParquetWriter takes."""
+
+    compression: Literal["zstd"]
+    use_dictionary: bool
+    write_statistics: bool
+    max_rows_per_page: int
+    data_page_size: int
+    write_page_index: bool
+    sorting_columns: tuple[pq.SortingColumn, ...]
+    bloom_filter_options: dict[str, Bloom]
+
 
 VERSION = "1"
 # The footer key a reader checks before it relies on the order, the sizes and the page index.
@@ -94,7 +118,7 @@ def sort_columns(sort: Sequence[str], key: Sequence[str]) -> list[str]:
     return [*sort, *(k for k in key if k not in sort)]
 
 
-def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Array[Any] | None:
+def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> ArrowArray | None:
     """The source positions of the rows of `t` in profile order.
 
     It is None when no sort is declared and the rows keep the publisher's order. Ties after the
@@ -121,13 +145,13 @@ def permutation(t: pa.Table, sort: Sequence[str], key: Sequence[str]) -> pa.Arra
     return out.column(POSITION).combine_chunks()
 
 
-def order_of(tbl: Table, sort: Sequence[str], key: Sequence[str]) -> pa.Array[Any] | None:
+def order_of(tbl: Table, sort: Sequence[str], key: Sequence[str]) -> ArrowArray | None:
     """The permutation for the rows of `tbl`, reused when the build has already worked it out.
 
     It is taken from the one the build worked out for this table and this sort when it has it,
     so a version is sorted once.
     """
-    known: tuple[pa.Table, tuple[tuple[str, ...], tuple[str, ...]], pa.Array[Any]] | None = getattr(
+    known: tuple[pa.Table, tuple[tuple[str, ...], tuple[str, ...]], ArrowArray] | None = getattr(
         tbl, "order", None
     )
     if known and known[0] is tbl.table and known[1] == (tuple(sort), tuple(key)):
@@ -135,7 +159,7 @@ def order_of(tbl: Table, sort: Sequence[str], key: Sequence[str]) -> pa.Array[An
     return permutation(tbl.table, sort, key)
 
 
-def apply(t: pa.Table, perm: pa.Array[Any] | None) -> pa.Table:
+def apply(t: pa.Table, perm: ArrowArray | None) -> pa.Table:
     if perm is None or pc.all(pc.equal(perm, pa.array(range(len(perm)), pa.int64()))).as_py():
         return t  # a source already in order is not copied
     return t.take(perm)
@@ -154,9 +178,11 @@ def misfits(t: pa.Table, cols: Sequence[str]) -> list[str]:
     for c in cols:
         if c not in t.column_names:
             continue
-        mm: dict[str, Any] = pc.min_max(t.column(c)).as_py()  # type: ignore[assignment]  # pyarrow-stubs 20 gives a struct's as_py as a list
-        if mm["min"] is not None and not (INT32[0] <= mm["min"] and mm["max"] <= INT32[1]):
-            out.append(f"{c} holds {mm['min']} to {mm['max']}, outside 32 bits")
+        mm: MinMax = pc.min_max(t.column(c)).as_py()  # type: ignore[assignment]  # pyarrow-stubs 20 gives a struct's as_py as a list
+        lo, hi = mm["min"], mm["max"]
+        # min_max gives both or neither.
+        if lo is not None and hi is not None and not (INT32[0] <= lo and hi <= INT32[1]):
+            out.append(f"{c} holds {lo} to {hi}, outside 32 bits")
     return out
 
 
@@ -179,9 +205,7 @@ def narrow(t: pa.Table, cols: Sequence[str]) -> pa.Table:
     return t.cast(int32_schema(t, cols)) if cols else t
 
 
-def chunks(
-    t: pa.Table, perm: pa.Array[Any] | None, rows: int = ROW_GROUP_ROWS
-) -> Iterator[pa.Table]:
+def chunks(t: pa.Table, perm: ArrowArray | None, rows: int = ROW_GROUP_ROWS) -> Iterator[pa.Table]:
     """The rows of `t` in the order perm gives, a slice at a time, so a sort never copies it."""
     if perm is not None and pc.all(pc.equal(perm, pa.array(range(len(perm)), pa.int64()))).as_py():
         perm = None
@@ -216,13 +240,13 @@ def options(
     schema: pa.Schema,
     sorted_by: Sequence[str] = (),
     lookup: dict[str, int] | None = None,
-) -> dict[str, Any]:
+) -> WriterOptions:
     """Writer options for a file in profile order, written ROW_GROUP_ROWS rows to a group.
 
     `sorted_by` names the columns a sorted file is ordered by, and `lookup` maps each lookup
     field to its count of distinct values.
     """
-    opts: dict[str, Any] = {
+    opts: WriterOptions = {
         "compression": "zstd",
         "use_dictionary": True,
         "write_statistics": True,
@@ -250,7 +274,7 @@ def write(  # noqa: PLR0913 - the options are keyword-only and named at each cal
     header: Header,
     path: Path,
     lay: Layout,
-    perm: pa.Array[Any] | None = None,
+    perm: ArrowArray | None = None,
     *,
     extra: dict[str, str] | None = None,
 ) -> None:

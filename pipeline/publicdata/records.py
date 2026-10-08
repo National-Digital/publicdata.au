@@ -22,8 +22,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+# A row of a query's answer. DuckDB types its rows' values as Any, and each caller knows from its
+# own SQL what a column holds, so a row is named once here.
+type Row = tuple[Any, ...]  # type: ignore[explicit-any]  # duckdb types a fetched row's values as Any
+
+
 class _Cursor(Protocol):
-    def fetchone(self) -> tuple[Any, ...] | None: ...
+    def fetchone(self) -> Row | None: ...
 
 
 # A value as SQLite holds it.
@@ -146,16 +151,16 @@ class Records:
         self.con.execute(sql, list(params))
         return self
 
-    def fetchone(self) -> tuple[Any, ...] | None:
+    def fetchone(self) -> Row | None:
         return self.con.fetchone()
 
-    def fetchall(self) -> list[tuple[Any, ...]]:
+    def fetchall(self) -> list[Row]:
         return self.con.fetchall()
 
-    def fetchmany(self, n: int) -> list[tuple[Any, ...]]:
+    def fetchmany(self, n: int) -> list[Row]:
         return self.con.fetchmany(n)
 
-    def __iter__(self) -> Iterator[tuple[Any, ...]]:
+    def __iter__(self) -> Iterator[Row]:
         return iter(self.con.fetchall())
 
     def close(self) -> None:
@@ -168,7 +173,7 @@ class Records:
         self.close()
 
 
-def one_row(cur: _Cursor) -> tuple[Any, ...]:
+def one_row(cur: _Cursor) -> Row:
     """The row an aggregate query answers, which it always does."""
     row = cur.fetchone()
     if row is None:

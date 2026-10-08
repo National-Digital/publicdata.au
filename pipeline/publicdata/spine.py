@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import duckdb
 import pyarrow as pa
@@ -25,7 +25,7 @@ import yaml
 from . import store
 
 if TYPE_CHECKING:
-    from .normalise import Table
+    from .normalise import ArrowArray, Table
     from .register import Geometry
 
 DATUM = "EPSG:7844"
@@ -167,7 +167,7 @@ def _read_layer(
     return con, geom, text, order
 
 
-def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table, pa.Array[Any]]:
+def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table, ArrowArray]:
     """The layer's attributes as text, in the file's order, and each feature's geometry.
 
     The geometry is WKB in GDA2020. The publisher's datum is the register's `geometry.crs`.
@@ -211,7 +211,7 @@ class Shapes:
     sha256: str
     codes: list[str | None]
     names: list[str | None]
-    wkb: pa.Array[Any]
+    wkb: ArrowArray
 
 
 _LOADED: dict[tuple[str, str], Shapes] = {}
@@ -285,7 +285,7 @@ def spine_versions(keys: tuple[str, ...], store_dir: Path, register_dir: Path) -
 def enrich(tbl: Table, store_dir: Path, register_dir: Path) -> Table:
     """The table with each spine column filled in by location. Returns the layers used."""
     ds = tbl.dataset
-    g: Geometry | dict[str, Any] = ds.geometry or {}
+    g: Geometry | dict[str, str] = ds.geometry or {}
     con = connect()
     lon = tbl.table.column(g["lon"]).combine_chunks().cast(pa.float64())
     lat = tbl.table.column(g["lat"]).combine_chunks().cast(pa.float64())

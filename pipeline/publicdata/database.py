@@ -16,7 +16,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     import duckdb
 
+    from .jsontypes import JSON, JSONObject
     from .provenance import Header
     from .register import Dataset, Field, TableSpec
     from .store import Manifest
@@ -150,7 +151,7 @@ def _write_parquet(
     reader = con.execute(f"SELECT * FROM {_ident(t.name)}").to_arrow_reader(size)
     if not profiled:
         schema = reader.schema.with_metadata({"publicdata": dumps(header)})
-        opts: dict[str, Any] = {"compression": "zstd", "write_statistics": True}
+        opts: profile.WriterOptions = {"compression": "zstd", "write_statistics": True}
     else:
         schema = reader.schema.with_metadata(profile.metadata(header))
         opts = profile.options(schema)
@@ -159,8 +160,8 @@ def _write_parquet(
             w.write_batch(b, row_group_size=size if profiled else None)
 
 
-def _frictionless_field(f: Field) -> dict[str, Any]:
-    d: dict[str, Any] = {"name": f.name, "type": f.type, "title": f.source}
+def _frictionless_field(f: Field) -> JSONObject:
+    d: JSONObject = {"name": f.name, "type": f.type, "title": f.source}
     if f.description:
         d["description"] = f.description
     if f.type == "date" and f.date_format != "%Y-%m-%d":
@@ -171,11 +172,11 @@ def _frictionless_field(f: Field) -> dict[str, Any]:
     return d
 
 
-def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict[str, Any]:
+def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> JSONObject:
     """The tables as Frictionless Table Schemas with their keys and references, and the views."""
-    tables: list[dict[str, Any]] = []
+    tables: list[JSON] = []
     for t in ds.tables:
-        d: dict[str, Any] = {
+        d: JSONObject = {
             "name": t.name,
             "title": t.source,
             "description": t.description,
@@ -186,7 +187,7 @@ def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict[str, An
             d["rows"] = rows.get(t.name, 0)
         if t.key:
             d["primaryKey"] = list(t.key)
-        refs = [
+        refs: list[JSON] = [
             {
                 "fields": [f.name],
                 "reference": {

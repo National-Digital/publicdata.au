@@ -43,8 +43,12 @@ if TYPE_CHECKING:
     from .register import Wide
     from .store import Manifest
 
+# A column of any Arrow type. pyarrow-stubs types each compute function for the Arrow types it
+# takes and matches a column of unknown type only as Array[Any], so these two say it once.
+type ArrowArray = pa.Array[Any]  # type: ignore[explicit-any]  # the stubs' compute overloads match only Array[Any]
+type ArrowChunked = pa.ChunkedArray[Any]  # type: ignore[explicit-any]  # the stubs' compute overloads match only ChunkedArray[Any]
 # pyarrow.compute takes either and hands back either; pyarrow-stubs 20 often names the wrong one.
-type Arr = pa.Array[Any] | pa.ChunkedArray[Any]
+type Arr = ArrowArray | ArrowChunked
 
 ARROW_TYPES = {
     "string": pa.string(),
@@ -72,11 +76,11 @@ class Table:
     # Upstream columns the register leaves out on purpose, seen in this file.
     omitted_columns: list[str] = field(default_factory=list)
     # A polygon or line layer's geometry, one WKB value per row in GDA2020, beside the fields.
-    geometry: pa.Array[Any] | None = None
+    geometry: ArrowArray | None = None
     # The place spine layers a point dataset was joined to, with the version of each.
     places: list[dict[str, str]] = field(default_factory=list)
     # (table, (sort, key), permutation) once the build has sorted this table, so it sorts once.
-    order: tuple[pa.Table, tuple[tuple[str, ...], tuple[str, ...]], pa.Array[Any] | None] | None = (
+    order: tuple[pa.Table, tuple[tuple[str, ...], tuple[str, ...]], ArrowArray | None] | None = (
         field(default=None, repr=False, compare=False)
     )
 
@@ -84,7 +88,7 @@ class Table:
     def rows(self) -> int:
         return self.table.num_rows
 
-    def shapes(self) -> pa.Array[Any]:
+    def shapes(self) -> ArrowArray:
         """The geometry column, for code that runs only for a polygon or line layer."""
         if self.geometry is None:
             msg = f"{self.dataset.slug}: the table was read without its geometry"
@@ -176,7 +180,7 @@ def _drop_blank_rows(t: pa.Table) -> pa.Table:
     return t.filter(pc.invert(blank)) if pc.any(blank).as_py() else t
 
 
-def _blank(c: pa.ChunkedArray[Any]) -> Arr:
+def _blank(c: ArrowChunked) -> Arr:
     trimmed = pc.utf8_trim_whitespace(fill_null(c, ""))
     blank: Arr = pc.equal(trimmed, "")  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
     return blank

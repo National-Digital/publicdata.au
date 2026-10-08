@@ -11,10 +11,12 @@ import re
 import sys
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeGuard
+from typing import TYPE_CHECKING, TypedDict, TypeGuard, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
+
+    from .jsontypes import JSON, JSONObject
 
 VOCAB = Path(__file__).parent / "schemaorg.json"
 LD_BLOCK = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
@@ -23,7 +25,14 @@ ISO_INTERVAL = re.compile(rf"^({ISO_DATE}|\.\.)(/({ISO_DATE}|\.\.))?$")
 AGENT = {"Person", "Organization"}
 
 
-def compact(src: Path, version: str) -> dict[str, Any]:
+class Vocab(TypedDict):
+    version: str
+    types: dict[str, list[str]]
+    # Each property's domain and range.
+    properties: dict[str, list[list[str]]]
+
+
+def compact(src: Path, version: str) -> Vocab:
     graph = json.loads(src.read_text(encoding="utf-8"))["@graph"]
 
     def ids(v: list[dict[str, str]] | dict[str, str] | None) -> list[str]:
@@ -46,8 +55,8 @@ def compact(src: Path, version: str) -> dict[str, Any]:
 
 
 @cache
-def _vocab() -> dict[str, Any]:
-    vocab: dict[str, Any] = json.loads(VOCAB.read_text(encoding="utf-8"))
+def _vocab() -> Vocab:
+    vocab: Vocab = json.loads(VOCAB.read_text(encoding="utf-8"))
     return vocab
 
 
@@ -63,16 +72,17 @@ def _ancestors(t: str) -> frozenset[str]:
     return frozenset(seen)
 
 
-def _types(node: dict[str, Any]) -> list[str]:
+def _types(node: Mapping[str, JSON]) -> list[str]:
     t = node.get("@type", [])
-    return t if isinstance(t, list) else [t]
+    # A node's @type is a name or a list of names.
+    return cast("list[str]", t if isinstance(t, list) else [t])
 
 
-def _values(v: object) -> list[Any]:
+def _values(v: JSON) -> list[JSON]:
     return [x for x in (v if isinstance(v, list) else [v]) if x is not None]
 
 
-def _is(node: object, *names: str) -> bool:
+def _is(node: object, *names: str) -> TypeGuard[JSONObject]:
     return isinstance(node, dict) and bool(set(_types(node)) & set(names))
 
 
@@ -140,7 +150,7 @@ def _url(v: object) -> TypeGuard[str]:
 DESCRIPTION_MIN, DESCRIPTION_MAX = 50, 5000
 
 
-def _dataset(n: dict[str, Any], at: str) -> list[str]:  # noqa: C901, PLR0912 - one check per Dataset property
+def _dataset(n: JSONObject, at: str) -> list[str]:  # noqa: C901, PLR0912 - one check per Dataset property
     e: list[str] = []
     if not _text(n.get("name")):
         e.append(f"{at}: Dataset needs a name")
@@ -199,7 +209,7 @@ def _dataset(n: dict[str, Any], at: str) -> list[str]:  # noqa: C901, PLR0912 - 
     return e
 
 
-def _breadcrumbs(n: dict[str, Any], at: str) -> list[str]:
+def _breadcrumbs(n: JSONObject, at: str) -> list[str]:
     items = _values(n.get("itemListElement"))
     if not items:
         return [f"{at}: BreadcrumbList needs itemListElement"]
@@ -221,7 +231,7 @@ def _breadcrumbs(n: dict[str, Any], at: str) -> list[str]:
     return e
 
 
-def _faq(n: dict[str, Any], at: str) -> list[str]:
+def _faq(n: JSONObject, at: str) -> list[str]:
     qs = _values(n.get("mainEntity"))
     if not qs:
         return [f"{at}: FAQPage needs mainEntity"]
@@ -237,7 +247,7 @@ def _faq(n: dict[str, Any], at: str) -> list[str]:
     return e
 
 
-def _catalog(n: dict[str, Any], at: str) -> list[str]:
+def _catalog(n: JSONObject, at: str) -> list[str]:
     """Errors for the DataCatalog's dataset entries that are only references.
 
     Google reads every entry in dataset as a Dataset item on this page, so a bare reference is an
@@ -250,7 +260,7 @@ def _catalog(n: dict[str, Any], at: str) -> list[str]:
     ]
 
 
-RULES: dict[str, Callable[[dict[str, Any], str], list[str]]] = {
+RULES: dict[str, Callable[[JSONObject, str], list[str]]] = {
     "Dataset": _dataset,
     "DataCatalog": _catalog,
     "BreadcrumbList": _breadcrumbs,
@@ -273,7 +283,7 @@ def _google_errors(node: object, where: str) -> list[str]:
     return errors
 
 
-def blocks(html: str) -> list[Any]:
+def blocks(html: str) -> list[JSON]:
     return [json.loads(b) for b in LD_BLOCK.findall(html)]
 
 
@@ -294,7 +304,7 @@ def check_page(html: str, page: str) -> list[str]:
 
 def duplicate_names(pages: list[tuple[str, str]]) -> list[str]:
     """Google asks for a distinct name per distinct Dataset."""
-    owner: dict[str, str] = {}
+    owner: dict[JSON, JSON] = {}
     errors: list[str] = []
     for page, html in pages:
         for b in blocks(html):

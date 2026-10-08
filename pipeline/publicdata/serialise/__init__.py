@@ -12,7 +12,7 @@ import json
 import re
 import shutil
 import zipfile
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import duckdb
 import pyarrow as pa
@@ -27,11 +27,21 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
+    from publicdata.jsontypes import JSON, JSONObject
     from publicdata.normalise import Arr, Table
     from publicdata.provenance import Header
     from publicdata.register import Dataset
 
     type Writer = Callable[[Table, Header, Path, Path], None]
+
+    class PartitionEntry(TypedDict):
+        """One partition file in a version's index."""
+
+        value: JSON
+        rows: int
+        json: str
+        geojson: NotRequired[str]
+
 
 # Every whole-table format, in the order the site lists them. A version whose store manifest has
 # no `caps` stamp keeps the set it was built with, Arrow included.
@@ -222,17 +232,17 @@ def json_view(t: pa.Table) -> pa.Table:
     return pa.table(cols, names=t.column_names)
 
 
-def iter_rows(t: pa.Table, batch: int = 20_000) -> Iterator[dict[str, Any]]:
+def iter_rows(t: pa.Table, batch: int = 20_000) -> Iterator[dict[str, object]]:
     for b in t.to_batches(batch):
         yield from b.to_pylist()
 
 
-def table_schema(tbl: Table) -> dict[str, Any]:  # noqa: C901 - one branch per field type
+def table_schema(tbl: Table) -> JSONObject:  # noqa: C901 - one branch per field type
     ds = tbl.dataset
     used = {p["layer"]: p for p in tbl.places}
-    fields: list[dict[str, Any]] = []
+    fields: list[JSON] = []
     for f in ds.fields:
-        d: dict[str, Any] = {"name": f.name, "type": f.type, "title": f.source}
+        d: JSONObject = {"name": f.name, "type": f.type, "title": f.source}
         if is_spine(f.source):
             key = f.source.removeprefix("(spine: ").rstrip(")")
             d["title"] = f.display
@@ -260,7 +270,7 @@ def table_schema(tbl: Table) -> dict[str, Any]:  # noqa: C901 - one branch per f
                 "The suppressed cells are null.",
             }
         )
-    schema: dict[str, Any] = {"fields": fields, "missingValues": [""]}
+    schema: JSONObject = {"fields": fields, "missingValues": [""]}
     if ds.key:
         schema["primaryKey"] = list(ds.key)
     if ds.suppression:
@@ -457,15 +467,17 @@ def duckdb_digest(path: Path) -> str:
 
 def write_partitions(
     tbl: Table, header_for: Callable[[int, str], Header], out: Path
-) -> dict[str, list[dict[str, Any]]]:
+) -> dict[str, list[PartitionEntry]]:
     """by/<field>/<value>.json for every declared partition field. Returns an index."""
-    index: dict[str, list[dict[str, Any]]] = {}
+    index: dict[str, list[PartitionEntry]] = {}
     for fname in tbl.dataset.partition_by:
         col = tbl.table.column(fname)
-        values: list[Any] = sorted(set(col.to_pylist()), key=lambda v: (v is None, str(v)))
+        values: list[str | int | float | bool | dt.date | None] = sorted(
+            set(col.to_pylist()), key=lambda v: (v is None, str(v))
+        )
         d = out / "by" / fname
         d.mkdir(parents=True, exist_ok=True)
-        entries: list[dict[str, Any]] = []
+        entries: list[PartitionEntry] = []
         seen: dict[str, object] = {}
         for v in values:
             s = slugify(v)
@@ -473,14 +485,14 @@ def write_partitions(
                 msg = f"{fname}: '{v}' and '{seen[s]}' both slugify to {s}"
                 raise ValueError(msg)
             seen[s] = v
-            mask = pc.is_null(col) if v is None else pc.equal(col, v)
+            mask = pc.is_null(col) if v is None else pc.equal(col, v)  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
             part = tbl.table.filter(mask)
             h = header_for(part.num_rows, f"by/{fname}/{s}.json")
             # A date partition is named by its ISO date in JSON.
-            jv = v.isoformat() if hasattr(v, "isoformat") else v
+            jv: JSON = v.isoformat() if isinstance(v, dt.date) else v
             h["partition"] = {"field": fname, "value": jv}
             write_json(tbl, h, d / f"{s}.json", rows=part)
-            entry: dict[str, Any] = {
+            entry: PartitionEntry = {
                 "value": jv,
                 "rows": part.num_rows,
                 "json": f"by/{fname}/{s}.json",
@@ -616,12 +628,12 @@ CSVW_TYPES = {
 }
 
 
-def csvw_metadata(tbl: Table, header: Header) -> dict[str, Any]:
+def csvw_metadata(tbl: Table, header: Header) -> JSONObject:
     """W3C CSV on the Web metadata for data.csv."""
     ds = tbl.dataset
-    columns: list[dict[str, Any]] = []
+    columns: list[JSON] = []
     for f in ds.fields:
-        c: dict[str, Any] = {
+        c: JSONObject = {
             "name": f.name,
             "titles": [f.name, f.source],
             "datatype": CSVW_TYPES[f.type],
@@ -639,7 +651,7 @@ def csvw_metadata(tbl: Table, header: Header) -> dict[str, Any]:
                 "dc:description": "Fields the publisher suppressed in this row. The cells are null.",
             }
         )
-    schema: dict[str, Any] = {"columns": columns}
+    schema: JSONObject = {"columns": columns}
     if ds.key:
         schema["primaryKey"] = list(ds.key)
     return {

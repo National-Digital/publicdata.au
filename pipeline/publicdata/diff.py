@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -11,6 +11,7 @@ from .compute import fill_null
 from .serialise import json_view
 
 if TYPE_CHECKING:
+    from .jsontypes import JSON, JSONObject
     from .normalise import Arr, Table
 
 CAP = 50_000
@@ -62,7 +63,7 @@ def _differs(x: Arr, y: Arr) -> Arr:
     return pc.or_(ne, one_null)
 
 
-def _keys(t: pa.Table, key: tuple[str, ...]) -> list[tuple[Any, ...]]:
+def _keys(t: pa.Table, key: tuple[str, ...]) -> list[tuple[JSON, ...]]:
     rows = t.sort_by([(k, "ascending") for k in key]).select(list(key)).to_pylist()
     return [tuple(r[k] for k in key) for r in rows]
 
@@ -71,19 +72,19 @@ def _cap[T](items: list[T]) -> tuple[list[T], bool]:
     return items[:CAP], len(items) > CAP
 
 
-def diff(a: Table, b: Table) -> dict[str, Any]:
+def diff(a: Table, b: Table) -> JSONObject:
     """Compare `a`, the older version, with `b`, the newer, by the declared key."""
     key = a.dataset.key
     fa = {f.name: f.type for f in a.dataset.fields}
     fb = {f.name: f.type for f in b.dataset.fields}
-    schema: dict[str, list[Any]] = {
+    schema: JSONObject = {
         "fields_added": [n for n in fb if n not in fa],
         "fields_removed": [n for n in fa if n not in fb],
         "fields_retyped": [
             {"field": n, "from": fa[n], "to": fb[n]} for n in fa if n in fb and fa[n] != fb[n]
         ],
     }
-    out: dict[str, Any] = {
+    out: JSONObject = {
         "dataset": a.dataset.slug,
         "from": a.manifest.version,
         "to": b.manifest.version,
@@ -126,13 +127,15 @@ def diff(a: Table, b: Table) -> dict[str, Any]:
         for c in cols_b:
             mask = pc.or_(mask, _differs(ra[c], rb[c]))
     changed = both.filter(mask).sort_by([(k, "ascending") for k in key])
-    examples: list[dict[str, Any]] = []
+    examples: list[JSON] = []
     first = changed.slice(0, EXAMPLES)
     if first.num_rows:
         before = va.take(first["__a"]).drop_columns([ROW]).to_pylist()
         after = vb.take(first["__b"]).drop_columns([ROW]).to_pylist()
         for k, x, y in zip(_keys(first, key), before, after, strict=True):
-            fields = {f: {"from": x.get(f), "to": y.get(f)} for f in y if x.get(f) != y.get(f)}
+            fields: JSONObject = {
+                f: {"from": x.get(f), "to": y.get(f)} for f in y if x.get(f) != y.get(f)
+            }
             examples.append({"key": list(k), "fields": fields})
     keyfmt = (lambda k: k[0]) if len(key) == 1 else list
     add_l, add_t = _cap([keyfmt(k) for k in _keys(added, key)])
