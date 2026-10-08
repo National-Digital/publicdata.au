@@ -494,7 +494,10 @@ call, so the published file never stands in for it by accident. Without a matchi
 the published `data.parquet`, but only when that file carries the profile's footer key
 `publicdata.profile` (ADR 0008). Otherwise the query is refused with DuckDB SQL that answers it
 from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
-benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A sorted profile
+benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A version
+written only as period parts has neither file, and the engine does not read parts yet, so the
+call says the version is stored as parts, links its manifest and gives DuckDB SQL over the part
+files the manifest lists. A sorted profile
 file has a page index, and one without is read a column chunk at a time. Each version's
 footer, and the page index of each column a query touches, are read once per isolate and held to
 the file's ETag. A query copy is written again in place when its entry's `sort`, `lookup` or

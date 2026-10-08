@@ -111,9 +111,23 @@ async function parquet(ctx, slug, version, op, qs) {
   return out;
 }
 
+// A version written only as period parts has no single file to read; the agent is given its
+// manifest and DuckDB SQL over every part.
+function partsOnly(slug, v, parts) {
+  const manifest = SITE + '/d/' + enc(slug) + '/v/' + v + '/manifest.json';
+  const urls = parts.map((p) => `'${SITE}/${p.key.replace(/'/g, "''")}'`).join(', ');
+  return new ToolError(
+    `version ${v} of ${slug} is stored as ${parts.length} period parts, one Parquet file for each period, and this server does not query a version stored that way yet. `
+    + `Its manifest at ${manifest} lists each part with its rows. To answer from the rows, run this DuckDB SQL with the call's where, order and limit added: `
+    + `SELECT * FROM read_parquet([${urls}], union_by_name = true)`,
+  );
+}
+
 async function fromFile(ctx, slug, v, op, qs, path, url) {
-  const entry = await openVersion(ctx.env, slug, v);
-  if (!entry) return null;
+  const at = await openVersion(ctx.env, slug, v);
+  if (!at) return null;
+  if (!at.files.length) throw partsOnly(slug, v, at.parts);
+  const entry = at.files[0];
   if (!entry.header) throw new ToolError(`version ${v} of ${slug} carries no provenance in its file, so it is not answered here; its files are at ${SITE}/d/${slug}/v/${v}/`);
   // The key holds the engine's version, so a fix is not hidden behind a year-long cached answer,
   // and the ETag of the file read, so an answer from a copy since written again is never served.

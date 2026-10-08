@@ -13,6 +13,12 @@ import * as engine from './_parquet.js';
 import { onRequestPost } from './mcp.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 
+// The one file a version is read from.
+const open = async (env, slug, version) => {
+  const at = await openVersion(env, slug, version);
+  return at && at.files[0];
+};
+
 // The fixtures are written by the pipeline's Parquet writer with eight rows to a group
 // (pipeline/tests/test_query_fixture.py), so five groups, one per year, can be pruned. The two
 // under the query profile carry its footer key and year as INT32; the sorted one is ordered by
@@ -43,7 +49,7 @@ const DIST = {
     const end = r.suffix !== undefined ? b.length : r.length !== undefined ? start + r.length : b.length;
     reads.push({ key, start, end });
     const out = b.subarray(start, end);
-    return { size: b.length, etag, arrayBuffer: async () => out.buffer.slice(out.byteOffset, out.byteOffset + out.length) };
+    return { size: b.length, etag, arrayBuffer: async () => out.buffer.slice(out.byteOffset, out.byteOffset + out.length), text: async () => Buffer.from(out).toString('utf8') };
   },
   async head(key) {
     const b = objects.get(key);
@@ -61,8 +67,8 @@ put(OLDER, unsortedBytes, SLUG2);
 
 // D1 holds the newest version of each slug, with the field list and values the loader gives it,
 // so every Parquet answer for an older version can be held to the answer the query API gives.
-const entry = await openVersion({ DIST }, SLUG, OLDER);
-const unsorted = await openVersion({ DIST }, SLUG2, OLDER);
+const entry = await open({ DIST }, SLUG, OLDER);
+const unsorted = await open({ DIST }, SLUG2, OLDER);
 const D1_FIELDS = [
   { name: 'lga', type: 'string' }, { name: 'year', type: 'integer' }, { name: 'fatal', type: 'boolean' },
   { name: 'speed', type: 'number' }, { name: 'day', type: 'date' }, { name: 'seen', type: 'datetime' },
@@ -171,7 +177,7 @@ test('row groups and pages are pruned on their statistics, and a proven match re
 test('the footer and page index are read once per version', async () => {
   await parquetAggregate(env, entry, new URLSearchParams('group=lga&year=eq.2020'), URL_);
   reads.length = 0;
-  assert.equal(entry, await openVersion({ DIST }, SLUG, OLDER));
+  assert.equal(entry, await open({ DIST }, SLUG, OLDER));
   await parquetAggregate(env, entry, new URLSearchParams('group=lga&year=eq.2020&limit=5'), URL_);
   // Only data pages are read the second time.
   assert.ok(reads.length > 0);
@@ -180,7 +186,7 @@ test('the footer and page index are read once per version', async () => {
 });
 
 test('a file written before the query profile is refused with DuckDB SQL, before any data is read', async () => {
-  const old = await openVersion({ DIST }, SLUG, UNSORTED);
+  const old = await open({ DIST }, SLUG, UNSORTED);
   assert.equal(old.profiled, false);
   assert.equal(entry.profiled, true);
   assert.equal(unsorted.profiled, true);
@@ -311,7 +317,7 @@ test('like and ilike ignore case in ASCII letters only, as the query API does', 
 test('the internal profile copy answers first, and answers still name the published file', async () => {
   assert.equal(entry.key, `_q/${SLUG}/${OLDER}.parquet`);
   assert.equal(unsorted.key, `d/${SLUG2}/v/${OLDER}/data.parquet`);
-  assert.equal((await openVersion({ DIST }, SLUG, UNSORTED)).key, `d/${SLUG}/v/${UNSORTED}/data.parquet`);
+  assert.equal((await open({ DIST }, SLUG, UNSORTED)).key, `d/${SLUG}/v/${UNSORTED}/data.parquet`);
   reads.length = 0;
   const r = await call('count_rows', { slug: SLUG, version: OLDER, group_by: ['lga'], where: { year: 2022 } });
   assert.ok(reads.length && reads.every((x) => x.key.startsWith('_q/')));
@@ -373,7 +379,7 @@ test('a match the statistics prove is counted and paged without a row index, und
       const u = b.subarray(s, e); return { size: b.length, arrayBuffer: async () => u.buffer.slice(u.byteOffset, u.byteOffset + u.length) };
     } };
     const env = { DIST };
-    const e = await openVersion(env, 'big', '2026-01-01');
+    const e = (await openVersion(env, 'big', '2026-01-01')).files[0];
     const out = [];
     for (const qs of ['limit=1', 'n=eq.0&limit=2&offset=19999990', 'n=gte.0&limit=1&offset=19999999']) {
       const r = await parquetRows(env, e, new URLSearchParams(qs), 'u');
@@ -444,7 +450,7 @@ test('an ordered page counts offset + limit against the rows it may hold, before
     const u = b.subarray(s, e);
     return { size: b.length, arrayBuffer: async () => u.buffer.slice(u.byteOffset, u.byteOffset + u.length) };
   } } };
-  const large = await openVersion(big, 'big', '2026-01-01');
+  const large = await open(big, 'big', '2026-01-01');
   await assert.rejects(parquetRows(big, large, new URLSearchParams('n=lt.3900000&order=n.desc&offset=3899000&limit=2'), 'u'), (e) => {
     assert.match(e.message, /3,899,003 ordered rows/);
     return true;
@@ -459,7 +465,7 @@ test('an ordered page is charged for the depth of its heap, and an aggregate for
     const u = b.subarray(s, e);
     return { size: b.length, arrayBuffer: async () => u.buffer.slice(u.byteOffset, u.byteOffset + u.length) };
   } } };
-  const large = await openVersion(big, 'big', '2026-01-02');
+  const large = await open(big, 'big', '2026-01-02');
   const values = async (offset) => {
     let msg = '';
     await assert.rejects(parquetRows(big, large, new URLSearchParams(`order=n.desc&limit=1&offset=${offset}`), 'u', { ...BUDGET, values: 1 }), (e) => { msg = e.message; return true; });
@@ -501,11 +507,11 @@ test('the internal copy answers only while it matches the published file, and a 
   // A copy of another version, or of a different number of rows, is passed over for the published file.
   put(V, plain);
   objects.set(`_q/${SLUG}/${V}.parquet`, fixture('large-profiled.parquet'));
-  assert.equal((await openVersion({ DIST }, SLUG, V)).key, `d/${SLUG}/v/${V}/data.parquet`);
+  assert.equal((await open({ DIST }, SLUG, V)).key, `d/${SLUG}/v/${V}/data.parquet`);
   const W = '2022-03-03';
   put(W, plain);
   objects.set(`_q/${SLUG}/${W}.parquet`, Buffer.from('not parquet at all'));
-  assert.equal((await openVersion({ DIST }, SLUG, W)).key, `d/${SLUG}/v/${W}/data.parquet`);
+  assert.equal((await open({ DIST }, SLUG, W)).key, `d/${SLUG}/v/${W}/data.parquet`);
 
   // A transient R2 failure on the copy fails the call, and the next call reads the copy.
   const X = '2022-04-04';
@@ -513,9 +519,9 @@ test('the internal copy answers only while it matches the published file, and a 
   putQ(X);
   let fail = true;
   const flaky = { DIST: { get: (key, o) => (fail && key.startsWith('_q/') ? Promise.reject(new Error('R2 503')) : DIST.get(key, o)) } };
-  await assert.rejects(openVersion(flaky, SLUG, X), /R2 503/);
+  await assert.rejects(open(flaky, SLUG, X), /R2 503/);
   fail = false;
-  assert.equal((await openVersion(flaky, SLUG, X)).key, `_q/${SLUG}/${X}.parquet`);
+  assert.equal((await open(flaky, SLUG, X)).key, `_q/${SLUG}/${X}.parquet`);
 });
 
 test('a query copy written again in place is read afresh, and no answer from its old bytes is served', async () => {
@@ -554,4 +560,27 @@ test('a query copy written again in place is read afresh, and no answer from its
     globalThis.caches = was;
     if (engine.RECHECK) engine.RECHECK.ms = recheck;
   }
+});
+
+test('a version stored only as period parts says so, links its manifest and gives DuckDB SQL over its parts', async () => {
+  const V = '2020-06-30', EARLIER = '2020-03-31';
+  const part = (period, tree) => ({
+    period, rows: 8, tree, finished: true, revised: false,
+    files: { parquet: { path: `parts/${period}.parquet`, bytes: 1 }, 'csv.gz': { path: `parts/${period}.csv.gz`, bytes: 1 } },
+  });
+  // A finished part can be the file an earlier snapshot wrote, under that snapshot's folder.
+  objects.set(`d/${SLUG}/v/${V}/manifest.json`, Buffer.from(JSON.stringify({ version: V, whole: false, parts: [part('2019', EARLIER), part('2020', V)] })));
+  const e = (await call('query_rows', { slug: SLUG, version: V, where: { year: 2019 } })).error;
+  assert.doesNotMatch(e, /has no version/);
+  assert.match(e, new RegExp(`^version ${V} of ${SLUG} is stored as 2 period parts`));
+  assert.ok(e.includes(`https://publicdata.au/d/${SLUG}/v/${V}/manifest.json`), e);
+  const parts = `['https://publicdata.au/d/${SLUG}/v/${EARLIER}/parts/2019.parquet', 'https://publicdata.au/d/${SLUG}/v/${V}/parts/2020.parquet']`;
+  assert.ok(e.endsWith(`SELECT * FROM read_parquet(${parts}, union_by_name = true)`), e);
+  assert.doesNotMatch(e, /_q/);
+  assert.match((await call('count_rows', { slug: SLUG, version: V, group_by: ['lga'] })).error, /is stored as 2 period parts/);
+  const at = await openVersion({ DIST }, SLUG, V);
+  assert.deepEqual(at.files, []);
+  assert.deepEqual(at.parts.map((p) => p.key), [`d/${SLUG}/v/${EARLIER}/parts/2019.parquet`, `d/${SLUG}/v/${V}/parts/2020.parquet`]);
+  // A version with neither a file nor parts still has none.
+  assert.match((await call('query_rows', { slug: SLUG, version: '2020-07-31' })).error, /has no version 2020-07-31/);
 });

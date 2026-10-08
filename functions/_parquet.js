@@ -167,8 +167,11 @@ async function readFooter(env, key) {
   return { key, size, etag, metadata, header, fields, types, elements, groups, rows: start, profiled, sortedBy, pages: new Map() };
 }
 
+// Where a version's rows are: { files, parts, copy }, or null when the version has none.
 // The build writes a profile copy of every version, old ones included, at _q/, which no public
-// route serves. The published file answers only when it carries the profile itself.
+// route serves. The published file answers only when it carries the profile itself. Either is one
+// entry in files. A version written only as period parts has no files; its parts are listed from
+// its manifest, each with its rows and the key of its Parquet file.
 async function locate(env, slug, version) {
   const [q, pub] = await Promise.all([
     readFooter(env, `_q/${slug}/${version}.parquet`).catch((e) => {
@@ -181,9 +184,38 @@ async function locate(env, slug, version) {
   ]);
   // The copy's ETag is kept either way, so a copy written again later is noticed.
   const copy = q ? q.etag : null;
-  if (q && q.profiled && q.header && pub && sameVersion(q, pub)) return Object.assign(q, { copy });
+  if (q && q.profiled && q.header && pub && sameVersion(q, pub)) return { files: [q], parts: null, copy };
   if (q && pub) console.error(`_q ${slug} ${version}: the copy does not match the published file`);
-  return pub && Object.assign(pub, { copy });
+  if (pub) return { files: [pub], parts: null, copy };
+  const parts = partsOf(slug, await manifestOf(env, slug, version));
+  return parts.length ? { files: [], parts, copy } : null;
+}
+
+// A version's manifest: in R2 for a dated version, or among the deployment's files for the newest.
+async function manifestOf(env, slug, version) {
+  const key = `d/${slug}/v/${version}/manifest.json`;
+  const o = await env.DIST.get(key);
+  let body = o ? await o.text() : null;
+  if (!o && env.ASSETS) {
+    const r = await env.ASSETS.fetch(new Request(`https://publicdata.au/${key}`));
+    body = r.ok ? await r.text() : null;
+  }
+  try {
+    return body && JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+// The Parquet part of each period, in the manifest's order. A finished part may be an earlier
+// snapshot's file, so its key follows the tree that wrote it.
+function partsOf(slug, manifest) {
+  const listed = (manifest && Array.isArray(manifest.parts)) ? manifest.parts : [];
+  return listed.filter((p) => p.files && p.files.parquet).map((p) => ({
+    period: p.period,
+    rows: p.rows,
+    key: `d/${slug}/${p.tree === 'latest' ? 'latest' : `v/${p.tree}`}/${p.files.parquet.path}`,
+  }));
 }
 
 // Answers name the published file, so a copy answers only when it holds the same version of the
@@ -205,9 +237,9 @@ async function moved(env, slug, version, p) {
   }
 }
 
-// One version's footer, read once per isolate. The published file never changes, but its query
-// copy can be written again, so every range read is held to the footer's ETag (StaleError) and an
-// old footer is checked against the copy's ETag.
+// Where one version's rows are, with the footer of its file, read once per isolate. The published
+// file never changes, but its query copy can be written again, so every range read is held to the
+// footer's ETag (StaleError) and an old footer is checked against the copy's ETag.
 export async function openVersion(env, slug, version) {
   const id = `${slug}/${version}`;
   let hit = footers.get(id);
