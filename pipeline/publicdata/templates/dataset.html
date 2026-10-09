@@ -148,8 +148,8 @@
 
   {% if parts %}
   <h2 id="parts">By {{ parts.grain }}</h2>
-  <p>The table is split by the {{ parts.grain }} of its {{ parts.field }}, one part per {{ parts.grain }}, with rows that have no {{ parts.field }} in the undated part.{% if not parts.whole %} It is too large to be one file, so this version is its parts and a DuckDB file whose <span class="mono">records()</span> reads every part.{% endif %} A finished part is written once and kept by later versions while its rows stay the same; one that changes later is marked revised.</p>
-  <ul class="places">{% for p in parts.parts %}<li><span>{{ p.period }}{% if p.revised %} (revised){% elif p.finished %} (finished){% endif %}</span><span>{{ p.rows_fmt }} rows · {% for f in p.files %}<a href="{{ f.url }}" download="{{ f.download }}">{{ f.label }}</a> {{ f.size }}{% if not loop.last %} · {% endif %}{% endfor %}</span></li>{% endfor %}</ul>
+  <p>The table is split by the {{ parts.grain }} of its {{ parts.field }}, one part per {{ parts.grain }}, with rows that have no {{ parts.field }} in the undated part.{% if not parts.whole %} It is too large to be one file, so this version is its parts and a DuckDB file whose <span class="mono">records()</span> reads every part.{% endif %} A finished part is written once and kept by later versions while its rows stay the same, and is marked unchanged since the version that wrote it; one that changes later is marked revised.</p>
+  <ul class="places">{% for p in parts.parts %}<li><span>{{ p.period }}{% if p.revised %} (revised){% elif p.tree_long %} (unchanged since {{ p.tree_long }}){% elif p.finished %} (finished){% endif %}</span><span>{{ p.rows_fmt }} rows · {% for f in p.files %}<a href="{{ f.url }}" download="{{ f.download }}">{{ f.label }}</a> {{ f.size }}{% if not loop.last %} · {% endif %}{% endfor %}</span></li>{% endfor %}</ul>
   {% if parts.history %}
   <p>Every state a row has held in the feed, split the same way. Its first_seen and last_seen columns are added by this site: the dates it first and last read the row in that state, marked as computed in <span class="mono">history/schema.json</span>.</p>
   <ul class="places">{% for p in parts.history %}<li><span>{{ p.period }}</span><span>{{ p.rows_fmt }} rows · {% for f in p.files %}<a href="{{ f.url }}" download="{{ f.download }}">{{ f.label }}</a> {{ f.size }}{% if not loop.last %} · {% endif %}{% endfor %}</span></li>{% endfor %}</ul>
@@ -213,7 +213,7 @@
       {% for c in copies %}<li><a href="{{ c.url }}" rel="noopener">{{ c.hub }}</a><span>{{ c.note }}</span></li>
       {% endfor %}
     </ul>
-    <p class="small">Each copy carries the same attribution and links back to this page.</p>
+    <p class="small">Each copy carries the same attribution and links back to this page.{% if copies_hold %} The hubs take one table, so they hold version <span class="mono">{{ copies_hold }}</span>, the newest published as one file.{% endif %}</p>
   </div>
   {% endif %}
   <div class="card">

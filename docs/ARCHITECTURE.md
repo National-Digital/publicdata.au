@@ -364,11 +364,14 @@ Parquet adds up to 100 MB or less and the table has 5 million rows or fewer. Pas
 is its parts and `data.duckdb`, which holds a `parts` table naming each part's URL and a
 `records()` table macro that reads every part's Parquet over HTTPS when it is called
 (`records(files := [...])` reads the parts named). `"whole": false` in the manifest says so. Such
-a version has no query API, explorer or pages by place, since each reads one whole file; its
-dataset page says so, and `llms.txt` lists only the files it has. The gate fails a table
+a version has no console, explorer or pages by place, since each reads one whole file; its
+dataset page says so, and says when the query API serves it from its parts, and `llms.txt` lists only the files it has. The gate fails a table
 dataset's page that has no query console and gives no reason. A diff or the history archive
-reads the parts back. Either way there is one dataset page, and it lists the newest snapshot's
-parts.
+reads the parts back, and so do the pages: their figures, sample rows and the home page map
+read the parts joined into one Parquet file outside the built tree. The explorer stays on the
+newest version published whole and says so. The hubs take one table, so such a version is not
+copied, each hub keeps the newest whole version, and the dataset page names it. Either way there
+is one dataset page, and it lists the newest snapshot's parts.
 
 ## Explorer
 
@@ -477,7 +480,11 @@ the rewrite and any rollback conditional on the ETag it read, so a deploy writin
 never undone, is a dry run from the listing unless given `--apply`, and skips what is already
 gzipped; `--dedupe-csv-gz` also deletes an old `data.csv.gz` whose bytes the gzipped CSV now
 holds. A deployment whose function predates gzip at rest serves these objects wrongly, so once
-they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe. A dataset missing from `latest.json` (the register withheld it)
+they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe.
+`publicdata r2 shared-report` counts the bytes that storing identical dated files once would
+save, reading the bucket only; `docs/content-addressed-store.md` records why that waits.
+
+A dataset missing from `latest.json` (the register withheld it)
 answers 410 for every file R2 still holds, `latest/` included, and so does each path in
 `withheld.json`, the publisher's files of an entry with `source_withheld`, which the build stops
 writing but R2 kept. Query copies (`_q/<slug>/<version>.parquet`) go to `publicdata-dist` alone:
@@ -648,6 +655,27 @@ serves and old bytes in R2 are no difference. When the sampled datasets that dif
 one, the message asks for `REBUILD`, since the check passes once the sampled entries are raised
 and the unsampled ones would be reused unchanged.
 
+## Storage cost
+
+R2 bills storage, and the archive only grows. `/health.json` carries two figures under `storage`,
+each saying what it covers. `projected` is the build's estimate, with the versions-a-year model of
+`python -m publicdata cost`: the bytes every built version holds in `publicdata-dist` with its
+publisher's file once in `publicdata-raw`, the same a year on, the growth a year from each entry's
+newest version and the versions its cadence and history give, and the D1 rows written a year. The
+two differ in how they size a version: `cost` reads the live catalogue and counts every stored
+version at its newest one's size, where the build counts each version's own files. `measured` is
+Cloudflare's own figure for every object in those two buckets, build cache and query copies
+included. Each bucket's figure is its newest reading from the past 7 days, and `measured_at` is
+the time of the older of the two. The deploy to production writes it into the built `health.json`
+before pushing the pages (`publicdata measure`), so the build stays the same from the same inputs.
+When it cannot be read, `available` is false with a reason from a fixed set, and the deploy goes
+on. The step reads with its own token, `CLOUDFLARE_ANALYTICS_TOKEN` in the `production`
+environment, which holds Account Analytics Read and nothing else. Without it the reason says no
+token is set. Neither figure is priced; R2 Standard is $0.015 per GB-month after 10 GB free.
+
+The Cloudflare account also holds a budget alert on its usage-based spend, and the maintainers
+receive it.
+
 ## Query API
 
 Everything the site answers dynamically is under `/api/v1/`. `/api/v1/datasets/<slug>/rows` and
@@ -660,7 +688,10 @@ per version with indexes on the key and partition fields, and records it in `_ve
 field list, licence and attribution, and in `_orders` with the order its rows were taken in
 (`profile.signature`); a loaded version whose Parquet is in another order is loaded again, so its
 rowid agrees with the Parquet and the console. At most two versions per dataset are loaded; every version
-stays available as files. A version whose data.csv is over 500 MB, or a dataset whose entry sets
+stays available as files. A version stored as period parts is loaded from its parts in the
+manifest's order, each part in its own order, with the provenance header its DuckDB file holds,
+while the CSVs of its parts together come to 500 MB or less; each part's manifest record keeps
+its CSV's size (`csv_bytes`) for that. A version whose data.csv is over 500 MB, or a dataset whose entry sets
 `query: false`, is not loaded, and its page, OpenAPI and MCP resources leave the query API out;
 `d1.queryable` is the one rule both the build and the loader read. Every other version is for the
 Parquet engine, which reads the version's query copy in `publicdata-dist` first. Up to four versions load at
@@ -699,8 +730,8 @@ one at a time.
 The MCP server's `query_rows` and `count_rows` answer from D1 for the versions it holds. Any
 other version, older than the two loaded, over the size limit or in an entry with `query: false`,
 is read from Parquet in R2 (`functions/_parquet.js`) with the same filters. The build writes a field list,
-`d/<slug>/fields.json`, for every dataset whose newest version has a data.parquet, from that file
-and whether or not D1 loads it, so `list_fields` answers for every dataset the row tools serve. The build writes a
+`d/<slug>/fields.json`, for every dataset whose newest version has a data.parquet, from that file,
+or is stored as period parts, from its parts in order, whether or not D1 loads it, so `list_fields` answers for every dataset the row tools serve. The build writes a
 profile copy of every version, old ones included, at `_q/<slug>/<version>.parquet` in
 `publicdata-dist`, which no route serves, and the engine reads that first when its row count,
 version and source hash match the published file's footer. A failed read of the copy fails the
@@ -709,12 +740,25 @@ the published `data.parquet`, but only when that file carries the profile's foot
 `publicdata.profile` (ADR 0008). Otherwise the query is refused with DuckDB SQL that answers it
 from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
 benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A version
-written only as period parts has neither file, and the engine does not read parts yet, so the
-call says the version is stored as parts, links its manifest and gives DuckDB SQL over the part
-files the manifest lists. A sorted profile
+written only as period parts has neither file, so the engine reads it as the list of part files
+its manifest gives, in the manifest's period order, and treats them as one table whose rows come
+in that order and then in each part's own order. The newest part's footer gives the fields. A
+filter on the period field is compared with each part's label, which bounds the dates or the year
+it can hold, and a part that cannot match is never opened. The footers of the parts left, at most
+120 for one call, are read six at a time and kept by key and ETag; row groups and pages are then
+ruled out in each part as in one file, under one budget for the whole call, and counts and
+aggregates combine across the parts. A refused call gives DuckDB SQL over the parts it would have
+read, ordered by `list_position` of each part in that list and then `file_row_number`, which
+returns the same rows in the same order. An answer names the periods it read and the version's
+manifest, and takes the attribution the manifest records. The manifest is read through
+`storedText`, since R2 holds it gzipped once it passes 1 KB. A correction rewrites a version's
+parts under the same keys and its manifest with a note, so an answer is cached under the digest
+of the manifest's text, and the manifest an isolate holds is checked against its ETag after a
+minute, as a footer is. A sorted profile
 file has a page index, and one without is read a column chunk at a time. Each version's
 footer, and the page index of each column a query touches, are read once per isolate and held to
-the file's ETag. A query copy is written again in place when its entry's `sort`, `lookup` or
+the file's ETag. The page index is written just before the footer, so when the 64 KB read of a
+file's tail holds it too, that part of the tail is kept and the index costs no read of its own. A query copy is written again in place when its entry's `sort`, `lookup` or
 `int32` changes, so every range read passes `onlyIf: { etagMatches }`; a read the copy refuses
 drops the footer, and the call reads it again once. A footer over a minute old is checked against
 the copy's ETag before it is used. Row-group

@@ -170,6 +170,18 @@ def test_query_api_is_named_only_when_it_serves_the_dataset():
         assert "/api/v1/" not in t and "query API" not in t
 
 
+def test_a_version_published_in_parts_is_not_copied_and_fails_no_run():
+    split = {**MANIFEST, "period": {"field": "date", "grain": "year"}, "whole": False}
+    with pytest.raises(hubs.Excluded, match="published in parts"):
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    assert hubs.entry(RECORD, VERSIONS, SCHEMA, {**split, "whole": True}).version
+    with pytest.raises(hubs.Excluded) as e:
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    lines = []
+    assert hubs.run({"h": FakeHub()}, [("x", e.value)], fake_fetch, None, lines.append) == 0
+    assert lines == [f"h x: not copied, {e.value}"]
+
+
 def test_kaggle_limits():
     m = hubs.kaggle_metadata(make(), "publicdataau")
     assert len(m["title"]) <= 50 and m["title"] == "Factors in road crashes, Queensland"

@@ -1,4 +1,5 @@
 import { disposition } from '../_download.js';
+import { gunzip, gzipped } from '../_lib.js';
 
 // /d/* : serve the static file if Pages has it; redirect latest/ to the newest version, or for a
 // rolling source or a feed, serve its newest fetch in place from latest/;
@@ -254,9 +255,6 @@ async function answer(request, url, key, obj, head, env, latest, decoded = gzipp
   return new Response(null, { status: 304, headers });
 }
 
-// Content-Encoding is a list of tokens; an upload can leave aws-chunked beside gzip.
-const gzipped = (obj) => (obj.httpMetadata?.contentEncoding || '').split(',').some((t) => t.trim().toLowerCase() === 'gzip');
-
 // The Workers runtime always asks for gzip itself; what the client asked for is on cf.
 function acceptsGzip(request) {
   const ae = (request.cf && request.cf.clientAcceptEncoding) ?? request.headers.get('accept-encoding') ?? '';
@@ -281,7 +279,7 @@ function textResponse(request, obj, headers, head) {
   }
   if (!('body' in obj) || !obj.body) return new Response(null, { status: 304, headers });
   if (encoded) return new Response(obj.body, { status: 200, headers, encodeBody: 'manual' });
-  return new Response(obj.body.pipeThrough(new DecompressionStream('gzip')), { status: 200, headers });
+  return new Response(gunzip(obj.body).body, { status: 200, headers });
 }
 
 export const onRequestHead = onRequestGet;

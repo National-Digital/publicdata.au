@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip | hubs | contribute | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip|shared-report | hubs | contribute | cost | measure."""
 
 from __future__ import annotations
 
@@ -257,7 +257,7 @@ def cmd_build(args) -> int:
 
 def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
     from . import published
-    from .build import build_dataset
+    from .build import build_dataset, part_dir
     from .site import render_site
 
     outs = []
@@ -289,6 +289,16 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             for v in o.versions
             if "data.parquet" in v.absent
         ]
+        # A version written as parts alone is drawn from its parts, wherever each was written.
+        want += [
+            f"{part_dir(o.dataset.slug, r, v.manifest.version)}/{r['files']['parquet']['path']}"
+            for o in outs
+            for v in o.versions
+            if not v.whole
+            for r in v.parts
+        ]
+        # A finished part is shared by the versions that reuse it, and is pulled once.
+        want = list(dict.fromkeys(want))
         missing = [
             r for r, p in zip(want, published.current.paths(want), strict=True) if not p.exists()
         ]
@@ -753,6 +763,29 @@ def cmd_checksums(args) -> int:
     return 0
 
 
+def cmd_r2_shared_report(args) -> int:
+    from .r2 import shared_report
+
+    t = shared_report(prefix=args.prefix)
+    for ext, (n, size) in sorted(t["by_ext"].items(), key=lambda e: -e[1][1]):
+        kind = f".{ext}" if ext else "no extension"
+        print(f"shared: {kind}: {n:,} extra {'copy' if n == 1 else 'copies'}, {size:,} bytes")
+    pct = 100 * t["saved"] / t["bytes"] if t["bytes"] else 0
+    print(
+        f"shared: {t['copies']:,} of {t['objects']:,} dated files repeat another's stored bytes; "
+        f"storing each once would save {t['saved']:,} of {t['bytes']:,} bytes ({pct:.2g}%), "
+        f"{t['across']:,} of them across datasets. {t['heads']:,} HEAD request(s) sent"
+        + (f", {t['gone']:,} key(s) deleted while the report ran" if t["gone"] else "")
+        + (
+            f", {t['unhashed']:,} HEADed file(s) with no SHA-256 matched on ETag alone"
+            " and may be undercounted"
+            if t["unhashed"]
+            else ""
+        )
+    )
+    return 0
+
+
 def cmd_purge(args) -> int:
     import os
 
@@ -1060,6 +1093,29 @@ def cmd_cost(args) -> int:
     )
 
 
+def cmd_measure(args) -> int:
+    import datetime as dt
+
+    from . import cost
+
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    token = os.environ.get("CLOUDFLARE_ANALYTICS_TOKEN")
+
+    def measure():
+        if not token:
+            raise cost.Unmeasured("no analytics token is set for the deploy")
+        if not account:
+            raise cost.Unmeasured("no Cloudflare account is set for the deploy")
+        return cost.measure_r2(account, token, dt.datetime.now(dt.UTC))
+
+    m = cost.stamp_health(Path(args.health), measure)
+    if m["available"]:
+        print(f"measure: {m['stored_bytes'] / cost.GB:,.1f} GB stored at {m['measured_at']}")
+    else:
+        print(f"measure: storage not measured ({m['reason']})")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1330,6 +1386,12 @@ def main(argv=None) -> int:
         help="delete a version's data.csv.gz once the gzipped data.csv beside it holds its bytes",
     )
     rg.set_defaults(fn=cmd_r2_restore_gzip)
+    rs = rr.add_parser(
+        "shared-report",
+        help="count the bytes publicdata-dist would save by storing dated files with identical bytes once",
+    )
+    rs.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
+    rs.set_defaults(fn=cmd_r2_shared_report)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
@@ -1387,6 +1449,11 @@ def main(argv=None) -> int:
         "--summary", help="append the Markdown table here (default GITHUB_STEP_SUMMARY)"
     )
     co.set_defaults(fn=cmd_cost)
+    me = sub.add_parser(
+        "measure", help="write Cloudflare's measured R2 storage into a built health.json"
+    )
+    me.add_argument("health", help="the health.json to update")
+    me.set_defaults(fn=cmd_measure)
     args = ap.parse_args(argv)
     return args.fn(args)
 

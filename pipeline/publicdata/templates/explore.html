@@ -8,10 +8,10 @@
 {% block main %}
 <div class="crumbs"><a href="/">Datasets</a> / {% if jur_path %}<a href="{{ jur_path }}">{{ jur_long }}</a>{% else %}{{ jur_long }}{% endif %} / {% if publisher_path %}<a href="{{ publisher_path }}">{{ ds.publisher.short }}</a>{% else %}{{ ds.publisher.short }}{% endif %} / <a href="{{ base }}">{{ ds.title }}</a> / Explore</div>
 <div class="ds-head"><h1>Explore {{ ds.title }}</h1></div>
-<p style="margin-top:14px">Charts and tables over the {{ latest.rows_fmt }} rows of the latest version, worked out in your browser from the Parquet file. Nothing you do here leaves the browser until you save a link.</p>
+<p style="margin-top:14px">Charts and tables over the {{ explore_versions[0].rows_fmt }} rows of {% if explore_newest %}the latest version{% else %}version {{ explore_versions[0].version }}, the newest published as one file (later versions are published in parts){% endif %}, worked out in your browser from the Parquet file. Nothing you do here leaves the browser until you save a link.</p>
 <div class="xbar" id="x-bar" hidden>
   <label class="lab" for="x-version">Version</label>
-  <select id="x-version">{% for v in explore_versions %}<option value="{{ v.version }}">{{ v.version }}{% if v.as_at_long %} · as at {{ v.as_at_long }}{% endif %}{% if loop.first %} (latest){% endif %}</option>{% endfor %}</select>
+  <select id="x-version">{% for v in explore_versions %}<option value="{{ v.version }}">{{ v.version }}{% if v.as_at_long %} · as at {{ v.as_at_long }}{% endif %}{% if loop.first and explore_newest %} (latest){% endif %}</option>{% endfor %}</select>
   <button type="button" class="copy xadd" id="x-add">Add a chart</button>
   <span class="xgap"></span>
   <button type="button" class="copy" id="x-link">Copy link</button>

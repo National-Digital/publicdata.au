@@ -1112,3 +1112,95 @@ def test_a_query_copy_the_build_wrote_otherwise_stops_the_push(tmp_path, monkeyp
     with pytest.raises(SystemExit, match=Q):
         r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": _lay(sort=["year"])})
     assert fake.ops == []
+
+
+def test_the_shared_report_counts_identical_dated_files_and_changes_nothing(monkeypatch):
+    from botocore.exceptions import ClientError
+
+    class Multipart(ByteBucket):
+        def etag(self, key):
+            if key.endswith("2026-05-01/data.parquet"):
+                return '"0123456789abcdef0123456789abcdef-2"'
+            return super().etag(key)
+
+        def head_object(self, Bucket, Key):
+            if Key.endswith("2026-07-01/data.parquet"):
+                raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+            return super().head_object(Bucket, Key)
+
+    same, other = b"x" * 100, b"y" * 100
+    bucket = Multipart(
+        {
+            "d/x/v/2026-04-24/data.csv": b"c" * 50,
+            "d/x/v/2026-05-01/data.csv": b"c" * 50,
+            "d/y/v/2026-05-01/data.csv": b"d" * 50,
+            "d/x/v/2026-04-24/data.parquet": other,
+            "d/x/v/2026-05-01/data.parquet": other,
+            "d/x/v/2026-06-01/data.parquet": same,
+            "d/y/v/2026-06-01/schema.json": same,
+            "d/x/v/2026-07-01/data.parquet": other,
+            "d/x/v/2026-04-24/index.html": same,
+            "d/x/history.tar.zst": same,
+            "_q/x/2026-04-24/data.parquet": same,
+        }
+    )
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    t = r2.shared_report()
+    assert t["objects"] == 7 and t["bytes"] == 550 and t["gone"] == 1
+    assert t["copies"] == 3 and t["saved"] == 250 and t["across"] == 100
+    assert t["by_ext"] == {"csv": [1, 50], "json": [1, 100], "parquet": [1, 100]}
+    assert sorted(bucket.heads) == sorted(
+        f"d/{k}"
+        for k in (
+            "x/v/2026-04-24/data.parquet",
+            "x/v/2026-05-01/data.parquet",
+            "x/v/2026-06-01/data.parquet",
+            "y/v/2026-06-01/schema.json",
+        )
+    )
+    assert bucket.puts == [] and bucket.deleted == []
+
+
+class _Tagged(ByteBucket):
+    """A bucket whose listed ETags and stored SHA-256s are set per key, as a multipart upload or
+    an object put before #51 leaves them."""
+
+    def __init__(self, objects, tags, shas):
+        super().__init__(objects)
+        self.tags = tags
+        for k, v in shas.items():
+            self.objects[k]["Metadata"] = {"sha256": v} if v else {}
+
+    def etag(self, key):
+        return self.tags.get(key) or super().etag(key)
+
+
+def test_the_shared_report_counts_files_it_could_match_on_etag_only(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from publicdata.__main__ import cmd_r2_shared_report
+
+    a, b = "d/x/v/2026-04-24/data.parquet", "d/x/v/2026-05-01/data.parquet"
+    tags = {a: f'"{"1" * 32}-2"', b: f'"{"2" * 32}-3"'}
+    bucket = _Tagged({a: b"p" * 100, b: b"p" * 100}, tags, {b: ""})
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    t = r2.shared_report()
+    assert t["heads"] == 2 and t["unhashed"] == 1 and t["copies"] == 0
+    assert cmd_r2_shared_report(SimpleNamespace(prefix="d/")) == 0
+    assert "1 HEADed file(s) with no SHA-256 matched on ETag alone" in capsys.readouterr().out
+
+
+def test_the_shared_report_joins_a_file_that_matches_two_copies(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from publicdata.__main__ import cmd_r2_shared_report
+
+    a, b, c = (f"d/x/v/2026-0{m}-01/SHA256SUMS" for m in (4, 5, 6))
+    tags = {b: f'"{"3" * 32}-2"', c: f'"{"3" * 32}-2"'}
+    shas = {a: "s1", b: "s2", c: "s1"}
+    bucket = _Tagged({a: b"a" * 100, b: b"b" * 100, c: b"b" * 100}, tags, shas)
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    t = r2.shared_report()
+    assert t["copies"] == 2 and t["saved"] == 200 and t["by_ext"] == {"": [2, 200]}
+    assert cmd_r2_shared_report(SimpleNamespace(prefix="d/")) == 0
+    assert "shared: no extension: 2 extra copies, 200 bytes" in capsys.readouterr().out
