@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import datetime as dt
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import xlsxwriter
 
-from ...normalise import Table
-from .. import _fixed_zip, dumps, field_rows
+from publicdata.serialise import _fixed_zip, dumps, field_rows
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 
-def write_xlsx(tbl: Table, header: dict, path: Path) -> None:
+def write_xlsx(tbl: Table, header: Header, path: Path) -> None:  # noqa: C901, PLR0912 - one branch per cell type
     """One workbook: records, fields and publicdata sheets. Dates are real Excel dates."""
     ds = tbl.dataset
     when = dt.datetime.fromisoformat(header["version"] + "T00:00:00")
@@ -43,7 +48,7 @@ def write_xlsx(tbl: Table, header: dict, path: Path) -> None:
                     continue
                 t = types.get(n)
                 if t == "date":
-                    ws.write_datetime(r, c, dt.datetime(v.year, v.month, v.day), date_fmt)
+                    ws.write_datetime(r, c, dt.datetime(v.year, v.month, v.day), date_fmt)  # noqa: DTZ001 - an Excel date has no zone
                 elif t == "datetime":
                     ws.write_datetime(r, c, v.replace(tzinfo=None), dt_fmt)
                 elif t == "boolean":

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ...normalise import Table
-from .. import SQLITE_TYPES, _meta_tables, json_view
+from publicdata.serialise import SQLITE_TYPES, _meta_tables, json_view
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 
-def write_sqlite(tbl: Table, header: dict, path: Path) -> None:
+def write_sqlite(tbl: Table, header: Header, path: Path) -> None:
     if path.exists():
         path.unlink()
     ds = tbl.dataset

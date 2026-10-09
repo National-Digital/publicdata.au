@@ -18,11 +18,19 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .store import ext_of
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from mypy_boto3_s3 import S3Client
+    from mypy_boto3_s3.type_defs import ObjectTypeDef
+
+    type Objects = dict[str, ObjectTypeDef]
 
 BUCKET = "publicdata-dist"
 NAME = "SHA256SUMS"
@@ -41,7 +49,7 @@ def render(sums: dict[str, str]) -> str:
 
 
 def parse(text: str) -> dict[str, str]:
-    out = {}
+    out: dict[str, str] = {}
     for line in text.splitlines():
         h, sep, n = line.partition("  ")
         if sep and HEX.match(h) and n:
@@ -50,11 +58,13 @@ def parse(text: str) -> dict[str, str]:
 
 
 def write_subjects(lists: dict[str, str], out: Path) -> list[Path]:
-    """The lists' keys and SHA-256 as sha256sum files of at most MAX_SUBJECTS lines each,
-    1.sha256, 2.sha256 and so on, one per attestation."""
+    """The lists' keys and SHA-256 as sha256sum files, one per attestation.
+
+    Each holds at most MAX_SUBJECTS lines, named 1.sha256, 2.sha256 and so on.
+    """
     out.mkdir(parents=True, exist_ok=True)
     items = sorted(lists.items())
-    parts = []
+    parts: list[Path] = []
     for i in range(0, len(items), MAX_SUBJECTS):
         p = out / f"{i // MAX_SUBJECTS + 1}.sha256"
         p.write_text(render(dict(items[i : i + MAX_SUBJECTS])))
@@ -64,7 +74,7 @@ def write_subjects(lists: dict[str, str], out: Path) -> list[Path]:
 
 def slugs_in(roots: Iterable[Path]) -> list[str]:
     """The datasets with dated versions in the built trees."""
-    found = set()
+    found: set[str] = set()
     for root in roots:
         d = Path(root) / "d"
         if d.is_dir():
@@ -72,8 +82,8 @@ def slugs_in(roots: Iterable[Path]) -> list[str]:
     return sorted(found)
 
 
-def slugs_in_bucket(s3, bucket: str = BUCKET) -> list[str]:
-    found = []
+def slugs_in_bucket(s3: S3Client, bucket: str = BUCKET) -> list[str]:
+    found: list[str] = []
     for page in s3.get_paginator("list_objects_v2").paginate(
         Bucket=bucket, Prefix="d/", Delimiter="/"
     ):
@@ -81,9 +91,9 @@ def slugs_in_bucket(s3, bucket: str = BUCKET) -> list[str]:
     return sorted(found)
 
 
-def _versions(s3, bucket: str, slug: str) -> dict[str, dict[str, dict]]:
+def _versions(s3: S3Client, bucket: str, slug: str) -> dict[str, Objects]:
     """Each version's objects under d/<slug>/v/, by path within the version."""
-    out: dict[str, dict[str, dict]] = {}
+    out: dict[str, Objects] = {}
     for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=f"d/{slug}/v/"):
         for o in page.get("Contents", []):
             m = KEY.match(o["Key"])
@@ -92,22 +102,22 @@ def _versions(s3, bucket: str, slug: str) -> dict[str, dict[str, dict]]:
     return out
 
 
-def _files(objects: dict[str, dict]) -> dict[str, dict]:
+def _files(objects: Objects) -> Objects:
     return {rel: o for rel, o in objects.items() if rel != NAME and rel not in PAGES}
 
 
-def newer(objects: dict[str, dict]) -> list[str]:
+def newer(objects: Objects) -> list[str]:
     """The files written after the version's list, by path within the version."""
     sums = objects[NAME]["LastModified"]
     return sorted(rel for rel, o in _files(objects).items() if o["LastModified"] > sums)
 
 
-def _stored_sha256(s3, bucket: str, key: str) -> str | None:
+def _stored_sha256(s3: S3Client, bucket: str, key: str) -> str | None:
     h = s3.head_object(Bucket=bucket, Key=key).get("Metadata", {}).get("sha256", "")
     return h if HEX.match(h) else None
 
 
-def _read_sha256(s3, bucket: str, key: str) -> str:
+def _read_sha256(s3: S3Client, bucket: str, key: str) -> str:
     h = hashlib.sha256()
     body = s3.get_object(Bucket=bucket, Key=key)["Body"]
     for chunk in iter(lambda: body.read(1 << 20), b""):
@@ -115,26 +125,32 @@ def _read_sha256(s3, bucket: str, key: str) -> str:
     return h.hexdigest()
 
 
-def _source_line(s3, bucket: str, prefix: str) -> tuple[str, str] | None:
-    """The publisher's file as the manifest records it, for a version whose source.<ext> is served
-    from the raw store and so is missing from this listing."""
-    m = json.loads(s3.get_object(Bucket=bucket, Key=prefix + "manifest.json")["Body"].read())
+def _source_line(s3: S3Client, bucket: str, prefix: str) -> tuple[str, str] | None:
+    """The publisher's file as the manifest records it.
+
+    This is for a version whose source.<ext> is served from the raw store and so is missing from
+    this listing.
+    """
+    m: dict[str, str] = json.loads(
+        s3.get_object(Bucket=bucket, Key=prefix + "manifest.json")["Body"].read()
+    )
     if m.get("source_withheld") or not HEX.match(m.get("sha256", "")):
         return None
     return f"source.{ext_of(m.get('filename', ''))}", m["sha256"]
 
 
-def version_sums(
-    s3,
+def version_sums(  # noqa: PLR0913, PLR0917 - update passes them in place
+    s3: S3Client,
     bucket: str,
     slug: str,
     version: str,
-    objects: dict[str, dict],
-    download: bool = False,
+    objects: Objects,
+    download: bool = False,  # noqa: FBT001, FBT002 - update passes it in place
     pool: ThreadPoolExecutor | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     """The version's sums by download name, and the keys whose hash is unknown."""
-    from .site import download_name
+    # The site is imported only when the lists are written, as the module docstring says.
+    from .site import download_name  # noqa: PLC0415 - kept out of the build's imports
 
     prefix = f"d/{slug}/v/{version}/"
     sums: dict[str, str] = {}
@@ -147,7 +163,7 @@ def version_sums(
             h = _read_sha256(s3, bucket, key)
         return name, key, h
 
-    unknown = []
+    unknown: list[str] = []
     for name, key, h in pool.map(one, todo) if pool else map(one, todo):
         if h is None:
             unknown.append(key)
@@ -160,11 +176,13 @@ def version_sums(
     return sums, unknown
 
 
-def differing(s3, bucket: str, slug: str, version: str, rels: list[str]) -> list[str]:
-    """Of the files newer than the version's list, those whose stored SHA-256 is not the one the
-    list holds for them. A file R2 stored again with the same bytes, such as one compressed at
-    rest, matches its line and is left out."""
-    from .site import download_name
+def differing(s3: S3Client, bucket: str, slug: str, version: str, rels: list[str]) -> list[str]:
+    """Of the files newer than the version's list, those whose stored SHA-256 differs from it.
+
+    A file R2 stored again with the same bytes, such as one compressed at rest, matches its line
+    and is left out.
+    """
+    from .site import download_name  # noqa: PLC0415 - kept out of the build's imports
 
     prefix = f"d/{slug}/v/{version}/"
     listed = parse(s3.get_object(Bucket=bucket, Key=prefix + NAME)["Body"].read().decode())
@@ -176,26 +194,30 @@ def differing(s3, bucket: str, slug: str, version: str, rels: list[str]) -> list
     ]
 
 
-def update(
+def update(  # noqa: C901, PLR0913, PLR0917 - one pass over the versions, its options named at each call
     slugs: Iterable[str],
     bucket: str = BUCKET,
     replace: tuple[str, ...] = (),
-    download: bool = False,
-    s3=None,
+    download: bool = False,  # noqa: FBT001, FBT002 - every caller names it
+    s3: S3Client | None = None,
     workers: int = WORKERS,
     lists: dict[str, str] | None = None,
-    every: bool = False,
+    every: bool = False,  # noqa: FBT001, FBT002 - every caller names it
 ) -> tuple[int, list[str], list[str]]:
-    """Writes SHA256SUMS for every version of these datasets that has none, and again for a
-    replaced one. Returns how many were written, the versions left without one because a file's
-    hash is unknown, and the keys of files changed after their version's list outside a replace,
-    which no list is rewritten for. Each list written goes into `lists` as key -> SHA-256, and
-    with `every` so does each list left as it is, so all of them can be attested again."""
+    """Writes SHA256SUMS for every version of these datasets that has none, and for a replaced one.
+
+    Returns how many were written, the versions left without one because a file's hash is
+    unknown, and the keys of files changed after their version's list outside a replace, which no
+    list is rewritten for. Each list written goes into `lists` as key -> SHA-256, and with `every`
+    so does each list left as it is, so all of them can be attested again.
+    """
     if s3 is None:
-        from .r2 import client
+        from .r2 import client  # noqa: PLC0415 - the deploy extra
 
         s3 = client()
-    written, held, changed = 0, [], []
+    written = 0
+    held: list[str] = []
+    changed: list[str] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for slug in slugs:
             for version, objects in sorted(_versions(s3, bucket, slug).items()):

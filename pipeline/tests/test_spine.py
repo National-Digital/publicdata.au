@@ -1,17 +1,34 @@
 import dataclasses
+import io
 import json
+import re
+import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar, Never, Self, cast
 
+import duckdb
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import yaml
 
-from publicdata import spine, store
+from publicdata import serialise, spine, store
 from publicdata.build import build_version, version_key
 from publicdata.cache import BuildCache
-from publicdata.normalise import normalise
-from publicdata.register import RegisterError, parse
+from publicdata.normalise import Table, normalise
+from publicdata.register import LAT_SOURCE, LON_SOURCE, Field, RegisterError, parse
 from publicdata.serialise import formats_for
+from publicdata.serialise.geo import _connect
+from publicdata.serialise.writers.pmtiles import write_pmtiles
+from publicdata.site import _faq
+
+from .conftest import make_dataset, make_header, make_manifest, present
+
+if TYPE_CHECKING:
+    from typing import Unpack
+
+    from publicdata.build import VersionOut
+    from publicdata.register import Dataset, Geometry, RawEntry
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
@@ -19,17 +36,18 @@ REGISTER = ROOT / "register"
 ALL = ["sa2", "lga", "suburb", "postcode", "state_electorate", "federal_electorate"]
 
 
-def crashes_raw(**over):
-    raw = yaml.safe_load((REGISTER / "qld-road-crash-locations.yaml").read_text())
+def crashes_raw(**over: Unpack[RawEntry]) -> RawEntry:
+    raw: RawEntry = yaml.safe_load((REGISTER / "qld-road-crash-locations.yaml").read_text())
     raw.update(over)
     return raw
 
 
-def crashes(**over):
-    return parse(crashes_raw(enrich=ALL, **over), "qld")
+def crashes(**over: Unpack[RawEntry]) -> Dataset:
+    joined: RawEntry = {"enrich": [*ALL]}
+    return parse(crashes_raw(**(joined | over)), "qld")
 
 
-def test_enrich_adds_a_code_and_a_name_per_layer_marked_as_the_spines():
+def test_enrich_adds_a_code_and_a_name_per_layer_marked_as_the_spines() -> None:
     ds = crashes()
     added = [f for f in ds.fields if spine.is_spine(f.source)]
     assert [f.name for f in added] == [
@@ -49,9 +67,10 @@ def test_enrich_adds_a_code_and_a_name_per_layer_marked_as_the_spines():
     assert all("not published by the publisher" in f.description for f in added)
 
 
-def test_enrich_is_refused_without_points_an_unknown_layer_or_a_clash():
+def test_enrich_is_refused_without_points_an_unknown_layer_or_a_clash() -> None:
     raw = crashes_raw(enrich=["lga"])
-    no_geo = {k: v for k, v in raw.items() if k != "geometry"}
+    no_geo = raw.copy()
+    del no_geo["geometry"]
     with pytest.raises(RegisterError, match="point geometry"):
         parse(no_geo, "x")
     with pytest.raises(RegisterError, match="not a spine layer"):
@@ -71,36 +90,42 @@ def test_enrich_is_refused_without_points_an_unknown_layer_or_a_clash():
         parse(same_label, "x")
 
 
-def test_a_polygon_layer_declares_its_kind_and_datum_and_no_coordinates():
-    raw = yaml.safe_load((REGISTER / "abs-lga-2025.yaml").read_text())
-    assert parse(raw, "lga").geometry["kind"] == "polygon"
+def test_a_polygon_layer_declares_its_kind_and_datum_and_no_coordinates() -> None:
+    text = (REGISTER / "abs-lga-2025.yaml").read_text()
+    raw: RawEntry = yaml.safe_load(text)
+    geometry: Geometry = yaml.safe_load(text)["geometry"]
+    assert present(parse(raw, "lga").geometry)["kind"] == "polygon"
+    with_lon: Geometry = {**geometry, "lon": "x"}
     with pytest.raises(RegisterError, match="carries its geometry"):
-        parse(raw | {"geometry": raw["geometry"] | {"lon": "x"}}, "lga")
-    with pytest.raises(RegisterError, match="geometry.kind"):
-        parse(raw | {"geometry": raw["geometry"] | {"kind": "raster"}}, "lga")
+        parse(raw | {"geometry": with_lon}, "lga")
+    raster: Geometry = {**geometry, "kind": "raster"}
+    with pytest.raises(RegisterError, match=re.escape("geometry.kind")):
+        parse(raw | {"geometry": raster}, "lga")
+    # An entry that leaves out the datum, which the register refuses.
+    no_datum = cast("Geometry", {"kind": "polygon"})
     with pytest.raises(RegisterError, match="datum"):
-        parse(raw | {"geometry": {"kind": "polygon"}}, "lga")
+        parse(raw | {"geometry": no_datum}, "lga")
 
 
-def test_shapes_get_geoparquet_and_vector_tiles_and_points_get_geoparquet(monkeypatch):
-    from publicdata import serialise
-
+def test_shapes_get_geoparquet_and_vector_tiles_and_points_get_geoparquet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(serialise, "LIMIT", None)
     # A layer's Parquet is GeoParquet already, with its shapes in it.
-    assert "pmtiles" in formats_for(10, "polygon") and "geo.parquet" not in formats_for(
-        10, "polygon"
-    )
-    assert "pmtiles" not in formats_for(10, "point") and "geo.parquet" in formats_for(10, True)
+    assert "pmtiles" in formats_for(10, "polygon")
+    assert "geo.parquet" not in formats_for(10, "polygon")
+    assert "pmtiles" not in formats_for(10, "point")
+    assert "geo.parquet" in formats_for(10, geometry=True)
     assert not {"geojson", "gpkg", "geo.parquet"} & set(formats_for(10, ""))
 
 
-def _built(ds, tmp_path):
+def _built(ds: Dataset, tmp_path: Path) -> tuple[Table, VersionOut]:
     m = store.manifests(FIXTURES, ds.slug)[-1]
     data = store.source_path(FIXTURES, m).read_bytes()
     return build_version(ds, m, data, tmp_path, FIXTURES)
 
 
-def test_each_point_takes_the_area_it_falls_in_and_blanks_stay_null(tmp_path):
+def test_each_point_takes_the_area_it_falls_in_and_blanks_stay_null(tmp_path: Path) -> None:
     tbl, out = _built(crashes(), tmp_path)
     t = tbl.table
     lga = t.column("lga_2025_name").to_pylist()
@@ -139,22 +164,16 @@ def test_each_point_takes_the_area_it_falls_in_and_blanks_stay_null(tmp_path):
         f["publicdata:derived"]["version"]
         == store.manifests(FIXTURES, "abs-suburbs-localities-2021")[-1].version
     )
-    head = json.loads(
-        pq.read_metadata(
-            tmp_path
-            / "d"
-            / "qld-road-crash-locations"
-            / "v"
-            / out.manifest.version
-            / "data.parquet"
-        ).metadata[b"publicdata"]
-    )
+    meta = pq.read_metadata(
+        tmp_path / "d" / "qld-road-crash-locations" / "v" / out.manifest.version / "data.parquet"
+    ).metadata
+    head = json.loads(present(meta)[b"publicdata"])
     assert head["places"]["attribution"] == spine.ATTRIBUTION
 
 
-def test_a_publishers_datum_is_moved_to_gda2020_for_the_join_only(tmp_path):
+def test_a_publishers_datum_is_moved_to_gda2020_for_the_join_only(tmp_path: Path) -> None:
     ds = crashes()
-    gda94 = dataclasses.replace(ds, geometry=ds.geometry | {"crs": "EPSG:4283"})
+    gda94 = dataclasses.replace(ds, geometry=present(ds.geometry) | {"crs": "EPSG:4283"})
     a, _ = _built(ds, tmp_path / "a")
     b, _ = _built(gda94, tmp_path / "b")
     # About 1.8 m apart: the published coordinates are untouched and almost every area agrees.
@@ -171,14 +190,16 @@ def test_a_publishers_datum_is_moved_to_gda2020_for_the_join_only(tmp_path):
     assert same >= a.rows - 3
 
 
-def test_a_spine_layer_change_is_a_new_cache_entry(tmp_path, monkeypatch):
+def test_a_spine_layer_change_is_a_new_cache_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ds = crashes()
     cache = BuildCache(tmp_path / "c")
     m = store.manifests(FIXTURES, ds.slug)[-1]
     before = version_key(cache, ds, m, FIXTURES)
     real = store.manifests
 
-    def moved(root, slug):
+    def moved(root: Path, slug: str) -> list[store.Manifest]:
         ms = real(root, slug)
         if slug == "abs-lga-2025":
             ms[-1] = dataclasses.replace(ms[-1], sha256="0" * 64)
@@ -190,7 +211,7 @@ def test_a_spine_layer_change_is_a_new_cache_entry(tmp_path, monkeypatch):
         version_key(cache, ds, m)
 
 
-def test_a_missing_layer_stops_the_build(tmp_path):
+def test_a_missing_layer_stops_the_build(tmp_path: Path) -> None:
     ds = crashes()
     empty = tmp_path / "store"
     (empty / ds.slug).mkdir(parents=True)
@@ -199,7 +220,7 @@ def test_a_missing_layer_stops_the_build(tmp_path):
         spine.enrich(normalise(ds, m, store.source_path(FIXTURES, m).read_bytes()), empty, REGISTER)
 
 
-def test_a_polygon_layer_keeps_rows_with_no_shape_and_reads_every_attribute():
+def test_a_polygon_layer_keeps_rows_with_no_shape_and_reads_every_attribute() -> None:
     fc = {
         "type": "FeatureCollection",
         "features": [
@@ -221,55 +242,52 @@ def test_a_polygon_layer_keeps_rows_with_no_shape_and_reads_every_attribute():
     attrs, wkb = spine.read_shapes(json.dumps(fc).encode(), "geojson", "", "EPSG:7844")
     assert attrs.column("CODE").to_pylist() == ["1", "9"]
     assert attrs.column("AREA").to_pylist() == ["1.5", ""]
-    assert wkb[0].as_py() is not None and wkb[1].as_py() is None
+    assert wkb[0].as_py() is not None
+    assert wkb[1].as_py() is None
 
 
-def test_the_spine_needs_its_extension_installed_not_fetched_at_build(monkeypatch):
-    import duckdb
-
+def test_the_spine_needs_its_extension_installed_not_fetched_at_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Con:
-        def execute(self, sql):
+        def execute(self, sql: str) -> Self:
             return self
 
-        def load_extension(self, name):
-            raise duckdb.IOException("not installed")
+        def load_extension(self, name: str) -> Never:
+            msg = "not installed"
+            raise duckdb.IOException(msg)
 
     monkeypatch.setattr(duckdb, "connect", lambda *a, **k: Con())
     with pytest.raises(spine.SpineError, match="spine install"):
         spine.connect()
 
 
-def test_a_partitioned_polygon_layer_writes_json_partitions_without_point_geojson(tmp_path):
-    raw = yaml.safe_load((REGISTER / "abs-lga-2025.yaml").read_text())
+def test_a_partitioned_polygon_layer_writes_json_partitions_without_point_geojson(
+    tmp_path: Path,
+) -> None:
+    raw: RawEntry = yaml.safe_load((REGISTER / "abs-lga-2025.yaml").read_text())
     ds = parse(raw | {"partition_by": ["state_name"]}, "lga")
     m = store.manifests(FIXTURES, ds.slug)[-1]
     _, out = build_version(ds, m, store.source_path(FIXTURES, m).read_bytes(), tmp_path, FIXTURES)
     entries = out.partitions["state_name"]
-    assert entries and all("geojson" not in e for e in entries)
+    assert entries
+    assert all("geojson" not in e for e in entries)
 
 
-def test_the_places_question_names_only_the_layers_a_dataset_joins():
-    from publicdata.site import _faq
-
+def test_the_places_question_names_only_the_layers_a_dataset_joins() -> None:
     class V:
         manifest = store.manifests(FIXTURES, "qld-road-crash-locations")[-1]
-        files = {}
-        left_out = {}
+        files: ClassVar[dict[str, int]] = {}
+        left_out: ClassVar[dict[str, str]] = {}
         rows = 300
         whole = True
 
-    qs = [q for q, _ in _faq(parse(crashes_raw(enrich=["postcode", "lga"]), "qld"), V, {})]
+    ds = parse(crashes_raw(enrich=["postcode", "lga"]), "qld")
+    qs = [q for q, _ in _faq(ds, V, {})]  # type: ignore[arg-type]  # a VersionOut stand-in
     assert "Which postcode and council area is each row of Road crash locations in?" in qs
 
 
-def test_a_point_shapefile_reads_its_coordinates_as_published(tmp_path):
-    import io
-    import zipfile
-
-    import duckdb
-
-    from publicdata.register import LAT_SOURCE, LON_SOURCE
-
+def test_a_point_shapefile_reads_its_coordinates_as_published(tmp_path: Path) -> None:
     con = duckdb.connect()
     con.load_extension("spatial")
     out = tmp_path / "shp"
@@ -288,31 +306,24 @@ def test_a_point_shapefile_reads_its_coordinates_as_published(tmp_path):
     assert float(t.column(LAT_SOURCE)[0].as_py()) == pytest.approx(-12.4634)
 
 
-def test_a_polygon_whose_repair_leaves_a_stray_line_still_makes_tiles(tmp_path):
-    from types import SimpleNamespace
-
-    import pyarrow as pa
-
-    from publicdata.serialise.geo import _connect
-    from publicdata.serialise.writers.pmtiles import write_pmtiles
-
+def test_a_polygon_whose_repair_leaves_a_stray_line_still_makes_tiles(tmp_path: Path) -> None:
     # A ring with a spike: making it valid gives a polygon and a line, which a tile cannot hold.
     spiked = (
         "POLYGON((150 -30, 151 -30, 151 -29, 150.5 -29, 150.5 -28.5, 150.5 -29, 150 -29, 150 -30))"
     )
-    wkb = bytes(_connect().execute(f"SELECT ST_AsWKB(ST_GeomFromText('{spiked}'))").fetchone()[0])
-    ds = SimpleNamespace(
-        slug="t",
+    row = _connect().execute(f"SELECT ST_AsWKB(ST_GeomFromText('{spiked}'))").fetchone()
+    wkb = bytes(present(row)[0])
+    ds = make_dataset(
+        [Field("code", "code")],
         title="T",
-        summary="",
-        geometry={"kind": "polygon", "maxzoom": 4},
-        fields=[SimpleNamespace(name="code", type="string")],
+        geometry={"kind": "polygon", "crs": "EPSG:7844", "maxzoom": 4},
     )
-    tbl = SimpleNamespace(
+    tbl = Table(
         dataset=ds,
+        manifest=make_manifest(b""),
         table=pa.table({"code": ["1"]}),
-        geometry=pa.chunked_array([pa.array([wkb], pa.binary())]),
+        geometry=pa.array([wkb], pa.binary()),
     )
     path = tmp_path / "data.pmtiles"
-    write_pmtiles(tbl, {"attribution": "A"}, path)
+    write_pmtiles(tbl, make_header(1, "data.pmtiles"), path)
     assert path.stat().st_size > 0

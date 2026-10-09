@@ -3,15 +3,39 @@ import gzip
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from publicdata import cache, rollup
+from publicdata import cache, r2, register, rollup
+from publicdata.__main__ import main
+
+from .conftest import present
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from publicdata.jsontypes import JSONObject
+    from publicdata.register import Dataset
+
+type FieldSpec = dict[str, str]
+type Cell = str | int | float | None
+type WideRow = tuple[int, str, str, int, int]
+
+
+class RollupFixture(TypedDict):
+    """fixtures/rollup/rows.json: a table and the plan its committed rollup was built with."""
+
+    fields: list[FieldSpec]
+    rows: list[list[Cell]]
+    cubes: list[list[str]]
+    metrics: list[str]
+
 
 FIX = Path(__file__).parent / "fixtures" / "rollup"
-ARROW = {
+ARROW: dict[str, pa.DataType] = {
     "string": pa.string(),
     "integer": pa.int64(),
     "boolean": pa.bool_(),
@@ -20,30 +44,36 @@ ARROW = {
 }
 
 
-def _ds(fields, **kw):
-    base = dict(
-        slug="t",
-        kind="table",
-        query=True,
-        example=None,
-        chart=None,
-        rollup=(),
-        fields=tuple(SimpleNamespace(name=f["name"], type=f["type"]) for f in fields),
-    )
-    return SimpleNamespace(**(base | kw))
+def _ds(fields: Sequence[FieldSpec], **kw: object) -> Dataset:
+    base: dict[str, object] = {
+        "slug": "t",
+        "kind": "table",
+        "query": True,
+        "example": None,
+        "chart": None,
+        "rollup": (),
+        "fields": tuple(SimpleNamespace(name=f["name"], type=f["type"]) for f in fields),
+    }
+    return cast("Dataset", SimpleNamespace(**(base | kw)))
 
 
-def _cell(f, v):
+def _cell(f: FieldSpec, v: Cell) -> Cell | dt.date:
     if v is None:
         return None
     if f["type"] == "boolean":
         return bool(v)
     if f["type"] == "date":
+        assert isinstance(v, str)
         return dt.date.fromisoformat(v)
     return v
 
 
-def _parquet(path: Path, fields, rows, header=None) -> Path:
+def _parquet(
+    path: Path,
+    fields: Sequence[FieldSpec],
+    rows: Sequence[Sequence[Cell]],
+    header: JSONObject | None = None,
+) -> Path:
     cols = {f["name"]: [_cell(f, r[i]) for r in rows] for i, f in enumerate(fields)}
     schema = pa.schema([(f["name"], ARROW[f["type"]]) for f in fields])
     t = pa.table(cols, schema=schema)
@@ -53,12 +83,12 @@ def _parquet(path: Path, fields, rows, header=None) -> Path:
 
 
 @pytest.fixture
-def fixture(tmp_path):
-    d = json.loads((FIX / "rows.json").read_text(encoding="utf-8"))
+def fixture(tmp_path: Path) -> tuple[RollupFixture, Path]:
+    d: RollupFixture = json.loads((FIX / "rows.json").read_text(encoding="utf-8"))
     return d, _parquet(tmp_path / "data.parquet", d["fields"], d["rows"])
 
 
-def test_the_committed_rollup_is_what_build_writes(fixture):
+def test_the_committed_rollup_is_what_build_writes(fixture: tuple[RollupFixture, Path]) -> None:
     # functions/_rollup.test.mjs reads this file, so the two languages share one format.
     d, path = fixture
     run, _ = rollup.parquet_run(path)
@@ -76,7 +106,7 @@ def test_the_committed_rollup_is_what_build_writes(fixture):
     assert obj["cubes"][0]["values"][0][0] is None
 
 
-def _wide(n=20_000):
+def _wide(n: int = 20_000) -> tuple[list[FieldSpec], list[WideRow]]:
     fields = [
         {"name": "id", "type": "integer"},
         {"name": "kind", "type": "string"},
@@ -88,7 +118,7 @@ def _wide(n=20_000):
     return fields, rows
 
 
-def test_plan_answers_the_register_first_and_leaves_out_row_ids(tmp_path):
+def test_plan_answers_the_register_first_and_leaves_out_row_ids(tmp_path: Path) -> None:
     fields, rows = _wide()
     run, _ = rollup.parquet_run(_parquet(tmp_path / "a.parquet", fields, rows))
     example = {
@@ -96,7 +126,7 @@ def test_plan_answers_the_register_first_and_leaves_out_row_ids(tmp_path):
         "filters": ({"field": "region", "op": "eq", "value": "r1"},),
         "metric": "sum.n",
     }
-    p = rollup.plan(_ds(fields, example=example), run, len(rows))
+    p = present(rollup.plan(_ds(fields, example=example), run, len(rows)))
     assert ("kind", "region") in p.cubes
     assert not any("id" in c for c in p.cubes)
     assert p.metrics[0] == "n"
@@ -104,22 +134,22 @@ def test_plan_answers_the_register_first_and_leaves_out_row_ids(tmp_path):
     assert all(any(f in c for c in p.cubes) for f in ("kind", "region", "year", "n"))
 
 
-def test_plan_holds_the_register_rollup_sets(tmp_path):
+def test_plan_holds_the_register_rollup_sets(tmp_path: Path) -> None:
     fields, rows = _wide()
     run, _ = rollup.parquet_run(_parquet(tmp_path / "a.parquet", fields, rows))
     declared = ("kind", "region", "year")
-    p = rollup.plan(_ds(fields, rollup=(declared,)), run, len(rows))
+    p = present(rollup.plan(_ds(fields, rollup=(declared,)), run, len(rows)))
     assert tuple(sorted(declared)) in p.cubes
     # Left to itself the plan holds pairs at most.
-    assert all(len(c) <= 2 for c in rollup.plan(_ds(fields), run, len(rows)).cubes)
+    assert all(len(c) <= 2 for c in present(rollup.plan(_ds(fields), run, len(rows))).cubes)
 
 
-def test_a_cube_is_not_charged_for_totals_of_the_fields_it_groups_on():
+def test_a_cube_is_not_charged_for_totals_of_the_fields_it_groups_on() -> None:
     assert rollup.cube_estimate(100, ("a", "m"), ("m", "x")) == rollup.estimate(100, 2, 1)
     assert rollup.cube_estimate(100, ("a",), ("m", "x")) == rollup.estimate(100, 1, 2)
 
 
-def test_served_lists_every_published_version_of_an_entry_out_of_d1(tmp_path):
+def test_served_lists_every_published_version_of_an_entry_out_of_d1(tmp_path: Path) -> None:
     fields, _ = _wide()
     root = tmp_path / "dist"
     (root / "d" / "t").mkdir(parents=True)
@@ -129,24 +159,25 @@ def test_served_lists_every_published_version_of_an_entry_out_of_d1(tmp_path):
         {"version": "2025-01-01", "rows": 9_000, "tombstone": {"reason": "takedown"}},
     ]
     (root / "d" / "t" / "versions.json").write_text(json.dumps({"versions": listed}))
-    logs = []
+    logs: list[str] = []
     off = [_ds(fields, query=False), _ds(fields, slug="u", query=False)]
     got = rollup.served([*off, _ds(fields, slug="q")], [tmp_path / "none", root], log=logs.append)
     assert got == {"t": {"2026-01-01": 7_000, "2026-02-01": 8_000}}
     assert logs == ["rollup: u has no versions.json in the built tree, so it gets no rollups"]
 
 
-def test_plan_keeps_within_the_cap_and_skips_small_tables(tmp_path):
+def test_plan_keeps_within_the_cap_and_skips_small_tables(tmp_path: Path) -> None:
     fields, rows = _wide()
     run, _ = rollup.parquet_run(_parquet(tmp_path / "b.parquet", fields, rows))
-    p = rollup.plan(_ds(fields), run, len(rows), cap=6_000)
+    p = present(rollup.plan(_ds(fields), run, len(rows), cap=6_000))
     assert (
         sum(rollup.cube_estimate(g, c, p.metrics) for c, g in zip(p.cubes, p.groups, strict=True))
         <= 6_000
     )
     # A plan whose estimate fits but whose bytes do not loses its last cubes until it fits.
-    p, body = rollup.make(_ds(fields), run, len(rows), {}, "t", "v", cap=3_000)
-    assert 0 < len(body) <= 3_000 and p.cubes
+    made, body = rollup.make(_ds(fields), run, len(rows), {}, "t", "v", cap=3_000)
+    assert 0 < len(body) <= 3_000
+    assert present(made).cubes
     small = _parquet(tmp_path / "c.parquet", fields, rows[:100])
     assert rollup.plan(_ds(fields), rollup.parquet_run(small)[0], 100) is None
 
@@ -154,22 +185,30 @@ def test_plan_keeps_within_the_cap_and_skips_small_tables(tmp_path):
 class FakeStore:
     """R2 as write() sees it: published Parquet by version, and each rollup's stamp."""
 
-    def __init__(self, parquets: dict[tuple[str, str], Path], stamps=None):
+    def __init__(
+        self, parquets: dict[tuple[str, str], Path], stamps: dict[str, str] | None = None
+    ) -> None:
+        self.fetched: list[tuple[str, str]]
         self.parquets, self.stamps, self.fetched = parquets, dict(stamps or {}), []
 
-    def parquet(self, slug, version):
+    def parquet(self, slug: str, version: str) -> str | None:
         p = self.parquets.get((slug, version))
         return rollup.file_identity(p) if p else None
 
-    def stamp(self, k):
+    def stamp(self, k: str) -> str | None:
         return self.stamps.get(k)
 
-    def fetch(self, slug, version, dest):
+    def fetch(self, slug: str, version: str, dest: Path) -> None:
         self.fetched.append((slug, version))
         dest.write_bytes(self.parquets[(slug, version)].read_bytes())
 
 
-def _versions(tmp_path, fields, rows, versions=("2026-01-01", "2026-02-01")):
+def _versions(
+    tmp_path: Path,
+    fields: Sequence[FieldSpec],
+    rows: Sequence[Sequence[Cell]],
+    versions: tuple[str, ...] = ("2026-01-01", "2026-02-01"),
+) -> dict[tuple[str, str], Path]:
     out = {}
     for v in versions:
         dest = tmp_path / "r2" / "d" / "t" / "v" / v / "data.parquet"
@@ -178,7 +217,7 @@ def _versions(tmp_path, fields, rows, versions=("2026-01-01", "2026-02-01")):
     return out
 
 
-def test_write_covers_what_d1_holds_and_keeps_current_rollups(tmp_path):
+def test_write_covers_what_d1_holds_and_keeps_current_rollups(tmp_path: Path) -> None:
     fields, rows = _wide()
     store = FakeStore(_versions(tmp_path, fields, rows))
     held = {"t": {"2026-01-01": len(rows), "2026-02-01": len(rows)}}
@@ -191,7 +230,8 @@ def test_write_covers_what_d1_holds_and_keeps_current_rollups(tmp_path):
     # Stamped with the bytes they were built from, both stay as they are on the next deploy.
     store.stamps = {w.key: w.parquet for w in got}
     again, keep2 = rollup.write([_ds(fields)], held, store, out, log=lambda *_: None)
-    assert again == [] and keep2 == keep
+    assert again == []
+    assert keep2 == keep
     # A version D1 no longer holds loses its rollup, and a database has none.
     _, keep3 = rollup.write(
         [_ds(fields)], {"t": {"2026-02-01": len(rows)}}, store, out, log=lambda *_: None
@@ -202,7 +242,7 @@ def test_write_covers_what_d1_holds_and_keeps_current_rollups(tmp_path):
     assert rollup.write([_ds(fields)], {"t": {"2026-01-01": 10}}, store, out) == ([], set())
 
 
-def test_write_rebuilds_a_rollup_whose_parquet_changed_or_is_replaced(tmp_path):
+def test_write_rebuilds_a_rollup_whose_parquet_changed_or_is_replaced(tmp_path: Path) -> None:
     fields, rows = _wide()
     pq = _versions(tmp_path, fields, rows)
     store = FakeStore(pq)
@@ -228,7 +268,7 @@ def test_write_rebuilds_a_rollup_whose_parquet_changed_or_is_replaced(tmp_path):
     assert [w.key for w in got] == ["_rollup/t/2026-02-01.json.gz"]
 
 
-def test_write_reads_a_built_tree_only_when_it_holds_the_published_bytes(tmp_path):
+def test_write_reads_a_built_tree_only_when_it_holds_the_published_bytes(tmp_path: Path) -> None:
     fields, rows = _wide()
     pq = _versions(tmp_path, fields, rows, ("2026-01-01",))
     store = FakeStore(pq)
@@ -246,7 +286,7 @@ def test_write_reads_a_built_tree_only_when_it_holds_the_published_bytes(tmp_pat
     assert json.loads(gzip.decompress(got[0].path.read_bytes()))["rows"] == len(rows)
 
 
-def test_write_gives_a_version_no_cube_fits_an_empty_rollup(tmp_path):
+def test_write_gives_a_version_no_cube_fits_an_empty_rollup(tmp_path: Path) -> None:
     fields = [{"name": "id", "type": "integer"}, {"name": "n", "type": "integer"}]
     rows = [(i, i) for i in range(6000)]
     store = FakeStore(_versions(tmp_path, fields, rows, ("2026-01-01",)))
@@ -257,7 +297,7 @@ def test_write_gives_a_version_no_cube_fits_an_empty_rollup(tmp_path):
     assert json.loads(gzip.decompress(got[0].path.read_bytes()))["cubes"] == []
 
 
-def test_write_builds_each_version_from_its_own_schema(tmp_path):
+def test_write_builds_each_version_from_its_own_schema(tmp_path: Path) -> None:
     # D1 holds a version built before the register added a field and retyped another.
     fields, rows = _wide()
     store = FakeStore(_versions(tmp_path, fields, rows, ("2026-01-01",)))
@@ -271,7 +311,10 @@ def test_write_builds_each_version_from_its_own_schema(tmp_path):
     assert obj["fields"] == fields
     assert any("kind" in c["dims"] for c in obj["cubes"])
     # The field list D1 validates the version's queries against wins over the register.
-    stated = [{"name": "region", "type": "string"}, {"name": "n", "type": "number"}]
+    stated: list[rollup.FieldRow] = [
+        {"name": "region", "type": "string"},
+        {"name": "n", "type": "number"},
+    ]
     got, _ = rollup.write(
         [_ds(now)],
         held,
@@ -285,9 +328,9 @@ def test_write_builds_each_version_from_its_own_schema(tmp_path):
     assert {d for c in obj["cubes"] for d in c["dims"]} <= {"region", "n"}
 
 
-def test_version_fields_type_a_column_by_what_it_holds():
+def test_version_fields_type_a_column_by_what_it_holds() -> None:
     cols = {"a": "VARCHAR", "b": "BIGINT", "c": "DOUBLE", "d": "DATE", "e": "STRUCT(x INTEGER)"}
-    stated = [
+    stated: list[rollup.FieldRow] = [
         {"name": "a", "type": "integer"},
         {"name": "b", "type": "number"},
         {"name": "c", "type": "integer"},
@@ -303,19 +346,20 @@ def test_version_fields_type_a_column_by_what_it_holds():
     ]
 
 
-def test_write_skips_a_version_that_fails_and_writes_the_rest(tmp_path):
+def test_write_skips_a_version_that_fails_and_writes_the_rest(tmp_path: Path) -> None:
     fields, rows = _wide()
     pq = _versions(tmp_path, fields, rows)
 
     class Flaky(FakeStore):
-        def fetch(self, slug, version, dest):
+        def fetch(self, slug: str, version: str, dest: Path) -> None:
             if version == "2026-01-01":
-                raise OSError("connection reset")
+                msg = "connection reset"
+                raise OSError(msg)
             super().fetch(slug, version, dest)
 
     store = Flaky(pq)
     held = {"t": {"2026-01-01": len(rows), "2026-02-01": len(rows)}}
-    logs = []
+    logs: list[str] = []
     got, keep = rollup.write([_ds(fields)], held, store, tmp_path / "a", log=logs.append)
     assert [w.key for w in got] == ["_rollup/t/2026-02-01.json.gz"]
     assert keep == {"_rollup/t/2026-02-01.json.gz"}
@@ -326,25 +370,28 @@ def test_write_skips_a_version_that_fails_and_writes_the_rest(tmp_path):
     got, keep = rollup.write(
         [_ds(fields)], held, store, tmp_path / "b", replace=["d/t/"], log=lambda *_: None
     )
-    assert k in keep and k not in {w.key for w in got}
+    assert k in keep
+    assert k not in {w.key for w in got}
 
 
-def test_held_fields_reads_d1_rows():
+def test_held_fields_reads_d1_rows() -> None:
     f = [{"name": "a", "type": "string"}]
-    rows = [
+    rows: list[JSONObject] = [
         {"slug": "t", "version": "2026-01-01", "fields": json.dumps(f)},
         {"slug": "t", "version": "2026-02-01"},
     ]
     assert rollup.held_fields(rows) == {("t", "2026-01-01"): f}
 
 
-def _floats(n=8_000, nan=float("nan")):
+def _floats(
+    n: int = 8_000, nan: float = float("nan")
+) -> tuple[list[FieldSpec], list[tuple[str, float]]]:
     fields = [{"name": "kind", "type": "string"}, {"name": "x", "type": "number"}]
     rows = [(f"k{i % 4}", nan if i % 97 == 0 else 0.1 * (i % 13) + 1e-7 * i) for i in range(n)]
     return fields, rows
 
 
-def test_float_totals_are_the_same_on_every_build_and_nan_is_null(tmp_path):
+def test_float_totals_are_the_same_on_every_build_and_nan_is_null(tmp_path: Path) -> None:
     fields, rows = _floats()
     path = _parquet(tmp_path / "f.parquet", fields, rows)
     p = rollup.Plan((("kind",),), ("x",), ())
@@ -364,44 +411,44 @@ def test_float_totals_are_the_same_on_every_build_and_nan_is_null(tmp_path):
     ] == cube["metrics"]["x"]["n"]
 
 
-def test_write_skips_a_version_whose_totals_have_no_json_form(tmp_path):
+def test_write_skips_a_version_whose_totals_have_no_json_form(tmp_path: Path) -> None:
     fields, rows = _floats(nan=float("inf"))
     store = FakeStore(_versions(tmp_path, fields, rows, ("2026-01-01",)))
-    logs = []
+    logs: list[str] = []
     got, keep = rollup.write(
         [_ds(fields)], {"t": {"2026-01-01": len(rows)}}, store, tmp_path / "o", log=logs.append
     )
-    assert got == [] and keep == set()
+    assert got == []
+    assert keep == set()
     assert any("has no rollup" in m for m in logs)
 
 
-def test_held_reads_d1_rows():
-    rows = [
+def test_held_reads_d1_rows() -> None:
+    rows: list[JSONObject] = [
         {"slug": "t", "version": "2026-01-01", "rows": 7},
         {"slug": "t", "version": "2026-02-01", "rows": None},
     ]
     assert rollup.held(rows) == {"t": {"2026-01-01": 7, "2026-02-01": 0}}
 
 
-def test_the_command_pushes_new_rollups_and_deletes_those_d1_dropped(tmp_path, monkeypatch):
-    from publicdata import r2, register
-    from publicdata.__main__ import main
-
+def test_the_command_pushes_new_rollups_and_deletes_those_d1_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fields, rows = _wide()
     pq = _versions(tmp_path, fields, rows, ("2026-02-01",))
-    calls = {"put": [], "delete": []}
+    calls: dict[str, list[object]] = {"put": [], "delete": []}
 
     class Store(FakeStore):
-        def __init__(self, s3, bucket):
+        def __init__(self, s3: object, bucket: str) -> None:
             super().__init__(pq, {"_rollup/t/2025-01-01.json.gz": "sha256:x"})
 
-        def keys(self):
+        def keys(self) -> set[str]:
             return {"_rollup/t/2025-01-01.json.gz", "_rollup/gone/2026-01-01.json.gz"}
 
-        def put(self, w):
+        def put(self, w: rollup.Written) -> None:
             calls["put"].append((w.key, w.parquet))
 
-        def delete(self, keys):
+        def delete(self, keys: Sequence[str]) -> None:
             calls["delete"].append(list(keys))
 
     monkeypatch.setattr(r2, "client", lambda: None)
@@ -423,5 +470,5 @@ def test_the_command_pushes_new_rollups_and_deletes_those_d1_dropped(tmp_path, m
     )
 
 
-def test_rollups_do_not_key_the_build_cache():
+def test_rollups_do_not_key_the_build_cache() -> None:
     assert Path(rollup.__file__).resolve() not in cache.code_files()

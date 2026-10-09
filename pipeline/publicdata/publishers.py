@@ -10,11 +10,45 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
 from .register import Dataset, RegisterError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+    from pathlib import Path
+    from typing import NotRequired, ReadOnly, TypedDict
+
+    class CatalogueRecord(TypedDict):
+        """The part of a catalogue record that places its organisation."""
+
+        portal: ReadOnly[str]
+        org: ReadOnly[str]
+        org_title: NotRequired[ReadOnly[str]]
+        kind: NotRequired[ReadOnly[str]]
+
+    class _Curated(TypedDict, total=False):
+        """One publisher in a register/publishers file, as YAML gives it."""
+
+        slug: object
+        name: object
+        jurisdiction: object
+        level: object
+        short: object
+        url: object
+        orgs: list[object] | None
+
+    class Suggestion(TypedDict):
+        org: str
+        title: str
+        name: str
+        jurisdiction: str
+        level: str
+        merge: str
+        why: list[str]
+
 
 # Register code, URL segment, long name.
 JURISDICTIONS = (
@@ -33,15 +67,16 @@ JUR_NAME = {code: name for code, _, name in JURISDICTIONS}
 PORTAL_JUR = {seg: code for code, seg, _ in JURISDICTIONS}
 LEVELS = ("federal", "state", "local", "other")
 LOCAL_RE = re.compile(
-    r"\b(council|shire|city of|town of|municipal|municipality|borough|regional council)\b", re.I
+    r"\b(council|shire|city of|town of|municipal|municipality|borough|regional council)\b",
+    re.IGNORECASE,
 )
 # Words portals append to an organisation's name that are not part of it.
-NOISE_RE = re.compile(r"\s*('s data hub|\bopen data hub\b|\bopen data\b)\s*$", re.I)
+NOISE_RE = re.compile(r"\s*('s data hub|\bopen data hub\b|\bopen data\b)\s*$", re.IGNORECASE)
 LISTED_KINDS = ("dataset", "dataflow")
 OTHER_RE = re.compile(
     r"\b(universit\w*|school of|college|institute of technology|pty\.? ?ltd|limited|ltd|sip register|foundation|association"
     r"|incorporated|inc\.|data network|research infrastructure|observing system|data discovery)\b",
-    re.I,
+    re.IGNORECASE,
 )
 # One aggregator republishes other bodies' records as "Government of X - Agency".
 PREFIX_RE = re.compile(
@@ -72,7 +107,7 @@ PREFIX_JUR = {
     "the Australian Capital Territory": "ACT",
 }
 PLACE_JUR = (
-    (re.compile(r"\b(Tasmanian?|Hobart|Launceston|the LIST)\b", re.I), "Tas"),
+    (re.compile(r"\b(Tasmanian?|Hobart|Launceston|the LIST)\b", re.IGNORECASE), "Tas"),
     (re.compile(r"\b(NSW|New South Wales|Sydney)\b"), "NSW"),
     (re.compile(r"\b(Victorian?|Melbourne|Geelong|Ballarat|Bendigo)\b"), "Vic"),
     (re.compile(r"\b(Queensland|Brisbane|Gold Coast|Moreton Bay|Townsville|Ipswich)\b"), "Qld"),
@@ -83,20 +118,23 @@ PLACE_JUR = (
 )
 COUNCIL_FORM_RE = re.compile(
     r"\b(city of|town of|shire|municipal|borough|city council|regional council|rural city|town council)\b",
-    re.I,
+    re.IGNORECASE,
 )
 COUNCIL_WORDS = re.compile(
     r"\b(city of|town of|shire of|municipality of|council|shire|city|regional|rural|municipal|"
     r"borough|town|open data|data hub|'s)\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 
+SLUG_MAX = 80
+
+
 def slugify(text: str) -> str:
-    s = re.sub(r"[’']", "", text.lower())
+    s = re.sub("[\u2019']", "", text.lower())
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
-    if len(s) > 80:
-        s = s[:81].rsplit("-", 1)[0]
+    if len(s) > SLUG_MAX:
+        s = s[: SLUG_MAX + 1].rsplit("-", 1)[0]
     return s or "unnamed"
 
 
@@ -124,38 +162,47 @@ class Publisher:
         return self.short or self.name
 
 
-def load_curated(folder: Path) -> list[Publisher]:
+def load_curated(folder: Path) -> list[Publisher]:  # noqa: C901 - one check per curated field
     """One file per government, each a list of publishers."""
-    raw = []
+    raw: list[tuple[str, int, _Curated]] = []
     for p in sorted(folder.glob("*.yaml")) if folder.is_dir() else []:
         raw += [
             (p.name, i, e)
             for i, e in enumerate(yaml.safe_load(p.read_text(encoding="utf-8")) or [])
         ]
-    out, seen_slug, seen_org = [], set(), {}
+    out: list[Publisher] = []
+    seen_slug: set[tuple[str, str]] = set()
+    seen_org: dict[str, str] = {}
     for fname, i, e in raw:
         ctx = f"publishers/{fname}[{i}]"
         for k in ("slug", "name", "jurisdiction"):
             if not e.get(k):
-                raise RegisterError(f"{ctx}: {k} is required")
+                msg = f"{ctx}: {k} is required"
+                raise RegisterError(msg)
         jur = str(e["jurisdiction"])
         if jur not in JUR_SEGMENT:
-            raise RegisterError(f"{ctx}: jurisdiction '{jur}' is not one of {list(JUR_SEGMENT)}")
+            msg = f"{ctx}: jurisdiction '{jur}' is not one of {list(JUR_SEGMENT)}"
+            raise RegisterError(msg)
         slug = str(e["slug"])
         if slug != slugify(slug):
-            raise RegisterError(f"{ctx}: slug '{slug}' must be lower case words and hyphens")
+            msg = f"{ctx}: slug '{slug}' must be lower case words and hyphens"
+            raise RegisterError(msg)
         if (jur, slug) in seen_slug:
-            raise RegisterError(f"{ctx}: {jur}/{slug} appears twice")
+            msg = f"{ctx}: {jur}/{slug} appears twice"
+            raise RegisterError(msg)
         seen_slug.add((jur, slug))
         level = str(e.get("level") or ("federal" if jur == "Cth" else "state"))
         if level not in LEVELS:
-            raise RegisterError(f"{ctx}: level '{level}' is not one of {LEVELS}")
+            msg = f"{ctx}: level '{level}' is not one of {LEVELS}"
+            raise RegisterError(msg)
         orgs = [str(o) for o in e.get("orgs") or []]
         for o in orgs:
             if not re.match(r"^[a-z]+:[^\s]+$", o):
-                raise RegisterError(f"{ctx}: org '{o}' must be portal:organisation")
+                msg = f"{ctx}: org '{o}' must be portal:organisation"
+                raise RegisterError(msg)
             if o in seen_org:
-                raise RegisterError(f"{ctx}: org '{o}' is already under {seen_org[o]}")
+                msg = f"{ctx}: org '{o}' is already under {seen_org[o]}"
+                raise RegisterError(msg)
             seen_org[o] = slug
         out.append(
             Publisher(
@@ -172,11 +219,13 @@ def load_curated(folder: Path) -> list[Publisher]:
     return out
 
 
-def org_key(rec: dict) -> str:
+def org_key(rec: CatalogueRecord) -> str:
     return f"{rec['portal']}:{rec['org'] or 'unknown'}"
 
 
-def resolve(records: list[dict], curated: list[Publisher], portal_jur: dict[str, str]):
+def resolve(
+    records: Iterable[CatalogueRecord], curated: list[Publisher], portal_jur: dict[str, str]
+) -> tuple[dict[tuple[str, str], Publisher], dict[str, Publisher]]:
     """Returns (publishers by (jurisdiction, slug), publisher for each org key)."""
     pubs: dict[tuple[str, str], Publisher] = {(p.jurisdiction, p.slug): p for p in curated}
     by_org: dict[str, Publisher] = {o: p for p in curated for o in p.orgs}
@@ -209,11 +258,14 @@ def for_dataset(
     ds: Dataset,
     pubs: dict[tuple[str, str], Publisher],
     by_org: dict[str, Publisher],
-    records_by_name: dict[tuple[str, str], dict],
+    records_by_name: Mapping[tuple[str, str], CatalogueRecord],
     portal_by_host: dict[str, str],
 ) -> Publisher:
-    """The publisher page a register dataset sits under: through its catalogue record when the
-    catalogue holds it, then by the publisher's name, and otherwise a page of its own."""
+    """The publisher page a register dataset sits under.
+
+    It is found through the dataset's catalogue record when the catalogue holds it, then by the
+    publisher's name, and otherwise the dataset gets a page of its own.
+    """
     host = re.sub(r"^https?://(www\.)?", "", ds.source.portal or ds.source.url).split("/")[0]
     portal = portal_by_host.get(host)
     rec = records_by_name.get((portal, ds.source.package)) if portal else None
@@ -225,9 +277,9 @@ def for_dataset(
         if j == jur and (p.name.lower() in want or (p.short and p.short.lower() in want)):
             return p
     slug = slugify(ds.publisher.name)
-    p = pubs.get((jur, slug))
-    if p is None:
-        p = pubs[(jur, slug)] = Publisher(
+    got = pubs.get((jur, slug))
+    if got is None:
+        got = pubs[(jur, slug)] = Publisher(
             slug=slug,
             name=ds.publisher.name,
             jurisdiction=jur,
@@ -235,32 +287,37 @@ def for_dataset(
             short=ds.publisher.short if ds.publisher.short != ds.publisher.name else "",
             url=ds.publisher.url,
         )
-    return p
+    return got
 
 
 def _council_base(name: str) -> str:
     return re.sub(r"\s+", " ", COUNCIL_WORDS.sub(" ", name)).strip(" -").lower()
 
 
-def suggest(records: list[dict], curated: list[Publisher], lgas: dict[str, str]) -> list[dict]:
-    """Proposed curation for the organisations data.gov.au and the Infrastructure catalogue list,
-    which the portal cannot place: the jurisdiction, the level, a cleaned name and a merge with the
-    same body on a state portal. `lgas` maps a council area's name to its jurisdiction. Output is
-    for review, never applied automatically."""
+def suggest(  # noqa: C901, PLR0912, PLR0915 - one rule per way an organisation is matched
+    records: Iterable[CatalogueRecord], curated: list[Publisher], lgas: dict[str, str]
+) -> list[Suggestion]:
+    """Proposed curation for the organisations that the portal cannot place.
+
+    These are the organisations data.gov.au and the Infrastructure catalogue list. The proposal
+    gives the jurisdiction, the level, a cleaned name and a merge with the same body on a state
+    portal. `lgas` maps a council area's name to its jurisdiction. Output is for review, never
+    applied automatically.
+    """
     claimed = {o for p in curated for o in p.orgs}
     titles: dict[str, str] = {}
     for r in records:
         if r["kind"] in LISTED_KINDS:
             titles.setdefault(org_key(r), r.get("org_title") or r["org"])
-    state_orgs = {}
+    state_orgs: dict[str, str] = {}
     for key, t in titles.items():
         if key.split(":")[0] not in ("gov", "infra", "abs"):
             state_orgs.setdefault(re.sub(r"[^a-z]", "", clean_title(t).lower()), key)
-    lga_by_base = {}
+    lga_by_base: dict[str, set[str]] = {}
     for n, jur in lgas.items():
         base = re.sub(r"\s*\((nsw|vic\.|qld|sa|wa|tas\.|nt|act)\)$", "", n.lower())
         lga_by_base.setdefault(base, set()).add(jur)
-    out = []
+    out: list[Suggestion] = []
     for key, raw in sorted(titles.items()):
         portal = key.split(":")[0]
         if portal not in ("gov", "infra") or key in claimed:

@@ -46,6 +46,9 @@ jobs:
       - if: steps.check.outputs.exists == 'true'
         working-directory: pipeline
         run: ruff check . && ruff format --check .
+      - if: steps.check.outputs.exists == 'true'
+        working-directory: pipeline
+        run: mypy
       # Each tool is a pinned release checked against its hash. actionlint skips shellcheck without
       # a word when it finds none, so shellcheck is pinned and named too. On PATH here, they let the
       # pre-commit hook's tests run in pytest, and the Workflow lint job reuses this step.

@@ -1,28 +1,114 @@
+import argparse
+import dataclasses
+import gzip
 import hashlib
+import io
 import json
+import re
 import shutil
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, cast
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from publicdata import r2
+from publicdata import r2, store
+from publicdata.__main__ import REGISTER, _cached_versions, cmd_r2_shared_report, main
+from publicdata.build import build_dataset, cache_keys
+from publicdata.cache import BuildCache
+from publicdata.register import Field, load
+from publicdata.serialise import profile
+from publicdata.serialise.writers.csv_gz import write_csv_gz
+
+from .conftest import make_dataset, make_header, make_manifest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator
+    from typing import BinaryIO, Unpack
+
+    from botocore.exceptions import ClientError
+
+    from publicdata.normalise import Table
+    from publicdata.serialise.profile import Layout
+
+
+# The parts of boto3's S3 requests and answers that r2 sends and reads.
+class _Extra(TypedDict, total=False):
+    ContentType: str
+    ContentEncoding: str
+    Metadata: dict[str, str]
+
+
+class _Listed(TypedDict):
+    Key: str
+    ETag: str
+    Size: NotRequired[int]
+
+
+class _Page(TypedDict):
+    Contents: list[_Listed]
+
+
+class _Paginator(Protocol):
+    def paginate(self, Bucket: str, Prefix: str) -> Iterator[_Page]: ...
+
+
+class _Head(TypedDict, total=False):
+    Metadata: dict[str, str]
+    ContentLength: int
+    ContentType: str | None
+    ContentEncoding: str
+    ETag: str
+
+
+class _Put(TypedDict):
+    ETag: str
+
+
+class _Got(TypedDict):
+    Body: io.BytesIO
+
+
+class _Key(TypedDict):
+    Key: str
+
+
+class _Delete(TypedDict):
+    Objects: list[_Key]
+    Quiet: bool
+
+
+class _Error(TypedDict):
+    Key: str
+    Code: str
+
+
+class _Deleted(TypedDict, total=False):
+    Errors: list[_Error]
 
 
 class FakeS3:
-    def __init__(self, existing, meta=None, etags=None):
+    def __init__(
+        self,
+        existing: Iterable[str],
+        meta: dict[str, dict[str, str]] | None = None,
+        etags: dict[str, str] | None = None,
+    ) -> None:
         self.existing = set(existing)
         self.meta = meta or {}
         self.etags = etags or {}
-        self.puts = []
-        self.heads = []
-        self.listed = []
+        self.puts: list[tuple[str, str]] = []
+        self.heads: list[str] = []
+        self.listed: list[str] = []
 
-    def get_paginator(self, name):
+    def get_paginator(self, name: str) -> _Paginator:
         fake = self
 
         class P:
-            def paginate(self, Bucket, Prefix):
+            def paginate(self, Bucket: str, Prefix: str) -> Iterator[_Page]:
                 fake.listed.append(Prefix)
                 yield {
                     "Contents": [
@@ -34,15 +120,17 @@ class FakeS3:
 
         return P()
 
-    def head_object(self, Bucket, Key):
+    def head_object(self, Bucket: str, Key: str) -> _Head:
         self.heads.append(Key)
         return {"Metadata": self.meta.get(Key, {})}
 
-    def upload_file(self, path, bucket, key, ExtraArgs):
+    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: _Extra) -> None:
         self.puts.append((key, ExtraArgs["ContentType"]))
 
 
-def test_push_skips_existing_keys_unless_replace(tmp_path, monkeypatch):
+def test_push_skips_existing_keys_unless_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     (tmp_path / "d" / "x" / "v" / "2026-04-24").mkdir(parents=True)
     (tmp_path / "d" / "x" / "v" / "2026-04-24" / "data.csv").write_text("a\n1\n")
     (tmp_path / "d" / "x" / "v" / "2026-04-24" / "data.parquet").write_bytes(b"PAR1")
@@ -61,9 +149,9 @@ def test_push_skips_existing_keys_unless_replace(tmp_path, monkeypatch):
     ]
 
 
-def test_a_published_version_gains_partition_files_only_under_replace(tmp_path, monkeypatch):
-    import pytest
-
+def test_a_published_version_gains_partition_files_only_under_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     v = tmp_path / "d" / "x" / "v" / "2026-04-24"
     (v / "by" / "lga").mkdir(parents=True)
     (v / "by" / "lga" / "index.json").write_text("{}")
@@ -84,18 +172,9 @@ def test_a_published_version_gains_partition_files_only_under_replace(tmp_path, 
     ]
 
 
-def test_a_partition_by_edit_cannot_reach_r2_without_a_replace(tmp_path, monkeypatch):
-    from dataclasses import replace
-
-    import pytest
-
-    from publicdata import store
-    from publicdata.build import build_dataset
-    from publicdata.cache import BuildCache
-    from publicdata.register import Field
-
-    from .conftest import make_dataset, make_manifest
-
+def test_a_partition_by_edit_cannot_reach_r2_without_a_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     csv = b"Id,V\n1,a\n2,b\n"
     store.write(tmp_path / "store", make_manifest(csv, dataset="t", version="2026-01-01"), csv)
     ds = make_dataset([Field("id", "Id", "integer"), Field("v", "V")], key=("id",))
@@ -103,29 +182,39 @@ def test_a_partition_by_edit_cannot_reach_r2_without_a_replace(tmp_path, monkeyp
     build_dataset(ds, tmp_path / "store", tmp_path / "a", cache)
     held = {p.relative_to(tmp_path / "a").as_posix() for p in (tmp_path / "a").rglob("*")}
     # The edit changes the version's key, so the cache rebuilds it with the new partitions.
-    build_dataset(replace(ds, partition_by=("v",)), tmp_path / "store", tmp_path / "b", cache)
+    edited = dataclasses.replace(ds, partition_by=("v",))
+    build_dataset(edited, tmp_path / "store", tmp_path / "b", cache)
     assert cache.hits == 0
     fake = FakeS3({k for k in held if r2.dated_file(k)})
     monkeypatch.setattr(r2, "client", lambda: fake)
-    with pytest.raises(SystemExit, match="replace set to d/t/v/2026-01-01/$"):
+    with pytest.raises(SystemExit, match=re.escape("replace set to d/t/v/2026-01-01/") + "$"):
         r2.push(tmp_path / "b", "b", immutable=r2.dated_file)
     assert fake.puts == []
     r2.push(tmp_path / "b", "b", replace=("d/t/v/2026-01-01/",), immutable=r2.dated_file)
     assert "d/t/v/2026-01-01/by/v/a.json" in {k for k, _ in fake.puts}
 
 
-def test_immutable_existing_keys_are_not_hashed(tmp_path, monkeypatch):
+def test_immutable_existing_keys_are_not_hashed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     v = tmp_path / "d" / "x" / "v" / "2026-04-24"
     v.mkdir(parents=True)
     (v / "data.csv").write_text("a\n1\n")
     monkeypatch.setattr(r2, "client", lambda: FakeS3({"d/x/v/2026-04-24/data.csv"}))
-    hashed = []
-    monkeypatch.setattr(r2, "_sha256", lambda p: hashed.append(p) or "h")
+    hashed: list[Path] = []
+
+    def sha256(p: Path) -> str:
+        hashed.append(p)
+        return "h"
+
+    monkeypatch.setattr(r2, "_sha256", sha256)
     assert r2.push(tmp_path, "b", immutable=r2.versioned) == 0
     assert hashed == []
 
 
-def test_mutable_key_is_replaced_only_when_its_hash_changes(tmp_path, monkeypatch):
+def test_mutable_key_is_replaced_only_when_its_hash_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     (tmp_path / "d" / "x" / "v" / "2026-04-24").mkdir(parents=True)
     (tmp_path / "d" / "x" / "v" / "2026-04-24" / "data.csv").write_text("a\n1\n")
     (tmp_path / "d" / "x" / "history.tar.zst").write_bytes(b"new")
@@ -139,9 +228,9 @@ def test_mutable_key_is_replaced_only_when_its_hash_changes(tmp_path, monkeypatc
     assert r2.push(tmp_path, "b", immutable=r2.versioned) == 0
 
 
-def test_split_moves_every_version_file_and_its_page(tmp_path, capsys):
-    from publicdata.__main__ import main
-
+def test_split_moves_every_version_file_and_its_page(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     out, large = tmp_path / "dist", tmp_path / "large"
     v = out / "d" / "x" / "v" / "2026-04-24"
     (v / "by" / "year").mkdir(parents=True)
@@ -171,20 +260,18 @@ def test_split_moves_every_version_file_and_its_page(tmp_path, capsys):
     assert (large / "d" / "x" / "history.tar.zst").exists()
 
 
-def test_dist_push_rejects_a_prefix_that_is_not_a_version(tmp_path, monkeypatch, capsys):
-    from publicdata.__main__ import main
-
+def test_dist_push_rejects_a_prefix_that_is_not_a_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(r2, "client", lambda: FakeS3(set()))
     assert main(["dist-push", "--large", str(tmp_path), "--replace", "d/"]) == 2
     assert "prefixes only" in capsys.readouterr().out
     assert main(["dist-push", "--large", str(tmp_path), "--replace", "d/x/v/2026-04-24/"]) == 0
 
 
-def test_pull_skips_the_versions_the_build_cache_holds(fixture_store, tmp_path, monkeypatch):
-    import shutil
-
-    from publicdata.__main__ import _cached_versions, main
-
+def test_pull_skips_the_versions_the_build_cache_holds(
+    fixture_store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s = tmp_path / "store"
     shutil.copytree(fixture_store, s)
     cache = tmp_path / "cache"
@@ -194,37 +281,49 @@ def test_pull_skips_the_versions_the_build_cache_holds(fixture_store, tmp_path, 
     assert {slug for slug, _ in held} == datasets
     for p in s.glob("*/*/source.*"):
         p.unlink()
-    got = []
+    got: list[str] = []
 
     class Fake(FakeS3):
-        def download_file(self, bucket, key, dest):
+        def download_file(self, bucket: str, key: str, dest: str) -> None:
             got.append(key)
             shutil.copyfile(fixture_store / key, dest)
 
     monkeypatch.setattr(r2, "client", lambda: Fake(set()))
     r2.pull_store(s, skip=held)
-    assert got == [k for k in got if k.startswith("catalogue/")] and got
+    assert got == [k for k in got if k.startswith("catalogue/")]
+    assert got
 
 
-def test_a_version_page_is_uploaded_again_only_when_it_changes(tmp_path, monkeypatch):
+def test_a_version_page_is_uploaded_again_only_when_it_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     v = tmp_path / "d" / "x" / "v" / "2026-04-24"
     v.mkdir(parents=True)
     (v / "index.html").write_text("newest")
     (v / "data.csv").write_text("a\n1\n")
     keys = {"d/x/v/2026-04-24/index.html", "d/x/v/2026-04-24/data.csv"}
-    md5 = hashlib.md5(b"newest").hexdigest()
+    md5 = hashlib.md5(b"newest", usedforsecurity=False).hexdigest()
     same = FakeS3(keys, etags={"d/x/v/2026-04-24/index.html": md5})
     monkeypatch.setattr(r2, "client", lambda: same)
     assert r2.push(tmp_path, "b", immutable=r2.dated_file) == 0
     assert same.heads == []
-    old = FakeS3(keys, etags={"d/x/v/2026-04-24/index.html": hashlib.md5(b"old").hexdigest()})
+    old = FakeS3(
+        keys,
+        etags={
+            "d/x/v/2026-04-24/index.html": hashlib.md5(b"old", usedforsecurity=False).hexdigest()
+        },
+    )
     monkeypatch.setattr(r2, "client", lambda: old)
     assert r2.push(tmp_path, "b", immutable=r2.dated_file) == 1
-    assert [k for k, _ in old.puts] == ["d/x/v/2026-04-24/index.html"] and old.heads == []
-    assert r2.dated_file("d/x/v/2026-04-24/data.csv") and not r2.dated_file("d/x/history.tar.zst")
+    assert [k for k, _ in old.puts] == ["d/x/v/2026-04-24/index.html"]
+    assert old.heads == []
+    assert r2.dated_file("d/x/v/2026-04-24/data.csv")
+    assert not r2.dated_file("d/x/history.tar.zst")
 
 
-def test_a_dated_only_push_leaves_the_pages(tmp_path, monkeypatch):
+def test_a_dated_only_push_leaves_the_pages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     v = tmp_path / "d" / "x" / "v" / "2026-04-24"
     v.mkdir(parents=True)
     (v / "data.csv").write_text("a\n1\n")
@@ -236,11 +335,9 @@ def test_a_dated_only_push_leaves_the_pages(tmp_path, monkeypatch):
     assert [k for k, _ in fake.puts] == ["d/x/v/2026-04-24/data.csv"]
 
 
-def test_store_push_replaces_raw_bytes_only_for_versions_main_never_took(tmp_path, monkeypatch):
-    import subprocess
-
-    from publicdata.__main__ import main
-
+def test_store_push_replaces_raw_bytes_only_for_versions_main_never_took(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     for v in ("2026-10-03", "2026-10-04"):
         (tmp_path / "x" / v).mkdir(parents=True)
         (tmp_path / "x" / v / "manifest.json").write_text("{}")
@@ -266,56 +363,54 @@ def test_store_push_replaces_raw_bytes_only_for_versions_main_never_took(tmp_pat
 class Bucket(FakeS3):
     """FakeS3 holding bytes, so the cache can go up and come back down."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(set())
-        self.bytes = {}
-        self.deleted = []
-        self.batches = []
-        self.buckets = set()
+        self.bytes: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+        self.batches: list[list[str]] = []
+        self.buckets: set[str] = set()
 
-    def get_paginator(self, name):
+    def get_paginator(self, name: str) -> _Paginator:
         pages = super().get_paginator(name)
         fake = self
 
         class P:
-            def paginate(self, Bucket, Prefix):
+            def paginate(self, Bucket: str, Prefix: str) -> Iterator[_Page]:
                 fake.buckets.add(Bucket)
                 return pages.paginate(Bucket=Bucket, Prefix=Prefix)
 
         return P()
 
-    def head_object(self, Bucket, Key):
+    def head_object(self, Bucket: str, Key: str) -> _Head:
         self.buckets.add(Bucket)
         return super().head_object(Bucket, Key)
 
-    def upload_file(self, path, bucket, key, ExtraArgs):
+    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: _Extra) -> None:
         self.buckets.add(bucket)
         super().upload_file(path, bucket, key, ExtraArgs)
-        data = open(path, "rb").read()
+        data = Path(path).read_bytes()
         self.bytes[key] = data
         self.existing.add(key)
-        self.etags[key] = hashlib.md5(data).hexdigest()
+        self.etags[key] = hashlib.md5(data, usedforsecurity=False).hexdigest()
 
-    def download_file(self, bucket, key, dest):
+    def download_file(self, bucket: str, key: str, dest: str) -> None:
         self.buckets.add(bucket)
         if key not in self.bytes:
             raise _missing()
-        open(dest, "wb").write(self.bytes[key])
+        Path(dest).write_bytes(self.bytes[key])
 
-    def get_object(self, Bucket, Key):
-        import io
-
+    def get_object(self, Bucket: str, Key: str) -> _Got:
         self.buckets.add(Bucket)
         if Key not in self.bytes:
             raise _missing()
         return {"Body": io.BytesIO(self.bytes[Key])}
 
-    def put_object(self, Bucket, Key, Body, ContentType):
+    def put_object(self, Bucket: str, Key: str, Body: bytes, ContentType: str) -> None:
         self.buckets.add(Bucket)
         self.bytes[Key] = Body
         self.existing.add(Key)
 
-    def delete_objects(self, Bucket, Delete):
+    def delete_objects(self, Bucket: str, Delete: _Delete) -> _Deleted:
         self.buckets.add(Bucket)
         self.batches.append([o["Key"] for o in Delete["Objects"]])
         for o in Delete["Objects"]:
@@ -325,13 +420,17 @@ class Bucket(FakeS3):
         return {}
 
 
-def _missing():
-    from botocore.exceptions import ClientError
-
-    return ClientError({"Error": {"Code": "404"}}, "GetObject")
+def _missing() -> ClientError:
+    return _error(code="404", operation="GetObject")
 
 
-def _entry(root, key, meta="{}", files=()):
+def _error(*, code: str, operation: str) -> ClientError:
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
+
+    return ClientError({"Error": {"Code": code}}, operation)
+
+
+def _entry(root: Path, key: str, meta: str = "{}", files: Iterable[str] = ()) -> None:
     (root / key / "files").mkdir(parents=True)
     for name in files:
         (root / key / "files" / name).write_text(name)
@@ -339,8 +438,8 @@ def _entry(root, key, meta="{}", files=()):
 
 
 def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_dropped(
-    tmp_path, monkeypatch
-):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bucket = Bucket()
     monkeypatch.setattr(r2, "client", lambda: bucket)
     up = tmp_path / "up"
@@ -362,7 +461,6 @@ def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_droppe
     assert r2.cache_pull(down) == 2
     assert (down / ("a" * 64) / "files" / "manifest.json").read_text() == "manifest.json"
     assert (down / ("a" * 64) / "meta.json").read_text() == '{"grown": 1}'
-    import shutil
 
     shutil.rmtree(up / ("b" * 64))
     assert r2.cache_push(up) == (0, 0)  # without prune nothing goes
@@ -377,13 +475,19 @@ def test_the_cache_goes_up_once_comes_back_whole_and_prunes_what_the_disk_droppe
     assert json.loads(bucket.bytes[r2.UNUSED]) == {}
 
 
-def test_the_cache_lives_in_its_own_bucket_unless_another_is_named(tmp_path, monkeypatch):
+class _BucketName(TypedDict, total=False):
+    bucket: str
+
+
+def test_the_cache_lives_in_its_own_bucket_unless_another_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     up = tmp_path / "up"
     _entry(up, "a" * 64, files=("x",))
     _entry(up, "b" * 64)
     t0 = datetime(2026, 10, 6, tzinfo=UTC)
 
-    def run(**name):
+    def run(**name: Unpack[_BucketName]) -> set[str]:
         bucket = Bucket()
         monkeypatch.setattr(r2, "client", lambda: bucket)
         r2.cache_push(up, **name)
@@ -399,7 +503,9 @@ def test_the_cache_lives_in_its_own_bucket_unless_another_is_named(tmp_path, mon
     assert run(bucket="elsewhere") == {"elsewhere"}
 
 
-def test_the_cache_reads_and_prunes_only_entry_keys(tmp_path, monkeypatch):
+def test_the_cache_reads_and_prunes_only_entry_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bucket = Bucket()
     monkeypatch.setattr(r2, "client", lambda: bucket)
     stray = [
@@ -424,10 +530,8 @@ def test_the_cache_reads_and_prunes_only_entry_keys(tmp_path, monkeypatch):
 
 
 def test_an_entry_used_again_is_no_longer_due_and_pruning_takes_its_record_first(
-    tmp_path, monkeypatch
-):
-    import shutil
-
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bucket = Bucket()
     monkeypatch.setattr(r2, "client", lambda: bucket)
     up = tmp_path / "up"
@@ -451,11 +555,11 @@ def test_an_entry_used_again_is_no_longer_due_and_pruning_takes_its_record_first
     ]
 
 
-def test_a_delete_r2_refuses_fails_the_push(tmp_path, monkeypatch):
-    import pytest
-
+def test_a_delete_r2_refuses_fails_the_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class Refusing(Bucket):
-        def delete_objects(self, Bucket, Delete):
+        def delete_objects(self, Bucket: str, Delete: _Delete) -> _Deleted:
             return {"Errors": [{"Key": Delete["Objects"][0]["Key"], "Code": "AccessDenied"}]}
 
     bucket = Refusing()
@@ -470,7 +574,9 @@ def test_a_delete_r2_refuses_fails_the_push(tmp_path, monkeypatch):
         r2.cache_push(up, prune=True, now=t0 + timedelta(days=2))
 
 
-def test_a_pull_leaves_out_an_entry_deleted_under_it_and_can_keep_to_some(tmp_path, monkeypatch):
+def test_a_pull_leaves_out_an_entry_deleted_under_it_and_can_keep_to_some(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bucket = Bucket()
     monkeypatch.setattr(r2, "client", lambda: bucket)
     up = tmp_path / "up"
@@ -483,7 +589,7 @@ def test_a_pull_leaves_out_an_entry_deleted_under_it_and_can_keep_to_some(tmp_pa
     assert sorted(p.name for p in down.iterdir()) == [b]
 
     class Racing(Bucket):
-        def download_file(self, bucket_, key, dest):
+        def download_file(self, bucket_: str, key: str, dest: str) -> None:
             if key == f"{a}/files/x":
                 bucket.bytes.pop(f"{a}/meta.json")
                 raise _missing()
@@ -497,13 +603,10 @@ def test_a_pull_leaves_out_an_entry_deleted_under_it_and_can_keep_to_some(tmp_pa
     assert (tmp_path / "raced" / b / "meta.json").exists()
 
 
-def test_a_shard_pulls_only_the_entries_its_datasets_key_to(fixture_store, tmp_path, monkeypatch):
-    from publicdata.__main__ import REGISTER, main
-    from publicdata.build import cache_keys
-    from publicdata.cache import BuildCache
-    from publicdata.register import load
-
-    seen = {}
+def test_a_shard_pulls_only_the_entries_its_datasets_key_to(
+    fixture_store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, set[str] | None] = {}
     monkeypatch.setattr(
         r2, "cache_pull", lambda root, meta_only=False, entries=None: seen.update(e=entries) or 0
     )
@@ -528,11 +631,9 @@ def test_a_shard_pulls_only_the_entries_its_datasets_key_to(fixture_store, tmp_p
     assert main(["cache", "pull", "--cache", str(tmp_path), "--only", slug]) == 2
 
 
-def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
-    import json
-
-    import pytest
-
+def test_every_listed_source_must_be_in_the_raw_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     for slug, version, man in (
         ("x", "2026-10-01", {"filename": "Crashes.CSV"}),
         ("y", "2026-10-02", {"filename": "a.zip", "source_withheld": "Its terms are unclear."}),
@@ -548,16 +649,14 @@ def test_every_listed_source_must_be_in_the_raw_store(tmp_path, monkeypatch):
     assert held.listed == ["x/"]
     other = {"x/2026-09-01/source.csv", "x-y/2026-10-01/source.csv"}
     monkeypatch.setattr(r2, "client", lambda: FakeS3(other))
-    with pytest.raises(SystemExit, match="d/x/v/2026-10-01/source.csv"):
+    with pytest.raises(SystemExit, match=re.escape("d/x/v/2026-10-01/source.csv")):
         r2.check_sources([tmp_path])
 
 
-def test_pull_takes_snapshots_and_only_the_newest_fetch_of_a_rolling_source(tmp_path, monkeypatch):
-    import shutil
-
-    from publicdata import store
-
-    def put(version, snapshot, history=False):
+def test_pull_takes_snapshots_and_only_the_newest_fetch_of_a_rolling_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def put(version: str, *, snapshot: bool, history: bool = False) -> None:
         d = tmp_path / "s" / "r" / version
         d.mkdir(parents=True)
         body = version.encode()
@@ -571,14 +670,14 @@ def test_pull_takes_snapshots_and_only_the_newest_fetch_of_a_rolling_source(tmp_
         (src / "source.csv").write_bytes(body)
         (src / "history.parquet").write_bytes(b"h" + body)
 
-    put("2026-08-04", True, history=True)
-    put("2026-08-11", False, history=True)
-    put("2026-09-01", True, history=True)
-    put("2026-09-08", False, history=True)
-    got = []
+    put("2026-08-04", snapshot=True, history=True)
+    put("2026-08-11", snapshot=False, history=True)
+    put("2026-09-01", snapshot=True, history=True)
+    put("2026-09-08", snapshot=False, history=True)
+    got: list[str] = []
 
     class Fake(FakeS3):
-        def download_file(self, bucket, key, dest):
+        def download_file(self, bucket: str, key: str, dest: str) -> None:
             got.append(key)
             shutil.copyfile(tmp_path / "raw" / key, dest)
 
@@ -600,12 +699,8 @@ def test_pull_takes_snapshots_and_only_the_newest_fetch_of_a_rolling_source(tmp_
 
 
 def test_a_missing_newest_fetch_is_reported_and_the_other_datasets_still_pull(
-    tmp_path, monkeypatch, capsys
-):
-    import shutil
-
-    from publicdata import store
-
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     for slug in ("a", "b"):
         d = tmp_path / "s" / slug / "2026-10-01"
         d.mkdir(parents=True)
@@ -618,7 +713,7 @@ def test_a_missing_newest_fetch_is_reported_and_the_other_datasets_still_pull(
     (tmp_path / "raw" / "a" / "2026-10-01" / "source.csv").unlink()
 
     class Fake(FakeS3):
-        def download_file(self, bucket, key, dest):
+        def download_file(self, bucket: str, key: str, dest: str) -> None:
             shutil.copyfile(tmp_path / "raw" / key, dest)
 
     monkeypatch.setattr(r2, "client", lambda: Fake(set()))
@@ -628,13 +723,9 @@ def test_a_missing_newest_fetch_is_reported_and_the_other_datasets_still_pull(
     assert not (tmp_path / "s" / "a" / "2026-10-01" / "source.csv").exists()
 
 
-def test_a_feed_s_read_record_goes_to_the_raw_store_and_comes_back(tmp_path, monkeypatch):
-    import shutil
-    from pathlib import Path
-
-    from publicdata import store
-    from publicdata.__main__ import main
-
+def test_a_feed_s_read_record_goes_to_the_raw_store_and_comes_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s = tmp_path / "s"
     d = s / "f" / "2026-10-05"
     d.mkdir(parents=True)
@@ -642,13 +733,13 @@ def test_a_feed_s_read_record_goes_to_the_raw_store_and_comes_back(tmp_path, mon
                        "utf-8", {}, {}, history={"sha256": hashlib.sha256(b"h").hexdigest(), "bytes": 1, "rows": 1})  # fmt: skip
     (d / "manifest.json").write_text(m.to_json())
     store.write_read(s, "f", "2026-10-06", "2026-10-05")
-    held = {}
+    held: dict[str, bytes] = {}
 
     class Fake(FakeS3):
-        def upload_file(self, path, bucket, key, ExtraArgs):
+        def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: _Extra) -> None:
             held[key] = Path(path).read_bytes()
 
-        def download_file(self, bucket, key, dest):
+        def download_file(self, bucket: str, key: str, dest: str) -> None:
             if key not in held:
                 raise FileNotFoundError(key)
             Path(dest).write_bytes(held[key])
@@ -669,12 +760,22 @@ def test_a_feed_s_read_record_goes_to_the_raw_store_and_comes_back(tmp_path, mon
     shutil.rmtree(s)
 
 
-class ByteBucket:
-    """An S3 bucket that keeps bytes, headers and metadata, enough for push, the downloader and
-    the gzip restore. A put with IfMatch fails as R2 does when the object has changed."""
+class _Object(TypedDict):
+    body: bytes
+    ContentType: NotRequired[str]
+    ContentEncoding: NotRequired[str]
+    Metadata: NotRequired[dict[str, str]]
 
-    def __init__(self, objects=None):
-        self.objects = {}
+
+class ByteBucket:
+    """An S3 bucket that keeps bytes, headers and metadata.
+
+    That is enough for push, the downloader and the gzip restore. A put with IfMatch fails as R2
+    does when the object has changed.
+    """
+
+    def __init__(self, objects: dict[str, bytes] | None = None) -> None:
+        self.objects: dict[str, _Object] = {}
         for k, body in (objects or {}).items():
             self.put(
                 k,
@@ -684,23 +785,23 @@ class ByteBucket:
                     "Metadata": {"sha256": hashlib.sha256(body).hexdigest()},
                 },
             )
-        self.puts = []
-        self.heads = []
-        self.deleted = []
-        self.corrupt = set()
-        self.before_put = {}
+        self.puts: list[str] = []
+        self.heads: list[str] = []
+        self.deleted: list[str] = []
+        self.corrupt: set[str] = set()
+        self.before_put: dict[str, Callable[[ByteBucket], object]] = {}
 
-    def put(self, key, body, args):
+    def put(self, key: str, body: bytes, args: _Extra) -> None:
         self.objects[key] = {"body": body, **args}
 
-    def etag(self, key):
-        return f'"{hashlib.md5(self.objects[key]["body"]).hexdigest()}"'
+    def etag(self, key: str) -> str:
+        return f'"{hashlib.md5(self.objects[key]["body"], usedforsecurity=False).hexdigest()}"'
 
-    def get_paginator(self, name):
+    def get_paginator(self, name: str) -> _Paginator:
         fake = self
 
         class P:
-            def paginate(self, Bucket, Prefix):
+            def paginate(self, Bucket: str, Prefix: str) -> Iterator[_Page]:
                 yield {
                     "Contents": [
                         {"Key": k, "Size": len(o["body"]), "ETag": fake.etag(k)}
@@ -711,10 +812,10 @@ class ByteBucket:
 
         return P()
 
-    def head_object(self, Bucket, Key):
+    def head_object(self, Bucket: str, Key: str) -> _Head:
         self.heads.append(Key)
         o = self.objects[Key]
-        head = {
+        head: _Head = {
             "ContentLength": len(o["body"]),
             "ContentType": o.get("ContentType"),
             "Metadata": dict(o.get("Metadata", {})),
@@ -724,17 +825,22 @@ class ByteBucket:
             head["ContentEncoding"] = o["ContentEncoding"]
         return head
 
-    def upload_file(self, path, bucket, key, ExtraArgs):
+    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: _Extra) -> None:
         self.put(key, Path(path).read_bytes(), ExtraArgs)
         self.puts.append(key)
 
-    def put_object(self, Bucket, Key, Body, IfMatch=None, **args):
-        from botocore.exceptions import ClientError
-
+    def put_object(
+        self,
+        Bucket: str,
+        Key: str,
+        Body: BinaryIO,
+        IfMatch: str | None = None,
+        **args: Unpack[_Extra],
+    ) -> _Put:
         if Key in self.before_put:
             self.before_put.pop(Key)(self)
         if IfMatch is not None and (Key not in self.objects or self.etag(Key) != IfMatch):
-            raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
+            raise _error(code="PreconditionFailed", operation="PutObject")
         body = Body.read()
         if Key in self.corrupt:
             self.corrupt.discard(Key)
@@ -743,15 +849,13 @@ class ByteBucket:
         self.puts.append(Key)
         return {"ETag": self.etag(Key)}
 
-    def delete_object(self, Bucket, Key):
+    def delete_object(self, Bucket: str, Key: str) -> None:
         self.deleted.append(Key)
         del self.objects[Key]
 
-    def download_file(self, bucket, key, path):
-        from botocore.exceptions import ClientError
-
+    def download_file(self, bucket: str, key: str, path: str) -> None:
         if key not in self.objects:
-            raise ClientError({"Error": {"Code": "404"}}, "GetObject")
+            raise _missing()
         Path(path).write_bytes(self.objects[key]["body"])
 
 
@@ -759,34 +863,41 @@ CSV = b"a,b\n" + b"1,2\n" * 1000
 V = "d/x/v/2026-04-24/"
 
 
-def _version(tmp_path):
-    from publicdata.serialise.writers.csv_gz import write_csv_gz
-
+def _version(tmp_path: Path) -> Path:
     v = tmp_path / "d" / "x" / "v" / "2026-04-24"
     v.mkdir(parents=True)
     (v / "data.csv").write_bytes(CSV)
-    write_csv_gz(None, v / "data.csv.gz", v)
+    # The writer reads the data.csv beside it, so it needs no table.
+    write_csv_gz(cast("Table", None), v / "data.csv.gz", v)
     return v
 
 
-def test_the_client_sends_no_checksum_encoding(monkeypatch):
-    import boto3
+def test_the_client_sends_no_checksum_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    import boto3  # noqa: PLC0415 - the deploy extra
+    from botocore.config import Config  # noqa: PLC0415 - the deploy extra
 
-    seen = {}
+    seen: dict[str, object] = {}
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "t")
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN_ID", "i")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a")
     monkeypatch.setattr(boto3, "client", lambda *a, **k: seen.update(k) or object())
     r2.client()
-    assert seen["config"].request_checksum_calculation == "when_required"
+    config = seen["config"]
+    assert isinstance(config, Config)
+    # The stubs leave out the options a Config sets from its keywords.
+    assert vars(config)["request_checksum_calculation"] == "when_required"
 
 
-def test_content_encoding_is_read_as_a_token_list():
-    assert r2.is_gzip("gzip") and r2.is_gzip("gzip,aws-chunked") and r2.is_gzip(" GZIP ")
-    assert not r2.is_gzip(None) and not r2.is_gzip("aws-chunked") and not r2.is_gzip("x-gzipped")
+def test_content_encoding_is_read_as_a_token_list() -> None:
+    assert r2.is_gzip("gzip")
+    assert r2.is_gzip("gzip,aws-chunked")
+    assert r2.is_gzip(" GZIP ")
+    assert not r2.is_gzip(None)
+    assert not r2.is_gzip("aws-chunked")
+    assert not r2.is_gzip("x-gzipped")
 
 
-def test_what_is_stored_gzipped():
+def test_what_is_stored_gzipped() -> None:
     big = 4096
     for name in (
         "data.csv",
@@ -806,9 +917,9 @@ def test_what_is_stored_gzipped():
         assert not r2.stored_gzipped(key, big), key
 
 
-def test_push_stores_text_gzipped_and_aliases_the_csv_gz(tmp_path, monkeypatch, capsys):
-    import gzip
-
+def test_push_stores_text_gzipped_and_aliases_the_csv_gz(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     v = _version(tmp_path)
     (v / "data.parquet").write_bytes(b"PAR1" * 1000)
     (v / "data.sqlite").write_bytes(b"SQLite format 3\x00" + bytes(4096))
@@ -842,14 +953,17 @@ def test_push_stores_text_gzipped_and_aliases_the_csv_gz(tmp_path, monkeypatch, 
         r2.push(tmp_path / "empty", "publicdata-dist", expect=[V + "data.json.gz"])
 
 
-def test_a_push_that_stopped_after_the_csv_aliases_its_gzip_on_the_next_run(tmp_path, monkeypatch):
+def test_a_push_that_stopped_after_the_csv_aliases_its_gzip_on_the_next_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     v = _version(tmp_path)
     b = ByteBucket()
     monkeypatch.setattr(r2, "client", lambda: b)
     r2.push(tmp_path, "publicdata-dist", immutable=r2.dated_file)
     b.puts.clear()
     r2.push(tmp_path, "publicdata-dist", immutable=r2.dated_file)
-    assert b.puts == [] and V + "data.csv.gz" not in b.objects
+    assert b.puts == []
+    assert V + "data.csv.gz" not in b.objects
     # A CSV an older push stored plain keeps a csv.gz of its own.
     old = ByteBucket({V + "data.csv": CSV})
     monkeypatch.setattr(r2, "client", lambda: old)
@@ -858,7 +972,9 @@ def test_a_push_that_stopped_after_the_csv_aliases_its_gzip_on_the_next_run(tmp_
     assert old.objects[V + "data.csv.gz"]["body"] == (v / "data.csv.gz").read_bytes()
 
 
-def test_a_replace_writes_the_old_csv_gz_again(tmp_path, monkeypatch):
+def test_a_replace_writes_the_old_csv_gz_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     v = _version(tmp_path)
     stale = b"\x1f\x8bstale"
     b = ByteBucket({V + "data.csv": b"old", V + "data.csv.gz": stale})
@@ -869,7 +985,9 @@ def test_a_replace_writes_the_old_csv_gz_again(tmp_path, monkeypatch):
     assert b.objects[V + "data.csv"]["body"] == (v / "data.csv.gz").read_bytes()
 
 
-def test_the_downloader_hands_back_the_file_a_gzipped_object_was(tmp_path, monkeypatch):
+def test_the_downloader_hands_back_the_file_a_gzipped_object_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     v = tmp_path / "d" / "x" / "v" / "2026-04-24"
     v.mkdir(parents=True)
     js = b"[" + b"1," * 2000 + b"1]"
@@ -903,18 +1021,20 @@ PLAIN = {
 }
 
 
-def test_restore_gzip_is_a_dry_run_from_the_listing_unless_applied(monkeypatch, capsys):
-    import gzip
-
+def test_restore_gzip_is_a_dry_run_from_the_listing_unless_applied(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     b = ByteBucket(PLAIN)
     monkeypatch.setattr(r2, "client", lambda: b)
     t = r2.restore_gzip()
-    assert b.puts == [] and b.heads == []
+    assert b.puts == []
+    assert b.heads == []
     assert (t["objects"], t["before"]) == (2, len(CSV) + 4000)
     assert "dry run, 2 object(s)" in capsys.readouterr().out
     t = r2.restore_gzip(apply=True)
     assert sorted(b.puts) == [V + "data.csv", V + "data.ndjson"]
-    assert t["done"] == 2 and t["saved"] > 0
+    assert t["done"] == 2
+    assert t["saved"] > 0
     for k in (V + "data.csv", V + "data.ndjson"):
         o = b.objects[k]
         assert o["ContentEncoding"] == "gzip"
@@ -924,24 +1044,27 @@ def test_restore_gzip_is_a_dry_run_from_the_listing_unless_applied(monkeypatch, 
             "size": str(len(PLAIN[k])),
         }
     for k in (V + "data.sqlite", V + "data.parquet", "_q/x/2026-04-24.parquet"):
-        assert b.objects[k]["body"] == PLAIN[k] and "ContentEncoding" not in b.objects[k]
+        assert b.objects[k]["body"] == PLAIN[k]
+        assert "ContentEncoding" not in b.objects[k]
     assert b.objects[V + "data.csv"]["ContentType"] == "text/csv; charset=utf-8"
     assert "bytes saved" in capsys.readouterr().out
     b.puts.clear()
     b.objects[V + "data.ndjson"]["ContentEncoding"] = "gzip,aws-chunked"
     t = r2.restore_gzip(apply=True)
-    assert b.puts == [] and t["done"] == 0
+    assert b.puts == []
+    assert t["done"] == 0
 
 
 def test_restore_gzip_refuses_bytes_that_do_not_match_and_puts_back_a_bad_rewrite(
-    monkeypatch, capsys
-):
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     b = ByteBucket({V + "data.csv": CSV, V + "data.json": b"[" + b"1," * 900 + b"1]"})
     b.objects[V + "data.json"]["Metadata"]["sha256"] = "0" * 64
     b.corrupt.add(V + "data.csv")
     monkeypatch.setattr(r2, "client", lambda: b)
     t = r2.restore_gzip(apply=True)
-    assert t["failed"] == 2 and t["done"] == 0
+    assert t["failed"] == 2
+    assert t["done"] == 0
     err = capsys.readouterr().err
     assert "data.json FAILED read back as" in err
     assert "data.csv FAILED" in err
@@ -950,11 +1073,13 @@ def test_restore_gzip_refuses_bytes_that_do_not_match_and_puts_back_a_bad_rewrit
     assert b.objects[V + "data.json"]["body"].startswith(b"[")
 
 
-def test_restore_gzip_never_overwrites_a_deploy_that_wrote_the_key_meanwhile(monkeypatch, capsys):
+def test_restore_gzip_never_overwrites_a_deploy_that_wrote_the_key_meanwhile(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     b = ByteBucket({V + "data.csv": CSV})
     newer = b"\x1f\x8bnewer"
 
-    def deploy(bucket):
+    def deploy(bucket: ByteBucket) -> None:
         bucket.put(V + "data.csv", newer, {"ContentEncoding": "gzip"})
 
     b.before_put[V + "data.csv"] = deploy
@@ -966,14 +1091,14 @@ def test_restore_gzip_never_overwrites_a_deploy_that_wrote_the_key_meanwhile(mon
 
 
 def test_a_failed_rewrite_is_not_put_back_over_a_deploy_that_wrote_after_it(
-    monkeypatch, capsys, tmp_path
-):
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
     b = ByteBucket({V + "data.csv": CSV})
     b.corrupt.add(V + "data.csv")
     newer = b"\x1f\x8bnewer"
     real_download = b.download_file
 
-    def download(bucket, key, path):
+    def download(bucket: str, key: str, path: str) -> None:
         real_download(bucket, key, path)
         if Path(path).name == "back.gz":
             b.put(key, newer, {"ContentEncoding": "gzip"})
@@ -987,17 +1112,21 @@ def test_a_failed_rewrite_is_not_put_back_over_a_deploy_that_wrote_after_it(
     assert "was not put back" in capsys.readouterr().err
 
 
-def test_restore_gzip_deletes_a_matching_csv_gz_only_when_asked(tmp_path, monkeypatch):
+def test_restore_gzip_deletes_a_matching_csv_gz_only_when_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     v = _version(tmp_path)
     gz = (v / "data.csv.gz").read_bytes()
     objects = {V + "data.csv": CSV, V + "data.csv.gz": gz}
     b = ByteBucket(objects)
     monkeypatch.setattr(r2, "client", lambda: b)
     r2.restore_gzip(apply=True)
-    assert b.deleted == [] and V + "data.csv.gz" in b.objects
+    assert b.deleted == []
+    assert V + "data.csv.gz" in b.objects
     assert b.objects[V + "data.csv"]["body"] == gz
     t = r2.restore_gzip(apply=True, dedupe_csv_gz=True)
-    assert b.deleted == [V + "data.csv.gz"] and t["deduped_bytes"] == len(gz)
+    assert b.deleted == [V + "data.csv.gz"]
+    assert t["deduped_bytes"] == len(gz)
     other = ByteBucket({V + "data.csv": CSV, V + "data.csv.gz": b"\x1f\x8bdifferent"})
     monkeypatch.setattr(r2, "client", lambda: other)
     r2.restore_gzip(apply=True, dedupe_csv_gz=True)
@@ -1007,26 +1136,25 @@ def test_restore_gzip_deletes_a_matching_csv_gz_only_when_asked(tmp_path, monkey
 class Dist(Bucket):
     """A bucket that answers byte ranges and lists each object's MD5, as R2 does for one part."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.ops = []
+        self.ops: list[tuple[object, ...]] = []
 
-    def upload_file(self, path, bucket, key, ExtraArgs):
+    def upload_file(self, path: str, bucket: str, key: str, ExtraArgs: _Extra) -> None:
         super().upload_file(path, bucket, key, ExtraArgs)
         self.ops.append(("upload", key))
 
-    def put_object(self, Bucket, Key, Body, ContentType):
+    def put_object(self, Bucket: str, Key: str, Body: bytes, ContentType: str) -> None:
         super().put_object(Bucket, Key, Body, ContentType)
-        self.etags[Key] = hashlib.md5(Body).hexdigest()
+        self.etags[Key] = hashlib.md5(Body, usedforsecurity=False).hexdigest()
         self.ops.append(("put", Key, Body))
 
-    def head_object(self, Bucket, Key):
+    def head_object(self, Bucket: str, Key: str) -> _Head:
         super().head_object(Bucket, Key)
         return {"ContentLength": len(self.bytes[Key]), "Metadata": {}}
 
-    def get_object(self, Bucket, Key, Range=None):
-        import io
-
+    def get_object(self, Bucket: str, Key: str, Range: str | None = None) -> _Got:
+        assert Range is not None
         a, b = (int(x) for x in Range.removeprefix("bytes=").split("-"))
         self.ops.append(("get", Key))
         return {"Body": io.BytesIO(self.bytes[Key][a : b + 1])}
@@ -1036,27 +1164,26 @@ Q = "_q/t/2026-01-02.parquet"
 MARK = "_q/t/2026-01-02.layout.json"
 
 
-def _lay(**kw):
-    from publicdata.serialise import profile
+def _lay(**kw: Unpack[Layout]) -> Layout:
+    base: Layout = {
+        "profile": profile.VERSION,
+        "sort": [],
+        "key": ["id"],
+        "lookup": [],
+        "int32": [],
+    }
+    return base | kw
 
-    return {"profile": profile.VERSION, "sort": [], "key": ["id"], "lookup": [], "int32": []} | kw
 
-
-def _copy(path, lay):
-    import pyarrow as pa
-
-    from publicdata.serialise import profile
-
+def _copy(path: Path, lay: Layout) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     t = pa.table({"id": [3, 1, 2], "year": [2024, 2023, 2024], "place": ["b", "a", "c"]})
-    profile.write(t, {}, path, lay)
+    profile.write(t, make_header(t.num_rows, "data.parquet"), path, lay)
     return path
 
 
-def _held(tmp_path, lay, marked=True):
+def _held(tmp_path: Path, lay: Layout, *, marked: bool = True) -> Dist:
     """A bucket holding the version's dated file and its query copy under lay."""
-    from publicdata.serialise import profile
-
     fake = Dist()
     for key, p in (
         ("d/t/v/2026-01-02/data.parquet", _copy(tmp_path / "old" / "data.parquet", _lay())),
@@ -1070,15 +1197,13 @@ def _held(tmp_path, lay, marked=True):
     return fake
 
 
-def _remote(fake, key=Q):
-    import io
-
-    import pyarrow.parquet as pq
-
+def _remote(fake: Bucket, key: str = Q) -> pq.FileMetaData:
     return pq.read_metadata(io.BytesIO(fake.bytes[key]))
 
 
-def test_a_query_push_lists_only_the_query_copies(tmp_path, monkeypatch):
+def test_a_query_push_lists_only_the_query_copies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _copy(tmp_path / "t" / Q, _lay())
     fake = Dist()
     monkeypatch.setattr(r2, "client", lambda: fake)
@@ -1086,9 +1211,9 @@ def test_a_query_push_lists_only_the_query_copies(tmp_path, monkeypatch):
     assert fake.listed == ["_q/"]
 
 
-def test_a_layout_edit_reaches_the_query_copies_r2_holds(tmp_path, monkeypatch):
-    from publicdata.serialise import profile
-
+def test_a_layout_edit_reaches_the_query_copies_r2_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     for old, new in (
         (_lay(), _lay(sort=["year"])),
         (_lay(sort=["year"]), _lay(sort=["place"], lookup=["place"])),
@@ -1102,7 +1227,8 @@ def test_a_layout_edit_reaches_the_query_copies_r2_holds(tmp_path, monkeypatch):
         _copy(root / "d/t/v/2026-01-02/data.parquet", new)
         monkeypatch.setattr(r2, "client", lambda fake=fake: fake)
         assert r2.push(root, "b", immutable=r2.dated_file, layouts={"t": new}) == 1
-        assert profile.follows(_remote(fake), new) and not profile.follows(_remote(fake), old)
+        assert profile.follows(_remote(fake), new)
+        assert not profile.follows(_remote(fake), old)
         assert fake.bytes[MARK] == profile.layout_body(new)
         assert fake.bytes["d/t/v/2026-01-02/data.parquet"] == dated
         # The record follows the upload, so it never names a layout the copy does not have.
@@ -1112,33 +1238,38 @@ def test_a_layout_edit_reaches_the_query_copies_r2_holds(tmp_path, monkeypatch):
         assert fake.ops == []
 
 
-def test_an_unchanged_layout_uploads_no_query_copy(tmp_path, monkeypatch):
+def test_an_unchanged_layout_uploads_no_query_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     lay = _lay(sort=["year"], int32=["id"])
     fake = _held(tmp_path, lay)
     _copy(tmp_path / "tree" / Q, lay)
     monkeypatch.setattr(r2, "client", lambda: fake)
     assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 0
-    assert fake.ops == [] and fake.heads == []
+    assert fake.ops == []
+    assert fake.heads == []
 
 
-def test_a_copy_without_a_record_is_judged_by_its_footer(tmp_path, monkeypatch):
-    from publicdata.serialise import profile
-
+def test_a_copy_without_a_record_is_judged_by_its_footer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     lay = _lay(sort=["year"])
     fake = _held(tmp_path, lay, marked=False)
     _copy(tmp_path / "tree" / Q, lay)
     monkeypatch.setattr(r2, "client", lambda: fake)
     assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 0
-    assert ("upload", Q) not in fake.ops and fake.bytes[MARK] == profile.layout_body(lay)
+    assert ("upload", Q) not in fake.ops
+    assert fake.bytes[MARK] == profile.layout_body(lay)
     stale = _held(tmp_path, _lay(), marked=False)
     monkeypatch.setattr(r2, "client", lambda: stale)
     assert r2.push(tmp_path / "tree", "b", immutable=r2.dated_file, layouts={"t": lay}) == 1
-    assert profile.follows(_remote(stale), lay) and stale.bytes[MARK] == profile.layout_body(lay)
+    assert profile.follows(_remote(stale), lay)
+    assert stale.bytes[MARK] == profile.layout_body(lay)
 
 
-def test_an_unreadable_copy_is_written_again(tmp_path, monkeypatch):
-    from publicdata.serialise import profile
-
+def test_an_unreadable_copy_is_written_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     lay = _lay(sort=["year"])
     fake = _held(tmp_path, lay, marked=False)
     fake.bytes[Q] = b"not parquet"
@@ -1148,11 +1279,9 @@ def test_an_unreadable_copy_is_written_again(tmp_path, monkeypatch):
     assert profile.follows(_remote(fake), lay)
 
 
-def test_a_cached_query_copy_must_follow_the_entry_in_r2(tmp_path, monkeypatch):
-    import pytest
-
-    from publicdata.serialise import profile
-
+def test_a_cached_query_copy_must_follow_the_entry_in_r2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     lay = _lay(sort=["year"])
     (tmp_path / "tree").mkdir()
     for held, ok in ((lay, True), (_lay(), False)):
@@ -1160,19 +1289,18 @@ def test_a_cached_query_copy_must_follow_the_entry_in_r2(tmp_path, monkeypatch):
             fake = _held(tmp_path, held, marked=marked)
             monkeypatch.setattr(r2, "client", lambda fake=fake: fake)
             args = (tmp_path / "tree", "b")
-            kw = dict(immutable=r2.dated_file, expect=[Q], layouts={"t": lay})
             if ok:
-                assert r2.push(*args, **kw) == 0
+                assert r2.push(*args, immutable=r2.dated_file, expect=[Q], layouts={"t": lay}) == 0
                 assert fake.bytes[MARK] == profile.layout_body(lay)
             else:
                 with pytest.raises(SystemExit, match=Q):
-                    r2.push(*args, **kw)
+                    r2.push(*args, immutable=r2.dated_file, expect=[Q], layouts={"t": lay})
                 assert fake.ops == [] or fake.ops == [("get", Q)] * len(fake.ops)
 
 
-def test_a_query_copy_the_build_wrote_otherwise_stops_the_push(tmp_path, monkeypatch):
-    import pytest
-
+def test_a_query_copy_the_build_wrote_otherwise_stops_the_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _copy(tmp_path / "tree" / Q, _lay())
     _copy(tmp_path / "tree" / "d/t/v/2026-01-02/data.parquet", _lay())
     fake = Dist()
@@ -1182,18 +1310,18 @@ def test_a_query_copy_the_build_wrote_otherwise_stops_the_push(tmp_path, monkeyp
     assert fake.ops == []
 
 
-def test_the_shared_report_counts_identical_dated_files_and_changes_nothing(monkeypatch):
-    from botocore.exceptions import ClientError
-
+def test_the_shared_report_counts_identical_dated_files_and_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class Multipart(ByteBucket):
-        def etag(self, key):
+        def etag(self, key: str) -> str:
             if key.endswith("2026-05-01/data.parquet"):
                 return '"0123456789abcdef0123456789abcdef-2"'
             return super().etag(key)
 
-        def head_object(self, Bucket, Key):
+        def head_object(self, Bucket: str, Key: str) -> _Head:
             if Key.endswith("2026-07-01/data.parquet"):
-                raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+                raise _error(code="404", operation="HeadObject")
             return super().head_object(Bucket, Key)
 
     same, other = b"x" * 100, b"y" * 100
@@ -1214,8 +1342,8 @@ def test_the_shared_report_counts_identical_dated_files_and_changes_nothing(monk
     )
     monkeypatch.setattr(r2, "client", lambda: bucket)
     t = r2.shared_report()
-    assert t["objects"] == 7 and t["bytes"] == 550 and t["gone"] == 1
-    assert t["copies"] == 3 and t["saved"] == 250 and t["across"] == 100
+    assert (t["objects"], t["bytes"], t["gone"]) == (7, 550, 1)
+    assert (t["copies"], t["saved"], t["across"]) == (3, 250, 100)
     assert t["by_ext"] == {"csv": [1, 50], "json": [1, 100], "parquet": [1, 100]}
     assert sorted(bucket.heads) == sorted(
         f"d/{k}"
@@ -1226,58 +1354,62 @@ def test_the_shared_report_counts_identical_dated_files_and_changes_nothing(monk
             "y/v/2026-06-01/schema.json",
         )
     )
-    assert bucket.puts == [] and bucket.deleted == []
+    assert bucket.puts == []
+    assert bucket.deleted == []
 
 
 class _Tagged(ByteBucket):
-    """A bucket whose listed ETags and stored SHA-256s are set per key, as a multipart upload or
-    an object put before #51 leaves them."""
+    """A bucket whose listed ETags and stored SHA-256s are set per key.
 
-    def __init__(self, objects, tags, shas):
+    That is as a multipart upload or an object put before #51 leaves them.
+    """
+
+    def __init__(
+        self, objects: dict[str, bytes], tags: dict[str, str], shas: dict[str, str]
+    ) -> None:
         super().__init__(objects)
         self.tags = tags
         for k, v in shas.items():
             self.objects[k]["Metadata"] = {"sha256": v} if v else {}
 
-    def etag(self, key):
+    def etag(self, key: str) -> str:
         return self.tags.get(key) or super().etag(key)
 
 
-def test_the_shared_report_counts_files_it_could_match_on_etag_only(monkeypatch, capsys):
-    from types import SimpleNamespace
-
-    from publicdata.__main__ import cmd_r2_shared_report
-
+def test_the_shared_report_counts_files_it_could_match_on_etag_only(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     a, b = "d/x/v/2026-04-24/data.parquet", "d/x/v/2026-05-01/data.parquet"
     tags = {a: f'"{"1" * 32}-2"', b: f'"{"2" * 32}-3"'}
     bucket = _Tagged({a: b"p" * 100, b: b"p" * 100}, tags, {b: ""})
     monkeypatch.setattr(r2, "client", lambda: bucket)
     t = r2.shared_report()
-    assert t["heads"] == 2 and t["unhashed"] == 1 and t["copies"] == 0
-    assert cmd_r2_shared_report(SimpleNamespace(prefix="d/")) == 0
+    assert (t["heads"], t["unhashed"], t["copies"]) == (2, 1, 0)
+    assert cmd_r2_shared_report(argparse.Namespace(prefix="d/")) == 0
     assert "1 HEADed file(s) with no SHA-256 matched on ETag alone" in capsys.readouterr().out
 
 
-def test_the_shared_report_joins_a_file_that_matches_two_copies(monkeypatch, capsys):
-    from types import SimpleNamespace
-
-    from publicdata.__main__ import cmd_r2_shared_report
-
+def test_the_shared_report_joins_a_file_that_matches_two_copies(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     a, b, c = (f"d/x/v/2026-0{m}-01/SHA256SUMS" for m in (4, 5, 6))
     tags = {b: f'"{"3" * 32}-2"', c: f'"{"3" * 32}-2"'}
     shas = {a: "s1", b: "s2", c: "s1"}
     bucket = _Tagged({a: b"a" * 100, b: b"b" * 100, c: b"b" * 100}, tags, shas)
     monkeypatch.setattr(r2, "client", lambda: bucket)
     t = r2.shared_report()
-    assert t["copies"] == 2 and t["saved"] == 200 and t["by_ext"] == {"": [2, 200]}
-    assert cmd_r2_shared_report(SimpleNamespace(prefix="d/")) == 0
+    assert (t["copies"], t["saved"]) == (2, 200)
+    assert t["by_ext"] == {"": [2, 200]}
+    assert cmd_r2_shared_report(argparse.Namespace(prefix="d/")) == 0
     assert "shared: no extension: 2 extra copies, 200 bytes" in capsys.readouterr().out
 
 
-def test_the_shared_report_counts_a_file_once_per_dataset_across_datasets(monkeypatch):
+def test_the_shared_report_counts_a_file_once_per_dataset_across_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     for owners, across in ((("a", "a", "b"), 100), (("a", "b", "b"), 100), (("a", "b", "c"), 200)):
         keys = [f"d/{o}/v/2026-0{i + 4}-01/data.csv" for i, o in enumerate(owners)]
-        bucket = ByteBucket({k: b"z" * 100 for k in keys})
+        bucket = ByteBucket(dict.fromkeys(keys, b"z" * 100))
         monkeypatch.setattr(r2, "client", lambda bucket=bucket: bucket)
         t = r2.shared_report()
         assert (t["copies"], t["saved"], t["across"]) == (2, 200, across), owners

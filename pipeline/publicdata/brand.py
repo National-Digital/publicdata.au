@@ -9,12 +9,15 @@ import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import PIL
 from PIL import Image, ImageDraw, ImageFont, features
 
 from . import OPERATOR, SITE
-from .cache import BuildCache
+
+if TYPE_CHECKING:
+    from .cache import BuildCache
 
 NAVY = "#040453"
 ORANGE = "#f26324"
@@ -58,7 +61,8 @@ def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
     try:
         return ImageFont.truetype(str(FONTS / name), size)
     except OSError as e:
-        raise RuntimeError(f"{name}: Pillow's FreeType cannot read WOFF2 (needs Brotli)") from e
+        msg = f"{name}: Pillow's FreeType cannot read WOFF2 (needs Brotli)"
+        raise RuntimeError(msg) from e
 
 
 def _icon(size: int, *, rounded: bool, dot: float = DOT_R / GRID) -> Image.Image:
@@ -115,7 +119,9 @@ def _wrap(text: str, f: ImageFont.FreeTypeFont, width: float) -> list[str]:
     return lines
 
 
-def _fit(text: str, name: str, sizes: range, width: float, max_lines: int):
+def _fit(
+    text: str, name: str, sizes: range, width: float, max_lines: int
+) -> tuple[ImageFont.FreeTypeFont, list[str]]:
     for size in sizes:
         f = _font(name, size)
         lines = _wrap(text, f, width)
@@ -144,7 +150,7 @@ def _card(eyebrow: str, title: str, lede: str, facts: list[str], wordmark_size: 
         track = 1.5
         eyebrow = eyebrow.upper()
         eyebrow = _fit(eyebrow, MEDIUM, range(24, 23, -1), width - track * len(eyebrow), 1)[1][0]
-        x = PAD
+        x: float = PAD
         for ch in eyebrow:
             d.text((x, y), ch, font=ef, fill=ORANGE_ON_NAVY, anchor="ls")
             x += ef.getlength(ch) + track
@@ -212,7 +218,10 @@ def _fingerprint() -> str:
     return h.hexdigest()
 
 
-def _drawn(out: Path, rel: str, spec: list, cache: BuildCache | None) -> str:
+type CardSpec = tuple[str, str, str, list[str], int]
+
+
+def _drawn(out: Path, rel: str, spec: CardSpec, cache: BuildCache | None) -> str:
     if cache is None:
         return _put(out, rel, _card(*spec))
     key = CARD_PREFIX + cache.key(_fingerprint(), json.dumps(spec, ensure_ascii=False))
@@ -226,27 +235,28 @@ def _drawn(out: Path, rel: str, spec: list, cache: BuildCache | None) -> str:
 
 
 def site_card(out: Path, datasets: int, publishers: int, cache: BuildCache | None = None) -> Card:
-    spec = [
+    spec = (
         "",
         HEADLINE,
         "Every release is a dated version with its schema, provenance and a diff.",
         [_count(datasets, "dataset"), _count(publishers, "publisher")],
         64,
-    ]
+    )
     rel = "og/site.png"
     return Card(rel, f"{NAME}: {HEADLINE}", _drawn(out, rel, spec, cache))
 
 
-def dataset_card(
+def dataset_card(  # noqa: PLR0913 - the options are keyword-only and named at each call
     out: Path,
     rel: str,
     title: str,
     eyebrow: str,
     facts: list[str],
+    *,
     publisher: str,
     cache: BuildCache | None = None,
 ) -> Card:
-    url = _drawn(out, rel, [eyebrow, title, "", facts, 44], cache)
+    url = _drawn(out, rel, (eyebrow, title, "", facts, 44), cache)
     return Card(rel, f"{title}, from {publisher}, on {NAME}", url)
 
 

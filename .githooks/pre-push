@@ -1,16 +1,64 @@
 #!/bin/sh
-# Runs the fast tests (pytest -m "not slow", the JS tests) on the working tree before a push.
-# Skip once with git push --no-verify.
+# Runs CI's mypy checks and the fast tests (pytest -m "not slow", the JS tests) before a push,
+# each only when the push changes the files it covers. Skip once with git push --no-verify.
 
 # Git exports these to the hook from a linked worktree; a test's own scratch repo must not see them.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_CONFIG_PARAMETERS
 
+zero=0000000000000000000000000000000000000000
+remote=$1
+changed=""
+# Git names each ref it pushes on stdin. A ref the remote holds is compared with what it holds;
+# a new one with where it leaves the remote's main, or as a whole when there is no such main.
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue
+  base=""
+  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    base=$remote_sha
+  elif git rev-parse -q --verify "refs/remotes/$remote/main" >/dev/null 2>&1; then
+    base=$(git merge-base "$local_sha" "refs/remotes/$remote/main")
+  fi
+  if [ -n "$base" ]; then
+    changed="$changed
+$(git diff --name-only "$base" "$local_sha")"
+  else
+    changed="$changed
+$(git ls-tree -r --name-only "$local_sha")"
+  fi
+done
+
+# A shell match, since the hook may run with git and the checkers alone on PATH.
+touches() {
+  case "$changed" in *"
+$1/"*) return 0 ;; esac
+  return 1
+}
+
+missing() {
+  echo "pre-push: $1 not found; install it with uv pip install -e '$2' (or push with --no-verify)"
+  exit 1
+}
+
 status=0
 
-if ! command -v pytest >/dev/null 2>&1 || ! python -c 'import publicdata, xdist' >/dev/null 2>&1; then
-  echo "pre-push: pytest or the pipeline's environment not found, Python tests skipped"
-else
-  (cd pipeline && pytest -q -m "not slow" -n auto -p no:cacheprovider) || status=1
+if touches pipeline; then
+  command -v mypy >/dev/null 2>&1 || missing mypy './pipeline[dev]'
+  (cd pipeline && mypy) || status=1
+fi
+
+if touches clients/python; then
+  command -v mypy >/dev/null 2>&1 || missing mypy './clients/python[pandas,duckdb,geo,dev]'
+  # As CI checks the client: against Python 3.10, then against 3.14, where pandas-stubs applies.
+  (cd clients/python && mypy && mypy --python-version 3.14) || status=1
+fi
+
+if touches pipeline; then
+  if ! command -v pytest >/dev/null 2>&1 || ! python -c 'import publicdata, xdist' >/dev/null 2>&1; then
+    missing "pytest or the pipeline's environment" './pipeline[dev]'
+  fi
+  # pytest exits 5 when it collects no test, which is no failure here.
+  (cd pipeline && pytest -q -m "not slow" -n auto -p no:cacheprovider)
+  case $? in 0 | 5) ;; *) status=1 ;; esac
 fi
 
 if ! command -v node >/dev/null 2>&1; then
@@ -20,5 +68,5 @@ else
   [ -e "$1" ] && { node --test --test-reporter=dot "$@" || status=1; }
 fi
 
-[ "$status" -eq 0 ] || echo "pre-push: tests failed; fix them or push with --no-verify"
+[ "$status" -eq 0 ] || echo "pre-push: a check failed; fix it or push with --no-verify"
 exit "$status"

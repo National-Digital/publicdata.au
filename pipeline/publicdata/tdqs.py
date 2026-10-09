@@ -14,8 +14,15 @@ import itertools
 import os
 import re
 import sys
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .api_text import mcp_spec
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    from .api_text import Tool
 
 NAME = re.compile(r"^[a-z]+(?:_[a-z]+)+$")
 HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
@@ -24,24 +31,26 @@ MAX_SENTENCE_WORDS = 35
 MIN_PARAM_WORDS, MAX_PARAM_CHARS = 3, 500
 MAX_TITLE_CHARS = 40
 MAX_TOOLS = 20
+MIN_PURPOSE_WORDS = 6
 # Purpose sentences this alike must point at each other; this alike they are the same tool.
 OVERLAP_NAMED, OVERLAP_DUPLICATE = 0.3, 0.7
 NOT_A_PURPOSE = {"a", "an", "the", "this", "it", "use", "used", "tool"}
 WRITE_VERBS = {"add", "create", "delete", "remove", "set", "update", "write"}
-LIMITS = re.compile(r"rate limit|queries each address may make", re.I)
+LIMITS = re.compile(r"rate limit|queries each address may make", re.IGNORECASE)
 RETURNS = re.compile(
     r"\bcomes? back\b|\bthe answer\b|\bone (?:answer|page)\b|\ba page holds\b"
     r"|\breturns? (?!(?:a |an )?(?:\d+ )?error)",
-    re.I,
+    re.IGNORECASE,
 )
 STOPWORDS = set(
-    "a an and any as at be by for from has in into is it its of on one or so than that the this "
+    "a an and any as at be by for from has in into is it its of on one or so than that the this "  # noqa: SIM905 - a word list reads best as words
     "to up use when which with".split()
 )
 
 
-def tools() -> list[dict]:
-    return mcp_spec()["tools"]
+def tools() -> list[Tool]:
+    found: list[Tool] = mcp_spec()["tools"]
+    return found
 
 
 def sentences(text: str) -> list[str]:
@@ -61,7 +70,7 @@ def names(text: str, name: str) -> bool:
     return re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text) is not None
 
 
-def _purpose(t: dict) -> list[str]:
+def _purpose(t: Tool) -> list[str]:
     out = []
     title = (t.get("title") or "").strip()
     if not title:
@@ -76,7 +85,11 @@ def _purpose(t: dict) -> list[str]:
         out.append("has no description; open with a sentence saying what the tool does")
         return out
     lead = first[0].split()
-    if len(lead) < 6 or lead[0].lower() in NOT_A_PURPOSE or not lead[0][0].isupper():
+    if (
+        len(lead) < MIN_PURPOSE_WORDS
+        or lead[0].lower() in NOT_A_PURPOSE
+        or not lead[0][0].isupper()
+    ):
         out.append(
             "the description should open with a sentence of six words or more that starts "
             "with the verb for what the tool does"
@@ -84,22 +97,24 @@ def _purpose(t: dict) -> list[str]:
     return out
 
 
-def _usage(t: dict, siblings: list[str]) -> list[str]:
+def _usage(t: Tool, siblings: Sequence[str]) -> list[str]:
     d = t.get("description") or ""
     if siblings and not any(names(d, s) for s in siblings):
         return ["the description names no other tool; say when to use this one instead of another"]
     return []
 
 
-def _parameters(t: dict) -> list[str]:
+def _parameters(t: Tool) -> list[str]:
     s = t.get("inputSchema") or {}
-    out = []
+    out: list[str] = []
     if s.get("type") != "object":
         return ["inputSchema must be an object schema"]
     props = s.get("properties") or {}
-    for r in s.get("required") or []:
-        if r not in props:
-            out.append(f"required parameter {r} is not among the properties")
+    out.extend(
+        f"required parameter {r} is not among the properties"
+        for r in s.get("required") or []
+        if r not in props
+    )
     if s.get("additionalProperties") is not False:
         out.append("inputSchema should set additionalProperties to false so a typo is refused")
     for p, v in props.items():
@@ -125,13 +140,13 @@ def _parameters(t: dict) -> list[str]:
     return out
 
 
-def _limits(t: dict) -> list[str]:
+def _limits(t: Tool) -> list[str]:
     if not LIMITS.search(t.get("description") or ""):
         return ["the description does not say what a call costs against the rate limit"]
     return []
 
 
-def _returns(t: dict) -> list[str]:
+def _returns(t: Tool) -> list[str]:
     s = t.get("outputSchema") or {}
     props = s.get("properties") or {}
     if s.get("type") != "object" or not props:
@@ -150,7 +165,7 @@ def _returns(t: dict) -> list[str]:
     return out
 
 
-def _annotations(t: dict) -> list[str]:
+def _annotations(t: Tool) -> list[str]:
     a = t.get("annotations") or {}
     out = [f"annotations has no boolean {h}" for h in HINTS if not isinstance(a.get(h), bool)]
     if a.get("title") != t.get("title"):
@@ -164,7 +179,7 @@ def _annotations(t: dict) -> list[str]:
     return out
 
 
-def _length(t: dict) -> list[str]:
+def _length(t: Tool) -> list[str]:
     d = t.get("description") or ""
     out = []
     if d and not MIN_DESCRIPTION <= len(d) <= MAX_DESCRIPTION:
@@ -172,52 +187,56 @@ def _length(t: dict) -> list[str]:
             f"the description is {len(d)} characters; keep it between {MIN_DESCRIPTION} "
             f"and {MAX_DESCRIPTION}"
         )
-    for s in sentences(d):
-        if len(s.split()) > MAX_SENTENCE_WORDS:
-            out.append(f"a sentence runs past {MAX_SENTENCE_WORDS} words: {s[:60]!r}")
+    out.extend(
+        f"a sentence runs past {MAX_SENTENCE_WORDS} words: {s[:60]!r}"
+        for s in sentences(d)
+        if len(s.split()) > MAX_SENTENCE_WORDS
+    )
     return out
 
 
-def _naming(t: dict) -> list[str]:
+def _naming(t: Tool) -> list[str]:
     if not NAME.match(t.get("name") or ""):
         return [
-            f"name {t.get('name')!r} should be lowercase verb_object snake case, "
-            "like the other tools"
+            (
+                f"name {t.get('name')!r} should be lowercase verb_object snake case, "
+                "like the other tools"
+            )
         ]
     return []
 
 
-QUALITIES = (
-    ("naming", _naming),
-    ("purpose", _purpose),
+# Only usage reads the other tools' names.
+QUALITIES: tuple[tuple[str, Callable[[Tool, Sequence[str]], list[str]]], ...] = (
+    ("naming", lambda t, _: _naming(t)),
+    ("purpose", lambda t, _: _purpose(t)),
     ("usage", _usage),
-    ("parameters", _parameters),
-    ("limits", _limits),
-    ("returns", _returns),
-    ("annotations", _annotations),
-    ("length", _length),
+    ("parameters", lambda t, _: _parameters(t)),
+    ("limits", lambda t, _: _limits(t)),
+    ("returns", lambda t, _: _returns(t)),
+    ("annotations", lambda t, _: _annotations(t)),
+    ("length", lambda t, _: _length(t)),
 )
 
 
-def tool_problems(t: dict, siblings: list[str]) -> list[tuple[str, str]]:
-    out = []
+def tool_problems(t: Tool, siblings: Sequence[str]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
     for quality, f in QUALITIES:
-        found = f(t, siblings) if f is _usage else f(t)
-        out += [(quality, m) for m in found]
+        out += [(quality, m) for m in f(t, siblings)]
     return out
 
 
-def set_problems(ts: list[dict]) -> list[tuple[str, str]]:
-    out = []
+def set_problems(ts: Sequence[Tool]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
     if len(ts) > MAX_TOOLS:
         out.append(
             ("tool count", f"{len(ts)} tools is more than {MAX_TOOLS}; merge tools that overlap")
         )
-    seen: dict[str, int] = {}
+    seen: dict[str | None, int] = {}
     for t in ts:
         seen[t.get("name")] = seen.get(t.get("name"), 0) + 1
     out += [("naming", f"{n} is used by {c} tools") for n, c in seen.items() if c > 1]
-    titles = [t.get("title") for t in ts if t.get("title")]
+    titles: list[str] = [t["title"] for t in ts if t.get("title")]
     out += [
         ("naming", f"title {x!r} is used twice")
         for x in sorted({x for x in titles if titles.count(x) > 1})
@@ -234,19 +253,22 @@ def set_problems(ts: list[dict]) -> list[tuple[str, str]]:
             out.append(
                 (
                     "disambiguation",
-                    f"{a['name']} and {b['name']} have similar purposes and neither names the "
-                    "other; say when to use each",
+                    (
+                        f"{a['name']} and {b['name']} have similar purposes and neither names the "
+                        "other; say when to use each"
+                    ),
                 )
             )
     return out
 
 
-def problems(ts: list[dict]) -> tuple[list[str], list[str]]:
+def problems(ts: Sequence[Tool]) -> tuple[list[str], list[str]]:
     """The failures that stop a merge, and a line per tool for the report."""
-    errors, report = [], []
-    all_names = [t.get("name") for t in ts]
+    errors: list[str] = []
+    report: list[str] = []
+    all_names: list[str | None] = [t.get("name") for t in ts]
     for t in ts:
-        found = tool_problems(t, [n for n in all_names if n != t.get("name")])
+        found = tool_problems(t, [n for n in all_names if n is not None and n != t.get("name")])
         errors += [f"{t.get('name')}: {q}: {m}" for q, m in found]
         report.append(
             f"{t.get('name')!s:18s} "
@@ -258,19 +280,19 @@ def problems(ts: list[dict]) -> tuple[list[str], list[str]]:
     return errors, report
 
 
-def check(ts: list[dict] | None = None) -> int:
+def check(ts: Sequence[Tool] | None = None) -> int:
     errors, report = problems(tools() if ts is None else ts)
     print("\n".join(report))
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
-        with open(summary, "a", encoding="utf-8") as f:
+        with Path(summary).open("a", encoding="utf-8") as f:
             f.write("### Tool definitions\n\n```\n" + "\n".join(report + errors) + "\n```\n")
     for e in errors:
         print("tool definition: " + e, file=sys.stderr)
     return 1 if errors else 0
 
 
-def main(argv=None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m publicdata.tdqs", description=__doc__.splitlines()[0]
     )

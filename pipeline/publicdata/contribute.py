@@ -2,12 +2,14 @@
 
 Issues are written only from the register and from catalogue records the site's API returns; a
 vote is a count under a key and nothing more. Each issue carries its dataset's key in a hidden
-marker, so a rerun finds it, and only issues the sync's own account opened are ever changed."""
+marker, so a rerun finds it, and only issues the sync's own account opened are ever changed.
+"""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, TypedDict
 from urllib.parse import urlparse
 
 import requests
@@ -15,18 +17,75 @@ import yaml
 
 from . import REPO, SITE
 from .directory import _bare
-from .register import Dataset
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from .register import Dataset
+
+
+class Row(TypedDict, total=False):
+    """A catalogue record as the site's API answers it, in the keys the sync reads."""
+
+    id: str
+    title: str
+    publisher: str
+    url: str
+    licence: str
+    state: str
+    vote: str
+    page: str
+    reason: str
+
+
+class Issue(TypedDict):
+    """One of the sync's own issues, as GitHub.issues reads it."""
+
+    number: int
+    state: str
+    title: str
+    body: str
+    key: str
+
+
+class _GhUser(TypedDict, total=False):
+    login: str
+
+
+class _GhIssue(TypedDict, total=False):
+    number: int
+    state: str
+    title: str
+    body: str | None
+    user: _GhUser | None
+    pull_request: object
+
+
+class _GhLabel(TypedDict):
+    name: str
+
+
+class _GhCreated(TypedDict, total=False):
+    number: int
+    labels: list[_GhLabel] | None
+
+
+class _Records(TypedDict):
+    rows: list[Row]
+
 
 UA = "publicdata-contribute (+https://publicdata.au/)"
 LABELS = ("good first issue", "dataset")
 AUTHOR = "github-actions[bot]"
 KEY_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-MARK_RE = re.compile(r"^<!-- publicdata-contribute: ([a-z0-9][a-z0-9-]{0,63}) -->$", re.M)
+MARK_RE = re.compile(r"^<!-- publicdata-contribute: ([a-z0-9][a-z0-9-]{0,63}) -->$", re.MULTILINE)
 GUIDE = f"{REPO}/blob/main/CONTRIBUTING.md#add-a-dataset"
 # The catalogue API answers at most this many ids a call; past the top voted few hundred a record
 # cannot reach the cap anyway.
 IDS_PER_CALL = 50
 MOST_VOTED = 200
+# The longest issue title, with room for the ellipsis a cut title ends in.
+TITLE_MAX = 120
 
 
 class SyncError(RuntimeError):
@@ -91,7 +150,7 @@ def from_register(d: Dataset, votes: int) -> Candidate:
     )
 
 
-def from_record(row: dict, votes: int) -> Candidate:
+def from_record(row: Row, votes: int) -> Candidate:
     return Candidate(
         key=row["id"],
         title=row["title"],
@@ -104,10 +163,13 @@ def from_record(row: dict, votes: int) -> Candidate:
 
 
 def candidates(
-    datasets: list[Dataset], votes: dict[str, int], rows: dict[str, dict], threshold: int
+    datasets: list[Dataset], votes: dict[str, int], rows: dict[str, Row], threshold: int
 ) -> list[Candidate]:
-    """Every backlog entry with an open licence, and every catalogue record with at least
-    `threshold` votes that is open, downloadable and not yet in the register, most voted first."""
+    """Every backlog entry with an open licence, and every catalogue record voted enough.
+
+    A record counts when it has at least `threshold` votes and is open, downloadable and not yet
+    in the register. The most voted come first.
+    """
     out = [from_register(d, votes.get(d.slug, 0)) for d in datasets if eligible(d)]
     register = {d.slug: d for d in datasets}
     out += [
@@ -122,9 +184,11 @@ def candidates(
     return sorted(out, key=lambda c: (-c.votes, c.key))
 
 
-def _claimed(row: dict, register: dict[str, Dataset]) -> str:
-    """The register entry whose source is this record's page. An entry merged since the last
-    deploy claims its record before the catalogue says so."""
+def _claimed(row: Row, register: dict[str, Dataset]) -> str:
+    """The register entry whose source is this record's page.
+
+    An entry merged since the last deploy claims its record before the catalogue says so.
+    """
     url = _bare(row.get("url") or "")
     if not url:
         return ""
@@ -134,9 +198,13 @@ def _claimed(row: dict, register: dict[str, Dataset]) -> str:
     )
 
 
-def resolve(key: str, register: dict[str, Dataset], rows: dict[str, dict]) -> tuple[str, str, str]:
-    """(the key the dataset is known by now, its state, a link or reason). The state is `live`,
-    `open` (still a task) or `gone` (no longer one)."""
+def resolve(  # noqa: PLR0911 - one return for each state a key can be in
+    key: str, register: dict[str, Dataset], rows: dict[str, Row]
+) -> tuple[str, str, str]:
+    """(the key the dataset is known by now, its state, a link or reason).
+
+    The state is `live`, `open` (still a task) or `gone` (no longer one).
+    """
     if key in register:
         d = register[key]
         if d.status == "live":
@@ -161,19 +229,22 @@ def resolve(key: str, register: dict[str, Dataset], rows: dict[str, dict]) -> tu
     return key, "gone", r.get("reason") or "its licence is not open"
 
 
-def plan(
+def plan(  # noqa: C901, PLR0913, PLR0917 - the run's rules read in order, its inputs passed in place
     cands: list[Candidate],
-    issues: list[dict],
+    issues: list[Issue],
     register: dict[str, Dataset],
-    rows: dict[str, dict],
+    rows: dict[str, Row],
     votes: dict[str, int],
     cap: int,
 ) -> list[Action]:
-    """What a run does to the sync's own issues. A key that ever had an issue never gets a second
-    one; a maintainer reopens the old one instead."""
+    """What a run does to the sync's own issues.
+
+    A key that ever had an issue never gets a second one; a maintainer reopens the old one
+    instead.
+    """
     acts: list[Action] = []
     ever: set[str] = set()
-    keep: dict[str, dict] = {}
+    keep: dict[str, Issue] = {}
     for i in sorted(issues, key=lambda i: i["number"]):
         key, state, detail = resolve(i["key"], register, rows)
         ever |= {i["key"], key}
@@ -198,16 +269,16 @@ def plan(
     order = sorted(
         keep, key=lambda k: (k not in building, rank.get(k, len(rank)), keep[k]["number"])
     )
-    for k in order[cap:]:
-        acts.append(
-            _close(
-                keep.pop(k),
-                k,
-                "not_planned",
-                f"Closed to keep the number of open dataset tasks at {cap}. A maintainer can "
-                "reopen it.",
-            )
+    acts.extend(
+        _close(
+            keep.pop(k),
+            k,
+            "not_planned",
+            f"Closed to keep the number of open dataset tasks at {cap}. A maintainer can "
+            "reopen it.",
         )
+        for k in order[cap:]
+    )
     for k, i in keep.items():
         c = by_key.get(k) or _current(k, register, rows, votes)
         if c is None:
@@ -230,13 +301,17 @@ def plan(
     return acts
 
 
-def _close(issue: dict, key: str, reason: str, comment: str) -> Action:
+def _close(issue: Issue, key: str, reason: str, comment: str) -> Action:
     return Action("close", key, number=issue["number"], comment=comment, reason=reason)
 
 
-def _current(key, register, rows, votes) -> Candidate | None:
-    """The candidate an open issue describes when its dataset is no longer ranked, such as an
-    entry now building."""
+def _current(
+    key: str, register: dict[str, Dataset], rows: dict[str, Row], votes: dict[str, int]
+) -> Candidate | None:
+    """The candidate an open issue describes when its dataset is no longer ranked.
+
+    Such a dataset is, for example, an entry now building.
+    """
     if key in register:
         return from_register(register[key], votes.get(key, 0))
     if key in rows:
@@ -272,16 +347,18 @@ def _fence(text: str) -> str:
 def render(c: Candidate) -> tuple[str, str]:
     """The issue's title and body."""
     title = re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", f"Add {c.title}")).strip()
-    if len(title) > 120:
-        title = title[:117].rsplit(" ", 1)[0] + "..."
+    if len(title) > TITLE_MAX:
+        title = title[: TITLE_MAX - 3].rsplit(" ", 1)[0] + "..."
     portal = _url(c.portal_url)
     evidence = _url(c.evidence)
     votes = f"{c.votes} vote{'' if c.votes == 1 else 's'}"
     lines = [
         marker(c.key),
         "",
-        f"{_text(c.title, 200)}, from {_text(c.publisher, 120)}, is on the publicdata.au "
-        f"[backlog]({SITE}/backlog/) with {votes}.",
+        (
+            f"{_text(c.title, 200)}, from {_text(c.publisher, 120)}, is on the publicdata.au "
+            f"[backlog]({SITE}/backlog/) with {votes}."
+        ),
         "",
         "| | |",
         "|---|---|",
@@ -300,9 +377,11 @@ def render(c: Candidate) -> tuple[str, str]:
             f"({REPO}/blob/main/register/{c.key}.yaml), at status `{c.status}`."
             + (f" Its note: {_text(c.planned, 400)}" if c.planned else ""),
             "",
-            "Finish the entry from step 3 of "
-            f"[Add a dataset]({GUIDE}): fields, key and partitions, labels, a local build and the "
-            "gate, then `status: live`.",
+            (
+                "Finish the entry from step 3 of "
+                f"[Add a dataset]({GUIDE}): fields, key and partitions, labels, a local build and the "
+                "gate, then `status: live`."
+            ),
         ]
     else:
         stub = yaml.safe_dump(
@@ -319,9 +398,11 @@ def render(c: Candidate) -> tuple[str, str]:
         )
         fence = _fence(stub)
         lines += [
-            "Read the licence on the portal page first; it must be open, as "
-            f"[Add a dataset]({GUIDE}) step 1 says. A first entry starts from what the catalogue "
-            "holds:",
+            (
+                "Read the licence on the portal page first; it must be open, as "
+                f"[Add a dataset]({GUIDE}) step 1 says. A first entry starts from what the catalogue "
+                "holds:"
+            ),
             "",
             f"{fence}yaml",
             stub.rstrip("\n"),
@@ -340,16 +421,21 @@ def render(c: Candidate) -> tuple[str, str]:
         lines += [f"Then follow [Add a dataset]({GUIDE}) from step 3."]
     lines += [
         "",
-        "Say `Closes #<this issue>` in the pull request. This issue is kept up to date each day "
-        "from the register, the portals' catalogue and the vote counts, and closes when the "
-        "dataset is live.",
+        (
+            "Say `Closes #<this issue>` in the pull request. This issue is kept up to date each day "
+            "from the register, the portals' catalogue and the vote counts, and closes when the "
+            "dataset is live."
+        ),
         "",
     ]
     return title, "\n".join(lines)
 
 
 def _ckan(url: str) -> bool:
-    from .register_draft import DraftError, portal_for
+    from .register_draft import (  # noqa: PLC0415 - loaded only when a body names a portal
+        DraftError,
+        portal_for,
+    )
 
     try:
         portal_for(url)
@@ -372,18 +458,22 @@ def session(token: str = "") -> requests.Session:
 def read_votes(http: requests.Session, site: str = SITE) -> dict[str, int]:
     r = http.get(f"{site}/api/v1/votes", timeout=60)
     r.raise_for_status()
-    return {k: int(v) for k, v in r.json().items() if KEY_RE.match(k) and int(v) > 0}
+    got: dict[str, int | str] = r.json()
+    return {k: int(v) for k, v in got.items() if KEY_RE.match(k) and int(v) > 0}
 
 
-def read_records(http: requests.Session, ids: list[str], site: str = SITE) -> dict[str, dict]:
-    """The catalogue rows for these record ids, by id. A chosen record is also found under the
-    slug its votes go to."""
-    out: dict[str, dict] = {}
+def read_records(http: requests.Session, ids: list[str], site: str = SITE) -> dict[str, Row]:
+    """The catalogue rows for these record ids, by id.
+
+    A chosen record is also found under the slug its votes go to.
+    """
+    out: dict[str, Row] = {}
     for n in range(0, len(ids), IDS_PER_CALL):
         part = ids[n : n + IDS_PER_CALL]
         r = http.get(f"{site}/api/v1/catalogue", params={"ids": ",".join(part)}, timeout=60)
         r.raise_for_status()
-        for row in r.json()["rows"]:
+        got: _Records = r.json()
+        for row in got["rows"]:
             out[row["id"]] = row
     return out
 
@@ -391,26 +481,28 @@ def read_records(http: requests.Session, ids: list[str], site: str = SITE) -> di
 class GitHub:
     """The few calls the sync makes. Issues it did not open, and pull requests, are left out."""
 
-    def __init__(self, repo: str, http: requests.Session, author: str = AUTHOR):
+    def __init__(self, repo: str, http: requests.Session, author: str = AUTHOR) -> None:
         self.base = f"https://api.github.com/repos/{repo}"
         self.http = http
         self.author = author
         self.http.headers["Accept"] = "application/vnd.github+json"
 
-    def _call(self, method: str, path: str, **kw):
-        r = self.http.request(method, f"{self.base}{path}", timeout=60, **kw)
+    def _call(self, method: str, path: str, *, json: Mapping[str, object]) -> requests.Response:
+        r = self.http.request(method, f"{self.base}{path}", timeout=60, json=json)
         r.raise_for_status()
         return r
 
-    def issues(self, state: str = "all") -> list[dict]:
-        out, url = [], f"{self.base}/issues"
+    def issues(self, state: str = "all") -> list[Issue]:
+        out: list[Issue] = []
+        url: str | None = f"{self.base}/issues"
         # Every issue is read and filtered here: a server-side filter that matched nothing would
         # make every dataset look new.
-        params = {"state": state, "per_page": 100}
+        params: dict[str, str | int] | None = {"state": state, "per_page": 100}
         while url:
             r = self.http.get(url, params=params, timeout=60)
             r.raise_for_status()
-            for i in r.json():
+            page: list[_GhIssue] = r.json()
+            for i in page:
                 key = key_of(i.get("body"))
                 if (
                     key
@@ -430,13 +522,14 @@ class GitHub:
         return out
 
     def create(self, title: str, body: str) -> int:
-        r = self._call(
+        r: _GhCreated = self._call(
             "POST", "/issues", json={"title": title, "body": body, "labels": list(LABELS)}
         ).json()
         # GitHub drops a label it cannot apply without saying so.
         missing = set(LABELS) - {lb["name"] for lb in r.get("labels") or []}
         if missing:
-            raise LabelMissing(f"#{r['number']} was opened without {sorted(missing)}")
+            msg = f"#{r['number']} was opened without {sorted(missing)}"
+            raise LabelMissing(msg)
         return r["number"]
 
     def update(self, number: int, title: str, body: str) -> None:
@@ -449,8 +542,8 @@ class GitHub:
 
 
 def gather(
-    datasets: list[Dataset], gh, http: requests.Session, site: str = SITE
-) -> tuple[dict, dict, list[dict]]:
+    datasets: list[Dataset], gh: GitHub, http: requests.Session, site: str = SITE
+) -> tuple[dict[str, int], dict[str, Row], list[Issue]]:
     """Votes, the catalogue rows the run needs, and the sync's issues."""
     votes = read_votes(http, site)
     issues = gh.issues()
@@ -460,20 +553,21 @@ def gather(
     return votes, read_records(http, ids, site), issues
 
 
-def sync(
+def sync(  # noqa: PLR0913 - the command names each option
     datasets: list[Dataset],
-    gh,
+    gh: GitHub,
     http: requests.Session,
     threshold: int,
     cap: int,
+    *,
     dry_run: bool = False,
     site: str = SITE,
-    log=print,
+    log: Callable[[str], object] = print,
 ) -> list[Action]:
     votes, rows, issues = gather(datasets, gh, http, site)
     register = {d.slug: d for d in datasets}
     acts = plan(candidates(datasets, votes, rows, threshold), issues, register, rows, votes, cap)
-    failed = []
+    failed: list[str] = []
     for a in acts:
         what = f"#{a.number}" if a.number else repr(a.title)
         log(f"contribute: {'would ' if dry_run else ''}{a.kind} {what} ({a.key})")
@@ -493,11 +587,12 @@ def sync(
             log(f"contribute: FAILED {a.kind} {what} ({a.key}): {e}")
             failed.append(a.key)
     if failed:
-        raise SyncError(f"{len(failed)} change(s) failed: {', '.join(failed)}")
+        msg = f"{len(failed)} change(s) failed: {', '.join(failed)}"
+        raise SyncError(msg)
     return acts
 
 
-def open_tasks(issues: list[dict]) -> dict[str, int]:
+def open_tasks(issues: list[Issue]) -> dict[str, int]:
     """Each dataset key with an open sync issue, for the pages' notice."""
     out: dict[str, int] = {}
     for i in sorted(issues, key=lambda i: i["number"]):

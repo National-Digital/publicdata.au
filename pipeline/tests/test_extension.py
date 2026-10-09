@@ -1,15 +1,18 @@
+import gzip
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import duckdb
 import pytest
 
-from publicdata import extension
+from publicdata import extension, r2
 from publicdata.store import sha256_file
 
-ROOT = Path(__file__).resolve().parents[2]
+from .conftest import ROOT, present
 
 
-def test_the_spatial_extension_pin_is_for_the_pinned_duckdb():
+def test_the_spatial_extension_pin_is_for_the_pinned_duckdb() -> None:
     pin = json.loads(extension.PIN.read_text())
     reqs = (ROOT / "pipeline" / "requirements.txt").read_text().splitlines()
     assert f"duckdb=={pin['duckdb']}" in reqs, "raise duckdb in spatial-extension.json too"
@@ -18,9 +21,9 @@ def test_the_spatial_extension_pin_is_for_the_pinned_duckdb():
     assert pin["url"].endswith(f"{path}{pin['build']}/spatial.duckdb_extension.gz")
 
 
-def _extension(path, duckdb="1.5.6", platform="linux_amd64", build="04270fe"):
-    import gzip
-
+def _extension(
+    path: Path, duckdb: str = "1.5.6", platform: str = "linux_amd64", build: str = "04270fe"
+) -> Path:
     fields = ["4", platform, f"v{duckdb}", build, "CPP", "", "", ""]
     meta = b"".join(f.encode().ljust(32, b"\0") for f in reversed(fields))
     with gzip.open(path, "wb") as f:
@@ -28,9 +31,7 @@ def _extension(path, duckdb="1.5.6", platform="linux_amd64", build="04270fe"):
     return path
 
 
-def _pin_for(gz, **over):
-    import duckdb
-
+def _pin_for(gz: Path, **over: str) -> dict[str, str]:
     return {
         "duckdb": duckdb.__version__,
         "platform": "linux_amd64",
@@ -41,11 +42,9 @@ def _pin_for(gz, **over):
     } | over
 
 
-def test_the_installed_extension_is_the_pinned_build():
-    import duckdb
-
+def test_the_installed_extension_is_the_pinned_build() -> None:
     pin = json.loads(extension.PIN.read_text())
-    (path,) = (
+    (path,) = present(
         duckdb.connect()
         .execute("SELECT install_path FROM duckdb_extensions() WHERE extension_name = 'spatial'")
         .fetchone()
@@ -53,95 +52,107 @@ def test_the_installed_extension_is_the_pinned_build():
     assert extension.footer(Path(path)) == {k: pin[k] for k in ("platform", "duckdb", "build")}
 
 
-@pytest.fixture
-def fetch(monkeypatch, tmp_path):
-    """install() with its download and DuckDB's install replaced: returns what each was given."""
-    import duckdb
+@dataclass
+class Fetch:
+    """What install() gave its download and DuckDB's install, and the bytes the download serves."""
 
+    urls: list[str] = field(default_factory=list)
+    installed: list[tuple[str, bool]] = field(default_factory=list)
+    gz: Path | None = None
+
+
+@pytest.fixture
+def fetch(monkeypatch: pytest.MonkeyPatch) -> Fetch:
+    """install() with its download and DuckDB's install replaced."""
     for k in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN_ID", "CLOUDFLARE_ACCOUNT_ID"):
         monkeypatch.delenv(k, raising=False)
-    seen = {"urls": [], "installed": []}
-    src = {"gz": None}
+    seen = Fetch()
 
-    def download(url, dest):
-        seen["urls"].append(url)
-        dest.write_bytes(src["gz"].read_bytes())
+    def download(url: str, dest: Path) -> None:
+        seen.urls.append(url)
+        dest.write_bytes(present(seen.gz).read_bytes())
 
     class Con:
-        def install_extension(self, path, force_install=False):
-            seen["installed"].append((Path(path).name, force_install))
+        def install_extension(self, path: str, *, force_install: bool = False) -> None:
+            seen.installed.append((Path(path).name, force_install))
+
+    def connect(*_a: object, **_k: object) -> Con:
+        return Con()
 
     monkeypatch.setattr(extension, "_download", download)
-    monkeypatch.setattr(duckdb, "connect", lambda *a, **k: Con())
-    return seen, src
+    monkeypatch.setattr(duckdb, "connect", connect)
+    return seen
 
 
 def test_install_takes_the_pinned_bytes_from_duckdb_without_r2_credentials(
-    fetch, monkeypatch, tmp_path
-):
-    seen, src = fetch
-    src["gz"] = _extension(tmp_path / "x.gz")
-    pin = _pin_for(src["gz"])
+    fetch: Fetch, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fetch.gz = _extension(tmp_path / "x.gz")
+    pin = _pin_for(fetch.gz)
     monkeypatch.setattr(extension, "_pin", lambda: pin)
     extension.install()
-    assert seen["urls"] == [pin["upstream"]]
-    assert seen["installed"] == [("spatial.duckdb_extension", True)]
+    assert fetch.urls == [pin["upstream"]]
+    assert fetch.installed == [("spatial.duckdb_extension", True)]
 
 
-def test_install_takes_our_copy_with_r2_credentials(fetch, monkeypatch, tmp_path):
-    from publicdata import r2
-
-    seen, src = fetch
-    src["gz"] = _extension(tmp_path / "x.gz")
-    pin = _pin_for(src["gz"])
+def test_install_takes_our_copy_with_r2_credentials(
+    fetch: Fetch, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    gz = fetch.gz = _extension(tmp_path / "x.gz")
+    pin = _pin_for(gz)
     monkeypatch.setattr(extension, "_pin", lambda: pin)
     for k in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN_ID", "CLOUDFLARE_ACCOUNT_ID"):
         monkeypatch.setenv(k, "x")
-    got = []
+    got: list[tuple[str, str]] = []
 
     class S3:
-        def download_file(self, bucket, key, dest):
+        def download_file(self, bucket: str, key: str, dest: str) -> None:
             got.append((bucket, key))
-            Path(dest).write_bytes(src["gz"].read_bytes())
+            Path(dest).write_bytes(gz.read_bytes())
 
-    monkeypatch.setattr(r2, "client", lambda: S3())
+    monkeypatch.setattr(r2, "client", S3)
     extension.install()
     assert got == [("publicdata-raw", "_toolchain/x/spatial.duckdb_extension.gz")]
-    assert seen["urls"] == [] and len(seen["installed"]) == 1
+    assert fetch.urls == []
+    assert len(fetch.installed) == 1
 
 
-def test_install_refuses_bytes_that_are_not_the_pinned_build(fetch, monkeypatch, tmp_path):
-    seen, src = fetch
-    src["gz"] = _extension(tmp_path / "x.gz")
-    monkeypatch.setattr(extension, "_pin", lambda: _pin_for(src["gz"], sha256="0" * 64))
+def test_install_refuses_bytes_that_are_not_the_pinned_build(
+    fetch: Fetch, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    gz = fetch.gz = _extension(tmp_path / "x.gz")
+    monkeypatch.setattr(extension, "_pin", lambda: _pin_for(gz, sha256="0" * 64))
     with pytest.raises(extension.ExtensionError, match="SHA-256"):
         extension.install()
-    assert seen["installed"] == []
+    assert fetch.installed == []
 
 
-def test_install_refuses_an_extension_for_another_duckdb(fetch, monkeypatch, tmp_path):
-    seen, src = fetch
-    src["gz"] = _extension(tmp_path / "x.gz", duckdb="1.4.0")
-    monkeypatch.setattr(extension, "_pin", lambda: _pin_for(src["gz"]))
-    with pytest.raises(extension.ExtensionError, match="1.4.0"):
+def test_install_refuses_an_extension_for_another_duckdb(
+    fetch: Fetch, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    gz = fetch.gz = _extension(tmp_path / "x.gz", duckdb="1.4.0")
+    monkeypatch.setattr(extension, "_pin", lambda: _pin_for(gz))
+    with pytest.raises(extension.ExtensionError, match=r"1\.4\.0"):
         extension.install()
-    assert seen["installed"] == []
+    assert fetch.installed == []
 
 
-def test_install_refuses_a_pin_for_another_duckdb_before_fetching(fetch, monkeypatch, tmp_path):
-    seen, src = fetch
-    src["gz"] = _extension(tmp_path / "x.gz")
-    monkeypatch.setattr(extension, "_pin", lambda: _pin_for(src["gz"], duckdb="0.0.1"))
+def test_install_refuses_a_pin_for_another_duckdb_before_fetching(
+    fetch: Fetch, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    gz = fetch.gz = _extension(tmp_path / "x.gz")
+    monkeypatch.setattr(extension, "_pin", lambda: _pin_for(gz, duckdb="0.0.1"))
     with pytest.raises(extension.ExtensionError, match="Spatial extension workflow"):
         extension.install()
-    assert seen["urls"] == []
+    assert fetch.urls == []
 
 
-def test_install_sends_a_half_raised_pin_to_the_workflow(fetch, monkeypatch, tmp_path):
-    seen, src = fetch
-    src["gz"] = _extension(tmp_path / "x.gz")
-    pin = _pin_for(src["gz"], upstream="https://extensions.example/v0.0.1/linux_amd64/x.gz")
+def test_install_sends_a_half_raised_pin_to_the_workflow(
+    fetch: Fetch, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fetch.gz = _extension(tmp_path / "x.gz")
+    pin = _pin_for(fetch.gz, upstream="https://extensions.example/v0.0.1/linux_amd64/x.gz")
     monkeypatch.setattr(extension, "_pin", lambda: pin)
     with pytest.raises(extension.ExtensionError, match="Spatial extension workflow"):
         extension.install()
-    assert seen["urls"] == []
+    assert fetch.urls == []

@@ -1,16 +1,22 @@
-"""The DuckDB SQL the MCP server gives when it refuses a call over a version stored as period
-parts answers the call as the server would have: the same rows in the same order, and the same
-groups. The server's engine (functions/_parquet.js) runs under node over the committed part
-fixtures, and DuckDB runs its SQL over the same files."""
+"""The SQL the MCP server gives when it refuses a call over period parts answers the call.
+
+The DuckDB SQL it gives for a version stored as period parts answers as the server would have: the
+same rows in the same order, and the same groups. The server's engine (functions/_parquet.js) runs
+under node over the committed part fixtures, and DuckDB runs its SQL over the same files.
+"""
 
 import datetime as dt
 import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import duckdb
 import pytest
+
+if TYPE_CHECKING:
+    from publicdata.jsontypes import JSONObject
 
 ROOT = Path(__file__).resolve().parents[2]
 PARTS = Path(__file__).parent / "fixtures" / "parts"
@@ -64,7 +70,14 @@ console.log(JSON.stringify(out));
 """
 
 
-def _engine() -> list[dict]:
+class Answer(TypedDict):
+    """What the engine gives for one case: its rows, and the SQL it gives when it refuses."""
+
+    rows: list[JSONObject]
+    sql: str | None
+
+
+def _engine() -> list[Answer]:
     node = shutil.which("node")
     if not node or not (ROOT / "node_modules" / "hyparquet").is_dir():
         pytest.skip("node and the functions' packages (npm ci) are needed")
@@ -76,12 +89,15 @@ def _engine() -> list[dict]:
     r = subprocess.run(
         [node, "--input-type=module", "-e", code], capture_output=True, text=True, check=True
     )
-    return json.loads(r.stdout)
+    got: list[Answer] = json.loads(r.stdout)
+    return got
 
 
-def _as_d1(v):
-    """A DuckDB value as the engine gives it: a date or a time as ISO text, a boolean as 1 or 0,
-    and an integer beyond 2**53 as its digits."""
+def _as_d1(v: object) -> object:
+    """A DuckDB value as the engine gives it.
+
+    A date or a time is ISO text, a boolean is 1 or 0, and an integer beyond 2**53 is its digits.
+    """
     if isinstance(v, bool):
         return int(v)
     if isinstance(v, dt.datetime):
@@ -95,7 +111,7 @@ def _as_d1(v):
     return v
 
 
-def test_the_refusal_sql_over_parts_answers_as_the_engine_does():
+def test_the_refusal_sql_over_parts_answers_as_the_engine_does() -> None:
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")
     for (slug, _op, qs), got in zip(CASES, _engine(), strict=True):

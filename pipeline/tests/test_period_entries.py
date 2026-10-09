@@ -1,6 +1,8 @@
-"""The eucalypt records and the daily dam levels, split by year from their next fetch: their
-register entries, the parts the dates the providers publish land in, the versions already
-published, and the pages and hubs that read a version written as parts alone."""
+"""The eucalypt records and the daily dam levels, split by year from their next fetch.
+
+The tests cover their register entries, the parts the dates the providers publish land in, the
+versions already published, and the pages and hubs that read a version written as parts alone.
+"""
 
 import datetime as dt
 import json
@@ -8,16 +10,23 @@ import re
 import shutil
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import pyarrow.parquet as pq
 import pytest
 
-from publicdata import gate, parts, periods, store
+from publicdata import explorer, gate, parts, periods, published, store
 from publicdata.build import build_dataset, version_key
 from publicdata.cache import BuildCache
-from publicdata.register import load
+from publicdata.register import Period, load
+from publicdata.site import render_site
+from publicdata.spine import SOURCE_PREFIX
 
-from .conftest import make_manifest
+from .conftest import make_manifest, present
+
+if TYPE_CHECKING:
+    from publicdata.build import DatasetOut
+    from publicdata.register import Dataset
 
 REPO = Path(__file__).parents[2]
 EUC, WATER = "au-eucalypt-records", "au-water-storage-levels"
@@ -29,7 +38,35 @@ EUC_COLS = (
 )
 
 
-def entries():
+class PartFile(TypedDict):
+    path: str
+
+
+class BuiltPart(TypedDict):
+    """One part as a built manifest lists it."""
+
+    period: str
+    rows: int
+    tree: str
+    revised: bool
+    files: dict[str, PartFile]
+
+
+class BuiltManifest(TypedDict):
+    """The fields of a built version's manifest.json these tests read."""
+
+    rows: int
+    parts: list[BuiltPart]
+    period: dict[str, str]
+
+
+class Euc(TypedDict):
+    whole: Path
+    split: Path
+    out: DatasetOut
+
+
+def entries() -> dict[str, Dataset]:
     return {d.slug: d for d in load(REPO / "register") if d.slug in (EUC, WATER)}
 
 
@@ -59,13 +96,13 @@ EUC_ROWS = [
 ]
 
 
-def put(st: Path, ds, version: str, body: str, period=True) -> store.Manifest:
+def put(st: Path, ds: Dataset, version: str, body: str, *, period: bool = True) -> store.Manifest:
     data = body.encode()
     m = make_manifest(
         data,
         dataset=ds.slug,
         version=version,
-        as_at=None,
+        as_at=None,  # type: ignore[arg-type]  # these providers state no as-at date
         fetched_at=f"{version}T01:00:00+00:00",
         filename=f"{ds.slug}.csv",
         source={"url": ds.source.url},
@@ -85,24 +122,31 @@ def spine_store(tmp: Path) -> Path:
     return st
 
 
-def built_manifest(out: Path, slug: str, version: str) -> dict:
-    return json.loads((out / "d" / slug / "v" / version / "manifest.json").read_text("utf-8"))
+def built_manifest(out: Path, slug: str, version: str) -> BuiltManifest:
+    got: BuiltManifest = json.loads(
+        (out / "d" / slug / "v" / version / "manifest.json").read_text("utf-8")
+    )
+    return got
 
 
-def test_both_entries_split_by_year_and_neither_waits_on_the_pending_list():
+def test_both_entries_split_by_year_and_neither_waits_on_the_pending_list() -> None:
     got = entries()
-    assert got[EUC].period == periods.Period("event_date", "year")
-    assert got[WATER].period == periods.Period("date", "year")
-    assert EUC not in gate.PERIOD_PENDING and WATER not in gate.PERIOD_PENDING
+    assert got[EUC].period == Period("event_date", "year")
+    assert got[WATER].period == Period("date", "year")
+    assert EUC not in gate.PERIOD_PENDING
+    assert WATER not in gate.PERIOD_PENDING
 
 
-def test_the_versions_already_published_keep_their_cache_keys(tmp_path):
-    """A period is recorded by the fetch, and these versions were fetched without one, so the
-    register change keys them as before and the build reuses what it published."""
+def test_the_versions_already_published_keep_their_cache_keys(tmp_path: Path) -> None:
+    """A period is recorded by the fetch, and these versions were fetched without one.
+
+    So the register change keys them as before and the build reuses what it published.
+    """
     cache = BuildCache(tmp_path / "cache")
     for slug, ds in entries().items():
         ms_ = store.manifests(REPO / "store", slug)
-        assert ms_ and all(m.period is None for m in ms_)
+        assert ms_
+        assert all(m.period is None for m in ms_)
         bare = replace(ds, period=None)
         for m in ms_:
             assert version_key(cache, ds, m, REPO / "store") == version_key(
@@ -110,9 +154,7 @@ def test_the_versions_already_published_keep_their_cache_keys(tmp_path):
             )
 
 
-def test_a_version_fetched_before_the_period_builds_byte_identical(tmp_path):
-    from publicdata.spine import SOURCE_PREFIX
-
+def test_a_version_fetched_before_the_period_builds_byte_identical(tmp_path: Path) -> None:
     st = tmp_path / "store"
     ds = entries()[EUC]
     # Without the place joins, which need the spine and have no bearing on the period.
@@ -130,7 +172,7 @@ def test_a_version_fetched_before_the_period_builds_byte_identical(tmp_path):
             assert (a / rel).read_bytes() == (b / rel).read_bytes(), rel
 
 
-def test_eucalypt_dates_land_in_their_year_and_rows_with_no_date_stay_undated(euc):
+def test_eucalypt_dates_land_in_their_year_and_rows_with_no_date_stay_undated(euc: Euc) -> None:
     out = euc["whole"]
     m = built_manifest(out, EUC, "2026-10-13")
     by = {p["period"]: p for p in m["parts"]}
@@ -142,7 +184,10 @@ def test_eucalypt_dates_land_in_their_year_and_rows_with_no_date_stay_undated(eu
     whole = pq.read_table(vdir / "data.parquet")
     undated = pq.read_table(vdir / "parts/undated.parquet")
     assert undated.column("year").to_pylist() == [None, 1950]
-    assert sorted(whole.column("record_id").to_pylist()) == sorted(sum(ids.values(), []))
+    # Every record id is text, so ordering by str is the plain sort.
+    assert sorted(whole.column("record_id").to_pylist(), key=str) == sorted(
+        [i for got in ids.values() for i in got], key=str
+    )
 
 
 def water_rows(extra: list[str]) -> str:
@@ -156,7 +201,7 @@ def water_rows(extra: list[str]) -> str:
     return "\n".join(["station_no,station_name,state,date,value,quality_code", *rows]) + "\n"
 
 
-def test_a_finished_dam_levels_year_is_reused_by_the_next_fetch(tmp_path):
+def test_a_finished_dam_levels_year_is_reused_by_the_next_fetch(tmp_path: Path) -> None:
     st = tmp_path / "store"
     ds = entries()[WATER]
     put(st, ds, "2026-10-01", water_rows([]))
@@ -170,19 +215,19 @@ def test_a_finished_dam_levels_year_is_reused_by_the_next_fetch(tmp_path):
     assert [p["rows"] for p in second["parts"]] == [1, 1, 1, 2]
     assert sum(p["rows"] for p in first["parts"]) == first["rows"] == 4
     assert not any(p["revised"] for p in second["parts"])
-    assert o.latest.manifest.version == "2026-10-08"
-    from publicdata.site import render_site
-
+    assert present(o.latest).manifest.version == "2026-10-08"
     render_site([o], out)
     page = (out / "d" / WATER / "index.html").read_text("utf-8")
     assert "1905 (unchanged since 1 October 2026)" in page
-    assert "2025 (unchanged since" not in page and "2026 (unchanged since" not in page
+    assert "2025 (unchanged since" not in page
+    assert "2026 (unchanged since" not in page
 
 
-def test_the_gate_passes_both_entries_over_the_threshold(tmp_path):
+def test_the_gate_passes_both_entries_over_the_threshold(tmp_path: Path) -> None:
     site = tmp_path / "site"
     (site / "d").mkdir(parents=True)
-    latest, cat = {}, []
+    latest: dict[str, str] = {}
+    cat: list[dict[str, object]] = []
     for slug in (EUC, WATER):
         vdir = site / "d" / slug / "v" / "2026-10-01"
         vdir.mkdir(parents=True)
@@ -198,11 +243,11 @@ def test_the_gate_passes_both_entries_over_the_threshold(tmp_path):
 
 
 @pytest.fixture(scope="module")
-def euc(tmp_path_factory):
-    """The eucalypt fixture fetched with its period, built and rendered whole, and again as a
-    version too large to be one file."""
-    from publicdata.site import render_site
+def euc(tmp_path_factory: pytest.TempPathFactory) -> Euc:
+    """The eucalypt fixture fetched with its period, built and rendered whole.
 
+    It is built again as a version too large to be one file.
+    """
     tmp = tmp_path_factory.mktemp("eucalypts")
     st = spine_store(tmp)
     ds = entries()[EUC]
@@ -219,33 +264,39 @@ def euc(tmp_path_factory):
 
 def hero_total(out: Path) -> int:
     page = (out / "index.html").read_text("utf-8")
-    return int(re.search(r"([\d,]+) eucalypt records from the herbaria", page)[1].replace(",", ""))
+    found = present(re.search(r"([\d,]+) eucalypt records from the herbaria", page))
+    return int(found[1].replace(",", ""))
 
 
-def test_the_home_page_map_draws_every_record_from_the_parts(euc):
+def test_the_home_page_map_draws_every_record_from_the_parts(euc: Euc) -> None:
     whole, split, o = euc["whole"], euc["split"], euc["out"]
-    assert o.latest.whole is False
+    latest = present(o.latest)
+    assert latest.whole is False
     assert not (split / "d" / EUC / "v" / "2026-10-13" / "data.parquet").exists()
-    assert hero_total(split) == hero_total(whole) == o.latest.rows == len(EUC_ROWS)
+    assert hero_total(split) == hero_total(whole) == latest.rows == len(EUC_ROWS)
 
 
-def test_a_parts_only_page_still_draws_its_chart_map_and_sample(euc):
+def test_a_parts_only_page_still_draws_its_chart_map_and_sample(euc: Euc) -> None:
     whole, split = euc["whole"], euc["split"]
     a = (whole / "d" / EUC / "index.html").read_text("utf-8")
     b = (split / "d" / EUC / "index.html").read_text("utf-8")
     for marker in ('class="fchart"', "counted in cells of", 'class="ledger sample"'):
-        assert marker in a and marker in b, marker
+        assert marker in a, marker
+        assert marker in b, marker
     assert "data-no-query" in b
-    assert 'id="parts"' in b and "1599" in b and "undated" in b
-    sample = re.compile(r'<table class="ledger sample">.*?</table>', re.S)
-    assert sample.search(b)[0].count("<tr>") == sample.search(a)[0].count("<tr>") > 1
+    assert 'id="parts"' in b
+    assert "1599" in b
+    assert "undated" in b
+    sample = re.compile(r'<table class="ledger sample">.*?</table>', re.DOTALL)
+    assert (
+        present(sample.search(b))[0].count("<tr>") == present(sample.search(a))[0].count("<tr>") > 1
+    )
 
 
-def test_a_cached_build_pulls_a_parts_only_version_s_parts_back_for_its_pages(euc, tmp_path):
+def test_a_cached_build_pulls_a_parts_only_version_s_parts_back_for_its_pages(
+    euc: Euc, tmp_path: Path
+) -> None:
     """A part a cached build left out is read back through published, as data.parquet is."""
-    from publicdata import published
-    from publicdata.site import render_site
-
     out = Path(shutil.copytree(euc["split"], tmp_path / "out"))
     gone = list((out / "d" / EUC / "v" / "2026-10-13" / "parts").glob("*.parquet"))
     assert gone
@@ -260,15 +311,15 @@ def test_a_cached_build_pulls_a_parts_only_version_s_parts_back_for_its_pages(eu
     assert all(p.exists() for p in gone)
 
 
-def test_the_gate_checks_the_grain_of_a_split_version_and_passes_it(euc):
+def test_the_gate_checks_the_grain_of_a_split_version_and_passes_it(euc: Euc) -> None:
     out = euc["split"]
     assert built_manifest(out, EUC, "2026-10-13")["period"]["grain"] == "year"
     assert gate.periods_needed(out, entries()) == []
 
 
-def test_a_parts_only_dam_levels_version_keeps_the_explorer_and_names_the_hubs_version(tmp_path):
-    from publicdata.site import render_site
-
+def test_a_parts_only_dam_levels_version_keeps_the_explorer_and_names_the_hubs_version(
+    tmp_path: Path,
+) -> None:
     st = tmp_path / "store"
     ds = entries()[WATER]
     put(st, ds, "2026-10-01", water_rows([]))
@@ -287,10 +338,9 @@ def test_a_parts_only_dam_levels_version_keeps_the_explorer_and_names_the_hubs_v
     assert '<span class="mono">2026-10-01</span>, the newest published as one file' in page
 
 
-def test_no_explorer_opens_an_older_version_when_the_newest_whole_one_is_too_large(tmp_path):
-    from publicdata import explorer
-    from publicdata.site import render_site
-
+def test_no_explorer_opens_an_older_version_when_the_newest_whole_one_is_too_large(
+    tmp_path: Path,
+) -> None:
     st = tmp_path / "store"
     ds = entries()[WATER]
     put(st, ds, "2026-10-01", water_rows([]))
