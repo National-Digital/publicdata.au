@@ -643,6 +643,38 @@ def _newest(o: DatasetOut) -> VersionOut:
     return o.latest
 
 
+def _week(live: list[DatasetOut]) -> str:
+    """The home page's sentence on the seven days to the store's newest fetch.
+
+    Added counts the datasets this site first fetched in the week, since a publisher may date a
+    first version years back. Updated counts the others with a version dated in the week. Both
+    read the stored manifests, so two builds of one snapshot agree.
+    """
+    fetched = [v.manifest.fetched_at[:10] for o in live for v in o.versions]
+    if not fetched:
+        return ""
+    end = max(fetched)
+    start = (dt.date.fromisoformat(end) - dt.timedelta(days=6)).isoformat()
+    added = {
+        o.dataset.slug for o in live if min(v.manifest.fetched_at[:10] for v in o.versions) >= start
+    }
+    updated = sum(
+        o.dataset.slug not in added and any(v.manifest.version[:10] >= start for v in o.versions)
+        for o in live
+    )
+
+    def datasets(n: int) -> str:
+        return f"{n} {'dataset' if n == 1 else 'datasets'}"
+
+    said = [f"this site published {datasets(len(added))} for the first time"] if added else []
+    if updated:
+        whose = datasets(updated).replace(" ", " other ", 1) if said else datasets(updated)
+        said.append(f"{whose} had a new version dated in the week")
+    if not said:
+        return ""
+    return f"In the week to {long_date(end)}, {', and '.join(said)}."
+
+
 def collection_url(collection: str) -> str:
     return f"{SITE}/c/{collection}/"
 
@@ -4799,32 +4831,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "search": f"/backlog/?q={urllib.parse.quote(tinfo['search'])}",
             }
         )
-    # The datasets added or updated in the seven days to the newest version, dated from the store
-    # so two builds of one snapshot agree.
-    dates = [v.manifest.version[:10] for o in live for v in o.versions]
-    newest = ""
-    if dates:
-        end = dt.date.fromisoformat(max(dates))
-        start = (end - dt.timedelta(days=6)).isoformat()
-        added = sum(o.versions[0].manifest.version[:10] >= start for o in live)
-        updated = sum(
-            any(v.manifest.version[:10] >= start for v in o.versions[1:])
-            and o.versions[0].manifest.version[:10] < start
-            for o in live
-        )
-
-        def were(n: int, what: str) -> str:
-            return f"{n} {'dataset was' if n == 1 else 'datasets were'} {what}"
-
-        said = [were(added, "added")] if added else []
-        if updated:
-            said.append(
-                were(updated, "updated")
-                if not said
-                else f"{updated} {'was' if updated == 1 else 'were'} updated"
-            )
-        if said:
-            newest = f"In the week to {long_date(end.isoformat())}, {' and '.join(said)}."
+    newest = _week(live)
     # The showcase: the largest table under each topic, then the largest left, six in all.
     showcase: list[DatasetOut] = []
     used: set[str] = set()

@@ -16,7 +16,7 @@ from publicdata import REPO, explorer, gate
 from publicdata import __main__ as cli
 from publicdata import api_text as at
 from publicdata.__main__ import main
-from publicdata.build import build_dataset
+from publicdata.build import DatasetOut, VersionOut, build_dataset
 from publicdata.gate import check, examples
 from publicdata.provenance import cite
 from publicdata.register import Field, RegisterError, load, parse
@@ -25,6 +25,7 @@ from publicdata.site import (
     _console,
     _faq_jsonld,
     _temporal,
+    _week,
     download_name,
     linkify,
     quoting,
@@ -236,10 +237,7 @@ def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, c
     assert 'class="menu"' in home
     assert '<div class="ttile empty">' in home
     assert 'class="vote small"' in home
-    assert re.search(
-        r'class="ticker">In the week to \d+ \w+ \d{4}, \d+ datasets? (was|were) (added|updated)',
-        home,
-    )
+    assert re.search(r'class="ticker">In the week to \d+ \w+ \d{4}, ', home)
     assert "<span>publishers</span>" in home
     assert "rows served" not in home
     assert 'href="/d/qld-road-crash-locations/"' in home
@@ -812,6 +810,40 @@ def test_a_change_without_a_key_is_told_by_its_row_counts() -> None:
     assert _change_words({"rows_from": 12, "rows_to": 15, "note": "No key."}) == " (12 rows before)"
     keyed = {"rows_from": 2, "rows_to": 2, "added": 1, "removed": 1, "changed": 1}
     assert _change_words(keyed) == " (1 added, 1 removed, 1 changed)"
+
+
+def test_the_week_counts_a_dataset_by_its_first_fetch_and_others_by_version_date() -> None:
+    def out(slug: str, *versions: tuple[str, str]) -> DatasetOut:
+        return DatasetOut(
+            make_dataset([], slug=slug),
+            [
+                VersionOut(
+                    make_manifest(b"", version=v, fetched_at=f"{f}T01:00:00+00:00"),
+                    0,
+                    {},
+                    [],
+                    0,
+                    {},
+                )
+                for v, f in versions
+            ],
+        )
+
+    old = out("old", ("2019-03-01", "2026-10-08"))
+    fresh = out("fresh", ("2026-10-07", "2026-10-07"), ("2026-10-08", "2026-10-08"))
+    moved = out("moved", ("2026-01-02", "2026-01-02"), ("2026-10-05", "2026-10-09"))
+    late = out("late", ("2026-01-02", "2026-01-02"), ("2026-09-01", "2026-10-09"))
+    quiet = out("quiet", ("2026-01-02", "2026-01-02"))
+    assert _week([old, fresh, moved, late, quiet]) == (
+        "In the week to 9 October 2026, this site published 2 datasets for the first time, "
+        "and 1 other dataset had a new version dated in the week."
+    )
+    assert (
+        _week([moved])
+        == "In the week to 9 October 2026, 1 dataset had a new version dated in the week."
+    )
+    assert _week([late]) == ""
+    assert _week([]) == ""
 
 
 def test_a_withheld_source_is_left_out_listed_and_not_expected(
