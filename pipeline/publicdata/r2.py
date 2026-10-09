@@ -153,7 +153,10 @@ def dated_file(key: str) -> bool:
 
 
 def _scope(key: str, prefix: str) -> str:
-    """The listing a key is looked up in: its dataset's directory, or the query copies."""
+    """The listing a key is looked up in: its dataset's place pages, its dataset's directory, or
+    the query copies."""
+    if r2_page(key):
+        return "/".join(key.split("/")[:3]) + "/"
     if key.startswith("d/"):
         return "/".join(key.split("/")[:2]) + "/"
     return "_q/" if key.startswith("_q/") else prefix
@@ -250,7 +253,8 @@ def push(
     files = [p for p in files if include(prefix + str(p.relative_to(root)).replace(os.sep, "/"))]
     keys = [prefix + str(p.relative_to(root)).replace(os.sep, "/") for p in files]
     # One listing per dataset directory and one of the query copies, a page per thousand keys.
-    scopes = sorted({_scope(k, prefix) for k in [*keys, *expect]})
+    scopes = {_scope(k, prefix) for k in [*keys, *expect]}
+    scopes = sorted(sc for sc in scopes if not any(sc != o and sc.startswith(o) for o in scopes))
     etags: dict[str, str] = {}
     for sc in scopes:
         etags |= _etags(s3, bucket, sc)
@@ -997,7 +1001,9 @@ def prune_pages(
 
     live = sorted(json.loads((site / "latest.json").read_text(encoding="utf-8")))
     built = {
-        k for p in root.rglob("*") if p.is_file() and r2_page(k := p.relative_to(root).as_posix())
+        k
+        for p in root.rglob("*")
+        if p.is_file() and r2_page(k := p.relative_to(root).as_posix()) and k.split("/")[1] in live
     }
     s3 = client()
     with ThreadPoolExecutor(WORKERS) as pool:

@@ -518,22 +518,34 @@ because it says whether it is the newest. Pull-request previews skip
 The pages made once per place (`/d/<slug>/in/<value>/` and its `index.md`) are served from R2
 too, so they add no files to the Pages deployment. A deployment may hold 20,000 files, and
 `split` fails the deploy before anything is published when what it leaves for Pages is over
-that; the count goes in the deploy's summary either way. A preview keeps the version files and
-place pages on Pages, so its count runs ahead of production's. With `--versioned`, split moves
-the place pages into the R2 tree. They are never gzipped. The push before the Pages deploy
-(`dist-push --pages new`) writes only the place pages R2 lacks, because a page R2 already holds
-shows a map image that only the new deployment has; once that deployment is live,
-`dist-push --pages only` rewrites the pages whose bytes changed and `publicdata r2 prune-pages
---apply` deletes those the build no longer made, so a place that is gone answers 404. The prune
-looks only at the datasets the site's `latest.json` lists, considers only keys of the form
+that. The count goes in the deploy's summary either way. A preview never writes R2, so it keeps
+the version files and place pages on Pages and its count runs ahead of production's. When a
+preview's count is over the limit, split leaves its place pages out, and the preview answers
+them with production's copies from R2.
+
+With `--versioned`, split moves the place pages into the R2 tree. They are never gzipped. A place
+page links its map image by the image's hash, and only the new deployment holds a new image. So
+the push before the Pages deploy (`dist-push --pages new`) writes only the place pages R2 lacks.
+Once that deployment is live, `dist-push --pages only` rewrites the pages whose bytes changed and
+`publicdata r2 prune-pages --apply` deletes those the build no longer made, so a place that is
+gone answers 404. Until that step finishes, a changed page in R2 links a map the live deployment
+may no longer hold. A failure of the step leaves those pages as they were until the next deploy
+and never holds back the purge, the D1 load or the release. A failed Pages deploy leaves the new
+place pages it pushed in R2, where no live page links them. The prune looks only at the datasets
+the site's `latest.json` lists, considers only keys of the form
 `d/<slug>/in/<value>/index.{html,md}` outside a dated version, and deletes nothing when the tree
 holds no page or R2 lacks one the tree holds. A withheld dataset's pages stay in R2 and answer
-410. The function serves the pages with the site's security headers and a five-minute cache
-that lets the edge compress them, and asks Pages first, so a preview shows the copy its own build
-made. A rewritten page is not purged; the five-minute cache bounds how long the old one
-is served. Each view costs one function invocation, a Pages lookup that misses and one R2 read,
-where a Pages file costs none of them. The map image a place page of a point dataset shows stays
-a Pages file under `/maps/`, so those datasets still add one file per place.
+410.
+
+The function serves the pages with the site's security headers and a five-minute cache that lets
+the edge compress them. It reads a page from R2 whole, whatever range was asked for, since
+compression would drop the range. It asks Pages first, so a preview shows the copy its own build
+made. A Pages deployment serves only the files uploaded with it, and a production deployment
+holds no place page, so production always reaches R2. A rewritten page is not purged; the
+five-minute cache bounds how long the old one is served. Each view costs one function
+invocation, a Pages lookup that misses and one R2 read, where a Pages file costs none of them.
+The map image a place page of a point dataset shows stays a Pages file under `/maps/`, so those
+datasets still add one file per place.
 
 A version built once is not built again while its inputs are unchanged: its source, its register
 entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps a build cache in R2, under `_build/` in

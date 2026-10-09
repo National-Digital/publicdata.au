@@ -398,6 +398,20 @@ def cmd_split(args) -> int:
             shutil.move(str(p), dest)
             moved += 1
     left = sum(1 for p in out.rglob("*") if p.is_file())
+    if not args.versioned and left > PAGES_FILES:
+        # A preview never writes R2, so a place page it leaves out is answered with production's.
+        pages = [
+            p for p in out.rglob("*") if p.is_file() and r2_page(p.relative_to(out).as_posix())
+        ]
+        for p in pages:
+            dest = large / p.relative_to(out)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(p), dest)
+        moved, left = moved + len(pages), left - len(pages)
+        print(
+            f"split: {len(pages)} place page(s) left out of this preview to fit Pages, "
+            "so it shows production's copies of them"
+        )
     print(f"split: {moved} file(s) moved to {large}")
     print(f"split: {left} file(s) left for Pages, of the {PAGES_FILES} one deployment may hold")
     for rel in stranded:
@@ -408,7 +422,7 @@ def cmd_split(args) -> int:
         fix = (
             "serve another family of pages from R2 before deploying"
             if args.versioned
-            else "a preview keeps on Pages the version files and place pages production serves from R2"
+            else "a preview keeps on Pages the version files production serves from R2"
         )
         print(
             f"split: {left} files would go to Pages, over the {PAGES_FILES} one deployment may "
@@ -704,7 +718,8 @@ def cmd_dist_push(args) -> int:
     from .serialise.profile import layout
 
     # Before anything goes up, so a version whose source the site cannot serve is never published.
-    found = check_sources([Path(args.large)])
+    # Place pages alone go up after the deploy whose push has already checked them.
+    found = None if args.pages == "only" else check_sources([Path(args.large)])
     expect = _absent(args.expect)
     queries = (Path(args.large) / "_q").is_dir() or any(k.startswith("_q/") for k in expect)
     include = r2_page if args.pages == "only" else lambda key: True
@@ -722,7 +737,8 @@ def cmd_dist_push(args) -> int:
     print(
         f"dist push: {n} file(s){' (replacing under ' + ', '.join(args.replace) + ')' if args.replace else ''}"
     )
-    print(f"dist push: {found} publisher's file(s) found in the raw store")
+    if found is not None:
+        print(f"dist push: {found} publisher's file(s) found in the raw store")
     return 0
 
 

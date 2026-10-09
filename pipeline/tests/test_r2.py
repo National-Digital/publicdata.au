@@ -1401,3 +1401,70 @@ def test_a_deploy_writes_new_place_pages_first_and_changed_ones_after_pages(tmp_
     bucket.puts.clear()
     assert main(["dist-push", "--large", str(root), "--pages", "only"]) == 0
     assert bucket.puts == ["d/x/in/brisbane/index.html"]
+
+
+class ListedBucket(ByteBucket):
+    def __init__(self, objects=None):
+        super().__init__(objects)
+        self.listed = []
+
+    def get_paginator(self, name):
+        p, listed = super().get_paginator(name), self.listed
+
+        class Recorded:
+            def paginate(self, Bucket, Prefix):
+                listed.append(Prefix)
+                return p.paginate(Bucket=Bucket, Prefix=Prefix)
+
+        return Recorded()
+
+
+def test_a_place_page_push_lists_only_the_place_pages_and_skips_the_source_check(
+    tmp_path, monkeypatch
+):
+    from publicdata.__main__ import main
+
+    root = _built(tmp_path, "d/x/in/brisbane/index.html", "d/x/v/2026-04-24/data.parquet")
+    bucket = ListedBucket()
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    checked = []
+    monkeypatch.setattr(r2, "check_sources", lambda roots: checked.append(roots) or 0)
+    assert main(["dist-push", "--large", str(root), "--pages", "only"]) == 0
+    assert bucket.listed == ["d/x/in/"]
+    assert checked == []
+    bucket.listed.clear()
+    assert main(["dist-push", "--large", str(root)]) == 0
+    assert bucket.listed == ["d/x/"]
+    assert len(checked) == 1
+
+
+def test_prune_compares_only_the_pages_of_datasets_the_site_lists(tmp_path, monkeypatch):
+    bucket = PrunableBucket()
+    bucket.objects = _pages_bucket().objects
+    monkeypatch.setattr(r2, "client", lambda: bucket)
+    root = _built(
+        tmp_path / "large",
+        "d/x/in/brisbane/index.html",
+        "d/x/in/brisbane/index.md",
+        "d/z/in/hobart/index.html",
+    )
+    assert r2.prune_pages(root, _site(tmp_path, "x"), apply=True) == [
+        "d/x/in/cairns/index.html",
+        "d/x/in/cairns/index.md",
+    ]
+
+
+def test_a_preview_over_the_pages_limit_leaves_out_its_place_pages(tmp_path, capsys, monkeypatch):
+    from publicdata import __main__ as cli
+
+    out, large = tmp_path / "dist", tmp_path / "large"
+    _built(out, "d/x/in/brisbane/index.html", "d/x/in/brisbane/index.md", "d/x/index.html")
+    monkeypatch.setattr(cli, "PAGES_FILES", 2)
+    assert cli.main(["split", "--out", str(out), "--large", str(large)]) == 0
+    printed = capsys.readouterr().out
+    assert "2 place page(s) left out of this preview" in printed
+    assert "split: 1 file(s) left for Pages" in printed
+    assert (large / "d/x/in/brisbane/index.html").exists()
+    monkeypatch.setattr(cli, "PAGES_FILES", 0)
+    assert cli.main(["split", "--out", str(out), "--large", str(large)]) == 1
+    assert "a preview keeps on Pages the version files" in capsys.readouterr().err

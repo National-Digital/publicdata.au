@@ -375,6 +375,19 @@ test('a place page is served from R2 with the site headers and a short cache', a
   assert.equal(bare.headers.get('location'), '/d/x/in/brisbane/');
 });
 
+test('a page asked for by range goes out whole, so the edge may compress it', async () => {
+  R2['d/x/in/townsville/index.html'] = '<html>townsville</html>';
+  for (const path of ['/d/x/in/townsville/', '/d/x/v/2026-04-24/']) {
+    const r = await get(path, { range: 'bytes=0-2' });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('accept-ranges'), 'none');
+    assert.equal(r.headers.get('content-range'), null);
+    assert.equal(r.headers.get('cache-control'), 'public, max-age=300');
+  }
+  assert.equal((await get('/d/x/v/2026-04-24/data.csv', { range: 'bytes=0-2' })).status, 206);
+  delete R2['d/x/in/townsville/index.html'];
+});
+
 test('a rewritten place page is served with its new content, and a retired one is a 404', async () => {
   R2['d/x/in/cairns/index.html'] = '<html>old</html>';
   assert.equal(await (await get('/d/x/in/cairns/')).text(), '<html>old</html>');

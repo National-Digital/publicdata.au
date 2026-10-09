@@ -188,7 +188,9 @@ async function fromR2(request, env, url, latest) {
   try { path = decodeURIComponent(url.pathname.replace(/^\//, '')); } catch { return null; }
   const key = path.endsWith('/') ? path + 'index.html' : path;
   const head = request.method === 'HEAD';
-  const read = (bucket, k) => (head ? bucket.head(k) : bucket.get(k, { range: request.headers, onlyIf: request.headers }));
+  // A page goes out whole, since the edge may compress it and that would drop a byte range.
+  const whole = isPage(key);
+  const read = (bucket, k) => (head ? bucket.head(k) : bucket.get(k, whole ? { onlyIf: request.headers } : { range: request.headers, onlyIf: request.headers }));
   let obj = (await read(env.DIST, key)) || (await rawSource(env, url, key, read));
   // A new version's data.csv.gz is not stored apart: its data.csv is stored as those very bytes.
   let alias = false;
@@ -236,12 +238,12 @@ async function answer(request, url, key, obj, head, env, latest, decoded = gzipp
   if (TYPES[ext]) headers.set('content-type', TYPES[ext]);
   if (key.endsWith('.csv-metadata.json')) headers.set('content-type', 'application/csvm+json');
   headers.set('etag', obj.httpEtag);
-  headers.set('accept-ranges', decoded ? 'none' : 'bytes');
+  const page = isPage(key);
+  headers.set('accept-ranges', decoded || page ? 'none' : 'bytes');
   headers.set('access-control-allow-origin', '*');
   // no-transform keeps the edge from compressing the body, which would drop the byte range. A
   // gzipped text file has no range to keep, and the edge must be free to decode it for a client
   // that cannot, since it caches whichever encoding it was sent first.
-  const page = PAGE.test('/' + key) || PLACE.test('/' + key);
   // A page is never ranged, so the edge may compress it.
   headers.set('cache-control', page ? 'public, max-age=300' : DATED.test(key) ? 'public, max-age=31536000, immutable, no-transform' : 'public, max-age=300, no-transform');
   if (decoded) headers.set('cache-control', headers.get('cache-control').replace(', no-transform', ''));
@@ -268,6 +270,8 @@ async function answer(request, url, key, obj, head, env, latest, decoded = gzipp
   }
   return new Response(null, { status: 304, headers });
 }
+
+const isPage = (key) => PAGE.test('/' + key) || PLACE.test('/' + key);
 
 async function setPageHeaders(headers, env) {
   for (const [k, v] of Object.entries(await headersFor(env))) headers.set(k, v);
