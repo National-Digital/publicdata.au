@@ -79,8 +79,11 @@ pipeline/publicdata/
    source hash.
 9. Requesters are organisations, never people.
 10. Every page and catalogue record says the publisher has not endorsed the site.
-11. Every page passes WCAG 2.2 AA in both colour schemes; CI runs axe over the fixture build
-    (`scripts/a11y.mjs`). A map is a PNG file under `maps/` in an `img` whose alt is worked
+11. Every page meets WCAG 2.2 AAA, with dense data regions (tables, dataset listings, the
+    explorer) held to AA for target size and type floor; `docs/ACCESSIBILITY.md` states the
+    target, the checks and the exceptions. CI runs axe's AAA rules in both colour schemes and
+    the house checks at three widths over the fixture build (`scripts/a11y.mjs`), and the
+    gate holds every abbreviation in the site's prose to the glossary on the about page. A map is a PNG file under `maps/` in an `img` whose alt is worked
     out from the cells, with a vector SVG over it; no SVG embeds a raster, and every figure's
     label is derived from what it draws.
 

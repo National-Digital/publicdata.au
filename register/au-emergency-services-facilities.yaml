@@ -50,7 +50,7 @@ faq:
 - q: Why does the attribution mention G-NAF?
   a: Geoscience Australia matched each facility to an address in the Geocoded National Address File, and
     its licence statement asks that products using it carry the G-NAF acknowledgement. Every file here
-    carries it. Rows with the comment NO GNAF POINT have no matched address.
+    carries it. Rows with the comment `NO GNAF POINT` have no matched address.
 summary: About 8,900 police, fire, ambulance, SES and other emergency management facilities across
   Australia, one row per facility with its class, address and coordinates, from Geoscience Australia.
 description: The Emergency Management Facilities Database from Geoscience Australia, read from its CSV

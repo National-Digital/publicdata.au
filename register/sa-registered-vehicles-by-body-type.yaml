@@ -38,7 +38,7 @@ faq:
     sedan, solo motorcycle or box trailer, with the vehicle type and the group it falls in.
 - q: What are the Total and TRLB03 rows?
   a: The publisher ends the table with a Total row for all vehicles and a footer row naming the report and page.
-    Both are kept as published. The footer's count reads DPTI and is a null here.
+    Both are kept as published. The footer's count reads `DPTI` and is a null here.
 - q: Which date does the table cover?
   a: The newest quarter, the end of June 2026 at the first version. The publisher adds a file each quarter, and
     each becomes a version here. The files back to 2010 stay on the portal.

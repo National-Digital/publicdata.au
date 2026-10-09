@@ -40,7 +40,7 @@ faq:
 - q: What does each row hold?
   a: One state, territory or country a driver licence came from, with the number of licences transferred
     to Victoria in the quarter for holders living in metropolitan Melbourne, in rural Victoria and
-    elsewhere. The category marks interstate transfers as INTE and overseas ones as OVSE.
+    elsewhere. The category marks interstate transfers as `INTE` and overseas ones as `OVSE`.
 - q: Which quarter is it?
   a: Each version is the newest quarter the department has released, named on the portal. Earlier
     quarters are listed there as separate files.

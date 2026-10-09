@@ -55,7 +55,7 @@ summary: For each Victorian municipality in 2024, the number of properties asses
 description: Land tax by municipality for 2024 from the State Revenue Office Victoria. Each row is one
   of the 79 municipalities, named in capitals as published, with the property count, the total
   unimproved value in dollars, the total proportionate land tax in dollars and the percentage of the
-  state's land tax. The publisher's TOTAL row is kept.
+  state's land tax. The publisher's `TOTAL` row is kept.
 source:
   adapter: ckan-resource
   portal: https://discover.data.vic.gov.au

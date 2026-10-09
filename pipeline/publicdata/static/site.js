@@ -200,9 +200,9 @@
     verSel.addEventListener('change', function () { S.version = verSel.value; update(); });
     fmtSel.addEventListener('change', function () { S.format = fmtSel.value; update(); });
 
-    var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0' });
+    var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0', role: 'region', 'aria-label': 'Query URL' });
     var runB = el('button', { type: 'button', class: 'btn', text: 'Run' });
-    var openA = el('a', { class: 'btn ghost', text: 'Open', rel: 'nofollow' });
+    var openA = el('a', { class: 'btn ghost', text: 'Open the result', rel: 'nofollow' });
     var copyB = el('button', { type: 'button', class: 'copy', text: 'Copy URL' });
     copyB.addEventListener('click', function () { var t = urlBox.textContent; if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { say('Copied'); }, function () { say('Select and copy'); }); else say('Select and copy'); });
     var tabs = el('div', { class: 'tools', role: 'tablist', 'aria-label': 'Query code' });
@@ -396,13 +396,20 @@
     });
   }
 
-  // The header on a narrow screen: the menu button shows and hides the site links.
+  // The header on a narrow screen: the menu button shows and hides the site links, and Escape
+  // closes them and returns focus to the button.
   var menu = document.querySelector('.menu');
   if (menu) {
-    menu.addEventListener('click', function () {
-      var on = menu.getAttribute('aria-expanded') !== 'true';
+    var header = menu.closest('header');
+    var setMenu = function (on) {
       menu.setAttribute('aria-expanded', on ? 'true' : 'false');
-      menu.closest('header').classList.toggle('open', on);
+      header.classList.toggle('open', on);
+    };
+    menu.addEventListener('click', function () { setMenu(menu.getAttribute('aria-expanded') !== 'true'); });
+    header.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || menu.getAttribute('aria-expanded') !== 'true') return;
+      setMenu(false);
+      menu.focus();
     });
   }
 

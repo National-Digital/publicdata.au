@@ -1,0 +1,9 @@
+[
+  {
+    "pages": "/d/*/explore/",
+    "rule": "painted-contrast",
+    "within": "#x-ghost",
+    "reason": "The explorer's placeholder: a dimmed, aria-hidden preview of the dashboard shown only until the explorer loads. Text in an inactive placeholder has no contrast requirement under 1.4.3 and 1.4.6.",
+    "reviewed": "2026-10-08"
+  }
+]
