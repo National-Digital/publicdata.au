@@ -285,3 +285,36 @@ def test_a_parts_only_dam_levels_version_keeps_the_explorer_and_names_the_hubs_v
     assert (out / "d" / WATER / "embed" / "index.html").exists()
     page = (out / "d" / WATER / "index.html").read_text("utf-8")
     assert '<span class="mono">2026-10-01</span>, the newest published as one file' in page
+
+
+def test_no_explorer_opens_an_older_version_when_the_newest_whole_one_is_too_large(tmp_path):
+    from publicdata import explorer
+    from publicdata.site import render_site
+
+    st = tmp_path / "store"
+    ds = entries()[WATER]
+    put(st, ds, "2026-10-01", water_rows([]))
+    put(st, ds, "2026-10-08", water_rows(["143036A,Wivenhoe,QLD,2026-10-07,1101000.0,90"]))
+    put(
+        st,
+        ds,
+        "2026-10-15",
+        water_rows(
+            [
+                "143036A,Wivenhoe,QLD,2026-10-07,1101000.0,90",
+                "143036A,Wivenhoe,QLD,2026-10-14,1102000.0,90",
+            ]
+        ),
+    )
+    out = tmp_path / "dist"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(parts, "WHOLE_ROWS", 5)
+        o = build_dataset(ds, st, out)
+    assert [v.whole for v in o.versions] == [True, True, False]
+    # The newest whole version is past what the explorer loads, so only the oldest would fit.
+    o.versions[1].files["data.parquet"] = explorer.MAX_PARQUET + 1
+    render_site([o], out)
+    assert not (out / "d" / WATER / "explore" / "index.html").exists()
+    assert not (out / "d" / WATER / "embed" / "index.html").exists()
+    page = (out / "d" / WATER / "index.html").read_text("utf-8")
+    assert "/explore/" not in page
