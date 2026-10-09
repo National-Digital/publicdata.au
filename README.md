@@ -46,8 +46,8 @@ says where to ask for a dataset or for help, and a vulnerability is reported pri
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) the rules that decide the code.
 - [`docs/CORRECTIONS.md`](docs/CORRECTIONS.md) how a fault in a published file is reported and
   fixed, and the log of every correction.
-- [`docs/content-addressed-store.md`](docs/content-addressed-store.md) what storing identical
-  files once would save, measured, and why it waits.
+- [`docs/adr/`](docs/adr/README.md) the decision records behind those rules: what each decided,
+  what was weighed against it and what it costs.
 - [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) the WCAG 2.2 AAA target, what CI enforces and the exceptions.
 
 ## Run it
