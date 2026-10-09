@@ -514,24 +514,16 @@ newest version and the versions its cadence and history give, and the D1 rows wr
 two differ in how they size a version: `cost` reads the live catalogue and counts every stored
 version at its newest one's size, where the build counts each version's own files. `measured` is
 Cloudflare's own figure for every object in those two buckets, build cache and query copies
-included, with the time Cloudflare measured it. The deploy to production writes it into the built
-`health.json` before pushing the pages (`publicdata measure`), so the build stays the same from
-the same inputs. When it cannot be read, `available` is false with a reason from a fixed set, and
-the deploy goes on. Reading it needs the deploy token to have Account Analytics Read. Neither
-figure is priced; R2 Standard is $0.015 per GB-month after 10 GB free.
+included. Each bucket's figure is its newest reading from the past 7 days, and `measured_at` is
+the time of the older of the two. The deploy to production writes it into the built `health.json`
+before pushing the pages (`publicdata measure`), so the build stays the same from the same inputs.
+When it cannot be read, `available` is false with a reason from a fixed set, and the deploy goes
+on. The step reads with its own token, `CLOUDFLARE_ANALYTICS_TOKEN` in the `production`
+environment, which holds Account Analytics Read and nothing else. Without it the reason says no
+token is set. Neither figure is priced; R2 Standard is $0.015 per GB-month after 10 GB free.
 
-The account also holds a Cloudflare budget alert (Manage Account > Billing > Billable Usage >
-Create budget alert), set up by a member with billing access. Budget alerts exist on
-Pay-as-you-go accounts only.
-
-- Threshold: USD 10 of usage-based spend in a billing period, about 680 GB stored with nothing
-  else billed. The alert counts the usage-based spend of the whole account, R2 included, and
-  emails once each time spend crosses it in a period.
-- Recipients: every member of the Cloudflare account with the Super Administrator role, which is
-  the maintainers at National Digital. A maintainer who leaves is removed from the account and
-  from the alert.
-
-Change the threshold here and in the dashboard together.
+The Cloudflare account also holds a budget alert on its usage-based spend, and the maintainers
+receive it.
 
 ## Query API
 
