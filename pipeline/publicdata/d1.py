@@ -1,7 +1,8 @@
 """SQL that loads dataset versions into D1 for the query API.
 
-Each loaded version is one table built from the version's own data.parquet, read as its
-data.sqlite holds it, so the API answers from the same typed rows as every file. The latest version of each live dataset is loaded; a
+Each loaded version is one table built from the version's own data.parquet, or its period parts
+in order for a version stored as parts, read as its data.sqlite holds it, so the API answers from
+the same typed rows as every file. The latest version of each live dataset is loaded; a
 dataset keeps at most KEEP versions in the database, and every version stays available as files.
 `_versions` records what is loaded, with the field list the API validates queries against.
 
@@ -156,19 +157,20 @@ def parquet_version_sql(
         yield stmt
 
 
-def _parquet_stmts(parquet, ds, version, index_fields, tbl=None):
+def _parquet_stmts(parquet, ds, version, index_fields, tbl=None, header=None):
+    """parquet is the version's file, or its parts in order with the version's header."""
     from .records import connect
 
-    cols = parquet_columns(parquet, ds)
-    header = {
-        k: v if isinstance(v, str) else dumps(v)
-        for k, v in json.loads(pq.read_schema(parquet).metadata[b"publicdata"]).items()
-    }
+    first = parquet if isinstance(parquet, Path) else parquet[0]
+    cols = parquet_columns(first, ds)
+    if header is None:
+        header = json.loads(pq.read_schema(first).metadata[b"publicdata"])
+    header = {k: v if isinstance(v, str) else dumps(v) for k, v in header.items()}
     with connect(parquet, [c for c, _ in cols]) as src:
         src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
         rows = (r for batch in iter(lambda: src.fetchmany(10_000), []) for r in batch)
         yield from _table_sql(
-            ds.slug, version, index_fields, cols, header, built_fields(ds, parquet), rows, tbl
+            ds.slug, version, index_fields, cols, header, built_fields(ds, first), rows, tbl
         )
 
 
@@ -336,6 +338,14 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict
     wide[rowid] = sum(_raw_size(v) for v in row)
 
 
+def parts_csv(records: list[dict]) -> int | None:
+    """The CSV a version stored as parts would load from: its parts' CSVs together. Each repeats
+    the header line, so their sum is never less than one data.csv of the same rows. None when a
+    part does not record its size."""
+    sizes = [r["files"].get("csv.gz", {}).get("csv_bytes") for r in records]
+    return None if not sizes or None in sizes else sum(sizes)
+
+
 def queryable(ds, csv_bytes: int | None) -> bool:
     """Whether the query API serves this version, by the size of its data.csv. The build and
     the loader both ask here."""
@@ -369,6 +379,47 @@ def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:
                 if str(res.get("path", "")).endswith(want):
                     return res.get("bytes")
     return None
+
+
+def _parts(roots: list[Path], ds, version: str):
+    """A version stored as parts, as the loader reads it: its parts' Parquet in the manifest's
+    order, the size of their CSV, and the version's provenance header, which no part need carry
+    since a finished part can be an earlier version's file. None for a version written whole, or
+    when a part is in none of the roots."""
+    from .build import part_dir, version_url
+    from .provenance import header
+    from .store import Manifest
+
+    rel = Path("d") / ds.slug / "v" / version / "manifest.json"
+    path = next((r / rel for r in roots if (r / rel).exists()), None)
+    if path is None:
+        return None
+    built = json.loads(path.read_text(encoding="utf-8"))
+    if built.get("whole", True) or not built.get("parts"):
+        return None
+    files = []
+    for rec in built["parts"]:
+        rel = Path(part_dir(ds.slug, rec, version)) / rec["files"]["parquet"]["path"]
+        found = next((r / rel for r in roots if (r / rel).exists()), None)
+        if found is None:
+            print(f"d1: {ds.slug}@{version} stays files-only: {rel} is not in the build")
+            return None
+        files.append(found)
+    csv = parts_csv(built["parts"])
+    m = Manifest.read(path)
+    head = header(ds, m, built["rows"], version_url(ds.slug, version) + "data.duckdb")
+    return files, csv, head
+
+
+def _order(files: list[Path]) -> str:
+    """The row order a version's file, or its parts, are in, as _orders records it."""
+    return "|".join(dict.fromkeys(signature(f) for f in files))
+
+
+def _digest(files: list[Path]) -> str:
+    if len(files) == 1:
+        return sha256(files[0])
+    return hashlib.sha256("".join(sha256(f) for f in files).encode()).hexdigest()
 
 
 def rows_written(text: str) -> int:
@@ -430,30 +481,34 @@ def write_loads(
             continue
         rel = Path("d") / ds.slug / "v" / version / "data.parquet"
         src = next((r / rel for r in roots if (r / rel).exists()), None)
+        files, head = ([src], None) if src else ([], None)
+        csv = _csv_bytes(roots, ds.slug, version) if src else None
+        if src is None and (split := _parts(roots, ds, version)):
+            files, csv, head = split
         if version in loaded.get(ds.slug, []):
             had = (loaded_fields or {}).get((ds.slug, version))
             ord_ = (loaded_orders or {}).get((ds.slug, version), "")
             if (
                 had is None
-                or src is None
-                or (json.loads(had) == built_fields(ds, src) and ord_ == signature(src))
+                or not files
+                or (json.loads(had) == built_fields(ds, files[0]) and ord_ == _order(files))
             ):
                 continue
-        if src is None or not queryable(ds, _csv_bytes(roots, ds.slug, version)):
+        if not files or not queryable(ds, csv):
             continue
         index = (*ds.key, *ds.partition_by)
-        sig = signature(src)
+        sig = _order(files)
         tbl = load_table(
             ds.slug,
             version,
-            sha256(src),
-            parquet_columns(src, ds),
-            built_fields(ds, src),
+            _digest(files),
+            parquet_columns(files[0], ds),
+            built_fields(ds, files[0]),
             list(index),
             sig,
         )
         try:
-            stmts = list(_parquet_stmts(src, ds, version, index, tbl))
+            stmts = list(_parquet_stmts(src or files, ds, version, index, tbl, head))
         except TooWide as e:
             print(f"d1: {ds.slug}@{version} stays files-only: {e}")
             continue
