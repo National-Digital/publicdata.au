@@ -356,3 +356,22 @@ def test_a_layer_with_no_shapes_makes_an_empty_archive(tmp_path: Path) -> None:
     assert reader.metadata()["vector_layers"][0]["id"] == ds.slug
     assert reader.get(0, 0, 0) is None
     assert list(all_tiles(MemorySource(paths[0].read_bytes()))) == []
+
+
+def test_a_polygon_layer_whose_shapes_make_no_tile_makes_an_empty_archive(tmp_path: Path) -> None:
+    # A line in a polygon layer: the tiles keep only polygons, so no tile is made.
+    row = _connect().execute("SELECT ST_AsWKB(ST_GeomFromText('LINESTRING(150 -30, 151 -29)'))")
+    ds = make_dataset(
+        [Field("code", "code")],
+        title="T",
+        geometry={"kind": "polygon", "crs": "EPSG:7844", "maxzoom": 4},
+    )
+    tbl = Table(
+        dataset=ds,
+        manifest=make_manifest(b""),
+        table=pa.table({"code": ["1"]}),
+        geometry=pa.array([bytes(present(row.fetchone())[0])], pa.binary()),
+    )
+    path = tmp_path / "data.pmtiles"
+    write_pmtiles(tbl, make_header(1, "data.pmtiles"), path)
+    assert Reader(MemorySource(path.read_bytes())).header()["tile_entries_count"] == 0
