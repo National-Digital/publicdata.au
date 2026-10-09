@@ -358,15 +358,7 @@ tr.closed td a{color:var(--muted)}
 .hero-fig .mapbox{max-height:520px;width:min(100%,calc(520px * var(--ar)))}
 .hero-fig .mapimg{filter:drop-shadow(0 0 28px rgba(255,139,90,.22))}
 .hero-fig figcaption .k{display:inline-block;font-size:0.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--map);font-weight:500;margin-right:6px}
-.ticker{border-top:1px solid var(--band-rule);padding:12px 0;min-width:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,17rem),1fr));gap:4px 30px;font-size:0.8125rem;color:var(--band-muted)}
-.ticker .lab{grid-column:1/-1;font-size:0.75rem;text-transform:uppercase;letter-spacing:.08em;font-weight:500;color:var(--map)}
-.ticker a.v{color:var(--band-muted);text-decoration:none;display:block;padding-block:.25rem;overflow-wrap:anywhere}
-.ticker a.v:hover .s{text-decoration:underline}
-.ticker a.v b{font-weight:400}
-.ticker a.v .s{display:block;color:var(--band-ink);font-weight:500}
-.ticker a.v i{font-style:normal}
-.ticker a.v em{font-style:normal;color:#5ce0a5}
-.ticker a.v .chg{color:var(--map)}
+.ticker{border-top:1px solid var(--band-rule);padding:12px 0;margin:0;font-size:0.875rem;color:var(--band-muted)}
 .ttiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px}
 .ttile{display:grid;gap:4px;align-content:start;background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:16px;color:var(--ink);text-decoration:none;min-width:0;border-top:3px solid var(--primary)}
 .ttile:hover{border-color:var(--primary)}

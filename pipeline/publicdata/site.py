@@ -4309,23 +4309,19 @@ def render_site(
                 "search": f"/backlog/?q={urllib.parse.quote(tinfo['search'])}",
             }
         )
-    # The newest versions across every dataset, a line each.
-    newest = sorted(
-        (
-            {
-                "version": o.latest.manifest.version,
-                "slug": o.dataset.slug,
-                "title": o.dataset.title,
-                "rows": fmt_int(o.latest.rows),
-                "as_at_long": views_by[o.dataset.slug][-1]["as_at_long"],
-                "change": views_by[o.dataset.slug][-1]["change"],
-                "new": len(o.versions) == 1,
-            }
-            for o in live
-        ),
-        key=lambda x: (x["version"], x["slug"]),
-        reverse=True,
-    )[:8]
+    # The versions added in the seven days to the newest one, dated from the store so two builds
+    # of one snapshot agree.
+    dates = [v.manifest.version[:10] for o in live for v in o.versions]
+    newest = None
+    if dates:
+        end = dt.date.fromisoformat(max(dates))
+        start = (end - dt.timedelta(days=6)).isoformat()
+        week = [o for o in live if any(v.manifest.version[:10] >= start for v in o.versions)]
+        newest = {
+            "versions": sum(v.manifest.version[:10] >= start for o in week for v in o.versions),
+            "datasets": len(week),
+            "to": long_date(end.isoformat()),
+        }
     # The showcase: the largest table under each topic, then the largest left, six in all.
     showcase, used = [], set()
     for tslug in TOPICS:
