@@ -1204,3 +1204,12 @@ def test_the_shared_report_joins_a_file_that_matches_two_copies(monkeypatch, cap
     assert t["copies"] == 2 and t["saved"] == 200 and t["by_ext"] == {"": [2, 200]}
     assert cmd_r2_shared_report(SimpleNamespace(prefix="d/")) == 0
     assert "shared: no extension: 2 extra copies, 200 bytes" in capsys.readouterr().out
+
+
+def test_the_shared_report_counts_a_file_once_per_dataset_across_datasets(monkeypatch):
+    for owners, across in ((("a", "a", "b"), 100), (("a", "b", "b"), 100), (("a", "b", "c"), 200)):
+        keys = [f"d/{o}/v/2026-0{i + 4}-01/data.csv" for i, o in enumerate(owners)]
+        bucket = ByteBucket({k: b"z" * 100 for k in keys})
+        monkeypatch.setattr(r2, "client", lambda bucket=bucket: bucket)
+        t = r2.shared_report()
+        assert (t["copies"], t["saved"], t["across"]) == (2, 200, across), owners
