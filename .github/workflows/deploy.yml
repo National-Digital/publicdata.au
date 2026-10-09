@@ -305,6 +305,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       deployed: ${{ steps.pages.outcome == 'success' }}
+      url: ${{ steps.pages.outputs.url }}
       sign: ${{ steps.checksums.outputs.sign }}
     steps:
       - name: Stop when the build failed
@@ -488,9 +489,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           BRANCH: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+        # pipefail, so tee does not hide a failed deploy. A URL that cannot be read fails the
+        # Lighthouse job, which tests it, rather than the deploy.
         run: |
+          set -o pipefail
           npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
-          grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
+          { grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log || true; } | tail -1 > url.txt
+          echo "url=$(cat url.txt)" >> "$GITHUB_OUTPUT"
       # Made from the hashes R2 stored with each file, so the build and its cache key never see it.
       # Straight after the site goes live, which links each list. A failure leaves the lists for the
       # next deploy to catch up, so it never fails the deploy or holds back D1 and the release.
@@ -583,6 +588,71 @@ jobs:
           else
             gh pr comment "$PR" --body "$BODY"
           fi
+
+  # Holds the pull request's own preview deploy to the Lighthouse targets in
+  # scripts/lighthouse-checks.mjs: performance 90, every other category 100. A required check that is
+  # skipped counts as passed, so on a pull request it always runs, and fails when the deploy did. A
+  # fork's pull request has no preview to test, so it passes with a notice. Production is checked
+  # weekly through PageSpeed Insights (psi.yml).
+  lighthouse:
+    name: Lighthouse
+    needs: deploy
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      URL: ${{ needs.deploy.outputs.url }}
+    steps:
+      - name: Stop when the deploy failed
+        if: needs.deploy.result != 'success'
+        env:
+          RESULT: ${{ needs.deploy.result }}
+        run: |
+          echo "::error::deploy $RESULT, so there is no preview to test"
+          exit 1
+      - name: Stop when the preview URL is missing
+        if: needs.deploy.outputs.deployed == 'true' && env.URL == ''
+        run: |
+          echo "::error::the preview deployed, but its URL could not be read from the wrangler output"
+          exit 1
+      - name: Note a pull request with no preview
+        if: needs.deploy.result == 'success' && needs.deploy.outputs.deployed != 'true'
+        run: echo "::notice::No preview was deployed for this pull request, so Lighthouse has nothing to test."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.URL != ''
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: env.URL != ''
+        with:
+          node-version-file: .node-version
+      - if: env.URL != ''
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      # The Chrome build the locked puppeteer-core names, the same one the accessibility job uses.
+      - name: Install the pinned Chrome
+        if: env.URL != ''
+        run: |
+          v=$(sed -n "s/^ *chrome: '\(.*\)',$/\1/p" node_modules/puppeteer-core/lib/puppeteer/revisions.js)
+          test -n "$v"
+          path=$(npx --no-install @puppeteer/browsers install "chrome@$v" --path "$RUNNER_TEMP/chrome" --format '{{path}}')
+          echo "CHROME_PATH=$path" >> "$GITHUB_ENV"
+      - name: Run Lighthouse against the preview
+        if: env.URL != ''
+        # A step with no shell set runs without pipefail, so tee would hide the script's failure.
+        run: |
+          set -o pipefail
+          node scripts/lighthouse.mjs "$URL" | tee lighthouse.log
+      - name: Summarise
+        if: always() && env.URL != ''
+        run: |
+          { echo '```'; cat lighthouse.log 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && env.URL != ''
+        with:
+          name: lighthouse-reports
+          path: lighthouse-reports/
+          retention-days: 14
 
   # One attestation for the lists the deploy wrote. It is a job of its own so that only a deploy
   # of main can sign: the deploy job also runs a pull request's code. Like the lists, a failure

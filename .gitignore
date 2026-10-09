@@ -18,6 +18,8 @@ dist-large/
 # Lighthouse and Chrome write beside the working directory during local audits.
 lh-*.json
 C:*
+lighthouse-reports/
+psi-report.md
 node_modules/
 
 # Written at publish time by python -m publicdata.api_text server.json.

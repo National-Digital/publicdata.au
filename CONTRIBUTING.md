@@ -383,7 +383,7 @@ each version lives in one file that the workflows or the pipeline read:
 | uv | `uv.toml` |
 | The pipeline's Python packages | `pipeline/requirements.txt` (a constraint on every install) |
 | The Python client's CI packages | `clients/python/requirements.txt` |
-| npm packages, wrangler, and the Chrome build the accessibility check runs (from `puppeteer-core`) | `package-lock.json` |
+| npm packages, wrangler, Lighthouse, and the Chrome build the accessibility and Lighthouse checks run (from `puppeteer-core`) | `package-lock.json` |
 | GitHub Actions | the commit SHA in each `uses:` |
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
 | R, its CRAN snapshot date and the R client's lint tools | `.github/workflows/clients.yml` |
