@@ -911,7 +911,8 @@ def shared_report(bucket: str = "publicdata-dist", prefix: str = "d/", workers: 
     matching one copy by ETag and another by SHA-256 joins both. A single-part ETag is an MD5, so
     two that differ settle it; a HEAD is sent only in a group holding a multipart ETag, whose value
     depends on how the file was uploaded. A HEADed file without a SHA-256 can match only on its
-    ETag and is counted as `unhashed`. A key deleted while the report runs is left out."""
+    ETag and is counted as `unhashed`. A key deleted while the report runs is left out. `across`
+    is what storing each file once would save beyond storing it once per dataset."""
     from collections import defaultdict
     from concurrent.futures import ThreadPoolExecutor
 
@@ -961,8 +962,10 @@ def shared_report(bucket: str = "publicdata-dist", prefix: str = "d/", workers: 
             for i in (f"etag:{listing[k][1]}", *([f"sha256:{shas[k]}"] if shas.get(k) else [])):
                 a, b = root(owner.setdefault(i, k)), root(k)
                 parent[max(a, b)] = min(a, b)
+        comps: dict[str, set[str]] = {}
         for k in ks:
             seen = root(k)
+            comps.setdefault(seen, set()).add(k.split("/")[1])
             if seen == k:
                 continue
             name = k.rsplit("/", 1)[-1]
@@ -972,6 +975,6 @@ def shared_report(bucket: str = "publicdata-dist", prefix: str = "d/", workers: 
             e[1] += listing[k][0]
             totals["copies"] += 1
             totals["saved"] += listing[k][0]
-            if seen.split("/")[1] != k.split("/")[1]:
-                totals["across"] += listing[k][0]
+        if ks:
+            totals["across"] += listing[ks[0]][0] * sum(len(d) - 1 for d in comps.values())
     return totals
