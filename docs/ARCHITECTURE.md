@@ -643,6 +643,27 @@ serves and old bytes in R2 are no difference. When the sampled datasets that dif
 one, the message asks for `REBUILD`, since the check passes once the sampled entries are raised
 and the unsampled ones would be reused unchanged.
 
+## Storage cost
+
+R2 bills storage, and the archive only grows. `/health.json` carries two figures under `storage`,
+each saying what it covers. `projected` is the build's estimate, with the versions-a-year model of
+`python -m publicdata cost`: the bytes every built version holds in `publicdata-dist` with its
+publisher's file once in `publicdata-raw`, the same a year on, the growth a year from each entry's
+newest version and the versions its cadence and history give, and the D1 rows written a year. The
+two differ in how they size a version: `cost` reads the live catalogue and counts every stored
+version at its newest one's size, where the build counts each version's own files. `measured` is
+Cloudflare's own figure for every object in those two buckets, build cache and query copies
+included. Each bucket's figure is its newest reading from the past 7 days, and `measured_at` is
+the time of the older of the two. The deploy to production writes it into the built `health.json`
+before pushing the pages (`publicdata measure`), so the build stays the same from the same inputs.
+When it cannot be read, `available` is false with a reason from a fixed set, and the deploy goes
+on. The step reads with its own token, `CLOUDFLARE_ANALYTICS_TOKEN` in the `production`
+environment, which holds Account Analytics Read and nothing else. Without it the reason says no
+token is set. Neither figure is priced; R2 Standard is $0.015 per GB-month after 10 GB free.
+
+The Cloudflare account also holds a budget alert on its usage-based spend, and the maintainers
+receive it.
+
 ## Query API
 
 Everything the site answers dynamically is under `/api/v1/`. `/api/v1/datasets/<slug>/rows` and
