@@ -1,0 +1,24 @@
+slug: au-bom-weather-observations
+title: Latest weather observations, Bureau of Meteorology
+status: blocked
+topics:
+- nature
+order: 94
+summary: Ten-minute observations from Australian weather stations, kept as a dated record for each
+  station.
+publisher:
+  name: Bureau of Meteorology
+  short: BoM
+  jurisdiction: Cth
+  url: https://www.bom.gov.au/
+licence:
+  id: BOM-COPYRIGHT-NOTICE
+  reviewed: '2026-10-05'
+  evidence: https://www.bom.gov.au/copyright
+source:
+  adapter: none
+  url: https://reg.bom.gov.au/catalogue/data-feeds.shtml
+blocked_reason: We asked the Bureau on 2 October 2026 for permission to republish the observations. On
+  5 October 2026 the Bureau replied that this use needs a paid Registered User licence, and that licence
+  does not allow the files to be passed on as released. On 6 October 2026 we asked whether the Bureau
+  offers an arrangement that would allow an open release. We are waiting for its answer.

@@ -1,0 +1,24 @@
+slug: wa-fuelwatch-historic-prices
+title: Historic retail and terminal gate fuel prices, FuelWatch
+status: blocked
+topics:
+- economy
+order: 93
+summary: Monthly files of every WA retail fuel price reported to FuelWatch, and the terminal gate
+  price history.
+publisher:
+  name: Department of Energy, Mines, Industry Regulation and Safety
+  short: FuelWatch
+  jurisdiction: WA
+  url: https://www.fuelwatch.wa.gov.au/
+licence:
+  id: FUELWATCH-TERMS
+  reviewed: '2026-10-07'
+  evidence: https://www.fuelwatch.wa.gov.au/terms-and-conditions
+source:
+  adapter: none
+  url: https://www.fuelwatch.wa.gov.au/retail/historic
+blocked_reason: We asked FuelWatch on 2 October 2026 for permission to republish the historic files.
+  On 7 October 2026 FuelWatch declined in writing. It corrects past prices when it finds errors and
+  keeps its own download pages as the primary copy. Both histories can be downloaded from FuelWatch,
+  and the terminal gate prices are at https://www.fuelwatch.wa.gov.au/industry/historic-terminal-gate-prices.

@@ -1,0 +1,23 @@
+slug: wa-western-power-outages
+title: Power outages, Western Power
+status: blocked
+topics:
+- emergencies
+order: 92
+summary: Planned and unplanned electricity outages on the south-west network, as shown on Western
+  Power's Power Outages page.
+publisher:
+  name: Western Power
+  short: Western Power
+  jurisdiction: WA
+  url: https://www.westernpower.com.au/
+licence:
+  id: WESTERN-POWER-TERMS
+  reviewed: '2026-10-07'
+  evidence: https://www.westernpower.com.au/terms--conditions/
+source:
+  adapter: none
+  url: https://www.westernpower.com.au/outages/
+blocked_reason: We asked Western Power on 2 October 2026 for permission to republish this data. On 7
+  October 2026 Western Power declined in writing, since its website terms allow personal use only. The
+  outage information remains on Western Power's own site.
