@@ -66,7 +66,7 @@ fi
 # ones included, since they load the real register. Validation lists every entry, so its output
 # is shown only when it fails.
 if touches register; then
-  if ! command -v pytest >/dev/null 2>&1 || ! python -c 'import publicdata, xdist' >/dev/null 2>&1; then
+  if ! command -v pytest >/dev/null 2>&1 || ! python -c 'import publicdata' >/dev/null 2>&1; then
     missing "pytest or the pipeline's environment" './pipeline[dev]'
   fi
   if ! validated=$(cd pipeline && python -m publicdata register validate 2>&1); then

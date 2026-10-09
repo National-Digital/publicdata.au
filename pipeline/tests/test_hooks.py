@@ -508,6 +508,17 @@ def test_pre_commit_warns_when_an_r_package_is_not_the_version_ci_pins(
     assert f"warning: styler is 0.0.1 here and {R_PINS['styler']} in CI" in out.stdout + out.stderr
 
 
+def test_pre_commit_fails_when_ci_pins_no_version_of_an_r_package(
+    r_repo: Path, tmp_path: Path
+) -> None:
+    ci = r_repo / ".github" / "workflows" / "clients.yml"
+    ci.write_text(re.sub(r"cyclocomp@[0-9.]+", "cyclocomp", ci.read_text()), encoding="utf-8")
+    out = _commit(r_repo, R_CODE, [_r_bin(tmp_path, Rscript=_rscript(tmp_path))])
+    assert out.returncode != 0
+    assert "clients.yml pins no version of cyclocomp" in out.stdout + out.stderr
+    assert not (tmp_path / "rscript.log").exists()
+
+
 def test_pre_commit_runs_no_r_check_without_staged_r_code(r_repo: Path, tmp_path: Path) -> None:
     files = {"clients/r/NEWS.md": "# x\n", "clients/r/man/x.Rd": "x\n", "docs/x.R.txt": "x\n"}
     out = _commit(r_repo, files, [_r_bin(tmp_path)])

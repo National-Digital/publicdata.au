@@ -102,7 +102,10 @@ if [ -n "$r_files" ]; then
     for r_pkg in lintr cyclocomp styler; do
       r_pin=$(printf '%s\n' "$r_pins" | grep -oE "$r_pkg@[0-9.]+" | head -n 1)
       r_ver=$(printf '%s\n' "$r_have" | sed -n "s/^$r_pkg \([^ ]*\).*/\1/p")
-      if [ -z "$r_ver" ] || [ "$r_ver" = missing ]; then
+      if [ -z "$r_pin" ]; then
+        echo "pre-commit: clients.yml pins no version of $r_pkg; add it where the R client job installs its packages"
+        r_failed=1
+      elif [ -z "$r_ver" ] || [ "$r_ver" = missing ]; then
         echo "pre-commit: R package $r_pkg not found; install $r_pin, the version clients.yml pins: Rscript -e 'pak::pak(\"$r_pin\")'"
         r_failed=1
       elif [ "$r_pkg@$r_ver" != "$r_pin" ]; then
