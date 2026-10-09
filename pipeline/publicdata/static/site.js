@@ -552,7 +552,8 @@
   }
 
   // The most-voted datasets, from the register and the catalogue alike. The page's own rows stay
-  // until there are votes to show, and then fill the table behind them so it keeps its height.
+  // until there are votes to show, and then fill the table behind them so it keeps its height. Votes
+  // past the page's row count wait behind a button, so the table only grows when a reader asks.
   var mw = document.getElementById('most-wanted');
   if (mw) {
     var mlimit = +mw.dataset.limit || 5, mbody = mw.querySelector('tbody'), mfirst = [].slice.call(mbody.rows), msize = mfirst.length || mlimit;
@@ -571,15 +572,28 @@
         keys.forEach(function (k) {
           var e = reg[k];
           var r = e ? { title: e.title, summary: e.summary, publisher: e.publisher.name, jur: e.publisher.jurisdiction.toLowerCase(), licence: e.licence.title, url: e.source, state: e.status === 'blocked' ? 'closed' : 'chosen', reason: e.blocked_reason, vote: k } : by[k];
-          if (r && r.state !== 'served' && rows.length < msize) { rows.push(catRow(r)); shown[k] = 1; }
+          if (r && r.state !== 'served') { rows.push(catRow(r)); shown[k] = 1; }
         });
         if (!rows.length) return;
+        var extra = rows.splice(msize);
         mfirst.forEach(function (tr) {
           var b = tr.querySelector('[data-vote]');
           if (rows.length < msize && !(b && shown[b.dataset.vote])) rows.push(tr);
         });
         mbody.textContent = '';
-        rows.forEach(function (r) { mbody.appendChild(r); });
+        rows.concat(extra).forEach(function (r) { mbody.appendChild(r); });
+        if (!extra.length) return;
+        extra.forEach(function (r) { r.hidden = true; });
+        var mb = el('button', 'btn ghost', 'Show ' + extra.length + ' more ' + (extra.length === 1 ? 'dataset' : 'datasets'));
+        mb.type = 'button'; mb.setAttribute('aria-controls', mw.id); mb.setAttribute('aria-expanded', 'false');
+        var mp = el('p'); mp.appendChild(mb);
+        mw.parentNode.parentNode.insertBefore(mp, mw.parentNode.nextSibling);
+        mb.addEventListener('click', function () {
+          extra.forEach(function (r) { r.hidden = false; });
+          mb.setAttribute('aria-expanded', 'true');
+          extra[0].querySelector('a').focus();
+          mp.hidden = true;
+        });
       });
     });
   }
