@@ -516,9 +516,10 @@ because it says whether it is the newest. Pull-request previews skip
 `--versioned`, because they never write to R2.
 
 A version built once is not built again while its inputs are unchanged: its source, its register
-entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps a build cache in R2, under `_build/` in
-`publicdata-raw` (`publicdata cache pull|push`), that holds for each version only its small
-files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
+entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps
+a build cache in the R2 bucket `publicdata-build-cache` (`publicdata cache pull|push`), apart from
+the raw store so that no credential the fetch runner holds can write it. It holds for each version
+only its small files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
 the deploy that built them, so a cached build lists them in `absent.json` instead of writing them,
 the gate counts them as present, and `dist-push --expect` stops the deploy if R2 lacks any of
 them or holds one of their query copies in another layout. The Parquet a diff, the history archive or a page reads is read back from
@@ -568,7 +569,7 @@ cached, so none of them is in the entry or `absent.json`. The limits live in
 `serialise/__init__.py` and apply only to versions built for the first time. The
 determinism job proves this by building the fixtures with a subset of formats into a cache and
 then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, each entry's record after its files,
-and the last push of a deploy to main notes the entries its build pruned in `_build/.unused.json`.
+and the last push of a deploy to main notes the entries its build pruned in `.unused.json`.
 An entry is deleted, its record first, only once it has stayed unused for a day, so a preview
 that listed it before main stopped using it still finds it whole. Source bytes are
 pulled only for versions the cache does not hold. A deploy dispatched with `replace` builds
