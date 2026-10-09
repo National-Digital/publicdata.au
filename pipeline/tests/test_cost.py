@@ -616,10 +616,7 @@ def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site):
     from publicdata.register import load
 
     health = json.loads((fixture_site / "health.json").read_text("utf-8"))
-    assert health["storage"]["measured"] == {
-        "available": False,
-        "reason": "measured only by a deploy to production",
-    }
+    assert health["storage"]["measured"] == {"available": False, "reason": cost.UNSTAMPED}
     s = health["storage"]["projected"]
     assert s["covers"] == cost.PROJECTED_COVERS
     assert not any("usd" in k for k in s)
@@ -755,12 +752,32 @@ def test_an_unexpected_failure_publishes_no_detail_of_it(tmp_path, capsys):
 
 
 def test_the_measure_command_never_fails_a_deploy(tmp_path, monkeypatch):
-    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_ANALYTICS_TOKEN", raising=False)
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "deploy-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+    monkeypatch.setattr(cost, "_open", lambda *a: pytest.fail("measured without its own token"))
     health = tmp_path / "health.json"
     health.write_text(json.dumps({"storage": {}}), "utf-8")
     assert main(["measure", str(health)]) == 0
     m = json.loads(health.read_text("utf-8"))["storage"]["measured"]
-    assert m["available"] is False and "CLOUDFLARE_API_TOKEN" in m["reason"]
+    assert m == {"available": False, "reason": "no analytics token is set for the deploy"}
+
+
+def test_the_measure_command_reads_with_the_analytics_token(tmp_path, monkeypatch):
+    seen = []
+
+    def fake(req, timeout):
+        seen.append(req.get_header("Authorization"))
+        raise urllib.error.HTTPError(cost.GRAPHQL, 403, "Forbidden", {}, None)
+
+    monkeypatch.setenv("CLOUDFLARE_ANALYTICS_TOKEN", "analytics-token")
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "deploy-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+    monkeypatch.setattr(cost, "_open", fake)
+    health = tmp_path / "health.json"
+    health.write_text(json.dumps({"storage": {}}), "utf-8")
+    assert main(["measure", str(health)]) == 0
+    assert set(seen) == {"Bearer analytics-token"}
 
 
 class Host:

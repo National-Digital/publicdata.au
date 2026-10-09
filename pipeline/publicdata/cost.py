@@ -508,9 +508,12 @@ PROJECTED_COVERS = (
 )
 MEASURED_COVERS = (
     "Cloudflare's own measurement of every object in publicdata-dist and publicdata-raw, the build "
-    "cache and the query copies included."
+    "cache and the query copies included. Each bucket's figure is its newest reading from the past "
+    "7 days, and measured_at is the time of the older of the two."
 )
 MEASURED_BUCKETS = ("publicdata-dist", "publicdata-raw")
+# True of a build and of a deploy whose measure step did not finish.
+UNSTAMPED = "no deploy to production has written Cloudflare's measurement into this file"
 GRAPHQL = "https://api.cloudflare.com/client/v4/graphql"
 # One newest reading per bucket, so the account's other buckets and the sampling rate never crowd
 # it out.
@@ -549,7 +552,7 @@ class Fleet:
                 "growth_bytes_per_year": self.bytes_per_year,
                 "d1_rows_written_per_year": self.d1_rows_per_year,
             },
-            "measured": unmeasured("measured only by a deploy to production"),
+            "measured": unmeasured(UNSTAMPED),
         }
 
 

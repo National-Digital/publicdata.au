@@ -1013,11 +1013,14 @@ def cmd_measure(args) -> int:
 
     from . import cost
 
-    account, token = os.environ.get("CLOUDFLARE_ACCOUNT_ID"), os.environ.get("CLOUDFLARE_API_TOKEN")
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    token = os.environ.get("CLOUDFLARE_ANALYTICS_TOKEN")
 
     def measure():
-        if not account or not token:
-            raise cost.Unmeasured("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are not set")
+        if not token:
+            raise cost.Unmeasured("no analytics token is set for the deploy")
+        if not account:
+            raise cost.Unmeasured("no Cloudflare account is set for the deploy")
         return cost.measure_r2(account, token, dt.datetime.now(dt.UTC))
 
     m = cost.stamp_health(Path(args.health), measure)
