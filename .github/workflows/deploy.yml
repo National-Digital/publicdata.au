@@ -436,7 +436,14 @@ jobs:
           fi
           [ -f absent.json ] || echo '[]' > absent.json
           python -m publicdata gate "$DIST" --absent absent.json
-          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 ${VERSIONED:+"$VERSIONED"}
+          # The cap is the account's, read from the project's upload token; the summary keeps the
+          # count beside it, so the deploy warns well before Pages would refuse it.
+          cap=$(python -m publicdata pages-cap)
+          status=0
+          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 --max-files "$cap" ${VERSIONED:+"$VERSIONED"} > split.log 2>&1 || status=$?
+          cat split.log
+          grep 'left for Pages' split.log >> "$GITHUB_STEP_SUMMARY" || true
+          [ "$status" -eq 0 ] || exit "$status"
           df -h / | tail -1
       - name: Push version files to R2
         if: env.HAS_CF == 'true' && github.event_name != 'pull_request'

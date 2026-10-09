@@ -1070,3 +1070,73 @@ def test_only_a_web_url_is_probed():
     ds = entry("t", source=Source(adapter="file", url="file:///proc/self/environ"))
     with pytest.raises(cost.Unsized, match="not an http or https URL"):
         cost.probe(ds)
+
+
+def _upload_token(claims):
+    """Answers as the Pages API does: an upload token whose payload carries the plan's claims."""
+    import base64
+
+    body = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+
+    def fake(req, timeout):
+        assert req.full_url == cost.PAGES_API.format(account="acct", project="publicdata-au")
+        assert req.get_header("Authorization") == "Bearer tok"
+        return _Resp(200, {}, json.dumps({"result": {"jwt": f"h.{body}.s"}}).encode())
+
+    return fake
+
+
+def test_the_pages_file_cap_is_the_upload_tokens_claim_or_pages_default(monkeypatch):
+    monkeypatch.setattr(cost, "_open", _upload_token({"max_file_count_allowed": 100_000}))
+    assert cost.pages_file_cap("acct", "tok") == 100_000
+    for claims in ({}, {"max_file_count_allowed": "lots"}, {"max_file_count_allowed": True}):
+        monkeypatch.setattr(cost, "_open", _upload_token(claims))
+        assert cost.pages_file_cap("acct", "tok") == cost.PAGES_FILES == 20_000
+
+
+def test_an_unreadable_pages_cap_says_why_without_the_token(monkeypatch, capsys):
+    from publicdata.__main__ import main
+
+    def refused(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(cost, "SLEEP", lambda s: None)
+    monkeypatch.setattr(cost, "_open", refused)
+    with pytest.raises(cost.Unmeasured, match="HTTP 403"):
+        cost.pages_file_cap("acct", "tok")
+    monkeypatch.setattr(cost, "_open", lambda req, timeout: _Resp(200, {}, b'{"result": {}}'))
+    with pytest.raises(cost.Unmeasured, match="no upload token"):
+        cost.pages_file_cap("acct", "tok")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
+    assert main(["pages-cap"]) == 0
+    out = capsys.readouterr()
+    assert out.out == "20000\n"
+    assert "no upload token, so the default of 20,000 is assumed" in out.err
+    assert "tok" not in out.err.replace("token", "")
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN")
+    monkeypatch.setattr(cost, "_open", lambda *a: pytest.fail("read without a token"))
+    assert main(["pages-cap"]) == 0
+    assert capsys.readouterr().out == "20000\n"
+
+
+def test_split_warns_near_the_pages_cap_and_fails_over_it(tmp_path, capsys):
+    from publicdata.__main__ import main
+
+    out, large = tmp_path / "dist", tmp_path / "large"
+    out.mkdir()
+    for n in range(8):
+        (out / f"{n}.html").write_text("x")
+    split = ["split", "--out", str(out), "--large", str(large)]
+    assert main(split) == 0
+    assert "left for Pages" not in capsys.readouterr().out
+    assert main([*split, "--max-files", "20"]) == 0
+    printed = capsys.readouterr().out
+    assert "split: 8 file(s) left for Pages, of the 20 one deployment may hold" in printed
+    assert "::warning::" not in printed
+    assert main([*split, "--max-files", "10"]) == 0
+    assert "::warning::Pages holds 8 of the 10 files" in capsys.readouterr().out
+    assert main([*split, "--max-files", "7"]) == 1
+    err = capsys.readouterr().err
+    assert "8 files would go to Pages, over the 7 cap" in err
+    assert "serve the place pages from R2 as #132 does" in err

@@ -573,6 +573,42 @@ class Unmeasured(Exception):
     """A reason the measurement is unavailable, worded to be published."""
 
 
+PAGES_API = (
+    "https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/{project}/upload-token"
+)
+# What a Pages deployment may hold when the upload token states no cap, as wrangler assumes.
+PAGES_FILES = 20_000
+
+
+def pages_file_cap(account: str, token: str, project: str = "publicdata-au") -> int:
+    """How many files the account's plan lets one Pages deployment hold, as the project's upload
+    token states it in `max_file_count_allowed`. The token itself is never kept or shown."""
+    import base64
+
+    req = urllib.request.Request(
+        PAGES_API.format(account=account, project=project),
+        headers={"Authorization": f"Bearer {token}", "User-Agent": UA},
+    )
+
+    def get():
+        with _open(req, 30) as r:
+            return json.load(r)
+
+    try:
+        doc = retry(get)
+    except urllib.error.HTTPError as e:
+        raise Unmeasured(f"the Pages API answered HTTP {e.code}") from e
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        raise Unmeasured("the Pages API could not be read") from e
+    try:
+        body = (doc.get("result") or {})["jwt"].split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    except (KeyError, IndexError, TypeError, AttributeError, ValueError) as e:
+        raise Unmeasured("the Pages API gave no upload token") from e
+    cap = claims.get("max_file_count_allowed") if isinstance(claims, dict) else None
+    return cap if isinstance(cap, int) and not isinstance(cap, bool) and cap > 0 else PAGES_FILES
+
+
 def measure_r2(account: str, token: str, now: dt.datetime) -> dict:
     """The newest stored bytes Cloudflare reports for each archive bucket. The token needs Account
     Analytics Read."""

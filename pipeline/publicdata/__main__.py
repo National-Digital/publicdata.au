@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip|shared-report | hubs | contribute | cost | measure."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | pages-cap | store pull/push | dist-push | checksums | r2 restore-gzip|shared-report | hubs | contribute | cost | measure."""
 
 from __future__ import annotations
 
@@ -359,6 +359,8 @@ def _absent(path: str | None) -> list[str]:
 
 
 VERSIONED_FILE = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/")
+# The share of the Pages file cap at which the deploy starts to warn.
+PAGES_WARN = 0.8
 
 
 def cmd_split(args) -> int:
@@ -399,7 +401,40 @@ def cmd_split(args) -> int:
         print(
             f"split: {rel} is over the Pages limit and no route reaches R2 for it", file=sys.stderr
         )
+    if args.max_files is None:
+        return 1 if stranded else 0
+    left, cap = sum(1 for p in out.rglob("*") if p.is_file()), args.max_files
+    print(f"split: {left:,} file(s) left for Pages, of the {cap:,} one deployment may hold")
+    fix = (
+        "move the account to a Cloudflare plan that allows more files, "
+        "or serve the place pages from R2 as #132 does"
+    )
+    if left > cap:
+        print(
+            f"split: {left:,} files would go to Pages, over the {cap:,} cap; {fix}", file=sys.stderr
+        )
+        return 1
+    if left >= cap * PAGES_WARN:
+        print(
+            f"::warning::Pages holds {left:,} of the {cap:,} files one deployment may hold; {fix}"
+        )
     return 1 if stranded else 0
+
+
+def cmd_pages_cap(args) -> int:
+    from . import cost
+
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    try:
+        if not (account and token):
+            raise cost.Unmeasured("no Cloudflare token or account is set")
+        cap = cost.pages_file_cap(account, token)
+    except cost.Unmeasured as e:
+        print(f"pages cap: {e}, so the default of {cost.PAGES_FILES:,} is assumed", file=sys.stderr)
+        cap = cost.PAGES_FILES
+    print(cap)
+    return 0
 
 
 def cmd_catalogue(args) -> int:
@@ -1296,7 +1331,17 @@ def main(argv=None) -> int:
     s.add_argument("--large", default=str(ROOT / "dist-large"))
     s.add_argument("--limit-mib", type=float, default=24)
     s.add_argument("--versioned", action="store_true", help="also move every dated version file")
+    s.add_argument(
+        "--max-files",
+        type=int,
+        help="the files one Pages deployment may hold, as `publicdata pages-cap` reads it, "
+        "to fail over and warn near",
+    )
     s.set_defaults(fn=cmd_split)
+    pc = sub.add_parser(
+        "pages-cap", help="print how many files the account's plan lets a Pages deployment hold"
+    )
+    pc.set_defaults(fn=cmd_pages_cap)
     ca = sub.add_parser("catalogue").add_subparsers(dest="sub", required=True)
     cf = ca.add_parser("fetch", help="harvest every portal's dataset list into the store")
     cf.add_argument("--store", default=str(STORE))

@@ -451,6 +451,16 @@ build. The Pages Function under `functions/d/` serves a static file
 when Pages has it, redirects `latest/` from `latest.json`, and otherwise streams the object from
 R2 with a sized HEAD and immutable caching.
 
+A Pages deployment may hold only so many files, and the account's plan sets how many: 20,000 on
+a free Cloudflare plan and 100,000 on paid ones. `publicdata pages-cap` reads the figure from
+the `max_file_count_allowed` claim in the project's upload token, as wrangler does, and assumes
+20,000 when the token cannot be read or states none. The deploy hands it to `split --max-files`,
+which puts the count of files left for Pages beside the cap in the deploy's summary, warns from
+80% of the cap, and fails the deploy above it before anything is published. A preview keeps the
+version files of the versions it builds on Pages, so its count runs ahead of production's and it
+warns first. Near the cap, either the account moves to a plan that allows more files, or the
+place pages are served from R2, as the closed #132 does and can be reopened to do.
+
 A dated text file (CSV, NDJSON, JSON, GeoJSON, `schema.sql` and any other text over 1 KB) is
 stored in R2 gzipped: deterministic gzip at level 6 with no name and mtime 0, marked
 `Content-Encoding: gzip`, with the decoded size and SHA-256 as metadata (`size`, `sha256`).
