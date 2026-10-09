@@ -1,6 +1,8 @@
 // The explorer: DuckDB-WASM holds one version's Parquet in the browser and Perspective draws the
 // dashboard over it. The dashboard lives in the URL fragment; a short link stores it through the API.
 const X = JSON.parse(document.getElementById('ex-data').textContent);
+// The explorer's own path on this site, so the page data cannot turn its links into a script.
+const PAGE = ownPath(X.page);
 const $ = (id) => document.getElementById(id);
 const TABLE = 'memory.records';
 const status = $('x-status');
@@ -9,6 +11,10 @@ let viewer = null;
 let current = null;
 // An embed is read-only unless its snippet asked for edit=1.
 const EDIT = !X.embed || new URLSearchParams(location.search).get('edit') === '1';
+
+function ownPath(p) {
+  return /^\/d\/[a-z0-9-]+\/explore\/$/.test(p) ? p : '';
+}
 
 function say(text, state) {
   status.textContent = text;
@@ -479,7 +485,7 @@ function remember() {
     const packed = await pack(await snapshot());
     // An embed keeps its own address; its explorer link carries the reader's changes instead.
     if (X.embed) {
-      $('x-open').href = `${location.origin}${X.page}#x=${packed}`;
+      $('x-open').href = `${location.origin}${PAGE}#x=${packed}`;
       return;
     }
     history.replaceState(null, '', `${location.pathname}#x=${packed}`);
@@ -589,7 +595,7 @@ function bindToolbar() {
   ver.addEventListener('change', async () => {
     const s = await snapshot();
     s.v = ver.value;
-    history.replaceState(null, '', `${X.page}#x=${await pack(s)}`);
+    history.replaceState(null, '', `${PAGE}#x=${await pack(s)}`);
     location.reload();
   });
   $('x-link').addEventListener('click', async () => {
@@ -607,8 +613,8 @@ function bindToolbar() {
     busy(btn, true);
     try {
       const id = await save();
-      const url = `${location.origin}${X.page}?view=${id}`;
-      history.replaceState(null, '', `${X.page}?view=${id}`);
+      const url = `${location.origin}${PAGE}?view=${id}`;
+      history.replaceState(null, '', `${PAGE}?view=${id}`);
       $('x-short-url').textContent = url;
       $('x-short').hidden = false;
       $('x-embed').hidden = true;
@@ -724,10 +730,10 @@ async function main() {
   );
   if (X.embed) {
     $('x-open').href =
-      `${location.origin}${X.page}${start.view ? `?view=${start.view}` : location.hash}`;
+      `${location.origin}${PAGE}${start.view ? `?view=${start.view}` : location.hash}`;
   }
   if (start.view && !X.embed) {
-    $('x-short-url').textContent = `${location.origin}${X.page}?view=${start.view}`;
+    $('x-short-url').textContent = `${location.origin}${PAGE}?view=${start.view}`;
     $('x-short').hidden = false;
   }
 }

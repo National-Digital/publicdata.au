@@ -46,11 +46,15 @@
     function fmt() {
       return seg.querySelector('[aria-pressed="true"]').dataset.fmt;
     }
+    // A version's file on this site over http(s), so the page data cannot make the link a script.
+    var FILE_URL =
+      /^https?:\/\/[a-z0-9.-]+(?::\d+)?\/d\/[a-z0-9-]+\/(?:latest|v\/\d{4}-\d{2}-\d{2})\/[A-Za-z0-9_./-]+$/;
     function url() {
       var v = ver ? ver.value : 'latest',
         f = fmt();
       var file = D.formats[f].file;
-      return D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
+      var u = D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
+      return FILE_URL.test(u) ? u : '';
     }
     // download_name() in site.py and functions/_download.js.
     function saveAs() {
@@ -295,7 +299,9 @@
       document.getElementById('url').textContent = u;
       document.getElementById('dl').setAttribute('href', u);
       document.getElementById('dl').setAttribute('download', saveAs());
-      document.getElementById('fmt-note').innerHTML = D.formats[f].note;
+      getter.querySelectorAll('[data-note]').forEach(function (n) {
+        n.hidden = n.getAttribute('data-note') !== f;
+      });
       var t = tools(f, u),
         names = Object.keys(t);
       if (names.indexOf(curTool) < 0) {
@@ -335,7 +341,9 @@
   // Dataset page: a query builder over the query API. Nothing is fetched until Run.
   var qc = document.getElementById('console');
   var QC = qc && JSON.parse(document.getElementById('ds-data').textContent).console;
-  if (QC) {
+  // The console's links stay on this site's query API.
+  if (QC && /^\/api\/v1\/datasets\/[a-z0-9-]+\/$/.test(QC.api)) {
+    var qApi = QC.api;
     var F = {};
     QC.fields.forEach(function (f) {
       F[f.name] = f;
@@ -824,7 +832,7 @@
     };
     var path = function (p) {
       return (
-        QC.api +
+        qApi +
         (S.version ? 'versions/' + S.version + '/' : '') +
         S.mode +
         (p.length

@@ -712,20 +712,15 @@ def _default_format(ds: Dataset, latest: VersionOut) -> str:
 
 
 def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
-    """The format buttons and what site.js needs for each: the file and its note. The default
+    """The format buttons with their notes, and the file site.js needs for each. The default
     format comes first and is the one pressed."""
     first = _default_format(ds, latest)
     order = sorted(_fmts(ds, latest), key=lambda f: f != first)
     formats = [{"key": f, "label": FORMAT_LABEL[f], "file": f"data.{f}"} for f in order]
     for f in formats:
         f["size"] = fmt_size(latest.files.get(f["file"]))
-    fmt_data = {
-        f["key"]: {
-            "file": f["file"],
-            "note": _format_note(ds, f["key"], latest.rows),
-        }
-        for f in formats
-    }
+        f["note"] = _format_note(ds, f["key"], latest.rows)
+    fmt_data = {f["key"]: {"file": f["file"]} for f in formats}
     if ds.partition_by:
         pf = ds.partition_by[0]
         entries = latest.partitions.get(pf, [])
@@ -737,14 +732,12 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[dict], dict]:
                     "label": f"One {pf.replace('_', ' ')}",
                     "size": f"{len(entries)} files",
                     "file": ex["json"],
+                    "note": FORMAT_NOTES["partition"].format(
+                        field=pf, count=len(entries), example=ex["json"]
+                    ),
                 }
             )
-            fmt_data["partition"] = {
-                "file": ex["json"],
-                "note": FORMAT_NOTES["partition"].format(
-                    field=pf, count=len(entries), example=ex["json"]
-                ),
-            }
+            fmt_data["partition"] = {"file": ex["json"]}
     return formats, fmt_data
 
 

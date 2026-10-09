@@ -181,7 +181,7 @@
       </div>
     </div>
     <div class="urlbox"><div class="path" id="url" tabindex="0">{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}" download="{{ download_name(demo.slug, demo.version, demo.formats[0].file) }}">Download</a></div>
-    <p class="fmt-note" id="fmt-note"></p>
+    {% for f in demo.formats %}<p class="fmt-note" data-note="{{ f.key }}"{% if not loop.first %} hidden{% endif %}>{{ f.note|safe }}</p>{% endfor %}
     <div>
       <div class="tools" role="tablist" aria-label="How to use" id="tools"></div>
       <pre id="snippet"><button class="copy abs" type="button" data-copy-target="snippet-code">Copy</button><code id="snippet-code">curl -L -o {{ demo.formats[0].file }} {{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}</code></pre>
