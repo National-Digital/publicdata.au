@@ -9,9 +9,10 @@ smallest cube holding every field it names.
 A rollup is a cache of answers the query API gives for that version, kept in R2 under
 `_rollup/`, outside the published tree. It is never a download and carries the version's
 provenance header like every answer does. Rollups are written by the deploy after the D1 load,
-for exactly the versions D1 holds, so they shape no version's files and the build cache does not
-key on this module. Each rollup is stamped with the identity of the Parquet it was built from,
-and the deploy writes it again and the function refuses it whenever that Parquet changes.
+for the versions D1 holds and every version of an entry with `query: false`, so they shape no
+version's files and the build cache does not key on this module. Each rollup is stamped with the
+identity of the Parquet it was built from, and the deploy writes it again and the function
+refuses it whenever that Parquet changes.
 """
 
 from __future__ import annotations

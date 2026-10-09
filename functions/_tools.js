@@ -144,7 +144,7 @@ async function fromFile(ctx, slug, v, op, qs, path, url, counted) {
     // when the version's rollup holds the count.
     const known = e instanceof BudgetError && entry.profiled && counted ? await counted(v).catch((x) => { console.error(`rollup ${slug} ${v}: ${x}`); return null; }) : null;
     if (known === null) throw e;
-    // A page still over the budget is refused with the full query's cost, not the partial read's.
+    // A page still over the budget is refused with the cost of the full query.
     r = await parquetRows(ctx.env, entry, params, url, undefined, known).catch((x) => { throw x instanceof BudgetError ? e : x; });
   }
   // The query API answers this path only while D1 holds the version, so the manifest is linked for

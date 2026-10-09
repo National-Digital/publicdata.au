@@ -602,8 +602,8 @@ follows the profile. It then reads in file order only until the page is full or 
 reached, a few pages of the first filter column at a time and doubling, reading the column whose
 page statistics leave the fewest rows first and each other one only over the rows still matching. A
 page still over the budget is refused with the full query's cost. The picked rows' columns are read
-over runs of picks on the same or the next page, not every page between the first and the last, and
-a column chunk's dictionary is charged once per read however many ranges it serves.
+over runs of picks that lie on the same or the next page, so pages between two distant picks are
+skipped, and a column chunk's dictionary is charged once per read however many ranges it serves.
 
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
