@@ -37,10 +37,10 @@ ratios is a factor of 7 to 12, which leaves the saving well under a megabyte.
 
 ## What period parts change
 
-#53, still open, writes a finished period part once. When a part's rows and schema match the
-snapshot before, the next manifest points at the earlier snapshot's file, which stays at its own
-version path. The reuse is decided on rows, so the provenance header in each part does not stop
-it, and no request needs a lookup to find the file.
+#53, merged on 9 October 2026, writes a finished period part once. When a part's rows and schema
+match the snapshot before, the next manifest points at the earlier snapshot's file, which stays at
+its own version path. The reuse is decided on rows, so the provenance header in each part does not
+stop it, and no request needs a lookup to find the file.
 
 What #53 leaves to content addressing is the files it rewrites on every snapshot: the current
 period's part and the whole-table files kept beside small parts. Their `csv.gz` is the same bytes
@@ -69,8 +69,9 @@ would not catch those.
 
 ## Recommendation
 
-Leave #68 open and run `publicdata r2 shared-report` again once #53 has run for a quarter. The
-dated files cost about $1.35 a month at R2's $0.015 per GB-month, so the 914,622 bytes measured
-are worth less than a cent. Build the design when the report shows a saving worth more than the
-extra R2 read on each request for a shared file, which at $0.36 per million reads means a saving
-of several gigabytes.
+Leave #68 open and run `publicdata r2 shared-report` again once #53's period parts have run for a
+quarter. The dated files cost about $1.35 a month at R2's $0.015 per GB-month, so the 914,622 bytes
+measured are worth less than a cent. Build the design when the report shows a saving worth more than
+the extra R2 read on each request for a shared file, which at $0.36 per million reads means a saving
+of several gigabytes. The report also counts dated files it read without a stored SHA-256, which it
+can match on ETag alone, so a large count there means the saving is understated.
