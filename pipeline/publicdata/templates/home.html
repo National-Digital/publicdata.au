@@ -24,7 +24,7 @@
     </div>
     {% if newest %}<div class="ticker" data-conformance="aa">
       <span class="lab">Newest versions</span>
-      {% for n in newest %}<a class="v" href="/d/{{ n.slug }}/v/{{ n.version }}/"><b>{{ n.version }}</b> {{ n.slug }} <i>{{ n.rows }} rows</i>{% if n.as_at_long %} <i>as at {{ n.as_at_long }}</i>{% endif %}{% if n.new %} <em>new dataset</em>{% elif n.change.added is defined %} <span class="chg">+{{ n.change.added }} added · {{ n.change.changed }} changed</span>{% endif %}</a>{% endfor %}
+      {% for n in newest %}<a class="v" href="/d/{{ n.slug }}/v/{{ n.version }}/"><span class="s">{{ n.slug }}</span><b>{{ n.version }}</b> · <i>{{ n.rows }} rows</i>{% if n.as_at_long %} <i>as at {{ n.as_at_long }}</i>{% endif %}{% if n.new %} <em>new dataset</em>{% elif n.change.added is defined %} <span class="chg">+{{ n.change.added }} added · {{ n.change.changed }} changed</span>{% endif %}</a>{% endfor %}
     </div>{% endif %}
   </div>
 </div>
