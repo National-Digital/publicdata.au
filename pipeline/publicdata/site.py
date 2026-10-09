@@ -15,7 +15,7 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import OPERATOR, REPO, SITE, abbreviations, brand, explorer, figures, published
+from . import OPERATOR, REPO, SITE, abbreviations, brand, explorer, figures
 from . import api_text as at
 from . import ard as ardspec
 from .build import (
@@ -3387,6 +3387,8 @@ def render_site(
             return out / "d" / ds.slug / "v" / v.manifest.version / "data.parquet"
         dest = Path(rows_tmp.name) / f"{ds.slug}_{v.manifest.version}.parquet"
         if not dest.exists():
+            from . import published
+
             rels = [
                 f"{part_dir(ds.slug, r, v.manifest.version)}/{r['files']['parquet']['path']}"
                 for r in v.parts
