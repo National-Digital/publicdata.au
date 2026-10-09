@@ -436,9 +436,18 @@ Pages on Cloudflare Pages (project `publicdata-au`), data in R2. After the build
 split --versioned` moves every file of a dated version, its page included, and anything over the
 Pages per-file limit, into a tree that is pushed to the R2 bucket `publicdata-dist` at the same
 key as its URL path. Dated keys are written once; a mutable key such as `history.tar.zst` is
-rewritten when its SHA-256 changes. `_routes.json` runs the function only on `latest/`, dated version trees, diffs and the history
-archive, so a dataset page and its JSON are served as Pages files; split refuses a large file no
-route reaches. The Pages Function under `functions/d/` serves a static file
+rewritten when its SHA-256 changes. `_routes.json` runs the function only on `latest/`, dated
+version and fetch trees, diffs, change logs and the history archive, so a dataset page and its
+JSON are served as Pages files; split refuses a large file no route reaches. Each data file it
+serves saves under a name it gives in `content-disposition`, and no page, folder, diff or index of
+versions gets one. The name is `<slug>_<version>` and the file: `data.csv` is
+`<slug>_<version>.csv`, a period part adds its period (`_2022.parquet`, `_undated.parquet`), a
+feed's history part `_history_` and its period, a file under `latest/` or `fetch/` the fetch's
+date, a change log its fetch's date (`_changes.json`), the change log index none, and the history
+archive the newest version `latest.json` names. `download_name` in site.py and
+`functions/_download.js` hold the rule, tied by `pipeline/tests/fixtures/download_names.json`,
+and the dataset page's script takes each format's suffix and the date `latest/` serves from the
+build. The Pages Function under `functions/d/` serves a static file
 when Pages has it, redirects `latest/` from `latest.json`, and otherwise streams the object from
 R2 with a sized HEAD and immutable caching.
 

@@ -26,10 +26,12 @@
       var file = D.formats[f].file;
       return D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
     }
-    // download_name() in site.py and functions/_download.js.
+    // download_name() in site.py, with the suffix it gives each format and the date latest/ serves.
+    // A page cached from before a deploy lacks both for five minutes, so the older rule stands in.
     function saveAs() {
-      var v = ver ? ver.value : 'latest', file = D.formats[fmt()].file;
-      return D.slug + '_' + (v === 'latest' ? D.latest : v) + (file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_'));
+      var v = ver ? ver.value : 'latest', d = D.formats[fmt()], file = d.file;
+      var tail = d.suffix != null ? d.suffix : file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_');
+      return D.slug + '_' + (v === 'latest' ? D.served || D.latest : v) + tail;
     }
     function q(s) { return '"' + s + '"'; }
     function tools(f, u) {

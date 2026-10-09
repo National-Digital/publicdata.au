@@ -4,5 +4,14 @@
   {"slug": "qld-road-crash-locations", "version": "2026-04-24", "rel": "data.csv-metadata.json", "name": "qld-road-crash-locations_2026-04-24.csv-metadata.json"},
   {"slug": "qld-road-crash-locations", "version": "2026-04-24", "rel": "source.xlsx", "name": "qld-road-crash-locations_2026-04-24_source.xlsx"},
   {"slug": "qld-road-crash-locations", "version": "2026-04-24", "rel": "manifest.json", "name": "qld-road-crash-locations_2026-04-24_manifest.json"},
-  {"slug": "vic-vehicle-registrations-by-postcode", "version": "2026-07-14", "rel": "by/postcode/3000.json", "name": "vic-vehicle-registrations-by-postcode_2026-07-14_by_postcode_3000.json"}
+  {"slug": "vic-vehicle-registrations-by-postcode", "version": "2026-07-14", "rel": "by/postcode/3000.json", "name": "vic-vehicle-registrations-by-postcode_2026-07-14_by_postcode_3000.json"},
+  {"slug": "au-water-storage-levels", "version": "2026-10-06", "rel": "data.csv", "key": "d/au-water-storage-levels/fetch/2026-10-06/data.csv", "name": "au-water-storage-levels_2026-10-06.csv"},
+  {"slug": "au-water-storage-levels", "version": "2026-10-06", "rel": "parts/2022.parquet", "key": "d/au-water-storage-levels/v/2026-10-06/parts/2022.parquet", "name": "au-water-storage-levels_2026-10-06_2022.parquet"},
+  {"slug": "au-water-storage-levels", "version": "2026-10-06", "rel": "parts/2025-26.csv.gz", "key": "d/au-water-storage-levels/fetch/2026-10-06/parts/2025-26.csv.gz", "name": "au-water-storage-levels_2026-10-06_2025-26.csv.gz"},
+  {"slug": "au-eucalypt-records", "version": "2026-10-06", "rel": "parts/undated.parquet", "key": "d/au-eucalypt-records/v/2026-10-06/parts/undated.parquet", "name": "au-eucalypt-records_2026-10-06_undated.parquet"},
+  {"slug": "test-feed", "version": "2026-10-05", "rel": "history/2025.parquet", "key": "d/test-feed/v/2026-10-05/history/2025.parquet", "name": "test-feed_2026-10-05_history_2025.parquet"},
+  {"slug": "au-eucalypt-records", "version": "2026-10-06", "rel": "data.duckdb", "key": "d/au-eucalypt-records/v/2026-10-06/data.duckdb", "name": "au-eucalypt-records_2026-10-06.duckdb"},
+  {"slug": "test-feed", "version": "2026-10-06", "rel": "changes.json", "key": "d/test-feed/changes/2026-10-06.json", "name": "test-feed_2026-10-06_changes.json"},
+  {"slug": "test-feed", "version": "", "rel": "changes/index.json", "key": "d/test-feed/changes/index.json", "name": "test-feed_changes_index.json"},
+  {"slug": "test-feed", "version": "2026-10-05", "rel": "history.tar.zst", "key": "d/test-feed/history.tar.zst", "latest": {"test-feed": "2026-10-05"}, "name": "test-feed_2026-10-05_history.tar.zst"}
 ]
