@@ -87,6 +87,7 @@ pre .c{color:var(--muted)}
 .ledger .t{font-weight:500}
 .ledger .t a{color:var(--ink);text-decoration:none}
 .ledger .t a:hover{text-decoration:underline}
+.ledger .sub a{color:var(--link);text-decoration:underline}
 .ledger .sub{display:block;font-size:0.8125rem;color:var(--muted);margin-top:3px;font-weight:300}
 .ledger tr.group td{background:var(--code-bg);font-weight:500;font-size:0.8125rem;letter-spacing:.02em;padding:8px 12px}
 .ledger tr.group td span{color:var(--muted);font-weight:300;margin-left:8px}

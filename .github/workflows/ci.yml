@@ -233,9 +233,10 @@ jobs:
       # Every representative page must pass WCAG 2.2 AAA: axe's rules in light and in dark, and the
       # house checks on type size, line length, target size, link names, reflow and text spacing
       # (docs/ACCESSIBILITY.md). The checks are first proven to fire on pages built to fail them.
+      # The tasks file puts a contributor-task link on the backlog, as production builds have.
       - run: |
           node --test scripts/a11y.test.mjs
-          python -m publicdata build --fixtures --out dist
+          python -m publicdata build --fixtures --tasks pipeline/tests/fixtures/tasks.json --out dist
           node scripts/a11y.mjs dist
 
   functions:
