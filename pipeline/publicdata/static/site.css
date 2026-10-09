@@ -376,7 +376,7 @@ tr.closed td a{color:var(--muted)}
 .vote.small{min-width:56px;padding:4px 8px;flex-direction:row;gap:6px}
 .vote.small b{font-size:0.875rem}
 .vote.small span{font-size:0.75rem}
-.caveats{border-left:3px solid var(--secondary);background:var(--building-soft);padding:12px 16px;border-radius:0 6px 6px 0;margin-top:18px}
+.caveats{width:fit-content;max-width:100%;box-sizing:border-box;border-left:3px solid var(--secondary);background:var(--building-soft);padding:12px 16px;border-radius:0 6px 6px 0;margin-top:18px}
 .caveats .k{font-size:0.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:500}
 .caveats dl{margin:6px 0 0;display:grid;gap:8px}
 .caveats dt{font-weight:500;font-size:0.9375rem}
