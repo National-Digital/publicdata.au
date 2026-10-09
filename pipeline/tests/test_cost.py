@@ -1269,7 +1269,7 @@ FAKE_PYTHON = """#!/bin/sh
 case "$3" in
   pages-cap) [ -n "$CAP" ] && echo "$CAP"; [ -n "$CAP" ] ;;
   split) echo "$@" > "$ARGS"
-    case "$*" in *--max-files*) echo "split: 3 file(s) left for Pages, of the $CAP cap" ;; esac ;;
+    case "$*" in *--max-files*) echo "split: 1,001 file(s) left for Pages, of the $CAP cap" ;; esac ;;
 esac
 """
 
@@ -1283,7 +1283,7 @@ def _deploy_split(tmp_path: Path, cap: str) -> tuple[subprocess.CompletedProcess
     bin_, dist = tmp_path / "bin", tmp_path / "dist"
     bin_.mkdir()
     dist.mkdir()
-    for n in range(3):
+    for n in range(1001):
         (dist / f"{n}.html").write_text("x")
     (bin_ / "python").write_text(FAKE_PYTHON)
     (bin_ / "python").chmod(0o755)
@@ -1313,7 +1313,7 @@ def test_the_deploy_checks_the_pages_cap_it_reads(tmp_path: Path) -> None:
     assert run.returncode == 0, run.stderr
     assert "--max-files 100000" in args
     assert "::warning::" not in run.stdout
-    assert summary == "split: 3 file(s) left for Pages, of the 100000 cap\n"
+    assert summary == "split: 1,001 file(s) left for Pages, of the 100000 cap\n"
 
 
 def test_the_deploy_warns_and_checks_no_cap_when_none_is_read(tmp_path: Path) -> None:
@@ -1321,7 +1321,7 @@ def test_the_deploy_warns_and_checks_no_cap_when_none_is_read(tmp_path: Path) ->
     assert run.returncode == 0, run.stderr
     assert "--max-files" not in args
     assert "::warning::The Pages file cap could not be read from the account" in run.stdout
-    assert "split: 3 file(s) left for Pages. The Pages file cap could not be read" in summary
+    assert "split: 1,001 file(s) left for Pages. The Pages file cap could not be read" in summary
     assert "of the 20,000" not in summary
 
 
