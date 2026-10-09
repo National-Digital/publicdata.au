@@ -468,7 +468,11 @@ the rewrite and any rollback conditional on the ETag it read, so a deploy writin
 never undone, is a dry run from the listing unless given `--apply`, and skips what is already
 gzipped; `--dedupe-csv-gz` also deletes an old `data.csv.gz` whose bytes the gzipped CSV now
 holds. A deployment whose function predates gzip at rest serves these objects wrongly, so once
-they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe. A dataset missing from `latest.json` (the register withheld it)
+they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe.
+`publicdata r2 shared-report` counts the bytes that storing identical dated files once would
+save, reading the bucket only; `docs/content-addressed-store.md` records why that waits.
+
+A dataset missing from `latest.json` (the register withheld it)
 answers 410 for every file R2 still holds, `latest/` included, and so does each path in
 `withheld.json`, the publisher's files of an entry with `source_withheld`, which the build stops
 writing but R2 kept. Query copies (`_q/<slug>/<version>.parquet`) go to `publicdata-dist` alone:
