@@ -22,8 +22,9 @@ run.
 The saving is 914,622 bytes, or 0.001% of the dated files. By type it is 535,062 bytes of CSV in
 5 copies, 190,679 bytes of JSON in 104 copies and 188,881 bytes of `data.csv.gz` in 5 copies.
 Most of the JSON is `schema.json` repeated across versions of one dataset. The largest single
-case is the CSV of `vic-heritage-register`, unchanged across three versions. Only 35,743 bytes
-repeat across datasets.
+case is the CSV of `vic-heritage-register`, unchanged across three versions. At most 35,743
+bytes repeat across datasets. The report that measured it could count a file shared by two
+datasets more than once, so the figure is an upper bound.
 
 The 24 datasets with more than one version hold 25.35 GB in their older versions. Apart from the
 copies above, none of it repeats a newer version's bytes. A version is cut when the source

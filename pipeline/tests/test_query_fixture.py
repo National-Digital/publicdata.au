@@ -11,12 +11,18 @@ pages to prune. Run `python -m tests.test_query_fixture` in pipeline/ to write t
 import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Literal, TypedDict, Unpack, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from publicdata.normalise import ARROW_TYPES
 from publicdata.serialise.writers import parquet as writer
+
+if TYPE_CHECKING:
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 FIXTURE = Path(__file__).parent / "fixtures" / "parquet" / "rows.parquet"
 PROFILED = FIXTURE.with_name("rows-profiled.parquet")
@@ -45,9 +51,20 @@ HEADER = {
 }
 
 
-def rows() -> dict[str, list]:
+class WriteOptions(TypedDict, total=False):
+    """The options the writer and this fixture hand to pq.write_table."""
+
+    compression: Literal["zstd"]
+    write_statistics: bool
+    row_group_size: int
+    max_rows_per_page: int
+    sorting_columns: list[pq.SortingColumn]
+    write_page_index: bool
+
+
+def rows() -> dict[str, list[object]]:
     places = ["Brisbane", "Gold Coast", "Logan", "Cairns", None]
-    out = {k: [] for k in [*FIELDS, "suppressed"]}
+    out: dict[str, list[object]] = {k: [] for k in [*FIELDS, "suppressed"]}
     for i in range(40):
         out["lga"].append(places[i % 5])
         out["year"].append(2018 + i // GROUP_ROWS)
@@ -68,7 +85,9 @@ def rows() -> dict[str, list]:
     return out
 
 
-def write(path: Path, profiled: bool = False, sort: bool = True, provenance: bool = True) -> None:
+def write(
+    path: Path, *, profiled: bool = False, sort: bool = True, provenance: bool = True
+) -> None:
     data = rows()
     table = pa.table(
         {
@@ -76,14 +95,14 @@ def write(path: Path, profiled: bool = False, sort: bool = True, provenance: boo
             "suppressed": pa.array(data["suppressed"], pa.list_(pa.string())),
         }
     )
-    extra = {"row_group_size": GROUP_ROWS}
+    extra: WriteOptions = {"row_group_size": GROUP_ROWS}
     if profiled:
         table = table.cast(
             pa.schema([f.with_type(pa.int32()) if f.name in INT32 else f for f in table.schema])
         )
         extra["max_rows_per_page"] = 2
     if profiled and sort:
-        table = table.sort_by([(k, "ascending", "at_end") for k in SORT])
+        table = table.sort_by([(k, "ascending", "at_end") for k in SORT])  # type: ignore[misc]  # pyarrow-stubs 20 predates a key's own null placement
         extra |= {
             "sorting_columns": [
                 pq.SortingColumn(table.schema.get_field_index(k), nulls_first=False) for k in SORT
@@ -91,24 +110,26 @@ def write(path: Path, profiled: bool = False, sort: bool = True, provenance: boo
             "write_page_index": True,
         }
 
-    def write_table(t, where, **k):
+    def write_table(t: pa.Table, where: Path, **k: Unpack[WriteOptions]) -> None:
         if profiled:
             meta = {**t.schema.metadata, **PROFILE}
             if not provenance:
                 meta.pop(b"publicdata")
             t = t.replace_schema_metadata(meta)
-        pq.write_table(t, where, **{**k, **extra})
+        options: WriteOptions = {**k, **extra}
+        pq.write_table(t, where, **options)
 
-    writer.pq = SimpleNamespace(write_table=write_table)
-    try:
-        writer.write_parquet(SimpleNamespace(table=table), HEADER, path, lay={})
-    finally:
-        writer.pq = pq
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(writer, "pq", SimpleNamespace(write_table=write_table))
+        tbl = cast("Table", SimpleNamespace(table=table))
+        writer.write_parquet(tbl, cast("Header", HEADER), path, lay={})
 
 
 def write_large(path: Path) -> None:
-    """Twenty million rows of one constant column, in the profile's 500,000-row groups, so a
-    reader that holds one index per row runs out of a small heap."""
+    """Twenty million rows of one constant column, in the profile's 500,000-row groups.
+
+    A reader that holds one index per row runs out of a small heap.
+    """
     table = pa.table({"n": pa.array([0] * LARGE_ROWS, pa.int32())})
     table = table.replace_schema_metadata(
         {b"publicdata": b'{"attribution": "Large fixture."}', **PROFILE}
@@ -116,14 +137,14 @@ def write_large(path: Path) -> None:
     pq.write_table(table, path, compression="zstd", row_group_size=500_000, write_statistics=True)
 
 
-def test_the_committed_fixtures_are_what_the_writer_writes(tmp_path):
+def test_the_committed_fixtures_are_what_the_writer_writes(tmp_path: Path) -> None:
     for committed, profiled, sort in (
         (FIXTURE, False, False),
         (PROFILED, True, True),
         (UNSORTED, True, False),
     ):
         fresh = tmp_path / committed.name
-        write(fresh, profiled, sort)
+        write(fresh, profiled=profiled, sort=sort)
         a, b = pq.ParquetFile(committed), pq.ParquetFile(fresh)
         assert a.metadata.num_row_groups == b.metadata.num_row_groups == 5
         assert a.schema_arrow.equals(b.schema_arrow, check_metadata=True)

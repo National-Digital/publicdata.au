@@ -1,13 +1,115 @@
+import hashlib
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from publicdata.register import Dataset, Licence, Publisher, Source
+from publicdata.__main__ import main
+from publicdata.provenance import header
+from publicdata.register import Dataset, Field, Licence, Publisher, Source
 from publicdata.store import Manifest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from typing import TypedDict, Unpack
+
+    from publicdata.jsontypes import JSON, JSONObject
+    from publicdata.provenance import Header
+    from publicdata.register import (
+        Chart,
+        Database,
+        Example,
+        Geometry,
+        Kind,
+        Sample,
+        Status,
+        TableSpec,
+        View,
+        Wide,
+    )
+    from publicdata.serialise.profile import Layout
+    from publicdata.store import ManifestLicence, ManifestSource
+
+    class DatasetFields(TypedDict, total=False):
+        """The Dataset fields a test may set; the rest keep make_dataset's values."""
+
+        slug: str
+        title: str
+        status: Status
+        publisher: Publisher
+        licence: Licence
+        source: Source
+        description: str
+        summary: str
+        collection: str
+        collection_title: str
+        key: tuple[str, ...]
+        partition_by: tuple[str, ...]
+        sort: tuple[str, ...]
+        lookup: tuple[str, ...]
+        int32: tuple[str, ...]
+        unpivot: str
+        wide: Wide | None
+        geometry: Geometry | None
+        enrich: tuple[str, ...]
+        suppression: tuple[str, ...]
+        note: str
+        blocked_reason: str
+        planned: str
+        temporal_start: str
+        order: int
+        search_title: str
+        also_known_as: tuple[str, ...]
+        keywords: tuple[str, ...]
+        faq: tuple[tuple[str, str], ...]
+        collection_description: str
+        landing: str
+        row_label: str
+        topics: tuple[str, ...]
+        example: Example | None
+        chart: Chart | None
+        sample: Sample | None
+        omit: dict[str, str]
+        source_withheld: str
+        collection_search_title: str
+        place_field: str
+        rebuild: int
+        query: bool
+        path: str
+        extra: dict[str, object]
+        kind: Kind
+        database: Database | None
+        tables: tuple[TableSpec, ...]
+        views: tuple[View, ...]
+
+    class ManifestFields(TypedDict, total=False):
+        """The Manifest fields a test may set; the rest keep make_manifest's values."""
+
+        dataset: str
+        version: str
+        as_at: str
+        fetched_at: str
+        sha256: str
+        bytes: int
+        filename: str
+        encoding: str
+        source: ManifestSource
+        licence: ManifestLicence
+        backfilled: bool
+        tombstone: JSONObject | None
+        notes: list[str]
+        rows_sha256: str
+        parquet: Layout
+        caps: int
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -52,10 +154,11 @@ SLOW_TESTS = {
 }
 
 
-def pytest_collection_modifyitems(items):
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         name = item.nodeid.split("[")[0].removeprefix("tests/")
-        if SLOW_FIXTURES & set(item.fixturenames) or name in SLOW_TESTS:
+        fixtures = set(item.fixturenames)  # type: ignore[attr-defined]  # every item here is a pytest.Function
+        if SLOW_FIXTURES & fixtures or name in SLOW_TESTS:
             item.add_marker(pytest.mark.slow)
 
 
@@ -70,7 +173,7 @@ def fixture_store() -> Path:
 
 
 @pytest.fixture(scope="session")
-def fixture_site(tmp_path_factory) -> Path:
+def fixture_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One `build --fixtures` per session, read only; a test that edits it takes site_copy."""
     out = tmp_path_factory.mktemp("fixture-site") / "dist"
     subprocess.run(
@@ -80,15 +183,15 @@ def fixture_site(tmp_path_factory) -> Path:
 
 
 @pytest.fixture
-def site_copy(fixture_site, tmp_path) -> Path:
+def site_copy(fixture_site: Path, tmp_path: Path) -> Path:
     return Path(shutil.copytree(fixture_site, tmp_path / "dist"))
 
 
 @pytest.fixture(scope="session")
-def fixture_builds(tmp_path_factory, fixture_site):
+def fixture_builds(
+    tmp_path_factory: pytest.TempPathFactory, fixture_site: Path
+) -> tuple[Path, Path, Path]:
     """The plain build (the shared fixture site) and a cold cached build of the same store."""
-    from publicdata.__main__ import main
-
     root = tmp_path_factory.mktemp("fixture-builds")
     store = Path(__file__).parent / "fixtures" / "store"
     plain, cold, cache = fixture_site, root / "cold", root / "cache"
@@ -96,8 +199,8 @@ def fixture_builds(tmp_path_factory, fixture_site):
     return plain, cold, cache
 
 
-def make_dataset(fields, **kw) -> Dataset:
-    base = dict(
+def make_dataset(fields: Iterable[Field], **kw: Unpack[DatasetFields]) -> Dataset:
+    base = Dataset(
         slug="t",
         title="Test",
         status="live",
@@ -110,14 +213,11 @@ def make_dataset(fields, **kw) -> Dataset:
         source=Source(adapter="ckan-resource", url="https://example.gov.au/data"),
         fields=tuple(fields),
     )
-    base.update(kw)
-    return Dataset(**base)
+    return replace(base, **kw)
 
 
-def make_manifest(data: bytes, **kw) -> Manifest:
-    import hashlib
-
-    base = dict(
+def make_manifest(data: bytes, **kw: Unpack[ManifestFields]) -> Manifest:
+    base = Manifest(
         dataset="t",
         version="2026-01-02",
         as_at="2025-12-31",
@@ -129,22 +229,50 @@ def make_manifest(data: bytes, **kw) -> Manifest:
         source={"url": "https://example.gov.au/file.csv"},
         licence={"id": "CC-BY-4.0", "title": "Creative Commons Attribution 4.0"},
     )
-    base.update(kw)
-    return Manifest(**base)
+    return replace(base, **kw)
 
 
-def read_json(p: Path):
-    return json.loads(p.read_text(encoding="utf-8"))
+def make_header(rows: int = 0, rel: str = "data.json") -> Header:
+    """The provenance header a writer gets, for the test dataset and manifest."""
+    return header(make_dataset([]), make_manifest(b""), rows, f"https://example.org/{rel}")
+
+
+def present[T](x: T | None) -> T:
+    """x, which the test expects to be there."""
+    assert x is not None
+    return x
+
+
+def obj(v: JSON) -> JSONObject:
+    """v, which the test expects to be a JSON object."""
+    assert isinstance(v, dict)
+    return v
+
+
+def arr(v: JSON) -> list[JSON]:
+    """v, which the test expects to be a JSON array."""
+    assert isinstance(v, list)
+    return v
+
+
+def dig(v: JSON, *path: str | int) -> JSON:
+    """The value at path in parsed JSON, each step an object key or an array index."""
+    for step in path:
+        v = obj(v)[step] if isinstance(step, str) else arr(v)[step]
+    return v
+
+
+def read_json(p: Path) -> JSONObject:
+    """A JSON file the build writes, each of which holds one object."""
+    got: JSONObject = json.loads(p.read_text(encoding="utf-8"))
+    return got
 
 
 def as_parquet(db: Path) -> Path:
-    """A hand-made data.sqlite's records table as the data.parquet beside it, typed from its
-    declared columns, which is what the build reads now."""
-    import sqlite3
+    """A hand-made data.sqlite's records table as the data.parquet beside it.
 
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
+    It is typed from its declared columns, which is what the build reads now.
+    """
     types = {"INTEGER": pa.int64(), "REAL": pa.float64(), "TEXT": pa.string()}
     con = sqlite3.connect(db)
     cols = con.execute("PRAGMA table_info(records)").fetchall()

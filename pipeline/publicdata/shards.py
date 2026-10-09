@@ -1,22 +1,34 @@
-"""Which datasets a deploy builds in its own jobs, and in how many. A runner has one disk, so
-the versions the cache cannot serve are spread over up to `count` jobs by source bytes, and the
-deploy then builds the site from the cache those jobs filled."""
+"""Which datasets a deploy builds in its own jobs, and in how many.
+
+A runner has one disk, so the versions the cache cannot serve are spread over up to `count` jobs
+by source bytes, and the deploy then builds the site from the cache those jobs filled.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .register import Dataset
+from . import cache as cache_mod
+from . import store
+from .build import pending
+from .cache import BuildCache, shape_layer
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .register import Dataset
 
 # A job's share is never under this many source bytes, so a few small changes build in one job.
 FLOOR = 1_000_000_000
 
 
 def plan(weights: dict[str, int], count: int, floor: int = FLOOR) -> list[list[str]]:
-    """Datasets packed largest first into jobs of at most max(total / count, floor) bytes, or of
-    one dataset when it alone is larger. When that needs more than `count` jobs, each dataset
-    goes to the lightest of `count` jobs instead, which holds every job within a third over the
-    lightest packing `count` jobs allow."""
+    """Datasets packed largest first into jobs of at most max(total / count, floor) bytes.
+
+    A dataset larger than that alone gets a job of its own. When that needs more than `count`
+    jobs, each dataset goes to the lightest of `count` jobs instead, which holds every job within
+    a third over the lightest packing `count` jobs allow.
+    """
     todo = sorted(((w, s) for s, w in weights.items() if w > 0), key=lambda x: (-x[0], x[1]))
     if not todo:
         return []
@@ -37,12 +49,10 @@ def plan(weights: dict[str, int], count: int, floor: int = FLOOR) -> list[list[s
 
 
 def weights(datasets: list[Dataset], store_dir: Path, cache_dir: Path | None) -> dict[str, int]:
-    """Each dataset's source bytes still to build: every version without a cache, else those the
-    cache cannot serve as they are."""
-    from . import store
-    from .build import pending
-    from .cache import BuildCache, shape_layer, writer_keys
+    """Each dataset's source bytes still to build.
 
+    These are every version without a cache, else those the cache cannot serve as they are.
+    """
     if cache_dir is None:
         return {
             d.slug: sum(max(m.bytes, 1) for m in store.manifests(store_dir, d.slug))
@@ -50,5 +60,5 @@ def weights(datasets: list[Dataset], store_dir: Path, cache_dir: Path | None) ->
             if d.publishable
         }
     cache = BuildCache(cache_dir)
-    now = {shape: writer_keys(shape) for shape in (False, True)}
+    now = {shape: cache_mod.writer_keys(shape=shape) for shape in (False, True)}
     return {d.slug: pending(cache, d, store_dir, now[shape_layer(d)]) for d in datasets}

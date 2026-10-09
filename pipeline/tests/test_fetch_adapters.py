@@ -1,44 +1,74 @@
 import dataclasses
+import io
 import json
+import re
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import pytest
+import requests
+import xlsxwriter
 
 from publicdata import fetch as f
+from publicdata import store
 from publicdata.register import Field, Licence, Source
 
 from .conftest import make_dataset
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from pathlib import Path
+
+    from publicdata.fetch import LicenceRead
+    from publicdata.jsontypes import JSON
+    from publicdata.register import Dataset
+
+    class _AihwBody(TypedDict):
+        reportNodeGuid: str
+        currentNodeId: int
+
 
 CSV = b"a,b\n1,x\n2,y\n"
 
 
 class Resp:
-    def __init__(self, body, status=200, ctype="text/csv", headers=None):
+    def __init__(
+        self,
+        body: object,
+        status: int = 200,
+        ctype: str = "text/csv",
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.content = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.status_code = status
         self.headers = {"Content-Type": ctype if isinstance(body, bytes) else "application/json"}
         self.headers.update(headers or {})
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise AssertionError(self.status_code)
 
-    def json(self):
+    def json(self) -> object:
         return json.loads(self.content)
 
 
 class Portal:
-    def __init__(self, routes):
-        self.routes, self.headers, self.asked = routes, {}, []
+    def __init__(self, routes: Mapping[str, Resp | list[Resp]]) -> None:
+        self.routes = routes
+        self.headers: dict[str, str] = {}
+        self.asked: list[str | tuple[str, str, str, int]] = []
 
-    def get(self, url, params=None, **kw):
+    def get(self, url: str, params: object = None, **kw: object) -> Resp:
         self.asked.append(url)
         for prefix, answer in self.routes.items():
             if url.startswith(prefix):
                 return answer.pop(0) if isinstance(answer, list) else answer
-        raise AssertionError(f"unexpected {url}")
+        msg = f"unexpected {url}"
+        raise AssertionError(msg)
 
 
-def ds_for(adapter, portal, package, licence="CC-BY-4.0", resource=""):
+def ds_for(
+    adapter: str, portal: str, package: str, licence: str = "CC-BY-4.0", resource: str = ""
+) -> Dataset:
     return make_dataset(
         [Field("a", "a", "integer"), Field("b", "b")],
         licence=Licence(licence, "https://example.gov.au/", "Example, sourced {sourced}."),
@@ -52,7 +82,13 @@ def ds_for(adapter, portal, package, licence="CC-BY-4.0", resource=""):
     )
 
 
-def run(adapter, ds, routes, tmp_path, monkeypatch):
+def run(
+    adapter: str,
+    ds: Dataset,
+    routes: Mapping[str, Resp | list[Resp]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[bytes | None, store.Manifest, Portal]:
     s = Portal(routes)
     monkeypatch.setattr(f, "_session", lambda session: s)
     data, m, lic = f.ADAPTERS[adapter](ds, tmp_path)
@@ -60,7 +96,9 @@ def run(adapter, ds, routes, tmp_path, monkeypatch):
     return data, m, s
 
 
-def test_socrata_exports_the_whole_view_and_reads_its_licence(tmp_path, monkeypatch):
+def test_socrata_exports_the_whole_view_and_reads_its_licence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base = "https://www.data.act.gov.au"
     ds = ds_for("socrata", base, "426s-vdu4")
     view = {
@@ -80,12 +118,17 @@ def test_socrata_exports_the_whole_view_and_reads_its_licence(tmp_path, monkeypa
         tmp_path,
         monkeypatch,
     )
-    assert data == CSV and m.filename == "426s-vdu4.csv" and m.version == "2026-08-21"
-    assert m.licence["id"] == "CC-BY-4.0" and m.licence["stated"] == "CC_40_BY"
+    assert data == CSV
+    assert m.filename == "426s-vdu4.csv"
+    assert m.version == "2026-08-21"
+    assert m.licence["id"] == "CC-BY-4.0"
+    assert m.licence["stated"] == "CC_40_BY"
     assert "accessType=DOWNLOAD" in s.asked[-1]
 
 
-def test_opendatasoft_exports_comma_separated_csv(tmp_path, monkeypatch):
+def test_opendatasoft_exports_comma_separated_csv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base = "https://data.brisbane.qld.gov.au"
     ds = ds_for("opendatasoft", base, "search-terms")
     meta = {
@@ -100,7 +143,7 @@ def test_opendatasoft_exports_comma_separated_csv(tmp_path, monkeypatch):
         }
     }
     root = f"{base}/api/explore/v2.1/catalog/datasets/search-terms"
-    data, m, s = run(
+    _data, m, s = run(
         "opendatasoft",
         ds,
         {f"{root}/exports/csv": Resp(CSV), root: Resp(meta)},
@@ -108,11 +151,15 @@ def test_opendatasoft_exports_comma_separated_csv(tmp_path, monkeypatch):
         monkeypatch,
     )
     # 20:00 UTC on the 15th is the 16th in Brisbane.
-    assert m.version == "2026-09-16" and m.licence["id"] == "CC-BY-4.0"
-    assert "delimiter=%2C" in s.asked[-1] and "with_bom=false" in s.asked[-1]
+    assert m.version == "2026-09-16"
+    assert m.licence["id"] == "CC-BY-4.0"
+    assert "delimiter=%2C" in s.asked[-1]
+    assert "with_bom=false" in s.asked[-1]
 
 
-def test_arcgis_hub_waits_for_its_export_and_dates_it_by_the_layer_edit(tmp_path, monkeypatch):
+def test_arcgis_hub_waits_for_its_export_and_dates_it_by_the_layer_edit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base = "https://data-goldcoast.opendata.arcgis.com"
     ds = ds_for("arcgis-hub", base, "58e6", licence="CC-BY-3.0-AU", resource="2")
     ds = dataclasses.replace(ds, licence=Licence("CC-BY-3.0-AU", "e", "a", "CC-BY-3.0"))
@@ -140,11 +187,18 @@ def test_arcgis_hub_waits_for_its_export_and_dates_it_by_the_layer_edit(tmp_path
         tmp_path,
         monkeypatch,
     )
-    assert data == CSV and m.version == "2026-09-28" and m.filename == "58e6_2.csv"
-    assert s.asked[-1].endswith("layers=2") and m.source["service"] == service
+    assert data == CSV
+    assert m.version == "2026-09-28"
+    assert m.filename == "58e6_2.csv"
+    last = s.asked[-1]
+    assert isinstance(last, str)
+    assert last.endswith("layers=2")
+    assert m.source["service"] == service
 
 
-def test_an_export_still_building_after_the_waits_is_refused(tmp_path, monkeypatch):
+def test_an_export_still_building_after_the_waits_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base = "https://data.brisbane.qld.gov.au"
     ds = ds_for("opendatasoft", base, "slow")
     root = f"{base}/api/explore/v2.1/catalog/datasets/slow"
@@ -160,7 +214,9 @@ def test_an_export_still_building_after_the_waits_is_refused(tmp_path, monkeypat
         )
 
 
-def test_an_export_whose_portal_states_no_change_date_is_a_failed_fetch(tmp_path, monkeypatch):
+def test_an_export_whose_portal_states_no_change_date_is_a_failed_fetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base = "https://data-goldcoast.opendata.arcgis.com"
     ds = ds_for("arcgis-hub", base, "58e6")
     item = {"properties": {"title": "No dates", "license": "CC-BY-4.0"}}
@@ -186,13 +242,13 @@ def test_an_export_whose_portal_states_no_change_date_is_a_failed_fetch(tmp_path
 
 
 def test_an_entry_that_names_the_portals_own_licence_code_is_checked_against_it(
-    tmp_path, monkeypatch
-):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base = "https://www.data.act.gov.au"
     ds = ds_for("socrata", base, "426s-vdu4")
     ds = dataclasses.replace(ds, licence=Licence("CC-BY-4.0", "e", "a", "CC_40_BY"))
 
-    def view(code):
+    def view(code: str) -> dict[str, object]:
         return {
             "rowsUpdatedAt": 1787290543,
             "licenseId": code,
@@ -210,9 +266,9 @@ def test_an_entry_that_names_the_portals_own_licence_code_is_checked_against_it(
         run("socrata", ds, routes, tmp_path, monkeypatch)
 
 
-def test_a_worked_out_licence_id_is_compared_as_it_stands():
+def test_a_worked_out_licence_id_is_compared_as_it_stands() -> None:
     ds = ds_for("socrata", "https://www.data.act.gov.au", "x", licence="CC-BY-4.0")
-    bare = {
+    bare: LicenceRead = {
         "id": "CC-BY",
         "stated": "CC_BY",
         "normalised": "CC-BY",
@@ -235,7 +291,9 @@ def test_a_worked_out_licence_id_is_compared_as_it_stands():
 PAGE = b"<html><p>All  material is provided under a\n <b>Creative Commons</b> Attribution 4.0 licence.</p></html>"
 
 
-def file_ds(statement="material is provided under a Creative Commons Attribution 4.0 licence"):
+def file_ds(
+    statement: str = "material is provided under a Creative Commons Attribution 4.0 licence",
+) -> Dataset:
     return make_dataset(
         [Field("a", "a", "integer"), Field("b", "b")],
         licence=Licence(
@@ -250,8 +308,8 @@ def file_ds(statement="material is provided under a Creative Commons Attribution
 
 
 def test_a_file_source_is_dated_by_last_modified_and_licensed_by_the_pages_words(
-    tmp_path, monkeypatch
-):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     routes = {
         "https://example.gov.au/copyright": Resp(PAGE, ctype="text/html"),
         "https://example.gov.au/files/t.csv": Resp(
@@ -259,14 +317,17 @@ def test_a_file_source_is_dated_by_last_modified_and_licensed_by_the_pages_words
         ),
     }
     data, m, s = run("file", file_ds(), routes, tmp_path, monkeypatch)
-    assert data == CSV and m.version == "2026-09-30" and m.filename == "t.csv"
-    assert m.licence["id"] == "CC-BY-4.0" and m.notes == []
+    assert data == CSV
+    assert m.version == "2026-09-30"
+    assert m.filename == "t.csv"
+    assert m.licence["id"] == "CC-BY-4.0"
+    assert m.notes == []
     assert s.asked[0] == "https://example.gov.au/copyright"
 
 
 def test_a_file_whose_server_states_no_date_is_dated_by_the_fetch_and_says_so(
-    tmp_path, monkeypatch
-):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     routes = {
         "https://example.gov.au/copyright": Resp(PAGE, ctype="text/html"),
         "https://example.gov.au/files/t.csv": Resp(CSV),
@@ -275,7 +336,9 @@ def test_a_file_whose_server_states_no_date_is_dated_by_the_fetch_and_says_so(
     assert m.notes == [f.FILE_NOTE]
 
 
-def test_a_licence_page_that_lost_its_grant_stops_the_fetch(tmp_path, monkeypatch):
+def test_a_licence_page_that_lost_its_grant_stops_the_fetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     routes = {
         "https://example.gov.au/copyright": Resp(b"<p>All rights reserved.</p>", ctype="text/html"),
         "https://example.gov.au/files/t.csv": Resp(CSV),
@@ -284,7 +347,7 @@ def test_a_licence_page_that_lost_its_grant_stops_the_fetch(tmp_path, monkeypatc
         run("file", file_ds(), routes, tmp_path, monkeypatch)
 
 
-def manual_portal(modified="2026-09-01T00:00:00"):
+def manual_portal(modified: str = "2026-09-01T00:00:00") -> object:
     res = {"id": "r", "name": "T", "format": "CSV", "url": "https://p.example/t.csv"}
     res["last_modified"] = modified
     return {
@@ -301,7 +364,7 @@ def manual_portal(modified="2026-09-01T00:00:00"):
     }
 
 
-def manual_ds():
+def manual_ds() -> Dataset:
     return make_dataset(
         [Field("a", "a", "integer"), Field("b", "b")],
         licence=Licence(
@@ -318,35 +381,39 @@ def manual_ds():
     )
 
 
-def run_manual(modified, store_dir):
+def run_manual(modified: str, store_dir: Path) -> tuple[bytes | None, store.Manifest, Portal]:
     s = Portal({"https://p.example/api/3/action/package_show": Resp(manual_portal(modified))})
-    data, m, lic = f.ckan_resource(manual_ds(), store_dir, session=s)
+    # The stand-in answers the two calls the adapter makes of a session.
+    session = cast("requests.Session", s)
+    data, m, lic = f.ckan_resource(manual_ds(), store_dir, session=session)
     f.check_licence(manual_ds(), lic)
     return data, m, s
 
 
-def test_a_manual_source_is_never_downloaded_and_a_new_one_is_due(tmp_path, monkeypatch):
+def test_a_manual_source_is_never_downloaded_and_a_new_one_is_due(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(f, "MANUAL", {})
-    with pytest.raises(f.ManualDue, match="download https://p.example/t.csv"):
+    with pytest.raises(f.ManualDue, match=re.escape("download https://p.example/t.csv")):
         run_manual("2026-09-01T00:00:00", tmp_path)
 
 
 def test_a_manual_source_reads_the_downloaded_file_then_waits_for_the_record_to_change(
-    tmp_path, monkeypatch
-):
-    from publicdata import store
-
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     got = tmp_path / "t.csv"
     got.write_bytes(CSV)
     monkeypatch.setattr(f, "MANUAL", {"t": got})
     data, m, s = run_manual("2026-09-01T00:00:00", tmp_path / "store")
-    assert data == CSV and m.version == "2026-09-01"
+    assert data == CSV
+    assert m.version == "2026-09-01"
     assert s.asked == ["https://p.example/api/3/action/package_show"]
     store.write(tmp_path / "store", m, data)
 
     monkeypatch.setattr(f, "MANUAL", {})
     data, _, s = run_manual("2026-09-01T00:00:00", tmp_path / "store")
-    assert data is None and s.asked == ["https://p.example/api/3/action/package_show"]
+    assert data is None
+    assert s.asked == ["https://p.example/api/3/action/package_show"]
     with pytest.raises(f.ManualDue):
         run_manual("2026-10-01T00:00:00", tmp_path / "store")
 
@@ -400,7 +467,7 @@ VALUES = [
 ]
 
 
-def kiwis_ds(resource):
+def kiwis_ds(resource: str) -> Dataset:
     return make_dataset(
         [Field("station_no", "station_no")],
         licence=Licence(
@@ -424,13 +491,14 @@ WATER_PAGE = b"<p>Unless otherwise noted, all material on this page is\n license
 
 
 def test_kiwis_values_are_one_csv_ordered_by_station_and_day_and_dated_by_the_newest_value(
-    tmp_path, monkeypatch
-):
-    routes = {
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routes: dict[str, Resp | list[Resp]] = {
         "https://example.gov.au/waterdata/services": [Resp(STATIONS), Resp(SERIES), Resp(VALUES)],
         "https://example.gov.au/waterdata/": Resp(WATER_PAGE, ctype="text/html"),
     }
-    data, m, s = run("kiwis", kiwis_ds("values"), routes, tmp_path, monkeypatch)
+    data, m, _s = run("kiwis", kiwis_ds("values"), routes, tmp_path, monkeypatch)
+    assert data is not None
     lines = data.decode().splitlines()
     assert lines[0] == "station_no,station_name,state,date,value,quality_code"
     assert lines[1:] == [
@@ -438,29 +506,35 @@ def test_kiwis_values_are_one_csv_ordered_by_station_and_day_and_dated_by_the_ne
         "212243,Warragamba Dam,NSW,2026-01-01,1930000.0,90",
         "212243,Warragamba Dam,NSW,2026-01-02,1931364.77,140",
     ]
-    assert m.version == "2026-01-02" and m.source["series_read"] == 2
-    assert m.licence["id"] == "CC-BY-3.0-AU" and f.KIWIS_NOTE in m.notes
+    assert m.version == "2026-01-02"
+    assert m.source["series_read"] == 2
+    assert m.licence["id"] == "CC-BY-3.0-AU"
+    assert f.KIWIS_NOTE in m.notes
 
 
-def test_kiwis_stations_carry_the_owner_state_and_capacity(tmp_path, monkeypatch):
-    routes = {
+def test_kiwis_stations_carry_the_owner_state_and_capacity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routes: dict[str, Resp | list[Resp]] = {
         "https://example.gov.au/waterdata/services": [Resp(STATIONS)],
         "https://example.gov.au/waterdata/": Resp(WATER_PAGE, ctype="text/html"),
     }
     data, m, _ = run("kiwis", kiwis_ds("stations"), routes, tmp_path, monkeypatch)
+    assert data is not None
     lines = data.decode().splitlines()
     assert lines[0].startswith(
         "station_no,station_name,latitude,longitude,data_owner,full_storage_volume_ml"
     )
     assert lines[0].endswith(",state")
-    assert lines[1].startswith("143001,Wivenhoe,-27.4,152.6,QLD - Seqwater,,") and lines[
-        1
-    ].endswith(",QLD")
+    assert lines[1].startswith("143001,Wivenhoe,-27.4,152.6,QLD - Seqwater,,")
+    assert lines[1].endswith(",QLD")
     assert lines[2].startswith("212243,Warragamba Dam,-33.9,150.6,NSW - Water NSW,2027000,")
     assert f.KIWIS_STATIONS_NOTE in m.notes
 
 
-def test_kiwis_series_are_packed_under_the_services_value_limit(monkeypatch):
+def test_kiwis_series_are_packed_under_the_services_value_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(f, "KIWIS_BATCH_VALUES", 50_000)
     long = {"ts_id": "a", "from": "1900-01-01T00:00:00", "to": "2026-01-01T00:00:00"}
     short = [
@@ -501,12 +575,15 @@ AIHW_LIST = {
 
 
 class AihwPortal(Portal):
-    def post(self, url, json=None, **kw):
+    def post(self, url: str, json: _AihwBody | None = None, **kw: object) -> Resp:
+        assert json is not None
         self.asked.append(("POST", url, json["reportNodeGuid"], json["currentNodeId"]))
         return Resp(AIHW_LIST)
 
 
-def test_aihw_takes_the_newest_listed_file_whose_title_matches(tmp_path, monkeypatch):
+def test_aihw_takes_the_newest_listed_file_whose_title_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     routes = {
         "https://example.gov.au/copyright": Resp(PAGE, ctype="text/html"),
         "https://www.aihw.gov.au/reports/x/data": Resp(AIHW_PAGE, ctype="text/html"),
@@ -533,7 +610,9 @@ def test_aihw_takes_the_newest_listed_file_whose_title_matches(tmp_path, monkeyp
     )
     data, m, lic = f.ADAPTERS["aihw"](ds, tmp_path)
     f.check_licence(ds, lic)
-    assert data == CSV and m.version == "2026-08-19" and m.filename == "shs_June-2026.xlsx"
+    assert data == CSV
+    assert m.version == "2026-08-19"
+    assert m.filename == "shs_June-2026.xlsx"
     assert m.source["resource_name"] == "Data tables: SHS monthly data"
     assert ("POST", f.AIHW_LISTING, "abc", 42) in s.asked
     with pytest.raises(f.FetchError, match="no listed file matches"):
@@ -575,7 +654,9 @@ ZENODO = {
 }
 
 
-def test_zenodo_follows_the_concept_record_to_its_newest_version_and_licence(tmp_path, monkeypatch):
+def test_zenodo_follows_the_concept_record_to_its_newest_version_and_licence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     routes = {
         "https://zenodo.org/api/records/22262542/files/": Resp(CSV),
         "https://zenodo.org/api/records": Resp(ZENODO),
@@ -592,10 +673,14 @@ def test_zenodo_follows_the_concept_record_to_its_newest_version_and_licence(tmp
             resource_match=r"\.xlsx$",
         ),
     )
-    data, m, s = run("zenodo", ds, routes, tmp_path, monkeypatch)
-    assert data == CSV and m.version == "2026-09-03" and m.as_at == "2026-09-02"
-    assert m.filename == "Database Public Version.xlsx" and m.source["record"] == 22262542
-    assert m.licence["stated"] == "cc-by-4.0" and m.licence["id"] == "CC-BY-4.0"
+    data, m, _s = run("zenodo", ds, routes, tmp_path, monkeypatch)
+    assert data == CSV
+    assert m.version == "2026-09-03"
+    assert m.as_at == "2026-09-02"
+    assert m.filename == "Database Public Version.xlsx"
+    assert m.source["record"] == 22262542
+    assert m.licence["stated"] == "cc-by-4.0"
+    assert m.licence["id"] == "CC-BY-4.0"
     with pytest.raises(f.LicenceDrift):
         run(
             "zenodo",
@@ -606,11 +691,11 @@ def test_zenodo_follows_the_concept_record_to_its_newest_version_and_licence(tmp
         )
 
 
-def _stack_book(title_rows: int, rows: list[list], header=("FullDate", "Brand", "Diesel")) -> bytes:
-    import io
-
-    import xlsxwriter
-
+def _stack_book(
+    title_rows: int,
+    rows: Sequence[Sequence[object]],
+    header: Sequence[str] = ("FullDate", "Brand", "Diesel"),
+) -> bytes:
     buf = io.BytesIO()
     wb = xlsxwriter.Workbook(buf, {"in_memory": True})
     ws = wb.add_worksheet("Sheet1")
@@ -623,7 +708,9 @@ def _stack_book(title_rows: int, rows: list[list], header=("FullDate", "Brand", 
     return buf.getvalue()
 
 
-def test_a_ckan_stack_reads_every_workbook_once_into_one_ordered_table(tmp_path, monkeypatch):
+def test_a_ckan_stack_reads_every_workbook_once_into_one_ordered_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pkgs = {
         "success": True,
         "result": {
@@ -695,56 +782,61 @@ def test_a_ckan_stack_reads_every_workbook_once_into_one_ordered_table(tmp_path,
         ),
     )
     data, m, s = run("ckan-stack", ds, routes, tmp_path, monkeypatch)
+    assert data is not None
     assert data.decode().splitlines() == [
         "FullDate,Brand,Diesel",
         "2020-01-30,BP,0",
         "2020-01-31,Shell,150.5",
         "2020-02-01,BP,149",
     ]
-    assert m.source["rows_repeated"] == 1 and [w["resource"] for w in m.source["workbooks"]] == [
+    assert m.source["rows_repeated"] == 1
+    assert [w["resource"] for w in m.source["workbooks"]] == [
         "r1",
         "r2",
     ]
-    assert m.version == "2023-02-03" and f.STACK_NOTE in m.notes
+    assert m.version == "2023-02-03"
+    assert f.STACK_NOTE in m.notes
     assert s.asked[1:] == ["https://p.example/jan.xlsx", "https://p.example/feb.xlsx"]
 
 
-def test_kiwis_splits_a_batch_the_service_refuses_as_too_large(monkeypatch):
-    calls = []
+def test_kiwis_splits_a_batch_the_service_refuses_as_too_large(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
 
-    def fake_query(s, base, request, **params):
+    def fake_query(
+        _shape: object, s: requests.Session, base: str, request: str, **params: str
+    ) -> list[JSON]:
         ids = params["ts_id"].split(",")
         calls.append(ids)
         if len(ids) > 1:
-            raise f.FetchError(
-                "KiWIS getTimeseriesValues refused: TooManyResults: narrow your request"
-            )
+            msg = "KiWIS getTimeseriesValues refused: TooManyResults: narrow your request"
+            raise f.FetchError(msg)
         return [{"station_no": ids[0], "ts_id": ids[0], "data": []}]
 
     monkeypatch.setattr(f, "_kiwis_query", fake_query)
-    got = f._kiwis_values(None, "b", ["1", "2", "3"])
+    got = f._kiwis_values(requests.Session(), "b", ["1", "2", "3"])
     assert [g["ts_id"] for g in got] == ["1", "2", "3"]
     assert calls == [["1", "2", "3"], ["1"], ["2", "3"], ["2"], ["3"]]
+    monkeypatch.setattr(
+        f,
+        "_kiwis_query",
+        lambda *a, **k: (_ for _ in ()).throw(f.FetchError("x TooManyResults")),
+    )
     with pytest.raises(f.FetchError, match="TooManyResults"):
-        monkeypatch.setattr(
-            f,
-            "_kiwis_query",
-            lambda *a, **k: (_ for _ in ()).throw(f.FetchError("x TooManyResults")),
-        )
-        f._kiwis_values(None, "b", ["9"])
+        f._kiwis_values(requests.Session(), "b", ["9"])
 
 
-def test_a_downloaded_file_keeps_its_headers_whatever_their_case():
+def test_a_downloaded_file_keeps_its_headers_whatever_their_case() -> None:
     r = f.Fetched(b"x", {"etag": '"abc"', "last-modified": "Tue, 29 Sep 2026 23:00:37 GMT"})
-    assert r.headers.get("ETag") == '"abc"' and r.headers["Last-Modified"].startswith("Tue")
+    assert r.headers.get("ETag") == '"abc"'
+    assert r.headers["Last-Modified"].startswith("Tue")
 
 
 def test_a_manual_stack_reads_a_folder_of_downloads_then_waits_for_the_records_to_change(
-    tmp_path, monkeypatch
-):
-    from publicdata import store
-
-    def portal(modified):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def portal(modified: str) -> object:
         res = [
             {"id": f"r{i}", "name": n, "format": "XLSX", "created": modified, "url": u}
             for i, (n, u) in enumerate(
@@ -780,7 +872,7 @@ def test_a_manual_stack_reads_a_folder_of_downloads_then_waits_for_the_records_t
     )
     search = "https://p.example/api/3/action/package_search"
     monkeypatch.setattr(f, "MANUAL", {})
-    with pytest.raises(f.ManualDue, match="download https://p.example/d "):
+    with pytest.raises(f.ManualDue, match=re.escape("download https://p.example/d ")):
         run("ckan-stack", ds, {search: Resp(portal("2023-02-03T00:00:00"))}, tmp_path, monkeypatch)
 
     got = tmp_path / "downloads"
@@ -791,6 +883,7 @@ def test_a_manual_stack_reads_a_folder_of_downloads_then_waits_for_the_records_t
     data, m, s = run(
         "ckan-stack", ds, {search: Resp(portal("2023-02-03T00:00:00"))}, tmp_path, monkeypatch
     )
+    assert data is not None
     assert data.decode().splitlines() == [
         "FullDate,Brand,Diesel",
         "2019-06-30,BP,1",

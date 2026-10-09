@@ -46,17 +46,29 @@ jobs:
           activate-environment: true
       - run: uv pip install -e '.[pandas,duckdb,geo,dev]'
       - run: ruff check . && ruff format --check .
+      # pyproject.toml checks the types against Python 3.10, the oldest it claims, which holds the
+      # client to 3.10's syntax and standard library. pandas-stubs reads as Any there, so a second
+      # run against 3.14 checks the pandas and geopandas code.
+      - run: mypy
+      - run: mypy --python-version 3.14
       - run: pytest -q tests
+      # uv run ignores UV_CONSTRAINT, so the floor gets a venv of its own and installs the pins
+      # requirements.txt gives that Python.
       - name: The oldest Python pyproject.toml claims passes the tests too
         run: |
           floor=$(python -c "import tomllib,re;print(re.search(r'[0-9.]+', tomllib.load(open('pyproject.toml','rb'))['project']['requires-python']).group())")
-          uv run --isolated --no-project --python "$floor" --with-editable '.[pandas,duckdb,geo,dev]' pytest -q tests
+          uv venv --python "$floor" "$RUNNER_TEMP/floor"
+          uv pip install --python "$RUNNER_TEMP/floor" -c requirements.txt -e '.[pandas,duckdb,geo,dev]'
+          uv pip freeze --python "$RUNNER_TEMP/floor"
+          "$RUNNER_TEMP/floor/bin/python" -m pytest -q tests
       - name: The live site answers the client
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           PUBLICDATA_LIVE: "1"
         run: pytest -q tests -k live
       - run: uv build
+      - name: The wheel tells type checkers the package is typed
+        run: python -m zipfile -l dist/*.whl | grep -q 'publicdata_au/py.typed' || { echo "::error::the wheel has no publicdata_au/py.typed"; exit 1; }
       - name: The version in the package matches pyproject.toml
         run: |
           want=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")

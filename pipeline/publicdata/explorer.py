@@ -1,5 +1,7 @@
-"""The in-browser explorer: Perspective over DuckDB-WASM, vendored from the npm lockfile, and a
-first dashboard for each dataset drawn from the same field hints as the query console."""
+"""The in-browser explorer: Perspective over DuckDB-WASM, vendored from the npm lockfile.
+
+Each dataset gets a first dashboard drawn from the same field hints as the query console.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +15,47 @@ import subprocess
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import NotRequired, TypedDict
+
+    from .register import Dataset
+
+    class ConsoleField(TypedDict):
+        """A field as the query console lists it, with the hints read from the rows."""
+
+        name: str
+        type: str
+        description: NotRequired[str]
+        # The column's least and greatest value, of the field's type.
+        min: NotRequired[object]
+        max: NotRequired[object]
+        values: NotRequired[list[object]]
+        distinct: NotRequired[int]
+
+    class ExampleFilter(TypedDict):
+        field: str
+        op: str
+        value: str
+
+    class ConsoleExample(TypedDict):
+        filters: list[ExampleFilter]
+        group: list[str]
+        metric: str
+        label: NotRequired[str]
+
+    class Console(TypedDict):
+        """The query console's fields and first query, as a dataset page carries them."""
+
+        fields: list[ConsoleField]
+        example: ConsoleExample
+        # Set when the query API serves the dataset.
+        api: NotRequired[str]
+        site: NotRequired[str]
+        versions: NotRequired[list[str]]
+
 
 ROOT = Path(__file__).resolve().parents[2]
 NODE_MODULES = ROOT / "node_modules"
@@ -56,31 +99,32 @@ INT32 = 2**31
 
 def _need_node_modules() -> None:
     if not (NODE_MODULES / "@perspective-dev" / "viewer" / "package.json").exists():
-        raise SystemExit(
-            "The explorer needs its browser libraries: run `npm ci` at the repository root."
-        )
+        msg = "The explorer needs its browser libraries: run `npm ci` at the repository root."
+        raise SystemExit(msg)
 
 
 def _extension(name: str, sha: str) -> bytes:
     p = CACHE / "extensions" / DUCKDB_VERSION / f"{name}.duckdb_extension.wasm"
     if not p.exists():
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310 - a fixed https URL, checked by its hash
             EXTENSION_URL.format(v=DUCKDB_VERSION, name=name),
             headers={"User-Agent": "publicdata.au build"},
         )
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310 - a fixed https URL
             data = r.read()
         if hashlib.sha256(data).hexdigest() != sha:
-            raise SystemExit(f"DuckDB {name} extension does not match its pinned SHA-256")
+            msg = f"DuckDB {name} extension does not match its pinned SHA-256"
+            raise SystemExit(msg)
         p.parent.mkdir(parents=True, exist_ok=True)
         # A parallel build may fetch the same file, so each writes its own and swaps it in whole.
         fd, tmp = tempfile.mkstemp(prefix=p.name + ".", dir=p.parent)
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        os.replace(tmp, p)
+        Path(tmp).replace(p)
     data = p.read_bytes()
     if hashlib.sha256(data).hexdigest() != sha:
-        raise SystemExit(f"cached DuckDB {name} extension does not match its pinned SHA-256")
+        msg = f"cached DuckDB {name} extension does not match its pinned SHA-256"
+        raise SystemExit(msg)
     return data
 
 
@@ -134,8 +178,10 @@ def _stage(dest: Path) -> None:
 
 
 def vendor(out: Path) -> str:
-    """Copy the explorer's libraries under a content-hashed path and return that path, so a new
-    library version never meets a browser's cached copy of the old one."""
+    """Copy the explorer's libraries under a content-hashed path and return that path.
+
+    The hash means a new library version never meets a browser's cached copy of the old one.
+    """
     _need_node_modules()
     key = hashlib.sha256()
     for p in (ROOT / "package-lock.json", ROOT / "explorer" / "duckdb.js", Path(__file__)):
@@ -173,57 +219,71 @@ YEAR = re.compile(r"(^|_)(year|yr)(_|$)")
 CALENDAR = re.compile(r"(^|_)(month|day|day_of_week|weekday)(_|$)")
 
 
-def labels(ds, console: dict) -> dict[str, str]:
-    """The explorer's column names: each field's register label, so every menu, axis and legend
-    reads in words. The browser renames the columns as it loads the Parquet."""
+def labels(ds: Dataset, console: Console) -> dict[str, str]:
+    """The explorer's column names: each field's register label.
+
+    Every menu, axis and legend then reads in words. The browser renames the columns as it loads
+    the Parquet.
+    """
     present = {e["name"] for e in console["fields"]}
     return {f.name: f.display for f in ds.fields if f.name in present}
 
 
-def text_fields(console: dict) -> list[str]:
-    """Year fields, which the browser loads as text: a chart then gives each year its own label
-    instead of a numeric axis ("2.0K"), and a filter offers the years as a list."""
+def text_fields(console: Console) -> list[str]:
+    """Year fields, which the browser loads as text.
+
+    A chart then gives each year its own label instead of a numeric axis ("2.0K"), and a filter
+    offers the years as a list.
+    """
     return [
         e["name"] for e in console["fields"] if e["type"] == "integer" and YEAR.search(e["name"])
     ]
 
 
-def yes_no_fields(console: dict) -> list[str]:
+def yes_no_fields(console: Console) -> list[str]:
     """True-or-false fields, which the browser shows as Yes and No."""
     return [e["name"] for e in console["fields"] if e["type"] == "boolean"]
 
 
-def categories(console: dict) -> list[str]:
+# A chart groups by a text field with this many values, and colours by one with fewer.
+CATEGORY_MIN, CATEGORY_MAX = 2, 30
+SPLIT_MIN, SPLIT_MAX = 3, 8
+
+
+def categories(console: Console) -> list[str]:
     """Text fields with a short list of values, which a chart can group by."""
     return [
         e["name"]
         for e in console["fields"]
         if e["type"] == "string"
-        and 2 <= len(e.get("values") or ()) <= 30
+        and CATEGORY_MIN <= len(e.get("values") or ()) <= CATEGORY_MAX
         and not CALENDAR.search(e["name"])
     ]
 
 
-def split_field(console: dict) -> str | None:
+def split_field(console: Console) -> str | None:
     """The field colour carries: severity where the dataset has it, else a short list."""
     fields = {e["name"]: e for e in console["fields"]}
     cats = categories(console)
     return next(
-        (n for n in cats if "severity" in n and len(fields[n]["values"]) <= 8), None
-    ) or next((n for n in cats if 3 <= len(fields[n]["values"]) <= 8), None)
+        (n for n in cats if "severity" in n and len(fields[n]["values"]) <= SPLIT_MAX), None
+    ) or next((n for n in cats if SPLIT_MIN <= len(fields[n]["values"]) <= SPLIT_MAX), None)
 
 
 # The query API's aggregates as Perspective names them.
 PERSPECTIVE_AGG = {"sum": "sum", "avg": "avg", "min": "low", "max": "high"}
 
 
-def defaults(ds, console: dict) -> dict:
-    """The first dashboard, drawn from the same field hints as the query console: a stacked bar
-    of the main category that filters the other panels, the same split over time, a heatmap of
-    category by year, a map where the dataset has coordinates, and the rows."""
+def defaults(ds: Dataset, console: Console) -> dict[str, object]:  # noqa: C901, PLR0915 - the explorer's panels in the order they are laid out
+    """The first dashboard, drawn from the same field hints as the query console.
+
+    It holds a stacked bar of the main category that filters the other panels, the same split
+    over time, a heatmap of category by year, a map where the dataset has coordinates, and the
+    rows.
+    """
     fields = {e["name"]: e for e in console["fields"]}
     lab = labels(ds, console)
-    word = lambda n: lab.get(n, n).lower()  # noqa: E731
+    word: Callable[[str], str] = lambda n: lab.get(n, n).lower()  # noqa: E731
     metric = console["example"]["metric"]
     if metric == "count":
         what = getattr(ds, "row_label", "") or "Rows"
@@ -236,7 +296,7 @@ def defaults(ds, console: dict) -> dict:
         what, expressions, aggregates = measure, {}, {measure: PERSPECTIVE_AGG[fn]}
     cats = categories(console)
     split = split_field(console)
-    group = (console["example"]["group"] or [None])[0]
+    group: str | None = next(iter(console["example"]["group"]), None)
     if group == split or group not in cats:
         group = next((n for n in cats if n != split and "region" in n), None) or next(
             (n for n in cats if n != split), None
@@ -252,9 +312,9 @@ def defaults(ds, console: dict) -> dict:
         "expressions": expressions,
         "aggregates": aggregates,
     }
-    col = lambda n: lab.get(n, n)  # noqa: E731
+    col: Callable[[str], str] = lambda n: lab.get(n, n)  # noqa: E731
     by = f" and {word(split)}" if split else ""
-    panels = {}
+    panels: dict[str, dict[str, object]] = {}
     if group:
         panels["by-group"] = {
             **base,
@@ -301,9 +361,14 @@ def defaults(ds, console: dict) -> dict:
         }
     panels["rows"] = {"table": TABLE, "plugin": "Datagrid", "title": "Rows"}
 
-    tab = lambda *ids: {"type": "tab-layout", "tabs": [i for i in ids if i in panels]}  # noqa: E731
+    tab: Callable[[*tuple[str, ...]], dict[str, object]] = lambda *ids: {  # noqa: E731
+        "type": "tab-layout",
+        "tabs": [i for i in ids if i in panels],
+    }
 
-    def row(*items, sizes=None):
+    def row(
+        *items: dict[str, object] | None, sizes: list[float] | None = None
+    ) -> dict[str, object] | None:
         keep = [
             (i, z)
             for i, z in zip(items, sizes or [1] * len(items), strict=True)
@@ -311,12 +376,12 @@ def defaults(ds, console: dict) -> dict:
         ]
         if len(keep) <= 1:
             return keep[0][0] if keep else None
-        items, sizes = [i for i, _ in keep], [z for _, z in keep]
+        kept, kept_sizes = [i for i, _ in keep], [z for _, z in keep]
         return {
             "type": "split-layout",
             "orientation": "horizontal",
-            "sizes": [z / sum(sizes) for z in sizes],
-            "children": items,
+            "sizes": [z / sum(kept_sizes) for z in kept_sizes],
+            "children": kept,
         }
 
     top = row(tab("by-group"), tab("over-time"), sizes=[0.42, 0.58])
@@ -334,20 +399,25 @@ def defaults(ds, console: dict) -> dict:
         if top
         else bottom
     )
-    ws = {"panels": panels, "layout": layout}
+    ws: dict[str, object] = {"panels": panels, "layout": layout}
     if "by-group" in panels:
         ws["masters"] = ["by-group"]
     return ws
 
 
-def int32_fields(console: dict) -> list[str]:
-    """Integer fields whose whole range fits 32 bits. DuckDB reads Parquet int64 as BIGINT, which
-    Perspective shows as a float, so the browser casts these back to INTEGER."""
+def int32_fields(console: Console) -> list[str]:
+    """Integer fields whose whole range fits 32 bits.
+
+    DuckDB reads Parquet int64 as BIGINT, which Perspective shows as a float, so the browser casts
+    these back to INTEGER.
+    """
     return [
         e["name"]
         for e in console["fields"]
         if e["type"] == "integer"
-        and e.get("min") is not None
-        and -INT32 <= e["min"]
-        and e["max"] < INT32
+        # An integer field's range is two ints, or no value at all.
+        and isinstance(lo := e.get("min"), int)
+        and isinstance(hi := e.get("max"), int)
+        and lo >= -INT32
+        and hi < INT32
     ]

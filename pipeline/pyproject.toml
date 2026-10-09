@@ -19,7 +19,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.1.1", "pytest-xdist>=3.8", "ruff>=0.16.9"]
+dev = [
+  "pytest>=9.1.1",
+  "pytest-xdist>=3.8",
+  "ruff==0.16.10",
+  "mypy==2.4.0",
+  "boto3-stubs[s3]==1.43.108",
+  "pyarrow-stubs==20.0.0.20260819",
+  "types-openpyxl==3.1.5.20260827",
+  "types-PyYAML==6.0.12.20260906",
+  "types-requests==2.33.0.20261006",
+  "types-xlrd==2.0.0.20260518",
+]
 deploy = ["boto3>=1.43.106"]
 hubs = ["huggingface_hub>=2.0.0", "kaggle>=2.2.4"]
 
@@ -38,8 +49,78 @@ line-length = 100
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "W"]
-ignore = ["E501"]
+select = ["ALL"]
+ignore = [
+  # These two fight ruff format, which owns trailing commas and joined strings.
+  "COM812",
+  "ISC001",
+  # No file carries a copyright header; LICENSE covers the code.
+  "CPY",
+  # ruff format owns line length.
+  "E501",
+  # Outside the client's public API a docstring is optional and holds a why, as CONTRIBUTING.md
+  # says; a forced one would be filler.
+  "D1",
+]
+
+[tool.ruff.lint.pydocstyle]
+# The docstrings open with their summary on the first line and often describe what a function
+# gives back ("The versions whose manifest is tracked"), which Google's convention allows and
+# PEP 257's imperative mood would rewrite.
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# pytest asserts with assert, and an expected value reads more plainly as a literal. A stand-in
+# takes the signature of what it replaces, a fixture can be asked for only for its effect, and a
+# test may call the private helper it tests. A spreadsheet or Parquet timestamp in a fixture has
+# no zone, as the data has none.
+"tests/**" = ["S101", "PLR2004", "ARG", "SLF001", "DTZ001"]
+# These modules run git, npx (wrangler), esbuild, node, the Kaggle CLI or the build itself. Each
+# call passes an argument list with no shell, built from the repository and the register, and git
+# and npx are found on PATH as CI installs them.
+"publicdata/{cost,d1,explorer,hubs}.py" = ["S603"]
+"publicdata/{__main__,cost}.py" = ["S607"]
+"tests/{conftest,test_cost,test_d1,test_directory,test_hooks,test_parts_sql,test_r2,test_site_and_gate}.py" = [
+  "S603",
+]
+"tests/test_{brand,cost,r2}.py" = ["S607"]
+# The fake S3 clients take boto3's keyword names.
+"tests/test_{checksums,r2}.py" = ["N803"]
+# The command line, the commands it hands to (gate.main, cost.run, verify.run) and the modules run
+# with python -m report to the terminal.
+"publicdata/{__main__,checksums,classes_fixture,cost,dbcheck,extension,gate,smithery,tdqs,verify}.py" = [
+  "T201",
+]
+# SQL is built from table and column names the register declares, quoted, with each value bound
+# as a parameter or written by a literal helper. These modules write the DuckDB, SQLite and D1
+# statements, and their tests read them back.
+"publicdata/{d1,database,figures,parts,records,rollup,site,spine}.py" = ["S608"]
+"publicdata/serialise/{__init__,geo,profile}.py" = ["S608"]
+"publicdata/serialise/writers/{gpkg,pmtiles,sqlite}.py" = ["S608"]
+"tests/test_{company_fixture,d1,directory,profile,records,updates}.py" = ["S608"]
+# cost reads a publisher URL only once _sized has checked it is http or https, and otherwise
+# reads the site and GitHub's API.
+"publicdata/cost.py" = ["S310"]
+
+[tool.mypy]
+strict = true
+python_version = "3.14"
+files = ["publicdata", "tests"]
+enable_error_code = ["ignore-without-code"]
+# Any is narrowed once, where a value enters at the parse of JSON, YAML or a library's answer.
+# disallow_any_expr stays off: it would flag every use of such a value before and after that
+# narrowing, which is every pyarrow, JSON and YAML value.
+disallow_any_explicit = true
+disallow_any_decorated = true
+disallow_any_unimported = true
+disallow_any_generics = true
+# pmtiles marks itself typed but leaves its writer and tile helpers unannotated.
+untyped_calls_exclude = ["pmtiles"]
+
+[[tool.mypy.overrides]]
+# XlsxWriter ships no annotations and no stub package exists for it.
+module = ["xlsxwriter", "xlsxwriter.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

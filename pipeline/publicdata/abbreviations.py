@@ -1,16 +1,22 @@
-"""Abbreviations in the site's own prose must be in the glossary (WCAG 2.2 SC 3.1.4). The glossary is
-glossary.json, rendered on the glossary page; the gate reads each built page's prose and the register's
-headline copy is checked at validate time, so an unexplained abbreviation stops a pull request before
-it stops a deploy."""
+"""Abbreviations in the site's own prose must be in the glossary (WCAG 2.2 SC 3.1.4).
+
+The glossary is glossary.json, rendered on the glossary page; the gate reads each built page's
+prose and the register's headline copy is checked at validate time, so an unexplained abbreviation
+stops a pull request before it stops a deploy.
+"""
 
 from __future__ import annotations
 
 import json
 import re
 from functools import lru_cache
-from html import unescape
+from html import escape, unescape
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .register import Dataset
 
 GLOSSARY = Path(__file__).with_name("glossary.json")
 # The register copy a page shows as prose. A publisher's code quoted in it goes in backticks.
@@ -54,15 +60,18 @@ QUOTED = "data-quoted"
 
 @lru_cache(maxsize=1)
 def glossary(path: Path = GLOSSARY) -> dict[str, str]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data: dict[str, str] = json.loads(path.read_text(encoding="utf-8"))
     if list(data) != sorted(data):
-        raise ValueError("glossary.json is kept in alphabetical order")
+        msg = "glossary.json is kept in alphabetical order"
+        raise ValueError(msg)
     return data
 
 
 def known_tokens(entries: dict[str, str]) -> frozenset[str]:
-    """Every token a glossary entry covers: the entry itself and, for a phrase such as CC BY, each
-    word of it."""
+    """Every token a glossary entry covers.
+
+    That is the entry itself and, for a phrase such as CC BY, each word of it.
+    """
     out: set[str] = set()
     for term in entries:
         out.add(term)
@@ -71,8 +80,10 @@ def known_tokens(entries: dict[str, str]) -> frozenset[str]:
 
 
 def unknown(text: str, known: frozenset[str], names: tuple[str, ...] = ()) -> list[str]:
-    """The abbreviations in text that the glossary does not hold and the text does not expand
-    inline, as "Transport and Main Roads (TMR)" does. names are proper names to read past."""
+    """The abbreviations in text that the glossary does not hold and the text does not expand inline.
+
+    "Transport and Main Roads (TMR)" expands TMR inline. names are proper names to read past.
+    """
     for n in sorted(names, key=len, reverse=True):
         if n and n in text:
             # Whole words only: a short name such as GA must not split GUNGAHLIN into two tokens.
@@ -83,7 +94,7 @@ def unknown(text: str, known: frozenset[str], names: tuple[str, ...] = ()) -> li
     for tok in TOKEN.findall(text):
         # A token with a digit is a code, a version or a formula (TRLB04, SA2, PM10), not a word a
         # reader is owed an expansion of; the glossary still explains the ones in common use.
-        if sum(ch.isalpha() for ch in tok) < 2 or any(ch.isdigit() for ch in tok):
+        if sum(ch.isalpha() for ch in tok) < 2 or any(ch.isdigit() for ch in tok):  # noqa: PLR2004 - one letter is no word
             continue
         if tok in known or tok in expanded or tok in seen:
             continue
@@ -92,8 +103,11 @@ def unknown(text: str, known: frozenset[str], names: tuple[str, ...] = ()) -> li
 
 
 class _Prose(HTMLParser):
-    """The text of <main>, less the elements SKIP_TAGS and SKIP_CLASSES name, every element marked
-    data-quoted and every region marked data-conformance="aa"."""
+    """The text of <main>, less what is not the site's own prose.
+
+    That leaves out the elements SKIP_TAGS and SKIP_CLASSES name, every element marked data-quoted
+    and every region marked data-conformance="aa".
+    """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -121,7 +135,7 @@ class _Prose(HTMLParser):
         }
     )
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in self.VOID:
             return
         a = dict(attrs)
@@ -138,7 +152,7 @@ class _Prose(HTMLParser):
         if skip:
             self.skipping += 1
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in self.VOID:
             return
         # Close back to the matching open tag, as browsers do with unclosed inline elements.
@@ -152,7 +166,7 @@ class _Prose(HTMLParser):
         if tag == "main":
             self.in_main = False
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self.in_main and not self.skipping:
             self.parts.append(data)
 
@@ -172,15 +186,15 @@ def check_page(page_html: str, rel: str, names: tuple[str, ...] = ()) -> list[st
     )
 
 
-def register_copy(d) -> dict[str, str]:
+def register_copy(d: Dataset) -> dict[str, str]:
     """Every piece of a register entry's copy that a page shows as prose, by where it sits."""
     fields = {k: getattr(d, k, "") or "" for k in COPY_FIELDS}
     for i, (q, a) in enumerate(d.faq):
         fields[f"faq[{i}].q"] = q
         fields[f"faq[{i}].a"] = a
     fields["licence.condition"] = d.licence.condition or ""
-    fields["sample.label"] = (d.sample or {}).get("label") or ""
-    fields["geometry.crs_note"] = (d.geometry or {}).get("crs_note") or ""
+    fields["sample.label"] = (d.sample.get("label") if d.sample else None) or ""
+    fields["geometry.crs_note"] = (d.geometry.get("crs_note") if d.geometry else None) or ""
     return fields
 
 
@@ -199,8 +213,6 @@ def check_copy(fields: dict[str, str], ctx: str, names: tuple[str, ...] = ()) ->
 
 def render(entries: dict[str, str]) -> str:
     """The glossary page's list, one definition per term."""
-    from html import escape
-
     items = "".join(
         f"<div><dt>{escape(t)}</dt><dd>{escape(d)}</dd></div>" for t, d in entries.items()
     )

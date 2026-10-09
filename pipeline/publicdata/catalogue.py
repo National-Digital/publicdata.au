@@ -16,12 +16,215 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from http import HTTPStatus
+from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
 from urllib.parse import quote, urlparse
 
 import requests
 
 from . import store
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from pathlib import Path
+
+    from .jsontypes import JSON
+    from .store import PortalStats
+
+    type Log = Callable[[str], object]
+    type Params = Mapping[str, str | int | float | Sequence[str]]
+
+
+class _Fields(TypedDict):
+    """The fields of a record each harvester gives _record."""
+
+    name: str
+    title: str
+    org: str
+    org_title: str
+    kind: str
+    licence_title: str
+    created: str
+    modified: str
+    url: str
+    summary: str
+    harvested_from: str
+
+
+class _CouncilFields(TypedDict):
+    """The fields a council portal's harvester gives _council_record."""
+
+    source_id: str
+    name: str
+    title: str
+    licence: str
+    licence_title: str
+    formats: list[str]
+    modified: str
+    url: str
+    summary: str
+
+
+class Record(_Fields):
+    """A catalogue record, keyed as _record writes it and as the snapshot reads back."""
+
+    id: str
+    portal: str
+    licence: str
+    open: bool | None
+    formats: list[str]
+    downloadable: bool
+    source_host: NotRequired[str]
+
+
+# The parts of each portal's API answers that the harvesters read.
+class _Named(TypedDict, total=False):
+    id: str
+    name: str
+    title: str | None
+
+
+class _NamedList(TypedDict):
+    result: list[_Named]
+
+
+class _Harvest(TypedDict, total=False):
+    site_url: str | None
+
+
+class _CkanOrg(TypedDict, total=False):
+    name: str | None
+
+
+class _CkanPackage(TypedDict, total=False):
+    id: str
+    name: str | None
+    title: str | None
+    original_harvest_source: str | _Harvest | None
+    extras_original_harvest_source: str | _Harvest | None
+    license_id: str | None
+    organization: str | _CkanOrg | None
+    dataset_type: str | None
+    type: str | None
+    res_format: list[object] | None
+    metadata_created: str | None
+    metadata_modified: str | None
+    url: str | None
+    notes: str | None
+
+
+class _CkanResult(TypedDict):
+    results: list[_CkanPackage]
+    count: int
+
+
+class _CkanSearch(TypedDict):
+    result: _CkanResult
+
+
+class _SocrataResource(TypedDict, total=False):
+    id: str
+    type: str | None
+    attribution: str | None
+    name: str | None
+    createdAt: str | None
+    data_updated_at: str | None
+    updatedAt: str | None
+    description: str | None
+
+
+class _SocrataMeta(TypedDict, total=False):
+    license: str | None
+
+
+class _SocrataResult(TypedDict, total=False):
+    resource: _SocrataResource
+    metadata: _SocrataMeta | None
+    permalink: str | None
+    link: str | None
+
+
+class _SocrataPage(TypedDict):
+    results: list[_SocrataResult]
+    resultSetSize: int
+
+
+class _Dataflow(TypedDict, total=False):
+    id: str
+    version: str | None
+    name: str | None
+    description: str | None
+
+
+class _Dataflows(TypedDict):
+    dataflows: list[_Dataflow]
+
+
+class _SdmxAnswer(TypedDict):
+    data: _Dataflows
+
+
+class _OdsMeta(TypedDict, total=False):
+    license: str | None
+    license_url: str | None
+    title: str | None
+    modified: str | None
+    description: str | None
+
+
+class _OdsMetas(TypedDict, total=False):
+    default: _OdsMeta | None
+
+
+class _OdsDataset(TypedDict, total=False):
+    dataset_id: str
+    dataset_uid: str | None
+    metas: _OdsMetas | None
+    has_records: bool | None
+    features: list[str] | None
+
+
+class _OdsPage(TypedDict):
+    total_count: int
+    results: list[_OdsDataset]
+
+
+class HubItem(TypedDict, total=False):
+    """An ArcGIS Hub dataset's properties, as its search and item APIs state them."""
+
+    id: str
+    type: str | None
+    title: str | None
+    license: str | None
+    licenseInfo: str | None
+    created: object
+    modified: object
+    description: str | None
+    snippet: str | None
+
+
+class _HubFeature(TypedDict, total=False):
+    properties: HubItem | None
+
+
+class _HubLink(TypedDict, total=False):
+    href: str
+    rel: str
+
+
+class _HubPage(TypedDict, total=False):
+    features: list[_HubFeature] | None
+    numberMatched: int
+    links: list[_HubLink] | None
+
+
+class _Headers(TypedDict, total=False):
+    headers: dict[str, str]
+
+
+class _GetOptions(_Headers, total=False):
+    timeout: float
+
 
 UA = "publicdata.au catalogue (+https://publicdata.au/about/)"
 SLUG = "catalogue"
@@ -49,7 +252,9 @@ class Portal:
         return f"{self.api.removesuffix('/api/3/action')}/dataset/{name}"
 
 
-def _council(code, host, jur, kind, publisher, replaces=()):
+def _council(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    code: str, host: str, jur: str, kind: str, publisher: str, *, replaces: Iterable[str] = ()
+) -> Portal:
     return Portal(code, host, f"https://{host}", jur, kind, publisher, tuple(replaces))
 
 
@@ -75,15 +280,15 @@ PORTALS = (
     Portal("abs", "data.api.abs.gov.au", "https://data.api.abs.gov.au/rest", "cth", "sdmx"),
     # Councils with a portal of their own. One that data.gov.au or its state portal already lists
     # in full is left to that copy.
-    _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", ["qld:brisbane-city-council"]),
-    _council("melb", "data.melbourne.vic.gov.au", "vic", "ods", "City of Melbourne", ["vic:city-of-melbourne", "gov:city-of-melbourne-open-data"]),
-    _council("casey", "data.casey.vic.gov.au", "vic", "ods", "City of Casey", ["vic:city-of-casey", "gov:city-of-casey"]),
-    _council("ballarat", "data.ballarat.vic.gov.au", "vic", "ods", "City of Ballarat", ["vic:city-of-ballarat", "gov:city-of-ballarat"]),
-    _council("geelong", "www.geelongdataexchange.com.au", "vic", "ods", "City of Greater Geelong", ["vic:city-of-greater-geelong", "gov:city-of-greater-geelong"]),
-    _council("corangamite", "data.corangamite.vic.gov.au", "vic", "ods", "Corangamite Shire Council", ["gov:corangamite-shire-council"]),
+    _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", replaces=["qld:brisbane-city-council"]),
+    _council("melb", "data.melbourne.vic.gov.au", "vic", "ods", "City of Melbourne", replaces=["vic:city-of-melbourne", "gov:city-of-melbourne-open-data"]),
+    _council("casey", "data.casey.vic.gov.au", "vic", "ods", "City of Casey", replaces=["vic:city-of-casey", "gov:city-of-casey"]),
+    _council("ballarat", "data.ballarat.vic.gov.au", "vic", "ods", "City of Ballarat", replaces=["vic:city-of-ballarat", "gov:city-of-ballarat"]),
+    _council("geelong", "www.geelongdataexchange.com.au", "vic", "ods", "City of Greater Geelong", replaces=["vic:city-of-greater-geelong", "gov:city-of-greater-geelong"]),
+    _council("corangamite", "data.corangamite.vic.gov.au", "vic", "ods", "Corangamite Shire Council", replaces=["gov:corangamite-shire-council"]),
     _council("hawkesbury", "data.hawkesbury.nsw.gov.au", "nsw", "ods", "Hawkesbury City Council"),
     _council("maitland", "data.maitland.nsw.gov.au", "nsw", "ods", "Maitland City Council"),
-    _council("lakemac", "data.lakemac.com.au", "nsw", "ods", "Lake Macquarie City Council", ["gov:lake-macquarie-city-council", "nsw:lakemac"]),
+    _council("lakemac", "data.lakemac.com.au", "nsw", "ods", "Lake Macquarie City Council", replaces=["gov:lake-macquarie-city-council", "nsw:lakemac"]),
     _council("camden", "data.camden.nsw.gov.au", "nsw", "ods", "Camden Council"),
     _council("liverpool", "data.liverpool.nsw.gov.au", "nsw", "ods", "Liverpool City Council"),
     _council("bmcc", "data.bmcc.nsw.gov.au", "nsw", "ods", "Blue Mountains City Council"),
@@ -93,15 +298,15 @@ PORTALS = (
     _council("fairfield", "data.fairfieldcity.nsw.gov.au", "nsw", "ods", "Fairfield City Council"),
     _council("bayside", "nsw-bayside.opendatasoft.com", "nsw", "ods", "Bayside Council"),
     _council("wollondilly", "data.wollondilly.nsw.gov.au", "nsw", "ods", "Wollondilly Shire Council"),
-    _council("darwin", "darwin.opendatasoft.com", "nt", "ods", "City of Darwin", ["nt:darwin-city-council"]),
+    _council("darwin", "darwin.opendatasoft.com", "nt", "ods", "City of Darwin", replaces=["nt:darwin-city-council"]),
     _council("sydney", "data.cityofsydney.nsw.gov.au", "nsw", "hub", "City of Sydney"),
-    _council("goldcoast", "data-goldcoast.opendata.arcgis.com", "qld", "hub", "City of Gold Coast", ["gov:city-of-gold-coast"]),
+    _council("goldcoast", "data-goldcoast.opendata.arcgis.com", "qld", "hub", "City of Gold Coast", replaces=["gov:city-of-gold-coast"]),
     _council("sunshine", "data.sunshinecoast.qld.gov.au", "qld", "hub", "Sunshine Coast Council"),
-    _council("townsville", "data-tsvcitycouncil.opendata.arcgis.com", "qld", "hub", "Townsville City Council", ["gov:townsville-city-council"]),
+    _council("townsville", "data-tsvcitycouncil.opendata.arcgis.com", "qld", "hub", "Townsville City Council", replaces=["gov:townsville-city-council"]),
     _council("tweed", "data-tweed.opendata.arcgis.com", "nsw", "hub", "Tweed Shire Council"),
     _council("wodonga", "cow-open-data-hub-cityofwodonga.hub.arcgis.com", "vic", "hub", "City of Wodonga"),
     _council("albany", "city-maps-and-data-albanywa.hub.arcgis.com", "wa", "hub", "City of Albany"),
-    _council("parramatta", "open-data-parracity.hub.arcgis.com", "nsw", "hub", "City of Parramatta", ["gov:city-of-parramatta"]),
+    _council("parramatta", "open-data-parracity.hub.arcgis.com", "nsw", "hub", "City of Parramatta", replaces=["gov:city-of-parramatta"]),
     _council("perth", "geohub-perth.opendata.arcgis.com", "wa", "hub", "City of Perth"),
     _council("latrobe", "geo-latrobecc.hub.arcgis.com", "vic", "hub", "Latrobe City Council"),
 )  # fmt: skip
@@ -131,18 +336,28 @@ SUMMARY_CHARS = 280
 
 
 RETRYABLE = (requests.ConnectionError, requests.Timeout)
+GET_ATTEMPTS = 5
 
 
-def _get(s: requests.Session, url: str, params: dict | None = None, **kw) -> requests.Response:
-    timeout = kw.pop("timeout", 180)
-    for attempt in range(5):
+def _get(
+    s: requests.Session,
+    url: str,
+    params: Params | None = None,
+    *,
+    timeout: float = 180,
+    **kw: Unpack[_Headers],
+) -> requests.Response:
+    for attempt in range(GET_ATTEMPTS):
         try:
             r = s.get(url, params=params, timeout=timeout, **kw)
-            if r.status_code < 500 and r.status_code != 429:
+            if (
+                r.status_code < HTTPStatus.INTERNAL_SERVER_ERROR
+                and r.status_code != HTTPStatus.TOO_MANY_REQUESTS
+            ):
                 r.raise_for_status()
                 return r
         except RETRYABLE:
-            if attempt == 4:
+            if attempt == GET_ATTEMPTS - 1:
                 raise
         time.sleep(5 * (attempt + 1))
     r.raise_for_status()
@@ -153,15 +368,39 @@ class PortalError(RuntimeError):
     pass
 
 
-def get_json(s: requests.Session, url: str, params: dict | None = None, **kw):
+def get_json(
+    s: requests.Session, url: str, params: Params | None = None, **kw: Unpack[_GetOptions]
+) -> JSON:
+    """A portal's answer parsed as JSON; each caller names the shape it reads."""
     r = _get(s, url, params, **kw)
     try:
-        return r.json()
+        got: JSON = r.json()
     except ValueError:
-        raise PortalError(
-            f"{url}: HTTP {r.status_code}, {r.headers.get('Content-Type') or 'no content type'}, "
-            f"{len(r.content)} bytes, not JSON: {r.content[:120]!r}"
-        ) from None
+        raise PortalError(_not_json(url, r)) from None
+    return got
+
+
+def get_json_as[T](
+    _shape: type[T],
+    s: requests.Session,
+    url: str,
+    params: Params | None = None,
+    **kw: Unpack[_GetOptions],
+) -> T:
+    """get_json for an answer the caller reads as _shape, which types the result and is not checked."""
+    r = _get(s, url, params, **kw)
+    try:
+        got: T = r.json()
+    except ValueError:
+        raise PortalError(_not_json(url, r)) from None
+    return got
+
+
+def _not_json(url: str, r: requests.Response) -> str:
+    return (
+        f"{url}: HTTP {r.status_code}, {r.headers.get('Content-Type') or 'no content type'}, "
+        f"{len(r.content)} bytes, not JSON: {r.content[:120]!r}"
+    )
 
 
 # CKAN's default licence register, by title. Checked before any pattern so a title such as
@@ -182,9 +421,12 @@ KNOWN_LICENCES = {
 OPEN_IDS = {"CC0-1.0", "PDM", "PDDL-1.0", "ODC-BY-1.0", "ODBL-1.0", "other-open", "other-at"}
 
 
-def licence_id(title: str) -> str:
-    """A portal's licence title onto an SPDX-style id. A title nothing here recognises is kept as
-    the portal states it, so it shows up in review rather than being guessed."""
+def licence_id(title: str) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch per licence wording a portal uses
+    """A portal's licence title onto an SPDX-style id.
+
+    A title nothing here recognises is kept as the portal states it, so it shows up in review
+    rather than being guessed.
+    """
     t = re.sub(r"\s+", " ", (title or "").strip()).lower()
     if not t or t in KNOWN_LICENCES:
         return KNOWN_LICENCES.get(t, "")
@@ -229,8 +471,11 @@ def cc_url(url: str) -> str:
 
 
 def is_open(lic: str) -> bool | None:
-    """True for licences that allow republication with changes, False for ones that do not,
-    None when the portal states no licence."""
+    """Whether a licence allows republication with changes.
+
+    True for licences that allow it, False for ones that do not, None when the portal states no
+    licence.
+    """
     if not lic:
         return None
     if lic in OPEN_IDS:
@@ -240,8 +485,8 @@ def is_open(lic: str) -> bool | None:
     return False
 
 
-def formats(raw) -> list[str]:
-    out = set()
+def formats(raw: Iterable[object] | None) -> list[str]:
+    out: set[str] = set()
     for f in raw or []:
         for part in re.split(r"[,/;]", str(f)):
             p = part.strip().upper().lstrip(".")
@@ -266,50 +511,64 @@ def summary(notes: str) -> str:
     return cut.rstrip(",;:.") + "…"
 
 
-def _day(iso: str) -> str:
+def _day(iso: str | None) -> str:
     return (iso or "")[:10]
 
 
 def record_id(portal: str, source_id: str) -> str:
-    """Stable across renames: CKAN's package UUID, Socrata's four-by-four, the ABS dataflow id.
-    Shaped to fit a vote key."""
+    """A record's id, stable across renames.
+
+    It is CKAN's package UUID, Socrata's four-by-four or the ABS dataflow id, shaped to fit a
+    vote key.
+    """
     return re.sub(r"[^a-z0-9-]+", "-", f"{portal}-{source_id}".lower()).strip("-")[:64]
 
 
-def _record(portal: Portal, **kw) -> dict:
-    fmts = kw.pop("formats")
-    lic = kw.pop("licence")
+def _record(
+    portal: Portal,
+    *,
+    source_id: str,
+    licence: str,
+    formats: list[str],
+    source_host: str = "",
+    **kw: Unpack[_Fields],
+) -> Record:
     rec = {
-        "id": record_id(portal.code, kw.pop("source_id")),
+        "id": record_id(portal.code, source_id),
         "portal": portal.code,
-        "licence": lic,
-        "open": is_open(lic),
-        "formats": fmts,
-        "downloadable": bool(set(fmts) & DOWNLOADABLE),
-        "source_host": kw.pop("source_host", ""),
+        "licence": licence,
+        "open": is_open(licence),
+        "formats": formats,
+        "downloadable": bool(set(formats) & DOWNLOADABLE),
+        "source_host": source_host,
         **kw,
     }
-    return dict(sorted(rec.items()))
+    # The keys in name order, as the snapshot has always kept them.
+    return cast("Record", dict(sorted(rec.items())))
 
 
-def ckan(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
-    lic_titles = {
-        x["id"]: x.get("title") or x["id"]
-        for x in get_json(s, f"{portal.api}/license_list")["result"]
-    }
-    orgs, off = {}, 0
+def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    licences = get_json_as(_NamedList, s, f"{portal.api}/license_list")
+    lic_titles = {x["id"]: x.get("title") or x["id"] for x in licences["result"]}
+    orgs: dict[str, str] = {}
+    off = 0
     while True:
-        page = get_json(
-            s, f"{portal.api}/organization_list", {"all_fields": "true", "limit": 25, "offset": off}
+        page = get_json_as(
+            _NamedList,
+            s,
+            f"{portal.api}/organization_list",
+            {"all_fields": "true", "limit": 25, "offset": off},
         )["result"]
         new = [o for o in page if o["name"] not in orgs]
         if not new:
             break
         orgs.update({o["name"]: (o.get("title") or o["name"]).strip() for o in new})
         off += len(page)
-    out, dropped, start, rows = [], 0, 0, 1000
+    out: list[Record] = []
+    dropped, start, rows = 0, 0, 1000
     while True:
-        res = get_json(
+        res = get_json_as(
+            _CkanSearch,
             s,
             f"{portal.api}/package_search",
             {
@@ -369,13 +628,14 @@ def ckan(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], in
     return out, dropped
 
 
-def socrata(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
-    out, off, after = [], 0, ""
+def socrata(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    out: list[Record] = []
+    off, after = 0, ""
     while True:
         # scroll_id pages in id order, starting from an empty one, and stays stable while the
         # catalogue changes. Offsets over the default relevance order repeat and skip rows.
-        params = {"domains": portal.host, "limit": 100, "scroll_id": after}
-        res = get_json(s, portal.api, params)
+        params: Params = {"domains": portal.host, "limit": 100, "scroll_id": after}
+        res = get_json_as(_SocrataPage, s, portal.api, params)
         for r in res["results"]:
             x, meta = r["resource"], r.get("metadata") or {}
             kind = x.get("type") or ""
@@ -408,15 +668,16 @@ def socrata(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict],
     return out, 0
 
 
-def sdmx(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
+def sdmx(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """ABS dataflows. The ABS states CC BY 4.0 for its statistics unless a release says otherwise."""
-    flows = get_json(
+    flows = get_json_as(
+        _SdmxAnswer,
         s,
         f"{portal.api}/dataflow/ABS",
         {"detail": "allstubs"},
         headers={"Accept": "application/vnd.sdmx.structure+json"},
     )["data"]["dataflows"]
-    out = []
+    out: list[Record] = []
     for f in flows:
         fid, ver = f["id"], f.get("version") or "1.0"
         out.append(
@@ -442,29 +703,41 @@ def sdmx(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], in
     return out, 0
 
 
-def _council_record(portal: Portal, **kw) -> dict:
+def _council_record(portal: Portal, *, created: str = "", **kw: Unpack[_CouncilFields]) -> Record:
     return _record(
         portal,
         org=portal.code,
         org_title=portal.publisher,
         kind="dataset",
-        created=kw.pop("created", ""),
+        created=created,
         harvested_from="",
         **kw,
     )
 
 
-def ods(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
-    """An Opendatasoft portal. A dataset with records can be exported in every format the
-    platform offers; one without is a page of links, which is listed with no files."""
-    out, off, total = [], 0, 0
+# Opendatasoft's catalogue API pages no further than this many datasets.
+ODS_PAGING_LIMIT = 10_000
+
+
+def ods(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    """An Opendatasoft portal.
+
+    A dataset with records can be exported in every format the platform offers; one without is a
+    page of links, which is listed with no files.
+    """
+    out: list[Record] = []
+    off, total = 0, 0
     while True:
-        res = get_json(
-            s, f"{portal.api}/api/explore/v2.1/catalog/datasets", {"limit": 100, "offset": off}
+        res = get_json_as(
+            _OdsPage,
+            s,
+            f"{portal.api}/api/explore/v2.1/catalog/datasets",
+            {"limit": 100, "offset": off},
         )
         total = res["total_count"]
-        if total > 10_000:
-            raise PortalError(f"{portal.host}: {total} datasets is past the paging limit")
+        if total > ODS_PAGING_LIMIT:
+            msg = f"{portal.host}: {total} datasets is past the paging limit"
+            raise PortalError(msg)
         for x in res["results"]:
             # A dataset federated from another portal carries that portal's name after an @.
             if "@" in x["dataset_id"]:
@@ -472,7 +745,7 @@ def ods(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int
             m = (x.get("metas") or {}).get("default") or {}
             lic = m.get("license") or ""
             lid = cc_url(m.get("license_url") or "") or licence_id(lic)
-            fmts = []
+            fmts: list[str] = []
             if x.get("has_records"):
                 fmts = ["API", "CSV", "JSON", "XLSX"]
                 if "geo" in (x.get("features") or []):
@@ -519,7 +792,7 @@ HUB_FORMATS = {
 }
 
 
-def _epoch_day(ms) -> str:
+def _epoch_day(ms: object) -> str:
     s = str(ms if ms is not None else "").strip()
     if not s.isdigit():
         return ""
@@ -529,9 +802,12 @@ def _epoch_day(ms) -> str:
         return ""
 
 
-def hub_licence(x: dict) -> tuple[str, str]:
-    """Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
-    Commons deed, written out in licenseInfo."""
+def hub_licence(x: HubItem) -> tuple[str, str]:
+    """The licence an ArcGIS Hub dataset states.
+
+    Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
+    Commons deed, written out in licenseInfo.
+    """
     lic = (x.get("license") or "").strip()
     raw = x.get("licenseInfo") or ""
     text = summary(raw)
@@ -544,12 +820,14 @@ def hub_licence(x: dict) -> tuple[str, str]:
     return (named if named != text else "custom"), text
 
 
-def hub(portal: Portal, s: requests.Session, log=print) -> tuple[list[dict], int]:
+def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """An ArcGIS Hub site, read through its OGC Records search of the site's own catalogue."""
-    out, n = [], 0
-    url, params = f"{portal.api}/api/search/v1/collections/dataset/items", {"limit": 100}
+    out: list[Record] = []
+    n = 0
+    url = f"{portal.api}/api/search/v1/collections/dataset/items"
+    params: Params | None = {"limit": 100}
     while True:
-        res = get_json(s, url, params)
+        res = get_json_as(_HubPage, s, url, params)
         feats = res.get("features") or []
         for f in feats:
             x = f.get("properties") or {}
@@ -583,23 +861,30 @@ HARVESTERS = {"ckan": ckan, "socrata": socrata, "sdmx": sdmx, "ods": ods, "hub":
 
 
 def harvest(
-    portals=PORTALS, log=print, previous: list[dict] | None = None, previous_version: str = ""
-) -> tuple[list[dict], dict]:
-    """A portal that cannot be read keeps its records from the previous snapshot and says so in
-    the stats, so an outage never reads as datasets withdrawn. With no previous snapshot its
-    records are absent and the stats say it was not read."""
+    portals: Iterable[Portal] = PORTALS,
+    log: Log = print,
+    previous: list[Record] | None = None,
+    previous_version: str = "",
+) -> tuple[list[Record], dict[str, PortalStats]]:
+    """A portal that cannot be read keeps its records from the previous snapshot.
+
+    The stats say so, so an outage never reads as datasets withdrawn. With no previous snapshot
+    its records are absent and the stats say it was not read.
+    """
     s = requests.Session()
     s.headers["User-Agent"] = UA
-    records, stats = [], {}
+    records: list[Record] = []
+    stats: dict[str, PortalStats] = {}
     for p in portals:
         try:
             recs, dropped = HARVESTERS[p.kind](p, s, log)
         except (requests.RequestException, PortalError, KeyError, ValueError, TypeError) as e:
             if previous is None and previous_version:
-                raise PortalError(
+                msg = (
                     f"{p.host} could not be read and the {previous_version} snapshot is not in the "
                     "store to carry its records forward; run `publicdata store pull --only catalogue`"
-                ) from e
+                )
+                raise PortalError(msg) from e
             kept = [r for r in previous or [] if r["portal"] == p.code]
             records += kept
             stats[p.code] = {
@@ -614,7 +899,8 @@ def harvest(
         records += recs
         stats[p.code] = {"records": len(recs), "dropped_duplicates": dropped}
     records = _drop_copies(records, portals, stats)
-    seen, unique = set(), []
+    seen: set[str] = set()
+    unique: list[Record] = []
     for r in sorted(records, key=lambda r: r["id"]):
         if r["id"] not in seen:
             seen.add(r["id"])
@@ -626,10 +912,15 @@ def _title_key(title: str) -> str:
     return re.sub(r"[^a-z0-9]", "", title.lower())
 
 
-def _drop_copies(records: list[dict], portals, stats: dict) -> list[dict]:
-    """A record in an organisation a council portal replaces is dropped when the council portal
+def _drop_copies(
+    records: list[Record], portals: Iterable[Portal], stats: dict[str, PortalStats]
+) -> list[Record]:
+    """Drop the copies of records that a council portal now lists itself.
+
+    A record in an organisation a council portal replaces is dropped when the council portal
     lists the same title or the record's source is on the council portal. Anything else that
-    organisation holds is kept, since it may come from somewhere the council portal does not."""
+    organisation holds is kept, since it may come from somewhere the council portal does not.
+    """
     have = {r["portal"] for r in records}
     scope = {o: p for p in portals if p.code in have for o in p.replaces}
     if not scope:
@@ -638,7 +929,7 @@ def _drop_copies(records: list[dict], portals, stats: dict) -> list[dict]:
     for r in records:
         if r["portal"] in {p.code for p in scope.values()}:
             titles.setdefault(r["portal"], set()).add(_title_key(r["title"]))
-    kept = []
+    kept: list[Record] = []
     for r in records:
         p = scope.get(f"{r['portal']}:{r['org'] or 'unknown'}")
         if p and (
@@ -652,12 +943,12 @@ def _drop_copies(records: list[dict], portals, stats: dict) -> list[dict]:
     return kept
 
 
-def encode(records: list[dict]) -> bytes:
+def encode(records: Iterable[Record]) -> bytes:
     body = "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in records)
     return gzip.compress(body.encode("utf-8"), compresslevel=9, mtime=0)
 
 
-def decode(data: bytes) -> list[dict]:
+def decode(data: bytes) -> list[Record]:
     return [json.loads(line) for line in gzip.decompress(data).decode("utf-8").splitlines() if line]
 
 
@@ -666,7 +957,7 @@ def latest(store_dir: Path) -> store.Manifest | None:
     return ms[-1] if ms else None
 
 
-def load(store_dir: Path) -> list[dict]:
+def load(store_dir: Path) -> list[Record]:
     m = latest(store_dir)
     if not m:
         return []
@@ -675,7 +966,10 @@ def load(store_dir: Path) -> list[dict]:
 
 
 def fetch(
-    store_dir: Path, log=print, portals=PORTALS, today: str | None = None
+    store_dir: Path,
+    log: Log = print,
+    portals: Iterable[Portal] = PORTALS,
+    today: str | None = None,
 ) -> store.Manifest | None:
     prev = latest(store_dir)
     previous = load(store_dir) if prev and store.source_path(store_dir, prev).exists() else None

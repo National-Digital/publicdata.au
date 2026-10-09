@@ -16,13 +16,26 @@ import datetime as dt
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Literal, TypedDict, Unpack, cast
 
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from publicdata import rollup
 from publicdata.normalise import ARROW_TYPES
 from publicdata.serialise.writers import parquet as writer
+
+from .conftest import present
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from publicdata.jsontypes import JSONObject
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
+    from publicdata.register import Dataset
 
 DIR = Path(__file__).parent / "fixtures" / "companies"
 DATA, PROFILED = DIR / "data.parquet", DIR / "profiled.parquet"
@@ -50,8 +63,50 @@ TYPES = ["APTY"] * 16 + ["APUB", "APUB", "FNOS", "RACN", "CCIV"]
 STATUSES = ["REGD"] * 8 + ["DRGD", "DRGD", "SOFF", "EXAD"]
 
 
-def rows() -> list[dict]:
-    out = []
+class Company(TypedDict):
+    company_name: str
+    acn: str
+    type: str
+    status: str
+    registration_date: dt.date | None
+    current_name_indicator: bool | None
+
+
+class WriteOptions(TypedDict, total=False):
+    """The options the writer and this fixture hand to pq.write_table."""
+
+    compression: Literal["zstd"]
+    write_statistics: bool
+    row_group_size: int
+    max_rows_per_page: int
+    sorting_columns: list[pq.SortingColumn]
+    write_page_index: bool
+
+
+class Count(TypedDict):
+    where: JSONObject
+    group_by: list[str]
+    groups: list[dict[str, object]]
+    matched: int
+
+
+class RowQuery(TypedDict):
+    where: JSONObject
+    select: list[str]
+    limit: int
+    rows: list[dict[str, object]]
+    matched: int
+
+
+class Expected(TypedDict):
+    slug: str
+    version: str
+    counts: list[Count]
+    rows: list[RowQuery]
+
+
+def rows() -> list[Company]:
+    out: list[Company] = []
     company = 0
     while len(out) < ROWS:
         company += 1
@@ -63,30 +118,30 @@ def rows() -> list[dict]:
         if company % 211 == 0:
             day = dt.date(2024, 1 + company % 12, 1 + company % 27)
         names = 1 + (company % 5 == 0) + (company % 13 == 0)
-        for n in range(names):
-            out.append(
-                {
-                    "company_name": f"Company {company} name {n}",
-                    "acn": acn,
-                    "type": TYPES[company % len(TYPES)],
-                    "status": STATUSES[company % len(STATUSES)],
-                    "registration_date": None if company % 401 == 0 else day,
-                    "current_name_indicator": True if n == names - 1 else None,
-                }
-            )
+        out.extend(
+            {
+                "company_name": f"Company {company} name {n}",
+                "acn": acn,
+                "type": TYPES[company % len(TYPES)],
+                "status": STATUSES[company % len(STATUSES)],
+                "registration_date": None if company % 401 == 0 else day,
+                "current_name_indicator": True if n == names - 1 else None,
+            }
+            for n in range(names)
+        )
     out = out[:ROWS]
     # The publisher lists companies by name, so its order is not the ACN's.
     return sorted(out, key=lambda r: (r["company_name"][::-1], r["acn"]))
 
 
-def _table(data: list[dict]) -> pa.Table:
+def _table(data: Sequence[Mapping[str, object]]) -> pa.Table:
     return pa.table({k: pa.array([r[k] for r in data], ARROW_TYPES[t]) for k, t in FIELDS.items()})
 
 
-def write(path: Path, profiled: bool) -> None:
+def write(path: Path, *, profiled: bool) -> None:
     data = rows()
     table = _table(data)
-    extra = {"row_group_size": GROUP_ROWS}
+    extra: WriteOptions = {"row_group_size": GROUP_ROWS}
     if profiled:
         order = sorted(range(len(data)), key=lambda i: (data[i]["acn"], i))
         table = table.take(pa.array(order))
@@ -96,22 +151,20 @@ def write(path: Path, profiled: bool) -> None:
             "write_page_index": True,
         }
 
-    def write_table(t, where, **k):
+    def write_table(t: pa.Table, where: Path, **k: Unpack[WriteOptions]) -> None:
         if profiled:
             t = t.replace_schema_metadata({**t.schema.metadata, b"publicdata.profile": b"1"})
-        pq.write_table(t, where, **{**k, **extra})
+        options: WriteOptions = {**k, **extra}
+        pq.write_table(t, where, **options)
 
-    writer.pq = SimpleNamespace(write_table=write_table)
-    try:
-        writer.write_parquet(
-            SimpleNamespace(table=table, manifest=SimpleNamespace(parquet={})), HEADER, path
-        )
-    finally:
-        writer.pq = pq
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(writer, "pq", SimpleNamespace(write_table=write_table))
+        tbl = SimpleNamespace(table=table, manifest=SimpleNamespace(parquet={}))
+        writer.write_parquet(cast("Table", tbl), cast("Header", HEADER), path)
 
 
-def dataset():
-    return SimpleNamespace(
+def dataset() -> Dataset:
+    stand_in = SimpleNamespace(
         slug=SLUG,
         kind="table",
         query=False,
@@ -120,9 +173,10 @@ def dataset():
         rollup=DECLARED,
         fields=tuple(SimpleNamespace(name=n, type=t) for n, t in FIELDS.items()),
     )
+    return cast("Dataset", stand_in)
 
 
-def build_rollup(path: Path) -> tuple[rollup.Plan, bytes]:
+def build_rollup(path: Path) -> tuple[rollup.Plan | None, bytes]:
     run, con = rollup.parquet_run(path)
     try:
         return rollup.make(dataset(), run, ROWS, rollup.parquet_header(path), SLUG, VERSION)
@@ -131,7 +185,7 @@ def build_rollup(path: Path) -> tuple[rollup.Plan, bytes]:
 
 
 # The questions the functions' tests ask, as count_rows and query_rows take them.
-COUNTS = [
+COUNTS: list[tuple[JSONObject, list[str]]] = [
     ({"type": "APTY", "registration_date": {"min": "2024-01-01", "max": "2024-12-31"}}, []),
     (
         {
@@ -148,7 +202,7 @@ COUNTS = [
     ({"registration_date": {"min": "1999-01-01", "max": "2004-06-30"}}, ["current_name_indicator"]),
     ({"acn": "000000105"}, []),
 ]
-ROW_QUERIES = [
+ROW_QUERIES: list[tuple[JSONObject, list[str], int]] = [
     (
         {"type": "APTY", "registration_date": {"min": "2024-01-01", "max": "2024-12-31"}},
         ["acn", "company_name", "type", "registration_date"],
@@ -159,8 +213,8 @@ ROW_QUERIES = [
 ]
 
 
-def _where(where: dict) -> str:
-    out = []
+def _where(where: JSONObject) -> str:
+    out: list[str] = []
     for k, w in where.items():
         if w is None:
             out.append(f'"{k}" IS NULL')
@@ -176,18 +230,19 @@ def _where(where: dict) -> str:
     return " WHERE " + " AND ".join(out) if out else ""
 
 
-def _cell(v):
+def _cell(v: object) -> object:
     return v.isoformat() if isinstance(v, dt.date) else int(v) if isinstance(v, bool) else v
 
 
-def expected(path: Path) -> dict:
-    """DuckDB's answers from the published file. Rows come in the order the profile file holds
-    them, which the DuckDB SQL an answer cites reproduces: the sort, then the file's position."""
-    import duckdb
+def expected(path: Path) -> Expected:
+    """DuckDB's answers from the published file.
 
+    Rows come in the order the profile file holds them, which the DuckDB SQL an answer cites
+    reproduces: the sort, then the file's position.
+    """
     con = duckdb.connect()
     src = f"read_parquet('{path.as_posix()}', file_row_number = true)"
-    counts = []
+    counts: list[Count] = []
     for where, group in COUNTS:
         g = ", ".join(f'"{x}"' for x in group)
         sel = f"{g + ', ' if g else ''}COUNT(*)"
@@ -195,45 +250,46 @@ def expected(path: Path) -> dict:
         by = ", ".join(f'"{x}" ASC NULLS FIRST' for x in group)
         tail = f" GROUP BY {g} ORDER BY COUNT(*) DESC, {by}" if g else ""
         got = con.execute(f"SELECT {sel} FROM {src}{_where(where)}{tail}").fetchall()
-        groups = [
+        groups: list[dict[str, object]] = [
             {**dict(zip(group, map(_cell, r[:-1]), strict=True)), "count": r[-1]} for r in got
         ]
-        total = con.execute(f"SELECT COUNT(*) FROM {src}{_where(where)}").fetchone()[0]
+        total = present(con.execute(f"SELECT COUNT(*) FROM {src}{_where(where)}").fetchone())[0]
         counts.append({"where": where, "group_by": group, "groups": groups, "matched": total})
-    rows_ = []
+    rows_: list[RowQuery] = []
     for where, select, limit in ROW_QUERIES:
         cols = ", ".join(f'"{c}"' for c in select)
         q = f"SELECT {cols} FROM {src}{_where(where)} ORDER BY acn, file_row_number LIMIT {limit}"
-        got = [dict(zip(select, map(_cell, r), strict=True)) for r in con.execute(q).fetchall()]
-        total = con.execute(f"SELECT COUNT(*) FROM {src}{_where(where)}").fetchone()[0]
+        found = [dict(zip(select, map(_cell, r), strict=True)) for r in con.execute(q).fetchall()]
+        total = present(con.execute(f"SELECT COUNT(*) FROM {src}{_where(where)}").fetchone())[0]
         rows_.append(
-            {"where": where, "select": select, "limit": limit, "rows": got, "matched": total}
+            {"where": where, "select": select, "limit": limit, "rows": found, "matched": total}
         )
     return {"slug": SLUG, "version": VERSION, "counts": counts, "rows": rows_}
 
 
-def _json(obj) -> str:
+def _json(obj: object) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=1) + "\n"
 
 
-def test_the_committed_company_fixture_is_what_the_writers_write(tmp_path):
+def test_the_committed_company_fixture_is_what_the_writers_write(tmp_path: Path) -> None:
     for committed, profiled in ((DATA, False), (PROFILED, True)):
         fresh = tmp_path / committed.name
-        write(fresh, profiled)
+        write(fresh, profiled=profiled)
         a, b = pq.ParquetFile(committed), pq.ParquetFile(fresh)
         assert a.metadata.num_row_groups == b.metadata.num_row_groups == ROWS // GROUP_ROWS
         assert a.schema_arrow.equals(b.schema_arrow, check_metadata=True)
         assert a.read().equals(b.read())
-    p, body = build_rollup(DATA)
+    _p, body = build_rollup(DATA)
     assert body == ROLLUP.read_bytes()
     assert EXPECTED.read_text(encoding="utf-8") == _json(expected(DATA))
 
 
-def test_the_declared_cube_is_built_and_answers_the_type_and_year_count():
+def test_the_declared_cube_is_built_and_answers_the_type_and_year_count() -> None:
     p, _ = build_rollup(DATA)
-    assert tuple(sorted(DECLARED[0])) in p.cubes
+    assert tuple(sorted(DECLARED[0])) in present(p).cubes
     first = expected(DATA)["counts"][0]
-    assert first["matched"] > 0 and first["groups"] == [{"count": first["matched"]}]
+    assert first["matched"] > 0
+    assert first["groups"] == [{"count": first["matched"]}]
 
 
 if __name__ == "__main__":
