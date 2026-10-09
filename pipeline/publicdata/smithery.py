@@ -10,12 +10,20 @@ from __future__ import annotations
 
 import os
 import sys
+from http import HTTPStatus
+from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 import requests
 
 from . import SITE
 from .api_text import directory_listing, mcp_spec
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from .jsontypes import JSONObject
 
 API = "https://api.smithery.ai"
 NAME = "national-digital/publicdata-au"
@@ -25,15 +33,18 @@ UA = "publicdata.au release (+https://publicdata.au/about/)"
 MIN_DESCRIPTION = 20
 
 
-def listing() -> dict:
+def listing() -> dict[str, str]:
     d = directory_listing()
     return {"displayName": d["name"], "description": d["description"], "homepage": SITE + "/"}
 
 
 def problems() -> list[str]:
-    """Every scoring rule the server can meet. Tool naming is left out: Smithery wants dotted
-    names, which the Claude and OpenAI tool APIs refuse."""
-    out = []
+    """Every scoring rule the server can meet.
+
+    Tool naming is left out: Smithery wants dotted names, which the Claude and OpenAI tool APIs
+    refuse.
+    """
+    out: list[str] = []
     for t in mcp_spec()["tools"]:
         n = t["name"]
         if not t.get("description", "").strip():
@@ -60,18 +71,22 @@ def _session(key: str) -> requests.Session:
     return s
 
 
-def live(s: requests.Session) -> dict:
+def live(s: requests.Session) -> JSONObject:
     r = s.get(f"{API}/servers/{quote(NAME, safe='')}", timeout=30)
     r.raise_for_status()
-    got = r.json()
+    got: JSONObject = r.json()
     # Only the search listing carries the homepage.
-    r = s.get(f"{API}/servers", params={"q": NAME, "namespace": NAME.split("/")[0]}, timeout=30)
+    r = s.get(
+        f"{API}/servers",
+        params={"q": NAME, "namespace": NAME.split("/", maxsplit=1)[0]},
+        timeout=30,
+    )
     r.raise_for_status()
-    row = next((x for x in r.json()["servers"] if x["qualifiedName"] == NAME), {})
+    row: JSONObject = next((x for x in r.json()["servers"] if x["qualifiedName"] == NAME), {})
     return {**got, "homepage": row.get("homepage")}
 
 
-def drift(current: dict) -> dict:
+def drift(current: Mapping[str, object]) -> dict[str, str]:
     return {k: v for k, v in listing().items() if current.get(k) != v}
 
 
@@ -103,11 +118,11 @@ def sync(key: str) -> list[str]:
 def _summary(line: str) -> None:
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if path:
-        with open(path, "a", encoding="utf-8") as f:
+        with Path(path).open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv != ["sync"]:
         errors = problems()
@@ -124,15 +139,15 @@ def main(argv=None) -> int:
         # An outage there is not a fault here and the next release tries again. A 4xx is a
         # fault here, such as a lapsed key or a changed endpoint, so it fails the job.
         status = getattr(getattr(e, "response", None), "status_code", None)
-        if status is not None and status < 500:
+        if status is not None and status < HTTPStatus.INTERNAL_SERVER_ERROR:
             print(f"Smithery: {e}", file=sys.stderr)
             _summary(f"The Smithery listing could not be checked: {e}")
             return 1
         print(f"::warning::the Smithery listing could not be checked: {e}")
         _summary(f"The Smithery listing could not be checked: {e}")
         return 0
-    for e in errors:
-        print("Smithery: " + e, file=sys.stderr)
+    for err in errors:
+        print("Smithery: " + err, file=sys.stderr)
     _summary(
         "The Smithery listing's fields match api.json."
         if not errors

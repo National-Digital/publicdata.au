@@ -1,6 +1,8 @@
-"""A database dataset: the publisher's archive of delimited tables becomes one DuckDB file, one
-Parquet file per table, a schema and a SQL script. Rows are typed and columns renamed as for a
-single table; nothing is joined, except in the views the publisher ships beside the tables.
+"""A database dataset built from the publisher's archive of delimited tables.
+
+The archive becomes one DuckDB file, one Parquet file per table, a schema and a SQL script. Rows
+are typed and columns renamed as for a single table; nothing is joined, except in the views the
+publisher ships beside the tables.
 
 The archive is read a table at a time through DuckDB, so a release of many gigabytes builds on
 a runner with a few gigabytes of memory.
@@ -14,11 +16,12 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
 from .normalise import NormaliseError
-from .register import Dataset, Field, TableSpec
+from .rows import one_row
 from .serialise import (
     DUCKDB_TYPES,
     SQL_TYPES,
@@ -29,7 +32,16 @@ from .serialise import (
     pretty,
     profile,
 )
-from .store import Manifest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import duckdb
+
+    from .jsontypes import JSON, JSONObject
+    from .provenance import Header
+    from .register import Dataset, Field, TableSpec
+    from .store import Manifest
 
 # What a build may hold in memory while loading one table. The runner has more, and the rest is
 # left for the operating system's file cache, which the reads lean on.
@@ -53,9 +65,11 @@ def _lit(text: str) -> str:
 
 
 def members(ds: Dataset, names: list[str]) -> dict[str, list[str]]:
-    """The archive's members grouped by the upstream table the register's pattern names, in
-    archive order within each table."""
-    rx = re.compile(ds.database.member_match)
+    """The archive's members grouped by the upstream table the register's pattern names.
+
+    Members keep archive order within each table.
+    """
+    rx = re.compile(ds.database_spec().member_match)
     out: dict[str, list[str]] = {}
     for n in names:
         m = rx.search(n)
@@ -71,8 +85,10 @@ def _header(z: zipfile.ZipFile, member: str, encoding: str, delimiter: str) -> l
 
 
 def _expr(f: Field, dtype: str) -> str:
-    """The typed value of a text column, by the field's declared type. A value that cannot
-    take the type stops the build, as it does for a single table."""
+    """The typed value of a text column, by the field's declared type.
+
+    A value that cannot take the type stops the build, as it does for a single table.
+    """
     src = _ident(f.source)
     for v in f.null_values:
         src = f"NULLIF({src}, {_lit(v)})"
@@ -90,10 +106,21 @@ def _expr(f: Field, dtype: str) -> str:
     return f"CAST({src} AS {dtype})"
 
 
-def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[str], tmp: Path):
-    """Create the typed table and load each of its members in turn, extracted one at a time so
-    the disk holds one member's text, not a whole table's. Members load in archive order."""
-    db = ds.database
+def _load_table(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    con: duckdb.DuckDBPyConnection,
+    z: zipfile.ZipFile,
+    ds: Dataset,
+    t: TableSpec,
+    files: list[str],
+    *,
+    tmp: Path,
+) -> int:
+    """Create the typed table and load each of its members in turn.
+
+    Members are extracted one at a time so the disk holds one member's text, not a whole table's.
+    Members load in archive order.
+    """
+    db = ds.database_spec()
     cols = [f"{_ident(f.name)} {DUCKDB_TYPES[f.type]}" for f in t.fields]
     con.execute(f"CREATE TABLE {_ident(t.name)} ({', '.join(cols)})")
     exprs = ", ".join(f"{_expr(f, DUCKDB_TYPES[f.type])} AS {_ident(f.name)}" for f in t.fields)
@@ -108,17 +135,23 @@ def _load_table(con, z: zipfile.ZipFile, ds: Dataset, t: TableSpec, files: list[
             f"encoding={_lit(db.encoding)}, quote='\"', escape='\"')"
         )
         dest.unlink()
-    return con.execute(f"SELECT count(*) FROM {_ident(t.name)}").fetchone()[0]
+    n: int = one_row(con.execute(f"SELECT count(*) FROM {_ident(t.name)}"))[0]
+    return n
 
 
-def _write_parquet(con, t: TableSpec, header: dict, path: Path, profiled: bool) -> None:
-    """One table in the publisher's order: under the Parquet profile, a row group at a time, for
-    a version fetched since, and else as the version was first published."""
+def _write_parquet(
+    con: duckdb.DuckDBPyConnection, t: TableSpec, header: Header, path: Path, *, profiled: bool
+) -> None:
+    """One table in the publisher's order.
+
+    The table is read under the Parquet profile, a row group at a time, for a version fetched
+    since, and else as the version was first published.
+    """
     size = profile.ROW_GROUP_ROWS if profiled else 65_536
     reader = con.execute(f"SELECT * FROM {_ident(t.name)}").to_arrow_reader(size)
     if not profiled:
         schema = reader.schema.with_metadata({"publicdata": dumps(header)})
-        opts = dict(compression="zstd", write_statistics=True)
+        opts: profile.WriterOptions = {"compression": "zstd", "write_statistics": True}
     else:
         schema = reader.schema.with_metadata(profile.metadata(header))
         opts = profile.options(schema)
@@ -127,8 +160,8 @@ def _write_parquet(con, t: TableSpec, header: dict, path: Path, profiled: bool) 
             w.write_batch(b, row_group_size=size if profiled else None)
 
 
-def _frictionless_field(f: Field) -> dict:
-    d = {"name": f.name, "type": f.type, "title": f.source}
+def _frictionless_field(f: Field) -> JSONObject:
+    d: JSONObject = {"name": f.name, "type": f.type, "title": f.source}
     if f.description:
         d["description"] = f.description
     if f.type == "date" and f.date_format != "%Y-%m-%d":
@@ -139,11 +172,11 @@ def _frictionless_field(f: Field) -> dict:
     return d
 
 
-def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict:
+def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> JSONObject:
     """The tables as Frictionless Table Schemas with their keys and references, and the views."""
-    tables = []
+    tables: list[JSON] = []
     for t in ds.tables:
-        d: dict = {
+        d: JSONObject = {
             "name": t.name,
             "title": t.source,
             "description": t.description,
@@ -154,7 +187,7 @@ def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict:
             d["rows"] = rows.get(t.name, 0)
         if t.key:
             d["primaryKey"] = list(t.key)
-        refs = [
+        refs: list[JSON] = [
             {
                 "fields": [f.name],
                 "reference": {
@@ -175,9 +208,11 @@ def schema_json(ds: Dataset, rows: dict[str, int] | None = None) -> dict:
     }
 
 
-def schema_sql(ds: Dataset, header: dict) -> str:
-    """CREATE TABLE for every table with its keys and references, the views, and how to load
-    the Parquet files, for PostgreSQL and most SQL dialects."""
+def schema_sql(ds: Dataset, header: Header) -> str:
+    """CREATE TABLE for every table with its keys and references, and the views.
+
+    It also says how to load the Parquet files, for PostgreSQL and most SQL dialects.
+    """
     files = header["url"].rsplit("/", 1)[0] + "/"
     lines = [
         f"-- {ds.title}, version {header['version']}",
@@ -214,12 +249,17 @@ def schema_sql(ds: Dataset, header: dict) -> str:
     return "\n".join(lines)
 
 
-def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> DatabaseOut:
-    """Write data.duckdb, tables/<name>.parquet, schema.json and schema.sql into vdir. `hdr(rows,
-    rel)` gives the provenance header for a file. Tables load in register order."""
+def build_database(  # noqa: PLR0915 - a database's build steps, read in order
+    ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr: Callable[[int, str], Header]
+) -> DatabaseOut:
+    """Write data.duckdb, tables/<name>.parquet, schema.json and schema.sql into vdir.
+
+    `hdr(rows, rel)` gives the provenance header for a file. Tables load in register order.
+    """
     if m.ext != "zip":
-        raise NormaliseError(f"{ds.slug}: a database source is a zip, not .{m.ext}")
-    db = ds.database
+        msg = f"{ds.slug}: a database source is a zip, not .{m.ext}"
+        raise NormaliseError(msg)
+    db = ds.database_spec()
     (vdir / "tables").mkdir(parents=True, exist_ok=True)
     out = DatabaseOut(0, {})
     with zipfile.ZipFile(src) as z, tempfile.TemporaryDirectory(prefix="publicdata-db-") as tmpdir:
@@ -229,7 +269,8 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
         out.unknown_tables = sorted(s for s in by_source if s not in declared)
         missing = [t.source for t in ds.tables if t.source not in by_source]
         if missing:
-            raise NormaliseError(f"{ds.slug}: the archive has no member for {missing}")
+            msg = f"{ds.slug}: the archive has no member for {missing}"
+            raise NormaliseError(msg)
         con = duckdb_connect(vdir / "data.duckdb", None, threads=None)
         try:
             con.execute(f"SET memory_limit = '{MEMORY_LIMIT}'")
@@ -239,15 +280,17 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
                 allow = {f.source for f in t.fields}
                 headers = {tuple(_header(z, f, db.encoding, db.delimiter)) for f in files}
                 if len(headers) != 1:
-                    raise NormaliseError(f"{ds.slug}: {t.name}: members have different headers")
+                    msg = f"{ds.slug}: {t.name}: members have different headers"
+                    raise NormaliseError(msg)
                 header = list(next(iter(headers)))
                 lacking = sorted(allow - set(header))
                 if lacking:
-                    raise NormaliseError(f"{ds.slug}: {t.name}: columns not in the file: {lacking}")
+                    msg = f"{ds.slug}: {t.name}: columns not in the file: {lacking}"
+                    raise NormaliseError(msg)
                 unknown = [h for h in header if h not in allow]
                 if unknown:
                     out.unknown_columns[t.name] = unknown
-                n = _load_table(con, z, ds, t, files, tmp)
+                n = _load_table(con, z, ds, t, files, tmp=tmp)
                 out.tables[t.name] = n
                 out.rows += n
                 duckdb_comment(con, t.name, None, t.description or t.source)
@@ -258,7 +301,7 @@ def build_database(ds: Dataset, m: Manifest, src: Path, vdir: Path, hdr) -> Data
                     t,
                     hdr(n, f"tables/{t.name}.parquet"),
                     vdir / "tables" / f"{t.name}.parquet",
-                    bool(m.parquet),
+                    profiled=bool(m.parquet),
                 )
             for v in ds.views:
                 con.execute(f"CREATE VIEW {_ident(v.name)} AS {v.sql.rstrip(';')}")

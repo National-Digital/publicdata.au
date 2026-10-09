@@ -1,9 +1,11 @@
-"""A version's rows for the build's own queries: DuckDB over its data.parquet, or its period parts
-in order, shaped as the records table of its data.sqlite. Dates are ISO text, booleans 1 and 0,
-the suppressed flags joined with ";", a float's NaN a null, a layer's shapes left out, and rowid
-is the row's place in the file, or in the parts one after another. The pages' figures, the query
-console and the D1 load read the Parquet alone, and answer as SQLite did, in the Parquet's row
-order."""
+"""A version's rows for the build's own queries: DuckDB over its data.parquet, or its period parts.
+
+The rows are shaped as the records table of its data.sqlite. Dates are ISO text, booleans 1 and
+0, the suppressed flags joined with ";", a float's NaN a null, a layer's shapes left out, and
+rowid is the row's place in the file, or in the parts one after another. The pages' figures, the
+query console and the D1 load read the Parquet alone, and answer as SQLite did, in the Parquet's
+row order.
+"""
 
 from __future__ import annotations
 
@@ -11,9 +13,20 @@ import sqlite3
 from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING, Self
 
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
+    from .rows import Row
+
+
+# A value as SQLite holds it.
+type SQLValue = str | int | float | bytes | None
 
 ROWID = "rowid"
 # SQLite sums floats with Kahan-Babuska-Neumaier compensation, in row order, and averages the
@@ -51,23 +64,24 @@ def _column(name: str, t: pa.DataType) -> str:
 
 
 @lru_cache(maxsize=4096, typed=True)
-def _affinity(value, affinity: str):
-    """value as SQLite holds it in a column of that affinity."""
+def _affinity(value: object, affinity: str) -> SQLValue:
+    """The value as SQLite holds it in a column of that affinity."""
     with closing(sqlite3.connect(":memory:")) as s:
         s.execute(f"CREATE TABLE t (v {affinity})")
         s.execute("INSERT INTO t VALUES (?)", (value,))
-        return s.execute("SELECT v FROM t").fetchone()[0]
+        got: SQLValue = s.execute("SELECT v FROM t").fetchone()[0]
+        return got
 
 
 class Records:
-    """A read-only connection whose `records` view holds one version's rows. A parameter compared
-    with a column goes through param, so it compares as it would against data.sqlite. parquet is
-    the version's file, or the list of its parts in order, whose rows follow one another and keep
-    their order within each part."""
+    """A read-only connection whose `records` view holds one version's rows.
 
-    def __init__(self, parquet: Path | list[Path], names: list[str] | None = None):
-        import duckdb
+    A parameter compared with a column goes through param, so it compares as it would against
+    data.sqlite. parquet is the version's file, or the list of its parts in order, whose rows
+    follow one another and keep their order within each part.
+    """
 
+    def __init__(self, parquet: Path | list[Path], names: list[str] | None = None) -> None:
         files = [parquet] if isinstance(parquet, Path) else list(parquet)
         schema = pq.read_schema(files[0])
         have = [n for n in schema.names if n != "geometry"]
@@ -90,7 +104,8 @@ class Records:
             or pa.types.is_boolean(t)
         }
         cols = ", ".join(_column(n, schema.field(n).type) for n in self.names)
-        selects, before = [], 0
+        selects: list[str] = []
+        before = 0
         for f in files:
             path = str(f).replace("'", "''")
             selects.append(
@@ -117,45 +132,66 @@ class Records:
             return total if fn == "sum" else f"({total}) / count({c})"
         return f"{fn.upper()}({c})"
 
-    def param(self, name: str, value):
-        """value as SQLite compares it with the column: text that reads as a number becomes that
-        number against a numeric column, and a number becomes text against a text one. Text that
-        is not a number against a numeric column is refused, since SQLite would rank it above
-        every number."""
+    def param(self, name: str, value: object) -> SQLValue:
+        """The value as SQLite compares it with the column.
+
+        Text that reads as a number becomes that number against a numeric column, and a number
+        becomes text against a text one. Text that is not a number against a numeric column is
+        refused, since SQLite would rank it above every number.
+        """
         if value is None:
             return None
         if name not in self.numeric:
             return _affinity(value, "TEXT")
         v = _affinity(value, "NUMERIC")
         if isinstance(v, str):
-            raise ValueError(f"{name} holds numbers, so it cannot be compared with {value!r}")
+            msg = f"{name} holds numbers, so it cannot be compared with {value!r}"
+            raise ValueError(msg)  # noqa: TRY004 - the value does not fit the column
         return v
 
-    def execute(self, sql: str, params=()) -> Records:
+    def execute(self, sql: str, params: Iterable[object] = ()) -> Records:
         self.con.execute(sql, list(params))
         return self
 
-    def fetchone(self):
+    def fetchone(self) -> Row | None:
         return self.con.fetchone()
 
-    def fetchall(self) -> list[tuple]:
+    def fetchall(self) -> list[Row]:
         return self.con.fetchall()
 
-    def fetchmany(self, n: int) -> list[tuple]:
+    def fetchmany(self, n: int) -> list[Row]:
         return self.con.fetchmany(n)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Row]:
         return iter(self.con.fetchall())
 
     def close(self) -> None:
         self.con.close()
 
-    def __enter__(self) -> Records:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
 
 def connect(parquet: Path | list[Path], names: list[str] | None = None) -> Records:
     return Records(parquet, names)
+
+
+def joined(parts: list[Path], dest: Path) -> Path:
+    """A version written as parts alone: its parts' rows in one Parquet file at dest.
+
+    The rows come in the order given, for the queries its pages draw from. One part is read at a
+    time, and a part written before a type narrowed is widened to meet the rest, as the build
+    reads parts back.
+    """
+    if not parts:
+        return dest
+    schema = pa.unify_schemas(
+        [pq.read_schema(p).remove_metadata() for p in parts], promote_options="permissive"
+    )
+    with pq.ParquetWriter(dest, schema, compression="zstd") as w:
+        for p in parts:
+            w.write_table(pq.read_table(p).replace_schema_metadata(None).cast(schema))
+    return dest

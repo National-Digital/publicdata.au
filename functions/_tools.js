@@ -76,7 +76,7 @@ async function held(env, slug, version) {
 // The versions D1 does not hold are read from their Parquet file: those older than the two it
 // loads, and those it never loads because they are too large or their entry sets query: false.
 // Returns null when the query API should answer instead.
-async function parquet(ctx, slug, version, op, qs) {
+async function parquet(ctx, slug, version, op, qs, counted) {
   if (!ctx.env.DIST) return null;
   if (version !== undefined && !VERSION.test(version)) throw new ToolError('version is a date, YYYY-MM-DD, from get_dataset');
   let latest;
@@ -91,12 +91,12 @@ async function parquet(ctx, slug, version, op, qs) {
   let out;
   try {
     try {
-      out = await fromFile(ctx, slug, v, op, qs, path, url);
+      out = await fromFile(ctx, slug, v, op, qs, path, url, counted);
     } catch (e) {
       // The query copy was written again under this isolate's footer, so it is read afresh once.
       if (!(e instanceof StaleError)) throw e;
       forget(slug, v);
-      out = await fromFile(ctx, slug, v, op, qs, path, url);
+      out = await fromFile(ctx, slug, v, op, qs, path, url, counted);
     }
   } catch (e) {
     if (e instanceof BudgetError) throw new ToolError(e.message);
@@ -132,9 +132,11 @@ async function fromParts(ctx, slug, v, op, qs, path, at) {
   return out;
 }
 
-async function fromFile(ctx, slug, v, op, qs, path, url) {
+async function fromFile(ctx, slug, v, op, qs, path, url, counted) {
   const at = await openVersion(ctx.env, slug, v);
   if (!at) return null;
+  // A rollup is stamped with the identity of a version's data.parquet, so a version stored only as
+  // parts has none to page by.
   if (!at.files.length) return fromParts(ctx, slug, v, op, qs, path, at);
   const entry = at.files[0];
   if (!entry.header) throw new ToolError(`version ${v} of ${slug} carries no provenance in its file, so it is not answered here; its files are at ${SITE}/d/${slug}/v/${v}/`);
@@ -143,7 +145,18 @@ async function fromFile(ctx, slug, v, op, qs, path, url) {
   const key = new Request(SITE + '/_parquet/' + ENGINE + '/' + enc(entry.etag) + path);
   const hit = await caches.default.match(key);
   if (hit) return hit.json();
-  const r = await (op === 'rows' ? parquetRows : parquetAggregate)(ctx.env, entry, new URLSearchParams(qs.join('&')), url);
+  const params = new URLSearchParams(qs.join('&'));
+  let r;
+  try {
+    r = await (op === 'rows' ? parquetRows : parquetAggregate)(ctx.env, entry, params, url);
+  } catch (e) {
+    // A page refused for what counting every match would read is read only until it is full
+    // when the version's rollup holds the count.
+    const known = e instanceof BudgetError && entry.profiled && counted ? await counted(v).catch((x) => { console.error(`rollup ${slug} ${v}: ${x}`); return null; }) : null;
+    if (known === null) throw e;
+    // A page still over the budget is refused with the cost of the full query.
+    r = await parquetRows(ctx.env, entry, params, url, undefined, known).catch((x) => { throw x instanceof BudgetError ? e : x; });
+  }
   // The query API answers this path only while D1 holds the version, so the manifest is linked for
   // the licence, source, hash and fetch time.
   const manifest = SITE + '/d/' + enc(slug) + '/v/' + v + '/manifest.json';
@@ -197,7 +210,11 @@ EXEC.query_rows = async (ctx, input) => {
   const qs = filters(input.where).concat(['limit=' + limit, 'offset=' + offset]);
   if (input.select && input.select.length) qs.push('select=' + input.select.map(enc).join(','));
   if (input.order) qs.push('order=' + enc(input.order));
-  const p = await parquet(ctx, slug, input.version, 'rows', qs);
+  const counted = input.order ? null : async (v) => {
+    const c = await rollup(ctx, slug, v, 'aggregate', filters(input.where).concat(['metric=count']));
+    return c ? c.matched : null;
+  };
+  const p = await parquet(ctx, slug, input.version, 'rows', qs, counted);
   if (p) return text({ version: p.version, rows: p.rows, matched: p.matched, next_offset: p.more ? offset + limit : null, query: p.query, attribution: p.attribution, file: p.file, parts: p.parts, manifest: p.manifest });
   const b = await api(ctx, slug, 'rows', input.version, qs);
   const n = await total(ctx, slug, b.version, input.where);
@@ -211,7 +228,11 @@ EXEC.count_rows = async (ctx, input) => {
   const qs = filters(input.where).concat(['metric=' + enc(metric), 'order=' + order, 'limit=' + limit]);
   if (group.length) qs.push('group=' + group.map(enc).join(','));
   const r = await rollup(ctx, slug, input.version, 'aggregate', qs);
-  if (r) return text({ version: r.version, group_by: group, metric, groups: r.rows, truncated: r.more, matched: r.matched, query: r.query, attribution: r.attribution });
+  if (r) {
+    // A version D1 does not hold is cited by its files, as the Parquet engine cites it.
+    const files = (await held(ctx.env, slug, r.version)) ? {} : { file: r.file, manifest: r.manifest };
+    return text({ version: r.version, group_by: group, metric, groups: r.rows, truncated: r.more, matched: r.matched, query: r.query, attribution: r.attribution, ...files });
+  }
   const p = await parquet(ctx, slug, input.version, 'aggregate', qs);
   if (p) return text({ version: p.version, group_by: group, metric, groups: p.rows, truncated: p.more, matched: p.matched, query: p.query, attribution: p.attribution, file: p.file, parts: p.parts, manifest: p.manifest });
   const b = await api(ctx, slug, 'aggregate', input.version, qs);

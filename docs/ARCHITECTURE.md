@@ -367,8 +367,11 @@ is its parts and `data.duckdb`, which holds a `parts` table naming each part's U
 a version has no console, explorer or pages by place, since each reads one whole file; its
 dataset page says so, and says when the query API serves it from its parts, and `llms.txt` lists only the files it has. The gate fails a table
 dataset's page that has no query console and gives no reason. A diff or the history archive
-reads the parts back. Either way there is one dataset page, and it lists the newest snapshot's
-parts.
+reads the parts back, and so do the pages: their figures, sample rows and the home page map
+read the parts joined into one Parquet file outside the built tree. The explorer stays on the
+newest version published whole and says so. The hubs take one table, so such a version is not
+copied, each hub keeps the newest whole version, and the dataset page names it. Either way there
+is one dataset page, and it lists the newest snapshot's parts.
 
 ## Explorer
 
@@ -433,9 +436,18 @@ Pages on Cloudflare Pages (project `publicdata-au`), data in R2. After the build
 split --versioned` moves every file of a dated version, its page included, and anything over the
 Pages per-file limit, into a tree that is pushed to the R2 bucket `publicdata-dist` at the same
 key as its URL path. Dated keys are written once; a mutable key such as `history.tar.zst` is
-rewritten when its SHA-256 changes. `_routes.json` runs the function only on `latest/`, dated version trees, diffs and the history
-archive, so a dataset page and its JSON are served as Pages files; split refuses a large file no
-route reaches. The Pages Function under `functions/d/` serves a static file
+rewritten when its SHA-256 changes. `_routes.json` runs the function only on `latest/`, dated
+version and fetch trees, diffs, change logs and the history archive, so a dataset page and its
+JSON are served as Pages files; split refuses a large file no route reaches. Each data file it
+serves saves under a name it gives in `content-disposition`, and no page, folder, diff or index of
+versions gets one. The name is `<slug>_<version>` and the file: `data.csv` is
+`<slug>_<version>.csv`, a period part adds its period (`_2022.parquet`, `_undated.parquet`), a
+feed's history part `_history_` and its period, a file under `latest/` or `fetch/` the fetch's
+date, a change log its fetch's date (`_changes.json`), the change log index none, and the history
+archive the newest version `latest.json` names. `download_name` in site.py and
+`functions/_download.js` hold the rule, tied by `pipeline/tests/fixtures/download_names.json`,
+and the dataset page's script takes each format's suffix and the date `latest/` serves from the
+build. The Pages Function under `functions/d/` serves a static file
 when Pages has it, redirects `latest/` from `latest.json`, and otherwise streams the object from
 R2 with a sized HEAD and immutable caching.
 
@@ -504,9 +516,10 @@ because it says whether it is the newest. Pull-request previews skip
 `--versioned`, because they never write to R2.
 
 A version built once is not built again while its inputs are unchanged: its source, its register
-entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps a build cache in R2, under `_build/` in
-`publicdata-raw` (`publicdata cache pull|push`), that holds for each version only its small
-files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
+entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps
+a build cache in the R2 bucket `publicdata-build-cache` (`publicdata cache pull|push`), apart from
+the raw store so that no credential the fetch runner holds can write it. It holds for each version
+only its small files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
 the deploy that built them, so a cached build lists them in `absent.json` instead of writing them,
 the gate counts them as present, and `dist-push --expect` stops the deploy if R2 lacks any of
 them or holds one of their query copies in another layout. The Parquet a diff, the history archive or a page reads is read back from
@@ -556,7 +569,7 @@ cached, so none of them is in the entry or `absent.json`. The limits live in
 `serialise/__init__.py` and apply only to versions built for the first time. The
 determinism job proves this by building the fixtures with a subset of formats into a cache and
 then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, each entry's record after its files,
-and the last push of a deploy to main notes the entries its build pruned in `_build/.unused.json`.
+and the last push of a deploy to main notes the entries its build pruned in `.unused.json`.
 An entry is deleted, its record first, only once it has stayed unused for a day, so a preview
 that listed it before main stopped using it still finds it whole. Source bytes are
 pulled only for versions the cache does not hold. A deploy dispatched with `replace` builds
@@ -772,6 +785,15 @@ version, engine version and the ETag of the file read, so a copy written again n
 the cache of the one before. Each answer links the version's manifest, since the query API path
 answers only while D1 holds the version. A file with no `publicdata` provenance key is refused.
 
+A page of rows without an order that the budget refuses, because counting every match reads too
+much, takes its count from the version's rollup when a cube holds every filter field and the file
+follows the profile. It then reads in file order only until the page is full or the count is
+reached, a few pages of the first filter column at a time and doubling, reading the column whose
+page statistics leave the fewest rows first and each other one only over the rows still matching. A
+page still over the budget is refused with the full query's cost. The picked rows' columns are read
+over runs of picks that lie on the same or the next page, so pages between two distant picks are
+skipped, and a column chunk's dictionary is charged once per read however many ranges it serves.
+
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
 then the endpoints answer 503 and point to the files. The query builder is tested against
@@ -786,17 +808,19 @@ cache of answers the query API gives and is not offered as a download. It carrie
 provenance header. The build never imports `rollup.py`, so rollups shape no version and the build
 cache does not key on them.
 
-`publicdata rollup` runs after the D1 load and follows what D1 holds, which `_versions` lists, so
-a version too large or too wide for D1, an entry with `query: false` and a deploy with D1 off get
-no rollup. Each rollup is stored with the identity of the Parquet it was built from: the SHA-256
-the push stores with every object, or the ETag of one pushed before it did. A version whose
-published Parquet has another identity, or which `--replace` names, gets its rollup written
-again, and the rollups of versions D1 no longer holds are deleted. The Parquet is read from a
-built tree when the tree holds the same bytes, and from `publicdata-dist` otherwise, so a version
+`publicdata rollup` runs after the D1 load and follows what D1 holds, which `_versions` lists, so a
+version too large or too wide for D1 and a deploy with D1 off get no rollup. An entry with `query:
+false` is in no D1 table, so every version its built `versions.json` lists, less those taken down,
+gets one: the Parquet engine answers those versions, and a count over a field the file is not sorted
+by costs more than its budget there. Each rollup is stored with the identity of the Parquet it was
+built from: the SHA-256 the push stores with every object, or the ETag of one pushed before it did.
+A version whose published Parquet has another identity, or which `--replace` names, gets its rollup
+written again, and the rollups of versions D1 no longer holds are deleted. The Parquet is read from
+a built tree when the tree holds the same bytes, and from `publicdata-dist` otherwise, so a version
 this deploy took from the build cache still gets its rollup. DuckDB reads it on one thread with a
-float's NaN as null, as `data.sqlite` holds it, and totals floats with compensated summation, so
-the same Parquet always gives the same rollup. A version whose totals include an infinity has no
-JSON form and is left to D1.
+float's NaN as null, as `data.sqlite` holds it, and totals floats with compensated summation, so the
+same Parquet always gives the same rollup. A version whose totals include an infinity has no JSON
+form and is left to D1.
 
 A published version keeps the schema it was built with, so a rollup takes its fields from the
 version. They are the fields `_versions` lists for it, or the register's when D1 lists none, kept
@@ -805,27 +829,28 @@ it. A version that fails for any other reason, such as a download error, is logg
 and skipped. Its rollup stays when it was built from the bytes R2 still publishes, the other
 versions are written and pushed, and the next deploy tries it again.
 
-A version gets a rollup when its table has at least 5,000 rows and its entry does not set
-`query: false`; a smaller table is answered at once by any engine. The candidate cubes are the
-field sets the entry's `example` and `chart` ask about, each field readers count by (at most
-1,000 values, or any date), and each pair of the 24 most likely such fields. They are taken
-greedily by the weight of questions each newly answers per byte (a register question 100, a
-count by one field 10, a pair 2) until 1 MB. A cube with more groups than half the rows is left
-out. Each cube totals up to four numeric fields, the register's example and chart measures
-first, as sum, non-null count, minimum and maximum, so counts, sums, averages, minima and
-maxima all come from it. The cap holds on the gzipped bytes: a rollup over it drops its
-last-chosen cubes and is built again.
+A version gets a rollup when its table has at least 5,000 rows; a smaller table is answered at once
+by any engine. The candidate cubes are the field sets the entry's `rollup`, `example` and `chart`
+ask about, each field readers count by (at most 1,000 values, or any date), and each pair of the 24
+most likely such fields. They are taken greedily by the weight of questions each newly answers per
+byte (a register question 100, a count by one field 10, a pair 2) until 1 MB, each costed for the
+totals it holds, which leave out the fields it groups on. A cube with more groups than half the rows
+is left out. Each cube totals up to four numeric fields, the register's example and chart measures
+first, as sum, non-null count, minimum and maximum, so counts, sums, averages, minima and maxima all
+come from it. The cap holds on the gzipped bytes: a rollup over it drops its last-chosen cubes and
+is built again.
 
-The function picks the smallest cube that holds every field a query filters or groups on and
-the field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the answer is
-the one `/aggregate` gives; `functions/_rollup.test.mjs` runs random queries through both on
-the fixture in `pipeline/tests/fixtures/rollup`, whose rollup the Python tests pin byte for
-byte. Each filter is decided once per distinct value, and LIKE patterns match without
-backtracking. `count_rows` orders equal totals by its groups, so its top groups are the same
-from either engine and from the query it cites. The function reads a rollup only while its
-stored identity matches the published Parquet's, and checks again after a minute. A query no
-cube holds, a version other than the two newest, a deploy without D1, and a withheld dataset
-fall through to D1. Answers name the version and its `/aggregate` URL.
+The function picks the smallest cube that holds every field a query filters or groups on and the
+field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the answer is the one
+`/aggregate` gives; `functions/_rollup.test.mjs` runs random queries through both on the fixture in
+`pipeline/tests/fixtures/rollup`, whose rollup the Python tests pin byte for byte. Each filter is
+decided once per distinct value, and LIKE patterns match without backtracking. `count_rows` orders
+equal totals by its groups, so its top groups are the same from either engine and from the query it
+cites. The function reads a rollup only while its stored identity matches the published Parquet's,
+and checks again after a minute. It answers any version it has a current rollup for. A query no cube
+holds and a withheld dataset fall through to the Parquet engine or D1. Answers name the version and
+its `/aggregate` URL, and for a version D1 does not hold, also the version's Parquet file and
+manifest, as the Parquet engine's do.
 
 The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
 measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their

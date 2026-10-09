@@ -1,10 +1,14 @@
-"""Turn the register and the raw store into dist/. Never touches upstream: a cached version's
-Parquet comes back through published, from the tree or R2 that holds it."""
+"""Turn the register and the raw store into dist/.
+
+Never touches upstream: a cached version's Parquet comes back through published, from the tree
+or R2 that holds it.
+"""
 
 from __future__ import annotations
 
 import datetime
 import io
+import itertools
 import json
 import re
 import shutil
@@ -12,19 +16,31 @@ import tarfile
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import zstandard
 
-from . import OPERATOR, SITE, published, store
-from .cache import BuildCache, _link_or_copy, digest, digests, entry_key, shape_layer
+from . import OPERATOR, SITE, parts, published, serialise, store
+from . import cache as cache_mod
+from .cache import (
+    BuildCache,
+    _link_or_copy,
+    digest,
+    digests,
+    entry_key,
+    kind_key,
+    shape_layer,
+    spatial,
+)
+from .database import build_database
 from .diff import diff
 from .normalise import Table, normalise
+from .periods import of_manifest
 from .provenance import OPERATOR_URL, attribution
 from .provenance import header as prov_header
-from .register import Dataset
 from .serialise import (
     CAPS,
     MEASURED,
@@ -50,6 +66,98 @@ from .serialise.profile import (
     signature,
     widen,
 )
+from .serialise.writers.geo_parquet import write_shape_parquet
+from .serialise.writers.parquet import write_parquet
+from .spine import enrich, spine_versions
+from .updates import FIRST_SEEN, LAST_SEEN, counts
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .jsontypes import JSON, JSONObject
+    from .provenance import Header
+    from .register import Dataset
+    from .serialise import PartitionEntry
+    from .serialise.profile import Layout
+    from .store import ManifestHistory, ManifestPeriod
+
+    type HeaderFor = Callable[[int, str], Header]
+
+    class _Sums(TypedDict, total=False):
+        """The digests a new entry may carry beside its files' own."""
+
+        query_sha256: str
+        grown: dict[str, str]
+
+    class _Shape(TypedDict, total=False):
+        """How a version without the usual files says so in its entry."""
+
+        query: str
+        whole: bool
+        parts: list[PartRecord]
+
+    class _Record(TypedDict):
+        left_out: dict[str, str]
+        measured: dict[str, int]
+
+    class _SplitHistory(ManifestHistory):
+        """A feed's history as the manifest names it, with the parts it is written in."""
+
+        schema: str
+        parts: list[PartRecord]
+        read: NotRequired[str]
+
+    class _Split(TypedDict, total=False):
+        """What a period table's parts add to its version's manifest."""
+
+        period: ManifestPeriod | None
+        whole: bool
+        parts: list[PartRecord]
+        revised: list[str]
+        history: _SplitHistory
+
+
+class PartFile(TypedDict):
+    """One of a part's files, as the manifest records it."""
+
+    path: str
+    bytes: int
+    csv_bytes: NotRequired[int]
+
+
+class PartRecord(TypedDict):
+    """A period part as a version's manifest records it."""
+
+    period: str
+    rows: int
+    rows_sha256: str
+    stable_sha256: NotRequired[str]
+    schema: str
+    tree: str
+    finished: bool
+    revised: bool
+    files: dict[str, PartFile]
+
+
+class CacheMeta(TypedDict):
+    """A cached version's meta.json, as _meta writes it and grow_cached extends it."""
+
+    sha256: dict[str, str]
+    query_sha256: NotRequired[str]
+    rows: int
+    files: dict[str, int]
+    unknown_columns: list[str]
+    suppressed_cells: int
+    partitions: dict[str, list[PartitionEntry]]
+    first: str
+    tables: NotRequired[dict[str, int]]
+    writers: NotRequired[dict[str, str]]
+    left_out: NotRequired[dict[str, str] | None]
+    grown: NotRequired[dict[str, str]]
+    query: NotRequired[str]
+    whole: NotRequired[bool]
+    parts: NotRequired[list[PartRecord]]
+
 
 REGISTER_DIR = Path(__file__).resolve().parents[2] / "register"
 
@@ -61,7 +169,7 @@ class VersionOut:
     files: dict[str, int]  # relative path -> bytes
     unknown_columns: list[str]
     suppressed_cells: int
-    partitions: dict
+    partitions: dict[str, list[PartitionEntry]]
     first: str = ""  # the first row of data.ndjson, which the dataset page shows
     absent: tuple[str, ...] = ()  # files a cached build left out; already published
     tables: dict[str, int] = field(default_factory=dict)  # a database's tables and their rows
@@ -70,12 +178,14 @@ class VersionOut:
     left_out: dict[str, str] | None = None
     # A table with a period: whether the whole-table files sit beside its parts, and the parts.
     whole: bool = True
-    parts: list[dict] = field(default_factory=list)
+    parts: list[PartRecord] = field(default_factory=list)
 
     def size(self, rel: str) -> int | None:
-        """A file's size as a page or catalogue states it. A DuckDB file's length differs from
-        one write of the same rows to the next, so none is stated and two builds of one snapshot
-        agree."""
+        """A file's size as a page or catalogue states it.
+
+        A DuckDB file's length differs from one write of the same rows to the next, so none is
+        stated and two builds of one snapshot agree.
+        """
         return None if rel == "data.duckdb" else self.files.get(rel)
 
 
@@ -86,8 +196,11 @@ KEPT = re.compile(r"^(manifest\.json|schema\.json|schema\.sql)$")
 
 
 def source_name(ds: Dataset, m: store.Manifest) -> str:
-    """The publisher's file as a version lists it. Its bytes stay in the raw store, which the /d/
-    function serves it from, so no built tree holds it."""
+    """The publisher's file as a version lists it.
+
+    Its bytes stay in the raw store, which the /d/ function serves it from, so no built tree
+    holds it.
+    """
     return "" if ds.source_withheld else f"source.{m.ext}"
 
 
@@ -105,10 +218,10 @@ def kept(rel: str) -> bool:
 class DatasetOut:
     dataset: Dataset
     versions: list[VersionOut] = field(default_factory=list)
-    changes: list[dict] = field(default_factory=list)
+    changes: list[JSONObject] = field(default_factory=list)
     # A rolling source's or a feed's newest fetch, served at latest/, and every fetch's counts.
     current: VersionOut | None = None
-    fetches: list[dict] = field(default_factory=list)
+    fetches: list[JSONObject] = field(default_factory=list)
 
     @property
     def latest(self) -> VersionOut | None:
@@ -127,9 +240,12 @@ LATEST = "latest"
 
 
 def where(slug: str, version: str, tree: str = "") -> str:
-    """A built tree's path: a dated version's, or with LATEST, a rolling source's or a feed's
-    newest fetch, under a folder of its own date. latest/ serves the folder current.json names,
-    so a deploy that is half out never mixes two fetches' files."""
+    """A built tree's path.
+
+    That is a dated version's, or with LATEST, a rolling source's or a feed's newest fetch, under
+    a folder of its own date. latest/ serves the folder current.json names, so a deploy that is
+    half out never mixes two fetches' files.
+    """
     return f"d/{slug}/fetch/{version}" if tree == LATEST else f"d/{slug}/v/{version}"
 
 
@@ -137,12 +253,12 @@ def tree_url(slug: str, version: str, tree: str = "") -> str:
     return f"{SITE}/d/{slug}/latest/" if tree == LATEST else version_url(slug, version)
 
 
-def part_dir(slug: str, rec: dict, version: str) -> str:
+def part_dir(slug: str, rec: PartRecord, version: str) -> str:
     """Where a part's file sits in the built tree: latest/'s own, or the version that wrote it."""
     return where(slug, version, LATEST) if rec["tree"] == LATEST else where(slug, rec["tree"])
 
 
-def part_files(out: Path, slug: str, version: str, records: list[dict]) -> list[Path]:
+def part_files(out: Path, slug: str, version: str, records: list[PartRecord]) -> list[Path]:
     """A version's Parquet parts in the manifest's order, each from wherever it was written."""
     return [
         published.path(out, f"{part_dir(slug, r, version)}/{r['files']['parquet']['path']}")
@@ -165,17 +281,18 @@ def _sizes(root: Path) -> dict[str, int]:
 def build_database_version(
     ds: Dataset, m: store.Manifest, src: Path, out: Path
 ) -> tuple[None, VersionOut]:
-    """A database version: the archive's tables as one DuckDB file and one Parquet per table,
-    with the schema, the script, the publisher's archive and the manifest beside them."""
-    from .database import build_database
+    """A database version built from the archive.
 
+    The archive's tables become one DuckDB file and one Parquet per table, with the schema, the
+    script, the publisher's archive and the manifest beside them.
+    """
     vdir = out / "d" / ds.slug / "v" / m.version
     if vdir.exists():
         shutil.rmtree(vdir)
     vdir.mkdir(parents=True)
     base = version_url(ds.slug, m.version)
 
-    def hdr(rows: int, rel: str) -> dict:
+    def hdr(rows: int, rel: str) -> Header:
         return prov_header(ds, m, rows, base + rel)
 
     db = build_database(ds, m, src, vdir, hdr)
@@ -202,33 +319,35 @@ def build_database_version(
     )
 
 
-def write_formats(tbl: Table, fmts: list[str], hdr, vdir: Path) -> None:
+def write_formats(tbl: Table, fmts: list[str], hdr: HeaderFor, vdir: Path) -> None:
     """Each format's file, in the order FORMATS lists them, so the gzip finds the CSV."""
     for fmt in fmts:
         WRITERS[fmt](tbl, hdr(tbl.rows, f"data.{fmt}"), vdir / f"data.{fmt}", vdir)
 
 
-def build_version(
+def build_version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a version's build steps, read in order
     ds: Dataset,
     m: store.Manifest,
     data: bytes,
     out: Path,
     store_dir: Path | None = None,
+    *,
     tree: str = "",
     prior: str = "",
     revised: set[str] | None = None,
     read: str = "",
 ) -> tuple[Table, VersionOut]:
-    """One version's files. With the period its manifest records, its parts too: `prior` is the
-    snapshot before, whose finished parts this one takes as they are when unchanged, and
-    `revised` the periods the change logs since then revised. `read` is a feed's newest read,
-    which latest/'s history carries its current rows to."""
+    """One version's files, and with the period its manifest records, its parts too.
+
+    `prior` is the snapshot before, whose finished parts this one takes as they are when
+    unchanged, and `revised` the periods the change logs since then revised. `read` is a feed's
+    newest read, which latest/'s history carries its current rows to.
+    """
     tbl = normalise(ds, m, data)
     if ds.enrich:
-        from .spine import enrich
-
         if store_dir is None:
-            raise ValueError(f"{ds.slug}: joining the place spine needs the store")
+            msg = f"{ds.slug}: joining the place spine needs the store"
+            raise ValueError(msg)
         tbl = enrich(tbl, store_dir, REGISTER_DIR)
     tbl = _sorted_once(tbl, m.parquet)
     vdir = out / where(ds.slug, m.version, tree)
@@ -238,19 +357,33 @@ def build_version(
     vdir.mkdir(parents=True)
     base = tree_url(ds.slug, m.version, tree)
 
-    def hdr(rows: int, rel: str) -> dict:
+    def hdr(rows: int, rel: str) -> Header:
         return prov_header(ds, m, rows, base + rel)
 
-    split = _parts(ds, m, tbl, hdr, vdir, out, tree or m.version, prior, store_dir, revised, read)
+    split = _parts(
+        ds,
+        m,
+        tbl,
+        hdr,
+        vdir,
+        out=out,
+        tree=tree or m.version,
+        prior=prior,
+        store_dir=store_dir,
+        revised=revised,
+        read=read,
+    )
     whole = split.get("whole", True)
-    gone = measured = None
+    gone: dict[str, str] | None = None
+    measured: dict[str, int] | None = None
     if whole:
         written: list[str] = []
         if capped(m):
             gone, measured, written = _cap(tbl, ds, record, hdr, vdir)
         fmts = formats_for(tbl.rows, geo_kind(ds), gone)
         if "ndjson" not in fmts:
-            raise ValueError("every build writes data.ndjson, which the dataset page reads back")
+            msg = "every build writes data.ndjson, which the dataset page reads back"
+            raise ValueError(msg)
         write_formats(tbl, [f for f in fmts if f not in written], hdr, vdir)
         # latest/ is no version, so the query API never reads a copy of it.
         query = "" if tree else _query_copy(tbl, hdr(tbl.rows, "data.parquet"), vdir, out)
@@ -259,9 +392,7 @@ def build_version(
             pretty(csvw_metadata(tbl, hdr(tbl.rows, "data.csv-metadata.json"))), encoding="utf-8"
         )
     else:
-        from .parts import write_duckdb
-
-        write_duckdb(tbl, split["parts"], hdr(tbl.rows, "data.duckdb"), vdir / "data.duckdb")
+        parts.write_duckdb(tbl, split["parts"], hdr(tbl.rows, "data.duckdb"), vdir / "data.duckdb")
         query = ""
         partitions = {}
     (vdir / "schema.json").write_text(pretty(table_schema(tbl)), encoding="utf-8")
@@ -304,21 +435,20 @@ def build_version(
     )
 
 
-def _sorted_once(tbl: Table, lay: dict) -> Table:
-    """tbl carrying its permutation under layout `lay`, so every writer that sorts takes it."""
+def _sorted_once(tbl: Table, lay: Layout) -> Table:
+    """The table `tbl` carrying its permutation under layout `lay`, for every writer that sorts."""
     if not lay or not lay.get("sort"):
         return tbl
     perm = permutation(tbl.table, lay["sort"], lay["key"])
     return replace(tbl, order=(tbl.table, (tuple(lay["sort"]), tuple(lay["key"])), perm))
 
 
-def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
-    """The version's query copy under the current profile and register entry, at its internal
-    key: the version's own data.parquet when that already follows them, else written again.
-    Returns its path in the tree."""
-    from .serialise.writers.geo_parquet import write_shape_parquet
-    from .serialise.writers.parquet import write_parquet
+def _query_copy(tbl: Table, header: Header, vdir: Path, out: Path) -> str:
+    """The version's query copy under the current profile and register entry, at its internal key.
 
+    This is the version's own data.parquet when that already follows them, else it is written
+    again. Returns its path in the tree.
+    """
     ds, m = tbl.dataset, tbl.manifest
     rel = query_key(ds.slug, m.version)
     p = out / rel
@@ -333,9 +463,12 @@ def _query_copy(tbl: Table, header: dict, vdir: Path, out: Path) -> str:
     return rel
 
 
-def _published_record(ds: Dataset, m: store.Manifest, out: Path, tree: str = "") -> dict | None:
-    """The format record of a capped version already published: its manifest's
-    formats_left_out and measured_bytes, which no later build changes."""
+def _published_record(ds: Dataset, m: store.Manifest, out: Path, tree: str = "") -> _Record | None:
+    """The format record of a capped version already published.
+
+    The record is its manifest's formats_left_out and measured_bytes, which no later build
+    changes.
+    """
     p = published.path(out, f"{where(ds.slug, m.version, tree)}/manifest.json")
     if not p.is_file():
         return None
@@ -345,20 +478,22 @@ def _published_record(ds: Dataset, m: store.Manifest, out: Path, tree: str = "")
     return {"left_out": man["formats_left_out"], "measured": man.get("measured_bytes") or {}}
 
 
-def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
-    """A capped version's formats_left_out, its measured_bytes and the files left written. The
-    NDJSON and CSV are written first and measured, and a format measured on itself is written,
-    measured and deleted when it is over. A file --formats excludes is deleted once measured. A
-    version already published keeps its recorded set, and only the sizes of the files this build
-    keeps are taken again."""
-    from . import serialise
+def _cap(
+    tbl: Table, ds: Dataset, record: _Record | None, hdr: HeaderFor, vdir: Path
+) -> tuple[dict[str, str], dict[str, int], list[str]]:
+    """A capped version's formats_left_out, its measured_bytes and the files left written.
 
+    The NDJSON and CSV are written first and measured, and a format measured on itself is
+    written, measured and deleted when it is over. A file --formats excludes is deleted once
+    measured. A version already published keeps its recorded set, and only the sizes of the files
+    this build keeps are taken again.
+    """
     kind = geo_kind(ds)
     selfish = [f for f in cappable(kind) if CAPS[f][0] == f]
     probe = [*MEASURED, *(f for f in selfish if record is None or f not in record["left_out"])]
     write_formats(tbl, probe, hdr, vdir)
     sizes = {f"data.{f}": _size(vdir / f"data.{f}") for f in probe}
-    gone = dict(record["left_out"]) if record is not None else {}
+    gone: dict[str, str] = dict(record["left_out"]) if record is not None else {}
     if record is None:
         for f in cappable(kind):
             if why := over_cap(f, tbl.rows, sizes[f"data.{CAPS[f][0]}"]):
@@ -372,34 +507,32 @@ def _cap(tbl: Table, ds: Dataset, record: dict | None, hdr, vdir: Path):
     return gone, sizes, probe
 
 
-def _parts(
+def _parts(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     m: store.Manifest,
     tbl: Table,
-    hdr,
+    hdr: HeaderFor,
     vdir: Path,
+    *,
     out: Path,
     tree: str,
     prior: str,
     store_dir: Path | None,
     revised: set[str] | None = None,
     read: str = "",
-) -> dict:
+) -> _Split:
     """A period table's parts, and a feed's history in parts of its own, for the manifest."""
-    from . import parts
-    from .periods import of_manifest
-
     per = of_manifest(m)
     if per is None:
         return {}
-    before = {}
+    before: _Split = {}
     if prior:
         p = out / where(ds.slug, prior) / "manifest.json"
         before = json.loads(p.read_text(encoding="utf-8"))
     recs, flagged = parts.write(
         tbl, tbl.table, per, hdr, vdir, tree, before.get("parts", []), revised=revised
     )
-    split = {
+    split: _Split = {
         "period": m.period,
         "whole": parts.whole(recs, tbl.rows),
         "parts": recs,
@@ -407,14 +540,14 @@ def _parts(
     }
     if m.history:
         if store_dir is None:
-            raise ValueError(f"{ds.slug}: a feed's history is read from the store")
+            msg = f"{ds.slug}: a feed's history is read from the store"
+            raise ValueError(msg)
         path = store.history_path(store_dir, m)
         if not path.exists() or store.sha256_file(path) != m.history["sha256"]:
-            raise FileNotFoundError(f"{path} is missing or changed; run `publicdata store pull`")
+            msg = f"{path} is missing or changed; run `publicdata store pull`"
+            raise FileNotFoundError(msg)
         seen = pq.read_table(path).replace_schema_metadata(None)
         if read and read > m.version:
-            from .updates import LAST_SEEN
-
             # Rows the newest fetch held were still there at every read since.
             col = seen.column(LAST_SEEN)
             was = pa.scalar(datetime.date.fromisoformat(m.version), pa.date32())
@@ -430,7 +563,7 @@ def _parts(
             hdr,
             vdir,
             tree,
-            before.get("history", {}).get("parts", []),
+            had["parts"] if (had := before.get("history")) else [],
             "history",
             revised=set(),
         )
@@ -438,22 +571,33 @@ def _parts(
         (vdir / "history" / "schema.json").write_text(
             pretty(history_schema(tbl, seen)), encoding="utf-8"
         )
-        split["history"] = {
-            **m.history,
+        history: _SplitHistory = {
+            "sha256": m.history["sha256"],
+            "bytes": m.history["bytes"],
+            "rows": m.history["rows"],
             "schema": "history/schema.json",
             "parts": hrecs,
-            **({"read": read} if read else {}),
         }
+        if read:
+            history["read"] = read
+        split["history"] = history
     return split
 
 
-def history_schema(tbl: Table, seen: pa.Table) -> dict:
-    """A feed history's Table Schema: the table's own fields it keeps, then first_seen and
-    last_seen, marked as computed by this site the way a joined column is."""
-    from .updates import FIRST_SEEN, LAST_SEEN
+def history_schema(tbl: Table, seen: pa.Table) -> JSONObject:
+    """A feed history's Table Schema.
 
+    It holds the table's own fields it keeps, then first_seen and last_seen, marked as computed
+    by this site the way a joined column is.
+    """
     base = table_schema(tbl)
-    fields = [f for f in base["fields"] if f["name"] in seen.column_names]
+    have = set(seen.column_names)
+    listed = base["fields"]
+    fields: list[JSON] = [
+        f
+        for f in (listed if isinstance(listed, list) else [])
+        if isinstance(f, dict) and isinstance(f.get("name"), str) and f["name"] in have
+    ]
     for name, words in (
         (FIRST_SEEN, "The date publicdata.au first read this row, in this state, in the feed."),
         (LAST_SEEN, "The date publicdata.au last read this row, in this state, in the feed."),
@@ -468,17 +612,18 @@ def history_schema(tbl: Table, seen: pa.Table) -> dict:
             }
         )
     # A key holds one row per state, so a state is its key and the day it was first read.
-    key = {"primaryKey": [*base["primaryKey"], FIRST_SEEN]} if base.get("primaryKey") else {}
+    pk = base.get("primaryKey")
+    key: JSONObject = {"primaryKey": [*pk, FIRST_SEEN]} if isinstance(pk, list) and pk else {}
     return {**base, "fields": fields, **key}
 
 
 def _first_of(tbl: Table) -> str:
     """The first record as data.ndjson would hold it, for a version written as parts alone."""
-    import tempfile
-
     with tempfile.TemporaryDirectory() as tmp:
         one = replace(tbl, table=tbl.table.slice(0, 1))
-        WRITERS["ndjson"](one, {}, Path(tmp) / "data.ndjson", Path(tmp))
+        # Only the record is read back, so the header line's URL is never seen.
+        header = prov_header(tbl.dataset, tbl.manifest, 1, "data.ndjson")
+        WRITERS["ndjson"](one, header, Path(tmp) / "data.ndjson", Path(tmp))
         return _first_row(Path(tmp))
 
 
@@ -536,12 +681,12 @@ def _history(dout: DatasetOut, out: Path, cache: BuildCache | None, keys: list[s
             cache.put(key, {}, Path(tmp))
 
 
-def _datapackage(dout: DatasetOut) -> dict:
-    ds, v = dout.dataset, dout.latest
+def _datapackage(dout: DatasetOut) -> JSONObject:
+    ds, v = dout.dataset, dout.versions[-1]
     m = v.manifest
     base = version_url(ds.slug, m.version)
     h = prov_header(ds, m, v.rows, base)
-    resources = []
+    resources: list[JSON] = []
     if ds.kind == "database":
         resources.append(
             {
@@ -568,8 +713,6 @@ def _datapackage(dout: DatasetOut) -> dict:
                 }
             )
     elif not v.whole:
-        from .parts import url
-
         resources.append(
             {
                 "name": "duckdb",
@@ -581,18 +724,18 @@ def _datapackage(dout: DatasetOut) -> dict:
                 "description": "Attach it read-only over HTTPS; records() reads every part's Parquet. The size is to one significant figure.",
             }
         )
-        for r in v.parts:
-            resources.append(
-                {
-                    "name": f"part-{r['period']}",
-                    "path": url(ds.slug, r, "parquet"),
-                    "format": "parquet",
-                    "mediatype": MEDIA["parquet"],
-                    "bytes": r["files"]["parquet"]["bytes"],
-                    "schema": f"{base}schema.json",
-                    "publicdata:rows": r["rows"],
-                }
-            )
+        resources.extend(
+            {
+                "name": f"part-{r['period']}",
+                "path": parts.url(ds.slug, r, "parquet"),
+                "format": "parquet",
+                "mediatype": MEDIA["parquet"],
+                "bytes": r["files"]["parquet"]["bytes"],
+                "schema": f"{base}schema.json",
+                "publicdata:rows": r["rows"],
+            }
+            for r in v.parts
+        )
     else:
         for fmt in _want(ds, v.rows, v.left_out):
             name = f"data.{fmt}"
@@ -682,16 +825,17 @@ def version_key(
     store_dir: Path | None = None,
     prior: str = "",
 ) -> str:
-    """A version's cache entry: its register entry, its rebuild number among them, and manifest,
-    the spatial extension when its build loads it, the modules only its kind runs, and for a
-    dataset joined to the place spine, the spine layers it reads and their register entries.
-    A version split by period also takes the snapshot before's key and the revisions logged
-    since, which decide its parts, so a cold build and a warm one never lay its parts out
-    differently. The rest of the build code is not in it, so an edit to that code reuses every
-    version until a rebuild number is raised."""
-    from .cache import kind_key, spatial, spatial_version
+    """A version's cache entry.
 
-    extra = [f"spatial={spatial_version()}"] if spatial(ds) else []
+    The entry holds its register entry, its rebuild number among them, and manifest, the spatial
+    extension when its build loads it, the modules only its kind runs, and for a dataset joined
+    to the place spine, the spine layers it reads and their register entries. A version split by
+    period also takes the snapshot before's key and the revisions logged since, which decide its
+    parts, so a cold build and a warm one never lay its parts out differently. The rest of the
+    build code is not in it, so an edit to that code reuses every version until a rebuild number
+    is raised.
+    """
+    extra = [f"spatial={cache_mod.spatial_version()}"] if spatial(ds) else []
     extra += [k] if (k := kind_key(ds.kind)) else []
     if m.period:
         # A release flags revisions by digest (None); a rolling source or a feed by its change
@@ -699,10 +843,9 @@ def version_key(
         revised = revised_since(ds, store_dir, m)
         extra += [prior, "digest" if revised is None else "logs:" + ",".join(sorted(revised))]
     if ds.enrich:
-        from .spine import spine_versions
-
         if store_dir is None:
-            raise ValueError(f"{ds.slug}: a spine-joined version's key needs the store")
+            msg = f"{ds.slug}: a spine-joined version's key needs the store"
+            raise ValueError(msg)
         layers = spine_versions(ds.enrich, store_dir, REGISTER_DIR)
         return cache.key(entry_key(ds), m.to_json(), layers, *extra, "version")
     return cache.key(entry_key(ds), m.to_json(), *extra, "version")
@@ -719,9 +862,11 @@ def version_keys(
 
 
 def revised_since(ds: Dataset, store_dir: Path | None, m: store.Manifest) -> set[str] | None:
-    """The periods the change logs revised after the snapshot before m, up to m itself. None for
-    a version fetched as a release, which keeps no change log; the class is the one m records, so
-    a later change of class leaves the version as it was."""
+    """The periods the change logs revised after the snapshot before m, up to m itself.
+
+    None for a version fetched as a release, which keeps no change log; the class is the one m
+    records, so a later change of class leaves the version as it was.
+    """
     if not m.update or m.update == "release" or store_dir is None:
         return None
     all_ = store.manifests(store_dir, ds.slug, fetches=True)
@@ -745,8 +890,11 @@ def newest_fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
 
 
 def latest_key(cache: BuildCache, ds: Dataset, m: store.Manifest, store_dir: Path) -> str:
-    """latest/: the newest fetch, the snapshot whose finished parts it points at, and a feed's
-    newest read, which moves its history's last_seen."""
+    """latest/'s cache entry.
+
+    The entry holds the newest fetch, the snapshot whose finished parts it points at, and a
+    feed's newest read, which moves its history's last_seen.
+    """
     snaps = version_keys(cache, ds, store_dir)
     prior = snaps[-1][1] if snaps else ""
     read = store.read_since(store_dir, ds.slug, m.version) if ds.update == "feed" else ""
@@ -754,18 +902,20 @@ def latest_key(cache: BuildCache, ds: Dataset, m: store.Manifest, store_dir: Pat
 
 
 def cache_keys(cache: BuildCache, ds: Dataset, store_dir: Path) -> set[str]:
-    """Every entry a build of this dataset can use: its versions, their diffs and its history,
-    and a rolling source's latest/."""
+    """Every entry a build of this dataset can use.
+
+    These are its versions, their diffs and its history, and a rolling source's latest/.
+    """
     if not ds.publishable:
         return set()
     keys = [k for _, k in version_keys(cache, ds, store_dir)]
-    diffs = {cache.key(a, b, "diff") for a, b in zip(keys, keys[1:], strict=False)}
+    diffs = {cache.key(a, b, "diff") for a, b in itertools.pairwise(keys)}
     now = newest_fetch(ds, store_dir)
     latest = {latest_key(cache, ds, now, store_dir)} if now else set()
     return {*keys, *diffs, *([cache.key(*keys, "history")] if keys else []), *latest}
 
 
-def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> VersionOut:
+def _from_cache(ds: Dataset, m: store.Manifest, hit: CacheMeta, vdir: Path) -> VersionOut:
     return VersionOut(
         m,
         hit["rows"],
@@ -785,11 +935,20 @@ def _from_cache(ds: Dataset, m: store.Manifest, hit: dict, vdir: Path) -> Versio
     )
 
 
-def _meta(ds: Dataset, vout: VersionOut, writers: dict[str, str], vdir: Path) -> dict:
+def _meta(ds: Dataset, vout: VersionOut, writers: dict[str, str], vdir: Path) -> CacheMeta:
     query = vdir.parents[3] / vout.query if vout.query else None
+    summed: _Sums = {"query_sha256": digest(query)} if query is not None and query.is_file() else {}
+    # A version with no query copy, latest/ or one written as parts alone, says so.
+    shape: _Shape = {}
+    if not vout.query:
+        shape["query"] = ""
+    if not vout.whole:
+        shape["whole"] = False
+    if vout.parts:
+        shape["parts"] = vout.parts
     return {
         "sha256": digests(vdir, databases=ds.kind != "database"),
-        **({"query_sha256": digest(query)} if query is not None and query.is_file() else {}),
+        **summed,
         "rows": vout.rows,
         "files": vout.files,
         "unknown_columns": vout.unknown_columns,
@@ -799,10 +958,7 @@ def _meta(ds: Dataset, vout: VersionOut, writers: dict[str, str], vdir: Path) ->
         "tables": vout.tables,
         "writers": writers,
         "left_out": vout.left_out,
-        # A version with no query copy, latest/ or one written as parts alone, says so.
-        **({} if vout.query else {"query": ""}),
-        **({} if vout.whole else {"whole": False}),
-        **({"parts": vout.parts} if vout.parts else {}),
+        **shape,
     }
 
 
@@ -811,7 +967,7 @@ def _want(ds: Dataset, rows: int, gone: dict[str, str] | None) -> list[str]:
     return formats_for(rows, geo_kind(ds), gone)
 
 
-def current(ds: Dataset, hit: dict, now: dict[str, str]) -> bool:
+def current(ds: Dataset, hit: CacheMeta, now: dict[str, str]) -> bool:
     """Whether a cached version already holds every format the current writers would make."""
     if ds.kind == "database" or hit.get("whole", True) is False:
         return True
@@ -827,13 +983,13 @@ def current(ds: Dataset, hit: dict, now: dict[str, str]) -> bool:
 def pending(
     cache: BuildCache, ds: Dataset, store_dir: Path, now: dict[str, str] | None = None
 ) -> int:
-    """The source bytes of the versions a build of this dataset would write from their sources
-    or grow: those with no cache entry, and table versions a writer has changed since."""
-    from .cache import writer_keys
+    """The source bytes of the versions a build of this dataset would write or grow.
 
+    These are the versions with no cache entry, and table versions a writer has changed since.
+    """
     if not ds.publishable:
         return 0
-    now = now or writer_keys(shape_layer(ds))
+    now = now or cache_mod.writer_keys(shape=shape_layer(ds))
     n = 0
     trees = version_keys(cache, ds, store_dir)
     if fetched := newest_fetch(ds, store_dir):
@@ -846,8 +1002,10 @@ def pending(
 
 
 def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
-    """Files another job built for versions this build took from the cache, linked in from that
-    job's tree so a preview serves them. Returns how many."""
+    """Files another job built for versions this build took from the cache.
+
+    They are linked in from that job's tree so a preview serves them. Returns how many.
+    """
     n = 0
     for o in outs:
         for v in o.versions:
@@ -866,26 +1024,27 @@ def take_built(outs: list[DatasetOut], out: Path, root: Path) -> int:
     return n
 
 
-def grow_cached(
+def grow_cached(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915 - a cached version's growth steps, read in order
     ds: Dataset,
     m: store.Manifest,
-    hit: dict,
+    hit: CacheMeta,
     vdir: Path,
     cache: BuildCache,
+    *,
     key: str,
     tree: str = "",
-) -> dict | None:
-    """A cached table version brought up to the current writers: a format whose writer the
-    entry has not seen, or saw in another form, is written again from the cached Parquet, the
-    way the diff reads a version back, and a format no longer made is dropped from the record.
-    Returns the entry's new metadata, or None when the entry cannot be grown and the version
-    must be built from its source."""
-    from .cache import writer_keys
+) -> CacheMeta | None:
+    """A cached table version brought up to the current writers.
 
+    A format whose writer the entry has not seen, or saw in another form, is written again from
+    the cached Parquet, the way the diff reads a version back, and a format no longer made is
+    dropped from the record. Returns the entry's new metadata, or None when the entry cannot be
+    grown and the version must be built from its source.
+    """
     if ds.kind == "database":
         return hit
     want = _want(ds, hit["rows"], hit.get("left_out"))
-    now = writer_keys(shape_layer(ds))
+    now = cache_mod.writer_keys(shape=shape_layer(ds))
     seen = hit.get("writers", {})
     changed = [f for f in want if seen.get(f) != now[f]]
     stale = list(changed)
@@ -905,14 +1064,15 @@ def grow_cached(
         return None
     base = tree_url(ds.slug, m.version, tree)
 
-    def hdr(rows: int, rel: str) -> dict:
+    def hdr(rows: int, rel: str) -> Header:
         return prov_header(ds, m, rows, base + rel)
 
     tbl = _built_table(ds, m, out, tree, parquet)
     if m.parquet.get("sort"):
-        tbl = _source_order(tbl, cache, key, parquet)
-        if tbl is None:
+        back = _source_order(tbl, cache, key, parquet)
+        if back is None:
             return None
+        tbl = back
     if "csv.gz" in stale and "csv" not in stale and not (vdir / "data.csv").exists():
         stale = ["csv", *stale]  # the gzip reads the CSV, written here and not kept
     for p in [vdir / f"data.{f}" for f in stale]:
@@ -936,8 +1096,6 @@ def grow_cached(
     # A format no longer made is dropped from the record, unless the build is limited to a
     # subset by --formats: the files are still published, and a limited build never shrinks
     # an entry a full build will grow again.
-    from . import serialise
-
     files = {
         k: v
         for k, v in hit["files"].items()
@@ -961,7 +1119,7 @@ def grow_cached(
     # The Parquet each rewritten file was made from, which the check reads to make it again.
     grown = {k: v for k, v in hit.get("grown", {}).items() if k in files}
     grown |= dict.fromkeys(written, digest(parquet))
-    meta = {
+    meta: CacheMeta = {
         **hit,
         "files": dict(sorted(files.items())),
         "writers": writers,
@@ -975,30 +1133,37 @@ def grow_cached(
     return meta
 
 
-def keeper(tree: str):
-    """What a cache entry keeps: a dated version only the files kept() names, and latest/ every
-    file, since latest/ is served from the deploy that builds it and never left out."""
-    return (lambda rel: True) if tree else kept
+def keeper(tree: str) -> Callable[[str], bool]:
+    """What a cache entry keeps.
+
+    A dated version keeps only the files kept() names, and latest/ every file, since latest/ is
+    served from the deploy that builds it and never left out.
+    """
+    return (lambda _rel: True) if tree else kept
 
 
-def _cached_version(
+def _cached_version(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     m: store.Manifest,
     store_dir: Path,
     out: Path,
     cache: BuildCache | None,
+    *,
     key: str,
     tree: str = "",
     prior: str = "",
     read: str = "",
 ) -> tuple[Table | None, VersionOut]:
-    """A version from the cache when its entry exists, without touching the source bytes, else
-    built from them. A cached version keeps only the files keeper() names."""
+    """A version from the cache when its entry exists, else built from its source bytes.
+
+    A cached version is taken without touching the source bytes, and keeps only the files
+    keeper() names.
+    """
     vdir = out / where(ds.slug, m.version, tree)
     if cache is not None:
-        hit = cache.get(key, vdir)
+        hit = cache.get(key, vdir, CacheMeta)
         if hit is not None:
-            hit = grow_cached(ds, m, hit, vdir, cache, key, tree)
+            hit = grow_cached(ds, m, hit, vdir, cache, key=key, tree=tree)
         if hit is not None:
             return None, _from_cache(ds, m, hit, vdir)
     store.verify(store_dir, m)
@@ -1013,15 +1178,13 @@ def _cached_version(
             src.read_bytes(),
             out,
             store_dir,
-            tree,
-            prior,
-            revised_since(ds, store_dir, m),
-            read,
+            tree=tree,
+            prior=prior,
+            revised=revised_since(ds, store_dir, m),
+            read=read,
         )
     if cache is not None:
-        from .cache import writer_keys
-
-        now = writer_keys(shape_layer(ds))
+        now = cache_mod.writer_keys(shape=shape_layer(ds))
         writers = (
             {}
             if ds.kind == "database"
@@ -1052,9 +1215,11 @@ def _order_file(tbl: Table, parquet: Path) -> dict[str, bytes]:
 
 
 def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Table | None:
-    """A table read back from its sorted Parquet, in the publisher's order again, or None when
-    the cache entry records no order for that very file, as when the published file is another
-    build's, and the version must be built from its source."""
+    """A table read back from its sorted Parquet, in the publisher's order again.
+
+    Returns None when the cache entry records no order for that very file, as when the published
+    file is another build's, and the version must be built from its source.
+    """
     p = cache.root / key / ORDER
     if not p.is_file() or not parquet.is_file():
         return None
@@ -1080,9 +1245,12 @@ def _source_order(tbl: Table, cache: BuildCache, key: str, parquet: Path) -> Tab
     )
 
 
-def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> dict:
-    """Two versions of a database compared table by table, by row count. The tables are not
-    read back: a release of a hundred million rows is compared by what each version holds."""
+def diff_database(ds: Dataset, a: VersionOut, b: VersionOut) -> JSONObject:
+    """Two versions of a database compared table by table, by row count.
+
+    The tables are not read back: a release of a hundred million rows is compared by what each
+    version holds.
+    """
     tables = sorted(set(a.tables) | set(b.tables))
     return {
         "dataset": ds.slug,
@@ -1135,8 +1303,11 @@ def _built_table(
 
 
 def _served_table(ds: Dataset, m: store.Manifest, tbl: Table | None, out: Path) -> Table:
-    """A version's rows as the site serves them: its published Parquet when there is one, which
-    a version built again without a replace leaves in place, else what this build made."""
+    """A version's rows as the site serves them.
+
+    These come from its published Parquet when there is one, which a version built again without
+    a replace leaves in place, else from what this build made.
+    """
     p, published_copy = published.served(out, f"d/{ds.slug}/v/{m.version}/data.parquet")
     if tbl is not None and not published_copy:
         return tbl
@@ -1150,13 +1321,15 @@ def build_dataset(
     cache: BuildCache | None = None,
     newest: int | None = None,
 ) -> DatasetOut:
-    """Every version of a dataset, or with newest only that many of the latest, as the real-data
-    check builds a large dataset."""
+    """Every version of a dataset, or with newest only that many of the latest.
+
+    The real-data check builds a large dataset this way.
+    """
     dout = DatasetOut(ds)
     if not ds.publishable:
         return dout
-    prev = None  # (manifest, table or None, cache key)
-    keys = []
+    prev: tuple[store.Manifest, Table | None, str] | None = None
+    keys: list[str] = []
     chain = (
         version_keys(cache, ds, store_dir)
         if cache
@@ -1168,14 +1341,14 @@ def build_dataset(
     for m, key in chain:
         keys.append(key)
         tbl, vout = _cached_version(
-            ds, m, store_dir, out, cache, key, prior=prev[0].version if prev else ""
+            ds, m, store_dir, out, cache, key=key, prior=prev[0].version if prev else ""
         )
         dout.versions.append(vout)
         if prev is not None:
             pm, ptbl, pkey = prev
             path = out / "d" / ds.slug / "diff" / f"{pm.version}..{m.version}.json"
             dkey = cache.key(pkey, key, "diff") if cache else ""
-            d = cache.get(dkey) if cache else None
+            d: JSONObject | None = cache.get(dkey) if cache else None
             if d is None:
                 if ds.kind == "database":
                     d = diff_database(ds, dout.versions[-2], vout)
@@ -1197,7 +1370,7 @@ def build_dataset(
         pretty(
             {
                 "dataset": ds.slug,
-                "latest": dout.latest.manifest.version,
+                "latest": dout.versions[-1].manifest.version,
                 **(
                     {"update": ds.update, "changes": f"{dataset_url(ds.slug)}changes/index.json"}
                     if ds.update != "release"
@@ -1230,7 +1403,9 @@ def build_dataset(
         pretty({"dataset": ds.slug, "changes": dout.changes}), encoding="utf-8"
     )
     (ddir / "schema.json").write_text(
-        (ddir / "v" / dout.latest.manifest.version / "schema.json").read_text(encoding="utf-8"),
+        (ddir / "v" / dout.versions[-1].manifest.version / "schema.json").read_text(
+            encoding="utf-8"
+        ),
         encoding="utf-8",
     )
     (ddir / "datapackage.json").write_text(pretty(_datapackage(dout)), encoding="utf-8")
@@ -1241,10 +1416,10 @@ def build_dataset(
 
 
 def _rolling(dout: DatasetOut, store_dir: Path, out: Path, cache: BuildCache | None) -> None:
-    """A rolling source's or a feed's change log for every fetch, under changes/, and its newest
-    fetch built whole at latest/."""
-    from .updates import counts
+    """A rolling source's or a feed's change log for every fetch, and its newest fetch.
 
+    The change logs go under changes/, and the newest fetch is built whole at latest/.
+    """
     ds = dout.dataset
     ddir = out / "d" / ds.slug
     for f in store.manifests(store_dir, ds.slug, fetches=True):
@@ -1265,10 +1440,21 @@ def _rolling(dout: DatasetOut, store_dir: Path, out: Path, cache: BuildCache | N
             }
         )
     m = newest_fetch(ds, store_dir)
+    if m is None:
+        msg = f"{ds.slug}: latest/ is built from the newest fetch, and the store holds none"
+        raise ValueError(msg)
     key = latest_key(cache, ds, m, store_dir) if cache else ""
     read = store.read_since(store_dir, ds.slug, m.version) if ds.update == "feed" else ""
     dout.current = _cached_version(
-        ds, m, store_dir, out, cache, key, LATEST, dout.latest.manifest.version, read
+        ds,
+        m,
+        store_dir,
+        out,
+        cache,
+        key=key,
+        tree=LATEST,
+        prior=dout.versions[-1].manifest.version,
+        read=read,
     )[1]
     (ddir / "changes").mkdir(exist_ok=True)
     (ddir / "changes" / "index.json").write_text(
@@ -1279,7 +1465,7 @@ def _rolling(dout: DatasetOut, store_dir: Path, out: Path, cache: BuildCache | N
                 "latest": f"{dataset_url(ds.slug)}latest/",
                 "latest_fetch": m.version,
                 **({"read": read} if read else {}),
-                "snapshot": dout.latest.manifest.version,
+                "snapshot": dout.versions[-1].manifest.version,
                 "fetches": dout.fetches,
             }
         ),

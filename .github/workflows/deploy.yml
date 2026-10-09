@@ -539,10 +539,10 @@ jobs:
           fi
           python -m publicdata d1 sql --root "$DIST" --root "$DIST_LARGE" --loaded loaded.json --out d1-load --stamp "$GITHUB_RUN_ID" --catalogue catalogue-search.sqlite
           python -m publicdata d1 load --dir d1-load --budget "${D1_BUDGET:-0}" --retry "$D1_RETRY" --summary "$GITHUB_STEP_SUMMARY"
-      # The MCP server answers counts from a version's rollup in R2 before it asks D1, so rollups
-      # follow what D1 holds after the load. A rollup is written again when its version's Parquet
-      # changes, and the rollups of versions D1 dropped are deleted.
-      - name: Write rollups for the versions D1 holds
+      # The MCP server answers counts from a version's rollup in R2 before any other engine, so
+      # rollups follow what D1 holds after the load, plus every version of a query: false entry.
+      # A rollup is written again when its version's Parquet changes, and the rest are deleted.
+      - name: Write rollups for the versions queries reach
         if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && vars.D1_ENABLED == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

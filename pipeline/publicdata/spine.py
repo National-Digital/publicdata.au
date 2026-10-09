@@ -16,10 +16,17 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import duckdb
 import pyarrow as pa
+import yaml
 
 from . import store
+
+if TYPE_CHECKING:
+    from .normalise import ArrowArray, Table
+    from .register import Geometry
 
 DATUM = "EPSG:7844"
 MEMORY_LIMIT = "3GB"
@@ -109,9 +116,7 @@ def is_spine(source: str) -> bool:
     return source.startswith(SOURCE_PREFIX)
 
 
-def connect():
-    import duckdb
-
+def connect() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     con.execute("SET enable_progress_bar = false")
     # Each connection is held to a share of the machine, since the build opens several in turn
@@ -120,9 +125,10 @@ def connect():
     try:
         con.load_extension("spatial")
     except duckdb.Error as e:
-        raise SpineError(
+        msg = (
             "DuckDB's spatial extension is not installed; run `python -m publicdata spine install`"
-        ) from e
+        )
+        raise SpineError(msg) from e
     return con
 
 
@@ -136,13 +142,19 @@ def _shape_path(data: bytes, ext: str, member: str, tmp: Path) -> str:
         names = [n for n in z.namelist() if n.lower().endswith((".shp", ".gpkg", ".geojson"))]
     name = member or (names[0] if len(names) == 1 else "")
     if not name or name not in names:
-        raise SpineError(f"name the layer's file in source.member, one of {names}")
+        msg = f"name the layer's file in source.member, one of {names}"
+        raise SpineError(msg)
     return f"/vsizip/{src}/{name}"
 
 
-def _read_layer(data: bytes, ext: str, member: str):
-    """The layer loaded into DuckDB as `src`: the connection, the geometry column, the attribute
-    columns cast to text, and the file's order."""
+def _read_layer(
+    data: bytes, ext: str, member: str
+) -> tuple[duckdb.DuckDBPyConnection, str, str, str]:
+    """The layer loaded into DuckDB as `src`.
+
+    Returns the connection, the geometry column, the attribute columns cast to text, and the
+    file's order.
+    """
     con = connect()
     with tempfile.TemporaryDirectory() as t:
         path = _shape_path(data, ext, member, Path(t))
@@ -155,9 +167,11 @@ def _read_layer(data: bytes, ext: str, member: str):
     return con, geom, text, order
 
 
-def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table, pa.Array]:
-    """The layer's attributes as text, in the file's order, and each feature's geometry as WKB in
-    GDA2020. The publisher's datum is the register's `geometry.crs`."""
+def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table, ArrowArray]:
+    """The layer's attributes as text, in the file's order, and each feature's geometry.
+
+    The geometry is WKB in GDA2020. The publisher's datum is the register's `geometry.crs`.
+    """
     con, geom, text, order = _read_layer(data, ext, member)
     moved = (
         f'"{geom}"'
@@ -173,9 +187,12 @@ def read_shapes(data: bytes, ext: str, member: str, crs: str) -> tuple[pa.Table,
 
 
 def read_points(data: bytes, ext: str, member: str) -> pa.Table:
-    """A point layer's attributes as text and each point's coordinates as published, under the
-    longitude and latitude source names a GeoJSON point is read with."""
-    from .register import LAT_SOURCE, LON_SOURCE
+    """A point layer's attributes as text and each point's coordinates as published.
+
+    The coordinates go under the longitude and latitude source names a GeoJSON point is read
+    with.
+    """
+    from .register import LAT_SOURCE, LON_SOURCE  # noqa: PLC0415 - register imports this module
 
     con, geom, text, order = _read_layer(data, ext, member)
     xy = (
@@ -192,9 +209,9 @@ class Shapes:
     layer: Layer
     version: str
     sha256: str
-    codes: list[str]
-    names: list[str]
-    wkb: pa.Array
+    codes: list[str | None]
+    names: list[str | None]
+    wkb: ArrowArray
 
 
 _LOADED: dict[tuple[str, str], Shapes] = {}
@@ -202,18 +219,20 @@ _LOADED: dict[tuple[str, str], Shapes] = {}
 
 def layer_shapes(layer: Layer, store_dir: Path, register_dir: Path) -> Shapes:
     """The newest version of the layer's entry in the store, normalised, read once per build."""
-    from .normalise import normalise
-    from .register import load
+    from .normalise import normalise  # noqa: PLC0415 - normalise imports this module
+    from .register import load  # noqa: PLC0415 - register imports this module
 
     ms = store.manifests(store_dir, layer.slug)
     if not ms:
-        raise SpineError(f"the place spine needs {layer.slug} in the store, and it has no version")
+        msg = f"the place spine needs {layer.slug} in the store, and it has no version"
+        raise SpineError(msg)
     m = ms[-1]
     key = (layer.slug, m.sha256)
     if key not in _LOADED:
         ds = next((d for d in load(register_dir) if d.slug == layer.slug), None)
         if ds is None:
-            raise SpineError(f"{layer.slug} is not in the register")
+            msg = f"{layer.slug} is not in the register"
+            raise SpineError(msg)
         tbl = normalise(ds, m, store.source_path(store_dir, m).read_bytes())
         _LOADED[key] = Shapes(
             layer,
@@ -221,7 +240,7 @@ def layer_shapes(layer: Layer, store_dir: Path, register_dir: Path) -> Shapes:
             m.sha256,
             tbl.table.column(layer.code[0]).to_pylist(),
             tbl.table.column(layer.name[0]).to_pylist(),
-            tbl.geometry,
+            tbl.shapes(),
         )
     return _LOADED[key]
 
@@ -231,16 +250,15 @@ _ENTRIES: dict[tuple[str, bytes], str] = {}
 
 def _layer_entry(slug: str, register_dir: Path) -> str:
     """The layer's register entry as a version key reads it, its rebuild number among it."""
-    import yaml
-
-    from .cache import entry_key
-    from .register import parse
+    from .cache import entry_key  # noqa: PLC0415 - cache imports this module in turn
+    from .register import parse  # noqa: PLC0415 - register imports this module
 
     p = register_dir / f"{slug}.yaml"
     if not p.is_file():
-        p = next(iter(sorted(register_dir.rglob(f"{slug}.yaml"))), None)
-        if p is None:
+        found = next(iter(sorted(register_dir.rglob(f"{slug}.yaml"))), None)
+        if found is None:
             return "missing"
+        p = found
     raw = p.read_bytes()
     if (slug, raw) not in _ENTRIES:
         ds = parse(yaml.safe_load(raw.decode("utf-8")) or {}, p.name)
@@ -249,8 +267,11 @@ def _layer_entry(slug: str, register_dir: Path) -> str:
 
 
 def spine_versions(keys: tuple[str, ...], store_dir: Path, register_dir: Path) -> str:
-    """What the join reads, for the build cache: each layer's newest source hash and the register
-    entry the layer is normalised with, so a change to either rebuilds the datasets joined to it."""
+    """What the join reads, for the build cache.
+
+    That is each layer's newest source hash and the register entry the layer is normalised with,
+    so a change to either rebuilds the datasets joined to it.
+    """
     parts = []
     for k in keys:
         slug = LAYERS[k].slug
@@ -261,10 +282,10 @@ def spine_versions(keys: tuple[str, ...], store_dir: Path, register_dir: Path) -
     return "|".join(parts)
 
 
-def enrich(tbl, store_dir: Path, register_dir: Path):
+def enrich(tbl: Table, store_dir: Path, register_dir: Path) -> Table:
     """The table with each spine column filled in by location. Returns the layers used."""
     ds = tbl.dataset
-    g = ds.geometry or {}
+    g: Geometry | dict[str, str] = ds.geometry or {}
     con = connect()
     lon = tbl.table.column(g["lon"]).combine_chunks().cast(pa.float64())
     lat = tbl.table.column(g["lat"]).combine_chunks().cast(pa.float64())

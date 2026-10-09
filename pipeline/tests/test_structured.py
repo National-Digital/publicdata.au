@@ -27,21 +27,21 @@ GOOD = {
 }
 
 
-def _page(*blocks):
+def _page(*blocks: object) -> str:
     return "".join(f'<script type="application/ld+json">{json.dumps(b)}</script>' for b in blocks)
 
 
-def _errors(**change):
-    node = {**GOOD, **change}
+def _errors(**change: object) -> list[str]:
+    node: dict[str, object] = {**GOOD, **change}
     node = {k: v for k, v in node.items() if v != "DROP"}
     return check_page(_page(node), "p")
 
 
-def test_valid_dataset_passes():
+def test_valid_dataset_passes() -> None:
     assert _errors() == []
 
 
-def test_google_dataset_rules():
+def test_google_dataset_rules() -> None:
     assert any("description must be 50" in e for e in _errors(description="Too short."))
     assert any("needs a license" in e for e in _errors(license="DROP"))
     assert any("needs a creator" in e for e in _errors(creator="DROP"))
@@ -57,7 +57,7 @@ def test_google_dataset_rules():
     assert any("contentUrl" in e for e in _errors(distribution=bad_dl))
 
 
-def test_schema_org_vocabulary():
+def test_schema_org_vocabulary() -> None:
     assert any("unknown property" in e for e in _errors(licence="https://x.org/"))
     assert any("unknown type Datset" in e for e in _errors(**{"@type": "Datset"}))
     place = {"@type": "Place", "name": "Queensland", "author": "Someone"}
@@ -67,7 +67,7 @@ def test_schema_org_vocabulary():
     assert any("no @type" in e for e in _errors(spatialCoverage={"name": "Queensland"}))
 
 
-def test_breadcrumbs_and_faq():
+def test_breadcrumbs_and_faq() -> None:
     crumbs = {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
@@ -87,7 +87,7 @@ def test_breadcrumbs_and_faq():
     assert any("acceptedAnswer" in e for e in check_page(_page(faq), "p"))
 
 
-def test_catalog_entries_must_be_full_datasets():
+def test_catalog_entries_must_be_full_datasets() -> None:
     catalog = {
         "@context": "https://schema.org",
         "@type": "DataCatalog",
@@ -99,13 +99,13 @@ def test_catalog_entries_must_be_full_datasets():
     assert _errors(includedInDataCatalog={k: v for k, v in catalog.items() if k != "dataset"}) == []
 
 
-def test_context_and_json():
+def test_context_and_json() -> None:
     assert any("@context" in e for e in _errors(**{"@context": "http://schema.org"}))
     bad = '<script type="application/ld+json">{nope</script>'
     assert any("invalid JSON" in e for e in check_page(bad, "p"))
 
 
-def test_dataset_names_are_unique_across_pages():
+def test_dataset_names_are_unique_across_pages() -> None:
     a = _page(GOOD)
     b = _page({**GOOD, "@id": "https://publicdata.au/d/z/"})
     assert duplicate_names([("a", a), ("a-again", a)]) == []

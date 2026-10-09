@@ -195,6 +195,7 @@ test("a rolling source's latest/ is its newest fetch, served in place with a fiv
   const src = await onRequestGet({ request: new Request('https://publicdata.au/d/r/latest/source.csv'), env: { ...env, RAW: raw } });
   assert.equal(src.status, 200);
   assert.equal(await src.text(), 'src');
+  assert.equal(src.headers.get('content-disposition'), 'inline; filename="r_2026-10-06_source.csv"');
   // A release still redirects to its newest dated version.
   const rel = await get('/d/x/latest/data.csv');
   assert.equal(rel.status, 302);
@@ -318,4 +319,38 @@ test('a stored encoding listed with aws-chunked is still gzip, and goes out as p
   const plain = await gget('/d/x/v/2026-04-24/data.ndjson');
   assert.equal(plain.headers.get('content-encoding'), null);
   assert.equal(await plain.text(), '{"a":1}\n'.repeat(200));
+});
+
+test('a part, a change log, the history archive and a fetch save under names that say what they are', async () => {
+  R2['d/r/v/2026-09-01/parts/2022.parquet'] = 'PAR1';
+  R2['d/r/v/2026-09-01/parts/undated.csv.gz'] = 'gz';
+  R2['d/r/v/2026-09-01/history/2022.parquet'] = 'PAR1';
+  R2['d/r/fetch/2026-10-06/parts/2026.parquet'] = 'PAR1';
+  R2['d/r/history.tar.zst'] = 'zst';
+  const PAGES = {
+    '/d/r/changes/2026-10-06.json': '{}',
+    '/d/r/changes/index.json': '[]',
+    '/d/r/index.html': '<html>r</html>',
+  };
+  const pages = { fetch: async (r) => {
+    const p = new URL(r.url || r).pathname;
+    return p in PAGES ? new Response(PAGES[p], { headers: { 'cache-control': 'public, max-age=300' } }) : env.ASSETS.fetch(r);
+  } };
+  const e = { ...env, ASSETS: pages };
+  const name = async (path) => (await onRequestGet({ request: new Request('https://publicdata.au' + path), env: e })).headers.get('content-disposition');
+  assert.equal(await name('/d/r/v/2026-09-01/parts/2022.parquet'), 'inline; filename="r_2026-09-01_2022.parquet"');
+  assert.equal(await name('/d/r/v/2026-09-01/parts/undated.csv.gz'), 'inline; filename="r_2026-09-01_undated.csv.gz"');
+  assert.equal(await name('/d/r/v/2026-09-01/history/2022.parquet'), 'inline; filename="r_2026-09-01_history_2022.parquet"');
+  assert.equal(await name('/d/r/latest/parts/2026.parquet'), 'inline; filename="r_2026-10-06_2026.parquet"');
+  assert.equal(await name('/d/r/fetch/2026-10-06/data.parquet'), 'inline; filename="r_2026-10-06.parquet"');
+  assert.equal(await name('/d/r/fetch/2026-10-06/data.csv'), 'inline; filename="r_2026-10-06.csv"');
+  assert.equal(await name('/d/r/changes/2026-10-06.json'), 'inline; filename="r_2026-10-06_changes.json"');
+  assert.equal(await name('/d/r/changes/index.json'), 'inline; filename="r_changes_index.json"');
+  // The archive is named for the newest version it holds, the one latest.json names.
+  assert.equal(await name('/d/r/history.tar.zst'), 'inline; filename="r_2026-09-01_history.tar.zst"');
+  assert.equal(await name('/d/r/'), null);
+  assert.equal(await name('/d/r/changes/'), null);
+  // Naming a change log leaves its cache as Pages set it.
+  const log = await onRequestGet({ request: new Request('https://publicdata.au/d/r/changes/index.json'), env: e });
+  assert.equal(log.headers.get('cache-control'), 'public, max-age=300');
 });

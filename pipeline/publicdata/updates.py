@@ -1,10 +1,13 @@
-"""Rolling sources and feeds: the change log of each fetch, when a fetch becomes a snapshot, and
-for a feed, the table of every row state it has held with the first and last fetch that held it.
+"""Rolling sources and feeds: each fetch's change log and when a fetch becomes a snapshot.
+
+For a feed, this also keeps the table of every row state it has held with the first and last fetch
+that held it.
 
 A release is a dated edition and every changed fetch is a version. A rolling source sends its
 whole table each time and a feed sends only what is current, so each fetch is compared with the
 one before by key, the newest fetch is served at latest/, and a dated snapshot is cut only by the
-rules in `cut`."""
+rules in `cut`.
+"""
 
 from __future__ import annotations
 
@@ -12,14 +15,18 @@ import datetime as dt
 import hashlib
 from collections import Counter
 from dataclasses import replace
+from typing import TYPE_CHECKING, Literal, cast
 
 import pyarrow as pa
 
 from . import periods
 from .diff import diff
-from .normalise import Table
-from .register import Dataset
-from .store import Manifest
+
+if TYPE_CHECKING:
+    from .jsontypes import JSON, JSONObject
+    from .normalise import Table
+    from .register import Dataset, Period
+    from .store import Manifest
 
 # More than this share of the previous fetch's rows added, removed or changed cuts a snapshot.
 CHURN = 0.05
@@ -45,29 +52,38 @@ def digest(tbl: Table) -> str:
     return h.hexdigest()
 
 
-def _states(tbl: Table) -> Counter:
+def _states(tbl: Table) -> Counter[tuple[str, bytes]]:
     """(period, row digest) for every row, without the volatile columns."""
     ds = tbl.dataset
     t = stable(tbl).table
-    labels = periods.labels(tbl.table.column(ds.period.field), ds.period.grain).to_pylist()
+    labels = cast(
+        "list[str]",
+        periods.labels(tbl.table.column(ds.period.field), ds.period.grain).to_pylist(),  # type: ignore[union-attr]  # called only for a dataset with a period
+    )
     cols = [t.column(n).to_pylist() for n in t.column_names]
     rows = (hashlib.sha256(repr(r).encode()).digest() for r in zip(*cols, strict=True))
     return Counter(zip(labels, rows, strict=True))
 
 
 def touched(before: Table, after: Table) -> list[str]:
-    """The periods whose rows differ between two fetches: a row added, removed or changed
-    touches the period of its date, and a row whose date moved touches both."""
+    """The periods whose rows differ between two fetches.
+
+    A row added, removed or changed touches the period of its date, and a row whose date moved
+    touches both.
+    """
     if before.dataset.period is None:
         return []
     a, b = _states(before), _states(after)
     return periods.ordered({p for p, _ in (a - b) + (b - a)})
 
 
-def compare(before: Table | None, after: Table, day: dt.date) -> dict:
-    """The change log of the fetch `after` against the fetch before it, by key, with the volatile
-    columns left out. A finished period that changed is a revision."""
+def compare(before: Table | None, after: Table, day: dt.date) -> JSONObject:
+    """The change log of the fetch `after` against the fetch before it, by key.
+
+    The volatile columns are left out. A finished period that changed is a revision.
+    """
     ds = after.dataset
+    log: JSONObject
     if before is None:
         log = {
             "dataset": ds.slug,
@@ -85,41 +101,54 @@ def compare(before: Table | None, after: Table, day: dt.date) -> dict:
     else:
         log = diff(stable(before), stable(after))
         for k in ("added_keys", "removed_keys", "changed_keys"):
-            if len(log.get(k, [])) > KEYS:
-                log[k] = log[k][:KEYS]
+            # diff writes each list of keys as a list.
+            keys = cast("list[JSON]", log.get(k, []))
+            if len(keys) > KEYS:
+                log[k] = keys[:KEYS]
                 log["truncated"] = True
     if ds.volatile:
         log["volatile"] = list(ds.volatile)
     if ds.period is not None:
-        log["periods"] = (
+        names = (
             touched(before, after)
             if before is not None
             else periods.ordered(
                 set(
-                    periods.labels(after.table.column(ds.period.field), ds.period.grain).to_pylist()
+                    cast(
+                        "list[str]",
+                        periods.labels(
+                            after.table.column(ds.period.field), ds.period.grain
+                        ).to_pylist(),
+                    )
                 )
             )
         )
+        log["periods"] = [*names]
         log["revised"] = (
-            [p for p in log["periods"] if periods.finished(p, day, ds.period)]
-            if before is not None
-            else []
+            [p for p in names if periods.finished(p, day, ds.period)] if before is not None else []
         )
     return log
 
 
-def moved(log: dict) -> int:
-    return log.get("added", 0) + log.get("removed", 0) + log.get("changed", 0)
+def _count(log: JSONObject, k: str) -> int:
+    # A change log's counts are whole numbers, as compare and diff write them.
+    return cast("int", log.get(k, 0))
 
 
-def cut(ds: Dataset, log: dict | None, snapshots: list[Manifest], day: dt.date) -> str:
-    """Why this fetch becomes a dated snapshot, or "" when it stays a fetch. `log` is None when
-    the rows are those of the fetch before, which is itself no snapshot."""
+def moved(log: JSONObject) -> int:
+    return _count(log, "added") + _count(log, "removed") + _count(log, "changed")
+
+
+def cut(ds: Dataset, log: JSONObject | None, snapshots: list[Manifest], day: dt.date) -> str:
+    """Why this fetch becomes a dated snapshot, or "" when it stays a fetch.
+
+    `log` is None when the rows are those of the fetch before, which is itself no snapshot.
+    """
     if not snapshots:
         return "first"
     if log is not None and log.get("revised"):
         return "revision"
-    if log is not None and moved(log) > CHURN * max(log.get("rows_from", 0), 1):
+    if log is not None and moved(log) > CHURN * max(_count(log, "rows_from"), 1):
         return "churn"
     last = dt.date.fromisoformat(snapshots[-1].version)
     if ds.period is not None and periods.of_day(day, ds.period.grain) != periods.of_day(
@@ -131,10 +160,12 @@ def cut(ds: Dataset, log: dict | None, snapshots: list[Manifest], day: dt.date) 
     return ""
 
 
-def closing(per, fetched: dt.date, today: dt.date) -> str:
-    """Why a fetch that is no snapshot becomes one when a later read finds it unchanged: it was
-    the last change before its period (the one its manifest records) closed, or of its month.
-    "" while both are still open."""
+def closing(per: Period | None, fetched: dt.date, today: dt.date) -> str:
+    """Why a fetch that is no snapshot becomes one when a later read finds it unchanged.
+
+    It was the last change before its period (the one its manifest records) closed, or of its
+    month. "" while both are still open.
+    """
     if per is not None and periods.of_day(fetched, per.grain) != periods.of_day(today, per.grain):
         return "period-end"
     if (fetched.year, fetched.month) != (today.year, today.month):
@@ -154,11 +185,14 @@ CUT_WORDS = {
 
 
 def history(seen: pa.Table | None, tbl: Table, day: str, last: str) -> pa.Table:
-    """A feed's history after one more fetch: one row per state a key has held, without the
-    volatile columns, with the first and last fetch that held it. A state still in the feed at
-    the fetch dated `last` is carried to `day`; a state the feed no longer holds keeps its last
-    date, and one that comes back starts a new row. States are compared on the columns both
-    sides hold, so a column that stops being volatile joins the history as null for old rows."""
+    """A feed's history after one more fetch.
+
+    It holds one row per state a key has held, without the volatile columns, with the first and
+    last fetch that held it. A state still in the feed at the fetch dated `last` is carried to
+    `day`; a state the feed no longer holds keeps its last date, and one that comes back starts a
+    new row. States are compared on the columns both sides hold, so a column that stops being
+    volatile joins the history as null for old rows.
+    """
     ds = tbl.dataset
     cur = stable(tbl).table
     d = dt.date.fromisoformat(day)
@@ -198,11 +232,13 @@ def history(seen: pa.Table | None, tbl: Table, day: str, last: str) -> pa.Table:
         if n not in cur.column_names and n not in (FIRST_SEEN, LAST_SEEN)
     ]
     out = out.select([*cur.column_names, *extra, FIRST_SEEN, LAST_SEEN])
-    order = [(k, "ascending") for k in ds.key] + [(FIRST_SEEN, "ascending")]
+    order: list[tuple[str, Literal["ascending", "descending"]]] = [
+        (k, "ascending") for k in ds.key
+    ] + [(FIRST_SEEN, "ascending")]
     return out.sort_by(order).combine_chunks()
 
 
-def counts(log: dict) -> dict:
+def counts(log: JSONObject) -> JSONObject:
     """A change log's numbers, for the index of fetches."""
     keep = ("from", "to", "rows_from", "rows_to", "added", "removed", "changed", "unchanged")
     out = {k: log[k] for k in keep if k in log}

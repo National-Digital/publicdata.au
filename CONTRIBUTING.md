@@ -31,6 +31,8 @@ cd pipeline
 python -m publicdata register validate
 python -m publicdata build --fixtures --out /tmp/pd
 python -m publicdata gate /tmp/pd
+ruff check . && ruff format --check .
+mypy
 pytest -n auto
 cd .. && node --test functions/*.test.mjs scripts/*.test.mjs
 ```
@@ -54,7 +56,7 @@ licence, not the AGPL. Only styles from its free package may be added there; see
 ## Git hooks
 
 The `core.hooksPath` line in Set up switches on three hooks in `.githooks/`. They catch on your
-machine what CI would fail a few minutes later, and they replace no CI check.
+machine what CI would fail a few minutes later.
 
 - `prepare-commit-msg` adds the DCO `Signed-off-by` trailer to every commit, once.
 - `pre-commit` runs `ruff check` and `ruff format --check` on the staged content of each staged
@@ -74,24 +76,30 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   The Workflow lint job in CI runs those too, so a commit the hook passes can still fail there.
   Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
   versions, when one differs, and runs it anyway.
-- `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
-  and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
-  It should take under a minute on a laptop.
+- `pre-push` checks what the push changes, comparing each branch with what the remote holds, or
+  a new branch with where it leaves the remote's main. When the push changes `pipeline/`, it runs
+  `mypy` there, then the fast tests in the working tree, `pytest -m "not slow" -n auto`. When it
+  changes `clients/python/`, it runs the client's two mypy runs, `mypy` and
+  `mypy --python-version 3.14`. It runs `node --test functions/*.test.mjs scripts/*.test.mjs` on
+  every push. mypy keeps its cache between runs, so a later push checks only what changed. The
+  hook stops the push when a check fails, and should take under a minute on a laptop.
 
 The fast tests are every test that is not marked `slow`. `pipeline/tests/conftest.py` decides
 which tests are slow: those that use the fixture store or a fixture site build (`SLOW_FIXTURES`)
-and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI runs every test.
+and those named in `SLOW_TESTS`. Move a test in or out of the fast run there.
 
-A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
-through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
-tests, and `node` for the JavaScript tests. The workflow check is the exception: a commit that
-stages `.github/` fails when actionlint, shellcheck or zizmor is missing, with a line naming the
-version CI pins and where to get it. To skip the hooks once, pass `--no-verify` to `git commit` or
-`git push`.
+A hook with Python to check that cannot find `ruff`, `mypy`, `pytest` or the pipeline's
+environment stops the commit or push with one line saying what to install. A commit that stages
+`.github/` fails in the same way when actionlint, shellcheck or zizmor is missing, with a line
+naming the version CI pins and where to get it. A missing `node` skips the JavaScript tests with a
+line saying so. To skip the hooks once, pass `--no-verify` to `git commit` or `git push`.
 
 CI's pipeline job puts the same pinned actionlint, shellcheck and zizmor on its PATH, so the
 hook's tests in `pipeline/tests/test_hooks.py` run there. Locally they skip when a tool is not
 installed.
+
+CI runs every check again, every test included, whatever the hooks did. The hooks catch a failure
+before the push, and they replace none of CI's checks.
 
 ## Private copies
 
@@ -443,7 +451,31 @@ rule carries `# nolint: <linter>. <reason>`.
 
 ## Reference
 
-- Comments state constraints the code cannot show, in one or two lines of *why*.
+- Comments state constraints the code cannot show, in one or two lines of *why*. The Python
+  client's public API carries a docstring on each function, class and method, since `help()` and
+  editors show it; anywhere else a docstring is optional and holds a *why*, as a comment does.
+- Both Python packages select every ruff rule, with ruff pinned in each `pyproject.toml`. An
+  ignore states its reason beside it in `pyproject.toml`, and a `# noqa` names its code, with a
+  reason when the line does not make it plain. Run `ruff check . && ruff format --check .` in
+  `pipeline/` or `clients/python/`, as CI does; `ruff check --fix` and `ruff format` apply the
+  fixes ruff is sure of. Since `ALL` means every rule the pinned version knows, a ruff upgrade
+  goes in a pull request of its own that fixes the findings its new rules bring.
+- Both Python packages are type checked by mypy in strict mode, tests included. mypy, the stub
+  packages and its settings are pinned in each `pyproject.toml`. Run `mypy` in `pipeline/`. The
+  client takes two runs in `clients/python/`, as CI does. `mypy` checks it against Python 3.10,
+  the oldest it supports, which holds it to 3.10's syntax and standard library; pandas-stubs
+  reads as Any there. `mypy --python-version 3.14` checks its pandas and geopandas code. An
+  ignore names its code and gives its reason on the same line, as in
+  `# type: ignore[attr-defined]  # the stubs lack Table.sort_by`, and mypy fails one that is no
+  longer needed.
+- Neither package writes `Any`. mypy refuses it in an annotation, a decorated function, a generic
+  left without its parameters and a type from an unstubbed module. A value that arrives as Any,
+  from `json.loads`, `yaml.safe_load` or a library without stubs, is given its type once where it
+  is parsed: a TypedDict for a shape the code reads by key, the `JSON` alias in
+  `publicdata/jsontypes.py` for one whose keys vary, or `object` narrowed where it is used. mypy's
+  check of every Any expression stays off, since it would flag each such value before that
+  narrowing. The few places a library's own types leave no choice carry
+  `# type: ignore[explicit-any]` with the reason.
 - Before writing a helper, search for one that already exists. Follow the conventions of the
   neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
@@ -556,6 +588,10 @@ rule carries `# nolint: <linter>. <reason>`.
   `FY18-19`, or `FY2019` for the year that ends in June 2019), and the chart names each bar as the
   publisher wrote it. A value that is not a financial year is left out. `chart: none`
   draws no chart, for a table with no year worth drawing.
+- `rollup` lists field sets a version's rollup weighs as the register's own questions, such as
+  `[type, registration_date]`, for a count readers ask that the query layer cannot otherwise
+  afford, as on a table too large for D1 whose Parquet is not sorted for it. It shapes no
+  version's files.
 - `search_title` is the phrase a dataset's title tag targets and no two entries may share one;
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,
