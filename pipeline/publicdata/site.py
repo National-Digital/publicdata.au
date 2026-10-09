@@ -9,6 +9,7 @@ import html
 import json
 import re
 import shutil
+import tempfile
 import urllib.parse
 from pathlib import Path
 
@@ -17,7 +18,15 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 from . import OPERATOR, REPO, SITE, abbreviations, brand, explorer, figures
 from . import api_text as at
 from . import ard as ardspec
-from .build import DatasetOut, VersionOut, dataset_url, part_files, source_name, version_url
+from .build import (
+    DatasetOut,
+    VersionOut,
+    dataset_url,
+    part_dir,
+    part_files,
+    source_name,
+    version_url,
+)
 from .cache import BuildCache
 from .cost import fleet_from_build
 from .d1 import KEEP, parts_csv, queryable
@@ -31,7 +40,7 @@ from .provenance import (
     landing,
     long_date,
 )
-from .records import connect
+from .records import connect, joined
 from .register import NEWEST, WHERE_OPS, Dataset
 from .serialise import (
     FORMAT_LABEL,
@@ -282,6 +291,7 @@ def _parts_view(ds: Dataset, out: Path, version: str) -> dict | None:
                 "finished": r["finished"],
                 "revised": r["revised"],
                 "tree": r["tree"],
+                "tree_long": long_date(r["tree"]) if r["tree"] != version else "",
                 "files": [
                     {
                         "label": FORMAT_LABEL[f],
@@ -297,6 +307,7 @@ def _parts_view(ds: Dataset, out: Path, version: str) -> dict | None:
     return {
         "field": ds.field(man["period"]["field"]).display.lower(),
         "grain": _grain_words(grain),
+        "version": version,
         "whole": man.get("whole", True),
         "parts": rows(man.get("parts", [])),
         "history": rows((man.get("history") or {}).get("parts", [])),
@@ -3413,6 +3424,24 @@ def render_site(
     by_slug = {o.dataset.slug: o for o in outs}
     live = [o for o in outs if o.versions]
     live_slugs = {o.dataset.slug for o in live}
+    rows_tmp = tempfile.TemporaryDirectory(prefix="publicdata-rows-")
+
+    def rows_of(ds: Dataset, v: VersionOut) -> Path:
+        """The Parquet a page draws a version's figures and sample from: its data.parquet, or for
+        a version written as parts alone, its parts joined in a file outside the tree."""
+        if v.whole:
+            return out / "d" / ds.slug / "v" / v.manifest.version / "data.parquet"
+        dest = Path(rows_tmp.name) / f"{ds.slug}_{v.manifest.version}.parquet"
+        if not dest.exists():
+            from . import published
+
+            rels = [
+                f"{part_dir(ds.slug, r, v.manifest.version)}/{r['files']['parquet']['path']}"
+                for r in v.parts
+            ]
+            joined([published.path(out, rel) for rel in rels], dest)
+        return dest
+
     built_at = max(
         (v.manifest.fetched_at for o in live for v in o.versions),
         default="1970-01-01T00:00:00+00:00",
@@ -3489,17 +3518,14 @@ def render_site(
     def version_pages(o, ds, views, fig, hints, card, base, latest) -> None:
         """One page per dated version: its files, its change from the version before and its figure."""
         for v, view in zip(o.versions, views, strict=True):
-            vfig = (
-                fig
-                if v is latest
-                else figures.dataset_figures(
-                    ds,
-                    v.manifest,
-                    hints,
-                    out / "d" / ds.slug / "v" / v.manifest.version / "data.parquet",
-                    out,
-                )
-            )
+            if v is latest:
+                vfig = fig
+            else:
+                rows = rows_of(ds, v)
+                vfig = figures.dataset_figures(ds, v.manifest, hints, rows, out)
+                # An older version's joined parts are read once, so they do not stay on disk.
+                if not v.whole:
+                    rows.unlink(missing_ok=True)
             files = [
                 {
                     "name": k,
@@ -3661,16 +3687,18 @@ def render_site(
             ds.partition_by[0] if ds.partition_by else (ds.key[0] if ds.key else ds.fields[0].name)
         )
         console = hints = None
-        rows_path = out / "d" / ds.slug / "v" / m.version / "data.parquet"
+        rows_path = rows_of(ds, latest)
         if rows_path.exists():
             hints = _console(ds, rows_path)
-        api = bool(QUERY_API and hints and queryable(ds, latest.files.get("data.csv")))
+        api = bool(
+            QUERY_API and hints and latest.whole and queryable(ds, latest.files.get("data.csv"))
+        )
         listed, served = hints, api
-        if listed is None and not latest.whole and latest.parts:
-            # A version stored as parts has no console, and the row tools answer it from its
-            # parts, so its field list is read from them. The query API loads it from them while
-            # their CSV is within its limit.
-            listed = _console(ds, part_files(out, ds.slug, m.version, latest.parts))
+        if not latest.whole and latest.parts:
+            # A version stored as parts has no console. The row tools answer it from its parts,
+            # and the query API loads it from them while their CSV is within its limit.
+            if listed is None:
+                listed = _console(ds, part_files(out, ds.slug, m.version, latest.parts))
             served = bool(QUERY_API and queryable(ds, parts_csv(latest.parts)))
             if served:
                 served_parts.append(o)
@@ -3717,7 +3745,10 @@ def render_site(
             for v, view in reversed(list(zip(o.versions, views, strict=True)))
             if 0 < v.files.get("data.parquet", 0) <= explorer.MAX_PARQUET
         ]
-        if hints and ex_versions and ex_versions[0]["version"] == m.version:
+        # A version in parts has no one file to load, so the explorer stays on the newest whole
+        # one, and opens none when that one is too large for it.
+        newest_whole = next((v.manifest.version for v in reversed(o.versions) if v.whole), "")
+        if hints and ex_versions and ex_versions[0]["version"] == newest_whole:
             explore = {
                 "slug": ds.slug,
                 "title": ds.title,
@@ -3797,6 +3828,7 @@ def render_site(
             licence_record=licence_record(ds, latest.manifest),
             spine_attribution=SPINE_ATTRIBUTION,
             copies=copies,
+            copies_hold="" if latest.whole else newest_whole,
             collection_href=collection_url(ds.collection) if ds.collection else "",
             entry_path=register_path(ds),
             problem_url=f"{REPO}/issues/new?{problem}",
@@ -3884,6 +3916,7 @@ def render_site(
                 ],
                 ex_data=_script_json({**explore, "embed": False}),
                 explore_versions=ex_versions,
+                explore_newest=ex_versions[0]["version"] == m.version,
                 explore_master="masters" in explore["defaults"],
                 engine_size=engine_size,
                 parquet_url=ex_versions[0]["parquet"],
@@ -4092,8 +4125,7 @@ def render_site(
         present += [x for x in states if x not in present]
         hero_slug = hero_slug or slug
         g = o.dataset.geometry
-        db = out / "d" / slug / "v" / o.latest.manifest.version / "data.parquet"
-        c = figures.cells(db, g["lon"], g["lat"], spec["where"])
+        c = figures.cells(rows_of(o.dataset, o.latest), g["lon"], g["lat"], spec["where"])
         if c:
             parts.append((states[0], c))
             hero_total += int(round(sum(c.values())))
@@ -5225,3 +5257,4 @@ def render_site(
     # The function that reads R2 serves pages moved there too, and needs the same headers.
     _write(out, "static/page-headers.json", pretty(SITE_HEADERS))
     _write(out, "_routes.json", pretty({"version": 1, "include": list(ROUTES), "exclude": []}))
+    rows_tmp.cleanup()

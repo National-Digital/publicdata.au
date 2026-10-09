@@ -134,6 +134,11 @@ def entry(
         for d in record.get("distribution", [])
         if f"/v/{version}/" in d.get("downloadURL", "")
     }
+    if manifest.get("whole", True) is False:
+        raise Excluded(
+            f"version {version} is published in parts, which no hub takes as one table; "
+            "each copy keeps the newest whole version"
+        )
     if "parquet" not in files:
         raise Refused(f"version {version} has no parquet file")
     pub = record.get("publisher") or {}

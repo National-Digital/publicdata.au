@@ -257,7 +257,7 @@ def cmd_build(args) -> int:
 
 def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
     from . import published
-    from .build import build_dataset
+    from .build import build_dataset, part_dir
     from .site import render_site
 
     outs = []
@@ -289,6 +289,16 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             for v in o.versions
             if "data.parquet" in v.absent
         ]
+        # A version written as parts alone is drawn from its parts, wherever each was written.
+        want += [
+            f"{part_dir(o.dataset.slug, r, v.manifest.version)}/{r['files']['parquet']['path']}"
+            for o in outs
+            for v in o.versions
+            if not v.whole
+            for r in v.parts
+        ]
+        # A finished part is shared by the versions that reuse it, and is pulled once.
+        want = list(dict.fromkeys(want))
         missing = [
             r for r, p in zip(want, published.current.paths(want), strict=True) if not p.exists()
         ]

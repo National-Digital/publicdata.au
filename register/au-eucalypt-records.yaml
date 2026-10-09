@@ -104,6 +104,9 @@ source:
   cadence: monthly
 key:
 - record_id
+period:
+  field: event_date
+  grain: year
 partition_by:
 - state_province
 enrich:

@@ -367,8 +367,11 @@ is its parts and `data.duckdb`, which holds a `parts` table naming each part's U
 a version has no console, explorer or pages by place, since each reads one whole file; its
 dataset page says so, and says when the query API serves it from its parts, and `llms.txt` lists only the files it has. The gate fails a table
 dataset's page that has no query console and gives no reason. A diff or the history archive
-reads the parts back. Either way there is one dataset page, and it lists the newest snapshot's
-parts.
+reads the parts back, and so do the pages: their figures, sample rows and the home page map
+read the parts joined into one Parquet file outside the built tree. The explorer stays on the
+newest version published whole and says so. The hubs take one table, so such a version is not
+copied, each hub keeps the newest whole version, and the dataset page names it. Either way there
+is one dataset page, and it lists the newest snapshot's parts.
 
 ## Explorer
 
