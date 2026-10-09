@@ -580,6 +580,9 @@
           var b = tr.querySelector('[data-vote]');
           if (rows.length < msize && !(b && shown[b.dataset.vote])) rows.push(tr);
         });
+        var mwrap = mw.parentNode, mfree = function () { mwrap.style.minHeight = ''; };
+        mwrap.style.minHeight = mwrap.offsetHeight + 'px';
+        window.addEventListener('resize', mfree, { once: true });
         mbody.textContent = '';
         rows.concat(extra).forEach(function (r) { mbody.appendChild(r); });
         if (!extra.length) return;
@@ -589,6 +592,7 @@
         var mp = el('p'); mp.appendChild(mb);
         mw.parentNode.parentNode.insertBefore(mp, mw.parentNode.nextSibling);
         mb.addEventListener('click', function () {
+          mfree();
           extra.forEach(function (r) { r.hidden = false; });
           mb.setAttribute('aria-expanded', 'true');
           extra[0].querySelector('a').focus();
