@@ -1,0 +1,89 @@
+{
+  "dataset": "crashes-by-year",
+  "version": "2026-04-01",
+  "rows": 150,
+  "period": {
+    "field": "year",
+    "grain": "year",
+    "revision_window": 2
+  },
+  "whole": false,
+  "parts": [
+    {
+      "period": "2018",
+      "rows": 30,
+      "rows_sha256": "17cc9389def58b4f7acc8b3b8439165b12a670e233de7b10564acf3b79143f23",
+      "schema": "42ee89f0d0acc89d05baa0f83f8b381125ce211ea81865bd27c98b67dfa8acb3",
+      "tree": "2026-03-01",
+      "finished": true,
+      "revised": false,
+      "files": {
+        "parquet": {
+          "path": "parts/2018.parquet",
+          "bytes": 18266
+        }
+      }
+    },
+    {
+      "period": "2019",
+      "rows": 30,
+      "rows_sha256": "9bf01978c2d3a59498dc8fe6b7537a9be10eaeab4516c8ca59f88fe285daa66b",
+      "schema": "42ee89f0d0acc89d05baa0f83f8b381125ce211ea81865bd27c98b67dfa8acb3",
+      "tree": "2026-04-01",
+      "finished": true,
+      "revised": true,
+      "files": {
+        "parquet": {
+          "path": "parts/2019.parquet",
+          "bytes": 18261
+        }
+      }
+    },
+    {
+      "period": "2020",
+      "rows": 30,
+      "rows_sha256": "c78036c97c7f4d366f39df48067fe5d9e0534204531b0bde3392b4562bc96408",
+      "schema": "42ee89f0d0acc89d05baa0f83f8b381125ce211ea81865bd27c98b67dfa8acb3",
+      "tree": "2026-03-01",
+      "finished": true,
+      "revised": false,
+      "files": {
+        "parquet": {
+          "path": "parts/2020.parquet",
+          "bytes": 18298
+        }
+      }
+    },
+    {
+      "period": "2021",
+      "rows": 30,
+      "rows_sha256": "536fab70d135baa76f2d8628772359f3ce329da63d8ffd331efcd8b174efe1cc",
+      "schema": "42ee89f0d0acc89d05baa0f83f8b381125ce211ea81865bd27c98b67dfa8acb3",
+      "tree": "2026-03-01",
+      "finished": true,
+      "revised": false,
+      "files": {
+        "parquet": {
+          "path": "parts/2021.parquet",
+          "bytes": 18275
+        }
+      }
+    },
+    {
+      "period": "2022",
+      "rows": 30,
+      "rows_sha256": "ec20744d98bda338d490b7b8ffa7c764fb8d5b97fda98aa2a933926f9b85165e",
+      "schema": "42ee89f0d0acc89d05baa0f83f8b381125ce211ea81865bd27c98b67dfa8acb3",
+      "tree": "2026-04-01",
+      "finished": true,
+      "revised": false,
+      "files": {
+        "parquet": {
+          "path": "parts/2022.parquet",
+          "bytes": 18309
+        }
+      }
+    }
+  ],
+  "attribution": "Fixture publisher, licensed under CC BY 4.0."
+}

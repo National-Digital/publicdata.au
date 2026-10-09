@@ -26,10 +26,12 @@
       var file = D.formats[f].file;
       return D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
     }
-    // download_name() in site.py and functions/_download.js.
+    // download_name() in site.py, with the suffix it gives each format and the date latest/ serves.
+    // A page cached from before a deploy lacks both for five minutes, so the older rule stands in.
     function saveAs() {
-      var v = ver ? ver.value : 'latest', file = D.formats[fmt()].file;
-      return D.slug + '_' + (v === 'latest' ? D.latest : v) + (file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_'));
+      var v = ver ? ver.value : 'latest', d = D.formats[fmt()], file = d.file;
+      var tail = d.suffix != null ? d.suffix : file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_');
+      return D.slug + '_' + (v === 'latest' ? D.served || D.latest : v) + tail;
     }
     function q(s) { return '"' + s + '"'; }
     function tools(f, u) {
@@ -550,10 +552,11 @@
   }
 
   // The most-voted datasets, from the register and the catalogue alike. The page's own rows stay
-  // until there are votes to show.
+  // until there are votes to show, and then fill the table behind them so it keeps its height. Votes
+  // past the page's row count wait behind a button, so the table only grows when a reader asks.
   var mw = document.getElementById('most-wanted');
   if (mw) {
-    var mlimit = +mw.dataset.limit || 5;
+    var mlimit = +mw.dataset.limit || 5, mbody = mw.querySelector('tbody'), mfirst = [].slice.call(mbody.rows), msize = mfirst.length || mlimit;
     Promise.all([counts(), fetch('/backlog.json').then(function (r) { return r.ok ? r.json() : { entries: [] }; }).catch(function () { return { entries: [] }; })]).then(function (a) {
       var c = a[0], reg = {};
       (a[1].entries || []).forEach(function (e) { reg[e.slug] = e; });
@@ -565,16 +568,42 @@
       return got.then(function (d) {
         var by = {};
         d.rows.forEach(function (r) { by[r.id] = r; if (r.vote && !by[r.vote]) by[r.vote] = r; });
-        var rows = [];
+        // A dataset the page already shows keeps its own row, so its cells and height stay as rendered.
+        var own = {}, rows = [], shown = {};
+        mfirst.forEach(function (tr) { var b = tr.querySelector('[data-vote]'); if (b) own[b.dataset.vote] = tr; });
         keys.forEach(function (k) {
+          if (own[k]) { rows.push(own[k]); shown[k] = 1; return; }
           var e = reg[k];
           var r = e ? { title: e.title, summary: e.summary, publisher: e.publisher.name, jur: e.publisher.jurisdiction.toLowerCase(), licence: e.licence.title, url: e.source, state: e.status === 'blocked' ? 'closed' : 'chosen', reason: e.blocked_reason, vote: k } : by[k];
-          if (r && r.state !== 'served') rows.push(catRow(r));
+          if (r && r.state !== 'served' && !shown[r.vote || k]) { rows.push(catRow(r)); shown[r.vote || k] = 1; }
         });
         if (!rows.length) return;
-        var body = mw.querySelector('tbody');
-        body.textContent = '';
-        rows.forEach(function (r) { body.appendChild(r); });
+        var extra = rows.splice(msize);
+        mfirst.forEach(function (tr) {
+          var b = tr.querySelector('[data-vote]');
+          if (rows.length < msize && !(b && shown[b.dataset.vote])) rows.push(tr);
+        });
+        // A phone fires resize when its address bar hides, so only a change of width lets the table go.
+        var mwrap = mw.parentNode, mwidth = mwrap.offsetWidth;
+        var mfree = function () { mwrap.style.minHeight = ''; window.removeEventListener('resize', mwide); };
+        var mwide = function () { if (mwrap.offsetWidth !== mwidth) mfree(); };
+        mwrap.style.minHeight = mwrap.offsetHeight + 'px';
+        window.addEventListener('resize', mwide);
+        mbody.textContent = '';
+        rows.concat(extra).forEach(function (r) { mbody.appendChild(r); });
+        if (!extra.length) return;
+        extra.forEach(function (r) { r.hidden = true; });
+        var mb = el('button', 'btn ghost', 'Show ' + extra.length + ' more ' + (extra.length === 1 ? 'dataset' : 'datasets'));
+        mb.type = 'button'; mb.setAttribute('aria-controls', mw.id); mb.setAttribute('aria-expanded', 'false');
+        var mp = el('p'); mp.appendChild(mb);
+        mw.parentNode.parentNode.insertBefore(mp, mw.parentNode.nextSibling);
+        mb.addEventListener('click', function () {
+          mfree();
+          extra.forEach(function (r) { r.hidden = false; });
+          mb.setAttribute('aria-expanded', 'true');
+          extra[0].querySelector('a, button').focus();
+          mp.hidden = true;
+        });
       });
     });
   }

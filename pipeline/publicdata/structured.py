@@ -11,22 +11,36 @@ import re
 import sys
 from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict, TypeGuard, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from .jsontypes import JSON, JSONObject
 
 VOCAB = Path(__file__).parent / "schemaorg.json"
-LD_BLOCK = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.S)
+LD_BLOCK = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.DOTALL)
 ISO_DATE = r"\d{4}(-\d{2}(-\d{2}(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?)?)?"
 ISO_INTERVAL = re.compile(rf"^({ISO_DATE}|\.\.)(/({ISO_DATE}|\.\.))?$")
 AGENT = {"Person", "Organization"}
 
 
-def compact(src: Path, version: str) -> dict:
+class Vocab(TypedDict):
+    version: str
+    types: dict[str, list[str]]
+    # Each property's domain and range.
+    properties: dict[str, list[list[str]]]
+
+
+def compact(src: Path, version: str) -> Vocab:
     graph = json.loads(src.read_text(encoding="utf-8"))["@graph"]
 
-    def ids(v) -> list[str]:
+    def ids(v: list[dict[str, str]] | dict[str, str] | None) -> list[str]:
         v = v if isinstance(v, list) else [v] if v else []
         return sorted(x["@id"].removeprefix("schema:") for x in v)
 
-    types, props = {}, {}
+    types: dict[str, list[str]] = {}
+    props: dict[str, list[list[str]]] = {}
     for n in graph:
         kind = n["@type"] if isinstance(n["@type"], list) else [n["@type"]]
         name = n["@id"].removeprefix("schema:")
@@ -41,13 +55,15 @@ def compact(src: Path, version: str) -> dict:
 
 
 @cache
-def _vocab() -> dict:
-    return json.loads(VOCAB.read_text(encoding="utf-8"))
+def _vocab() -> Vocab:
+    vocab: Vocab = json.loads(VOCAB.read_text(encoding="utf-8"))
+    return vocab
 
 
 @cache
 def _ancestors(t: str) -> frozenset[str]:
-    seen, todo = set(), [t]
+    seen: set[str] = set()
+    todo = [t]
     while todo:
         x = todo.pop()
         if x not in seen:
@@ -56,22 +72,25 @@ def _ancestors(t: str) -> frozenset[str]:
     return frozenset(seen)
 
 
-def _types(node: dict) -> list[str]:
+def _types(node: Mapping[str, JSON]) -> list[str]:
     t = node.get("@type", [])
-    return t if isinstance(t, list) else [t]
+    # A node's @type is a name or a list of names.
+    return cast("list[str]", t if isinstance(t, list) else [t])
 
 
-def _values(v) -> list:
+def _values(v: JSON) -> list[JSON]:
     return [x for x in (v if isinstance(v, list) else [v]) if x is not None]
 
 
-def _is(node, *names: str) -> bool:
+def _is(node: object, *names: str) -> TypeGuard[JSONObject]:
     return isinstance(node, dict) and bool(set(_types(node)) & set(names))
 
 
-def _literal_ok(value, rng: set[str]) -> bool:
-    """A literal fits a range if the range admits that datatype, or the literal is a URL
-    standing in for an entity."""
+def _literal_ok(value: object, rng: set[str]) -> bool:
+    """Whether a literal fits a range.
+
+    It does if the range admits that datatype, or the literal is a URL standing in for an entity.
+    """
     kinds = set().union(*(_ancestors(r) for r in rng))
     if isinstance(value, bool):
         return "Boolean" in kinds
@@ -82,7 +101,7 @@ def _literal_ok(value, rng: set[str]) -> bool:
     return False
 
 
-def _vocab_errors(node, where: str) -> list[str]:
+def _vocab_errors(node: object, where: str) -> list[str]:  # noqa: C901, PLR0912 - one check per vocabulary rule
     errors: list[str] = []
     if isinstance(node, list):
         for i, v in enumerate(node):
@@ -119,20 +138,24 @@ def _vocab_errors(node, where: str) -> list[str]:
     return errors
 
 
-def _text(v) -> bool:
+def _text(v: object) -> TypeGuard[str]:
     return isinstance(v, str) and v.strip() != ""
 
 
-def _url(v) -> bool:
+def _url(v: object) -> TypeGuard[str]:
     return isinstance(v, str) and v.startswith("https://")
 
 
-def _dataset(n: dict, at: str) -> list[str]:
+# Google's Dataset rules: a description of 50 to 5,000 characters.
+DESCRIPTION_MIN, DESCRIPTION_MAX = 50, 5000
+
+
+def _dataset(n: JSONObject, at: str) -> list[str]:  # noqa: C901, PLR0912 - one check per Dataset property
     e: list[str] = []
     if not _text(n.get("name")):
         e.append(f"{at}: Dataset needs a name")
     desc = n.get("description")
-    if not _text(desc) or not 50 <= len(desc) <= 5000:
+    if not _text(desc) or not DESCRIPTION_MIN <= len(desc) <= DESCRIPTION_MAX:
         e.append(f"{at}: Dataset description must be 50 to 5000 characters")
     for role in ("creator", "publisher", "funder"):
         for v in _values(n.get(role)):
@@ -145,38 +168,48 @@ def _dataset(n: dict, at: str) -> list[str]:
     lic = _values(n.get("license"))
     if not lic:
         e.append(f"{at}: Dataset needs a license")
-    for v in lic:
-        if not (_url(v) or _is(v, "CreativeWork")):
-            e.append(f"{at}.license: must be a URL or CreativeWork")
+    e.extend(
+        f"{at}.license: must be a URL or CreativeWork"
+        for v in lic
+        if not (_url(v) or _is(v, "CreativeWork"))
+    )
     for key in ("hasPart", "isPartOf"):
-        for v in _values(n.get(key)):
-            if not (_url(v) or _is(v, "Dataset")):
-                e.append(f"{at}.{key}: must be a URL or a full Dataset")
+        e.extend(
+            f"{at}.{key}: must be a URL or a full Dataset"
+            for v in _values(n.get(key))
+            if not (_url(v) or _is(v, "Dataset"))
+        )
     for key in ("url", "sameAs"):
-        for v in _values(n.get(key)):
-            if not _url(v):
-                e.append(f"{at}.{key}: must be a URL")
-    for v in _values(n.get("isAccessibleForFree")):
-        if not isinstance(v, bool):
-            e.append(f"{at}.isAccessibleForFree: must be a boolean")
-    for v in _values(n.get("temporalCoverage")):
-        if not (isinstance(v, str) and ISO_INTERVAL.match(v)):
-            e.append(f"{at}.temporalCoverage: {v!r} is not an ISO 8601 date or interval")
-    for v in _values(n.get("spatialCoverage")):
-        if not (_text(v) or (_is(v, "Place") and _text(v.get("name")))):
-            e.append(f"{at}.spatialCoverage: must be text or a named Place")
+        e.extend(f"{at}.{key}: must be a URL" for v in _values(n.get(key)) if not _url(v))
+    e.extend(
+        f"{at}.isAccessibleForFree: must be a boolean"
+        for v in _values(n.get("isAccessibleForFree"))
+        if not isinstance(v, bool)
+    )
+    e.extend(
+        f"{at}.temporalCoverage: {v!r} is not an ISO 8601 date or interval"
+        for v in _values(n.get("temporalCoverage"))
+        if not (isinstance(v, str) and ISO_INTERVAL.match(v))
+    )
+    e.extend(
+        f"{at}.spatialCoverage: must be text or a named Place"
+        for v in _values(n.get("spatialCoverage"))
+        if not (_text(v) or (_is(v, "Place") and _text(v.get("name"))))
+    )
     for i, v in enumerate(_values(n.get("distribution"))):
         if not _is(v, "DataDownload") or not _url(v.get("contentUrl")):
             e.append(f"{at}.distribution[{i}]: must be a DataDownload with a contentUrl")
         elif not _text(v.get("encodingFormat")):
             e.append(f"{at}.distribution[{i}]: needs an encodingFormat")
-    for v in _values(n.get("includedInDataCatalog")):
-        if not _is(v, "DataCatalog"):
-            e.append(f"{at}.includedInDataCatalog: must be a DataCatalog")
+    e.extend(
+        f"{at}.includedInDataCatalog: must be a DataCatalog"
+        for v in _values(n.get("includedInDataCatalog"))
+        if not _is(v, "DataCatalog")
+    )
     return e
 
 
-def _breadcrumbs(n: dict, at: str) -> list[str]:
+def _breadcrumbs(n: JSONObject, at: str) -> list[str]:
     items = _values(n.get("itemListElement"))
     if not items:
         return [f"{at}: BreadcrumbList needs itemListElement"]
@@ -198,7 +231,7 @@ def _breadcrumbs(n: dict, at: str) -> list[str]:
     return e
 
 
-def _faq(n: dict, at: str) -> list[str]:
+def _faq(n: JSONObject, at: str) -> list[str]:
     qs = _values(n.get("mainEntity"))
     if not qs:
         return [f"{at}: FAQPage needs mainEntity"]
@@ -214,9 +247,12 @@ def _faq(n: dict, at: str) -> list[str]:
     return e
 
 
-def _catalog(n: dict, at: str) -> list[str]:
-    """Google reads every entry in dataset as a Dataset item on this page, so a bare
-    reference is an invalid item."""
+def _catalog(n: JSONObject, at: str) -> list[str]:
+    """Errors for the DataCatalog's dataset entries that are only references.
+
+    Google reads every entry in dataset as a Dataset item on this page, so a bare reference is an
+    invalid item.
+    """
     return [
         f"{at}.dataset[{i}]: must be a full Dataset, not a reference"
         for i, v in enumerate(_values(n.get("dataset")))
@@ -224,7 +260,7 @@ def _catalog(n: dict, at: str) -> list[str]:
     ]
 
 
-RULES = {
+RULES: dict[str, Callable[[JSONObject, str], list[str]]] = {
     "Dataset": _dataset,
     "DataCatalog": _catalog,
     "BreadcrumbList": _breadcrumbs,
@@ -232,7 +268,7 @@ RULES = {
 }
 
 
-def _google_errors(node, where: str) -> list[str]:
+def _google_errors(node: object, where: str) -> list[str]:
     errors: list[str] = []
     if isinstance(node, list):
         for i, v in enumerate(node):
@@ -247,7 +283,7 @@ def _google_errors(node, where: str) -> list[str]:
     return errors
 
 
-def blocks(html: str) -> list[dict]:
+def blocks(html: str) -> list[JSON]:
     return [json.loads(b) for b in LD_BLOCK.findall(html)]
 
 
@@ -268,7 +304,7 @@ def check_page(html: str, page: str) -> list[str]:
 
 def duplicate_names(pages: list[tuple[str, str]]) -> list[str]:
     """Google asks for a distinct name per distinct Dataset."""
-    owner: dict[str, str] = {}
+    owner: dict[JSON, JSON] = {}
     errors: list[str] = []
     for page, html in pages:
         for b in blocks(html):

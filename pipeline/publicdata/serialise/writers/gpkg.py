@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import sqlite3
 import struct
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ...normalise import Table
-from .. import SQLITE_TYPES, _meta_tables, json_view
-from ..geo import _connect, _with_geometry, geo_kind
+from publicdata.serialise import SQLITE_TYPES, _meta_tables, json_view
+from publicdata.serialise.geo import _connect, _with_geometry, geo_kind
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 # OGC WKT 1 for the CRSs the register may declare. Each resolves to its EPSG code under GDAL 3.
 GPKG_SRS = {
@@ -82,17 +87,18 @@ def gpkg_schema(con: sqlite3.Connection, srs: int, note: str) -> None:
     )
 
 
-def write_gpkg(tbl: Table, header: dict, path: Path) -> None:
+def write_gpkg(tbl: Table, header: Header, path: Path) -> None:
     """A GeoPackage with one point layer, records, plus the fields and publicdata tables."""
     if path.exists():
         path.unlink()
     if geo_kind(tbl.dataset) in ("polygon", "line"):
         return _write_shapes(tbl, header, path)
     ds = tbl.dataset
-    g = ds.geometry
+    g = ds.geometry_spec()
     srs = int(str(g.get("crs", "EPSG:7844")).split(":")[-1])
     if srs not in GPKG_SRS:
-        raise ValueError(f"{ds.slug}: no GeoPackage definition for EPSG:{srs}")
+        msg = f"{ds.slug}: no GeoPackage definition for EPSG:{srs}"
+        raise ValueError(msg)
     lon, lat = g["lon"], g["lat"]
     names = [f.name for f in ds.fields]
     cols = [f'"{f.name}" {SQLITE_TYPES[f.type]}' for f in ds.fields]
@@ -139,6 +145,7 @@ def write_gpkg(tbl: Table, header: dict, path: Path) -> None:
     con.commit()
     con.execute("VACUUM")
     con.close()
+    return None
 
 
 def _gpkg_blob(wkb: bytes, env: tuple[float, float, float, float], srs: int) -> bytes:
@@ -149,7 +156,7 @@ def _gpkg_blob(wkb: bytes, env: tuple[float, float, float, float], srs: int) -> 
     )
 
 
-def _write_shapes(tbl, header: dict, path: Path) -> None:
+def _write_shapes(tbl: Table, header: Header, path: Path) -> None:
     """A GeoPackage with one polygon or line layer, records, in GDA2020."""
     ds = tbl.dataset
     srs = 7844
@@ -163,7 +170,7 @@ def _write_shapes(tbl, header: dict, path: Path) -> None:
     names = [f.name for f in ds.fields]
     cols = [f'"{f.name}" {SQLITE_TYPES[f.type]}' for f in ds.fields]
     db = sqlite3.connect(path)
-    gpkg_schema(db, srs, ds.geometry.get("crs_note", ""))
+    gpkg_schema(db, srs, ds.geometry_spec().get("crs_note", ""))
     db.execute(
         f"CREATE TABLE records (fid INTEGER PRIMARY KEY AUTOINCREMENT, geom GEOMETRY, {', '.join(cols)})"
     )

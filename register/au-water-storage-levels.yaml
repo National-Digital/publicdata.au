@@ -102,6 +102,9 @@ source:
 key:
 - station_no
 - date
+period:
+  field: date
+  grain: year
 partition_by:
 - state
 sort:

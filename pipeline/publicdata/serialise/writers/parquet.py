@@ -1,22 +1,29 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 
-from ...normalise import Table
-from .. import dumps, profile
+from publicdata.serialise import dumps, profile
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
+    from publicdata.serialise.profile import Layout
 
 
 def write_parquet(
     tbl: Table,
-    header: dict,
+    header: Header,
     path: Path,
-    lay: dict | None = None,
+    lay: Layout | None = None,
 ) -> None:
     """The version's Parquet under the layout its manifest records, or `lay` for a query copy.
-    A version fetched before the profile records none and keeps the writer it was published
-    with."""
+
+    A version fetched before the profile records none and keeps the writer it was published with.
+    """
     lay = tbl.manifest.parquet if lay is None else lay
     if not lay:
         t = tbl.table.replace_schema_metadata({"publicdata": dumps(header)})

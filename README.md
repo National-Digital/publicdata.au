@@ -46,6 +46,8 @@ says where to ask for a dataset or for help, and a vulnerability is reported pri
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) the rules that decide the code.
 - [`docs/CORRECTIONS.md`](docs/CORRECTIONS.md) how a fault in a published file is reported and
   fixed, and the log of every correction.
+- [`docs/content-addressed-store.md`](docs/content-addressed-store.md) what storing identical
+  files once would save, measured, and why it waits.
 - [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) the WCAG 2.2 AAA target, what CI enforces and the exceptions.
 
 ## Run it
@@ -58,8 +60,18 @@ through the routine changes. No credentials are needed for any of it.
 `.github/workflows/deploy.yml` builds, gates, splits, pushes large files to R2 and deploys to the
 Pages project `publicdata-au` on every push to `main`, with a preview per pull request from this
 repository. Credentials sit in GitHub environments. `production`, which only `main` can use, holds
-the deploy's and the hubs'. `fetch`, also `main` only, holds a token that can write the raw store and
-nothing else. `preview` holds one that can deploy a preview and read the raw store.
+the deploy's and the hubs'; `preview` holds a pull request preview's; `fetch`, also `main` only,
+holds the fetch's and the catalogue's. Each holds a Cloudflare token of its own, and these are the
+R2 buckets each token can reach:
+
+| Environment | Workflows | Writes | Only reads |
+|---|---|---|---|
+| `production` | `deploy.yml` on `main` | `publicdata-dist`, `publicdata-build-cache` | `publicdata-raw` |
+| `preview` | `deploy.yml` on a pull request | none | `publicdata-raw`, `publicdata-dist`, `publicdata-build-cache` |
+| `fetch` | `fetch.yml`, `catalogue.yml` | `publicdata-raw` | none |
+
+The build cache, from which a deploy takes the versions it does not build again, has a bucket of
+its own, so that only the production deploy can change what the site publishes from it.
 
 `.github/workflows/fetch.yml` reads every live source each Tuesday and the live feeds every other
 day, and opens one pull request per government whose sources changed.

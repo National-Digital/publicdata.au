@@ -22,10 +22,7 @@
         <figcaption><span class="k">Example dataset</span> <b>{{ hero_map.lede }}</b>{% if hero_map.gap_count %} {{ hero_map.covered }} {{ 'has' if hero_map.covered.count(' and ') == 0 and ',' not in hero_map.covered else 'have' }} located records. {{ hero_map.gaps }} {{ 'does' if hero_map.gap_count == 1 else 'do' }} not, so {{ 'it is' if hero_map.gap_count == 1 else 'they are' }} hatched.{% endif %} Each picture here is drawn from the same file you can download. <a href="{{ hero_map.explore }}">{{ hero_map.explore_label }}</a> {{ hero_map.outlines }}</figcaption>
       </figure>{% endif %}
     </div>
-    {% if newest %}<div class="ticker" data-conformance="aa">
-      <span class="lab">Newest versions</span>
-      {% for n in newest %}<a class="v" href="/d/{{ n.slug }}/v/{{ n.version }}/"><b>{{ n.version }}</b> {{ n.slug }} <i>{{ n.rows }} rows</i>{% if n.as_at_long %} <i>as at {{ n.as_at_long }}</i>{% endif %}{% if n.new %} <em>new dataset</em>{% elif n.change.added is defined %} <span class="chg">+{{ n.change.added }} added · {{ n.change.changed }} changed</span>{% endif %}</a>{% endfor %}
-    </div>{% endif %}
+    {% if newest %}<p class="ticker">{{ newest }}</p>{% endif %}
   </div>
 </div>
 
@@ -180,7 +177,7 @@
         {% for f in demo.formats %}<button type="button" aria-pressed="{{ 'true' if loop.first else 'false' }}" data-fmt="{{ f.key }}">{{ f.label }}<span class="sz">{{ f.size }}</span></button>{% endfor %}
       </div>
     </div>
-    <div class="urlbox"><div class="path" id="url" tabindex="0" role="region" aria-label="Latest file URL">{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}" download="{{ download_name(demo.slug, demo.version, demo.formats[0].file) }}">Download this file</a></div>
+    <div class="urlbox"><div class="path" id="url" tabindex="0" role="region" aria-label="Latest file URL">{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ site }}/d/{{ demo.slug }}/latest/{{ demo.formats[0].file }}" download="{{ download_name(demo.slug, demo.served, demo.formats[0].file) }}">Download this file</a></div>
     <p class="fmt-note" id="fmt-note"></p>
     <div>
       <div class="tools" role="tablist" aria-label="How to use" id="tools"></div>

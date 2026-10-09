@@ -1,6 +1,9 @@
-"""Build-time figures for the pages: rows per year and rows per map cell, read from a version's
-data.parquet and drawn as inline SVG. A figure is a count of the rows in the file it sits
-beside, worked out in the build. Nothing else is added and the files are untouched."""
+"""Build-time figures for the pages, drawn as inline SVG.
+
+The figures are rows per year and rows per map cell, read from a version's data.parquet. A figure
+is a count of the rows in the file it sits beside, worked out in the build. Nothing else is added
+and the files are untouched.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +13,7 @@ import json
 import math
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, ReadOnly, TypedDict, TypeIs
 
 from PIL import Image
 
@@ -17,6 +21,82 @@ from .explorer import YEAR, split_field
 from .provenance import long_date
 from .records import connect
 from .register import WHERE_OPS
+from .rows import one_row
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Mapping
+
+    from .explorer import Console, ExampleFilter
+    from .records import Records
+    from .register import Condition, Dataset
+    from .store import Manifest
+
+    class _ChartView(TypedDict, total=False):
+        """A dataset's chart, or nothing set, as the figures read it."""
+
+        off: ReadOnly[bool]
+        where: ReadOnly[tuple[Condition, ...]]
+        split: ReadOnly[str | None]
+        metric: ReadOnly[str]
+        label: ReadOnly[str]
+        year: ReadOnly[str]
+
+    class _ExampleView(TypedDict, total=False):
+        """The query console's first query, or none, as the chart's caption reads it."""
+
+        filters: ReadOnly[list[ExampleFilter]]
+        label: ReadOnly[str]
+
+
+class Cond(TypedDict):
+    """A {field, op, value} condition; its value may be a register's text or a row's value."""
+
+    field: ReadOnly[str]
+    op: ReadOnly[str]
+    value: ReadOnly[object]
+
+
+# A condition, or several ANDed together.
+type Where = Cond | Iterable[Cond] | None
+
+
+def _one(where: Where) -> TypeIs[Cond]:
+    return isinstance(where, dict)
+
+
+class Series(TypedDict):
+    years: list[int]
+    partial: list[int]
+    last: str
+    first: str
+    categories: list[str]
+    values: dict[int, dict[str, float]]
+    names: NotRequired[dict[int, str]]
+    additive: NotRequired[bool]
+
+
+class Figures(TypedDict):
+    """What a dataset or version page draws for one version, each figure "" when there is none."""
+
+    what: str
+    basis: str
+    chart: str
+    chart_caption: str
+    spark: str
+    spark_caption: str
+    map: str
+    map_caption: str
+    years: str
+    series: NotRequired[Series]
+    cells: NotRequired[dict[tuple[int, int], float]]
+
+
+class Preview(TypedDict):
+    """Some rows of some fields, each cell as the preview table shows it."""
+
+    fields: list[str]
+    rows: list[list[str | None]]
+
 
 STEP = 0.05
 LON0, LON1, LAT0, LAT1 = 112.0, 154.5, -44.5, -9.0
@@ -51,29 +131,37 @@ CITIES = (
 
 
 def fmt(n: float) -> str:
-    """A figure as the pages print it: whole numbers with separators, and a fraction to two
-    places under ten and one under a thousand, so an average reads 4.35 or 19.3, not 4 or 19."""
+    """A figure as the pages print it.
+
+    Whole numbers carry separators, and a fraction keeps two places under ten and one under a
+    thousand, so an average reads 4.35 or 19.3, not 4 or 19.
+    """
     if float(n).is_integer():
         return f"{int(n):,}"
-    if abs(n) < 10:
+    if abs(n) < 10:  # noqa: PLR2004 - the places shown shrink as the number grows
         return f"{n:.2f}".rstrip("0").rstrip(".")
-    return f"{n:,.1f}" if abs(n) < 1000 else f"{n:,.0f}"
+    return f"{n:,.1f}" if abs(n) < 1000 else f"{n:,.0f}"  # noqa: PLR2004
 
 
 def _q(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def cutoff(m) -> str:
-    """The last day the version's rows can run to: the publisher's as-at date, else the day the
-    publisher released the version or the file was fetched, whichever is earlier."""
+def cutoff(m: Manifest) -> str:
+    """The last day the version's rows can run to.
+
+    That is the publisher's as-at date, else the day the publisher released the version or the
+    file was fetched, whichever is earlier.
+    """
     return m.as_at or min(m.fetched_at[:10], m.version)
 
 
-def year_field(ds) -> tuple[str, str] | None:
-    """The field that gives a row its year: the register's chart year, else an integer year
-    field, else a date field. None when the register turns the chart off. A text chart year is a
-    financial year written 2018-19."""
+def year_field(ds: Dataset) -> tuple[str, str] | None:
+    """The field that gives a row its year.
+
+    That is the register's chart year, else an integer year field, else a date field. None when
+    the register turns the chart off. A text chart year is a financial year written 2018-19.
+    """
     chart = getattr(ds, "chart", None) or {}
     if chart.get("off"):
         return None
@@ -101,38 +189,48 @@ def year_field(ds) -> tuple[str, str] | None:
 # A financial year with both its years, such as 2011-12, 2008/09, 2011-2012 or FY201213.
 FY_PAIR = re.compile(r"(?<!\d)(\d{4})\s*[-/]?\s*(\d{4}|\d{2})(?!\d)")
 # One written by the year it ends, as Australia names them: FY2010 is July 2009 to June 2010.
-FY_END = re.compile(r"^FY\s*(\d{4})$", re.I)
-FY_SHORT = re.compile(r"^FY\s*(\d{2})\s*-\s*(\d{2})$", re.I)
+FY_END = re.compile(r"^FY\s*(\d{4})$", re.IGNORECASE)
+FY_SHORT = re.compile(r"^FY\s*(\d{2})\s*-\s*(\d{2})$", re.IGNORECASE)
+# A century's two-digit years, as a short financial year writes its second.
+CENTURY = 100
+YEAR_DIGITS = 4
 
 
-def financial_start(text) -> int | None:
+def financial_start(text: object) -> int | None:
     """The calendar year a financial year starts in, or None when the text is not one."""
     t = re.sub(r"[\u2013\u2014]", "-", str(text)).strip()
     if m := FY_END.match(t):
         return int(m.group(1)) - 1
     if m := FY_SHORT.match(t):
         a, b = int(m.group(1)), int(m.group(2))
-        return 2000 + a if (a + 1) % 100 == b else None
+        return 2000 + a if (a + 1) % CENTURY == b else None
     pairs = FY_PAIR.findall(t)
     if len(pairs) != 1:
         return None
     a, b = int(pairs[0][0]), pairs[0][1]
-    return a if int(b) == (a + 1 if len(b) == 4 else (a + 1) % 100) else None
+    return a if int(b) == (a + 1 if len(b) == YEAR_DIGITS else (a + 1) % CENTURY) else None
 
 
-def series(
+# A year outside these is a fault in the data, and the chart leaves it out.
+PLAUSIBLE_YEARS = range(1800, 2201)
+
+
+def series(  # noqa: PLR0913 - the options are keyword-only and named at each call
     db: Path,
     yf: str,
     kind: str,
     split: str | None,
     metric: str,
+    *,
     until: str,
-    where: dict | None = None,
-) -> dict:
-    """Rows (or the summed count field) per year, split by a category, kept to the register's
-    chart condition when it has one. A year that ends after the cut-off is left out and named,
-    so a chart never falls away at a part year. A financial year is drawn under the year it
-    starts in and named as the publisher writes it."""
+    where: Where = None,
+) -> Series:
+    """Rows (or the summed count field) per year, split by a category.
+
+    The rows are kept to the register's chart condition when it has one. A year that ends after
+    the cut-off is left out and named, so a chart never falls away at a part year. A financial
+    year is drawn under the year it starts in and named as the publisher writes it.
+    """
     y = {"integer": _q(yf), "financial": _q(yf)}.get(
         kind, f"TRY_CAST(substr({_q(yf)}, 1, 4) AS INTEGER)"
     )
@@ -146,11 +244,13 @@ def series(
             params,
         ).fetchall()
         first, last = (
-            con.execute(
-                f"SELECT MIN(substr({_q(yf)}, 1, 10)), MAX(substr({_q(yf)}, 1, 10)) FROM records"
-                f" WHERE {_q(yf)} IS NOT NULL{cond}",
-                params,
-            ).fetchone()
+            one_row(
+                con.execute(
+                    f"SELECT MIN(substr({_q(yf)}, 1, 10)), MAX(substr({_q(yf)}, 1, 10)) FROM records"
+                    f" WHERE {_q(yf)} IS NOT NULL{cond}",
+                    params,
+                )
+            )
             if kind == "date"
             else (None, None)
         )
@@ -160,7 +260,7 @@ def series(
     names: dict[int, str] = {}
     for r in rows:
         year = financial_start(r[0]) if kind == "financial" else int(r[0])
-        if year is None or year < 1800 or year > 2200:
+        if year is None or year not in PLAUSIBLE_YEARS:
             continue
         if kind == "financial":
             names[year] = min(names.get(year, str(r[0])), str(r[0]))
@@ -171,7 +271,9 @@ def series(
     end = min(until, last) if last else until
     # Dated rows that begin after January leave their first year short too.
     late = int(first[:4]) if first and first[5:] > "01-31" else None
-    ends = (lambda y: f"{y + 1}-06-30") if kind == "financial" else (lambda y: f"{y}-12-31")
+    ends: Callable[[int], str] = (
+        (lambda y: f"{y + 1}-06-30") if kind == "financial" else (lambda y: f"{y}-12-31")
+    )
     full = [y for y in years if ends(y) <= end and y != late]
     partial = [y for y in years if y not in full]
     cats = sorted({k for v in values.values() for k in v}) if split else [""]
@@ -180,7 +282,7 @@ def series(
         other = [c for c in cats if c not in keep]
         for v in values.values():
             v["Other"] = sum(v.pop(c, 0) for c in other)
-        cats = sorted(keep) + ["Other"]
+        cats = [*sorted(keep), "Other"]
     return {
         "years": full,
         "partial": partial,
@@ -203,7 +305,7 @@ def _columns(db: Path) -> set[str]:
         con.close()
 
 
-def _agg(metric: str, con) -> str:
+def _agg(metric: str, con: Records) -> str:
     if metric == "count":
         return "COUNT(*)"
     fn, name = metric.split(".", 1)
@@ -218,9 +320,12 @@ AGG_WORDS = {"avg": "Average", "min": "Lowest", "max": "Highest"}
 PHRASE = re.compile(r"\b(by|each|per|newest|first)\b")
 
 
-def measure(ds, metric: str, label: str = "") -> str:
-    """What a figure counts or sums, in words: the register's label for it, else the row label
-    for a count and the field's label for a sum."""
+def measure(ds: Dataset, metric: str, label: str = "") -> str:
+    """What a figure counts or sums, in words.
+
+    That is the register's label for it, else the row label for a count and the field's label for
+    a sum.
+    """
     if label:
         return label
     if metric == "count":
@@ -230,7 +335,7 @@ def measure(ds, metric: str, label: str = "") -> str:
     return word if fn == "sum" else f"{AGG_WORDS[fn]} {word[0].lower()}{word[1:]}"
 
 
-def basis(ds, metric: str) -> str:
+def basis(ds: Dataset, metric: str) -> str:
     """How the figure is worked out from the rows, for the caption."""
     if metric == "count":
         return "a count of rows"
@@ -241,19 +346,22 @@ def basis(ds, metric: str) -> str:
     ] + f" of the {word} column"
 
 
-def _conditions(where, con) -> tuple[str, list]:
-    """One or more (field, op, value) conditions as SQL, each ANDed on, with the values as the
-    connection's columns compare them."""
+def _conditions(where: Where, con: Records) -> tuple[str, list[object]]:
+    """One or more (field, op, value) conditions as SQL, each ANDed on.
+
+    The values are given as the connection's columns compare them.
+    """
     if not where:
         return "", []
-    conds = [where] if isinstance(where, dict) else list(where)
-    sql, params = "", []
+    conds = [where] if _one(where) else list(where)
+    sql, params = "", list[object]()
     for w in conds:
         if w["op"] not in ("=", "!=", ">", "<", ">=", "<="):
             raise ValueError(w["op"])
         sql += f" AND {_q(w['field'])} {w['op']} ?"
         # The records view holds a boolean as 1 or 0, as SQLite does.
-        params.append(con.param(w["field"], {"true": 1, "false": 0}.get(w["value"], w["value"])))
+        flags: dict[object, object] = {"true": 1, "false": 0}
+        params.append(con.param(w["field"], flags.get(w["value"], w["value"])))
     return sql, params
 
 
@@ -268,18 +376,18 @@ def _nice(top: float, lines: int = 5) -> tuple[float, float]:
 
 
 def _tick(v: float) -> str:
-    if v >= 1_000_000:
+    if v >= 1_000_000:  # noqa: PLR2004 - the suffix names the power
         return f"{v / 1_000_000:g}M"
-    if v >= 1000:
+    if v >= 1000:  # noqa: PLR2004 - the suffix names the power
         return f"{v / 1000:g}k"
     return f"{v:g}"
 
 
-def _name(s: dict, y: int) -> str:
+def _name(s: Series, y: int) -> str:
     return s.get("names", {}).get(y, str(y))
 
 
-def _summary(s: dict, totals: dict, peak: int) -> str:
+def _summary(s: Series, totals: Mapping[int, float], peak: int) -> str:
     years = s["years"]
     top, last = _name(s, peak), _name(s, years[-1])
     if s.get("additive", True):
@@ -289,7 +397,7 @@ def _summary(s: dict, totals: dict, peak: int) -> str:
     return f", the highest {fmt(totals[peak])} in {top} and the latest {fmt(totals[years[-1]])} in {last}."
 
 
-def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
+def stacked_svg(s: Series, label: str, w: int = 680, h: int = 300) -> str:
     """Bars per year, stacked by category, with a legend in HTML beside the drawing."""
     years, cats = s["years"], s["categories"]
     if not years:
@@ -315,7 +423,7 @@ def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
         )
         g += step
     every = max(1, math.ceil(len(years) / 8))
-    gap = 3 if cw > 8 else 1
+    gap = 3 if cw > 8 else 1  # noqa: PLR2004 - pixels
     for i, y in enumerate(years):
         x = pl + i * cw + gap / 2
         acc = 0.0
@@ -351,10 +459,10 @@ def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
     return svg
 
 
-def spark_svg(s: dict, w: int = 220, h: int = 56) -> str:
+def spark_svg(s: Series, w: int = 220, h: int = 56) -> str:
     """A small line of the yearly totals for a card."""
     years = s["years"]
-    if len(years) < 2:
+    if len(years) <= 1:
         return ""
     vals = [sum(s["values"][y].values()) for y in years]
     mn, mx = min(vals), max(vals)
@@ -386,6 +494,9 @@ def spark_svg(s: dict, w: int = 220, h: int = 56) -> str:
     )
 
 
+BAR_LABEL_CHARS = 22
+
+
 def hbars_svg(rows: list[tuple[str, float]], label: str, w: int = 420) -> str:
     """Horizontal bars for a short list of category totals."""
     if not rows:
@@ -397,7 +508,7 @@ def hbars_svg(rows: list[tuple[str, float]], label: str, w: int = 420) -> str:
     for i, (k, v) in enumerate(rows):
         y = 4 + i * rh
         bw = (w - 200) * v / mx
-        name = k if len(k) <= 22 else k[:21] + "…"
+        name = k if len(k) <= BAR_LABEL_CHARS else k[: BAR_LABEL_CHARS - 1] + "…"
         out.append(
             f'<text x="118" y="{y + rh * 0.68:.1f}" text-anchor="end" class="tick">{_esc(name)}</text>'
             f'<rect x="124" y="{y + 2:.1f}" width="{bw:.1f}" height="{rh - 6:.1f}" fill="var(--primary)"><title>{_esc(k)}: {fmt(v)}</title></rect>'
@@ -410,9 +521,14 @@ def hbars_svg(rows: list[tuple[str, float]], label: str, w: int = 420) -> str:
     )
 
 
-def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], float]:
-    """Rows per cell of STEP degrees, counted in SQL, kept to the rows the conditions match
-    when any are given: a (field, op, value) tuple, or one or more {field, op, value} dicts."""
+def cells(
+    db: Path, lon: str, lat: str, where: Where | tuple[str, str, object] = None
+) -> dict[tuple[int, int], float]:
+    """Rows per cell of STEP degrees, counted in SQL.
+
+    The rows are kept to those the conditions match when any are given: a (field, op, value)
+    tuple, or one or more {field, op, value} dicts.
+    """
     if isinstance(where, tuple):
         where = {"field": where[0], "op": where[1], "value": where[2]}
     con = connect(db)
@@ -429,9 +545,13 @@ def cells(db: Path, lon: str, lat: str, where=None) -> dict[tuple[int, int], flo
     return {(int(i), int(j)): float(n or 0) for i, j, n in rows if n}
 
 
-def _raster(cells_: dict, box: tuple[int, int, int, int], floor: float = 0.35) -> bytes:
-    """The cells as a PNG with the brand colour and an alpha that grows with the count. Pixels
-    are cells, so the browser scales it without smoothing."""
+def _raster(
+    cells_: Mapping[tuple[int, int], float], box: tuple[int, int, int, int], floor: float = 0.35
+) -> bytes:
+    """The cells as a PNG with the brand colour and an alpha that grows with the count.
+
+    Pixels are cells, so the browser scales it without smoothing.
+    """
     i0, j0, i1, j1 = box
     w, h = i1 - i0, j1 - j0
     mx = max(cells_.values()) or 1
@@ -449,8 +569,10 @@ def _raster(cells_: dict, box: tuple[int, int, int, int], floor: float = 0.35) -
 
 
 def _png(out: Path, data: bytes) -> str:
-    """The PNG written once under maps/, named by its content, so a page links a file that
-    never changes and the SVG over it stays vector."""
+    """The PNG written once under maps/, named by its content.
+
+    That way a page links a file that never changes, and the SVG over it stays vector.
+    """
     rel = f"maps/{hashlib.sha256(data).hexdigest()[:16]}.png"
     path = out / rel
     if not path.exists():
@@ -459,17 +581,21 @@ def _png(out: Path, data: bytes) -> str:
     return "/" + rel
 
 
-def _join(names) -> str:
-    names = list(names)
-    if not names:
+def _join(names: Iterable[str]) -> str:
+    listed = list(names)
+    if not listed:
         return ""
-    return ", ".join(names[:-1]) + (" and " if len(names) > 1 else "") + names[-1]
+    return ", ".join(listed[:-1]) + (" and " if len(listed) > 1 else "") + listed[-1]
 
 
-def map_alt(cells_: dict, what: str, gaps: dict[str, str] | None = None) -> str:
-    """What the map draws, in words worked out from the cells: the rows, the cells, the
-    fullest cell and any state hatched."""
-    total = int(round(sum(cells_.values())))
+def map_alt(
+    cells_: Mapping[tuple[int, int], float], what: str, gaps: dict[str, str] | None = None
+) -> str:
+    """What the map draws, in words worked out from the cells.
+
+    That is the rows, the cells, the fullest cell and any state hatched.
+    """
+    total = round(sum(cells_.values()))
     text = (
         f"{fmt(total)} {what.lower()} drawn in {fmt(len(cells_))} cells of {STEP:g} degrees, "
         f"the fullest with {fmt(max(cells_.values()))}."
@@ -483,20 +609,23 @@ def _cell(lon: float, lat: float) -> tuple[float, float]:
     return (lon - LON0) / STEP, (LAT1 - lat) / STEP
 
 
-def map_html(
-    cells_: dict,
+def map_html(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    cells_: Mapping[tuple[int, int], float],
     what: str,
     out: Path,
     gaps: dict[str, str] | None = None,
-    box=None,
+    box: tuple[int, int, int, int] | None = None,
+    *,
     floor: float = 0.35,
     bare: bool = False,
 ) -> str:
-    """A map of the cells: a PNG file under maps/ in an img whose alt says what it draws, with
-    a vector SVG over it for the state outlines, the city names and any state hatched. gaps
-    names the states drawn hatched, with the reason under the name, so a state without data
-    never reads as a state without rows. A bare map is the cells alone, no outlines and no
-    city names, with only a gap still hatched."""
+    """A map of the cells, as a PNG under maps/ with a vector SVG over it.
+
+    The PNG sits in an img whose alt says what it draws, and the SVG carries the state outlines,
+    the city names and any state hatched. gaps names the states drawn hatched, with the reason
+    under the name, so a state without data never reads as a state without rows. A bare map is
+    the cells alone, no outlines and no city names, with only a gap still hatched.
+    """
     if not cells_:
         return ""
     nx, ny = int((LON1 - LON0) / STEP) + 1, int((LAT1 - LAT0) / STEP) + 1
@@ -517,24 +646,24 @@ def map_html(
         f'<img class="mapimg" src="{_png(out, _raster(cells_, box, floor))}"'
         f' alt="{_esc(map_alt(cells_, what, gaps))}" width="{w}" height="{h}" loading="lazy" decoding="async">'
     )
-    out = [f'<svg viewBox="{i0} {j0} {w} {h}" class="map" aria-hidden="true" focusable="false">']
+    parts = [f'<svg viewBox="{i0} {j0} {w} {h}" class="map" aria-hidden="true" focusable="false">']
     if gaps:
-        out.append(
+        parts.append(
             '<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
             '<line x1="0" y1="0" x2="0" y2="6" stroke="var(--band-muted)" stroke-opacity=".35" stroke-width="1"/></pattern></defs>'
         )
     if not bare:
-        out += [
+        parts += [
             f'<path class="state" vector-effect="non-scaling-stroke" d="{d}"/>'
             for n, d in STATES.items()
             if n not in (gaps or {})
         ]
-    out += [
+    parts += [
         f'<path class="nodata" vector-effect="non-scaling-stroke" d="{STATES[n]}"/>'
         for n in (gaps or {})
         if n in STATES
     ]
-    out.append(f'<g style="font-size:{fs:.1f}px">')
+    parts.append(f'<g style="font-size:{fs:.1f}px">')
     for name, lon, lat, anchor, major in CITIES:
         x, y = _cell(lon, lat)
         if bare or (gaps and not major):
@@ -544,21 +673,21 @@ def map_html(
         if not (i0 + fs < left and right < i1 and j0 + fs < y < j1 - fs):
             continue
         dx = fs * 0.4 if anchor == "start" else -fs * 0.4
-        out.append(
+        parts.append(
             f'<text x="{x + dx:.1f}" y="{y + fs * 0.35:.1f}" text-anchor="{anchor}" class="mlabel">{name}</text>'
         )
     for name, why in (gaps or {}).items():
-        lon, lat = GAP_LABEL.get(name, (None, None))
-        if lon is None:
+        at = GAP_LABEL.get(name)
+        if at is None:
             continue
-        x, y = _cell(lon, lat)
-        out.append(
+        x, y = _cell(*at)
+        parts.append(
             f'<text x="{x:.1f}" y="{y:.1f}" text-anchor="middle" class="nlabel">{_esc(name)}</text>'
             f'<text x="{x:.1f}" y="{y + fs * 1.2:.1f}" text-anchor="middle" class="nlabel small">{_esc(why)}</text>'
         )
-    out.append("</g></svg>")
+    parts.append("</g></svg>")
     # An overlay with nothing but its empty label group is left out.
-    svg = "".join(out) if len(out) > 3 else ""
+    svg = "".join(parts) if len(parts) > 3 else ""  # noqa: PLR2004 - the three wrapping parts
     return f'<div class="mapbox" style="--ar:{w}/{h}">{img}{svg}</div>'
 
 
@@ -574,7 +703,9 @@ GAP_LABEL = {
 }
 
 
-def merge(parts: list[dict]) -> dict:
+def merge(
+    parts: Iterable[Mapping[tuple[int, int], float]],
+) -> dict[tuple[int, int], float]:
     total: dict[tuple[int, int], float] = {}
     for p in parts:
         for k, v in p.items():
@@ -602,39 +733,50 @@ VERBS = {
 }
 
 
-def where_words(ds) -> str:
+def where_words(ds: Dataset) -> str:
     """The chart conditions as a caption clause, blank when there are none."""
-    conds = (ds.chart or {}).get("where") or ()
+    conds = (ds.chart.get("where") if ds.chart else None) or ()
     if not conds:
         return ""
     parts = [f"{ds.field(w['field']).display.lower()} {VERBS[w['op']]} {w['value']}" for w in conds]
     return f" Rows where {' and '.join(parts)} are drawn."
 
 
-def year_span(s: dict) -> str:
+def year_span(s: Series) -> str:
     if not s["years"]:
         return ""
     a, b = s["years"][0], s["years"][-1]
     return f"{_name(s, a)} to {_name(s, b)}" if a != b else _name(s, a)
 
 
-def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=None) -> dict:
-    """Everything a dataset or version page draws for one version: the yearly chart, its
-    caption, a sparkline for a card and a map when the rows have coordinates. within is a
-    {field, op, value} condition a place page adds, so its figures draw its rows alone."""
-    chart = ds.chart or {}
+def dataset_figures(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    ds: Dataset,
+    m: Manifest,
+    console: Console | None,
+    db: Path,
+    out: Path,
+    *,
+    within: Cond | None = None,
+) -> Figures:
+    """Everything a dataset or version page draws for one version.
+
+    That is the yearly chart, its caption, a sparkline for a card and a map when the rows have
+    coordinates. within is a {field, op, value} condition a place page adds, so its figures draw
+    its rows alone.
+    """
+    chart: _ChartView = ds.chart or {}
     metric = chart.get("metric") or (console["example"]["metric"] if console else "count")
     yf = year_field(ds)
     # The example's words fit the chart only when the chart keeps the rows the example keeps,
     # which it does when the example filters on nothing but the year it draws.
-    ex = console["example"] if console else {}
+    ex: _ExampleView = console["example"] if console else {}
     kept = all(f["field"] == (yf[0] if yf else "") for f in ex.get("filters", ()))
     kept = kept and not PHRASE.search(ex.get("label", ""))
     label = chart.get("label") or (
         ex.get("label", "") if console and not chart.get("metric") and kept else ""
     )
     what = measure(ds, metric, label)
-    fig: dict = {
+    fig: Figures = {
         "what": what,
         "basis": basis(ds, metric),
         "chart": "",
@@ -658,10 +800,10 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=Non
     named |= {w["field"] for w in chart.get("where", ())} | ({split} if split else set())
     named |= {metric.split(".", 1)[1]} if metric != "count" else set()
     if yf and db.exists() and named <= _columns(db):
-        conds = [*chart.get("where", ()), *([within] if within else [])]
-        s = series(db, yf[0], yf[1], split, metric, until, conds)
+        conds: list[Cond] = [*chart.get("where", ()), *([within] if within else [])]
+        s = series(db, yf[0], yf[1], split, metric, until=until, where=conds)
         # One bar is no trend, so a table of one year draws no chart.
-        if len(s["years"]) >= 2:
+        if len(s["years"]) > 1:
             by = f" by {ds.field(split).display.lower()}" if split else ""
             per = "per financial year" if yf[1] == "financial" else "per year"
             span = year_span(s)
@@ -683,12 +825,14 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=Non
                     why = f"the year was not over when the publisher released this version on {long_date(until)}"
                 left += f" {part} {verb} not drawn because {why}."
             fig.update(
-                series=s,
-                years=span,
-                chart=stacked_svg(s, f"{what} {per}{by}, {span}"),
-                chart_caption=f"{what} {per}{by}, {span}.{left}",
-                spark=spark_svg(s),
-                spark_caption=f"{what.lower()} {per}, {span}.{left}",
+                {
+                    "series": s,
+                    "years": span,
+                    "chart": stacked_svg(s, f"{what} {per}{by}, {span}"),
+                    "chart_caption": f"{what} {per}{by}, {span}.{left}",
+                    "spark": spark_svg(s),
+                    "spark_caption": f"{what.lower()} {per}, {span}.{left}",
+                }
             )
     if ds.geometry and ds.geometry.get("lon") and db.exists():
         c = cells(db, ds.geometry["lon"], ds.geometry["lat"], within)
@@ -701,11 +845,18 @@ def dataset_figures(ds, m, console: dict | None, db: Path, out: Path, within=Non
 
 
 def national_map(
-    parts: list[tuple[str, dict]], what: str, why: str, out: Path, covered: set[str] | None = None
+    parts: list[tuple[str, dict[tuple[int, int], float]]],
+    what: str,
+    why: str,
+    out: Path,
+    covered: set[str] | None = None,
 ) -> str:
-    """The home page map: the cells of every located dataset overlaid, with each state that
-    publishes none drawn hatched and named. covered names the states whose datasets have
-    located rows; a state whose rows all miss the drawing's condition is covered, not a gap."""
+    """The home page map: the cells of every located dataset overlaid.
+
+    Each state that publishes none is drawn hatched and named. covered names the states whose
+    datasets have located rows; a state whose rows all miss the drawing's condition is covered,
+    not a gap.
+    """
     covered = {state for state, _ in parts} | (covered or set())
     gaps = {n: why for n in STATES if n not in covered}
     nx, ny = int((LON1 - LON0) / STEP) + 1, int((LAT1 - LAT0) / STEP) + 1
@@ -723,16 +874,19 @@ def national_map(
 
 
 def example_rows(
-    db: Path, console: dict, limit: int = 8, key: tuple[str, ...] = ()
+    db: Path, console: Console, limit: int = 8, key: tuple[str, ...] = ()
 ) -> list[tuple[str, float]]:
-    """The query console's first aggregate, answered from the rows the API loads. key is the
-    dataset's key, which data.sqlite indexes."""
+    """The query console's first aggregate, answered from the rows the API loads.
+
+    key is the dataset's key, which data.sqlite indexes.
+    """
     ex = console["example"]
-    group = (ex.get("group") or [None])[0]
+    group = next(iter(ex.get("group") or []), None)
     if not group or not db.exists():
         return []
     types = {e["name"]: e["type"] for e in console["fields"]}
-    where, params = [], []
+    where: list[str] = []
+    params: list[object] = []
     for f in ex.get("filters", []):
         where.append(f"{_q(f['field'])} {WHERE_OPS[f['op']]} ?")
         # The API takes true and false for a boolean, which the records hold as 1 and 0.
@@ -762,34 +916,41 @@ def example_rows(
     return [(str(k) if k is not None else "blank", _num(v)) for k, v in rows]
 
 
-def _num(v) -> int | float:
+def _num(v: float | None) -> int | float:
     v = v or 0
     return int(v) if float(v).is_integer() else float(v)
 
 
-def newest(con, field: str):
-    """A field's newest value: its largest, among the values that start with a digit when there
-    are any, so a text period such as "bef 30 Jun 2018" never outranks "2024/25"."""
+def newest(con: Records, field: str) -> object:
+    """A field's newest value, which is its largest.
+
+    When some values start with a digit, only those count, so a text period such as
+    "bef 30 Jun 2018" never outranks "2024/25".
+    """
     f = _q(field)
-    top = con.execute(
-        f"SELECT MAX({f}) FROM records WHERE CAST({f} AS TEXT) GLOB '[0-9]*'"
-    ).fetchone()[0]
-    return top if top is not None else con.execute(f"SELECT MAX({f}) FROM records").fetchone()[0]
+    top = one_row(
+        con.execute(f"SELECT MAX({f}) FROM records WHERE CAST({f} AS TEXT) GLOB '[0-9]*'")
+    )[0]
+    return top if top is not None else one_row(con.execute(f"SELECT MAX({f}) FROM records"))[0]
 
 
-def sample_rows(
+def sample_rows(  # noqa: PLR0913 - the options are keyword-only and named at each call
     db: Path,
     fields: list[str],
     n: int = 3,
-    where=None,
+    where: Where = None,
+    *,
     nulls: bool = False,
-    order: tuple = (),
+    order: Iterable[tuple[str, bool]] = (),
     spread: str = "",
-) -> dict:
-    """Some rows of some fields, for a preview table, kept to the rows the conditions match: in
-    the Parquet's order, or by the (field, descending) order terms first, with the spread
-    field's values taking turns. A condition on newest stands for the field's newest value. A
-    null cell is "" unless nulls asks for None, which a page shows as null."""
+) -> Preview:
+    """Some rows of some fields, for a preview table.
+
+    The rows are kept to those the conditions match: in the Parquet's order, or by the
+    (field, descending) order terms first, with the spread field's values taking turns. A
+    condition on newest stands for the field's newest value. A null cell is "" unless nulls asks
+    for None, which a page shows as null.
+    """
     if not db.exists() or not fields:
         return {"fields": [], "rows": []}
     con = connect(db)
@@ -798,11 +959,11 @@ def sample_rows(
         cols = [f for f in fields if f in have]
         if not cols:
             return {"fields": [], "rows": []}
-        conds = []
-        for w in [where] if isinstance(where, dict) else list(where or ()):
-            if w["value"] == "newest":
-                w = {**w, "value": newest(con, w["field"])}
-            conds.append(w)
+        conds: list[Cond] = []
+        conds.extend(
+            ({**w, "value": newest(con, w["field"])} if w["value"] == "newest" else w)
+            for w in ([where] if _one(where) else list(where or ()))
+        )
         cond, params = _conditions(conds, con)
         terms = [(_q(f), " DESC" if desc else "") for f, desc in order if f in have]
         by = ", ".join([*(f + d for f, d in terms), "rowid"])
@@ -836,9 +997,11 @@ def sample_rows(
 CELL_MAX = 120
 
 
-def _preview_cell(v) -> str:
-    """A value as a preview table shows it: a float without its binary noise and long text cut
-    with an ellipsis."""
+def _preview_cell(v: object) -> str:
+    """A value as a preview table shows it.
+
+    A float loses its binary noise and long text is cut with an ellipsis.
+    """
     if isinstance(v, float):
         return format(v, ".12g")
     text = str(v)

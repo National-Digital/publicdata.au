@@ -1,13 +1,28 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip | hubs | contribute | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | pages-cap | store pull/push | dist-push | checksums | r2 restore-gzip|shared-report | hubs | contribute | cost | measure."""
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+    from .build import DatasetOut
+    from .cache import BuildCache
+    from .cost import EntryYaml, Measured
+    from .hubs import HubRecord
+    from .jsontypes import JSON, JSONObject
+    from .register import Dataset
 
 from . import REPO, SITE
 
@@ -18,9 +33,11 @@ STORE = ROOT / "store"
 FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
 
 
-def cmd_register(args) -> int:
-    from .abbreviations import check_copy, register_copy
-    from .register import load
+def cmd_register(args: argparse.Namespace) -> int:  # noqa: C901 - each register check, read in order
+    from . import store  # noqa: PLC0415 - CLI start-up
+    from .abbreviations import check_copy, register_copy  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .validate import int32_misfits  # noqa: PLC0415 - CLI start-up
 
     ds = load(REGISTER)
     for d in ds:
@@ -39,15 +56,12 @@ def cmd_register(args) -> int:
             print(
                 f"note: {d.slug} has {len(bare)} fields without a label; `publicdata register labels {d.slug}` drafts them"
             )
-    from .store import manifests
-    from .validate import int32_misfits
-
     store_dir = Path(getattr(args, "store", STORE))
     bad, unchecked = [], 0
     for d in ds:
         if not d.int32 or not d.publishable:
             continue
-        for m in manifests(store_dir, d.slug):
+        for m in store.manifests(store_dir, d.slug):
             found = int32_misfits(d, m, store_dir, [Path(b) for b in getattr(args, "built", [])])
             if found is None:
                 unchecked += 1
@@ -61,13 +75,16 @@ def cmd_register(args) -> int:
     return 1 if bad or words else 0
 
 
-def cmd_labels(args) -> int:
-    """Draft a label for every field that has none: the label another entry already gives a field
-    of the same name, or else one worked out from the name. --write puts them in the YAML."""
-    from .register import draft_label, load
+def cmd_labels(args: argparse.Namespace) -> int:  # noqa: C901 - one pass that drafts, reports and writes
+    """Draft a label for every field that has none.
+
+    The label is the one another entry already gives a field of the same name, or else one
+    worked out from the name. --write puts them in the YAML.
+    """
+    from .register import draft_label, load  # noqa: PLC0415 - CLI start-up
 
     datasets = load(REGISTER)
-    known = {}
+    known: dict[str, str] = {}
     for d in datasets:
         for f in d.fields:
             if f.label:
@@ -92,20 +109,19 @@ def cmd_labels(args) -> int:
                     out.append(f"  label: {drafts[m.group(1)]}")
                     done.add(m.group(1))
             if done != set(drafts):
-                raise SystemExit(
-                    f"{path.name}: could not place a label for {', '.join(sorted(set(drafts) - done))}"
-                )
+                msg = f"{path.name}: could not place a label for {', '.join(sorted(set(drafts) - done))}"
+                raise SystemExit(msg)
             path.write_text("\n".join(out), encoding="utf-8")
     return 0
 
 
-def cmd_draft(args) -> int:
+def cmd_draft(args: argparse.Namespace) -> int:
     """Write a first register entry for a CKAN portal dataset, for a person to review."""
-    import requests
+    import requests  # noqa: PLC0415 - CLI start-up
 
-    from .catalogue import PortalError
-    from .publishers import load_curated
-    from .register_draft import DraftError, draft, to_yaml, write
+    from .catalogue import PortalError  # noqa: PLC0415 - CLI start-up
+    from .publishers import load_curated  # noqa: PLC0415 - CLI start-up
+    from .register_draft import DraftError, draft, to_yaml, write  # noqa: PLC0415 - CLI start-up
 
     try:
         slug, entry, notes = draft(
@@ -129,22 +145,25 @@ def cmd_draft(args) -> int:
     return 0
 
 
-def cmd_fetch(args) -> int:
-    import requests
+def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 - the fetch command's cases, read in order
+    import requests  # noqa: PLC0415 - CLI start-up
 
-    from .fetch import MANUAL, ManualDue, fetch
-    from .register import load
+    from . import fetch  # noqa: PLC0415 - CLI start-up
+    from . import store as st  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     store_dir = Path(args.store)
     for pair in args.file:
         slug, _, path = pair.partition("=")
         if not path or not Path(path).exists():
             sys.exit(f"--file {pair}: give SLUG=PATH for a file, or a stack's folder, that exists")
-        MANUAL[slug] = Path(path)
+        fetch.MANUAL[slug] = Path(path)
     datasets = load(REGISTER)
     manual = {d.slug for d in datasets if d.source.manual}
-    if set(MANUAL) - manual:
-        sys.exit(f"--file: {sorted(set(MANUAL) - manual)} not a manual source in the register")
+    if set(fetch.MANUAL) - manual:
+        sys.exit(
+            f"--file: {sorted(set(fetch.MANUAL) - manual)} not a manual source in the register"
+        )
     changed = failed = due = 0
     groups: dict[str, list[str]] = {}
     for d in datasets:
@@ -159,13 +178,11 @@ def cmd_fetch(args) -> int:
         if d.slug in args.hold and d.update != "release":
             print(f"{d.slug}: HELD an earlier fetch is waiting to be merged")
             continue
-        from . import store as st
-
         read_before = st.last_read(store_dir, d.slug)
         # One dataset that cannot be fetched is reported and the rest go ahead.
         try:
-            m = fetch(d, store_dir)
-        except ManualDue as e:
+            m = fetch.fetch(d, store_dir)
+        except fetch.ManualDue as e:
             due += 1
             print(f"{d.slug}: MANUAL {e}")
             continue
@@ -196,8 +213,6 @@ def cmd_fetch(args) -> int:
                 + (f", snapshot: {m.cut}" if m.cut else "")
             )
     if args.groups:
-        import json
-
         Path(args.groups).write_text(json.dumps(groups, indent=2, sort_keys=True) + "\n")
     print(f"{changed} new version(s), {failed} failed, {due} manual download(s) due")
     return 0
@@ -206,12 +221,14 @@ def cmd_fetch(args) -> int:
 R2 = "r2://"
 
 
-def cmd_build(args) -> int:
-    from .register import load
+def cmd_build(args: argparse.Namespace) -> int:
+    from . import published, serialise  # noqa: PLC0415 - CLI start-up
+    from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
+    from .r2 import downloader  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     out = Path(args.out)
     store_dir = FIXTURES if args.fixtures else Path(args.store)
-    from . import serialise
 
     serialise.LIMIT = None
     if args.formats:
@@ -228,24 +245,19 @@ def cmd_build(args) -> int:
         shutil.rmtree(out)
     out.mkdir(parents=True)
     datasets = load(Path(args.register))
-    cache = None
+    cache: BuildCache | None = None
     if args.cache and not args.absent:
         sys.exit(
             "--cache needs --absent: a cached version leaves out files that are already published"
         )
     if args.cache:
-        from .cache import BuildCache
-
         cache = BuildCache(Path(args.cache))
         if not args.slug:
             n = _prune_unusable(cache, datasets, store_dir)
             print(f"cache: {n} entries this build cannot use removed first")
-    from . import published
 
     download = None
     if args.published.startswith(R2):
-        from .r2 import downloader
-
         download = downloader(args.published[len(R2) :])
     source = Path(args.published) if args.published and not download else None
     published.current = published.Published(out, args.built, source, download)
@@ -255,29 +267,33 @@ def cmd_build(args) -> int:
         published.current = None
 
 
-def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
-    from . import published
-    from .build import build_dataset
-    from .site import render_site
+def _build(
+    args: argparse.Namespace,
+    out: Path,
+    store_dir: Path,
+    datasets: Iterable[Dataset],
+    cache: BuildCache | None,
+) -> int:
+    from . import published  # noqa: PLC0415 - CLI start-up
+    from .build import build_dataset, part_dir, take_built  # noqa: PLC0415 - CLI start-up
+    from .catalogue import latest as catalogue_latest  # noqa: PLC0415 - CLI start-up
+    from .catalogue import load as load_catalogue  # noqa: PLC0415 - CLI start-up
+    from .publishers import load_curated  # noqa: PLC0415 - CLI start-up
+    from .site import render_site  # noqa: PLC0415 - CLI start-up
 
-    outs = []
+    outs: list[DatasetOut] = []
     for d in datasets:
         if args.slug and d.slug not in args.slug:
             continue
         o = build_dataset(d, store_dir, out, cache)
         if o.versions:
             print(
-                f"{d.slug}: {len(o.versions)} version(s), latest {o.latest.manifest.version}, {o.latest.rows} rows"
+                f"{d.slug}: {len(o.versions)} version(s), latest {o.versions[-1].manifest.version}, {o.versions[-1].rows} rows"
             )
         outs.append(o)
     if args.built:
-        from .build import take_built
-
         n = sum(take_built(outs, out, Path(root)) for root in args.built)
         print(f"build: {n} file(s) linked in from the shard builds")
-    from .catalogue import latest as catalogue_latest
-    from .catalogue import load as load_catalogue
-    from .publishers import load_curated
 
     cat = catalogue_latest(store_dir)
     if not args.no_site:
@@ -289,8 +305,27 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             for v in o.versions
             if "data.parquet" in v.absent
         ]
+        # A version written as parts alone is drawn from its parts, wherever each was written.
+        want += [
+            f"{part_dir(o.dataset.slug, r, v.manifest.version)}/{r['files']['parquet']['path']}"
+            for o in outs
+            for v in o.versions
+            if not v.whole
+            for r in v.parts
+        ]
+        # A finished part is shared by the versions that reuse it, and is pulled once.
+        want = list(dict.fromkeys(want))
+        if published.current is None:
+            msg = "build: the published tree is not open"
+            raise RuntimeError(msg)
         missing = [
-            r for r, p in zip(want, published.current.paths(want), strict=True) if not p.exists()
+            r
+            for r, p in zip(
+                want,
+                published.current.paths(want),
+                strict=True,
+            )
+            if not p.exists()
         ]
         if missing:
             sys.exit(
@@ -315,7 +350,6 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
         print(
             f"cache: {cache.hits} reused, {cache.misses} built, {cache.grown} file(s) written into reused versions"
         )
-        import json
 
         # A file read back from R2 or a shard's tree is in this tree now.
         absent = sorted(
@@ -336,27 +370,32 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
     return 0
 
 
-def cmd_gate(args) -> int:
-    from .gate import main
+def cmd_gate(args: argparse.Namespace) -> int:
+    from . import gate  # noqa: PLC0415 - CLI start-up
 
-    return main(Path(args.out), Path(args.register), _absent(args.absent), not args.versions_only)
+    return gate.main(
+        Path(args.out), Path(args.register), _absent(args.absent), site=not args.versions_only
+    )
 
 
 def _absent(path: str | None) -> list[str]:
-    import json
-
     return json.loads(Path(path).read_text(encoding="utf-8")) if path else []
 
 
 VERSIONED_FILE = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/")
+# The share of the Pages file cap at which the deploy starts to warn.
+PAGES_WARN = 0.8
 
 
-def cmd_split(args) -> int:
-    """Move files that R2 serves into a sibling tree: anything over the Pages per-file limit
-    and, with --versioned, every file of a dated version, its page included. A file moved to R2
-    is only reachable where _routes.json runs the function that reads it."""
-    from .serialise.profile import QUERY_DIR
-    from .site import ROUTES
+def cmd_split(args: argparse.Namespace) -> int:
+    """Move files that R2 serves into a sibling tree.
+
+    These are anything over the Pages per-file limit and, with --versioned, every file of a dated
+    version, its page included. A file moved to R2 is only reachable where _routes.json runs the
+    function that reads it.
+    """
+    from .serialise.profile import QUERY_DIR  # noqa: PLC0415 - CLI start-up
+    from .site import ROUTES  # noqa: PLC0415 - CLI start-up
 
     routed = [
         re.compile("^/" + re.escape(r.lstrip("/")).replace(r"\*", ".*") + "$") for r in ROUTES
@@ -389,29 +428,71 @@ def cmd_split(args) -> int:
         print(
             f"split: {rel} is over the Pages limit and no route reaches R2 for it", file=sys.stderr
         )
+    if args.max_files is None:
+        return 1 if stranded else 0
+    left, cap = sum(1 for p in out.rglob("*") if p.is_file()), args.max_files
+    print(f"split: {left:,} file(s) left for Pages, of the {cap:,} one deployment may hold")
+    fix = (
+        "move the account to a Cloudflare plan that allows more files, "
+        "or serve the place pages from R2 as #132 does"
+    )
+    if left > cap:
+        print(
+            f"split: {left:,} files would go to Pages, over the {cap:,} cap; {fix}", file=sys.stderr
+        )
+        return 1
+    if left >= cap * PAGES_WARN:
+        print(
+            f"::warning::Pages holds {left:,} of the {cap:,} files one deployment may hold; {fix}"
+        )
     return 1 if stranded else 0
 
 
-def cmd_catalogue(args) -> int:
-    import requests
+def cmd_pages_cap(_args: argparse.Namespace) -> int:
+    """Print the file cap the account's plan sets on a Pages deployment.
 
-    from .catalogue import PortalError, fetch
+    When the cap cannot be read, it prints nothing, says why on stderr and exits 1. The deploy
+    then leaves the count unchecked, since a failed read is no evidence of the account's cap.
+    """
+    from . import cost  # noqa: PLC0415 - CLI start-up
+
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    if not (account and token):
+        print(
+            "pages cap: no Cloudflare token or account is set, so no cap is read", file=sys.stderr
+        )
+        return 1
+    try:
+        cap = cost.pages_file_cap(account, token)
+    except cost.Unmeasured as e:
+        print(f"pages cap: {e}, so no cap is read", file=sys.stderr)
+        return 1
+    print(cap)
+    return 0
+
+
+def cmd_catalogue(args: argparse.Namespace) -> int:
+    import requests  # noqa: PLC0415 - CLI start-up
+
+    from . import catalogue  # noqa: PLC0415 - CLI start-up
+    from .catalogue import PortalError  # noqa: PLC0415 - CLI start-up
 
     try:
-        fetch(Path(args.store))
+        catalogue.fetch(Path(args.store))
     except (PortalError, OSError, ValueError, requests.RequestException) as e:
         print(f"catalogue: FAILED {e}")
         return 1
     return 0
 
 
-def cmd_catalogue_publishers(args) -> int:
+def cmd_catalogue_publishers(args: argparse.Namespace) -> int:
     """Print proposed curation for data.gov.au organisations no curated publisher claims yet."""
-    import requests
-    import yaml
+    import requests  # noqa: PLC0415 - CLI start-up
+    import yaml  # noqa: PLC0415 - CLI start-up
 
-    from .catalogue import load
-    from .publishers import load_curated, suggest
+    from .catalogue import load as load_catalogue  # noqa: PLC0415 - CLI start-up
+    from .publishers import load_curated, suggest  # noqa: PLC0415 - CLI start-up
 
     codes = requests.get(
         "https://data.api.abs.gov.au/rest/codelist/ABS/CL_LGA_2024",
@@ -422,27 +503,37 @@ def cmd_catalogue_publishers(args) -> int:
         zip("12345678", ("NSW", "Vic", "Qld", "SA", "WA", "Tas", "NT", "ACT"), strict=True)
     )
     lgas = {
-        c["name"]: state[c["id"][0]] for c in codes if len(c["id"]) == 5 and c["id"][0] in state
+        c["name"]: state[c["id"][0]]
+        for c in codes
+        if len(c["id"]) == LGA_CODE_DIGITS and c["id"][0] in state
     }
-    rows = suggest(load(Path(args.store)), load_curated(PUBLISHERS), lgas)
+    rows = suggest(load_catalogue(Path(args.store)), load_curated(PUBLISHERS), lgas)
     print(yaml.safe_dump(rows, sort_keys=False, allow_unicode=True, width=100))
     print(f"# {len(rows)} organisation(s) to review", file=sys.stderr)
     return 0
 
 
-def _d1_rows(raw) -> list[dict]:
+def _objects(v: JSON) -> list[JSONObject]:
+    return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
+
+
+def _d1_rows(raw: JSON) -> list[JSONObject]:
     """The rows of a `wrangler d1 execute --json` answer, or a plain list of rows."""
     if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "results" in raw[0]:
-        return [r for part in raw for r in part.get("results", [])]
-    return raw or []
+        return [r for part in _objects(raw) for r in _objects(part.get("results", []))]
+    return _objects(raw)
 
 
-def cmd_d1(args) -> int:
+def cmd_d1(args: argparse.Namespace) -> int:
     """Write one SQL file per live dataset whose latest version the query API has not loaded."""
-    import json
-
-    from .d1 import CATALOGUE, SERVED, catalogue_loads, served_loads, write_loads
-    from .register import load
+    from .d1 import (  # noqa: PLC0415 - CLI start-up
+        CATALOGUE,
+        SERVED,
+        catalogue_loads,
+        served_loads,
+        write_loads,
+    )
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     loaded: dict[str, list[str]] = {}
     loaded_fields: dict[tuple[str, str], str] = {}
@@ -450,11 +541,12 @@ def cmd_d1(args) -> int:
     if args.loaded and Path(args.loaded).exists():
         raw = json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")
         for r in _d1_rows(raw):
-            loaded.setdefault(r["slug"], []).append(r["version"])
+            slug, version = str(r["slug"]), str(r["version"])
+            loaded.setdefault(slug, []).append(version)
             if "fields" in r:
-                loaded_fields[(r["slug"], r["version"])] = r["fields"]
-            if r.get("ord") is not None:
-                loaded_orders[(r["slug"], r["version"])] = r["ord"]
+                loaded_fields[(slug, version)] = str(r["fields"])
+            if (order := r.get("ord")) is not None:
+                loaded_orders[(slug, version)] = str(order)
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
     parts = write_loads(
         [Path(r) for r in args.root],
@@ -462,8 +554,8 @@ def cmd_d1(args) -> int:
         loaded,
         Path(args.out),
         args.stamp,
-        loaded_fields,
-        loaded_orders,
+        loaded_fields=loaded_fields,
+        loaded_orders=loaded_orders,
     )
     if args.catalogue and Path(args.catalogue).exists():
         parts += catalogue_loads(
@@ -478,9 +570,7 @@ def cmd_d1(args) -> int:
 
 
 def _rows_written(text: str) -> int:
-    import argparse
-
-    from .d1 import rows_written
+    from .d1 import rows_written  # noqa: PLC0415 - CLI start-up
 
     try:
         return rows_written(text or "0")
@@ -488,10 +578,11 @@ def _rows_written(text: str) -> int:
         raise argparse.ArgumentTypeError(str(e)) from e
 
 
-def cmd_d1_load(args) -> int:
-    from .d1 import BUDGET, Wrangler, load
+def cmd_d1_load(args: argparse.Namespace) -> int:
+    from .d1 import BUDGET, Wrangler  # noqa: PLC0415 - CLI start-up
+    from .d1 import load as load_d1  # noqa: PLC0415 - CLI start-up
 
-    failed = load(
+    failed = load_d1(
         Path(args.dir),
         Wrangler(),
         budget=args.budget or BUDGET,
@@ -502,22 +593,23 @@ def cmd_d1_load(args) -> int:
     return 1 if failed else 0
 
 
-def cmd_rollup(args) -> int:
-    """Write the rollup of every version D1 holds whose rollup is missing or was built from other
-    bytes, push them, and delete the rollups of versions D1 no longer holds."""
-    import json
+def cmd_rollup(args: argparse.Namespace) -> int:
+    """Write, push and prune the rollups.
 
-    from .r2 import client
-    from .register import load
-    from .rollup import R2Store, held, held_fields, write
+    A rollup is written for every version D1 holds, and every version of an entry with
+    `query: false`, whose rollup is missing or was built from other bytes; the rest are deleted.
+    """
+    from .r2 import client  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .rollup import R2Store, held, held_fields, served, write  # noqa: PLC0415 - CLI start-up
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
         print(f"rollup: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
     rows = _d1_rows(json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]"))
-    loaded = held(rows)
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
+    loaded = held(rows) | served(live, [Path(r) for r in args.root])
     store = R2Store(client(), args.bucket)
     written, keep = write(
         live,
@@ -539,12 +631,12 @@ def cmd_rollup(args) -> int:
     return 0
 
 
-def cmd_store(args) -> int:
-    from .r2 import pull_store, push
+def cmd_store(args: argparse.Namespace) -> int:
+    from .r2 import pull_store, push  # noqa: PLC0415 - CLI start-up
 
     store_dir = Path(args.store)
     if args.sub == "pull" and args.rolling:
-        from .register import load
+        from .register import load  # noqa: PLC0415 - CLI start-up
 
         # A rolling source or a feed is compared with its newest fetch, which the fetch reads.
         want = ("feed",) if args.feeds else ("rolling", "feed")
@@ -562,30 +654,31 @@ def cmd_store(args) -> int:
         # A feed's newest read is one mutable key per dataset beside its folders.
         for rec in sorted(store_dir.glob("*/read.json")):
             slug = rec.parent.name
+
+            def is_read(key: str, slug: str = slug) -> bool:
+                return key == f"{slug}/read.json"
+
             n += push(
                 rec.parent,
                 "publicdata-raw",
                 f"{slug}/",
-                immutable=lambda key: False,
-                include=lambda key, slug=slug: key == f"{slug}/read.json",
+                immutable=lambda _key: False,
+                include=is_read,
             )
         held = [*store_dir.glob("*/*/source.*"), *store_dir.glob("*/*/history.parquet")]
         for vdir in sorted({p.parent for p in held}):
             v = (vdir.parts[-2], vdir.parts[-1])
-            n += push(
-                vdir,
-                "publicdata-raw",
-                f"{v[0]}/{v[1]}/",
-                immutable=lambda key, v=v: v in committed,
-            )
+
+            def immutable(_key: str, v: tuple[str, str] = v) -> bool:
+                return v in committed
+
+            n += push(vdir, "publicdata-raw", f"{v[0]}/{v[1]}/", immutable=immutable)
         print(f"store push: {n} file(s)")
     return 0
 
 
-def _committed_versions(store_dir: Path) -> set[tuple[str, str]]:
+def _committed_versions(store_dir: Path) -> set[tuple[str, ...]]:
     """The versions whose manifest git tracks; outside a checkout, every version on disk."""
-    import subprocess
-
     found = [p.relative_to(store_dir) for p in store_dir.glob("*/*/manifest.json")]
     try:
         out = subprocess.run(
@@ -601,8 +694,8 @@ def _committed_versions(store_dir: Path) -> set[tuple[str, str]]:
 
 def _with_layers(only: list[str]) -> tuple[str, ...]:
     """The slugs, and the spine layers any of them joins, whose sources a joined build reads."""
-    from .register import load
-    from .spine import LAYERS
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .spine import LAYERS  # noqa: PLC0415 - CLI start-up
 
     if not only:
         return ()
@@ -612,11 +705,11 @@ def _with_layers(only: list[str]) -> tuple[str, ...]:
 
 def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     """The versions the build will take from the cache, so their source bytes are not needed."""
-    from . import store
-    from .build import latest_key, newest_fetch, version_keys
-    from .cache import BuildCache
-    from .register import load
-    from .spine import LAYERS
+    from . import store  # noqa: PLC0415 - CLI start-up
+    from .build import latest_key, newest_fetch, version_keys  # noqa: PLC0415 - CLI start-up
+    from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .spine import LAYERS  # noqa: PLC0415 - CLI start-up
 
     cache = BuildCache(cache_dir)
     datasets = [d for d in load(REGISTER) if d.publishable]
@@ -646,35 +739,37 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     return cached
 
 
+# An LGA code is its state's digit and four more.
+LGA_CODE_DIGITS = 5
+
 VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
-def cmd_spine_install(args) -> int:
-    from .extension import install
+def cmd_spine_install(_args: argparse.Namespace) -> int:
+    from .extension import install  # noqa: PLC0415 - CLI start-up
 
     install()
     print("spine: DuckDB spatial extension installed")
     return 0
 
 
-def cmd_spine_mirror(args) -> int:
-    from .extension import mirror
+def cmd_spine_mirror(args: argparse.Namespace) -> int:
+    from .extension import mirror  # noqa: PLC0415 - CLI start-up
 
     pin = mirror(Path(args.pin))
     print(f"spine: pinned {pin['url']} ({pin['sha256']})")
     return 0
 
 
-def cmd_dist_push(args) -> int:
-    from .r2 import dated_file, push
+def cmd_dist_push(args: argparse.Namespace) -> int:
+    from .r2 import check_sources, dated_file, push  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .serialise.profile import layout  # noqa: PLC0415 - CLI start-up
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
         print(f"dist push: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
-    from .r2 import check_sources
-    from .register import load
-    from .serialise.profile import layout
 
     # Before anything goes up, so a version whose source the site cannot serve is never published.
     found = check_sources([Path(args.large)])
@@ -686,7 +781,7 @@ def cmd_dist_push(args) -> int:
         replace=tuple(args.replace),
         immutable=dated_file,
         expect=expect,
-        include=dated_file if args.dated_only else lambda key: True,
+        include=dated_file if args.dated_only else lambda _key: True,
         layouts={ds.slug: layout(ds) for ds in load(REGISTER)} if queries else None,
     )
     print(
@@ -696,8 +791,8 @@ def cmd_dist_push(args) -> int:
     return 0
 
 
-def cmd_r2_restore_gzip(args) -> int:
-    from .r2 import restore_gzip
+def cmd_r2_restore_gzip(args: argparse.Namespace) -> int:
+    from .r2 import restore_gzip  # noqa: PLC0415 - CLI start-up
 
     t = restore_gzip(
         prefix=args.prefix,
@@ -708,9 +803,15 @@ def cmd_r2_restore_gzip(args) -> int:
     return 1 if t["failed"] else 0
 
 
-def cmd_checksums(args) -> int:
-    from .checksums import KEY, slugs_in, slugs_in_bucket, update, write_subjects
-    from .r2 import client
+def cmd_checksums(args: argparse.Namespace) -> int:
+    from .checksums import (  # noqa: PLC0415 - CLI start-up
+        KEY,
+        slugs_in,
+        slugs_in_bucket,
+        update,
+        write_subjects,
+    )
+    from .r2 import client  # noqa: PLC0415 - CLI start-up
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
@@ -739,7 +840,11 @@ def cmd_checksums(args) -> int:
     # A dated file changes only under a replace, which writes the list again. Anything else
     # breaks that rule, so it is reported and the version's list keeps what it was first given.
     for key in changed:
-        slug, version, _ = KEY.match(key).groups()
+        # update names only keys under d/<slug>/v/<date>/, which KEY matches.
+        m = KEY.match(key)
+        if m is None:
+            continue
+        slug, version, _ = m.groups()
         prefix = f"d/{slug}/v/{version}/"
         print(
             f"::warning::{key} was written after {prefix}SHA256SUMS, outside a replace. "
@@ -753,10 +858,31 @@ def cmd_checksums(args) -> int:
     return 0
 
 
-def cmd_purge(args) -> int:
-    import os
+def cmd_r2_shared_report(args: argparse.Namespace) -> int:
+    from .r2 import shared_report  # noqa: PLC0415 - CLI start-up
 
-    from .edge import purge, with_answers
+    t = shared_report(prefix=args.prefix)
+    for ext, (n, size) in sorted(t["by_ext"].items(), key=lambda e: -e[1][1]):
+        kind = f".{ext}" if ext else "no extension"
+        print(f"shared: {kind}: {n:,} extra {'copy' if n == 1 else 'copies'}, {size:,} bytes")
+    pct = 100 * t["saved"] / t["bytes"] if t["bytes"] else 0
+    print(
+        f"shared: {t['copies']:,} of {t['objects']:,} dated files repeat another's stored bytes; "
+        f"storing each once would save {t['saved']:,} of {t['bytes']:,} bytes ({pct:.2g}%), "
+        f"{t['across']:,} of them across datasets. {t['heads']:,} HEAD request(s) sent"
+        + (f", {t['gone']:,} key(s) deleted while the report ran" if t["gone"] else "")
+        + (
+            f", {t['unhashed']:,} HEADed file(s) with no SHA-256 matched on ETag alone"
+            " and may be undercounted"
+            if t["unhashed"]
+            else ""
+        )
+    )
+    return 0
+
+
+def cmd_purge(args: argparse.Namespace) -> int:
+    from .edge import purge, with_answers  # noqa: PLC0415 - CLI start-up
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
@@ -770,10 +896,10 @@ def cmd_purge(args) -> int:
     return 0
 
 
-def _prune_unusable(cache, datasets, store_dir: Path) -> int:
+def _prune_unusable(cache: BuildCache, datasets: Iterable[Dataset], store_dir: Path) -> int:
     """Removes the entries no version in the store keys to, which reads the manifests only."""
-    from .brand import CARD_PREFIX
-    from .build import cache_keys
+    from .brand import CARD_PREFIX  # noqa: PLC0415 - CLI start-up
+    from .build import cache_keys  # noqa: PLC0415 - CLI start-up
 
     usable = set().union(*(cache_keys(cache, d, store_dir) for d in datasets))
     if cache.root.is_dir():
@@ -781,26 +907,26 @@ def _prune_unusable(cache, datasets, store_dir: Path) -> int:
     return cache.prune(usable)
 
 
-def cmd_cache_prune(args) -> int:
-    from .cache import BuildCache
-    from .register import load
+def cmd_cache_prune(args: argparse.Namespace) -> int:
+    from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     n = _prune_unusable(BuildCache(Path(args.cache)), load(REGISTER), Path(args.store))
     print(f"cache: {n} entries no version in the store can use removed")
     return 0
 
 
-def cmd_cache(args) -> int:
-    from .r2 import cache_pull, cache_push
+def cmd_cache(args: argparse.Namespace) -> int:
+    from . import r2  # noqa: PLC0415 - CLI start-up
+    from .build import cache_keys  # noqa: PLC0415 - CLI start-up
+    from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
+    from .r2 import cache_push  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     root = Path(args.cache)
     if args.sub == "pull":
-        entries = None
+        entries: set[str] | None = None
         if args.only:
-            from .build import cache_keys
-            from .cache import BuildCache
-            from .register import load
-
             if not args.store:
                 print("cache pull: --only needs --store")
                 return 2
@@ -812,7 +938,7 @@ def cmd_cache(args) -> int:
                     if d.slug in args.only
                 )
             )
-        n = cache_pull(root, meta_only=args.meta_only, entries=entries)
+        n = r2.cache_pull(root, meta_only=args.meta_only, entries=entries)
         print(f"cache pull: {n} entries")
     else:
         up, gone = cache_push(root, prune=args.prune)
@@ -822,18 +948,22 @@ def cmd_cache(args) -> int:
     return 0
 
 
-def cmd_verify(args) -> int:
-    """plan prints the datasets the real-data check builds, or nothing when no changed path
-    shapes versions outside their key; run builds them and compares."""
-    from . import verify
-    from .register import load
+def cmd_verify(args: argparse.Namespace) -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915 - the plan and run subcommands share their setup
+    """Plan or run the real-data check.
+
+    plan prints the datasets the check builds, or nothing when no changed path shapes versions
+    outside their key; run builds them and compares.
+    """
+    from . import published, serialise, verify  # noqa: PLC0415 - CLI start-up
+    from .r2 import downloader  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     datasets = load(REGISTER)
     store_dir = Path(args.store)
     mb = 1_000_000
     cap = args.cap_mb * mb if args.cap_mb is not None else verify.CAP
     if args.sub == "plan":
-        changed = []
+        changed: list[str] = []
         if args.changed:
             changed = Path(args.changed).read_text(encoding="utf-8").splitlines()
         if args.before and (moved := verify.changed_defaults(Path(args.before))):
@@ -870,7 +1000,7 @@ def cmd_verify(args) -> int:
             print(f"verify: {', '.join(mods)} changed", file=sys.stderr)
         else:
             budget = 0  # only the raised entries are checked
-        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap, raised)
+        slugs = verify.sample(datasets, store_dir, args.seed, budget, cap, forced=raised)
         if mods:
             for line in verify.uncovered(datasets, store_dir, slugs):
                 print(f"verify: no dataset in the sample is built as {line}", file=sys.stderr)
@@ -892,17 +1022,13 @@ def cmd_verify(args) -> int:
     if unknown:
         print(f"verify run: not a publishable dataset: {sorted(unknown)}")
         return 2
-    from . import published, serialise
 
     serialise.LIMIT = None
-    import tempfile
 
     out = Path(args.out or tempfile.mkdtemp(prefix="publicdata-verify-"))
     out.mkdir(parents=True, exist_ok=True)
     download = None
     if args.published.startswith(R2):
-        from .r2 import downloader
-
         download = downloader(args.published[len(R2) :])
     source = Path(args.published) if args.published and not download else None
     # A capped version keeps the format set its published manifest records.
@@ -913,12 +1039,10 @@ def cmd_verify(args) -> int:
         published.current = None
 
 
-def cmd_shards(args) -> int:
+def cmd_shards(args: argparse.Namespace) -> int:
     """Prints a JSON list of build jobs, each a space-separated list of dataset slugs."""
-    import json
-
-    from .register import load
-    from .shards import plan, weights
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .shards import plan, weights  # noqa: PLC0415 - CLI start-up
 
     w = weights(load(REGISTER), Path(args.store), Path(args.cache) if args.cache else None)
     jobs = plan(w, args.count)
@@ -929,24 +1053,24 @@ def cmd_shards(args) -> int:
     return 0
 
 
-def _hubs_record(store_dir: Path) -> dict:
+def _hubs_record(store_dir: Path) -> HubRecord:
     """Where the Hubs job found each copy, committed beside the manifests."""
-    import json
-
     path = store_dir / "hubs.json"
-    return json.loads(path.read_text("utf-8")) if path.exists() else {}
+    if not path.exists():
+        return {}
+    record: HubRecord = json.loads(path.read_text("utf-8"))
+    return record
 
 
 def _tasks(path: str | None) -> dict[str, int]:
     """The open contributor issues by dataset key; a build without the file shows none."""
-    import json
+    tasks: dict[str, int] = json.loads(Path(path).read_text("utf-8")) if path else {}
+    return tasks
 
-    return json.loads(Path(path).read_text("utf-8")) if path else {}
 
-
-def cmd_hubs(args) -> int:
-    from . import hubs
-    from .register import load
+def cmd_hubs(args: argparse.Namespace) -> int:
+    from . import hubs  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     only = set(args.only) if args.only else None
     registered = {d.slug: d for d in load(REGISTER)}
@@ -959,21 +1083,23 @@ def cmd_hubs(args) -> int:
     for line in skipped:
         print(line)
     chosen = {n: make() for n, make in available.items() if n in args.hub}
-    import json
 
     path = Path(args.record) if args.record else None
-    old = json.loads(path.read_text("utf-8")) if path and path.exists() else {}
+    old: HubRecord = json.loads(path.read_text("utf-8")) if path and path.exists() else {}
 
-    def save(found: dict) -> dict:
+    def save(found: HubRecord) -> HubRecord:
         # Written after every dataset, so a run stopped part way keeps what it recorded, and
         # swapped into place whole, so a stop mid-write leaves the last good record.
+        if path is None:
+            msg = "hubs: there is no record to save to"
+            raise RuntimeError(msg)
         merged = hubs.merge_record(old, found)
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", "utf-8")
-        os.replace(tmp, path)
+        tmp.replace(path)
         return merged
 
-    found: dict = {}
+    found: HubRecord = {}
     failures = hubs.run(
         chosen, entries, refresh=args.refresh, record=found, on_record=save if path else None
     )
@@ -984,12 +1110,10 @@ def cmd_hubs(args) -> int:
     return 1 if failures else 0
 
 
-def cmd_contribute(args) -> int:
+def cmd_contribute(args: argparse.Namespace) -> int:
     """Keep one issue open for each of the most-wanted datasets, or list the open ones."""
-    import json
-
-    from . import contribute
-    from .register import load
+    from . import contribute  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     gh = contribute.GitHub(args.repo, contribute.session(token))
@@ -1020,15 +1144,15 @@ def cmd_contribute(args) -> int:
     return 0
 
 
-def cmd_cost(args) -> int:
-    import datetime as dt
-
-    from . import cost
-    from .register import load
+def cmd_cost(args: argparse.Namespace) -> int:
+    from . import cost  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
 
     root = Path(args.root).resolve() if args.root else ROOT
     register = root / "register"
-    changed, fresh, reshaped = set(args.slug), set(), {}
+    changed: set[str] = set(args.slug)
+    fresh: set[str] = set()
+    reshaped: dict[str, EntryYaml] = {}
     if args.base:
         if links := cost.symlinks(root):
             print(f"cost: the register may not hold symbolic links: {', '.join(links)}")
@@ -1043,8 +1167,12 @@ def cmd_cost(args) -> int:
     approve = None
     if args.github_pr:
         repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
-        approve = lambda: cost.approval(repo, args.github_pr, lambda p: cost._github(p, token))  # noqa: E731
-    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+
+        def github[T](shape: type[T], path: str, /) -> T:
+            return cost._github(shape, path, token)  # noqa: SLF001
+
+        approve = lambda: cost.approval(repo, args.github_pr, github)  # noqa: E731
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()  # noqa: DTZ011 - the runner's day
     return cost.run(
         load(register),
         Path(args.store),
@@ -1060,7 +1188,30 @@ def cmd_cost(args) -> int:
     )
 
 
-def main(argv=None) -> int:
+def cmd_measure(args: argparse.Namespace) -> int:
+    from . import cost  # noqa: PLC0415 - CLI start-up
+
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    token = os.environ.get("CLOUDFLARE_ANALYTICS_TOKEN")
+
+    def measure() -> Measured:
+        if not token:
+            msg = "no analytics token is set for the deploy"
+            raise cost.Unmeasured(msg)
+        if not account:
+            msg = "no Cloudflare account is set for the deploy"
+            raise cost.Unmeasured(msg)
+        return cost.measure_r2(account, token, dt.datetime.now(dt.UTC))
+
+    m = cost.stamp_health(Path(args.health), measure)
+    if m["available"]:
+        print(f"measure: {m['stored_bytes'] / cost.GB:,.1f} GB stored at {m['measured_at']}")
+    else:
+        print(f"measure: storage not measured ({m['reason']})")
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parser declares every command in one place
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("register").add_subparsers(dest="sub", required=True)
@@ -1239,7 +1390,17 @@ def main(argv=None) -> int:
     s.add_argument("--large", default=str(ROOT / "dist-large"))
     s.add_argument("--limit-mib", type=float, default=24)
     s.add_argument("--versioned", action="store_true", help="also move every dated version file")
+    s.add_argument(
+        "--max-files",
+        type=int,
+        help="the files one Pages deployment may hold, as `publicdata pages-cap` reads it, "
+        "to fail over and warn near",
+    )
     s.set_defaults(fn=cmd_split)
+    pc = sub.add_parser(
+        "pages-cap", help="print how many files the account's plan lets a Pages deployment hold"
+    )
+    pc.set_defaults(fn=cmd_pages_cap)
     ca = sub.add_parser("catalogue").add_subparsers(dest="sub", required=True)
     cf = ca.add_parser("fetch", help="harvest every portal's dataset list into the store")
     cf.add_argument("--store", default=str(STORE))
@@ -1270,7 +1431,9 @@ def main(argv=None) -> int:
     )
     d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
-    ro = sub.add_parser("rollup", help="write, push and prune the rollups of the versions D1 holds")
+    ro = sub.add_parser(
+        "rollup", help="write, push and prune the rollups of the versions queries reach"
+    )
     ro.add_argument(
         "--loaded", required=True, help="D1's _versions rows (slug, version, rows, fields) as JSON"
     )
@@ -1330,6 +1493,12 @@ def main(argv=None) -> int:
         help="delete a version's data.csv.gz once the gzipped data.csv beside it holds its bytes",
     )
     rg.set_defaults(fn=cmd_r2_restore_gzip)
+    rs = rr.add_parser(
+        "shared-report",
+        help="count the bytes publicdata-dist would save by storing dated files with identical bytes once",
+    )
+    rs.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
+    rs.set_defaults(fn=cmd_r2_shared_report)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
@@ -1387,8 +1556,14 @@ def main(argv=None) -> int:
         "--summary", help="append the Markdown table here (default GITHUB_STEP_SUMMARY)"
     )
     co.set_defaults(fn=cmd_cost)
+    me = sub.add_parser(
+        "measure", help="write Cloudflare's measured R2 storage into a built health.json"
+    )
+    me.add_argument("health", help="the health.json to update")
+    me.set_defaults(fn=cmd_measure)
     args = ap.parse_args(argv)
-    return args.fn(args)
+    rc: int = args.fn(args)
+    return rc
 
 
 if __name__ == "__main__":

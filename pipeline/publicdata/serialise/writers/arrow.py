@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 
-from ...normalise import Table
-from .. import dumps
+from publicdata.serialise import dumps
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 
-def write_arrow(tbl: Table, header: dict, path: Path) -> None:
+def write_arrow(tbl: Table, header: Header, path: Path) -> None:
     """Arrow IPC file (Feather v2), zstd compressed, provenance in the schema metadata."""
     t = tbl.table.replace_schema_metadata({"publicdata": dumps(header)})
     with pa.OSFile(str(path), "wb") as sink:

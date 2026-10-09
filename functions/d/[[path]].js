@@ -1,4 +1,5 @@
 import { disposition } from '../_download.js';
+import { gunzip, gzipped } from '../_lib.js';
 
 // /d/* : serve the static file if Pages has it; redirect latest/ to the newest version, or for a
 // rolling source or a feed, serve its newest fetch in place from latest/;
@@ -128,16 +129,16 @@ async function serve(request, env, url, latest, inPlace) {
       const head = request.method === 'HEAD';
       const raw = `${m[1]}/${cur.fetch}/${m[2]}`;
       const obj = env.RAW && (await (head ? env.RAW.head(raw) : env.RAW.get(raw, { range: request.headers, onlyIf: request.headers })));
-      r = obj ? await answer(request, url, key, obj, head, env) : null;
+      r = obj ? await answer(request, url, key, obj, head, env, latest) : null;
     } else {
       const asset = await env.ASSETS.fetch(new Request(new URL('/' + key, url), request));
-      r = asset.status !== 404 ? asset : await fromR2(request, env, new URL('/' + key, url));
+      r = asset.status !== 404 ? asset : await fromR2(request, env, new URL('/' + key, url), latest);
     }
     if (!r || r.status >= 400) return r && r.status !== 404 ? r : new Response('Not found', { status: 404 });
     const out = new Response(r.body, r);
     out.headers.set('cache-control', 'public, max-age=300, no-transform');
     out.headers.set('access-control-allow-origin', '*');
-    const cd = disposition(`d/${m[1]}/v/${cur.fetch}/${m[2]}`);
+    const cd = disposition(key, latest);
     if (cd) out.headers.set('content-disposition', cd);
     return out;
   }
@@ -153,23 +154,25 @@ async function serve(request, env, url, latest, inPlace) {
   // deployment that held it, so R2 is asked first.
   const page = PAGE.test(url.pathname);
   if (page) {
-    const r = await fromR2(request, env, url);
+    const r = await fromR2(request, env, url, latest);
     if (r) return r;
   }
   const asset = await env.ASSETS.fetch(request);
   if (asset.status !== 404) {
+    if (asset.status !== 200 && asset.status !== 206) return asset;
     // Pages _headers rules allow one splat, so the versioned tree gets its cache policy here.
-    if (!DATED.test(url.pathname) || PAGE.test(url.pathname) || (asset.status !== 200 && asset.status !== 206)) return asset;
+    const dated = DATED.test(url.pathname) && !PAGE.test(url.pathname);
+    const cd = disposition(decodeURIComponent(url.pathname.slice(1)), latest);
+    if (!dated && !cd) return asset;
     const r = new Response(asset.body, asset);
-    r.headers.set('cache-control', 'public, max-age=31536000, immutable, no-transform');
-    const cd = disposition(decodeURIComponent(url.pathname.slice(1)));
+    if (dated) r.headers.set('cache-control', 'public, max-age=31536000, immutable, no-transform');
     if (cd) r.headers.set('content-disposition', cd);
     return r;
   }
-  return (!page && (await fromR2(request, env, url))) || asset;
+  return (!page && (await fromR2(request, env, url, latest))) || asset;
 }
 
-async function fromR2(request, env, url) {
+async function fromR2(request, env, url, latest) {
   const path = decodeURIComponent(url.pathname.replace(/^\//, ''));
   const key = path.endsWith('/') ? path + 'index.html' : path;
   const head = request.method === 'HEAD';
@@ -195,11 +198,11 @@ async function fromR2(request, env, url) {
     }
     return null;
   }
-  return answer(request, url, key, obj, head, env, decoded);
+  return answer(request, url, key, obj, head, env, latest, decoded);
 }
 
 // An R2 object as a response: its type, size and byte range, and its cache policy by its key.
-async function answer(request, url, key, obj, head, env, decoded = gzipped(obj)) {
+async function answer(request, url, key, obj, head, env, latest, decoded = gzipped(obj)) {
   // A revalidation that will be answered 304 needs no bytes, so it is not sent on.
   const sending = head || ('body' in obj && obj.body);
   if (sending && obj.size > EDGE_MAX && DATED.test(key) && url.searchParams.get('edge') !== BYPASS) {
@@ -229,7 +232,7 @@ async function answer(request, url, key, obj, head, env, decoded = gzipped(obj))
   headers.set('cache-control', DATED.test(key) && !page ? 'public, max-age=31536000, immutable, no-transform' : 'public, max-age=300, no-transform');
   if (decoded) headers.set('cache-control', headers.get('cache-control').replace(', no-transform', ''));
   if (page) for (const [k, v] of Object.entries(await headersFor(env))) headers.set(k, v);
-  const cd = disposition(key);
+  const cd = disposition(key, latest);
   if (cd) headers.set('content-disposition', cd);
   if (decoded) return textResponse(request, obj, headers, head);
   // Range readers such as DuckDB size the file from HEAD before asking for bytes.
@@ -251,9 +254,6 @@ async function answer(request, url, key, obj, head, env, decoded = gzipped(obj))
   }
   return new Response(null, { status: 304, headers });
 }
-
-// Content-Encoding is a list of tokens; an upload can leave aws-chunked beside gzip.
-const gzipped = (obj) => (obj.httpMetadata?.contentEncoding || '').split(',').some((t) => t.trim().toLowerCase() === 'gzip');
 
 // The Workers runtime always asks for gzip itself; what the client asked for is on cf.
 function acceptsGzip(request) {
@@ -279,7 +279,7 @@ function textResponse(request, obj, headers, head) {
   }
   if (!('body' in obj) || !obj.body) return new Response(null, { status: 304, headers });
   if (encoded) return new Response(obj.body, { status: 200, headers, encodeBody: 'manual' });
-  return new Response(obj.body.pipeThrough(new DecompressionStream('gzip')), { status: 200, headers });
+  return new Response(gunzip(obj.body).body, { status: 200, headers });
 }
 
 export const onRequestHead = onRequestGet;

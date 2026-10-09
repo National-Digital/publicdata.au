@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import gzip
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .. import dumps
-from ..geo import (
+from pmtiles.tile import Compression, TileType, zxy_to_tileid
+from pmtiles.writer import Writer
+
+from publicdata.rows import one_row
+from publicdata.serialise import dumps
+from publicdata.serialise.geo import (
     MAXZOOM,
     MVT_TYPES,
     TILE_EXTENT,
@@ -16,18 +20,23 @@ from ..geo import (
     geo_kind,
 )
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
-def write_pmtiles(tbl, header: dict, path: Path) -> None:
-    """Vector tiles of the layer from zoom 0 to geometry.maxzoom, one tile layer named by the
-    dataset, every field a property. Each zoom's shapes are simplified to a tile pixel first, and
-    a shape the publisher drew invalid is repaired for the tiles only. A repair can return a
-    collection, such as a polygon with a stray line, which a tile cannot hold, so only the parts of
-    the layer's own kind are kept."""
-    from pmtiles.tile import Compression, TileType, zxy_to_tileid
-    from pmtiles.writer import Writer
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
+
+def write_pmtiles(tbl: Table, header: Header, path: Path) -> None:
+    """Vector tiles of the layer from zoom 0 to geometry.maxzoom.
+
+    There is one tile layer named by the dataset, and every field is a property. Each zoom's
+    shapes are simplified to a tile pixel first, and a shape the publisher drew invalid is
+    repaired for the tiles only. A repair can return a collection, such as a polygon with a stray
+    line, which a tile cannot hold, so only the parts of the layer's own kind are kept.
+    """
     ds = tbl.dataset
-    maxzoom = int(ds.geometry.get("maxzoom", MAXZOOM))
+    maxzoom = int(ds.geometry_spec().get("maxzoom", MAXZOOM))
     con = _connect()
     _with_geometry(con, tbl)
     names = [f.name for f in ds.fields]
@@ -38,18 +47,18 @@ def write_pmtiles(tbl, header: dict, path: Path) -> None:
         "FROM t WHERE geometry IS NOT NULL"
     )
     props = ", ".join(f"'{n}': \"{n}\"" for n in names)
-    W = WEB_MERCATOR
+    mercator = WEB_MERCATOR
     tiles: list[tuple[int, bytes]] = []
     for z in range(maxzoom + 1):
-        m = 2 * W / 2**z
+        m = 2 * mercator / 2**z
         rows = con.execute(
             f"""
             WITH s AS (SELECT * EXCLUDE (g), ST_SimplifyPreserveTopology(g, {m / TILE_EXTENT}) AS g FROM f),
             b AS (SELECT *,
-                    greatest(0, floor((ST_XMin(g) + {W}) / {m}))::INTEGER AS x0,
-                    least({2**z - 1}, floor((ST_XMax(g) + {W}) / {m}))::INTEGER AS x1,
-                    greatest(0, floor(({W} - ST_YMax(g)) / {m}))::INTEGER AS y0,
-                    least({2**z - 1}, floor(({W} - ST_YMin(g)) / {m}))::INTEGER AS y1
+                    greatest(0, floor((ST_XMin(g) + {mercator}) / {m}))::INTEGER AS x0,
+                    least({2**z - 1}, floor((ST_XMax(g) + {mercator}) / {m}))::INTEGER AS x1,
+                    greatest(0, floor(({mercator} - ST_YMax(g)) / {m}))::INTEGER AS y0,
+                    least({2**z - 1}, floor(({mercator} - ST_YMin(g)) / {m}))::INTEGER AS y1
                   FROM s WHERE NOT ST_IsEmpty(g)),
             t AS (SELECT b.*, rx.x::INTEGER AS x, ry.y::INTEGER AS y
                   FROM b, range(x0, x1 + 1) rx(x), range(y0, y1 + 1) ry(y)),
@@ -62,11 +71,13 @@ def write_pmtiles(tbl, header: dict, path: Path) -> None:
             """
         ).fetchall()
         tiles += [(zxy_to_tileid(z, x, y), bytes(tile)) for x, y, tile in rows]
-    box = con.execute(
-        "WITH w AS (SELECT ST_Transform(geometry, "
-        f"'{_crs(ds)}', 'EPSG:4326', always_xy := true) AS g FROM t WHERE geometry IS NOT NULL) "
-        "SELECT min(ST_XMin(g)), min(ST_YMin(g)), max(ST_XMax(g)), max(ST_YMax(g)) FROM w"
-    ).fetchone()
+    box = one_row(
+        con.execute(
+            "WITH w AS (SELECT ST_Transform(geometry, "
+            f"'{_crs(ds)}', 'EPSG:4326', always_xy := true) AS g FROM t WHERE geometry IS NOT NULL) "
+            "SELECT min(ST_XMin(g)), min(ST_YMin(g)), max(ST_XMax(g)), max(ST_YMax(g)) FROM w"
+        )
+    )
     con.close()
     tiles.sort(key=lambda x: x[0])
     with path.open("wb") as f:

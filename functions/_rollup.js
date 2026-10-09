@@ -3,6 +3,8 @@
 // answer exactly returns null, and the caller asks the next engine. Filters, nulls, LIKE and
 // ordering follow SQLite, so an answer here is the one the query API gives.
 
+import { gunzip } from './_lib.js';
+
 const SITE = 'https://publicdata.au';
 const API = `${SITE}/api/v1/datasets`;
 const VERSION = /^\d{4}-\d{2}-\d{2}$/;
@@ -226,10 +228,6 @@ function aggregateCube(r, fieldMap, params) {
   return { rows: more ? rows.slice(0, limit) : rows, more, matched };
 }
 
-async function gunzipJSON(body) {
-  return new Response(body.pipeThrough(new DecompressionStream('gzip'))).json();
-}
-
 const loaded = new Map();
 let latest;
 
@@ -240,15 +238,6 @@ async function newest(ctx, slug) {
     latest = await r.json();
   }
   return Object.hasOwn(latest, slug) ? latest[slug] : null;
-}
-
-// The query API serves the two newest versions, and an answer names its API URL, so the rollup
-// answers those two and leaves older ones to the engine that serves them.
-async function recent(ctx, slug) {
-  const r = await ctx.env.ASSETS.fetch(new Request(`${SITE}/d/${slug}/versions.json`));
-  if (!r.ok) return [];
-  const b = await r.json();
-  return (b.versions || []).map((x) => x.version).sort().reverse().slice(0, 2);
 }
 
 // What names a published Parquet's bytes, as rollup.identity() in the pipeline stamps it.
@@ -282,24 +271,25 @@ async function open(ctx, slug, version) {
     if (body && body.body) await body.body.cancel();
     return null;
   }
-  const r = await gunzipJSON(body.body);
+  const r = await gunzip(body.body).json();
   if (loaded.size >= KEEP) loaded.delete(loaded.keys().next().value);
   loaded.set(k, { r, stamp, at: Date.now() });
   return r;
 }
 
 // The same return shape as the other engines, or null to fall through. A withheld dataset is
-// not in latest.json, so it falls through to the engine that answers 410.
+// not in latest.json, so it falls through to the engine that answers 410. The deploy keeps a
+// rollup only for a version D1 holds or the Parquet engine answers, and the caller cites each as
+// that engine does.
 export async function rollup(ctx, slug, version, op, qs) {
-  // Without D1 the query URL an answer cites gives 503, so the rollup does not answer either.
-  if (op !== 'aggregate' || !ctx.env.DB) return null;
+  if (op !== 'aggregate') return null;
   if (version && !VERSION.test(version)) return null;
   const live = await newest(ctx, slug);
   if (!live) return null;
   const v = version || live;
-  if (v !== live && !(await recent(ctx, slug)).includes(v)) return null;
   const r = await open(ctx, slug, v);
-  if (!r) return null;
+  // As the Parquet engine refuses a file without provenance, its rollup does not answer either.
+  if (!r || !r.publicdata || !Object.keys(r.publicdata).length) return null;
   const params = new URLSearchParams(qs.join('&'));
   const a = aggregate(r, params);
   if (!a) return null;
@@ -312,5 +302,6 @@ export async function rollup(ctx, slug, version, op, qs) {
     query: `${API}/${slug}/versions/${v}/aggregate?${qs.join('&')}`,
     attribution: header.attribution,
     file: `${SITE}/d/${slug}/v/${v}/data.parquet`,
+    manifest: `${SITE}/d/${slug}/v/${v}/manifest.json`,
   };
 }

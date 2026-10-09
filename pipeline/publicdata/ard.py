@@ -43,11 +43,17 @@ ENTRY_KEYS = {
 }
 
 
-def problems(doc: dict, top: bool = True, where: str = "catalogue") -> list[str]:
-    """Every way doc breaks the schema or a conformance rule, the rule's warnings included, since
+def problems(  # noqa: C901, PLR0912 - one check per schema and conformance rule
+    doc: object,
+    top: bool = True,  # noqa: FBT001, FBT002 - every caller names it
+    where: str = "catalogue",
+) -> list[str]:
+    """Every way doc breaks the schema or a conformance rule, the rule's warnings included.
+
     Lighthouse marks the audit down for a warning. A bundle given inline is checked as a nested
-    catalogue."""
-    out = []
+    catalogue.
+    """
+    out: list[str] = []
     if not isinstance(doc, dict):
         return [f"{where}: not a JSON object"]
     if extra := set(doc) - ROOT_KEYS:
@@ -62,13 +68,15 @@ def problems(doc: dict, top: bool = True, where: str = "catalogue") -> list[str]
             out.append(f"{where}: unknown host keys {sorted(extra)}")
     entries = doc.get("entries")
     if not isinstance(entries, list):
-        return out + [f"{where}: entries is not an array"]
-    seen = set()
+        return [*out, f"{where}: entries is not an array"]
+    seen: set[str] = set()
     for i, e in enumerate(entries):
         label = f"{where}: {e.get('identifier') or f'entry {i}'}"
-        for k in ("identifier", "displayName", "type"):
-            if not isinstance(e.get(k), str) or not e.get(k):
-                out.append(f"{label}: missing {k}")
+        out.extend(
+            f"{label}: missing {k}"
+            for k in ("identifier", "displayName", "type")
+            if not isinstance(e.get(k), str) or not e.get(k)
+        )
         if extra := set(e) - ENTRY_KEYS:
             out.append(f"{label}: unknown keys {sorted(extra)}")
         ident = e.get("identifier", "")
@@ -87,13 +95,15 @@ def problems(doc: dict, top: bool = True, where: str = "catalogue") -> list[str]
                 out.append(f"{label}: no representativeQueries")
         elif (
             not isinstance(q, list)
-            or not 2 <= len(q) <= 5
+            or not 2 <= len(q) <= 5  # noqa: PLR2004 - the schema's bounds
             or not all(isinstance(x, str) for x in q)
         ):
             out.append(f"{label}: representativeQueries must be 2 to 5 strings")
-        for k in ("tags", "capabilities"):
-            if k in e and not (isinstance(e[k], list) and all(isinstance(x, str) for x in e[k])):
-                out.append(f"{label}: {k} must be an array of strings")
+        out.extend(
+            f"{label}: {k} must be an array of strings"
+            for k in ("tags", "capabilities")
+            if k in e and not (isinstance(e[k], list) and all(isinstance(x, str) for x in e[k]))
+        )
         if "data" in e and e.get("type") == CATALOGUE:
             out += problems(e["data"], top=False, where=label)
     return out

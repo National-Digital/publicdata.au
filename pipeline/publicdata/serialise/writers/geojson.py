@@ -1,18 +1,23 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pyarrow as pa
+from publicdata.serialise import dumps, iter_rows, json_view
+from publicdata.serialise.geo import _connect, _with_geometry, geo_kind
 
-from ...normalise import Table
-from .. import dumps, iter_rows, json_view
-from ..geo import _connect, _with_geometry, geo_kind
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pyarrow as pa
+
+    from publicdata.normalise import Table
+    from publicdata.provenance import Header
 
 
-def write_geojson(tbl: Table, header: dict, path: Path, rows: pa.Table | None = None) -> None:
+def write_geojson(tbl: Table, header: Header, path: Path, rows: pa.Table | None = None) -> None:
     if geo_kind(tbl.dataset) in ("polygon", "line"):
         return _write_shapes(tbl, header, path)
-    g = tbl.dataset.geometry
+    g = tbl.dataset.geometry_spec()
     t = json_view(rows if rows is not None else tbl.table)
     lon, lat = g["lon"], g["lat"]
     with path.open("w", encoding="utf-8", newline="\n") as f:
@@ -34,9 +39,10 @@ def write_geojson(tbl: Table, header: dict, path: Path, rows: pa.Table | None = 
             f.write("\n")
             f.write(dumps({"type": "Feature", "geometry": geom, "properties": row}))
         f.write("\n]}\n")
+    return None
 
 
-def _write_shapes(tbl, header: dict, path: Path) -> None:
+def _write_shapes(tbl: Table, header: Header, path: Path) -> None:
     """A FeatureCollection with one feature per row, its polygon or line, in GDA2020."""
     con = _connect()
     _with_geometry(con, tbl)
@@ -50,7 +56,7 @@ def _write_shapes(tbl, header: dict, path: Path) -> None:
     with path.open("w", encoding="utf-8", newline="\n") as f:
         f.write('{"type":"FeatureCollection","publicdata":')
         f.write(dumps(header))
-        f.write(',"crs_note":' + dumps(tbl.dataset.geometry.get("crs_note", "")))
+        f.write(',"crs_note":' + dumps(tbl.dataset.geometry_spec().get("crs_note", "")))
         f.write(',"features":[')
         first = True
         for b in rows.to_batches(5_000):

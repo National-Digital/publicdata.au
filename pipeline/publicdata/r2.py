@@ -16,14 +16,57 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
+import json
 import mimetypes
 import os
 import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from . import store as st
+from .catalogue import SLUG as CATALOGUE
+from .serialise.profile import follows, layout_body, layout_key
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Set as AbstractSet
+    from typing import NotRequired, TypedDict
+
+    from botocore.exceptions import ClientError
+    from mypy_boto3_s3 import S3Client
+    from mypy_boto3_s3.type_defs import HeadObjectOutputTypeDef
+
+    from .serialise.profile import Layout
+
+    class UploadArgs(TypedDict):
+        """An upload's ExtraArgs, which a conditional PUT takes as keywords."""
+
+        ContentType: str
+        Metadata: dict[str, str]
+        ContentEncoding: NotRequired[str]
+
+    class SharedReport(TypedDict):
+        objects: int
+        heads: int
+        gone: int
+        unhashed: int
+        bytes: int
+        copies: int
+        saved: int
+        across: int
+        by_ext: dict[str, list[int]]
+
+    # The state, bytes before and after, and the ETag and gzipped SHA-256 now stored.
+    type Restored = tuple[str, int, int, str | None, str | None]
 
 TYPES = {
     ".parquet": "application/vnd.apache.parquet",
@@ -46,9 +89,9 @@ VERSIONED = re.compile(r"(^|/)v/\d{4}-\d{2}-\d{2}/")
 PARTITION = re.compile(r"^(d/[^/]+/v/\d{4}-\d{2}-\d{2}/)by/")
 
 
-def client():
-    import boto3
-    from botocore.config import Config
+def client() -> S3Client:
+    import boto3  # noqa: PLC0415 - the deploy extra
+    from botocore.config import Config  # noqa: PLC0415 - the deploy extra
 
     token = os.environ.get("CLOUDFLARE_API_TOKEN")
     token_id = os.environ.get("CLOUDFLARE_API_TOKEN_ID")
@@ -74,7 +117,7 @@ def client():
     )
 
 
-def _etags(s3, bucket: str, prefix: str) -> dict[str, str]:
+def _etags(s3: S3Client, bucket: str, prefix: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
         out.update((o["Key"], o.get("ETag", "").strip('"')) for o in page.get("Contents", []))
@@ -126,13 +169,16 @@ def is_gzip(encoding: str | None) -> bool:
 
 
 def gzip_to(src: Path, dest: Path) -> None:
-    """No name and no mtime, so the bytes are a function of the input; at the level the csv.gz
-    writer uses, a CSV gzips to its data.csv.gz byte for byte."""
-    with src.open("rb") as f, dest.open("wb") as raw:
-        with gzip.GzipFile(
-            filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=GZIP_LEVEL
-        ) as gz:
-            shutil.copyfileobj(f, gz, 1 << 20)
+    """Gzip src to dest with no name and no mtime, so the bytes are a function of the input.
+
+    At the level the csv.gz writer uses, a CSV gzips to its data.csv.gz byte for byte.
+    """
+    with (
+        src.open("rb") as f,
+        dest.open("wb") as raw,
+        gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=GZIP_LEVEL) as gz,
+    ):
+        shutil.copyfileobj(f, gz, 1 << 20)
 
 
 def gunzip_to(src: Path, dest: Path) -> None:
@@ -145,8 +191,11 @@ def versioned(key: str) -> bool:
 
 
 def dated_file(key: str) -> bool:
-    """A dated version's file, which never changes, or a version's query copy, which push
-    rewrites only when its layout changes. A dated page says whether it is the newest, so it may."""
+    """Whether a key is a dated version's file or a version's query copy.
+
+    A dated version's file never changes, and push rewrites a query copy only when its layout
+    changes. A dated page says whether it is the newest, so it may.
+    """
     if key.startswith("_q/"):
         return True
     return versioned(key) and not key.endswith(("/index.html", "/index.md"))
@@ -162,7 +211,7 @@ def _scope(key: str, prefix: str) -> str:
 class _Ranged(io.RawIOBase):
     """An object read by byte range, so a Parquet footer is read without the whole file."""
 
-    def __init__(self, s3, bucket: str, key: str):
+    def __init__(self, s3: S3Client, bucket: str, key: str) -> None:
         self.s3, self.bucket, self.key, self.pos = s3, bucket, key, 0
         self.size = s3.head_object(Bucket=bucket, Key=key)["ContentLength"]
 
@@ -179,7 +228,7 @@ class _Ranged(io.RawIOBase):
         self.pos = (0, self.pos, self.size)[whence] + offset
         return self.pos
 
-    def readinto(self, b) -> int:
+    def readinto(self, b: bytearray | memoryview) -> int:  # type: ignore[override]  # io hands readinto a bytearray or a memoryview
         n = min(len(b), self.size - self.pos)
         if n <= 0:
             return 0
@@ -190,53 +239,58 @@ class _Ranged(io.RawIOBase):
         return len(got)
 
 
-def _follows(s3, bucket: str, key: str, lay: dict, etags: dict[str, str]) -> bool | None:
-    """Whether the query copy R2 holds at key follows layout lay: True or False from the record
-    beside it, which the listing settles, or, for a copy written before records were kept, from
-    its footer, None meaning it follows but has no record yet."""
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+def _follows(
+    s3: S3Client, bucket: str, key: str, lay: Layout, etags: dict[str, str]
+) -> bool | None:
+    """Whether the query copy R2 holds at key follows layout lay.
 
-    from .serialise.profile import follows, layout_body, layout_key
-
+    True or False comes from the record beside it, which the listing settles, or, for a copy
+    written before records were kept, from its footer, None meaning it follows but has no record
+    yet.
+    """
     mark = layout_key(key)
     if mark in etags:
         return etags[mark] == hashlib.md5(layout_body(lay), usedforsecurity=False).hexdigest()
     try:
         with _Ranged(s3, bucket, key) as f:
-            return None if follows(pq.read_metadata(f), lay) else False
+            meta = pq.read_metadata(f)  # type: ignore[arg-type]  # pyarrow reads any file object; its stubs name only IO
+            return None if follows(meta, lay) else False
     except pa.ArrowInvalid:
         return False
 
 
-def _record(s3, bucket: str, key: str, lay: dict) -> None:
-    from .serialise.profile import layout_body, layout_key
-
+def _record(s3: S3Client, bucket: str, key: str, lay: Layout) -> None:
     s3.put_object(
         Bucket=bucket, Key=layout_key(key), Body=layout_body(lay), ContentType=TYPES[".json"]
     )
 
 
-def push(
+# A single-part upload's ETag is its MD5 in hex; a multipart one carries a dash.
+MD5_HEX = 32
+
+
+def push(  # noqa: PLR0913 - the options are keyword-only and named at each call
     root: Path,
     bucket: str,
     prefix: str = "",
     replace: tuple[str, ...] = (),
-    immutable: Callable[[str], bool] = lambda key: True,
-    expect: list[str] = (),
-    include: Callable[[str], bool] = lambda key: True,
-    layouts: dict[str, dict] | None = None,
+    *,
+    immutable: Callable[[str], bool] = lambda _key: True,
+    expect: Sequence[str] = (),
+    include: Callable[[str], bool] = lambda _key: True,
+    layouts: dict[str, Layout] | None = None,
 ) -> int:
-    """Upload every file under root that include accepts. An existing immutable key is skipped unless it starts
-    with one of the replace prefixes, which name the versions whose serialisation was rebuilt on
-    purpose; the version notes for such a rebuild come from the pull request that made the fix. Every key in expect,
-    which a cached build left out, must already be in the bucket, or nothing is uploaded.
+    """Upload every file under root that include accepts.
+
+    An existing immutable key is skipped unless it starts with one of the replace prefixes, which
+    name the versions whose serialisation was rebuilt on purpose; the version notes for such a
+    rebuild come from the pull request that made the fix. Every key in expect, which a cached
+    build left out, must already be in the bucket, or nothing is uploaded.
 
     With layouts, each dataset's layout (`profile.layout`), a query copy is uploaded again only
     when the copy R2 holds follows another, and every query copy in expect must follow its
-    dataset's."""
-    from concurrent.futures import ThreadPoolExecutor
-
+    dataset's.
+    """
     s3 = client()
     files = sorted(x for x in root.rglob("*") if x.is_file())
     files = [p for p in files if include(prefix + str(p.relative_to(root)).replace(os.sep, "/"))]
@@ -250,7 +304,7 @@ def push(
     check_expected(expect, existing, replace)
     check_partitions(keys, existing, replace)
 
-    def layout_of(key: str) -> dict | None:
+    def layout_of(key: str) -> Layout | None:
         if layouts is None or not key.startswith("_q/"):
             return None
         if key.split("/")[1] not in layouts:
@@ -265,7 +319,7 @@ def push(
         )
     queries = [(k, lay) for k in expect if (lay := layout_of(k)) is not None]
     with ThreadPoolExecutor(WORKERS) as pool:
-        kept = list(pool.map(lambda q: _follows(s3, bucket, *q, etags), queries))
+        kept = list(pool.map(lambda q: _follows(s3, bucket, q[0], q[1], etags), queries))
     stale = [k for (k, _), ok in zip(queries, kept, strict=True) if ok is False]
     if stale:
         sys.exit(
@@ -282,15 +336,38 @@ def push(
     try:
         for p, key in zip(files, keys, strict=True):
             if (lay := layout_of(key)) is not None:
-                n += _push_query(s3, bucket, p, key, lay, etags)
+                n += _push_query(s3, bucket, p, key, lay, etags=etags)
                 continue
-            n += _push_one(s3, bucket, p, key, existing, etags, replace, immutable, tmp, gzipped)
+            n += _push_one(
+                s3,
+                bucket,
+                p,
+                key,
+                existing=existing,
+                etags=etags,
+                replace=replace,
+                immutable=immutable,
+                tmp=tmp,
+                gzipped=gzipped,
+            )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return n
 
 
-def _push_one(s3, bucket, p, key, existing, etags, replace, immutable, tmp, gzipped) -> int:
+def _push_one(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    s3: S3Client,
+    bucket: str,
+    p: Path,
+    key: str,
+    *,
+    existing: AbstractSet[str],
+    etags: dict[str, str],
+    replace: tuple[str, ...],
+    immutable: Callable[[str], bool],
+    tmp: Path,
+    gzipped: dict[str, str],
+) -> int:
     forced = key.startswith(replace or ("\0",))
     if key in existing and not forced and immutable(key):
         return 0
@@ -298,16 +375,16 @@ def _push_one(s3, bucket, p, key, existing, etags, replace, immutable, tmp, gzip
     if (
         key.endswith(".csv.gz")
         and not (forced and key in existing)
-        and _aliased(s3, bucket, p, key, existing, etags, gzipped)
+        and _aliased(s3, bucket, p, key, existing=existing, etags=etags, gzipped=gzipped)
     ):
-        print(f"alias {bucket}/{key} (served from {key[:-3]})")
+        print(f"alias {bucket}/{key} (served from {key[:-3]})")  # noqa: T201 - the deploy log
         return 0
     digest = None
     if key in existing and not forced:
         # A single-part upload's ETag is the MD5 of its bytes, so the listing settles most
         # mutable keys without a HEAD each; a multipart one is checked by its stored SHA-256.
         tag = etags[key]
-        if len(tag) == 32 and "-" not in tag:
+        if len(tag) == MD5_HEX and "-" not in tag:
             if tag == _md5(p):
                 return 0
         else:
@@ -321,33 +398,44 @@ def _push_one(s3, bucket, p, key, existing, etags, replace, immutable, tmp, gzip
     if stored_gzipped(key, size):
         gz = tmp / "body.gz"
         gzip_to(p, gz)
-        s3.upload_file(str(gz), bucket, key, ExtraArgs=gzip_args(ctype, digest, size))
+        s3.upload_file(str(gz), bucket, key, ExtraArgs=dict(gzip_args(ctype, digest, size)))
         gzipped[key] = _sha256(gz)
-        print(f"put {bucket}/{key} ({size} bytes, {gz.stat().st_size} gzipped)")
+        print(f"put {bucket}/{key} ({size} bytes, {gz.stat().st_size} gzipped)")  # noqa: T201 - the deploy log
         gz.unlink()
         return 1
     s3.upload_file(
         str(p), bucket, key, ExtraArgs={"ContentType": ctype, "Metadata": {"sha256": digest}}
     )
-    print(f"put {bucket}/{key} ({size} bytes)")
+    print(f"put {bucket}/{key} ({size} bytes)")  # noqa: T201 - the deploy log
     return 1
 
 
-def _aliased(s3, bucket, p, key, existing, etags, gzipped) -> bool:
-    """Whether the stored CSV beside a data.csv.gz is its bytes already: gzipped by this push, or
-    by an earlier one that stopped before it finished."""
+def _aliased(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    s3: S3Client,
+    bucket: str,
+    p: Path,
+    key: str,
+    *,
+    existing: AbstractSet[str],
+    etags: dict[str, str],
+    gzipped: dict[str, str],
+) -> bool:
+    """Whether the stored CSV beside a data.csv.gz is its bytes already.
+
+    They are when this push gzipped it, or an earlier one that stopped before it finished.
+    """
     csv = key[:-3]
     if csv in gzipped:
         return gzipped[csv] == _sha256(p)
     if csv not in existing:
         return False
     tag = etags.get(csv, "")
-    if len(tag) != 32 or "-" in tag or tag != _md5(p):
+    if len(tag) != MD5_HEX or "-" in tag or tag != _md5(p):
         return False
     return is_gzip(s3.head_object(Bucket=bucket, Key=csv).get("ContentEncoding"))
 
 
-def gzip_args(ctype: str, sha256: str, size: int) -> dict:
+def gzip_args(ctype: str, sha256: str, size: int) -> UploadArgs:
     return {
         "ContentType": ctype,
         "ContentEncoding": "gzip",
@@ -355,20 +443,22 @@ def gzip_args(ctype: str, sha256: str, size: int) -> dict:
     }
 
 
-def _built_to(p: Path, lay: dict | None) -> bool:
+def _built_to(p: Path, lay: Layout | None) -> bool:
     """Whether a local query copy follows lay, so the record written beside it is true."""
     if lay is None:
         return True
-    import pyarrow.parquet as pq
-
-    from .serialise.profile import follows
 
     return follows(pq.read_metadata(p), lay)
 
 
-def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, etags: dict[str, str]) -> int:
-    """Upload a query copy unless R2's follows lay. The record is written after the upload, so it
-    never names a layout the copy in R2 does not follow."""
+def _push_query(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    s3: S3Client, bucket: str, p: Path, key: str, lay: Layout, *, etags: dict[str, str]
+) -> int:
+    """Upload a query copy unless R2's follows lay.
+
+    The record is written after the upload, so it never names a layout the copy in R2 does not
+    follow.
+    """
     if key in etags and (ok := _follows(s3, bucket, key, lay, etags)) is not False:
         if ok is None:
             _record(s3, bucket, key, lay)
@@ -380,11 +470,13 @@ def _push_query(s3, bucket: str, p: Path, key: str, lay: dict, etags: dict[str, 
         ExtraArgs={"ContentType": TYPES[".parquet"], "Metadata": {"sha256": _sha256(p)}},
     )
     _record(s3, bucket, key, lay)
-    print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")
+    print(f"put {bucket}/{key} ({p.stat().st_size} bytes)")  # noqa: T201 - the deploy log
     return 1
 
 
-def check_expected(expect, existing: set[str], replace: tuple[str, ...] = ()) -> None:
+def check_expected(
+    expect: Iterable[str], existing: set[str], replace: tuple[str, ...] = ()
+) -> None:
     rebuilt = [k for k in expect if replace and k.startswith(replace)]
     if rebuilt:
         sys.exit(
@@ -403,11 +495,15 @@ def check_expected(expect, existing: set[str], replace: tuple[str, ...] = ()) ->
         )
 
 
-def check_partitions(keys, existing: set[str], replace: tuple[str, ...] = ()) -> None:
-    """A partition file R2 lacks in a version whose manifest R2 holds would add a file to a
-    published version, which a change to `partition_by` does to every version it rebuilds. Only a
-    replace may, so nothing is uploaded. A version is pushed in key order, so by/ goes up before
-    its manifest and a push cut short is finished by the next one."""
+def check_partitions(
+    keys: Iterable[str], existing: set[str], replace: tuple[str, ...] = ()
+) -> None:
+    """Refuse a push that adds partition files to a version R2 holds the manifest of.
+
+    That would add a file to a published version, which a change to `partition_by` does to every
+    version it rebuilds. Only a replace may, so nothing is uploaded. A version is pushed in key
+    order, so by/ goes up before its manifest and a push cut short is finished by the next one.
+    """
     added = sorted(
         {
             m.group(1)
@@ -430,16 +526,17 @@ def pull_store(
     store: Path,
     bucket: str = "publicdata-raw",
     only: tuple[str, ...] = (),
-    skip: set[tuple[str, str]] = frozenset(),
+    skip: AbstractSet[tuple[str, str]] = frozenset(),
+    *,
     newest: bool = False,
 ) -> int:
-    """Fetch every source file a committed manifest names and is missing locally, except the
-    versions in skip, which the build takes from its cache. Only the newest catalogue snapshot is
-    needed to build, and of a rolling source's fetches that are no snapshot, only the newest,
-    which latest/ serves. With newest, only each dataset's newest fetch is fetched."""
-    from . import store as st
-    from .catalogue import SLUG as CATALOGUE
+    """Fetch every source file a committed manifest names and is missing locally.
 
+    The versions in skip are left out, since the build takes them from its cache. Only the newest
+    catalogue snapshot is needed to build, and of a rolling source's fetches that are no snapshot,
+    only the newest, which latest/ serves. With newest, only each dataset's newest fetch is
+    fetched.
+    """
     s3 = client()
     n = 0
     paths = sorted(store.glob("*/*/manifest.json"))
@@ -459,36 +556,54 @@ def pull_store(
                 continue
             key = f"{m.dataset}/{m.version}/{dest.name}"
             try:
-                s3.download_file(bucket, key, str(dest))
-                if st.sha256_file(dest) != sha:
-                    raise ValueError(f"{dest}: sha256 does not match the manifest")
-            except Exception as e:  # noqa: BLE001 - the fetch reports the dataset it holds back
+                _download_checked(s3, bucket, key, dest, sha)
+            except Exception as e:
                 if not newest:
                     raise
                 dest.unlink(missing_ok=True)
-                print(f"WARNING {m.dataset}: {key} not pulled ({e}); its fetch will be held back")
+                print(f"WARNING {m.dataset}: {key} not pulled ({e}); its fetch will be held back")  # noqa: T201 - the deploy log
                 continue
             n += 1
-            print(f"got {bucket}/{key}")
-    # A feed's newest read, beside its folders and rewritten by every fetch, so always read again.
-    # A feed without one carries last_seen to its newest fetch alone.
+            print(f"got {bucket}/{key}")  # noqa: T201 - the deploy log
     if not newest:
-        for slug in sorted({p.parts[-3] for p in paths if not only or p.parts[-3] in only}):
-            if not st.Manifest.read(last[slug]).history:
-                continue
-            dest = st.read_path(store, slug)
-            try:
-                s3.download_file(bucket, f"{slug}/read.json", str(dest))
-                n += 1
-            except Exception:  # noqa: BLE001 - absent until the feed's first quiet read
-                dest.unlink(missing_ok=True)
+        slugs = sorted({p.parts[-3] for p in paths if not only or p.parts[-3] in only})
+        n += _pull_reads(s3, bucket, store, [last[slug] for slug in slugs])
     return n
 
 
+def _pull_reads(s3: S3Client, bucket: str, store: Path, newest: list[Path]) -> int:
+    """Fetch each feed's newest read, given the newest manifest of each dataset.
+
+    It sits beside the feed's folders and every fetch rewrites it, so it is always read again. A
+    feed without one carries last_seen to its newest fetch alone.
+    """
+    n = 0
+    for mp in newest:
+        if not st.Manifest.read(mp).history:
+            continue
+        slug = mp.parts[-3]
+        dest = st.read_path(store, slug)
+        try:
+            s3.download_file(bucket, f"{slug}/read.json", str(dest))
+            n += 1
+        except Exception:  # noqa: BLE001 - absent until the feed's first quiet read
+            dest.unlink(missing_ok=True)
+    return n
+
+
+def _download_checked(s3: S3Client, bucket: str, key: str, dest: Path, sha256: str) -> None:
+    s3.download_file(bucket, key, str(dest))
+    if st.sha256_file(dest) != sha256:
+        msg = f"{dest}: sha256 does not match the manifest"
+        raise ValueError(msg)
+
+
 def downloader(bucket: str) -> Callable[[str, Path], bool]:
-    """download(key, path) for a bucket, False when the key is not there. One client serves every
-    thread."""
-    from botocore.exceptions import ClientError
+    """download(key, path) for a bucket, False when the key is not there.
+
+    One client serves every thread.
+    """
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
 
     s3 = client()
 
@@ -506,9 +621,11 @@ def downloader(bucket: str) -> Callable[[str, Path], bool]:
     return download
 
 
-def decode_stored(s3, bucket: str, key: str, dest: Path) -> None:
-    """Turn a downloaded object stored gzipped back into the file it was, checked against the
-    SHA-256 stored with it. Only bytes that open like gzip cost a HEAD."""
+def decode_stored(s3: S3Client, bucket: str, key: str, dest: Path) -> None:
+    """Turn a downloaded object stored gzipped back into the file it was.
+
+    It is checked against the SHA-256 stored with it. Only bytes that open like gzip cost a HEAD.
+    """
     with dest.open("rb") as f:
         if f.read(2) != GZIP_MAGIC:
             return
@@ -525,36 +642,53 @@ def decode_stored(s3, bucket: str, key: str, dest: Path) -> None:
     plain.replace(dest)
 
 
-CACHE_BUCKET = "publicdata-raw"
-CACHE_PREFIX = "_build/"
+# Apart from the raw store, so the fetch runner's credential cannot plant an entry a deploy reuses.
+CACHE_BUCKET = "publicdata-build-cache"
 # When each entry the last pruning push found unused was first found so; it is deleted only once
 # it has stayed unused this long, so a preview that listed it beforehand still finds it whole.
-UNUSED = CACHE_PREFIX + ".unused.json"
+UNUSED = ".unused.json"
 GRACE_HOURS = 24
 WORKERS = 16
 
 
-def _missing(e) -> bool:
+def _missing(e: ClientError) -> bool:
     return e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey")
 
 
-def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = None) -> int:
-    """Copy the build cache down from R2 into root, each entry's meta.json last, so an entry whose
-    files did not all arrive is never taken for whole; an entry deleted while it was copied is
-    left out. With meta_only, the records alone, which is all a plan needs. With entries, only
-    those."""
-    from concurrent.futures import ThreadPoolExecutor
+# A cache key (BuildCache.key), or a social card's; any other object in the bucket is left alone.
+ENTRY = re.compile(r"(card-)?[0-9a-f]{64}")
 
-    from botocore.exceptions import ClientError
+
+def _entry(key: str) -> str:
+    return key.split("/", 1)[0]
+
+
+def _cached(key: str) -> bool:
+    parts = key.split("/")
+    return (
+        len(parts) > 1 and bool(ENTRY.fullmatch(parts[0])) and ".." not in parts and "" not in parts
+    )
+
+
+def cache_pull(
+    root: Path,
+    *,
+    meta_only: bool = False,
+    entries: set[str] | None = None,
+    bucket: str = CACHE_BUCKET,
+) -> int:
+    """Copy the build cache down from R2 into root, each entry's meta.json last.
+
+    An entry whose files did not all arrive is never taken for whole, and an entry deleted while
+    it was copied is left out. With meta_only, the records alone are copied, which is all a plan
+    needs. With entries, only those are copied.
+    """
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
 
     s3 = client()
-    keys = [
-        k
-        for k in _etags(s3, CACHE_BUCKET, CACHE_PREFIX)
-        if not k.endswith("/") and not k[len(CACHE_PREFIX) :].startswith(".")
-    ]
+    keys = [k for k in _etags(s3, bucket, "") if _cached(k)]
     if entries is not None:
-        keys = [k for k in keys if k.split("/")[1] in entries]
+        keys = [k for k in keys if _entry(k) in entries]
     if meta_only:
         keys = [k for k in keys if k.endswith("/meta.json")]
     files = [k for k in keys if not k.endswith("/meta.json")]
@@ -562,13 +696,13 @@ def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = N
     gone: set[str] = set()
 
     def get(key: str) -> bool:
-        entry = key.split("/")[1]
+        entry = _entry(key)
         if entry in gone:
             return False
-        dest = root / key[len(CACHE_PREFIX) :]
+        dest = root / key
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
-            s3.download_file(CACHE_BUCKET, key, str(dest))
+            s3.download_file(bucket, key, str(dest))
         except ClientError as e:
             if not _missing(e):
                 raise
@@ -579,14 +713,13 @@ def cache_pull(root: Path, meta_only: bool = False, entries: set[str] | None = N
 
     with ThreadPoolExecutor(WORKERS) as pool:
         list(pool.map(get, files))
-        got = sum(pool.map(get, [k for k in metas if k.split("/")[1] not in gone]))
-    return got
+        return sum(pool.map(get, [k for k in metas if _entry(k) not in gone]))
 
 
-def _delete(s3, keys: list[str]) -> None:
+def _delete(s3: S3Client, bucket: str, keys: list[str]) -> None:
     for i in range(0, len(keys), 1000):
         r = s3.delete_objects(
-            Bucket=CACHE_BUCKET,
+            Bucket=bucket,
             Delete={"Objects": [{"Key": k} for k in keys[i : i + 1000]], "Quiet": True},
         )
         if r.get("Errors"):
@@ -597,33 +730,37 @@ def _delete(s3, keys: list[str]) -> None:
             )
 
 
-def _unused(s3) -> dict[str, str]:
-    import json
-
-    from botocore.exceptions import ClientError
+def _unused(s3: S3Client, bucket: str) -> dict[str, str]:
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
 
     try:
-        body = s3.get_object(Bucket=CACHE_BUCKET, Key=UNUSED)["Body"].read()
+        body = s3.get_object(Bucket=bucket, Key=UNUSED)["Body"].read()
     except ClientError as e:
         if _missing(e):
             return {}
         raise
-    return json.loads(body)
+    unused: dict[str, str] = json.loads(body)
+    return unused
 
 
-def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
-    """Upload the entries under root that R2 lacks or holds in another form, files before each
-    meta.json. With prune, R2's entries that root no longer holds are noted as unused, and those
-    a push noted GRACE_HOURS or more ago are deleted, meta.json first; so run it only from a build
-    that pruned root to the entries the store can use. Returns (uploaded, deleted)."""
-    import json
-    from concurrent.futures import ThreadPoolExecutor
-    from datetime import UTC, datetime, timedelta
+def cache_push(
+    root: Path,
+    *,
+    prune: bool = False,
+    now: datetime | None = None,
+    bucket: str = CACHE_BUCKET,
+) -> tuple[int, int]:
+    """Upload the entries under root that R2 lacks or holds in another form.
 
+    Files go before each meta.json. With prune, R2's entries that root no longer holds are noted
+    as unused, and those a push noted GRACE_HOURS or more ago are deleted, meta.json first; so run
+    it only from a build that pruned root to the entries the store can use. Returns (uploaded,
+    deleted).
+    """
     s3 = client()
-    remote = {k: v for k, v in _etags(s3, CACHE_BUCKET, CACHE_PREFIX).items() if k != UNUSED}
+    remote = {k: v for k, v in _etags(s3, bucket, "").items() if _cached(k)}
     local = {
-        CACHE_PREFIX + p.relative_to(root).as_posix(): p
+        p.relative_to(root).as_posix(): p
         for p in sorted(root.rglob("*"))
         if p.is_file() and not p.relative_to(root).parts[0].startswith(".")
     }
@@ -632,9 +769,9 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
         tag = remote.get(key)
         if tag is None:
             return True
-        if len(tag) == 32 and "-" not in tag:
+        if len(tag) == MD5_HEX and "-" not in tag:
             return tag != _md5(local[key])
-        meta = s3.head_object(Bucket=CACHE_BUCKET, Key=key).get("Metadata", {})
+        meta = s3.head_object(Bucket=bucket, Key=key).get("Metadata", {})
         return meta.get("sha256") != _sha256(local[key])
 
     def put(key: str) -> None:
@@ -642,7 +779,7 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
         ctype = TYPES.get(p.suffix) or "application/octet-stream"
         s3.upload_file(
             str(p),
-            CACHE_BUCKET,
+            bucket,
             key,
             ExtraArgs={"ContentType": ctype, "Metadata": {"sha256": _sha256(p)}},
         )
@@ -654,22 +791,20 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
     if not prune:
         return len(todo), 0
     now = now or datetime.now(UTC)
-    held = {k.split("/")[1] for k in local}
-    seen = _unused(s3)
-    unused = {
-        e: seen.get(e, now.isoformat()) for e in sorted({k.split("/")[1] for k in remote} - held)
-    }
+    held = {_entry(k) for k in local}
+    seen = _unused(s3, bucket)
+    unused = {e: seen.get(e, now.isoformat()) for e in sorted({_entry(k) for k in remote} - held)}
     due = {
         e
         for e, t in unused.items()
         if now - datetime.fromisoformat(t) >= timedelta(hours=GRACE_HOURS)
     }
-    gone = sorted(k for k in remote if k.split("/")[1] in due)
+    gone = sorted(k for k in remote if _entry(k) in due)
     # Without its meta.json an entry is a miss, so one that is half deleted is never read as whole.
-    _delete(s3, [k for k in gone if k.endswith("/meta.json")])
-    _delete(s3, [k for k in gone if not k.endswith("/meta.json")])
+    _delete(s3, bucket, [k for k in gone if k.endswith("/meta.json")])
+    _delete(s3, bucket, [k for k in gone if not k.endswith("/meta.json")])
     s3.put_object(
-        Bucket=CACHE_BUCKET,
+        Bucket=bucket,
         Key=UNUSED,
         Body=json.dumps({e: t for e, t in unused.items() if e not in due}, indent=0).encode(),
         ContentType="application/json",
@@ -678,31 +813,30 @@ def cache_push(root: Path, prune: bool = False, now=None) -> tuple[int, int]:
 
 
 def source_keys(root: Path) -> dict[str, str]:
-    """The raw store key of each publisher's file the versions under root list, by the URL path
-    the /d/ function serves it at."""
-    import json
+    """The raw store key of each publisher's file the versions under root list.
 
-    from . import store
-
+    Each is keyed by the URL path the /d/ function serves it at.
+    """
     out = {}
     for man in sorted(root.glob("d/*/v/*/manifest.json")):
         m = json.loads(man.read_text(encoding="utf-8"))
         if m.get("source_withheld"):
             continue
         slug, version = man.parts[-4], man.parts[-2]
-        ext = store.ext_of(m.get("filename", ""))
+        ext = st.ext_of(m.get("filename", ""))
         out[f"d/{slug}/v/{version}/source.{ext}"] = f"{slug}/{version}/source.{ext}"
     return out
 
 
 def check_sources(roots: list[Path], bucket: str = "publicdata-raw") -> int:
-    """Every version under the roots has its publisher's file in the raw store, which is where
-    the site serves it from. Returns how many were checked."""
+    """Check every version under the roots has its publisher's file in the raw store.
+
+    The raw store is where the site serves the file from. Returns how many were checked.
+    """
     s3 = client()
-    want = {}
+    want: dict[str, str] = {}
     for r in roots:
         want |= source_keys(r)
-    from concurrent.futures import ThreadPoolExecutor
 
     slugs = sorted({v.split("/")[0] + "/" for v in want.values()})
     with ThreadPoolExecutor(WORKERS) as pool:
@@ -716,7 +850,7 @@ def check_sources(roots: list[Path], bucket: str = "publicdata-raw") -> int:
     return len(want)
 
 
-def _listing(s3, bucket: str, prefix: str) -> dict[str, tuple[int, str]]:
+def _listing(s3: S3Client, bucket: str, prefix: str) -> dict[str, tuple[int, str]]:
     out: dict[str, tuple[int, str]] = {}
     for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
         out.update(
@@ -730,73 +864,64 @@ def _listing(s3, bucket: str, prefix: str) -> dict[str, tuple[int, str]]:
 PUT_MAX = 5 * 1024**3 - 1
 
 
-def restore_gzip(
+def restore_gzip(  # noqa: C901, PLR0913, PLR0915 - one pass, its checks in order; keyword options
+    *,
     bucket: str = "publicdata-dist",
     prefix: str = "d/",
     apply: bool = False,
     workers: int = 4,
     dedupe_csv_gz: bool = False,
     kept: Path | None = None,
-) -> dict:
-    """Store the dated text files that went up before gzip at rest gzipped, in place at the same
-    key. Each object's bytes are checked against the hash it was stored with before it is
-    rewritten, and read back and checked again after; an object that fails the second check is put
-    back as it was. Both writes are conditional on the ETag the run last saw, so a deploy that
-    writes the key meanwhile is never undone. An object already marked gzip is skipped, so a run
-    that stops can be run again. Without apply it counts from the listing alone. With
-    dedupe_csv_gz, a version's separate data.csv.gz is deleted once its bytes are those of the
-    gzipped data.csv beside it. Returns the totals it printed."""
-    from concurrent.futures import ThreadPoolExecutor
+) -> dict[str, int]:
+    """Store the dated text files that went up before gzip at rest gzipped, in place.
 
+    Each object's bytes are checked against the hash it was stored with before it is rewritten
+    at the same key, and read back and checked again after; an object that fails the second check
+    is put back as it was. Both writes are conditional on the ETag the run last saw, so a deploy
+    that writes the key meanwhile is never undone. An object already marked gzip is skipped, so a
+    run that stops can be run again. Without apply it counts from the listing alone. With
+    dedupe_csv_gz, a version's separate data.csv.gz is deleted once its bytes are those of the
+    gzipped data.csv beside it. Returns the totals it printed.
+    """
     s3 = client()
     listing = _listing(s3, bucket, prefix)
-    todo = {k for k, (n, _) in listing.items() if stored_gzipped(k, n)}
+    candidates = {k for k, (n, _) in listing.items() if stored_gzipped(k, n)}
     if apply and dedupe_csv_gz:
         # A CSV gzipped earlier can be listed below the size that makes it a candidate.
-        todo |= {k for k in listing if k + ".gz" in listing and stored_gzipped(k, GZIP_MIN)}
-    todo = sorted(todo)
+        candidates |= {k for k in listing if k + ".gz" in listing and stored_gzipped(k, GZIP_MIN)}
+    todo = sorted(candidates)
     totals = {"objects": len(todo), "done": 0, "already": 0, "failed": 0, "before": 0}
     totals |= {"after": 0, "skipped": 0, "deduped": 0, "deduped_bytes": 0}
     if not apply:
-        by_ext: dict[str, list[int]] = {}
-        for k in todo:
-            e = by_ext.setdefault(k.rsplit(".", 1)[-1], [0, 0])
-            e[0] += 1
-            e[1] += listing[k][0]
-            totals["before"] += listing[k][0]
-        for ext, (n, size) in sorted(by_ext.items()):
-            print(f"restore: .{ext} {n} object(s), {size} bytes")
-        print(
-            f"restore: dry run, {len(todo)} object(s) of {totals['before']} bytes listed; one "
-            "already gzipped counts at its stored size. Pass --apply to rewrite them."
-        )
-        totals["saved"] = 0
-        return totals
+        return _restore_dry_run(todo, listing, totals)
     tmp = Path(tempfile.mkdtemp(prefix="restore-gzip-"))
-    kept = kept or Path.cwd() / "restore-gzip-kept"
+    kept_dir = kept or Path.cwd() / "restore-gzip-kept"
 
     def one(key: str) -> tuple[str, int, int, int]:
         size = listing[key][0]
         work = Path(tempfile.mkdtemp(dir=tmp))
         try:
             head = s3.head_object(Bucket=bucket, Key=key)
+            restored: Restored
             if is_gzip(head.get("ContentEncoding")):
-                state, before, after, etag, gz_sha = "already", size, size, head.get("ETag"), None
+                restored = ("already", size, size, head.get("ETag"), None)
             elif size < GZIP_MIN:
                 return "skipped", size, size, 0
             else:
-                state, before, after, etag, gz_sha = _restore_one(s3, bucket, key, head, work, kept)
+                restored = _restore_one(s3, bucket, key, head=head, work=work, kept=kept_dir)
+            state, before, after, etag, gz_sha = restored
             freed = 0
             if dedupe_csv_gz and key.endswith(".csv"):
-                freed = _dedupe_csv_gz(s3, bucket, key, listing, etag, gz_sha)
-            return state, before, after, freed
-        except Exception as e:  # one bad object must not stop the run
-            print(f"restore: {key} FAILED {e}", file=sys.stderr)
+                freed = _dedupe_csv_gz(s3, bucket, key, listing, etag=etag, gz_sha=gz_sha)
+        except Exception as e:  # noqa: BLE001 - one bad object must not stop the run
+            print(f"restore: {key} FAILED {e}", file=sys.stderr)  # noqa: T201 - the run's log
             return "failed", size, size, 0
+        else:
+            return state, before, after, freed
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    by_ext = {}
+    by_ext: dict[str, list[int]] = {}
     try:
         with ThreadPoolExecutor(workers) as pool:
             for key, (state, before, after, freed) in zip(todo, pool.map(one, todo), strict=True):
@@ -804,10 +929,10 @@ def restore_gzip(
                 if freed:
                     totals["deduped"] += 1
                     totals["deduped_bytes"] += freed
-                    print(f"delete {bucket}/{key}.gz: served from {key} ({freed} bytes)")
+                    print(f"delete {bucket}/{key}.gz: served from {key} ({freed} bytes)")  # noqa: T201 - the run's log
                 if state != "done":
                     continue
-                print(f"gzip {bucket}/{key}: {before} -> {after} bytes")
+                print(f"gzip {bucket}/{key}: {before} -> {after} bytes")  # noqa: T201 - the run's log
                 totals["before"] += before
                 totals["after"] += after
                 e = by_ext.setdefault(key.rsplit(".", 1)[-1], [0, 0, 0])
@@ -817,24 +942,53 @@ def restore_gzip(
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     for ext, (n, before, after) in sorted(by_ext.items()):
-        print(f"restore: .{ext} {n} object(s), {before} -> {after} bytes, {before - after} saved")
+        print(f"restore: .{ext} {n} object(s), {before} -> {after} bytes, {before - after} saved")  # noqa: T201 - the run's log
     totals["saved"] = totals["before"] - totals["after"] + totals["deduped_bytes"]
-    print(
-        f"restore: {totals['done']} object(s) gzipped, {totals['saved']} bytes saved"
-        f"{f' with {totals["deduped"]} data.csv.gz deleted' if totals['deduped'] else ''}; "
+    deleted = f" with {totals['deduped']} data.csv.gz deleted" if totals["deduped"] else ""
+    print(  # noqa: T201 - the run's log
+        f"restore: {totals['done']} object(s) gzipped, {totals['saved']} bytes saved{deleted}; "
         f"{totals['already']} were already, {totals['failed']} failed"
     )
     return totals
 
 
+def _restore_dry_run(
+    todo: list[str], listing: dict[str, tuple[int, str]], totals: dict[str, int]
+) -> dict[str, int]:
+    by_ext: dict[str, list[int]] = {}
+    for k in todo:
+        e = by_ext.setdefault(k.rsplit(".", 1)[-1], [0, 0])
+        e[0] += 1
+        e[1] += listing[k][0]
+        totals["before"] += listing[k][0]
+    for ext, (n, size) in sorted(by_ext.items()):
+        print(f"restore: .{ext} {n} object(s), {size} bytes")  # noqa: T201 - the run's log
+    print(  # noqa: T201 - the run's log
+        f"restore: dry run, {len(todo)} object(s) of {totals['before']} bytes listed; one "
+        "already gzipped counts at its stored size. Pass --apply to rewrite them."
+    )
+    totals["saved"] = 0
+    return totals
+
+
 def _single_md5(tag: str | None) -> str | None:
     tag = (tag or "").strip('"')
-    return tag if len(tag) == 32 and "-" not in tag else None
+    return tag if len(tag) == MD5_HEX and "-" not in tag else None
 
 
-def _dedupe_csv_gz(s3, bucket, key, listing, etag, gz_sha) -> int:
-    """Deletes key.gz when it holds the bytes now stored at key, so the function's alias serves
-    it. Returns the bytes freed."""
+def _dedupe_csv_gz(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    s3: S3Client,
+    bucket: str,
+    key: str,
+    listing: dict[str, tuple[int, str]],
+    *,
+    etag: str | None,
+    gz_sha: str | None,
+) -> int:
+    """Deletes key.gz when it holds the bytes now stored at key, so the function's alias serves it.
+
+    Returns the bytes freed.
+    """
     gz_key = key + ".gz"
     if gz_key not in listing:
         return 0
@@ -848,56 +1002,164 @@ def _dedupe_csv_gz(s3, bucket, key, listing, etag, gz_sha) -> int:
     return size
 
 
-def _put(s3, bucket: str, key: str, body: Path, if_match: str, args: dict) -> str:
+def _put(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    s3: S3Client, bucket: str, key: str, body: Path, *, if_match: str, args: UploadArgs
+) -> str:
     if body.stat().st_size > PUT_MAX:
-        raise ValueError(f"{body.stat().st_size} bytes is over what one conditional PUT writes")
+        msg = f"{body.stat().st_size} bytes is over what one conditional PUT writes"
+        raise ValueError(msg)
     with body.open("rb") as f:
         r = s3.put_object(Bucket=bucket, Key=key, Body=f, IfMatch=if_match, **args)
     return r["ETag"]
 
 
-def _restore_one(s3, bucket: str, key: str, head: dict, work: Path, kept: Path):
-    plain, gz, back, check = work / "plain", work / "body.gz", work / "back.gz", work / "check"
+def _restore_one(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    s3: S3Client,
+    bucket: str,
+    key: str,
+    *,
+    head: HeadObjectOutputTypeDef,
+    work: Path,
+    kept: Path,
+) -> Restored:
+    plain, gz = work / "plain", work / "body.gz"
     s3.download_file(bucket, key, str(plain))
     digest, size = _sha256(plain), plain.stat().st_size
     want = head.get("Metadata", {}).get("sha256")
     tag = _single_md5(head.get("ETag"))
     if want and want != digest:
-        raise ValueError(f"read back as {digest}, stored with {want}")
+        msg = f"read back as {digest}, stored with {want}"
+        raise ValueError(msg)
     if not want and tag and tag != _md5(plain):
-        raise ValueError("read back with an MD5 that is not its ETag")
+        msg = "read back with an MD5 that is not its ETag"
+        raise ValueError(msg)
     if size != head.get("ContentLength", size):
-        raise ValueError(f"read back {size} bytes of {head['ContentLength']}")
+        msg = f"read back {size} bytes of {head['ContentLength']}"
+        raise ValueError(msg)
     gzip_to(plain, gz)
-    gunzip_to(gz, check)
-    if _sha256(check) != digest:
-        raise ValueError("does not survive gzip")
+    gunzip_to(gz, work / "check")
+    if _sha256(work / "check") != digest:
+        msg = "does not survive gzip"
+        raise ValueError(msg)
     ctype = head.get("ContentType") or TYPES.get(Path(key).suffix) or "application/octet-stream"
     args = gzip_args(ctype, digest, size)
     args["Metadata"] = {**head.get("Metadata", {}), **args["Metadata"]}
-    etag = _put(s3, bucket, key, gz, head["ETag"], args)
+    etag = _put(s3, bucket, key, gz, if_match=head["ETag"], args=args)
     try:
-        s3.download_file(bucket, key, str(back))
-        if not is_gzip(s3.head_object(Bucket=bucket, Key=key).get("ContentEncoding")):
-            raise ValueError("is not marked gzip after the rewrite")
-        with back.open("rb") as f:
-            magic = f.read(2)
-        if magic == GZIP_MAGIC:
-            gunzip_to(back, check)
-        else:
-            back.replace(check)
-        if _sha256(check) != digest:
-            raise ValueError("does not decode to its bytes after the rewrite")
+        _check_rewrite(s3, bucket, key, work, digest)
     except Exception as e:
-        original = {"ContentType": ctype, "Metadata": head.get("Metadata", {})}
+        original: UploadArgs = {"ContentType": ctype, "Metadata": head.get("Metadata", {})}
         try:
-            _put(s3, bucket, key, plain, etag, original)
-        except Exception as again:
+            _put(s3, bucket, key, plain, if_match=etag, args=original)
+        except Exception as again:  # noqa: BLE001 - whatever stops it, the original is kept
             dest = kept / key
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(plain), dest)
-            raise ValueError(
-                f"{e}, and was not put back ({again}); the original is at {dest}"
-            ) from e
+            msg = f"{e}, and was not put back ({again}); the original is at {dest}"
+            raise ValueError(msg) from e
         raise
     return "done", size, gz.stat().st_size, etag, _sha256(gz)
+
+
+def _check_rewrite(s3: S3Client, bucket: str, key: str, work: Path, digest: str) -> None:
+    """Read a rewritten object back and check it decodes to the bytes it was."""
+    back, check = work / "back.gz", work / "check"
+    s3.download_file(bucket, key, str(back))
+    if not is_gzip(s3.head_object(Bucket=bucket, Key=key).get("ContentEncoding")):
+        msg = "is not marked gzip after the rewrite"
+        raise ValueError(msg)
+    with back.open("rb") as f:
+        magic = f.read(2)
+    if magic == GZIP_MAGIC:
+        gunzip_to(back, check)
+    else:
+        back.replace(check)
+    if _sha256(check) != digest:
+        msg = "does not decode to its bytes after the rewrite"
+        raise ValueError(msg)
+
+
+def shared_report(  # noqa: C901 - one pass over the listing, grouped and joined in order
+    *, bucket: str = "publicdata-dist", prefix: str = "d/", workers: int = 8
+) -> SharedReport:
+    """What storing each distinct dated file once would save, by extension.
+
+    It is read without changing the bucket. Objects are grouped by stored size, and two in a group
+    are the same when their ETags match, which compares the stored bytes, or the SHA-256 in their
+    metadata does, which since #51 is of the decoded bytes for a gzipped object. Sameness is
+    transitive, so a file matching one copy by ETag and another by SHA-256 joins both. A
+    single-part ETag is an MD5, so two that differ settle it; a HEAD is sent only in a group
+    holding a multipart ETag, whose value depends on how the file was uploaded. A HEADed file
+    without a SHA-256 can match only on its ETag and is counted as `unhashed`. A key deleted while
+    the report runs is left out. `across` is what storing each file once would save beyond storing
+    it once per dataset.
+    """
+    from botocore.exceptions import ClientError  # noqa: PLC0415 - the deploy extra
+
+    s3 = client()
+    listing = {k: v for k, v in _listing(s3, bucket, prefix).items() if dated_file(k) and v[0]}
+    by_size: dict[int, list[str]] = defaultdict(list)
+    for k, (n, _) in listing.items():
+        by_size[n].append(k)
+    groups = [ks for ks in by_size.values() if len(ks) > 1]
+    ask = [
+        k
+        for ks in groups
+        if len({listing[k][1] for k in ks}) > 1 and any(not _single_md5(listing[k][1]) for k in ks)
+        for k in ks
+    ]
+
+    def sha(k: str) -> str | None:
+        try:
+            return s3.head_object(Bucket=bucket, Key=k).get("Metadata", {}).get("sha256", "")
+        except ClientError as e:
+            if _missing(e):
+                return None
+            raise
+
+    with ThreadPoolExecutor(workers) as pool:
+        shas = dict(zip(ask, pool.map(sha, ask), strict=True))
+    gone = {k for k, v in shas.items() if v is None}
+
+    totals: SharedReport = {
+        "objects": len(listing) - len(gone),
+        "heads": len(ask),
+        "gone": len(gone),
+        "unhashed": sum(1 for v in shas.values() if v == ""),
+        "bytes": sum(n for k, (n, _) in listing.items() if k not in gone),
+        "copies": 0,
+        "saved": 0,
+        "across": 0,
+        "by_ext": {},
+    }
+    parent = {k: k for ks in groups for k in ks}
+
+    def root(k: str) -> str:
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    for group in groups:
+        ks = sorted(k for k in group if k not in gone)
+        owner: dict[str, str] = {}
+        for k in ks:
+            for i in (f"etag:{listing[k][1]}", *([f"sha256:{shas[k]}"] if shas.get(k) else [])):
+                a, b = root(owner.setdefault(i, k)), root(k)
+                parent[max(a, b)] = min(a, b)
+        comps: dict[str, set[str]] = {}
+        for k in ks:
+            seen = root(k)
+            comps.setdefault(seen, set()).add(k.split("/")[1])
+            if seen == k:
+                continue
+            name = k.rsplit("/", 1)[-1]
+            ext = "csv.gz" if name.endswith(".csv.gz") else Path(name).suffix[1:]
+            e = totals["by_ext"].setdefault(ext, [0, 0])
+            e[0] += 1
+            e[1] += listing[k][0]
+            totals["copies"] += 1
+            totals["saved"] += listing[k][0]
+        if ks:
+            totals["across"] += listing[ks[0]][0] * sum(len(d) - 1 for d in comps.values())
+    return totals

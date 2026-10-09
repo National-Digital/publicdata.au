@@ -13,13 +13,18 @@ import datetime as dt
 import io
 import json
 import re
+import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
+import openpyxl
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv as pcsv
+import xlrd
 
+from .compute import fill_null
 from .register import (
     CELL_OF_RE,
     CELL_SOURCE,
@@ -32,7 +37,17 @@ from .register import (
     Dataset,
     Field,
 )
-from .store import Manifest
+from .spine import is_spine, read_points, read_shapes
+
+if TYPE_CHECKING:
+    from .store import Manifest
+
+# A column of any Arrow type. pyarrow-stubs types each compute function for the Arrow types it
+# takes and matches a column of unknown type only as Array[Any], so these two say it once.
+type ArrowArray = pa.Array[Any]  # type: ignore[explicit-any]  # the stubs' compute overloads match only Array[Any]
+type ArrowChunked = pa.ChunkedArray[Any]  # type: ignore[explicit-any]  # the stubs' compute overloads match only ChunkedArray[Any]
+# pyarrow.compute takes either and hands back either; pyarrow-stubs 20 often names the wrong one.
+type Arr = ArrowArray | ArrowChunked
 
 ARROW_TYPES = {
     "string": pa.string(),
@@ -60,15 +75,24 @@ class Table:
     # Upstream columns the register leaves out on purpose, seen in this file.
     omitted_columns: list[str] = field(default_factory=list)
     # A polygon or line layer's geometry, one WKB value per row in GDA2020, beside the fields.
-    geometry: pa.Array | None = None
+    geometry: ArrowArray | None = None
     # The place spine layers a point dataset was joined to, with the version of each.
-    places: list[dict] = field(default_factory=list)
+    places: list[dict[str, str]] = field(default_factory=list)
     # (table, (sort, key), permutation) once the build has sorted this table, so it sorts once.
-    order: tuple | None = field(default=None, repr=False, compare=False)
+    order: tuple[pa.Table, tuple[tuple[str, ...], tuple[str, ...]], ArrowArray | None] | None = (
+        field(default=None, repr=False, compare=False)
+    )
 
     @property
     def rows(self) -> int:
         return self.table.num_rows
+
+    def shapes(self) -> ArrowArray:
+        """The geometry column, for code that runs only for a polygon or line layer."""
+        if self.geometry is None:
+            msg = f"{self.dataset.slug}: the table was read without its geometry"
+            raise ValueError(msg)
+        return self.geometry
 
 
 def detect_encoding(data: bytes, preferred: str = "") -> str:
@@ -77,9 +101,9 @@ def detect_encoding(data: bytes, preferred: str = "") -> str:
             continue
         try:
             data.decode(enc)
-            return enc
         except UnicodeDecodeError:
             continue
+        return enc
     return "latin-1"
 
 
@@ -93,7 +117,11 @@ def _delimiter(declared: str) -> str:
 
 
 def read_csv(
-    data: bytes, encoding: str, delimiter: str = "", header_row: int = 1, short: list | None = None
+    data: bytes,
+    encoding: str,
+    delimiter: str = "",
+    header_row: int = 1,
+    short: list[int] | None = None,
 ) -> pa.Table:
     """The file as text columns. `short`, when given, receives the count of rows padded."""
     text = data.decode(encoding)
@@ -135,8 +163,9 @@ def _pad_rows(text: str, sep: str, width: int) -> tuple[str, int]:
     for row in csv.reader(io.StringIO(text), delimiter=sep):
         if len(row) < width:
             n += 1
-            row = row + [""] * (width - len(row))
-        w.writerow(row)
+            w.writerow(row + [""] * (width - len(row)))
+        else:
+            w.writerow(row)
     return out.getvalue(), n
 
 
@@ -144,14 +173,19 @@ def _drop_blank_rows(t: pa.Table) -> pa.Table:
     """A spreadsheet exported as CSV ends in rows of separators alone; they are not data."""
     if not t.num_rows or not t.num_columns:
         return t
-    blank = None
-    for c in t.columns:
-        b = pc.equal(pc.utf8_trim_whitespace(pc.fill_null(c, "")), "")
-        blank = b if blank is None else pc.and_(blank, b)
+    blank = _blank(t.columns[0])
+    for c in t.columns[1:]:
+        blank = pc.and_(blank, _blank(c))
     return t.filter(pc.invert(blank)) if pc.any(blank).as_py() else t
 
 
-def _cell(v) -> str:
+def _blank(c: ArrowChunked) -> Arr:
+    trimmed = pc.utf8_trim_whitespace(fill_null(c, ""))
+    blank: Arr = pc.equal(trimmed, "")  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
+    return blank
+
+
+def _cell(v: object) -> str:
     """An Excel cell as the text the publisher would have typed, so typing follows one path."""
     if v is None:
         return ""
@@ -167,22 +201,21 @@ def _cell(v) -> str:
 
 
 def xls_to_xlsx(data: bytes) -> bytes:
-    """A legacy Excel 97-2003 workbook as an xlsx one, sheet for sheet and cell for cell, so every
-    workbook reader reads it the same way. Date cells stay dates."""
-    import openpyxl
-    import xlrd
+    """A legacy Excel 97-2003 workbook as an xlsx one, sheet for sheet and cell for cell.
 
+    Every workbook reader then reads it the same way. Date cells stay dates.
+    """
     book = xlrd.open_workbook(file_contents=data)
     wb = openpyxl.Workbook()
-    wb.remove(wb.active)
+    wb.remove(wb.worksheets[0])
     for sh in book.sheets():
         ws = wb.create_sheet(sh.name[:31])
         for r in range(sh.nrows):
-            row = []
+            row: list[object] = []
             for c in range(sh.ncols):
                 cell = sh.cell(r, c)
                 if cell.ctype == xlrd.XL_CELL_DATE:
-                    row.append(xlrd.xldate_as_datetime(cell.value, book.datemode))
+                    row.append(xlrd.xldate_as_datetime(cell.value, book.datemode))  # type: ignore[arg-type]  # a date cell holds a float
                 elif cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
                     row.append(None)
                 elif cell.ctype == xlrd.XL_CELL_BOOLEAN:
@@ -198,8 +231,11 @@ def xls_to_xlsx(data: bytes) -> bytes:
 
 
 def _distinct(header: list[str]) -> list[str]:
-    """A header that repeats a name, such as Rank and Count once per block, numbers each repeat
-    "Count (2)" and on, so every column can be named in the register. Blank names stay blank."""
+    """A header with each repeated name numbered, so every column can be named in the register.
+
+    A header that repeats a name, such as Rank and Count once per block, numbers each repeat
+    "Count (2)" and on. Blank names stay blank.
+    """
     seen: dict[str, int] = {}
     out = []
     for h in header:
@@ -212,11 +248,10 @@ def _distinct(header: list[str]) -> list[str]:
 
 
 def read_xlsx(data: bytes, sheet: str, header_row: int) -> pa.Table:
-    import openpyxl
-
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
     if sheet and sheet not in wb.sheetnames:
-        raise NormaliseError(f"sheet '{sheet}' not in workbook: {wb.sheetnames}")
+        msg = f"sheet '{sheet}' not in workbook: {wb.sheetnames}"
+        raise NormaliseError(msg)
     ws = wb[sheet] if sheet else wb.worksheets[0]
     rows = ws.iter_rows(min_row=header_row, values_only=True)
     header = _distinct([_cell(h).strip() for h in next(rows)])
@@ -234,25 +269,26 @@ def read_xlsx(data: bytes, sheet: str, header_row: int) -> pa.Table:
     return pa.table({h: pa.array(c, pa.string()) for h, c in zip(header, cols, strict=True)})
 
 
-def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
-    """A presentation table as one row per data cell, or per group of cells when the last header
-    row names the fields. Header cells left blank beside a filled one are merged cells and take
-    its value, as do row headers named in fill_down. A row with no data is a note and is skipped.
-    Values of the last header row that no field names are returned as held."""
-    import openpyxl
+def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:  # noqa: C901, PLR0912, PLR0915 - one reader for every wide layout, read in order
+    """A presentation table as one row per data cell.
 
-    w = ds.wide
+    A row is per group of cells instead when the last header row names the fields. Header cells
+    left blank beside a filled one are merged cells and take its value, as do row headers named
+    in fill_down. A row with no data is a note and is skipped. Values of the last header row that
+    no field names are returned as held.
+    """
+    w = ds.wide_spec()
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
     sheets = w["sheets"] or [ds.source.sheet or wb.sheetnames[0]]
     if w.get("sheet_match"):
         sheets = [n for n in wb.sheetnames if re.search(w["sheet_match"], n)]
         if not sheets:
-            raise NormaliseError(
-                f"{ds.slug}: no sheet matches '{w['sheet_match']}' in {wb.sheetnames}"
-            )
+            msg = f"{ds.slug}: no sheet matches '{w['sheet_match']}' in {wb.sheetnames}"
+            raise NormaliseError(msg)
     missing = [n for n in sheets if n not in wb.sheetnames]
     if missing:
-        raise NormaliseError(f"{ds.slug}: sheets {missing} not in workbook: {wb.sheetnames}")
+        msg = f"{ds.slug}: sheets {missing} not in workbook: {wb.sheetnames}"
+        raise NormaliseError(msg)
     measures = {m.group(1): f.source for f in ds.fields if (m := CELL_OF_RE.match(f.source))}
     n, k, first = w["header_rows"], w["row_headers"], w["first_column"] - 1
     levels = n - 1 if measures else n
@@ -267,11 +303,12 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
         rows = [r + [""] * (width - len(r)) for r in rows]
         head = [r[first + k :] for r in rows[:n]]
         if len(head) < n:
-            raise NormaliseError(f"{ds.slug}: sheet '{name}' has fewer than {n} header rows")
+            msg = f"{ds.slug}: sheet '{name}' has fewer than {n} header rows"
+            raise NormaliseError(msg)
         for r in head[:-1]:
             for j in range(1, len(r)):
                 r[j] = r[j] or r[j - 1]
-        groups: dict[tuple, dict[str, int]] = {}
+        groups: dict[tuple[str, ...], dict[str, int]] = {}
         match = re.compile(w["column_match"]) if w.get("column_match") else None
         for j, last in enumerate(head[-1]):
             if not last:
@@ -289,13 +326,13 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
             else:
                 groups[tuple(h[j] for h in head)] = {CELL_SOURCE: j}
         if not groups:
-            raise NormaliseError(f"{ds.slug}: sheet '{name}' has no columns to read")
+            msg = f"{ds.slug}: sheet '{name}' has no columns to read"
+            raise NormaliseError(msg)
         found = {src for g in groups.values() for src in g}
         absent = [h for h, src in measures.items() if src not in found]
         if absent:
-            raise NormaliseError(
-                f"{ds.slug}: sheet '{name}' has no columns headed {absent}, which the register names"
-            )
+            msg = f"{ds.slug}: sheet '{name}' has no columns headed {absent}, which the register names"
+            raise NormaliseError(msg)
         cols = [j for g in groups.values() for j in g.values()]
         above = [""] * k
         for r in rows[n:]:
@@ -320,8 +357,11 @@ def read_wide(data: bytes, ds: Dataset) -> tuple[pa.Table, list[str]]:
 
 
 def read_geojson(data: bytes) -> pa.Table:
-    """One row per feature: its properties in first-seen order, then the point's longitude and
-    latitude under LON_SOURCE and LAT_SOURCE. Every cell is text so typing follows one path."""
+    """One row per feature: its properties in first-seen order, then the point's coordinates.
+
+    The longitude and latitude go under LON_SOURCE and LAT_SOURCE. Every cell is text so typing
+    follows one path.
+    """
     fc = json.loads(data.decode("utf-8-sig"))
     feats = fc.get("features") or []
     header: list[str] = []
@@ -351,19 +391,21 @@ def _local(tag: str) -> str:
 
 
 def read_xml(data: bytes, record: str) -> pa.Table:
-    """One row per element named `record`, wherever it sits and whatever its namespace. Its
-    attributes are columns named @attribute, each child element's text a column named by the
-    child, and each child attribute child@attribute. A child that repeats within a record gives
-    its values in document order joined by XML_JOIN. Every cell is text."""
-    import xml.etree.ElementTree as ET
+    """One row per element named `record`, wherever it sits and whatever its namespace.
 
-    root = ET.fromstring(data.decode("utf-8-sig").encode("utf-8"))
+    Its attributes are columns named @attribute, each child element's text a column named by the
+    child, and each child attribute child@attribute. A child that repeats within a record gives
+    its values in document order joined by XML_JOIN. Every cell is text.
+    """
+    root = ET.fromstring(data.decode("utf-8-sig").encode("utf-8"))  # noqa: S314 - Expat refuses entity expansion and loads no external entity
     records = [e for e in root.iter() if _local(e.tag) == record]
     if not records:
-        raise NormaliseError(f"the XML holds no <{record}> element")
+        msg = f"the XML holds no <{record}> element"
+        raise NormaliseError(msg)
     # A record inside a record would be read twice, once as a row and once as a child.
     if any(_local(x.tag) == record for e in records for x in e.iter() if x is not e):
-        raise NormaliseError(f"a <{record}> element holds another <{record}>; name the outer one")
+        msg = f"a <{record}> element holds another <{record}>; name the outer one"
+        raise NormaliseError(msg)
     header: list[str] = []
     rows: list[dict[str, list[str]]] = []
     for e in records:
@@ -392,7 +434,8 @@ def unwrap(data: bytes, ext: str, member: str) -> tuple[bytes, str]:
         names = [n for n in z.namelist() if not n.endswith("/")]
         if member:
             if member not in names:
-                raise NormaliseError(f"'{member}' is not in the zip: {names}")
+                msg = f"'{member}' is not in the zip: {names}"
+                raise NormaliseError(msg)
             name = member
         else:
             data_names = [
@@ -403,9 +446,8 @@ def unwrap(data: bytes, ext: str, member: str) -> tuple[bytes, str]:
                 )
             ]
             if len(data_names) != 1:
-                raise NormaliseError(
-                    f"the zip holds {len(data_names)} data files; name one: {names}"
-                )
+                msg = f"the zip holds {len(data_names)} data files; name one: {names}"
+                raise NormaliseError(msg)
             name = data_names[0]
         return z.read(name), name.rsplit(".", 1)[-1].lower()
 
@@ -415,21 +457,21 @@ DATE_HEADER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 def unpivot(raw: pa.Table, ds: Dataset) -> tuple[pa.Table, list[str]]:
     """One row per identifying row and dated column, ordered by the source row then the column.
-    Headers that are not dates are returned as held, like any column the register does not name."""
+
+    Headers that are not dates are returned as held, like any column the register does not name.
+    """
     keep = [f.source for f in ds.fields if f.source not in (HEADER_SOURCE, CELL_SOURCE)]
     names = {c.strip(): c for c in raw.column_names}
     missing = [k for k in keep if k not in names]
     if missing:
-        raise NormaliseError(
-            f"{ds.slug}: columns named in the register are absent upstream: {missing}"
-        )
+        msg = f"{ds.slug}: columns named in the register are absent upstream: {missing}"
+        raise NormaliseError(msg)
     wide = [c for c in raw.column_names if c.strip() not in keep]
     dated = [c for c in wide if DATE_HEADER.match(c.strip())]
     held = [c for c in wide if not DATE_HEADER.match(c.strip())]
     if not dated:
-        raise NormaliseError(
-            f"{ds.slug}: no dated columns to unpivot; the header format may have changed"
-        )
+        msg = f"{ds.slug}: no dated columns to unpivot; the header format may have changed"
+        raise NormaliseError(msg)
     n, m = raw.num_rows, len(dated)
     order = pa.array([j * n + i for i in range(n) for j in range(m)], pa.int64())
     cols = {
@@ -444,55 +486,63 @@ def unpivot(raw: pa.Table, ds: Dataset) -> tuple[pa.Table, list[str]]:
     return pa.table(cols), held
 
 
-def _blank_to_null(arr: pa.ChunkedArray) -> pa.ChunkedArray:
+def _blank_to_null(arr: Arr) -> Arr:
     arr = pc.utf8_trim_whitespace(arr)
-    return pc.if_else(pc.equal(arr, ""), pa.scalar(None, pa.string()), arr)
+    empty: Arr = pc.equal(arr, "")  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
+    out: Arr = pc.if_else(empty, pa.scalar(None, pa.string()), arr)
+    return out
 
 
-def _examples(arr: pa.ChunkedArray, mask: pa.ChunkedArray, n: int = 5) -> list[str]:
+def _examples(arr: Arr, mask: Arr, n: int = 5) -> list[str]:
     return [str(v) for v in pc.filter(arr, mask).slice(0, n).to_pylist()]
 
 
 THOUSANDS = r"^-?\d{1,3}(,\d{3})+(\.\d+)?$"
 
 
-def _plain_number(arr: pa.ChunkedArray) -> pa.ChunkedArray:
-    """A figure a publisher wrote with thousands separators, 19,918, as 19918. Only a cell that
-    is wholly such a figure is touched."""
-    grouped = pc.fill_null(pc.match_substring_regex(arr, THOUSANDS), False)
+def _plain_number(arr: Arr) -> Arr:
+    """A figure a publisher wrote with thousands separators, 19,918, as 19918.
+
+    Only a cell that is wholly such a figure is touched.
+    """
+    grouped = fill_null(pc.match_substring_regex(arr, THOUSANDS), fill=False)
     if not pc.any(grouped).as_py():
         return arr
-    return pc.if_else(grouped, pc.replace_substring(arr, ",", ""), arr)
-
-
-def _strptime(arr: pa.ChunkedArray, f: Field) -> pa.ChunkedArray:
-    """Dates in the field's format, or in any of several formats written as one string joined
-    by |, since a publisher's workbooks may hold a date as a date in one and as text in another.
-    A value in none of them stops the build."""
-    formats = f.date_format.split("|")
-    if len(formats) == 1:
-        return pc.strptime(arr, format=formats[0], unit="s")
-    out = None
-    for fmt in formats:
-        got = pc.strptime(arr, format=fmt, unit="s", error_is_null=True)
-        out = got if out is None else pc.coalesce(out, got)
-    bad = pc.and_(pc.is_valid(arr), pc.is_null(out))
-    if pc.any(bad).as_py():
-        raise NormaliseError(
-            f"{f.name}: values in none of the formats {formats}: {_examples(arr, bad)}"
-        )
+    out: Arr = pc.if_else(grouped, pc.replace_substring(arr, ",", ""), arr)
     return out
 
 
-def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):
+def _strptime(arr: Arr, f: Field) -> Arr:
+    """Dates in the field's format, or in any of several formats joined by | in one string.
+
+    A publisher's workbooks may hold a date as a date in one and as text in another. A value in
+    none of the formats stops the build.
+    """
+    formats = f.date_format.split("|")
+    if len(formats) == 1:
+        return pc.strptime(arr, format=formats[0], unit="s")
+    out = pc.strptime(arr, format=formats[0], unit="s", error_is_null=True)
+    for fmt in formats[1:]:
+        out = pc.coalesce(out, pc.strptime(arr, format=fmt, unit="s", error_is_null=True))
+    bad = pc.and_(pc.is_valid(arr), pc.is_null(out))
+    if pc.any(bad).as_py():
+        msg = f"{f.name}: values in none of the formats {formats}: {_examples(arr, bad)}"
+        raise NormaliseError(msg)
+    return out
+
+
+def convert(arr: Arr, f: Field, suppression: tuple[str, ...]) -> tuple[Arr, Arr | None]:  # noqa: C901 - one branch per field type
     """Return (typed array, suppression mask or None)."""
     arr = _blank_to_null(arr)
     if f.null_values:
-        unknown = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(f.null_values))), False)
+        unknown = fill_null(
+            pc.is_in(arr, value_set=pa.array(list(f.null_values))),
+            fill=False,
+        )
         arr = pc.if_else(unknown, pa.scalar(None, pa.string()), arr)
     sup = None
     if suppression and f.type in ("integer", "number"):
-        sup = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(suppression))), False)
+        sup = fill_null(pc.is_in(arr, value_set=pa.array(list(suppression))), fill=False)
         if pc.any(sup).as_py():
             arr = pc.if_else(sup, pa.scalar(None, pa.string()), arr)
         else:
@@ -503,14 +553,19 @@ def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):
         if f.type in ("integer", "number"):
             return pc.cast(_plain_number(arr), ARROW_TYPES[f.type]), sup
         if f.type == "boolean":
-            t = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(f.true_values))), False)
-            fl = pc.fill_null(pc.is_in(arr, value_set=pa.array(list(f.false_values))), False)
+            t = fill_null(
+                pc.is_in(arr, value_set=pa.array(list(f.true_values))),
+                fill=False,
+            )
+            fl = fill_null(
+                pc.is_in(arr, value_set=pa.array(list(f.false_values))),
+                fill=False,
+            )
             bad = pc.and_(pc.is_valid(arr), pc.invert(pc.or_(t, fl)))
             if pc.any(bad).as_py():
-                raise NormaliseError(
-                    f"{f.name}: values outside true/false sets: {_examples(arr, bad)}"
-                )
-            return pc.if_else(t, True, pc.if_else(fl, False, pa.scalar(None, pa.bool_()))), sup
+                msg = f"{f.name}: values outside true/false sets: {_examples(arr, bad)}"
+                raise NormaliseError(msg)
+            return pc.if_else(t, True, pc.if_else(fl, False, pa.scalar(None, pa.bool_()))), sup  # noqa: FBT003 - pyarrow's if_else takes them by position
         if f.type in ("date", "datetime"):
             if f.date_format == "epoch_ms":
                 # An ArcGIS service gives dates as milliseconds since 1970, UTC.
@@ -520,8 +575,10 @@ def convert(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...]):
                 ts = _strptime(arr, f)
             return (pc.cast(ts, pa.date32()) if f.type == "date" else ts), sup
     except pa.ArrowInvalid as e:
-        raise NormaliseError(f"{f.name}: cannot type as {f.type}: {e}") from e
-    raise NormaliseError(f"{f.name}: unknown type {f.type}")
+        msg = f"{f.name}: cannot type as {f.type}: {e}"
+        raise NormaliseError(msg) from e
+    msg = f"{f.name}: unknown type {f.type}"
+    raise NormaliseError(msg)
 
 
 def _is_shapefile(ext: str, member: str) -> bool:
@@ -529,17 +586,13 @@ def _is_shapefile(ext: str, member: str) -> bool:
     return ext in ("shp", "gpkg") or (ext == "zip" and member.lower().endswith((".shp", ".gpkg")))
 
 
-def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
+def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PLR0912, PLR0915 - the normalising steps, read in order
     held: list[str] = []
     short: list[int] = []
     shapes = None
     if ds.geometry and ds.geometry["kind"] != "point":
-        from .spine import read_shapes
-
         raw, shapes = read_shapes(data, m.ext, ds.source.member, ds.geometry["crs"])
     elif ds.geometry and _is_shapefile(m.ext, ds.source.member):
-        from .spine import read_points
-
         raw = read_points(data, m.ext, ds.source.member)
     else:
         data, ext = unwrap(data, m.ext, ds.source.member)
@@ -547,7 +600,8 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
             data, ext = xls_to_xlsx(data), "xlsx"
         if ds.wide:
             if ext not in ("xlsx", "xlsm"):
-                raise NormaliseError(f"{ds.slug}: a wide table is read from a workbook, got {ext}")
+                msg = f"{ds.slug}: a wide table is read from a workbook, got {ext}"
+                raise NormaliseError(msg)
             raw, held = read_wide(data, ds)
         elif ext in ("xlsx", "xlsm"):
             raw = read_xlsx(data, ds.source.sheet, ds.source.header_row)
@@ -555,29 +609,28 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
             raw = read_geojson(data)
         elif ext == "xml":
             if not ds.source.record:
-                raise NormaliseError(
-                    f"{ds.slug}: an XML source names its record element in source.record"
-                )
+                msg = f"{ds.slug}: an XML source names its record element in source.record"
+                raise NormaliseError(msg)
             raw = read_xml(data, ds.source.record)
         else:
             enc = m.encoding if m.ext != "zip" else detect_encoding(data, ds.source.encoding)
             raw = read_csv(data, enc, ds.source.delimiter, ds.source.header_row, short)
     if ds.unpivot:
         raw, held = unpivot(raw, ds)
-    from .spine import is_spine
 
     upstream = {c.strip(): c for c in raw.column_names}
     own = [f for f in ds.fields if not is_spine(f.source)]
     missing = [f.source for f in own if f.source not in upstream]
     if missing:
-        raise NormaliseError(
-            f"{ds.slug}: columns named in the register are absent upstream: {missing}"
-        )
+        msg = f"{ds.slug}: columns named in the register are absent upstream: {missing}"
+        raise NormaliseError(msg)
     declared = {f.source for f in own}
     extra = [c for c in upstream if c not in declared] + held
     unknown = [c for c in extra if c not in ds.omit]
     omitted = [c for c in extra if c in ds.omit]
-    cols, names, masks = [], [], {}
+    cols: list[Arr] = []
+    names: list[str] = []
+    masks: dict[str, Arr] = {}
     for f in own:
         arr, sup = convert(raw.column(upstream[f.source]), f, ds.suppression)
         cols.append(arr)
@@ -586,7 +639,7 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:
             masks[f.name] = sup
     suppressed = 0
     if masks:
-        flags = [[] for _ in range(raw.num_rows)]
+        flags: list[list[str]] = [[] for _ in range(raw.num_rows)]
         for name, mask in masks.items():
             for i, v in enumerate(mask.to_pylist()):
                 if v:

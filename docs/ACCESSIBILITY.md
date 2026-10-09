@@ -56,8 +56,7 @@ regions carry `data-conformance="aa"` in the template and are held to WCAG 2.2 A
 focus and reflow, is held to AAA like the rest of the page. The regions are:
 
 - every scrollable table wrapper (`.tbl`): schema tables, sample rows, catalogue and backlog lists;
-- dataset card listings (`.cards`) on the home, topic and government pages, and the ticker of newest
-  versions on the home page;
+- dataset card listings (`.cards`) on the home, topic and government pages;
 - the lists of places a dataset is partitioned by (`.places`) and of datasets coming next (`.tcoming`);
 - the explorer (`.xhost`, a third-party component rendered by Perspective) and the dashboard preview
   that links to it (`.dash`).

@@ -1,69 +1,115 @@
+import json
+import shutil
 from dataclasses import replace
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-from publicdata import build, store
+from publicdata import build, published, register, serialise, store, verify
 from publicdata import cache as cache_mod
-from publicdata.build import build_dataset
-from publicdata.cache import BuildCache, entry_key
-from publicdata.register import Field
-from publicdata.verify import check, sample, unkeyed
+from publicdata.__main__ import main
+from publicdata.build import build_dataset, version_key
+from publicdata.cache import PACKAGE, BuildCache, entry_key, writer_files, writer_key
+from publicdata.normalise import Table, normalise
+from publicdata.published import Published
+from publicdata.register import Dataset, Field, load
+from publicdata.serialise import WRITERS, duckdb_connect, duckdb_digest, formats_for
+from publicdata.spine import spine_versions
+from publicdata.verify import (
+    REPO,
+    _stratum,
+    bumped,
+    changed_defaults,
+    check,
+    checked_versions,
+    run,
+    sample,
+    source_bytes,
+    uncovered,
+    unkeyed,
+    unnoted_partitions,
+)
 
-from .conftest import make_dataset, make_manifest
+from .conftest import make_dataset, make_manifest, present
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from publicdata.provenance import Header
+    from publicdata.store import Manifest
 
 F = [Field("id", "Id", "integer"), Field("v", "V")]
 
 
-def _store(root, slug="t"):
+def _store(root: Path, slug: str = "t") -> Path:
     for version, csv in (("2026-01-01", b"Id,V\n1,a\n2,b\n"), ("2026-02-01", b"Id,V\n2,B\n3,c\n")):
         store.write(root, make_manifest(csv, dataset=slug, version=version), csv)
     return root
 
 
+type Two = tuple[Path, Dataset, Dataset]
+
+
 @pytest.fixture
-def two_datasets(tmp_path):
+def two_datasets(tmp_path: Path) -> Two:
     s = tmp_path / "store"
     _store(s, "t")
     _store(s, "u")
     return s, make_dataset(F, key=("id",)), make_dataset(F, key=("id",), slug="u")
 
 
-def _build(datasets, s, out, root):
+def _build(datasets: Iterable[Dataset], s: Path, out: Path, root: Path) -> BuildCache:
     cache = BuildCache(root)
     for ds in datasets:
         build_dataset(ds, s, out, cache)
     return cache
 
 
-def _changed_normalise(monkeypatch):
+def _changed_normalise(monkeypatch: pytest.MonkeyPatch) -> None:
     """An edit to the build code that changes what every version holds."""
-    real = build.normalise
+    real = normalise
 
-    def normalise(ds, m, data):
+    def changed(ds: Dataset, m: Manifest, data: bytes) -> Table:
         t = real(ds, m, data)
         return replace(t, table=t.table.slice(1))
 
-    monkeypatch.setattr(build, "normalise", normalise)
+    monkeypatch.setattr(build, "normalise", changed)
 
 
-def test_the_key_reads_no_build_module_but_the_partition_writers(monkeypatch):
-    from pathlib import Path
+def test_the_key_reads_no_build_module_but_the_partition_writers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    read: list[str] = []
+    real = Path.read_bytes
 
-    read, real = [], Path.read_bytes
-    monkeypatch.setattr(Path, "read_bytes", lambda p: read.append(p.name) or real(p))
+    def reading(p: Path) -> bytes:
+        read.append(p.name)
+        return real(p)
+
+    monkeypatch.setattr(Path, "read_bytes", reading)
     cache_mod.environment_key()
     assert sorted(read) == ["geojson.py", "json.py"]
 
 
-def test_an_entry_key_ignores_defaults_and_what_shapes_no_version():
+def test_an_entry_key_ignores_defaults_and_what_shapes_no_version() -> None:
     ds = make_dataset(F, key=("id",))
-    assert entry_key(ds) == entry_key(replace(ds, order=100, sample={"rows": 3}, query=False))
+    assert entry_key(ds) == entry_key(
+        replace(
+            ds,
+            order=100,
+            sample={"where": (), "order": (), "spread": None, "label": "rows"},
+            query=False,
+        )
+    )
     assert entry_key(ds) != entry_key(replace(ds, title="Renamed"))
     assert entry_key(ds) != entry_key(replace(ds, rebuild=1))
     assert '"rebuild"' not in entry_key(ds)
 
 
-def test_a_code_edit_reuses_every_version(two_datasets, tmp_path, monkeypatch):
+def test_a_code_edit_reuses_every_version(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, u = two_datasets
     _build([t, u], s, tmp_path / "a", tmp_path / "cache")
     _changed_normalise(monkeypatch)
@@ -72,8 +118,8 @@ def test_a_code_edit_reuses_every_version(two_datasets, tmp_path, monkeypatch):
 
 
 def test_a_dataset_rebuild_number_rebuilds_only_its_versions_diffs_and_history(
-    two_datasets, tmp_path
-):
+    two_datasets: Two, tmp_path: Path
+) -> None:
     s, t, u = two_datasets
     _build([t, u], s, tmp_path / "a", tmp_path / "cache")
     cache = BuildCache(tmp_path / "cache")
@@ -83,7 +129,9 @@ def test_a_dataset_rebuild_number_rebuilds_only_its_versions_diffs_and_history(
     assert (cache.hits, cache.misses) == (4, 4)
 
 
-def test_the_global_rebuild_number_rebuilds_every_version(two_datasets, tmp_path, monkeypatch):
+def test_the_global_rebuild_number_rebuilds_every_version(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, u = two_datasets
     _build([t, u], s, tmp_path / "a", tmp_path / "cache")
     monkeypatch.setattr(cache_mod, "REBUILD", cache_mod.REBUILD + 1)
@@ -91,7 +139,9 @@ def test_the_global_rebuild_number_rebuilds_every_version(two_datasets, tmp_path
     assert (cache.hits, cache.misses) == (0, 8)
 
 
-def test_the_check_passes_when_the_code_makes_what_is_published(two_datasets, tmp_path):
+def test_the_check_passes_when_the_code_makes_what_is_published(
+    two_datasets: Two, tmp_path: Path
+) -> None:
     s, t, _u = two_datasets
     cache = _build([t], s, tmp_path / "a", tmp_path / "cache")
     problems, compared, rebuilt = check(t, s, BuildCache(cache.root), tmp_path / "v")
@@ -99,8 +149,8 @@ def test_the_check_passes_when_the_code_makes_what_is_published(two_datasets, tm
 
 
 def test_the_check_names_each_version_an_unbumped_change_alters(
-    two_datasets, tmp_path, monkeypatch
-):
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     _changed_normalise(monkeypatch)
@@ -116,40 +166,47 @@ def test_the_check_names_each_version_an_unbumped_change_alters(
     assert (problems, compared, rebuilt) == ([], 0, 2)
 
 
-def test_the_check_finds_a_change_that_keeps_every_size(two_datasets, tmp_path, monkeypatch):
+def test_the_check_finds_a_change_that_keeps_every_size(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
-    real = build.normalise
+    real = normalise
     monkeypatch.setattr(build, "normalise", lambda ds, m, d: real(ds, m, d.replace(b",a", b",z")))
     problems, _, _ = check(t, s, BuildCache(root), tmp_path / "v")
     assert "d/t/v/2026-01-01/: data.csv differs" in problems
     assert not [p for p in problems if "2026-02-01/" in p]
 
 
-def test_the_check_leaves_a_changed_writers_file_to_the_deploy(two_datasets, tmp_path, monkeypatch):
+def test_the_check_leaves_a_changed_writers_file_to_the_deploy(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     real = cache_mod.writer_key
     stale = ("csv", "csv.gz")  # the gzip is made from the CSV, so its key takes the CSV writer in
     monkeypatch.setattr(
-        cache_mod, "writer_key", lambda f, shape=False: "new" if f in stale else real(f, shape)
+        cache_mod,
+        "writer_key",
+        lambda f, shape=False: "new" if f in stale else real(f, shape=shape),
     )
-    real_csv = build.WRITERS["csv"]
+    real_csv = WRITERS["csv"]
 
-    def csv(tbl, header, path, vdir):
+    def csv(tbl: Table, header: Header, path: Path, vdir: Path) -> None:
         real_csv(tbl, header, path, vdir)
         path.write_bytes(path.read_bytes() + b"\n")
 
-    monkeypatch.setitem(build.WRITERS, "csv", csv)
+    monkeypatch.setitem(WRITERS, "csv", csv)
     problems, compared, _ = check(t, s, BuildCache(root), tmp_path / "v")
     assert (problems, compared) == ([], 2)
 
 
 def test_the_command_passes_on_the_fixture_store_built_by_the_deploy(
-    fixture_store, fixture_builds, tmp_path, capsys
-):
-    from publicdata.__main__ import main
-
+    fixture_store: Path,
+    fixture_builds: tuple[Path, Path, Path],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     _plain, cold, cache = fixture_builds
     run = ["verify", "run", "--store", str(fixture_store), "--cache", str(cache)]
     assert main([*run, "--published", str(cold), "--out", str(tmp_path / "v")]) == 0
@@ -158,10 +215,12 @@ def test_the_command_passes_on_the_fixture_store_built_by_the_deploy(
 
 
 def test_the_command_fails_and_names_the_entry_to_bump(
-    fixture_store, fixture_builds, tmp_path, monkeypatch, capsys
-):
-    from publicdata.__main__ import main
-
+    fixture_store: Path,
+    fixture_builds: tuple[Path, Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     _plain, cold, cache = fixture_builds
     _changed_normalise(monkeypatch)
     slug = "qld-road-crash-factors"
@@ -172,23 +231,24 @@ def test_the_command_fails_and_names_the_entry_to_bump(
     assert f"  {slug} (register/{slug}.yaml, rebuild 0 now; built as table, " in out
 
 
-def test_a_dataset_the_new_code_cannot_build_fails_the_check(two_datasets, tmp_path, monkeypatch):
-    from publicdata.verify import run
-
+def test_a_dataset_the_new_code_cannot_build_fails_the_check(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, u = two_datasets
     root = _build([t, u], s, tmp_path / "a", tmp_path / "cache").root
-    real = build.normalise
+    real = normalise
 
-    def normalise(ds, m, data):
+    def broken(ds: Dataset, m: Manifest, data: bytes) -> Table:
         if ds.slug == "t":
-            raise ValueError("broken")
+            msg = "broken"
+            raise ValueError(msg)
         return real(ds, m, data)
 
-    monkeypatch.setattr(build, "normalise", normalise)
+    monkeypatch.setattr(build, "normalise", broken)
     assert run([t, u], s, root, tmp_path / "v") == 1
 
 
-def test_only_an_edit_outside_the_keys_needs_the_check():
+def test_only_an_edit_outside_the_keys_needs_the_check() -> None:
     assert unkeyed(["pipeline/publicdata/normalise.py", "README.md"]) == [
         "pipeline/publicdata/normalise.py"
     ]
@@ -205,10 +265,9 @@ def test_only_an_edit_outside_the_keys_needs_the_check():
     )
 
 
-def test_the_sample_covers_each_stratum_within_its_budget(fixture_store, register_dir):
-    from publicdata.register import load
-    from publicdata.verify import _stratum, source_bytes
-
+def test_the_sample_covers_each_stratum_within_its_budget(
+    fixture_store: Path, register_dir: Path
+) -> None:
     every = 10**12
     datasets = [
         d for d in load(register_dir) if d.kind != "database" and source_bytes(d, fixture_store)
@@ -216,7 +275,7 @@ def test_the_sample_covers_each_stratum_within_its_budget(fixture_store, registe
     cost = {d.slug: source_bytes(d, fixture_store, every) for d in datasets}
     assert sample(datasets, fixture_store, "a", 10**12, 10**12) == sorted(cost)
     assert sample(datasets, fixture_store, "a", 0, 10**12) == []
-    cheapest: dict = {}
+    cheapest: dict[verify.Stratum, int] = {}
     for d in datasets:
         cheapest[_stratum(d)] = min(cheapest.get(_stratum(d), 10**18), cost[d.slug])
     budget = sum(cheapest.values())
@@ -234,9 +293,9 @@ def test_the_sample_covers_each_stratum_within_its_budget(fixture_store, registe
         assert len(large & set(got)) == 1
 
 
-def test_the_check_compares_what_the_duckdb_file_holds(two_datasets, tmp_path, monkeypatch):
-    from publicdata import serialise
-
+def test_the_check_compares_what_the_duckdb_file_holds(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     monkeypatch.setitem(serialise.DUCKDB_TYPES, "string", "BLOB")
@@ -245,12 +304,14 @@ def test_the_check_compares_what_the_duckdb_file_holds(two_datasets, tmp_path, m
     assert "d/t/v/2026-01-01/: data.duckdb differs" in problems
 
 
-def test_the_check_compares_the_query_copy(two_datasets, tmp_path, monkeypatch):
+def test_the_check_compares_the_query_copy(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     real = build._query_copy
 
-    def query_copy(tbl, header, vdir, out):
+    def query_copy(tbl: Table, header: Header, vdir: Path, out: Path) -> str:
         rel = real(tbl, header, vdir, out)
         data = (out / rel).read_bytes()
         (out / rel).unlink()  # it can be a link to the version's own Parquet
@@ -266,21 +327,18 @@ def test_the_check_compares_the_query_copy(two_datasets, tmp_path, monkeypatch):
 
 
 def test_a_format_the_code_no_longer_makes_is_left_to_the_deploy(
-    two_datasets, tmp_path, monkeypatch
-):
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
-    real = build.formats_for
+    real = formats_for
     monkeypatch.setattr(build, "formats_for", lambda *a: [f for f in real(*a) if f != "xlsx"])
     assert check(t, s, BuildCache(root), tmp_path / "v") == ([], 2, 0)
 
 
-def test_each_parquet_writer_keys_only_the_datasets_that_run_it(monkeypatch):
-    from pathlib import Path
-
-    from publicdata.cache import writer_files, writer_key
-    from publicdata.serialise import WRITERS
-
+def test_each_parquet_writer_keys_only_the_datasets_that_run_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     assert {p.name for p in writer_files("parquet", shape=True)} == {"geo_parquet.py"}
     assert {p.name for p in writer_files("parquet", shape=False)} == {"parquet.py"}
     assert {p.name for p in writer_files("csv.gz")} == {"csv.py", "csv_gz.py"}
@@ -297,12 +355,12 @@ def test_each_parquet_writer_keys_only_the_datasets_that_run_it(monkeypatch):
     assert not unkeyed([p.relative_to(Path(__file__).parents[2]).as_posix() for p in writers])
 
 
-def test_only_a_dataset_that_loads_the_spatial_extension_is_keyed_on_it(monkeypatch, tmp_path):
-    from publicdata.build import version_key
-
+def test_only_a_dataset_that_loads_the_spatial_extension_is_keyed_on_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     cache = BuildCache(tmp_path / "cache")
     table = make_dataset(F, key=("id",))
-    layer = replace(table, geometry={"kind": "point", "lat": "a", "lon": "b"})
+    layer = replace(table, geometry={"kind": "point", "crs": "EPSG:4326", "lat": "a", "lon": "b"})
     m = make_manifest(b"Id,V\n1,a\n")
     before = {d.slug: version_key(cache, d, m) for d in (table, replace(layer, slug="l"))}
     monkeypatch.setattr(cache_mod, "spatial_version", lambda: "another build")
@@ -311,7 +369,9 @@ def test_only_a_dataset_that_loads_the_spatial_extension_is_keyed_on_it(monkeypa
     assert {"xlrd", "pmtiles"} <= set(cache_mod.LIBRARIES)
 
 
-def test_a_job_with_another_spatial_build_than_the_plan_stops(monkeypatch):
+def test_a_job_with_another_spatial_build_than_the_plan_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     real = cache_mod.spatial_version.__wrapped__
     got = real()
     monkeypatch.setenv("PUBLICDATA_SPATIAL", got)
@@ -321,11 +381,9 @@ def test_a_job_with_another_spatial_build_than_the_plan_stops(monkeypatch):
         real()
 
 
-def test_a_database_is_keyed_on_the_module_only_it_runs(monkeypatch, tmp_path):
-    from pathlib import Path
-
-    from publicdata.build import version_key
-
+def test_a_database_is_keyed_on_the_module_only_it_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     cache = BuildCache(tmp_path / "cache")
     table = make_dataset(F, key=("id",))
     db = replace(table, slug="g", kind="database")
@@ -340,9 +398,7 @@ def test_a_database_is_keyed_on_the_module_only_it_runs(monkeypatch, tmp_path):
     assert not unkeyed(["pipeline/publicdata/database.py"])
 
 
-def test_a_grant_files_wording_is_in_the_key(monkeypatch):
-    from publicdata import register
-
+def test_a_grant_files_wording_is_in_the_key(monkeypatch: pytest.MonkeyPatch) -> None:
     ds = make_dataset(F, key=("id",))
     before = entry_key(ds)
     lid = ds.licence.id
@@ -353,11 +409,9 @@ def test_a_grant_files_wording_is_in_the_key(monkeypatch):
     assert '"condition":"A new condition."' in entry_key(ds)
 
 
-def test_a_joined_dataset_is_keyed_on_its_layers_register_entry(register_dir, tmp_path):
-    import shutil
-
-    from publicdata.spine import spine_versions
-
+def test_a_joined_dataset_is_keyed_on_its_layers_register_entry(
+    register_dir: Path, tmp_path: Path
+) -> None:
     reg = tmp_path / "register"
     reg.mkdir()
     shutil.copy(register_dir / "abs-lga-2025.yaml", reg / "abs-lga-2025.yaml")
@@ -367,10 +421,7 @@ def test_a_joined_dataset_is_keyed_on_its_layers_register_entry(register_dir, tm
     assert spine_versions(("lga",), tmp_path / "store", reg) != before
 
 
-def test_a_changed_register_default_needs_the_global_number(tmp_path):
-    from publicdata.cache import PACKAGE
-    from publicdata.verify import changed_defaults
-
+def test_a_changed_register_default_needs_the_global_number(tmp_path: Path) -> None:
     reg = (PACKAGE / "register.py").read_text(encoding="utf-8")
     cache_src = (PACKAGE / "cache.py").read_text(encoding="utf-8")
     before = tmp_path / "before"
@@ -400,24 +451,25 @@ def test_a_changed_register_default_needs_the_global_number(tmp_path):
     assert changed_defaults(before) == []
 
 
-def _old_r2(t, s, tmp_path, monkeypatch):
-    """The published tree as an older build left it: rows another normalise made, which a
-    version built again without a replace leaves in R2."""
+def _old_r2(t: Dataset, s: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The published tree as an older build left it.
+
+    It holds rows another normalise made, which a version built again without a replace leaves
+    in R2.
+    """
     with monkeypatch.context() as mp:
         _changed_normalise(mp)
         build_dataset(t, s, tmp_path / "r2")
     return tmp_path / "r2"
 
 
-def _publishing(out, r2):
-    from publicdata import published
-
+def _publishing(out: Path, r2: Path) -> None:
     published.current = published.Published(out, [], r2)
 
 
-def test_old_bytes_in_r2_are_no_difference(two_datasets, tmp_path, monkeypatch):
-    from publicdata import published
-
+def test_old_bytes_in_r2_are_no_difference(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     r2 = _old_r2(t, s, tmp_path, monkeypatch)
     t = replace(t, rebuild=1)
@@ -438,10 +490,8 @@ def test_old_bytes_in_r2_are_no_difference(two_datasets, tmp_path, monkeypatch):
 
 
 def test_a_format_grown_from_old_bytes_in_r2_is_made_again_from_them(
-    two_datasets, tmp_path, monkeypatch
-):
-    from publicdata import published, serialise
-
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     r2 = _old_r2(t, s, tmp_path, monkeypatch)
     t = replace(t, rebuild=1)
@@ -458,17 +508,16 @@ def test_a_format_grown_from_old_bytes_in_r2_is_made_again_from_them(
         _publishing(tmp_path / "v", r2)
         assert check(t, s, BuildCache(cache.root), tmp_path / "v") == ([], 2, 0)
         # A change to what the grown files hold, outside the writer's key, is still found.
-        from publicdata import verify
 
         keys = cache_mod.writer_keys()
         monkeypatch.setattr(cache_mod, "writer_keys", lambda shape=False: keys)
         monkeypatch.setattr(verify, "writer_keys", lambda shape=False: keys)
-        real = build.WRITERS["xlsx"]
+        real = WRITERS["xlsx"]
 
-        def xlsx(tbl, header, path, vdir):
-            real(tbl, {**header, "note": "changed"}, path, vdir)
+        def xlsx(tbl: Table, header: Header, path: Path, vdir: Path) -> None:
+            real(tbl, {**header, "title": header["title"] + " changed"}, path, vdir)
 
-        monkeypatch.setitem(build.WRITERS, "xlsx", xlsx)
+        monkeypatch.setitem(WRITERS, "xlsx", xlsx)
         _publishing(tmp_path / "w", r2)
         problems, _, _ = check(t, s, BuildCache(cache.root), tmp_path / "w")
         assert "d/t/v/2026-01-01/: data.xlsx differs" in problems
@@ -476,15 +525,13 @@ def test_a_format_grown_from_old_bytes_in_r2_is_made_again_from_them(
         published.current = None
 
 
-def test_the_published_copy_is_read_beside_what_the_build_made(tmp_path):
-    from publicdata.published import Published
-
+def test_the_published_copy_is_read_beside_what_the_build_made(tmp_path: Path) -> None:
     out = tmp_path / "out"
     (out / "d").mkdir(parents=True)
     (out / "d" / "x").write_bytes(b"new")
-    calls = []
+    calls: list[str] = []
 
-    def download(rel, dest):
+    def download(rel: str, dest: Path) -> bool:
         calls.append(rel)
         if rel == "d/missing":
             return False
@@ -492,18 +539,23 @@ def test_the_published_copy_is_read_beside_what_the_build_made(tmp_path):
         return True
 
     p = Published(out, [], None, download)
-    old = p.copy("d/x")
-    assert old.read_bytes() == b"old" and (out / "d" / "x").read_bytes() == b"new"
-    assert p.copy("d/x") == old and p.copy("d/missing") is None and p.copy("d/missing") is None
+    old = present(p.copy("d/x"))
+    assert old.read_bytes() == b"old"
+    assert (out / "d" / "x").read_bytes() == b"new"
+    assert p.copy("d/x") == old
+    assert p.copy("d/missing") is None
+    assert p.copy("d/missing") is None
     assert calls == ["d/x", "d/missing"]
-    assert p.copy("d/y").read_bytes() == b"old" and (out / "d" / "y").read_bytes() == b"old"
+    assert present(p.copy("d/y")).read_bytes() == b"old"
+    assert (out / "d" / "y").read_bytes() == b"old"
 
 
 def test_a_change_across_datasets_asks_for_the_global_number(
-    two_datasets, tmp_path, monkeypatch, capsys
-):
-    from publicdata.verify import run
-
+    two_datasets: Two,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     s, t, u = two_datasets
     root = _build([t, u], s, tmp_path / "a", tmp_path / "cache").root
     _changed_normalise(monkeypatch)
@@ -513,9 +565,9 @@ def test_a_change_across_datasets_asks_for_the_global_number(
     assert "Raise REBUILD in pipeline/publicdata/cache.py." in out
 
 
-def test_a_large_dataset_is_checked_on_its_newest_versions(two_datasets, tmp_path, monkeypatch):
-    from publicdata.verify import checked_versions
-
+def test_a_large_dataset_is_checked_on_its_newest_versions(
+    two_datasets: Two, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s, t, _u = two_datasets
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     ms = store.manifests(s, "t")
@@ -524,22 +576,18 @@ def test_a_large_dataset_is_checked_on_its_newest_versions(two_datasets, tmp_pat
     assert checked_versions(t, s, 1) == ms[-1:]
     assert source_bytes_of(t, s, 1) == ms[-1].bytes
     assert check(t, s, BuildCache(root), tmp_path / "v", cap=1) == ([], 1, 0)
-    real = build.normalise
+    real = normalise
     monkeypatch.setattr(build, "normalise", lambda ds, m, d: real(ds, m, d.replace(b",B", b",Z")))
     problems, _, _ = check(t, s, BuildCache(root), tmp_path / "w", cap=1)
     assert "d/t/v/2026-02-01/: data.csv differs" in problems
     assert not [p for p in problems if "history" in p]
 
 
-def source_bytes_of(ds, s, cap):
-    from publicdata.verify import source_bytes
-
+def source_bytes_of(ds: Dataset, s: Path, cap: int) -> int:
     return source_bytes(ds, s, cap)
 
 
-def test_a_raised_rebuild_number_is_always_in_the_sample(two_datasets, tmp_path):
-    from publicdata.verify import REPO, bumped
-
+def test_a_raised_rebuild_number_is_always_in_the_sample(two_datasets: Two, tmp_path: Path) -> None:
     s, t, u = two_datasets
     t = replace(t, rebuild=2, path=str(REPO / "register" / "t.yaml"))
     u = replace(u, path=str(REPO / "register" / "u.yaml"))
@@ -548,19 +596,20 @@ def test_a_raised_rebuild_number_is_always_in_the_sample(two_datasets, tmp_path)
     (before / "register" / "t.yaml").write_text("slug: t\nrebuild: 1\n", encoding="utf-8")
     (before / "register" / "u.yaml").write_text("slug: u\n", encoding="utf-8")
     assert bumped(before, [t, u]) == ["t"]
-    assert sample([t, u], s, "a", 0, 10**9, ["t"]) == ["t"]
+    assert sample([t, u], s, "a", 0, 10**9, forced=["t"]) == ["t"]
 
 
-def test_the_plan_names_the_strata_the_sample_leaves_out(two_datasets):
-    from publicdata.verify import uncovered
-
+def test_the_plan_names_the_strata_the_sample_leaves_out(two_datasets: Two) -> None:
     s, t, u = two_datasets
     u = replace(u, sort=("id",))
-    assert uncovered([t, u], s, ["t"]) and "u" in uncovered([t, u], s, ["t"])[0]
+    assert uncovered([t, u], s, ["t"])
+    assert "u" in uncovered([t, u], s, ["t"])[0]
     assert uncovered([t, u], s, ["t", "u"]) == []
 
 
-def test_the_manifest_is_compared_beyond_its_sizes_when_a_writer_changed(tmp_path, monkeypatch):
+def test_the_manifest_is_compared_beyond_its_sizes_when_a_writer_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     s = tmp_path / "store"
     csv = b"Id,V\n1,a\n2,b\n"
     store.write(s, make_manifest(csv, dataset="t", version="2026-01-01", caps=1), csv)
@@ -568,7 +617,9 @@ def test_the_manifest_is_compared_beyond_its_sizes_when_a_writer_changed(tmp_pat
     root = _build([t], s, tmp_path / "a", tmp_path / "cache").root
     real = cache_mod.writer_key
     monkeypatch.setattr(
-        cache_mod, "writer_key", lambda f, shape=False: "new" if f == "xlsx" else real(f, shape)
+        cache_mod,
+        "writer_key",
+        lambda f, shape=False: "new" if f == "xlsx" else real(f, shape=shape),
     )
     assert check(t, s, BuildCache(root), tmp_path / "v") == ([], 1, 0)
     monkeypatch.setattr(build, "version_url", lambda slug, v: f"https://elsewhere/{slug}/{v}/")
@@ -576,10 +627,8 @@ def test_the_manifest_is_compared_beyond_its_sizes_when_a_writer_changed(tmp_pat
     assert "d/t/v/2026-01-01/: manifest.json differs beyond the sizes it measures" in problems
 
 
-def test_the_duckdb_digest_sees_row_order_and_block_size(tmp_path):
-    from publicdata.serialise import duckdb_connect, duckdb_digest
-
-    def write(name, rows, n):
+def test_the_duckdb_digest_sees_row_order_and_block_size(tmp_path: Path) -> None:
+    def write(name: str, rows: list[int], n: int | None) -> str:
         con = duckdb_connect(tmp_path / name, n)
         con.execute("CREATE TABLE records (a INTEGER)")
         con.executemany("INSERT INTO records VALUES (?)", [(r,) for r in rows])
@@ -591,11 +640,9 @@ def test_the_duckdb_digest_sees_row_order_and_block_size(tmp_path):
     assert write("d.duckdb", [1, 2], None) != write("a.duckdb", [1, 2], 2)
 
 
-def test_a_partition_by_edit_needs_a_note_in_each_published_version(two_datasets, tmp_path):
-    import json
-
-    from publicdata.verify import REPO, unnoted_partitions
-
+def test_a_partition_by_edit_needs_a_note_in_each_published_version(
+    two_datasets: Two, tmp_path: Path
+) -> None:
     s, t, u = two_datasets
     t = replace(t, partition_by=("v",), path=str(REPO / "register" / "t.yaml"))
     u = replace(u, path=str(REPO / "register" / "u.yaml"))
@@ -625,12 +672,11 @@ def test_a_partition_by_edit_needs_a_note_in_each_published_version(two_datasets
 
 
 def test_the_plan_fails_a_partition_by_edit_and_names_the_replace(
-    two_datasets, tmp_path, monkeypatch, capsys
-):
-    from publicdata import register
-    from publicdata.__main__ import main
-    from publicdata.verify import REPO
-
+    two_datasets: Two,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     s, t, _u = two_datasets
     t = replace(t, partition_by=("v",), path=str(REPO / "register" / "t.yaml"))
     monkeypatch.setattr(register, "load", lambda _: [t])
