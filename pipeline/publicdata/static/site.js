@@ -552,10 +552,10 @@
   }
 
   // The most-voted datasets, from the register and the catalogue alike. The page's own rows stay
-  // until there are votes to show.
+  // until there are votes to show, and then fill the table behind them so it keeps its height.
   var mw = document.getElementById('most-wanted');
   if (mw) {
-    var mlimit = +mw.dataset.limit || 5;
+    var mlimit = +mw.dataset.limit || 5, mbody = mw.querySelector('tbody'), mfirst = [].slice.call(mbody.rows), msize = mfirst.length || mlimit;
     Promise.all([counts(), fetch('/backlog.json').then(function (r) { return r.ok ? r.json() : { entries: [] }; }).catch(function () { return { entries: [] }; })]).then(function (a) {
       var c = a[0], reg = {};
       (a[1].entries || []).forEach(function (e) { reg[e.slug] = e; });
@@ -567,16 +567,19 @@
       return got.then(function (d) {
         var by = {};
         d.rows.forEach(function (r) { by[r.id] = r; if (r.vote && !by[r.vote]) by[r.vote] = r; });
-        var rows = [];
+        var rows = [], shown = {};
         keys.forEach(function (k) {
           var e = reg[k];
           var r = e ? { title: e.title, summary: e.summary, publisher: e.publisher.name, jur: e.publisher.jurisdiction.toLowerCase(), licence: e.licence.title, url: e.source, state: e.status === 'blocked' ? 'closed' : 'chosen', reason: e.blocked_reason, vote: k } : by[k];
-          if (r && r.state !== 'served') rows.push(catRow(r));
+          if (r && r.state !== 'served' && rows.length < msize) { rows.push(catRow(r)); shown[k] = 1; }
         });
         if (!rows.length) return;
-        var body = mw.querySelector('tbody');
-        body.textContent = '';
-        rows.forEach(function (r) { body.appendChild(r); });
+        mfirst.forEach(function (tr) {
+          var b = tr.querySelector('[data-vote]');
+          if (rows.length < msize && !(b && shown[b.dataset.vote])) rows.push(tr);
+        });
+        mbody.textContent = '';
+        rows.forEach(function (r) { mbody.appendChild(r); });
       });
     });
   }
