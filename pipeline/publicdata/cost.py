@@ -6,6 +6,7 @@ enters the build cache key.
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import http.client
 import io
@@ -758,6 +759,58 @@ def unmeasured(reason: str) -> Measured:
 
 class Unmeasured(Exception):  # noqa: N818 - a reason, published as it is worded
     """A reason the measurement is unavailable, worded to be published."""
+
+
+PAGES_API = (
+    "https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/{project}/upload-token"
+)
+# What a Pages deployment may hold when the upload token states no cap, as wrangler assumes.
+PAGES_FILES = 20_000
+
+
+def pages_file_cap(account: str, token: str, project: str = "publicdata-au") -> int:
+    """How many files the account's plan lets one Pages deployment hold.
+
+    The project's upload token states it in `max_file_count_allowed`. The token itself is never
+    kept or shown.
+    """
+    req = urllib.request.Request(
+        PAGES_API.format(account=account, project=project),
+        headers={"Authorization": f"Bearer {token}", "User-Agent": UA},
+    )
+
+    def get() -> JSON:
+        with _open(req, 30) as r:
+            doc: JSON = json.load(r)
+            return doc
+
+    try:
+        doc = retry(get)
+    except urllib.error.HTTPError as e:
+        msg = f"the Pages API answered HTTP {e.code}"
+        raise Unmeasured(msg) from e
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        msg = "the Pages API could not be read"
+        raise Unmeasured(msg) from e
+    result = doc.get("result") if isinstance(doc, dict) else None
+    claims = _jwt_claims(result.get("jwt") if isinstance(result, dict) else None)
+    if claims is None:
+        msg = "the Pages API gave no upload token"
+        raise Unmeasured(msg)
+    cap = claims.get("max_file_count_allowed")
+    return cap if isinstance(cap, int) and not isinstance(cap, bool) and cap > 0 else PAGES_FILES
+
+
+def _jwt_claims(jwt: JSON) -> JSONObject | None:
+    """The payload of a JSON Web Token, or None for anything that is not one."""
+    if not isinstance(jwt, str):
+        return None
+    try:
+        _header, body, _signature = jwt.split(".")
+        claims: JSON = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+    except ValueError:
+        return None
+    return claims if isinstance(claims, dict) else None
 
 
 def measure_r2(account: str, token: str, now: dt.datetime) -> Measured:
