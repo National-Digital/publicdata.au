@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { parquetReadObjects } from 'hyparquet';
 import { decompress } from 'fzstd';
 import { answer } from './_api.js';
 import { aggregateQuery, rowsQuery } from './_query.js';
-import { BUDGET, BudgetError, forget, openVersion, parquetAggregate, parquetRows, periodStat } from './_parquet.js';
+import { BUDGET, BudgetError, RECHECK, forget, openVersion, parquetAggregate, parquetRows, periodStat } from './_parquet.js';
 import { onRequestPost } from './mcp.js';
 
 // Versions stored as period parts, written by the pipeline's part writer under the profile
@@ -287,5 +288,59 @@ test('a part written again in place is read afresh, and no answer from its old f
     assert.deepEqual([after.matched, after.rows], [0, []]);
   } finally {
     objects.set(key, was);
+  }
+});
+
+test('a manifest R2 stores gzipped is read as JSON, so its parts are found', async () => {
+  const key = `d/${BY_QUARTER}/v/${V}/manifest.json`;
+  const raw = objects.get(key);
+  const gz = gzipSync(raw);
+  assert.ok(raw.length > 1024);
+  // The binding returns the stored bytes; only the metadata says they are gzipped.
+  const zipped = {
+    ...DIST,
+    async get(k, opts) {
+      if (k !== key) return DIST.get(k, opts);
+      return { size: gz.length, etag: etagOf(gz), httpMetadata: { contentEncoding: 'gzip' }, body: new Blob([gz]).stream(), text: async () => gz.toString('utf8') };
+    },
+  };
+  forget(BY_QUARTER, V);
+  try {
+    const got = await openVersion({ DIST: zipped }, BY_QUARTER, V);
+    assert.ok(got, 'the version is located');
+    assert.deepEqual(got.parts.map((p) => p.key), at[BY_QUARTER].parts.map((p) => p.key));
+    assert.equal(got.manifest.sha256, createHash('sha256').update(raw).digest('hex'));
+    const r = await parquetRows({ DIST: zipped }, got, new URLSearchParams('day=eq.2019-02-04'), manifestUrl(BY_QUARTER));
+    assert.equal(r.matched, (await d1('aggregate', 'day=eq.2019-02-04', BY_QUARTER)).rows[0].count);
+  } finally {
+    forget(BY_QUARTER, V);
+  }
+});
+
+test('an answer from parts is not served once a correction rewrites the manifest', async () => {
+  const key = `d/${BY_YEAR}/v/${V}/manifest.json`;
+  const was = objects.get(key);
+  const store = new Map();
+  const before = globalThis.caches;
+  globalThis.caches = { default: { match: async (r) => store.get(r.url)?.clone(), put: async (r, res) => { store.set(r.url, res); } } };
+  const ask = { slug: BY_YEAR, version: V, where: { year: 2020 }, select: ['lga'], limit: 5 };
+  const answers = () => [...store.keys()].filter((k) => k.includes('/_parquet/')).length;
+  const recheck = RECHECK.ms;
+  try {
+    await call('query_rows', ask);
+    assert.equal(answers(), 1);
+    await call('query_rows', ask);
+    assert.equal(answers(), 1, 'an unchanged manifest answers from the cache');
+    // A correction keeps every part's key and rows and adds its note to the manifest.
+    objects.set(key, Buffer.from(JSON.stringify({ ...JSON.parse(was), notes: 'Corrected.' })));
+    // The isolate notices the manifest's new ETag once its footer is checked again.
+    RECHECK.ms = 0;
+    await call('query_rows', ask);
+    assert.equal(answers(), 2, 'the corrected version is read afresh under a key of its own');
+  } finally {
+    RECHECK.ms = recheck;
+    objects.set(key, was);
+    globalThis.caches = before;
+    forget(BY_YEAR, V);
   }
 });

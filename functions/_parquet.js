@@ -1,5 +1,6 @@
 import { parquetMetadata, parquetRead, parquetSchema, readColumnIndex, readOffsetIndex } from 'hyparquet';
 import { decompress } from 'fzstd';
+import { storedText } from './_lib.js';
 import { fieldMap, filterSpecs, groupFields, likePattern, metricSpecs, orderSpecs, paging, selectFields } from './_query.js';
 
 // The query API's rows and aggregate queries, answered from Parquet in R2 for the versions D1 does
@@ -197,11 +198,12 @@ async function locate(env, slug, version) {
   if (q && q.profiled && q.header && pub && sameVersion(q, pub)) return { files: [q], parts: null, copy };
   if (q && pub) console.error(`_q ${slug} ${version}: the copy does not match the published file`);
   if (pub) return { files: [pub], parts: null, copy };
-  const manifest = await manifestOf(env, slug, version);
+  const m = await manifestOf(env, slug, version);
+  const manifest = m && m.manifest;
   const parts = partsOf(slug, manifest);
   if (!parts.length) return null;
   return {
-    files: [], parts, copy,
+    files: [], parts, copy, manifest: { sha256: m.sha256, etag: m.etag },
     period: manifest.period || null,
     rows: Number.isFinite(manifest.rows) ? manifest.rows : parts.reduce((n, p) => n + p.rows, 0),
     attribution: manifest.attribution ?? null,
@@ -209,29 +211,37 @@ async function locate(env, slug, version) {
 }
 
 // A version's manifest: in R2 for a dated version, or among the deployment's files for the newest.
+// A correction rewrites it in place, so it comes with the digest of its text and its R2 ETag.
 async function manifestOf(env, slug, version) {
-  const key = `d/${slug}/v/${version}/manifest.json`;
+  const key = manifestKey(slug, version);
   const o = await env.DIST.get(key);
-  let body = o ? await o.text() : null;
+  let body = o ? await storedText(o) : null;
   if (!o && env.ASSETS) {
     const r = await env.ASSETS.fetch(new Request(`https://publicdata.au/${key}`));
     body = r.ok ? await r.text() : null;
   }
+  if (!body) return null;
   try {
-    return body && JSON.parse(body);
+    const manifest = JSON.parse(body);
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body));
+    const sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return { manifest, sha256, etag: o ? o.etag : null };
   } catch {
     return null;
   }
 }
 
+const manifestKey = (slug, version) => `d/${slug}/v/${version}/manifest.json`;
+
 // The Parquet part of each period, in the manifest's order. A finished part may be an earlier
-// snapshot's file, so its key follows the tree that wrote it.
+// snapshot's file, so its key follows the dated version that wrote it. Only a rolling source's
+// latest/ tree records parts under another tree, and its manifest is never read here.
 function partsOf(slug, manifest) {
   const listed = (manifest && Array.isArray(manifest.parts)) ? manifest.parts : [];
   return listed.filter((p) => p.files && p.files.parquet).map((p) => ({
     period: p.period,
     rows: p.rows,
-    key: `d/${slug}/${p.tree === 'latest' ? 'latest' : `v/${p.tree}`}/${p.files.parquet.path}`,
+    key: `d/${slug}/v/${p.tree}/${p.files.parquet.path}`,
   }));
 }
 
@@ -248,7 +258,10 @@ function sameVersion(q, pub) {
 async function moved(env, slug, version, p) {
   try {
     const [e, now] = await Promise.all([p, env.DIST.head(`_q/${slug}/${version}.parquet`)]);
-    return !e || (now ? now.etag : null) !== e.copy;
+    if (!e || (now ? now.etag : null) !== e.copy) return true;
+    if (!e.manifest || !e.manifest.etag) return false;
+    const m = await env.DIST.head(manifestKey(slug, version));
+    return (m ? m.etag : null) !== e.manifest.etag;
   } catch {
     return true;
   }

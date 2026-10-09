@@ -710,7 +710,11 @@ ruled out in each part as in one file, under one budget for the whole call, and 
 aggregates combine across the parts. A refused call gives DuckDB SQL over the parts it would have
 read, ordered by `list_position` of each part in that list and then `file_row_number`, which
 returns the same rows in the same order. An answer names the periods it read and the version's
-manifest, and takes the attribution the manifest records. A sorted profile
+manifest, and takes the attribution the manifest records. The manifest is read through
+`storedText`, since R2 holds it gzipped once it passes 1 KB. A correction rewrites a version's
+parts under the same keys and its manifest with a note, so an answer is cached under the digest
+of the manifest's text, and the manifest an isolate holds is checked against its ETag after a
+minute, as a footer is. A sorted profile
 file has a page index, and one without is read a column chunk at a time. Each version's
 footer, and the page index of each column a query touches, are read once per isolate and held to
 the file's ETag. The page index is written just before the footer, so when the 64 KB read of a

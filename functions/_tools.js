@@ -115,11 +115,13 @@ async function parquet(ctx, slug, version, op, qs) {
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-// A version stored as period parts is read part by part. Its parts are dated files written once,
-// listed with their rows by its manifest, so an answer is kept under a digest of that list.
+// A version stored as period parts is read part by part, listed with their rows by its manifest.
+// A correction rewrites parts in place under the same keys and rewrites the manifest with its
+// note, so an answer is kept under a digest of the manifest's text and that list.
 async function fromParts(ctx, slug, v, op, qs, path, at) {
   const manifest = SITE + '/d/' + enc(slug) + '/v/' + v + '/manifest.json';
-  const id = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(at.parts.map((p) => `${p.key} ${p.rows}`).join('\n')))).slice(0, 32);
+  const listed = [at.manifest.sha256, ...at.parts.map((p) => `${p.key} ${p.rows}`)].join('\n');
+  const id = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(listed))).slice(0, 32);
   const key = new Request(SITE + '/_parquet/' + ENGINE + '/parts-' + id + path);
   const hit = await caches.default.match(key);
   if (hit) return hit.json();
