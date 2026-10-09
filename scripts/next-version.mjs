@@ -18,50 +18,56 @@
 //   node scripts/next-version.mjs "feat: thing"   # explicit subject
 //   node scripts/next-version.mjs --print-current # just echo the current base version
 // Prints the bare version (e.g. 2.1.0) to stdout; diagnostics go to stderr.
-import { execSync } from "node:child_process";
+import { execSync } from 'node:child_process';
 
 // Major floor: numbering starts at v1, the version first published to the MCP Registry. Before
 // the first v-tag is pushed the script carries this forward; once tags exist the latest tag wins.
 const MAJOR_FLOOR = 1;
 
-const sh = (cmd) => execSync(cmd, { encoding: "utf8" }).trim();
+const sh = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim();
 
 function latestTag() {
   let tags = [];
   try {
-    tags = sh('git tag --list "v*.*.*"').split("\n").filter(Boolean);
+    tags = sh('git tag --list "v*.*.*"').split('\n').filter(Boolean);
   } catch {
     /* no tags */
   }
   const parsed = tags
-    .map((t) => t.replace(/^v/, "").split(".").map(Number))
+    .map((t) => t.replace(/^v/, '').split('.').map(Number))
     .filter((p) => p.length === 3 && p.every((n) => Number.isInteger(n)))
     .sort((a, b) => b[0] - a[0] || b[1] - a[1] || b[2] - a[2]);
   return parsed[0] || [MAJOR_FLOOR, 0, 0];
 }
 
-function bumpType(subject) {
-  const m = subject.match(/^\s*([a-zA-Z]+)(\([^)]*\))?(!)?:/);
-  if (!m) return "patch"; // not conventional -> safe patch
-  if (m[3] || /BREAKING[ -]CHANGE/.test(subject)) return "major"; // `type!:` or BREAKING note
-  return m[1].toLowerCase() === "feat" ? "minor" : "patch";
+function bumpType(title) {
+  const m = title.match(/^\s*([a-zA-Z]+)(\([^)]*\))?(!)?:/);
+  // A title that is not a Conventional Commit is a patch, the safe choice.
+  if (!m) {
+    return 'patch';
+  }
+  // `type!:` or a BREAKING CHANGE note.
+  if (m[3] || /BREAKING[ -]CHANGE/.test(title)) {
+    return 'major';
+  }
+  return m[1].toLowerCase() === 'feat' ? 'minor' : 'patch';
 }
 
 const args = process.argv.slice(2);
 let [major, minor, patch] = latestTag();
 
-if (args.includes("--print-current")) {
+if (args.includes('--print-current')) {
   process.stdout.write(`${major}.${minor}.${patch}`);
   process.exit(0);
 }
 
-const subject = args.find((a) => !a.startsWith("--")) || sh("git log -1 --pretty=%s");
+const subject = args.find((a) => !a.startsWith('--')) || sh('git log -1 --pretty=%s');
 const type = bumpType(subject);
-if (type === "major") {
+if (type === 'major') {
   major += 1;
   minor = 0;
   patch = 0;
-} else if (type === "minor") {
+} else if (type === 'minor') {
   minor += 1;
   patch = 0;
 } else {
@@ -69,6 +75,6 @@ if (type === "major") {
 }
 
 console.error(
-  `base v${latestTag().join(".")} + "${subject}" (${type}) -> ${major}.${minor}.${patch}`,
+  `base v${latestTag().join('.')} + "${subject}" (${type}) -> ${major}.${minor}.${patch}`,
 );
 process.stdout.write(`${major}.${minor}.${patch}`);

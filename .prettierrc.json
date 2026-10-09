@@ -1,0 +1,10 @@
+{
+  "printWidth": 100,
+  "singleQuote": true,
+  "overrides": [
+    {
+      "files": "pipeline/publicdata/static/site.js",
+      "options": { "trailingComma": "es5" }
+    }
+  ]
+}

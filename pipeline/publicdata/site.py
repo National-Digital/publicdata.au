@@ -168,12 +168,12 @@ if TYPE_CHECKING:
         key: str
         label: str
         file: str
+        note: str
         size: NotRequired[str]
 
-    class FormatNote(TypedDict):
+    class FormatFile(TypedDict):
         file: str
         suffix: str
-        note: str
 
     class SampleTable(Preview):
         heading: str
@@ -1302,25 +1302,26 @@ def _default_format(ds: Dataset, latest: VersionOut) -> str:
     return "csv" if "csv" in have else next(iter(_fmts(ds, latest)))
 
 
-def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[FormatButton], dict[str, FormatNote]]:
-    """The format buttons and what site.js needs for each: the file and its note.
+def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[FormatButton], dict[str, FormatFile]]:
+    """The format buttons with their notes, and the file and suffix site.js needs for each.
 
     The default format comes first and is the one pressed.
     """
     first = _default_format(ds, latest)
     order = sorted(_fmts(ds, latest), key=lambda f: f != first)
     formats: list[FormatButton] = [
-        {"key": f, "label": FORMAT_LABEL[f], "file": f"data.{f}"} for f in order
+        {
+            "key": f,
+            "label": FORMAT_LABEL[f],
+            "file": f"data.{f}",
+            "note": _format_note(ds, f, latest.rows),
+        }
+        for f in order
     ]
     for f in formats:
         f["size"] = fmt_size(latest.size(f["file"]))
-    fmt_data: dict[str, FormatNote] = {
-        f["key"]: {
-            "file": f["file"],
-            "suffix": save_suffix(f["file"]),
-            "note": _format_note(ds, f["key"], latest.rows),
-        }
-        for f in formats
+    fmt_data: dict[str, FormatFile] = {
+        f["key"]: {"file": f["file"], "suffix": save_suffix(f["file"])} for f in formats
     }
     if ds.partition_by:
         pf = ds.partition_by[0]
@@ -1333,15 +1334,12 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[FormatButton], dict[s
                     "label": f"One {pf.replace('_', ' ')}",
                     "size": f"{len(entries)} files",
                     "file": ex["json"],
+                    "note": FORMAT_NOTES["partition"].format(
+                        field=pf, count=len(entries), example=ex["json"]
+                    ),
                 }
             )
-            fmt_data["partition"] = {
-                "file": ex["json"],
-                "suffix": save_suffix(ex["json"]),
-                "note": FORMAT_NOTES["partition"].format(
-                    field=pf, count=len(entries), example=ex["json"]
-                ),
-            }
+            fmt_data["partition"] = {"file": ex["json"], "suffix": save_suffix(ex["json"])}
     return formats, fmt_data
 
 

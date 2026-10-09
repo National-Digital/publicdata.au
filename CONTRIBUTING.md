@@ -35,7 +35,16 @@ ruff check . && ruff format --check .
 mypy
 pytest -n auto
 cd .. && node --test functions/*.test.mjs scripts/*.test.mjs
+npx eslint . --max-warnings 0
+npx prettier --check .
 ```
+
+The last two lines are the JavaScript checks CI runs: ESLint over the Pages Functions, the scripts,
+the explorer and the site's browser scripts, and Prettier over the same files. `npx eslint --fix .`
+and `npx prettier --write .` correct most findings in place. Both read only the tracked
+JavaScript in those directories, so templates, generated JSON and anything untracked in the
+checkout are left alone. `site.js` is held to ES5 syntax, since browsers run it as written. A rule
+is switched off for one line at a time, with `// eslint-disable-next-line <rule> -- <reason>`.
 
 The fixtures are small and stand in for the real store. To build a real dataset, fetch it from
 the publisher into a local store and build from that:
@@ -76,6 +85,11 @@ machine what CI would fail a few minutes later.
   The Workflow lint job in CI runs those too, so a commit the hook passes can still fail there.
   Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
   versions, when one differs, and runs it anyway.
+- `pre-commit` also runs ESLint with `--max-warnings 0` and `prettier --check` on the staged
+  content of each staged JavaScript file the two configs cover and of `.prettierrc.json`, using
+  the versions in `node_modules`. It names each file and rule that fails and stops the commit once
+  the other checks have run. A commit with no such file runs neither tool. Each file takes about a
+  second.
 - `pre-push` checks what the push changes, comparing each branch with what the remote holds, or
   a new branch with where it leaves the remote's main. When the push changes `pipeline/`, it runs
   `mypy` there, then the fast tests in the working tree, `pytest -m "not slow" -n auto`. When it
@@ -91,12 +105,14 @@ and those named in `SLOW_TESTS`. Move a test in or out of the fast run there.
 A hook with Python to check that cannot find `ruff`, `mypy`, `pytest` or the pipeline's
 environment stops the commit or push with one line saying what to install. A commit that stages
 `.github/` fails in the same way when actionlint, shellcheck or zizmor is missing, with a line
-naming the version CI pins and where to get it. A missing `node` skips the JavaScript tests with a
-line saying so. To skip the hooks once, pass `--no-verify` to `git commit` or `git push`.
+naming the version CI pins and where to get it. A commit that stages JavaScript fails when
+`node_modules` is missing, with a line asking you to run `npm ci --ignore-scripts`, because CI
+always runs ESLint and Prettier. A missing `node` skips the JavaScript tests with a line saying
+so. To skip the hooks once, pass `--no-verify` to `git commit` or `git push`.
 
 CI's pipeline job puts the same pinned actionlint, shellcheck and zizmor on its PATH, so the
-hook's tests in `pipeline/tests/test_hooks.py` run there. Locally they skip when a tool is not
-installed.
+hook's tests in `pipeline/tests/test_hooks.py` run there, and its `npm ci` gives the JavaScript
+check's tests their `node_modules`. Locally they skip when a tool is not installed.
 
 CI runs every check again, every test included, whatever the hooks did. The hooks catch a failure
 before the push, and they replace none of CI's checks.

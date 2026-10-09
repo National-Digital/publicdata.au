@@ -10,8 +10,22 @@ const script = new URL('./next-version.mjs', import.meta.url).pathname;
 const repo = mkdtempSync(join(tmpdir(), 'next-version-'));
 const git = (...a) => execFileSync('git', ['-C', repo, ...a], { stdio: 'pipe' });
 git('init', '-q');
-git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '--allow-empty', '-m', 'chore: init');
-const next = (...a) => execFileSync('node', [script, ...a], { cwd: repo, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+git(
+  '-c',
+  'user.name=t',
+  '-c',
+  'user.email=t@example.com',
+  'commit',
+  '-q',
+  '--allow-empty',
+  '-m',
+  'chore: init',
+);
+const next = (...a) =>
+  execFileSync('node', [script, ...a], {
+    cwd: repo,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).toString();
 
 test('with no tag the floor is 1.0.0', () => {
   assert.equal(next('--print-current'), '1.0.0');
@@ -19,7 +33,9 @@ test('with no tag the floor is 1.0.0', () => {
 });
 
 test('the newest tag wins, and the title picks the bump', () => {
-  for (const t of ['v1.2.9', 'v1.10.0', 'v0.9.0', 'not-a-version']) git('tag', t);
+  for (const t of ['v1.2.9', 'v1.10.0', 'v0.9.0', 'not-a-version']) {
+    git('tag', t);
+  }
   assert.equal(next('--print-current'), '1.10.0');
   assert.equal(next('feat(agents): x'), '1.11.0');
   assert.equal(next('fix: y'), '1.10.1');

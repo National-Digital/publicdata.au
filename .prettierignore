@@ -1,0 +1,17 @@
+# Only the tracked JavaScript and this tooling's config are formatted, so a run from the root never
+# walks build output or a working copy nested inside the checkout. Templates, generated JSON such as
+# functions/_tools.json, and the CSS keep the form their writers give them.
+/*
+!/functions/
+!/scripts/
+!/explorer/
+!/pipeline/
+/pipeline/*
+!/pipeline/publicdata/
+/pipeline/publicdata/*
+!/pipeline/publicdata/static/
+**/*.*
+!**/*.js
+!**/*.mjs
+!/eslint.config.mjs
+!/.prettierrc.json
