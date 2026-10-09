@@ -758,13 +758,20 @@ def cmd_r2_shared_report(args) -> int:
 
     t = shared_report(prefix=args.prefix)
     for ext, (n, size) in sorted(t["by_ext"].items(), key=lambda e: -e[1][1]):
-        print(f"shared: .{ext}: {n:,} extra {'copy' if n == 1 else 'copies'}, {size:,} bytes")
+        kind = f".{ext}" if ext else "no extension"
+        print(f"shared: {kind}: {n:,} extra {'copy' if n == 1 else 'copies'}, {size:,} bytes")
     pct = 100 * t["saved"] / t["bytes"] if t["bytes"] else 0
     print(
         f"shared: {t['copies']:,} of {t['objects']:,} dated files repeat another's stored bytes; "
         f"storing each once would save {t['saved']:,} of {t['bytes']:,} bytes ({pct:.2g}%), "
         f"{t['across']:,} of them across datasets. {t['heads']:,} HEAD request(s) sent"
         + (f", {t['gone']:,} key(s) deleted while the report ran" if t["gone"] else "")
+        + (
+            f", {t['unhashed']:,} HEADed file(s) with no SHA-256 matched on ETag alone"
+            " and may be undercounted"
+            if t["unhashed"]
+            else ""
+        )
     )
     return 0
 

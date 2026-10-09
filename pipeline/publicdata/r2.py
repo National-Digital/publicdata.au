@@ -905,10 +905,13 @@ def _restore_one(s3, bucket: str, key: str, head: dict, work: Path, kept: Path):
 
 def shared_report(bucket: str = "publicdata-dist", prefix: str = "d/", workers: int = 8) -> dict:
     """What storing each distinct dated file once would save, by extension, read without changing
-    the bucket. Identity is the stored bytes: two objects of one size are the same when their
-    ETags match or the SHA-256 stored with them does. A single-part ETag is an MD5, so two that
-    differ settle it; a HEAD is sent only in a group holding a multipart ETag, whose value depends
-    on how the file was uploaded. A key deleted while the report runs is left out."""
+    the bucket. Objects are grouped by stored size, and two in a group are the same when their
+    ETags match, which compares the stored bytes, or the SHA-256 in their metadata does, which
+    since #51 is of the decoded bytes for a gzipped object. Sameness is transitive, so a file
+    matching one copy by ETag and another by SHA-256 joins both. A single-part ETag is an MD5, so
+    two that differ settle it; a HEAD is sent only in a group holding a multipart ETag, whose value
+    depends on how the file was uploaded. A HEADed file without a SHA-256 can match only on its
+    ETag and is counted as `unhashed`. A key deleted while the report runs is left out."""
     from collections import defaultdict
     from concurrent.futures import ThreadPoolExecutor
 
@@ -940,20 +943,30 @@ def shared_report(bucket: str = "publicdata-dist", prefix: str = "d/", workers: 
     gone = {k for k, v in shas.items() if v is None}
 
     totals = {"objects": len(listing) - len(gone), "heads": len(ask), "gone": len(gone)}
+    totals |= {"unhashed": sum(1 for v in shas.values() if v == "")}
     totals |= {"bytes": sum(n for k, (n, _) in listing.items() if k not in gone)}
     totals |= {"copies": 0, "saved": 0, "across": 0, "by_ext": {}}
+    parent = {k: k for ks in groups for k in ks}
+
+    def root(k: str) -> str:
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
     for ks in groups:
         ks = sorted(k for k in ks if k not in gone)
-        first: dict[str, str] = {}
+        owner: dict[str, str] = {}
         for k in ks:
-            ids = [f"etag:{listing[k][1]}", *([f"sha256:{shas[k]}"] if shas.get(k) else [])]
-            seen = next((first[i] for i in ids if i in first), None)
-            for i in ids:
-                first.setdefault(i, seen or k)
-            if seen is None:
+            for i in (f"etag:{listing[k][1]}", *([f"sha256:{shas[k]}"] if shas.get(k) else [])):
+                a, b = root(owner.setdefault(i, k)), root(k)
+                parent[max(a, b)] = min(a, b)
+        for k in ks:
+            seen = root(k)
+            if seen == k:
                 continue
             name = k.rsplit("/", 1)[-1]
-            ext = "csv.gz" if name.endswith(".csv.gz") else name.rsplit(".", 1)[-1]
+            ext = "csv.gz" if name.endswith(".csv.gz") else Path(name).suffix[1:]
             e = totals["by_ext"].setdefault(ext, [0, 0])
             e[0] += 1
             e[1] += listing[k][0]
