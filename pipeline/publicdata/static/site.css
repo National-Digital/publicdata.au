@@ -87,6 +87,7 @@ pre .c{color:var(--muted)}
 .ledger .t{font-weight:500}
 .ledger .t a{color:var(--ink);text-decoration:none}
 .ledger .t a:hover{text-decoration:underline}
+.ledger .sub a{color:var(--link);text-decoration:underline}
 .ledger .sub{display:block;font-size:0.8125rem;color:var(--muted);margin-top:3px;font-weight:300}
 .ledger tr.group td{background:var(--code-bg);font-weight:500;font-size:0.8125rem;letter-spacing:.02em;padding:8px 12px}
 .ledger tr.group td span{color:var(--muted);font-weight:300;margin-left:8px}
@@ -358,15 +359,7 @@ tr.closed td a{color:var(--muted)}
 .hero-fig .mapbox{max-height:520px;width:min(100%,calc(520px * var(--ar)))}
 .hero-fig .mapimg{filter:drop-shadow(0 0 28px rgba(255,139,90,.22))}
 .hero-fig figcaption .k{display:inline-block;font-size:0.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--map);font-weight:500;margin-right:6px}
-.ticker{border-top:1px solid var(--band-rule);padding:12px 0;min-width:0;max-width:100%;display:flex;gap:6px 30px;overflow-x:auto;white-space:nowrap;font-size:0.8125rem;color:var(--band-muted);scrollbar-width:none;align-items:center}
-.ticker::-webkit-scrollbar{display:none}
-.ticker .lab{font-size:0.75rem;text-transform:uppercase;letter-spacing:.08em;font-weight:500;color:var(--map);flex:none}
-.ticker a.v{flex:none;color:var(--band-muted);text-decoration:none;display:inline-block;padding-block:.25rem}
-.ticker a.v:hover b{text-decoration:underline}
-.ticker a.v b{color:var(--band-ink);font-weight:500}
-.ticker a.v i{font-style:normal}
-.ticker a.v em{font-style:normal;color:#5ce0a5}
-.ticker a.v .chg{color:var(--map)}
+.ticker{border-top:1px solid var(--band-rule);padding:12px 0;margin:0;font-size:0.875rem;color:var(--band-muted)}
 .ttiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px}
 .ttile{display:grid;gap:4px;align-content:start;background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:16px;color:var(--ink);text-decoration:none;min-width:0;border-top:3px solid var(--primary)}
 .ttile:hover{border-color:var(--primary)}

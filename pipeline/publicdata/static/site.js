@@ -1423,10 +1423,14 @@
   }
 
   // The most-voted datasets, from the register and the catalogue alike. The page's own rows stay
-  // until there are votes to show.
+  // until there are votes to show, and then fill the table behind them so it keeps its height. Votes
+  // past the page's row count wait behind a button, so the table only grows when a reader asks.
   var mw = document.getElementById('most-wanted');
   if (mw) {
-    var mlimit = Number(mw.dataset.limit) || 5;
+    var mlimit = Number(mw.dataset.limit) || 5,
+      mbody = mw.querySelector('tbody'),
+      mfirst = [].slice.call(mbody.rows),
+      msize = mfirst.length || mlimit;
     Promise.all([
       counts(),
       fetch('/backlog.json')
@@ -1474,8 +1478,22 @@
             by[r.vote] = r;
           }
         });
-        var rows = [];
+        // A dataset the page already shows keeps its own row, so its cells and height stay as rendered.
+        var own = {},
+          rows = [],
+          shown = {};
+        mfirst.forEach(function (tr) {
+          var b = tr.querySelector('[data-vote]');
+          if (b) {
+            own[b.dataset.vote] = tr;
+          }
+        });
         keys.forEach(function (k) {
+          if (own[k]) {
+            rows.push(own[k]);
+            shown[k] = 1;
+            return;
+          }
           var e = reg[k];
           var r = e
             ? {
@@ -1490,17 +1508,64 @@
                 vote: k,
               }
             : by[k];
-          if (r && r.state !== 'served') {
+          if (r && r.state !== 'served' && !shown[r.vote || k]) {
             rows.push(catRow(r));
+            shown[r.vote || k] = 1;
           }
         });
         if (!rows.length) {
           return;
         }
-        var body = mw.querySelector('tbody');
-        body.textContent = '';
-        rows.forEach(function (r) {
-          body.appendChild(r);
+        var extra = rows.splice(msize);
+        mfirst.forEach(function (tr) {
+          var b = tr.querySelector('[data-vote]');
+          if (rows.length < msize && !(b && shown[b.dataset.vote])) {
+            rows.push(tr);
+          }
+        });
+        // A phone fires resize when its address bar hides, so only a change of width lets the table go.
+        var mwrap = mw.parentNode,
+          mwidth = mwrap.offsetWidth;
+        var mwide = function () {
+          if (mwrap.offsetWidth !== mwidth) {
+            mfree();
+          }
+        };
+        var mfree = function () {
+          mwrap.style.minHeight = '';
+          window.removeEventListener('resize', mwide);
+        };
+        mwrap.style.minHeight = mwrap.offsetHeight + 'px';
+        window.addEventListener('resize', mwide);
+        mbody.textContent = '';
+        rows.concat(extra).forEach(function (r) {
+          mbody.appendChild(r);
+        });
+        if (!extra.length) {
+          return;
+        }
+        extra.forEach(function (r) {
+          r.hidden = true;
+        });
+        var mb = elem(
+          'button',
+          'btn ghost',
+          'Show ' + extra.length + ' more ' + (extra.length === 1 ? 'dataset' : 'datasets')
+        );
+        mb.type = 'button';
+        mb.setAttribute('aria-controls', mw.id);
+        mb.setAttribute('aria-expanded', 'false');
+        var mp = elem('p');
+        mp.appendChild(mb);
+        mw.parentNode.parentNode.insertBefore(mp, mw.parentNode.nextSibling);
+        mb.addEventListener('click', function () {
+          mfree();
+          extra.forEach(function (r) {
+            r.hidden = false;
+          });
+          mb.setAttribute('aria-expanded', 'true');
+          extra[0].querySelector('a, button').focus();
+          mp.hidden = true;
         });
       });
     });

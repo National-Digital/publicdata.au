@@ -41,6 +41,7 @@ from .build import (
 )
 from .cost import fleet_from_build
 from .d1 import KEEP, MAX_CSV, catalogue_sqlite, parts_csv, queryable, served_table
+from .fetch import TZ
 from .parts import FORMATS as PART_FORMATS
 from .parts import url as part_url
 from .provenance import (
@@ -641,6 +642,42 @@ def _newest(o: DatasetOut) -> VersionOut:
         msg = f"{o.dataset.slug}: a listed dataset has no version"
         raise ValueError(msg)
     return o.latest
+
+
+def _week(live: list[DatasetOut]) -> str:
+    """The home page's sentence on the seven days to the store's newest fetch.
+
+    Added counts the datasets this site first fetched in the week, since a publisher may date a
+    first version years back. Updated counts the others with a version dated in the week. Both
+    read the stored manifests, so two builds of one snapshot agree. A fetch is dated in the
+    fetch's time zone, which dates the version labels too.
+    """
+
+    def day(fetched_at: str) -> str:
+        return dt.datetime.fromisoformat(fetched_at).astimezone(TZ).date().isoformat()
+
+    first = {o.dataset.slug: min(day(v.manifest.fetched_at) for v in o.versions) for o in live}
+    if not first:
+        return ""
+    end = max(day(v.manifest.fetched_at) for o in live for v in o.versions)
+    start = (dt.date.fromisoformat(end) - dt.timedelta(days=6)).isoformat()
+    added = {slug for slug, d in first.items() if d >= start}
+    updated = sum(
+        o.dataset.slug not in added
+        and any(start <= v.manifest.version[:10] <= end for v in o.versions)
+        for o in live
+    )
+
+    def datasets(n: int) -> str:
+        return f"{n} {'dataset' if n == 1 else 'datasets'}"
+
+    said = [f"this site published {datasets(len(added))} for the first time"] if added else []
+    if updated:
+        whose = datasets(updated).replace(" ", " other ", 1) if said else datasets(updated)
+        said.append(f"{whose} had a new version dated in the week")
+    if not said:
+        return ""
+    return f"In the week to {long_date(end)}, {', and '.join(said)}."
 
 
 def collection_url(collection: str) -> str:
@@ -4797,23 +4834,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "search": f"/backlog/?q={urllib.parse.quote(tinfo['search'])}",
             }
         )
-    # The newest versions across every dataset, a line each.
-    newest = sorted(
-        (
-            {
-                "version": _newest(o).manifest.version,
-                "slug": o.dataset.slug,
-                "title": o.dataset.title,
-                "rows": fmt_int(_newest(o).rows),
-                "as_at_long": views_by[o.dataset.slug][-1]["as_at_long"],
-                "change": views_by[o.dataset.slug][-1]["change"],
-                "new": len(o.versions) == 1,
-            }
-            for o in live
-        ),
-        key=lambda x: (x["version"], x["slug"]),
-        reverse=True,
-    )[:8]
+    newest = _week(live)
     # The showcase: the largest table under each topic, then the largest left, six in all.
     showcase: list[DatasetOut] = []
     used: set[str] = set()
