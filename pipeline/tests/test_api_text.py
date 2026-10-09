@@ -2,38 +2,61 @@ import html
 import json
 import re
 import shutil
-from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 
 from publicdata import api_text as at
-from publicdata import register
+from publicdata import gate, register
+from publicdata import site as site_module
 
 from .conftest import ROOT
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    # The JSON-LD keys these tests read.
+    LinkedNode = TypedDict(
+        "LinkedNode",
+        {
+            "@type": str,
+            "@id": str,
+            "url": str,
+            "sameAs": list[str],
+            "includedInDataCatalog": "LinkedNode",
+        },
+        total=False,
+    )
 
 FUNCTIONS = ROOT / "functions"
 S = at.spec()
 REG = {d.slug: d for d in register.load(ROOT / "register")}
 
 
-def test_limits_operators_and_parameters_match_the_functions():
+def _search(pattern: str, text: str) -> re.Match[str]:
+    m = re.search(pattern, text)
+    assert m, pattern
+    return m
+
+
+def test_limits_operators_and_parameters_match_the_functions() -> None:
     q = (FUNCTIONS / "_query.js").read_text(encoding="utf-8")
-    assert int(re.search(r"LIMIT_DEFAULT = (\d+)", q)[1]) == S["limits"]["limit_default"]
-    assert int(re.search(r"LIMIT_MAX = (\d+)", q)[1]) == S["limits"]["limit_max"]
-    ops = set(re.findall(r"(\w+): '", re.search(r"const OPS = \{(.*?)\};", q)[1]))
+    assert int(_search(r"LIMIT_DEFAULT = (\d+)", q)[1]) == S["limits"]["limit_default"]
+    assert int(_search(r"LIMIT_MAX = (\d+)", q)[1]) == S["limits"]["limit_max"]
+    ops = set(re.findall(r"(\w+): '", _search(r"const OPS = \{(.*?)\};", q)[1]))
     handled = set(re.findall(r"op === '(\w+)'", q))
     assert set(S["operators"]) == (ops | handled | {"is.null"}) - {"is"}
-    assert re.findall(r"'(\w+)'", re.search(r"const METRICS = \[(.*?)\]", q)[1]) == S["metrics"]
+    assert re.findall(r"'(\w+)'", _search(r"const METRICS = \[(.*?)\]", q)[1]) == S["metrics"]
     reserved = set(
-        re.findall(r"'(\w+)'", re.search(r"const RESERVED = new Set\(\[(.*?)\]\)", q)[1])
+        re.findall(r"'(\w+)'", _search(r"(?s)const RESERVED = new Set\(\[(.*?)\]\)", q)[1])
     )
     assert reserved == set(at.query_params())
     a = (FUNCTIONS / "_api.js").read_text(encoding="utf-8")
-    q_, w = re.search(r'"fair-use";q=(\d+);w=(\d+)', a).groups()
+    q_, w = _search(r'"fair-use";q=(\d+);w=(\d+)', a).groups()
     assert (int(q_), int(w)) == (S["limits"]["requests"], S["limits"]["window_seconds"])
 
 
-def test_no_api_prose_is_written_outside_api_json():
+def test_no_api_prose_is_written_outside_api_json() -> None:
     sources = [
         ROOT / "pipeline" / "publicdata" / "site.py",
         ROOT / "pipeline" / "publicdata" / "static" / "site.js",
@@ -43,23 +66,24 @@ def test_no_api_prose_is_written_outside_api_json():
     for f in sources:
         t = f.read_text(encoding="utf-8")
         assert not re.search(rf"\b{n} requests|q={n}\b", t), f.name
-        assert "registerTool({" not in t and "description: '" not in t, f.name
+        assert "registerTool({" not in t, f.name
+        assert "description: '" not in t, f.name
 
 
 @pytest.fixture
-def site(fixture_site) -> Path:
+def site(fixture_site: Path) -> Path:
     return fixture_site
 
 
-def test_site_js_carries_the_spec_and_an_executor_for_every_tool(site):
+def test_site_js_carries_the_spec_and_an_executor_for_every_tool(site: Path) -> None:
     js = (site / "static" / "site.js").read_text(encoding="utf-8")
     assert "/*API_SPEC*/" not in js
-    injected = json.loads(re.search(r"var SPEC = (\{.*?\});\n", js)[1])
+    injected = json.loads(_search(r"var SPEC = (\{.*?\});\n", js)[1])
     assert injected == at.browser_spec()
     assert set(re.findall(r"EXEC\.(\w+) = function", js)) == set(at.tool_names())
 
 
-def test_the_mcp_server_has_every_tool_from_api_json(site):
+def test_the_mcp_server_has_every_tool_from_api_json(site: Path) -> None:
     # The committed copy is a development build; the deploy rewrites it with the release.
     assert (FUNCTIONS / "_tools.json").read_text(encoding="utf-8") == at.tools_json(), (
         "run python -m publicdata.api_text in pipeline/"
@@ -70,7 +94,8 @@ def test_the_mcp_server_has_every_tool_from_api_json(site):
         json.loads((site / ".well-known" / "mcp" / "server-card.json").read_text("utf-8")) == card
     )
     reg = at.registry_server()
-    assert len(reg["description"]) <= 100 and reg["name"] == card["name"]
+    assert len(reg["description"]) <= 100
+    assert reg["name"] == card["name"]
     auth = (site / ".well-known" / "mcp-registry-auth").read_text(encoding="utf-8")
     assert re.fullmatch(r"v=MCPv1; k=ed25519; p=[A-Za-z0-9+/]{43}=\n", auth)
     glama = json.loads((site / ".well-known" / "glama.json").read_text(encoding="utf-8"))
@@ -79,7 +104,8 @@ def test_the_mcp_server_has_every_tool_from_api_json(site):
     assert re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge)
     for t in S["webmcp"]["tools"].values():
         a = t["annotations"]
-        assert t["title"] and set(a) == {
+        assert t["title"]
+        assert set(a) == {
             "readOnlyHint",
             "destructiveHint",
             "idempotentHint",
@@ -89,7 +115,7 @@ def test_the_mcp_server_has_every_tool_from_api_json(site):
     for d in at.mcp_spec()["tools"]:
         assert d["annotations"]["title"] == d["title"], d["name"]
     js = (FUNCTIONS / "_tools.js").read_text(encoding="utf-8")
-    assert set(re.findall(r"^EXEC\.(\w+) = async", js, re.M)) == set(at.tool_names())
+    assert set(re.findall(r"^EXEC\.(\w+) = async", js, re.MULTILINE)) == set(at.tool_names())
     assert "/mcp" in json.loads((site / "_routes.json").read_text(encoding="utf-8"))["include"]
     ard = json.loads((site / ".well-known" / "ard.json").read_text(encoding="utf-8"))
     assert any(e["url"] == "https://publicdata.au/mcp/server-card" for e in ard["entries"])
@@ -97,12 +123,12 @@ def test_the_mcp_server_has_every_tool_from_api_json(site):
     assert at.as_html(S["mcp"]["privacy"]) in privacy
 
 
-def test_every_query_parameter_is_described_and_every_tool_maps_onto_one(site):
+def test_every_query_parameter_is_described_and_every_tool_maps_onto_one(site: Path) -> None:  # noqa: C901 - one check per parameter
     doc = json.loads((site / "openapi.json").read_text(encoding="utf-8"))
     ds_doc = json.loads(
         (site / "d" / "qld-road-casualties" / "openapi.json").read_text(encoding="utf-8")
     )
-    by_op = {}
+    by_op: dict[str, set[str]] = {}
     for d in (doc, ds_doc):
         for path, item in d["paths"].items():
             if not path.startswith("/api/v1/datasets/"):
@@ -131,7 +157,7 @@ def test_every_query_parameter_is_described_and_every_tool_maps_onto_one(site):
                 assert p["api"] in by_op[t["api"]], (name, k)
 
 
-def test_each_sentence_reaches_every_output(site):
+def test_each_sentence_reaches_every_output(site: Path) -> None:
     rate = S["api"]["rate_limit"]
     assert at.as_html(rate) in (site / "agents" / "index.html").read_text(encoding="utf-8")
     assert rate in (site / "llms.txt").read_text(encoding="utf-8")
@@ -148,12 +174,15 @@ def test_each_sentence_reaches_every_output(site):
     assert at.as_html(S["mcp"]["intro"]) in agents
     assert at.plain(S["mcp"]["intro"]) in (site / "llms.txt").read_text(encoding="utf-8")
     md = (site / "d" / "qld-road-casualties" / "index.md").read_text(encoding="utf-8")
-    assert at.filter_help() in md and rate in md
+    assert at.filter_help() in md
+    assert rate in md
     for n in at.tool_names():
         assert f"<code>{n}</code>" in (site / "agents" / "index.html").read_text("utf-8")
 
 
-def test_the_release_version_reaches_every_output(site, monkeypatch):
+def test_the_release_version_reaches_every_output(
+    site: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # The fixture build ran without PUBLICDATA_RELEASE, as a local build does.
     assert json.loads((site / "openapi.json").read_text("utf-8"))["info"]["version"] == "0.0.0-dev"
     assert json.loads((site / "health.json").read_text("utf-8"))["release"] == "0.0.0-dev"
@@ -163,11 +192,10 @@ def test_the_release_version_reaches_every_output(site, monkeypatch):
     assert at.server_card()["version"] == at.registry_server()["version"] == "1.4.2"
 
 
-def test_every_queryable_dataset_is_an_mcp_resource(site, tmp_path):
-    from publicdata import gate
-
+def test_every_queryable_dataset_is_an_mcp_resource(site: Path, tmp_path: Path) -> None:
     listed = json.loads((site / "mcp" / "resources.json").read_text(encoding="utf-8"))["resources"]
-    assert listed and not gate._mcp_resources(site)
+    assert listed
+    assert not gate._mcp_resources(site)
     for r in listed:
         f = json.loads((site / "d" / r["name"] / "fields.json").read_text(encoding="utf-8"))
         assert r["title"] == f["title"]
@@ -181,10 +209,9 @@ def test_every_queryable_dataset_is_an_mcp_resource(site, tmp_path):
     assert any("differ" in e for e in gate._mcp_resources(bad))
 
 
-def test_the_directory_listing_is_built_from_the_site_text_and_fits_the_forms(site):
+def test_the_directory_listing_is_built_from_the_site_text_and_fits_the_forms(site: Path) -> None:
     got = json.loads((site / "mcp" / "listing.json").read_text(encoding="utf-8"))
     assert got == at.directory_listing()
-    from publicdata import gate
 
     assert not gate._mcp_listing(site), "shorten a tool description or the site summary"
     over = site.parent / "over"
@@ -202,7 +229,7 @@ def test_the_directory_listing_is_built_from_the_site_text_and_fits_the_forms(si
     assert got["read_write"] == "Read and write"  # vote records a vote
 
 
-def test_resources_carry_their_size_and_date(site):
+def test_resources_carry_their_size_and_date(site: Path) -> None:
     for r in json.loads((site / "mcp" / "resources.json").read_text("utf-8"))["resources"]:
         f = site / "d" / r["name"] / "fields.json"
         assert r["size"] == f.stat().st_size, r["name"]
@@ -214,20 +241,20 @@ def test_resources_carry_their_size_and_date(site):
         assert r["annotations"]["audience"] == ["assistant"]
 
 
-def test_the_mcp_server_is_an_entity_the_directories_identify(site):
-    def nodes(rel):
+def test_the_mcp_server_is_an_entity_the_directories_identify(site: Path) -> None:
+    def nodes(rel: str) -> list[LinkedNode]:
         page = (site / rel).read_text(encoding="utf-8")
         return [
             json.loads(m)
-            for m in re.findall(r'<script type="application/ld\+json">(.*?)</script>', page, re.S)
+            for m in re.findall(
+                r'<script type="application/ld\+json">(.*?)</script>', page, re.DOTALL
+            )
         ]
 
     for rel in ("index.html", "agents/index.html"):
         api = next(n for n in nodes(rel) if n.get("@type") == "WebAPI")
-        assert (
-            api["@id"] == "https://publicdata.au/mcp#server"
-            and api["url"] == "https://publicdata.au/mcp"
-        )
+        assert api["@id"] == "https://publicdata.au/mcp#server"
+        assert api["url"] == "https://publicdata.au/mcp"
         assert api["sameAs"] == [e["url"] for e in S["mcp"]["listing"]["listed_at"]]
     # Each sameAs is also a visible link where the server is described.
     agents = (site / "agents" / "index.html").read_text(encoding="utf-8")
@@ -247,9 +274,10 @@ def test_the_mcp_server_is_an_entity_the_directories_identify(site):
     )
 
 
-def test_the_terms_page_is_linked_everywhere_a_directory_looks(site):
+def test_the_terms_page_is_linked_everywhere_a_directory_looks(site: Path) -> None:
     page = (site / "terms" / "index.html").read_text(encoding="utf-8")
-    assert at.as_html(S["api"]["terms_limits"]) in page and "Australian Consumer Law" in page
+    assert at.as_html(S["api"]["terms_limits"]) in page
+    assert "Australian Consumer Law" in page
     assert "https://publicdata.au/terms/" in S["mcp"]["instructions"]
     assert 'href="/terms/"' in (site / "index.html").read_text(encoding="utf-8")
     sitemaps = "".join(f.read_text(encoding="utf-8") for f in (site / "sitemaps").glob("*.xml"))
@@ -258,16 +286,20 @@ def test_the_terms_page_is_linked_everywhere_a_directory_looks(site):
     home = (site / "index.html").read_text(encoding="utf-8")
     nodes = [
         json.loads(m)
-        for m in re.findall(r'<script type="application/ld\+json">(.*?)</script>', home, re.S)
+        for m in re.findall(r'<script type="application/ld\+json">(.*?)</script>', home, re.DOTALL)
     ]
     api = next(n for n in nodes if n.get("@type") == "WebAPI")
     assert api["termsOfService"] == "https://publicdata.au/terms/"
 
 
-def test_the_terms_date_moves_with_the_terms_text():
-    from publicdata import site
-
-    assert site.terms_hash() == site.TERMS_CHANGED[1], (
+def test_the_terms_date_moves_with_the_terms_text() -> None:
+    assert site_module.terms_hash() == site_module.TERMS_CHANGED[1], (
         "The terms text changed: set TERMS_CHANGED in site.py to today's date and "
-        f"hash {site.terms_hash()}"
+        f"hash {site_module.terms_hash()}"
     )
+
+
+def test_no_route_reaches_the_internal_query_copies() -> None:
+    # The build's profile copies live in R2 at _q/, which only the MCP server reads.
+    assert all(r.startswith(("/api/", "/mcp", "/d/")) for r in site_module.ROUTES)
+    assert not any(r.startswith("/_q") or r in ("/*", "/") for r in site_module.ROUTES)

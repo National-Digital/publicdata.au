@@ -132,6 +132,8 @@ test('count_rows groups, sorts by the metric and totals the filtered rows', asyn
     { lga: 'Brisbane', count: 1 },
   ]);
   assert.equal(r.matched, 3);
+  // Equal totals are ordered by group, so every engine and the cited query give the same top groups.
+  assert.match(r.query, /order=count\.desc,lga\.asc&/);
   const s = await call('count_rows', {
     slug: 'x',
     metric: 'sum.fatal',

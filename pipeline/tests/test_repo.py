@@ -1,4 +1,5 @@
 import re
+from typing import TypedDict
 
 import yaml
 
@@ -18,7 +19,11 @@ CHECKS = {
 }
 
 
-def _guarded(jobs: dict, name: str) -> bool:
+# The two keys of a workflow job this check reads; `if` is a keyword, hence the call form.
+Job = TypedDict("Job", {"if": str, "needs": str | list[str]}, total=False)
+
+
+def _guarded(jobs: dict[str, Job], name: str) -> bool:
     """The job's own condition names the repo, or a job it needs does."""
     job = jobs[name]
     if GUARD in str(job.get("if", "")):
@@ -27,18 +32,20 @@ def _guarded(jobs: dict, name: str) -> bool:
     return any(_guarded(jobs, n) for n in ([needs] if isinstance(needs, str) else needs))
 
 
-def test_every_job_with_side_effects_runs_only_in_the_public_repo():
-    unguarded = []
+def test_every_job_with_side_effects_runs_only_in_the_public_repo() -> None:
+    unguarded: list[str] = []
     for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
         jobs = yaml.safe_load(f.read_text(encoding="utf-8"))["jobs"]
         allowed = CHECKS.get(f.name, set())
-        for name in jobs:
-            if allowed != "*" and name not in allowed and not _guarded(jobs, name):
-                unguarded.append(f"{f.name}: {name}")
+        unguarded.extend(
+            f"{f.name}: {name}"
+            for name in jobs
+            if allowed != "*" and name not in allowed and not _guarded(jobs, name)
+        )
     assert unguarded == []
 
 
-def test_every_fixture_dataset_is_in_the_third_party_notices():
+def test_every_fixture_dataset_is_in_the_third_party_notices() -> None:
     notices = (ROOT / "THIRD-PARTY-NOTICES.md").read_text(encoding="utf-8")
     store = ROOT / "pipeline" / "tests" / "fixtures" / "store"
     missing = [
@@ -47,7 +54,7 @@ def test_every_fixture_dataset_is_in_the_third_party_notices():
     assert missing == []
 
 
-def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential():
+def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential() -> None:
     """Checkout keeps its token in an included config, so git would send two Authorization headers."""
     wrong = []
     for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
@@ -56,13 +63,13 @@ def test_a_job_that_pushes_as_the_app_keeps_no_checkout_credential():
             if not any("create-github-app-token" in str(s.get("uses", "")) for s in steps):
                 continue
             for s in steps:
-                if "actions/checkout" in str(s.get("uses", "")):
-                    if (s.get("with") or {}).get("persist-credentials") is not False:
-                        wrong.append(f"{f.name}: {name}")
+                checkout = "actions/checkout" in str(s.get("uses", ""))
+                if checkout and (s.get("with") or {}).get("persist-credentials") is not False:
+                    wrong.append(f"{f.name}: {name}")
     assert wrong == []
 
 
-def test_every_pull_request_check_reports_on_each_new_head():
+def test_every_pull_request_check_reports_on_each_new_head() -> None:
     # A required check that skips a push leaves the PR waiting on a result that never comes.
     skipped = []
     for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
@@ -73,7 +80,7 @@ def test_every_pull_request_check_reports_on_each_new_head():
     assert skipped == []
 
 
-def test_the_readme_links_every_document():
+def test_the_readme_links_every_document() -> None:
     """AGENTS.md sends agents to the README and every document it links, so none may go unlinked."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     linked = {m.split("#")[0] for m in re.findall(r"\]\(([^)\s]+)\)", readme)}

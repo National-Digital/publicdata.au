@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
 import pyarrow.csv as pcsv
 
-from ...normalise import Table
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from publicdata.normalise import Table
 
 
 def write_csv(tbl: Table, path: Path) -> None:

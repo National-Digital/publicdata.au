@@ -1,17 +1,39 @@
+import dataclasses
 import json
 import re
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+import requests
 import yaml
+from PIL import Image
 
 from publicdata import hubs
+from publicdata.__main__ import main
 from publicdata.cadence import kaggle_frequency
-from publicdata.register import load
+from publicdata.register import LICENCE_CONDITIONS, OPEN_LICENCES, load
+from publicdata.site import copies_of
 
 from .conftest import ROOT
 
-RECORD = {
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from typing import Unpack
+
+    from publicdata.hubs import (
+        CatalogueRecord,
+        Deposition,
+        HubField,
+        HubRecord,
+        Schema,
+        Versions,
+        ZenodoRequest,
+    )
+    from publicdata.jsontypes import JSONObject
+
+RECORD: CatalogueRecord = {
     "identifier": "qld-road-crash-factors",
     "title": "Factors in road crashes, Queensland, every year from 2001 to the latest release",
     "description": "Crashes by the factors police recorded.",
@@ -43,10 +65,10 @@ RECORD = {
         },
     ],
 }
-VERSIONS = {
+VERSIONS: Versions = {
     "versions": [{"version": "2026-09-30", "rows": 1234}, {"version": "2025-01-01", "rows": 1000}]
 }
-SCHEMA = {
+SCHEMA: Schema = {
     "fields": [
         {"name": "year", "type": "integer", "title": "Year"},
         {
@@ -58,7 +80,7 @@ SCHEMA = {
         {"name": "region", "type": "string", "title": "(row header 1)"},
     ]
 }
-MANIFEST = {
+MANIFEST: JSONObject = {
     "sha256": "ab" * 32,
     "source": {
         "portal": "https://www.data.qld.gov.au",
@@ -67,11 +89,11 @@ MANIFEST = {
 }
 
 
-def make(**over):
+def make(**over: Unpack[CatalogueRecord]) -> hubs.Entry:
     return hubs.entry({**RECORD, **over}, VERSIONS, SCHEMA, MANIFEST, queryable=True)
 
 
-def text_of(e):
+def text_of(e: hubs.Entry) -> list[str]:
     return [
         hubs.hf_card(e, "publicdata-au/x"),
         json.dumps(hubs.kaggle_metadata(e, "publicdataau")),
@@ -79,24 +101,23 @@ def text_of(e):
     ]
 
 
-def test_every_copy_links_back_to_the_version_and_carries_the_attribution():
+def test_every_copy_links_back_to_the_version_and_carries_the_attribution() -> None:
     e = make()
     for t in text_of(e):
         assert "https://publicdata.au/d/qld-road-crash-factors/v/2026-09-30/" in t
         assert "licensed under CC BY 4.0" in t
         assert "has not endorsed" in t
     p = hubs.provenance(e)
-    assert p["version_url"] == e.version_url and p["manifest"]["sha256"] == "ab" * 32
+    assert p["version_url"] == e.version_url
+    assert p["manifest"]["sha256"] == "ab" * 32
 
 
-def test_hub_copy_has_no_em_dashes():
+def test_hub_copy_has_no_em_dashes() -> None:
     for t in text_of(make()):
         assert "—" not in t
 
 
-def test_every_open_licence_the_register_allows_has_a_hub_id():
-    from publicdata.register import LICENCE_CONDITIONS, OPEN_LICENCES
-
+def test_every_open_licence_the_register_allows_has_a_hub_id() -> None:
     # A licence with a condition of use is open here and never copied: no hub can state it.
     plain = set(OPEN_LICENCES) - set(LICENCE_CONDITIONS)
     assert set(hubs.HUB_IDS) == plain
@@ -105,7 +126,7 @@ def test_every_open_licence_the_register_allows_has_a_hub_id():
     assert (sa.huggingface, sa.zenodo, sa.kaggle) == ("other", "other-at", "other")
 
 
-def test_no_licence_is_ever_published_as_a_different_licence():
+def test_no_licence_is_ever_published_as_a_different_licence() -> None:
     # Each hub id is the same licence or the hub's "other", with the licence named in the text.
     same = {
         "CC-BY-4.0": {"cc-by-4.0", "CC-BY-4.0"},
@@ -120,59 +141,74 @@ def test_no_licence_is_ever_published_as_a_different_licence():
         if "other" in (lic.huggingface, lic.kaggle):
             e = make(license=lic.url)
             for text in (hubs.hf_card(e, "r"), hubs.kaggle_metadata(e, "o")["description"]):
-                assert lic.title in text and lic.url in text
+                assert lic.title in text
+                assert lic.url in text
 
 
-def test_an_unmapped_licence_is_refused():
+def test_an_unmapped_licence_is_refused() -> None:
     with pytest.raises(hubs.Refused, match="licence"):
         make(license="https://creativecommons.org/licenses/by-nd/4.0/")
 
 
-def test_a_version_missing_from_versions_json_is_refused():
-    with pytest.raises(hubs.Refused, match="versions.json"):
+def test_a_version_missing_from_versions_json_is_refused() -> None:
+    with pytest.raises(hubs.Refused, match=re.escape("versions.json")):
         make(versionInfo="2030-01-01")
 
 
-def test_an_australian_port_is_named_where_the_hub_has_no_id():
+def test_an_australian_port_is_named_where_the_hub_has_no_id() -> None:
     e = make(license="https://creativecommons.org/licenses/by/3.0/au/")
     card = hubs.hf_card(e, "publicdata-au/x")
-    assert 'license: "other"' in card and 'license_name: "cc-by-3.0-au"' in card
+    assert 'license: "other"' in card
+    assert 'license_name: "cc-by-3.0-au"' in card
     assert hubs.kaggle_metadata(e, "o")["licenses"] == [{"name": "other"}]
     z = hubs.zenodo_metadata(e)
     assert z["license"] == "other-at"
-    assert (
-        "CC BY 3.0 AU" in z["description"]
-        and "https://creativecommons.org/licenses/by/3.0/au/" in z["description"]
-    )
+    assert "CC BY 3.0 AU" in z["description"]
+    assert "https://creativecommons.org/licenses/by/3.0/au/" in z["description"]
 
 
-def test_hugging_face_card_frontmatter_points_at_the_parquet_and_sizes_the_rows():
+def test_hugging_face_card_frontmatter_points_at_the_parquet_and_sizes_the_rows() -> None:
     card = hubs.hf_card(make(), "publicdata-au/qld-road-crash-factors")
     front = card.split("---\n")[1]
     assert 'data_files: "data.parquet"' in front
     assert '- "1K<n<10K"' in front
     assert '- "road-crashes"' in front
     assert "queensland-road-crash-factors" not in front
-    assert 'revision="v2026-09-30"' in card and "publicdata-au/qld-road-crash-factors" in card
+    assert 'revision="v2026-09-30"' in card
+    assert "publicdata-au/qld-road-crash-factors" in card
 
 
-def test_field_table_escapes_pipes_and_skips_source_cell_notes():
+def test_field_table_escapes_pipes_and_skips_source_cell_notes() -> None:
     card = hubs.hf_card(make(), "r")
     assert "| `factor` | string | Drink \\| drug driving and others. |" in card
     assert "| `region` | string | Region |" in card
     assert "| `year` | integer | Year |" in card
 
 
-def test_query_api_is_named_only_when_it_serves_the_dataset():
+def test_query_api_is_named_only_when_it_serves_the_dataset() -> None:
     assert "/api/v1/datasets/qld-road-crash-factors/rows" in hubs.hf_card(make(), "r")
     quiet = hubs.entry(RECORD, VERSIONS, SCHEMA, MANIFEST, queryable=False)
     for t in text_of(quiet):
-        assert "/api/v1/" not in t and "query API" not in t
+        assert "/api/v1/" not in t
+        assert "query API" not in t
 
 
-def test_kaggle_limits():
+def test_a_version_published_in_parts_is_not_copied_and_fails_no_run() -> None:
+    split: JSONObject = {**MANIFEST, "period": {"field": "date", "grain": "year"}, "whole": False}
+    with pytest.raises(hubs.Excluded, match="published in parts"):
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    assert hubs.entry(RECORD, VERSIONS, SCHEMA, {**split, "whole": True}).version
+    with pytest.raises(hubs.Excluded) as e:
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    lines: list[str] = []
+    assert hubs.run({"h": FakeHub()}, [("x", e.value)], fake_fetch, None, lines.append) == 0
+    assert lines == [f"h x: not copied, {e.value}"]
+
+
+def test_kaggle_limits() -> None:
     m = hubs.kaggle_metadata(make(), "publicdataau")
-    assert len(m["title"]) <= 50 and m["title"] == "Factors in road crashes, Queensland"
+    assert len(m["title"]) <= 50
+    assert m["title"] == "Factors in road crashes, Queensland"
     assert 20 <= len(m["subtitle"]) <= 80
     assert m["id"] == "publicdataau/qld-road-crash-factors"
     types = {f["name"]: f["type"] for f in m["resources"][0]["schema"]["fields"]}
@@ -181,7 +217,7 @@ def test_kaggle_limits():
         hubs.kaggle_metadata(make(identifier="x" * 51), "o")
 
 
-def test_zenodo_record_relates_the_version_the_dataset_and_the_source():
+def test_zenodo_record_relates_the_version_the_dataset_and_the_source() -> None:
     m = hubs.zenodo_metadata(make(), community="publicdata-au")
     rel = {r["relation"]: r["identifier"] for r in m["related_identifiers"]}
     assert rel == {
@@ -198,36 +234,35 @@ def test_zenodo_record_relates_the_version_the_dataset_and_the_source():
 class FakeHub:
     name = "fake"
 
-    def __init__(self, held=(), fail=False):
+    def __init__(self, held: Iterable[str] = (), *, fail: bool = False) -> None:
         self._held = set(held)
         self.fail = fail
-        self.published = []
+        self.published: list[str] = []
 
-    def held(self, e):
+    def held(self, e: hubs.Entry) -> set[str]:
         return self._held
 
-    def publish(self, e, work, fetch):
+    def publish(self, e: hubs.Entry, work: Path, fetch: hubs.Fetch) -> str:
         if self.fail:
-            raise RuntimeError("boom")
+            msg = "boom"
+            raise RuntimeError(msg)
         fetch(e.files["parquet"], work / "data.parquet")
         assert (work / "data.parquet").read_bytes() == b"PAR1"
         self.published.append(e.version)
         return "https://hub.example/x"
 
 
-def fake_fetch(url, dest):
+def fake_fetch(url: str, dest: Path) -> None:
     if dest.name == "card.png":
-        from PIL import Image
-
         Image.new("RGB", (1200, 630), (10, 80, 160)).save(dest)
         return
     dest.write_bytes(b"PAR1")
 
 
-def test_run_publishes_only_what_a_hub_lacks(tmp_path):
+def test_run_publishes_only_what_a_hub_lacks(tmp_path: Path) -> None:
     e = make()
     fresh, current, ahead = FakeHub(), FakeHub(held={"2026-09-30"}), FakeHub(held={"2027-01-01"})
-    lines = []
+    lines: list[str] = []
     fails = hubs.run(
         {"a": fresh, "b": current, "c": ahead},
         [(e.slug, e)],
@@ -236,17 +271,18 @@ def test_run_publishes_only_what_a_hub_lacks(tmp_path):
         lines.append,
     )
     assert fails == 0
-    assert fresh.published == ["2026-09-30"] and current.published == ahead.published == []
+    assert fresh.published == ["2026-09-30"]
+    assert current.published == ahead.published == []
     assert any("holds 2026-09-30" in ln for ln in lines)
     assert any("newer than the site's" in ln for ln in lines)
     assert list(tmp_path.iterdir()) == []
 
 
-def test_one_failure_is_counted_and_the_rest_carry_on(tmp_path):
+def test_one_failure_is_counted_and_the_rest_carry_on(tmp_path: Path) -> None:
     e = make()
     bad, good = FakeHub(fail=True), FakeHub()
     refused = ("x", hubs.Refused("no licence"))
-    lines = []
+    lines: list[str] = []
     fails = hubs.run(
         {"bad": bad, "good": good}, [refused, (e.slug, e)], fake_fetch, tmp_path, lines.append
     )
@@ -257,39 +293,53 @@ def test_one_failure_is_counted_and_the_rest_carry_on(tmp_path):
     )
 
 
-def test_configured_skips_a_hub_without_credentials():
+def test_configured_skips_a_hub_without_credentials() -> None:
     hubs_, skipped = hubs.configured({"HF_TOKEN": "t", "KAGGLE_API_TOKEN": "k"})
     assert list(hubs_) == ["huggingface"]
-    assert len(skipped) == 2 and all("not" in s for s in skipped)
+    assert len(skipped) == 2
+    assert all("not" in s for s in skipped)
     legacy, _ = hubs.configured({"KAGGLE_USERNAME": "u", "KAGGLE_KEY": "k"})
     assert "kaggle" not in legacy
     both, _ = hubs.configured({"KAGGLE_USERNAME": "u", "KAGGLE_API_TOKEN": "k"})
     k = both["kaggle"]()
+    assert isinstance(k, hubs.Kaggle)
     assert (k.owner, k.token) == ("u", "k")
 
 
 class FakeResponse:
-    def __init__(self, status, body):
+    def __init__(self, status: int, body: object) -> None:
         self.status_code = status
         self._body = body
         self.content = json.dumps(body).encode()
         self.text = self.content.decode()
 
-    def json(self):
+    def json(self) -> object:
         return self._body
 
 
 class FakeZenodoHttp:
     """Enough of Zenodo's deposit API to follow a new version through to publish."""
 
-    def __init__(self, records, fail_metadata=False, found=()):
+    def __init__(
+        self,
+        records: list[Deposition],
+        *,
+        fail_metadata: bool = False,
+        found: Iterable[Deposition] = (),
+    ) -> None:
         self.records = records
         self.found = list(found)
         self.fail_metadata = fail_metadata
-        self.calls = []
-        self.headers = {}
+        self.calls: list[tuple[str, str]] = []
+        self.headers: dict[str, str | bytes] = {}
 
-    def request(self, method, url, timeout=None, **kw):
+    def request(  # noqa: PLR0911 - a fake API answers one route per return
+        self,
+        method: str,
+        url: str,
+        timeout: float | None = None,
+        **kw: Unpack[ZenodoRequest],
+    ) -> FakeResponse:
         path = url.split("/api", 1)[-1] if "/api/" in url else url
         self.calls.append((method, path))
         if method == "GET" and path == "/deposit/depositions":
@@ -321,13 +371,24 @@ class FakeZenodoHttp:
         return FakeResponse(200, {})
 
 
-def zenodo(records, **kw):
-    z = hubs.Zenodo("t", base="https://z")
-    z.http = FakeZenodoHttp(records, **kw)
+class FakeZenodo(hubs.Zenodo):
+    http: FakeZenodoHttp
+
+
+def zenodo(
+    records: list[Deposition],
+    *,
+    fail_metadata: bool = False,
+    found: Iterable[Deposition] = (),
+) -> FakeZenodo:
+    z = FakeZenodo("t", base="https://z")
+    z.http = FakeZenodoHttp(records, fail_metadata=fail_metadata, found=found)
     return z
 
 
-def record(id_, version, submitted=True, concept=None):
+def record(
+    id_: int, version: str, *, submitted: bool = True, concept: int | None = None
+) -> Deposition:
     return {
         "id": id_,
         "submitted": submitted,
@@ -344,14 +405,14 @@ def record(id_, version, submitted=True, concept=None):
     }
 
 
-def test_zenodo_holds_the_submitted_versions_of_this_dataset_only():
+def test_zenodo_holds_the_submitted_versions_of_this_dataset_only() -> None:
     other = record(3, "2026-09-30")
     other["metadata"]["related_identifiers"][0]["identifier"] = "https://publicdata.au/d/other/"
     z = zenodo([record(1, "2025-01-01"), record(2, "2026-09-30", submitted=False), other])
     assert z.held(make()) == {"2025-01-01"}
 
 
-def test_zenodo_new_version_discards_a_stray_draft_and_replaces_the_files(tmp_path):
+def test_zenodo_new_version_discards_a_stray_draft_and_replaces_the_files(tmp_path: Path) -> None:
     z = zenodo([record(1, "2025-01-01"), record(2, "2026-09-30", submitted=False)])
     doi = z.publish(make(), tmp_path, fake_fetch)
     calls = z.http.calls
@@ -366,7 +427,7 @@ def test_zenodo_new_version_discards_a_stray_draft_and_replaces_the_files(tmp_pa
     assert calls[-1] == ("POST", "/deposit/depositions/9/actions/publish")
 
 
-def test_zenodo_checks_metadata_before_files_and_deletes_a_draft_it_rejects(tmp_path):
+def test_zenodo_checks_metadata_before_files_and_deletes_a_draft_it_rejects(tmp_path: Path) -> None:
     z = zenodo([], fail_metadata=True)
     with pytest.raises(RuntimeError, match="400"):
         z.publish(make(), tmp_path, fake_fetch)
@@ -376,28 +437,38 @@ def test_zenodo_checks_metadata_before_files_and_deletes_a_draft_it_rejects(tmp_
     assert not any(p.endswith("/actions/publish") for _, p in calls)
 
 
-def test_a_failed_draft_cleanup_never_hides_the_original_error(tmp_path):
+def test_a_failed_draft_cleanup_never_hides_the_original_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     z = zenodo([], fail_metadata=True)
     real = z.http.request
 
-    def flaky(method, url, timeout=None, **kw):
+    def flaky(
+        method: str,
+        url: str,
+        timeout: float | None = None,
+        **kw: Unpack[ZenodoRequest],
+    ) -> FakeResponse:
         if method == "DELETE":
-            raise ConnectionError("network down")
+            msg = "network down"
+            raise ConnectionError(msg)
         return real(method, url, timeout=timeout, **kw)
 
-    z.http.request = flaky
+    monkeypatch.setattr(z.http, "request", flaky)
     with pytest.raises(RuntimeError, match="400"):
         z.publish(make(), tmp_path, fake_fetch)
 
 
-def test_zenodo_first_version_creates_a_deposition(tmp_path):
+def test_zenodo_first_version_creates_a_deposition(tmp_path: Path) -> None:
     z = zenodo([])
     z.publish(make(), tmp_path, fake_fetch)
     assert ("POST", "/deposit/depositions") in z.http.calls
     assert z.http.calls[-1] == ("POST", "/deposit/depositions/5/actions/publish")
 
 
-def test_zenodo_keeps_its_listing_in_step_after_a_publish_instead_of_reading_it_again(tmp_path):
+def test_zenodo_keeps_its_listing_in_step_after_a_publish_instead_of_reading_it_again(
+    tmp_path: Path,
+) -> None:
     z = zenodo([record(1, "2025-01-01"), record(2, "2026-09-30", submitted=False)])
     e = make()
     assert z.held(e) == {"2025-01-01"}
@@ -410,7 +481,7 @@ def test_zenodo_keeps_its_listing_in_step_after_a_publish_instead_of_reading_it_
     assert [r["id"] for r in z.records()] == [1, 9]
 
 
-def test_zenodo_asks_for_the_dataset_by_name_before_making_a_new_record(tmp_path):
+def test_zenodo_asks_for_the_dataset_by_name_before_making_a_new_record(tmp_path: Path) -> None:
     z = zenodo([], found=[record(1, "2025-01-01")])
     z.publish(make(), tmp_path, fake_fetch)
     calls = z.http.calls
@@ -419,7 +490,7 @@ def test_zenodo_asks_for_the_dataset_by_name_before_making_a_new_record(tmp_path
     assert z.location(make()) == "10.5281/zenodo.0"
 
 
-def test_zenodo_grows_the_oldest_record_when_a_dataset_has_two(tmp_path):
+def test_zenodo_grows_the_oldest_record_when_a_dataset_has_two(tmp_path: Path) -> None:
     z = zenodo([record(40, "2025-01-01", concept=39), record(10, "2025-01-01", concept=9)])
     e = make()
     assert z.location(e) == "10.5281/zenodo.9"
@@ -427,7 +498,7 @@ def test_zenodo_grows_the_oldest_record_when_a_dataset_has_two(tmp_path):
     assert ("POST", "/deposit/depositions/10/actions/newversion") in z.http.calls
 
 
-def fake_cli(tmp_path, script):
+def fake_cli(tmp_path: Path, script: str) -> str:
     cli = tmp_path / "kaggle"
     cli.write_text("#!/bin/sh\n" + script)
     cli.chmod(0o755)
@@ -442,7 +513,7 @@ KAGGLE_LIST = (
 )
 
 
-def test_kaggle_reads_the_version_from_publicdata_json(tmp_path):
+def test_kaggle_reads_the_version_from_publicdata_json(tmp_path: Path) -> None:
     cli = fake_cli(
         tmp_path,
         KAGGLE_LIST
@@ -451,20 +522,22 @@ def test_kaggle_reads_the_version_from_publicdata_json(tmp_path):
     assert hubs.Kaggle("o", "tok", cli).held(make()) == {"2025-01-01"}
 
 
-def test_kaggle_dataset_missing_from_the_accounts_list_holds_nothing(tmp_path):
+def test_kaggle_dataset_missing_from_the_accounts_list_holds_nothing(tmp_path: Path) -> None:
     # Kaggle answers 403 for a dataset that does not exist, so a download is never tried.
     cli = fake_cli(tmp_path, KAGGLE_LIST + 'echo "403 Client Error: Forbidden"; exit 1\n')
     assert hubs.Kaggle("o", "tok", cli).held(make(identifier="not-there-yet")) == set()
 
 
-def test_kaggle_bad_credentials_fail_at_the_list_and_never_read_as_absent(tmp_path, monkeypatch):
+def test_kaggle_bad_credentials_fail_at_the_list_and_never_read_as_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
     cli = fake_cli(tmp_path, KAGGLE_LIST)
     with pytest.raises(RuntimeError, match="credentials"):
         hubs.Kaggle("o", "wrong", cli).held(make())
 
 
-def test_kaggle_retries_a_throttled_call_that_exits_zero(tmp_path):
+def test_kaggle_retries_a_throttled_call_that_exits_zero(tmp_path: Path) -> None:
     # The CLI prints Kaggle's 429 and still exits 0; the third call gets through.
     n = tmp_path / "n"
     cli = fake_cli(
@@ -477,7 +550,7 @@ def test_kaggle_retries_a_throttled_call_that_exits_zero(tmp_path):
     assert "qld-road-crash-factors" in k.mine()
 
 
-def test_kaggle_never_reads_a_throttled_answer_as_absent(tmp_path):
+def test_kaggle_never_reads_a_throttled_answer_as_absent(tmp_path: Path) -> None:
     cli = fake_cli(tmp_path, 'echo "429 Client Error: Too Many Requests for url"; exit 0\n')
     k = hubs.Kaggle("o", "tok", cli)
     k.pause = 0
@@ -488,7 +561,7 @@ def test_kaggle_never_reads_a_throttled_answer_as_absent(tmp_path):
         k.location(make())
 
 
-def test_kaggle_lists_every_page_of_the_accounts_datasets(tmp_path):
+def test_kaggle_lists_every_page_of_the_accounts_datasets(tmp_path: Path) -> None:
     rows = "".join(f"o/d{i},T,1\\n" for i in range(200))
     cli = fake_cli(
         tmp_path,
@@ -497,12 +570,15 @@ def test_kaggle_lists_every_page_of_the_accounts_datasets(tmp_path):
         + "'; else printf 'ref,title,size\\no/last,T,1\\n'; fi\n",
     )
     k = hubs.Kaggle("o", "tok", cli)
-    assert len(k.mine()) == 201 and "last" in k.mine()
+    assert len(k.mine()) == 201
+    assert "last" in k.mine()
 
 
-def kaggle_cli(tmp_path, status="ready", extra=""):
-    """A fake CLI that logs each call, keeps what metadata --update and kernels push were given,
-    and answers status with `status`."""
+def kaggle_cli(tmp_path: Path, status: str = "ready", extra: str = "") -> tuple[str, Path, Path]:
+    """A fake CLI that logs each call and answers status with `status`.
+
+    It keeps what metadata --update and kernels push were given.
+    """
     log, kept = tmp_path / "args", tmp_path / "kept"
     kept.mkdir(exist_ok=True)
     return (
@@ -523,7 +599,7 @@ def kaggle_cli(tmp_path, status="ready", extra=""):
     )
 
 
-def test_kaggle_first_upload_creates_and_later_ones_version(tmp_path):
+def test_kaggle_first_upload_creates_and_later_ones_version(tmp_path: Path) -> None:
     cli, log, _ = kaggle_cli(tmp_path)
     k = hubs.Kaggle("o", "tok", cli)
     for first in (True, False):
@@ -540,18 +616,19 @@ def test_kaggle_first_upload_creates_and_later_ones_version(tmp_path):
         }
     calls = [c for c in log.read_text().splitlines() if c.split()[1] in ("create", "version")]
     created, settled, versioned = calls
-    assert created.startswith("datasets create") and " -u " in created and " -t" in created
-    assert settled.startswith("datasets version") and "Page settings" in settled
-    assert (
-        versioned.startswith("datasets version") and "publicdata.au version 2026-09-30" in versioned
-    )
+    assert created.startswith("datasets create")
+    assert " -u " in created
+    assert " -t" in created
+    assert settled.startswith("datasets version")
+    assert "Page settings" in settled
+    assert versioned.startswith("datasets version")
+    assert "publicdata.au version 2026-09-30" in versioned
 
 
-def test_kaggle_publish_then_sets_every_usability_item(tmp_path):
+def test_kaggle_publish_then_sets_every_usability_item(tmp_path: Path) -> None:
     cli, log, kept = kaggle_cli(tmp_path)
     work = tmp_path / "w"
     work.mkdir()
-    import dataclasses
 
     roads = dataclasses.replace(make(), topics=("roads",))
     hubs.Kaggle("o", "tok", cli).publish(roads, work, fake_fetch, first=True)
@@ -568,29 +645,24 @@ def test_kaggle_publish_then_sets_every_usability_item(tmp_path):
     ]
     (meta_dir,) = [p for p in kept.iterdir() if p.name.endswith("-meta")]
     meta = json.loads((meta_dir / "dataset-metadata.json").read_text())
-    assert "australia" in meta["keywords"] and "transportation" in meta["keywords"]
+    assert "australia" in meta["keywords"]
+    assert "transportation" in meta["keywords"]
     assert meta["expectedUpdateFrequency"] == "annually"
-    assert (
-        "SHA-256" in meta["userSpecifiedSources"]
-        and "/v/2026-09-30/" in meta["userSpecifiedSources"]
-    )
+    assert "SHA-256" in meta["userSpecifiedSources"]
+    assert "/v/2026-09-30/" in meta["userSpecifiedSources"]
     assert all(f["description"] for f in meta["resources"][0]["schema"]["fields"])
     assert all(r["description"] for r in meta["resources"])
-    from PIL import Image
 
     with Image.open(meta_dir / "dataset-cover-image.png") as im:
         assert im.size == (560, 280)
     nb_meta = json.loads((kept / "notebook" / "kernel-metadata.json").read_text())
     assert nb_meta["id"] == "o/qld-road-crash-factors-quick-start"
-    assert nb_meta["is_private"] == "false" and nb_meta["dataset_sources"] == [
-        "o/qld-road-crash-factors"
-    ]
+    assert nb_meta["is_private"] == "false"
+    assert nb_meta["dataset_sources"] == ["o/qld-road-crash-factors"]
     assert not (work.parent / "w-meta").exists()
 
 
-def test_kaggle_drops_the_tags_it_names_as_invalid_and_remembers_them(tmp_path):
-    import dataclasses
-
+def test_kaggle_drops_the_tags_it_names_as_invalid_and_remembers_them(tmp_path: Path) -> None:
     sent = tmp_path / "sent"
     cli, _, _ = kaggle_cli(
         tmp_path,
@@ -606,14 +678,15 @@ def test_kaggle_drops_the_tags_it_names_as_invalid_and_remembers_them(tmp_path):
         k.refresh(e, tmp_path / name, fake_fetch)
     tags = [json.loads(m)["keywords"] for m in sent.read_text().split("@@") if m.strip()]
     assert len(tags) == 5
-    assert "drink driving" in tags[0] and "public data" in tags[0]
-    assert (
-        "drink driving" not in tags[1] and "public data" not in tags[1] and "australia" in tags[1]
-    )
+    assert "drink driving" in tags[0]
+    assert "public data" in tags[0]
+    assert "drink driving" not in tags[1]
+    assert "public data" not in tags[1]
+    assert "australia" in tags[1]
     assert all(t == tags[1] for t in tags[2:])
 
 
-def test_a_notebook_refused_for_an_unverified_account_says_so(tmp_path):
+def test_a_notebook_refused_for_an_unverified_account_says_so(tmp_path: Path) -> None:
     cli, _, _ = kaggle_cli(
         tmp_path,
         extra='if [ "$2" = "push" ]; then echo "403 Client Error: Forbidden for url: '
@@ -623,10 +696,12 @@ def test_a_notebook_refused_for_an_unverified_account_says_so(tmp_path):
         hubs.Kaggle("o", "tok", cli).refresh(make(), tmp_path / "w", fake_fetch)
 
 
-def test_kaggle_retries_a_throttled_settings_update(tmp_path, monkeypatch):
-    monkeypatch.setattr(hubs.time, "sleep", lambda s: None)
+def test_kaggle_retries_a_throttled_settings_update(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda s: None)
     n = tmp_path / "n"
-    cli, _, kept = kaggle_cli(
+    cli, _, _kept = kaggle_cli(
         tmp_path,
         extra=f'if [ "$2" = "metadata" ] && [ "$3" != "o/qld-road-crash-factors" -o "$4" = "--update" ]; then '
         f"c=$(cat {n} 2>/dev/null || echo 0); echo $((c+1)) > {n}; "
@@ -637,8 +712,10 @@ def test_kaggle_retries_a_throttled_settings_update(tmp_path, monkeypatch):
     assert n.read_text().strip() == "4"
 
 
-def test_kaggle_waits_for_processing_and_stops_on_an_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(hubs.time, "sleep", lambda s: None)
+def test_kaggle_waits_for_processing_and_stops_on_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda s: None)
     count = tmp_path / "n"
     cli, _, _ = kaggle_cli(
         tmp_path,
@@ -653,7 +730,7 @@ def test_kaggle_waits_for_processing_and_stops_on_an_error(tmp_path, monkeypatch
         hubs.Kaggle("o", "tok", bad).wait_ready("o/x")
 
 
-def test_a_later_version_gets_its_settings_before_its_upload(tmp_path):
+def test_a_later_version_gets_its_settings_before_its_upload(tmp_path: Path) -> None:
     cli, log, _ = kaggle_cli(tmp_path)
     work = tmp_path / "w"
     work.mkdir()
@@ -662,7 +739,7 @@ def test_a_later_version_gets_its_settings_before_its_upload(tmp_path):
     assert order == ["status", "metadata", "version", "status", "metadata", "status", "push"]
 
 
-def test_refresh_uploads_the_files_again_after_the_settings(tmp_path):
+def test_refresh_uploads_the_files_again_after_the_settings(tmp_path: Path) -> None:
     cli, log, _ = kaggle_cli(tmp_path)
     hubs.Kaggle("o", "tok", cli).refresh(make(), tmp_path / "w", fake_fetch)
     calls = log.read_text().splitlines()
@@ -671,7 +748,7 @@ def test_refresh_uploads_the_files_again_after_the_settings(tmp_path):
     assert "Page settings for publicdata.au version 2026-09-30" in calls[2]
 
 
-def test_kaggle_publish_adds_the_slug_to_the_cached_list(tmp_path):
+def test_kaggle_publish_adds_the_slug_to_the_cached_list(tmp_path: Path) -> None:
     made = tmp_path / "made"
     cli, _, _ = kaggle_cli(
         tmp_path,
@@ -687,33 +764,37 @@ def test_kaggle_publish_adds_the_slug_to_the_cached_list(tmp_path):
     assert "new-one" in k.mine()
 
 
-def test_kaggle_error_output_fails_even_with_a_zero_exit(tmp_path):
+def test_kaggle_error_output_fails_even_with_a_zero_exit(tmp_path: Path) -> None:
     cli = fake_cli(tmp_path, 'echo "Dataset creation error: title too long"\n')
     with pytest.raises(RuntimeError, match="title too long"):
         hubs.Kaggle("o", "tok", cli).publish(make(), tmp_path, fake_fetch, first=True)
 
 
-def test_refresh_reapplies_settings_to_a_held_version_and_holds_otherwise(tmp_path):
+def test_refresh_reapplies_settings_to_a_held_version_and_holds_otherwise(tmp_path: Path) -> None:
     class Refreshable(FakeHub):
-        def __init__(self):
+        def __init__(self) -> None:
             super().__init__(held={"2026-09-30"})
-            self.refreshed = []
+            self.refreshed: list[str] = []
 
-        def refresh(self, e, work, fetch):
+        def refresh(self, e: hubs.Entry, work: Path, fetch: hubs.Fetch) -> str:
             self.refreshed.append(e.version)
             return "https://hub.example/x"
 
-    e, lines = make(), []
+    e = make()
+    lines: list[str] = []
     hub = Refreshable()
     hubs.run({"h": hub}, [(e.slug, e)], fake_fetch, tmp_path, lines.append)
-    assert hub.refreshed == [] and "holds" in lines[-1]
+    assert hub.refreshed == []
+    assert "holds" in lines[-1]
     hubs.run({"h": hub}, [(e.slug, e)], fake_fetch, tmp_path, lines.append, refresh=True)
-    assert hub.refreshed == ["2026-09-30"] and "refreshed" in lines[-1] and hub.published == []
+    assert hub.refreshed == ["2026-09-30"]
+    assert "refreshed" in lines[-1]
+    assert hub.published == []
 
 
-def test_every_field_gets_a_description_from_the_register_or_its_name():
+def test_every_field_gets_a_description_from_the_register_or_its_name() -> None:
     class F:
-        def __init__(self, name, label="", description=""):
+        def __init__(self, name: str, label: str = "", description: str = "") -> None:
             self.name, self.label, self.description = name, label, description
 
     class Reg:
@@ -730,7 +811,7 @@ def test_every_field_gets_a_description_from_the_register_or_its_name():
     assert bare.fields[0]["description"]
 
 
-def test_notebook_titles_are_unique_per_slug_and_short_enough():
+def test_notebook_titles_are_unique_per_slug_and_short_enough() -> None:
     a = make(
         identifier="au-migration-program-by-citizenship",
         title="Migration Program outcome by stream",
@@ -740,16 +821,15 @@ def test_notebook_titles_are_unique_per_slug_and_short_enough():
     assert ia["id"] != ib["id"]
     for slug in ("x" * 45, "a" * 40 + "-one", "a" * 40 + "-two"):
         title = hubs.kaggle_notebook(make(identifier=slug), "o")[0]["title"]
-        assert len(title) <= 50 and title.endswith(" quick start")
+        assert len(title) <= 50
+        assert title.endswith(" quick start")
     one, two = (
         hubs.kaggle_notebook(make(identifier="a" * 40 + s), "o")[0]["id"] for s in ("-one", "-two")
     )
     assert one != two
 
 
-def test_cover_image_is_cut_to_two_by_one(tmp_path):
-    from PIL import Image
-
+def test_cover_image_is_cut_to_two_by_one(tmp_path: Path) -> None:
     for size in ((1200, 630), (800, 800), (2000, 500)):
         src = tmp_path / "c.png"
         Image.new("RGB", size).save(src)
@@ -757,16 +837,16 @@ def test_cover_image_is_cut_to_two_by_one(tmp_path):
             assert im.size == (560, 280)
 
 
-def test_every_catalogue_cadence_maps_to_a_kaggle_choice():
+def test_every_catalogue_cadence_maps_to_a_kaggle_choice() -> None:
     allowed = {"never", "annually", "quarterly", "monthly", "weekly", "daily", "hourly"}
     cadences = {d.source.cadence for d in load(ROOT / "register")}
     assert {kaggle_frequency(c) for c in cadences} <= allowed
     assert hubs.kaggle_metadata(make(), "o")["expectedUpdateFrequency"] in allowed
 
 
-def test_hubs_render_command_writes_every_hubs_files(tmp_path, monkeypatch):
-    from publicdata.__main__ import main
-
+def test_hubs_render_command_writes_every_hubs_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         hubs, "read_site", lambda site, only, register=None: iter([(RECORD["identifier"], make())])
     )
@@ -782,9 +862,9 @@ def test_hubs_render_command_writes_every_hubs_files(tmp_path, monkeypatch):
     ]
 
 
-def test_hubs_command_fails_when_a_hub_fails(monkeypatch, capsys):
-    from publicdata.__main__ import main
-
+def test_hubs_command_fails_when_a_hub_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(
         hubs, "read_site", lambda site, only, register=None: iter([("x", hubs.Refused("nope"))])
     )
@@ -793,7 +873,7 @@ def test_hubs_command_fails_when_a_hub_fails(monkeypatch, capsys):
     assert "REFUSED nope" in capsys.readouterr().out
 
 
-def test_workflow_passes_each_credential_the_module_reads():
+def test_workflow_passes_each_credential_the_module_reads() -> None:
     wf = (Path(__file__).resolve().parents[2] / ".github/workflows/hubs.yml").read_text()
     for name in (
         "HF_TOKEN",
@@ -811,9 +891,9 @@ def test_workflow_passes_each_credential_the_module_reads():
 class FakeSiteHttp:
     """The live site's catalogue files, with one dataset whose schema cannot be read."""
 
-    def __init__(self):
-        broken = {**RECORD, "identifier": "broken"}
-        self.files = {
+    def __init__(self) -> None:
+        broken: CatalogueRecord = {**RECORD, "identifier": "broken"}
+        self.files: dict[str, object] = {
             "https://publicdata.au/catalog.json": {
                 "dataset": [RECORD, broken, {**RECORD, "identifier": "skipped"}]
             },
@@ -823,11 +903,9 @@ class FakeSiteHttp:
             "https://publicdata.au/d/broken/versions.json": VERSIONS,
         }
         self.served = {"https://publicdata.au/api/v1/datasets/qld-road-crash-factors/versions"}
-        self.asked = []
+        self.asked: list[str] = []
 
-    def get(self, url, timeout=None):
-        import requests
-
+    def get(self, url: str, timeout: float | None = None) -> hubs._SiteResponse:
         self.asked.append(url)
         body = self.files.get(url)
         status = 200 if body is not None or url in self.served else 404
@@ -835,50 +913,59 @@ class FakeSiteHttp:
         class R:
             status_code = status
 
-            def raise_for_status(self):
+            def raise_for_status(self) -> None:
                 if status >= 400:
-                    raise requests.HTTPError(f"{status} for {url}")
+                    msg = f"{status} for {url}"
+                    raise requests.HTTPError(msg)
 
-            def json(self):
+            def json(self) -> object:
                 return body
 
         return R()
 
 
-def test_read_site_builds_entries_and_turns_a_failed_read_into_a_refusal():
+def test_read_site_builds_entries_and_turns_a_failed_read_into_a_refusal() -> None:
     http = FakeSiteHttp()
     got = dict(hubs.read_site("https://publicdata.au", {"qld-road-crash-factors", "broken"}, http))
     assert set(got) == {"qld-road-crash-factors", "broken"}
     e = got["qld-road-crash-factors"]
-    assert isinstance(e, hubs.Entry) and e.queryable and e.rows == 1234
-    assert e.files["csv"].endswith("/v/2026-09-30/data.csv") and "json" in e.files
+    assert isinstance(e, hubs.Entry)
+    assert e.queryable
+    assert e.rows == 1234
+    assert e.files["csv"].endswith("/v/2026-09-30/data.csv")
+    assert "json" in e.files
     assert e.source_page == "https://www.data.qld.gov.au/dataset/crash-data-from-queensland-roads"
-    assert isinstance(got["broken"], hubs.Refused) and "404" in str(got["broken"])
+    assert isinstance(got["broken"], hubs.Refused)
+    assert "404" in str(got["broken"])
     assert not any("/skipped/" in u for u in http.asked)
 
 
-def test_read_site_marks_a_dataset_the_query_api_lacks():
+def test_read_site_marks_a_dataset_the_query_api_lacks() -> None:
     http = FakeSiteHttp()
     http.served = set()
     (slug, e), *_ = hubs.read_site("https://publicdata.au", {"qld-road-crash-factors"}, http)
-    assert slug == "qld-road-crash-factors" and not e.queryable
+    assert slug == "qld-road-crash-factors"
+    assert isinstance(e, hubs.Entry)
+    assert not e.queryable
 
 
-def test_the_installed_kaggle_sdk_reads_the_token_from_kaggle_api_token(monkeypatch):
+def test_the_installed_kaggle_sdk_reads_the_token_from_kaggle_api_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     env = pytest.importorskip("kagglesdk.kaggle_env")
     monkeypatch.delenv("KAGGLE_KEY", raising=False)
     monkeypatch.setenv("KAGGLE_API_TOKEN", "tok-123")
     assert env.get_access_token_from_env() == ("tok-123", "KAGGLE_API_TOKEN")
 
 
-def test_the_installed_hugging_face_library_has_the_calls_the_job_makes():
+def test_the_installed_hugging_face_library_has_the_calls_the_job_makes() -> None:
     hf = pytest.importorskip("huggingface_hub")
     for name in ("create_repo", "upload_folder", "create_tag", "list_repo_refs"):
         assert callable(getattr(hf.HfApi, name))
-    from huggingface_hub.errors import RepositoryNotFoundError  # noqa: F401
+    from huggingface_hub.errors import RepositoryNotFoundError  # noqa: F401, PLC0415 - hubs extra
 
 
-def test_every_kaggle_column_type_is_one_kaggle_documents():
+def test_every_kaggle_column_type_is_one_kaggle_documents() -> None:
     documented = {"string", "numeric", "boolean", "datetime", "latitude", "longitude"}
     assert set(hubs.KAGGLE_TYPES.values()) <= documented
     fields = hubs.kaggle_metadata(make(), "o")["resources"][0]["schema"]["fields"]
@@ -888,13 +975,13 @@ def test_every_kaggle_column_type_is_one_kaggle_documents():
 class Locating(FakeHub):
     account = "https://hub.example/org"
 
-    def location(self, e):
+    def location(self, e: hubs.Entry) -> str:
         return f"https://hub.example/{e.slug}"
 
 
-def test_run_records_where_each_copy_is_held_published_or_not_reached(tmp_path):
+def test_run_records_where_each_copy_is_held_published_or_not_reached(tmp_path: Path) -> None:
     e, other = make(), make(identifier="other-one")
-    record: dict = {}
+    record: HubRecord = {}
     hubs.run(
         {"h": Locating(held={"2026-09-30"}), "bad": FakeHub(fail=True)},
         [(e.slug, e), (other.slug, other)],
@@ -912,22 +999,20 @@ def test_run_records_where_each_copy_is_held_published_or_not_reached(tmp_path):
     }
 
 
-def test_merge_record_keeps_what_a_partial_run_did_not_reach():
-    old = {
+def test_merge_record_keeps_what_a_partial_run_did_not_reach() -> None:
+    old: HubRecord = {
         "accounts": {"kaggle": "k"},
         "datasets": {"a": {"kaggle": "ka", "zenodo": "10.1/old"}, "b": {"kaggle": "kb"}},
     }
-    new = {"accounts": {"huggingface": "h"}, "datasets": {"a": {"zenodo": "10.1/new"}}}
+    new: HubRecord = {"accounts": {"huggingface": "h"}, "datasets": {"a": {"zenodo": "10.1/new"}}}
     assert hubs.merge_record(old, new) == {
         "accounts": {"huggingface": "h", "kaggle": "k"},
         "datasets": {"a": {"kaggle": "ka", "zenodo": "10.1/new"}, "b": {"kaggle": "kb"}},
     }
 
 
-def test_copies_are_listed_in_a_fixed_order_with_the_doi_last():
-    from publicdata.site import copies_of
-
-    rec = {
+def test_copies_are_listed_in_a_fixed_order_with_the_doi_last() -> None:
+    rec: HubRecord = {
         "datasets": {
             "x": {
                 "zenodo": "10.5281/zenodo.9",
@@ -938,14 +1023,13 @@ def test_copies_are_listed_in_a_fixed_order_with_the_doi_last():
     }
     got = copies_of(rec, "x")
     assert [c["hub"] for c in got] == ["Hugging Face", "Kaggle", "Zenodo"]
-    assert (
-        got[2]["url"] == "https://doi.org/10.5281/zenodo.9"
-        and got[0]["note"] == 'load_dataset("O/x")'
-    )
-    assert copies_of(rec, "y") == [] and copies_of(None, "x") == []
+    assert got[2]["url"] == "https://doi.org/10.5281/zenodo.9"
+    assert got[0]["note"] == 'load_dataset("O/x")'
+    assert copies_of(rec, "y") == []
+    assert copies_of(None, "x") == []
 
 
-def test_zenodo_location_is_the_concept_doi_of_a_submitted_record():
+def test_zenodo_location_is_the_concept_doi_of_a_submitted_record() -> None:
     z = zenodo(
         [
             {**record(1, "2025-01-01"), "conceptdoi": "10.5281/zenodo.7"},
@@ -956,10 +1040,8 @@ def test_zenodo_location_is_the_concept_doi_of_a_submitted_record():
     assert zenodo([]).location(make()) is None
 
 
-def test_coordinates_are_typed_as_coordinates_and_tag_the_dataset():
-    import dataclasses
-
-    fields = (
+def test_coordinates_are_typed_as_coordinates_and_tag_the_dataset() -> None:
+    fields: tuple[HubField, ...] = (
         {"name": "crash_latitude", "type": "number"},
         {"name": "lng", "type": "number"},
         {"name": "lat_band", "type": "number"},
@@ -971,9 +1053,7 @@ def test_coordinates_are_typed_as_coordinates_and_tag_the_dataset():
     assert "geospatial analysis" not in hubs.kaggle_tags(make())
 
 
-def test_kaggle_carries_json_and_sqlite_unless_they_are_too_large(tmp_path):
-    import dataclasses
-
+def test_kaggle_carries_json_and_sqlite_unless_they_are_too_large(tmp_path: Path) -> None:
     v = "https://publicdata.au/d/qld-road-crash-factors/v/2026-09-30/"
     files = {f: f"{v}data.{f}" for f in ("parquet", "csv", "json", "sqlite")}
     small = dataclasses.replace(make(), files=files, sizes={"json": 10, "sqlite": 10})
@@ -994,25 +1074,25 @@ def test_kaggle_carries_json_and_sqlite_unless_they_are_too_large(tmp_path):
     ]
 
 
-def test_the_search_title_leads_on_kaggle_when_it_fits():
-    import dataclasses
-
+def test_the_search_title_leads_on_kaggle_when_it_fits() -> None:
     fits = dataclasses.replace(make(), search_title="Queensland road crash factors by year")
     long = dataclasses.replace(make(), search_title="x" * 51)
     assert hubs.kaggle_metadata(fits, "o")["title"] == "Queensland road crash factors by year"
     assert hubs.kaggle_metadata(long, "o")["title"] == "Factors in road crashes, Queensland"
 
 
-def test_every_dataset_is_tagged_tabular_and_by_its_topics():
-    import dataclasses
-
+def test_every_dataset_is_tagged_tabular_and_by_its_topics() -> None:
     tags = hubs.kaggle_tags(dataclasses.replace(make(), topics=("crime",)))
     assert tags[:3] == ["australia", "government", "tabular"]
-    assert "crime" in tags and "criminology" in tags and len(tags) <= 20
+    assert "crime" in tags
+    assert "criminology" in tags
+    assert len(tags) <= 20
 
 
 class Reg:
-    def __init__(self, status="live", licence="CC-BY-4.0", kind="table"):
+    def __init__(
+        self, status: str = "live", licence: str = "CC-BY-4.0", kind: str = "table"
+    ) -> None:
         self.status = status
         self.licence = type("L", (), {"id": licence})()
         self.fields = ()
@@ -1024,7 +1104,7 @@ class Reg:
 EXCLUDED_REASONS = ("condition of use", "not copied to the hubs")
 
 
-def test_only_a_live_register_entry_with_the_same_open_licence_is_authorised():
+def test_only_a_live_register_entry_with_the_same_open_licence_is_authorised() -> None:
     hubs.authorised(RECORD, Reg())
     for reg, why in (
         (None, "not in the register"),
@@ -1039,7 +1119,7 @@ def test_only_a_live_register_entry_with_the_same_open_licence_is_authorised():
         assert isinstance(got.value, hubs.Excluded) == (why in EXCLUDED_REASONS)
 
 
-def test_read_site_refuses_what_the_register_does_not_authorise_before_reading_it():
+def test_read_site_refuses_what_the_register_does_not_authorise_before_reading_it() -> None:
     http = FakeSiteHttp()
     got = dict(
         hubs.read_site(
@@ -1055,47 +1135,47 @@ def test_read_site_refuses_what_the_register_does_not_authorise_before_reading_i
     assert http.asked == ["https://publicdata.au/catalog.json"]
 
 
-def _with_formats(**sizes):
-    import dataclasses
-
+def _with_formats(**sizes: int) -> hubs.Entry:
     v = "https://publicdata.au/d/qld-road-crash-factors/v/2026-09-30/"
     files = {f: f"{v}data.{f}" for f in ("parquet", "csv", "json", "sqlite", "xlsx")}
     return dataclasses.replace(make(), files=files, sizes=sizes)
 
 
-def test_hugging_face_carries_only_the_parquet_and_clears_other_formats(tmp_path):
+def test_hugging_face_carries_only_the_parquet_and_clears_other_formats(tmp_path: Path) -> None:
     # The Hub loads a repository with one builder; a CSV beside the Parquet broke its viewer.
     e = _with_formats(json=10, xlsx=10)
     front = yaml.safe_load(hubs.hf_card(e, "r").split("---\n")[1])
     assert front["configs"] == [{"config_name": "default", "data_files": "data.parquet"}]
 
     class Api:
-        def __init__(self):
-            self.calls = []
+        def __init__(self) -> None:
+            self.calls: list[tuple[list[str], list[str]]] = []
 
-        def create_repo(self, *a, **k):
+        def create_repo(self, *a: object, **k: object) -> None:
             pass
 
-        def create_tag(self, *a, **k):
+        def create_tag(self, *a: object, **k: object) -> None:
             pass
 
-        def upload_folder(self, **k):
-            self.calls.append(
-                (sorted(p.name for p in k["folder_path"].iterdir()), k["delete_patterns"])
-            )
+        def upload_folder(
+            self, *, folder_path: Path, delete_patterns: list[str], **k: object
+        ) -> None:
+            self.calls.append((sorted(p.name for p in folder_path.iterdir()), delete_patterns))
 
     hub = object.__new__(hubs.HuggingFace)
-    hub.namespace, hub.api = "o", Api()
+    api = Api()
+    hub.namespace = "o"
+    hub.api = api  # type: ignore[assignment]  # records the uploads in place of HfApi
     for name in ("p", "r"):
         (tmp_path / name).mkdir()
     hub.publish(e, tmp_path / "p", fake_fetch)
     hub.refresh(e, tmp_path / "r", fake_fetch)
-    for names, stray in hub.api.calls:
+    for names, stray in api.calls:
         assert names == ["README.md", "data.parquet", "publicdata.json"]
         assert {"data.csv", "data.json"} <= set(stray)
 
 
-def test_zenodo_carries_json_and_excel_and_names_every_file(tmp_path):
+def test_zenodo_carries_json_and_excel_and_names_every_file(tmp_path: Path) -> None:
     e = _with_formats(json=10, xlsx=10, sqlite=10)
     got = [p.name for p in hubs.Zenodo("t").files(e, tmp_path, fake_fetch)]
     assert got == [
@@ -1115,7 +1195,7 @@ def test_zenodo_carries_json_and_excel_and_names_every_file(tmp_path):
     ]
 
 
-def test_the_record_is_saved_after_every_dataset(tmp_path):
+def test_the_record_is_saved_after_every_dataset(tmp_path: Path) -> None:
     e, other = make(), make(identifier="other-one")
     saved = []
     hubs.run(
@@ -1130,9 +1210,9 @@ def test_the_record_is_saved_after_every_dataset(tmp_path):
     assert saved == [["qld-road-crash-factors"], ["other-one", "qld-road-crash-factors"]]
 
 
-def test_the_hubs_command_writes_the_record_as_it_goes(tmp_path, monkeypatch):
-    from publicdata.__main__ import main
-
+def test_the_hubs_command_writes_the_record_as_it_goes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     rec = tmp_path / "hubs.json"
     rec.write_text('{"accounts": {}, "datasets": {"kept": {"h": "x"}}}')
     e = make()
@@ -1149,18 +1229,14 @@ def test_the_hubs_command_writes_the_record_as_it_goes(tmp_path, monkeypatch):
     }
 
 
-def test_kaggle_uploads_carry_no_tags_and_the_settings_carry_them(tmp_path):
-    import dataclasses
-
+def test_kaggle_uploads_carry_no_tags_and_the_settings_carry_them(tmp_path: Path) -> None:
     e = dataclasses.replace(make(), topics=("roads",))
     hubs.Kaggle("o", "tok").files(e, tmp_path, fake_fetch)
     assert json.loads((tmp_path / "dataset-metadata.json").read_text())["keywords"] == []
     assert hubs.kaggle_metadata(e, "o")["keywords"]
 
 
-def test_kaggle_trims_tags_until_the_category_limit_is_met(tmp_path):
-    import dataclasses
-
+def test_kaggle_trims_tags_until_the_category_limit_is_met(tmp_path: Path) -> None:
     sent = tmp_path / "sent"
     cli, _, _ = kaggle_cli(
         tmp_path,
@@ -1171,13 +1247,15 @@ def test_kaggle_trims_tags_until_the_category_limit_is_met(tmp_path):
     e = dataclasses.replace(make(), topics=("roads", "crime"))
     hubs.Kaggle("o", "tok", cli).settings(e, tmp_path / "m", fake_fetch)
     counts = [int(x) for x in sent.read_text().split()]
-    assert (
-        counts[0] == hubs.TAG_LIMIT and counts[-1] <= 5 and counts == sorted(counts, reverse=True)
-    )
+    assert counts[0] == hubs.TAG_LIMIT
+    assert counts[-1] <= 5
+    assert counts == sorted(counts, reverse=True)
 
 
-def test_kaggle_waits_out_403s_while_a_new_dataset_registers(tmp_path, monkeypatch):
-    monkeypatch.setattr(hubs.time, "sleep", lambda s: None)
+def test_kaggle_waits_out_403s_while_a_new_dataset_registers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda s: None)
     count = tmp_path / "n"
     cli, _, _ = kaggle_cli(
         tmp_path,
@@ -1194,26 +1272,33 @@ def test_kaggle_waits_out_403s_while_a_new_dataset_registers(tmp_path, monkeypat
         hubs.Kaggle("o", "tok", always).wait_ready("o/x")
 
 
-def test_zenodo_sends_a_file_again_after_a_gateway_error(tmp_path, monkeypatch):
+def test_zenodo_sends_a_file_again_after_a_gateway_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     z = zenodo([])
     z.pause = 0
     real = z.http.request
     tries = {"n": 0}
 
-    def flaky(method, url, timeout=None, **kw):
+    def flaky(
+        method: str,
+        url: str,
+        timeout: float | None = None,
+        **kw: Unpack[ZenodoRequest],
+    ) -> FakeResponse:
         if method == "PUT" and url.startswith("https://z/b/") and url.endswith("data.parquet"):
             tries["n"] += 1
             if tries["n"] < 3:
                 return FakeResponse(502, {"error": "bad gateway"})
         return real(method, url, timeout=timeout, **kw)
 
-    z.http.request = flaky
+    monkeypatch.setattr(z.http, "request", flaky)
     z.publish(make(), tmp_path, fake_fetch)
     assert tries["n"] == 3
     assert z.http.calls[-1] == ("POST", "/deposit/depositions/5/actions/publish")
 
 
-def test_a_dataset_the_accounts_list_has_not_caught_up_with_is_still_held(tmp_path):
+def test_a_dataset_the_accounts_list_has_not_caught_up_with_is_still_held(tmp_path: Path) -> None:
     cli = fake_cli(
         tmp_path,
         'if [ "$2" = "list" ]; then printf "ref,title,size\\no/other,U,2\\n"; exit 0; fi\n'
@@ -1226,7 +1311,7 @@ def test_a_dataset_the_accounts_list_has_not_caught_up_with_is_still_held(tmp_pa
     assert k.location(make()) == "https://www.kaggle.com/datasets/o/qld-road-crash-factors"
 
 
-def test_kaggle_settings_name_the_licence_the_way_an_update_accepts_it(tmp_path):
+def test_kaggle_settings_name_the_licence_the_way_an_update_accepts_it(tmp_path: Path) -> None:
     sent = tmp_path / "sent"
     cli, _, _ = kaggle_cli(
         tmp_path,
@@ -1240,27 +1325,28 @@ def test_kaggle_settings_name_the_licence_the_way_an_update_accepts_it(tmp_path)
     assert hubs.kaggle_metadata(make(), "o")["licenses"] == [{"name": "CC-BY-4.0"}]
 
 
-def test_every_kaggle_licence_id_has_a_verified_settings_name():
+def test_every_kaggle_licence_id_has_a_verified_settings_name() -> None:
     assert {lic.kaggle for lic in hubs.LICENCES.values()} <= set(hubs.KAGGLE_SETTINGS_LICENCE)
     cc0 = make(license="https://creativecommons.org/publicdomain/zero/1.0/")
     assert hubs.kaggle_settings_licence(cc0) == "CC0 1.0"
 
 
 def test_a_licence_without_a_settings_name_is_refused_before_anything_is_uploaded(
-    tmp_path, monkeypatch
-):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delitem(hubs.KAGGLE_SETTINGS_LICENCE, "CC-BY-4.0")
     cli, log, _ = kaggle_cli(tmp_path)
-    fetched = []
+    fetched: list[str] = []
     (tmp_path / "w").mkdir()
     with pytest.raises(hubs.Refused, match="verified"):
         hubs.Kaggle("o", "tok", cli).publish(
             make(), tmp_path / "w", lambda u, d: fetched.append(u), first=True
         )
-    assert fetched == [] and not log.exists()
+    assert fetched == []
+    assert not log.exists()
 
 
-def test_a_notebook_is_pushed_only_when_the_dataset_has_none(tmp_path):
+def test_a_notebook_is_pushed_only_when_the_dataset_has_none(tmp_path: Path) -> None:
     cli, log, _ = kaggle_cli(tmp_path)
     k = hubs.Kaggle("o", "tok", cli)
     for name in ("a", "b"):
@@ -1269,7 +1355,7 @@ def test_a_notebook_is_pushed_only_when_the_dataset_has_none(tmp_path):
     assert len(pushes) == 1
 
 
-def test_a_held_dataset_without_its_notebook_gets_one_on_an_ordinary_run(tmp_path):
+def test_a_held_dataset_without_its_notebook_gets_one_on_an_ordinary_run(tmp_path: Path) -> None:
     cli = fake_cli(
         tmp_path,
         KAGGLE_LIST
@@ -1278,7 +1364,7 @@ def test_a_held_dataset_without_its_notebook_gets_one_on_an_ordinary_run(tmp_pat
         + 'if [ "$1" = "kernels" ]; then exit 0; fi\n'
         + 'while [ "$1" != "-p" ]; do shift; done; echo \'{"version": "2026-09-30"}\' > "$2/publicdata.json"\n',
     )
-    lines = []
+    lines: list[str] = []
     hubs.run(
         {"kaggle": hubs.Kaggle("o", "tok", cli)},
         [("qld-road-crash-factors", make())],
@@ -1290,8 +1376,10 @@ def test_a_held_dataset_without_its_notebook_gets_one_on_an_ordinary_run(tmp_pat
     assert any(c.startswith("kernels push") for c in (tmp_path / "args").read_text().splitlines())
 
 
-def test_a_failed_notebook_check_is_raised_and_never_spends_a_push(tmp_path, monkeypatch):
-    monkeypatch.setattr(hubs.time, "sleep", lambda s: None)
+def test_a_failed_notebook_check_is_raised_and_never_spends_a_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda s: None)
     log = tmp_path / "args"
     cli = fake_cli(
         tmp_path,
@@ -1305,14 +1393,15 @@ def test_a_failed_notebook_check_is_raised_and_never_spends_a_push(tmp_path, mon
     assert not any(c.startswith("kernels push") for c in calls)
 
 
-def test_a_missing_notebook_is_checked_once_before_its_push(tmp_path):
+def test_a_missing_notebook_is_checked_once_before_its_push(tmp_path: Path) -> None:
     cli, log, _ = kaggle_cli(tmp_path)
     hubs.Kaggle("o", "tok", cli).ensure(make(), tmp_path / "w", fake_fetch)
     calls = [c.split()[:2] for c in log.read_text().splitlines()]
-    assert calls.count(["kernels", "status"]) == 1 and ["kernels", "push"] in calls
+    assert calls.count(["kernels", "status"]) == 1
+    assert ["kernels", "push"] in calls
 
 
-def test_kaggle_answering_kernels_get_denied_means_no_notebook_yet(tmp_path):
+def test_kaggle_answering_kernels_get_denied_means_no_notebook_yet(tmp_path: Path) -> None:
     cli = fake_cli(
         tmp_path,
         "echo \"Cannot access kernel 'o/x-quick-start' (Permission 'kernels.get' was denied).\"; exit 1\n",
@@ -1320,8 +1409,10 @@ def test_kaggle_answering_kernels_get_denied_means_no_notebook_yet(tmp_path):
     assert hubs.Kaggle("o", "tok", cli).has_notebook(make()) is False
 
 
-def test_kaggles_notebook_limit_defers_the_rest_of_the_run_without_failing(tmp_path, monkeypatch):
-    monkeypatch.setattr(hubs.time, "sleep", lambda s: None)
+def test_kaggles_notebook_limit_defers_the_rest_of_the_run_without_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda s: None)
     cli = fake_cli(
         tmp_path,
         KAGGLE_LIST
@@ -1331,7 +1422,7 @@ def test_kaggles_notebook_limit_defers_the_rest_of_the_run_without_failing(tmp_p
         'Requests for url: https://api.kaggle.com/v1/kernels.KernelsApiService/SaveKernel"; exit 1; fi\n'
         + 'while [ "$1" != "-p" ]; do shift; done; echo \'{"version": "2026-09-30"}\' > "$2/publicdata.json"\n',
     )
-    lines = []
+    lines: list[str] = []
     a, b = make(), make(identifier="other")
     failures = hubs.run(
         {"kaggle": hubs.Kaggle("o", "tok", cli)},
@@ -1349,11 +1440,13 @@ def test_kaggles_notebook_limit_defers_the_rest_of_the_run_without_failing(tmp_p
     assert len([c for c in calls if c.startswith("kernels push")]) == 1
 
 
-def test_kaggles_running_notebook_limit_is_waited_out_then_deferred(tmp_path, monkeypatch):
-    monkeypatch.setattr(hubs.time, "sleep", lambda s: None)
+def test_kaggles_running_notebook_limit_is_waited_out_then_deferred(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "sleep", lambda s: None)
     busy = 'echo "Kernel push error: Maximum batch CPU session count of 5 reached."; exit 0\n'
 
-    def kaggle(clears_after):
+    def kaggle(clears_after: int) -> hubs.Kaggle:
         n = tmp_path / f"n{clears_after}"
         cli = fake_cli(
             tmp_path,
@@ -1370,8 +1463,10 @@ def test_kaggles_running_notebook_limit_is_waited_out_then_deferred(tmp_path, mo
     assert k._notebooks_limited
 
 
-def test_a_dataset_the_register_keeps_off_the_hubs_is_reported_but_is_no_failure(tmp_path):
-    lines = []
+def test_a_dataset_the_register_keeps_off_the_hubs_is_reported_but_is_no_failure(
+    tmp_path: Path,
+) -> None:
+    lines: list[str] = []
     failures = hubs.run(
         {"h": FakeHub()},
         [
@@ -1390,7 +1485,7 @@ def test_a_dataset_the_register_keeps_off_the_hubs_is_reported_but_is_no_failure
     assert lines[1].startswith("h bad: REFUSED")
 
 
-def test_read_site_passes_an_exclusion_through_as_an_exclusion():
+def test_read_site_passes_an_exclusion_through_as_an_exclusion() -> None:
     got = dict(
         hubs.read_site(
             "https://publicdata.au",
@@ -1402,6 +1497,44 @@ def test_read_site_passes_an_exclusion_through_as_an_exclusion():
     assert isinstance(got["qld-road-crash-factors"], hubs.Excluded)
 
 
-def test_reading_the_site_retries_a_dropped_connection_but_never_an_upload():
-    retry = hubs._http().get_adapter("https://publicdata.au/").max_retries
-    assert retry.total >= 3 and retry.is_retry("GET", 503) and not retry.is_retry("POST", 503)
+def test_reading_the_site_retries_a_dropped_connection_but_never_an_upload() -> None:
+    adapter = hubs._http().get_adapter("https://publicdata.au/")
+    assert isinstance(adapter, requests.adapters.HTTPAdapter)
+    retry = adapter.max_retries
+    assert isinstance(retry.total, int)
+    assert retry.total >= 3
+    assert retry.is_retry("GET", 503)
+    assert not retry.is_retry("POST", 503)
+
+
+def test_every_hub_takes_a_rolling_source_at_most_once_a_month(tmp_path: Path) -> None:
+    e = dataclasses.replace(make(), update="rolling", version="2026-10-20")
+    zen, hf = FakeHub(), FakeHub()
+    lines: list[str] = []
+    fails = hubs.run(
+        {"zenodo": zen, "huggingface": hf}, [(e.slug, e)], fake_fetch, tmp_path, lines.append
+    )
+    assert fails == 0
+    assert zen.published == hf.published == ["2026-10-20"]
+    for name in ("zenodo", "huggingface", "kaggle"):
+        again = FakeHub(held={"2026-10-01"})
+        hubs.run({name: again}, [(e.slug, e)], fake_fetch, tmp_path, lines.append)
+        assert again.published == []
+        assert "copied once a month" in lines[-1]
+        nov = dataclasses.replace(e, version="2026-11-03")
+        hubs.run({name: again}, [(e.slug, nov)], fake_fetch, tmp_path, lines.append)
+        assert again.published == ["2026-11-03"]
+    # A release is copied whenever it is newer.
+    rel = FakeHub(held={"2026-09-01"})
+    newer = dataclasses.replace(make(), version="2026-09-20")
+    hubs.run({"kaggle": rel}, [(e.slug, newer)], fake_fetch, tmp_path, lines.append)
+    assert rel.published == ["2026-09-20"]
+
+
+def test_a_rolling_source_goes_to_zenodo_as_parquet_and_gzipped_csv() -> None:
+    e = make()
+    rolling = dataclasses.replace(
+        e, update="feed", files={**e.files, "csv.gz": "u"}, sizes={"csv.gz": 10}
+    )
+    assert hubs.zenodo_formats(e) == hubs.ZENODO_FORMATS
+    assert hubs.carried(rolling, hubs.zenodo_formats(rolling)) == ["parquet", "csv.gz"]

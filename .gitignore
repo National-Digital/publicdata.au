@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 dist/
 snapshots/
 raw/
@@ -11,6 +12,8 @@ raw/
 .env
 .env.*
 store/*/*/source.*
+store/*/*/history.parquet
+store/*/read.json
 dist-large/
 # Lighthouse and Chrome write beside the working directory during local audits.
 lh-*.json

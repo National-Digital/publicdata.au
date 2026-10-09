@@ -19,13 +19,206 @@ import re
 import time
 import urllib.parse
 import zoneinfo
+from dataclasses import replace
+from http import HTTPStatus
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
+import openpyxl
+import pyarrow.parquet as pq
 import requests
 
-from . import catalogue, store
-from .normalise import detect_encoding
-from .register import Dataset
+from . import catalogue, normalise, periods, store, updates
+from .normalise import _cell, _distinct, detect_encoding, xls_to_xlsx
+from .register import FILE_SOURCE
+from .serialise import pretty
+from .serialise.profile import layout, misfits
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+
+    from .jsontypes import JSON, JSONObject
+    from .register import Dataset
+    from .store import ManifestLicence, ManifestSource, StackFile
+
+    # The licence as an adapter read it, which the version's manifest keeps.
+    type LicenceRead = ManifestLicence
+
+    # The bytes (None when unchanged), the manifest and the licence as the adapter read it.
+    type FetchResult = tuple[bytes | None, store.Manifest, LicenceRead]
+    type Adapter = Callable[[Dataset, Path], FetchResult]
+    type Download = Fetched | requests.Response
+
+
+class CkanOrganization(TypedDict, total=False):
+    name: str | None
+    title: str | None
+
+
+class CkanResource(TypedDict, total=False):
+    id: str
+    url: str
+    name: str | None
+    format: str | None
+    description: str | None
+    created: str | None
+    last_modified: str | None
+    metadata_modified: str | None
+
+
+class CkanPackage(TypedDict, total=False):
+    id: str
+    name: str
+    title: str | None
+    version: str | None
+    notes: str | None
+    organization: CkanOrganization | None
+    metadata_created: str | None
+    metadata_modified: str
+    license_id: str
+    license_title: str
+    license_url: str
+    resources: list[CkanResource]
+
+
+class _CkanResult(TypedDict):
+    results: list[CkanPackage]
+
+
+class CkanSearch(TypedDict, total=False):
+    success: bool
+    error: JSON
+    result: _CkanResult
+
+
+class _SocrataLicence(TypedDict, total=False):
+    name: str | None
+    termsLink: str
+
+
+class _SocrataView(TypedDict, total=False):
+    name: str
+    license: _SocrataLicence | None
+    licenseId: str | None
+    rowsUpdatedAt: int | None
+    viewLastModified: int | None
+
+
+class _OdsMeta(TypedDict, total=False):
+    title: str
+    license: str | None
+    license_url: str | None
+    data_processed: str | None
+    modified: str | None
+
+
+class _OdsMetas(TypedDict, total=False):
+    default: _OdsMeta | None
+
+
+class _OdsDataset(TypedDict, total=False):
+    metas: _OdsMetas | None
+
+
+class _HubProps(catalogue.HubItem, total=False):
+    url: str | None
+
+
+# A Hub item answers with its properties at the top or under properties.
+class _HubAnswer(_HubProps, total=False):
+    properties: _HubProps | None
+
+
+class _EditingInfo(TypedDict, total=False):
+    lastEditDate: int | None
+
+
+class _EsriField(TypedDict):
+    name: str
+    type: str
+
+
+class _LayerInfo(TypedDict, total=False):
+    name: str
+    fields: list[_EsriField]
+    objectIdField: str | None
+    maxRecordCount: int | None
+    editingInfo: _EditingInfo | None
+
+
+class GeoFeature(TypedDict, total=False):
+    type: str
+    geometry: JSON
+    properties: dict[str, str | float | None] | None
+
+
+class _FeaturePage(TypedDict, total=False):
+    features: list[GeoFeature]
+
+
+class AlaOccurrence(TypedDict, total=False):
+    uuid: str
+    id: str
+    license: str
+    firstLoadedDate: str
+    otherProperties: JSONObject | None
+
+
+class _AlaCount(TypedDict, total=False):
+    totalRecords: int
+
+
+class _AlaPage(TypedDict, total=False):
+    occurrences: list[AlaOccurrence] | None
+
+
+# KiWIS answers a list query as a header row and then one row of text per item.
+
+
+class KiwisSeries(TypedDict, total=False):
+    station_no: str
+    ts_id: str
+    # Each value as its timestamp, value and quality code.
+    data: list[tuple[str, float | None, int | None]]
+
+
+class _ZenodoLinks(TypedDict, total=False):
+    self: str
+    self_html: str
+
+
+class _ZenodoFile(TypedDict, total=False):
+    key: str
+    checksum: str
+    links: _ZenodoLinks
+
+
+class _ZenodoLicence(TypedDict, total=False):
+    id: str | None
+    url: str
+
+
+class _ZenodoMeta(TypedDict, total=False):
+    license: _ZenodoLicence | None
+    publication_date: str | None
+
+
+class _ZenodoRecord(TypedDict, total=False):
+    id: int | str
+    doi: str
+    updated: str | None
+    links: _ZenodoLinks | None
+    metadata: _ZenodoMeta | None
+    files: list[_ZenodoFile] | None
+
+
+class _ZenodoHits(TypedDict, total=False):
+    hits: list[_ZenodoRecord] | None
+
+
+class _ZenodoSearch(TypedDict, total=False):
+    hits: _ZenodoHits | None
+
 
 TZ = zoneinfo.ZoneInfo("Australia/Brisbane")
 UNREADABLE_DATE = (TypeError, ValueError)
@@ -65,7 +258,7 @@ def parse_as_at(text: str, regex: str) -> str:
     """Pull an as-at date such as '30 June 2025' out of the publisher's own words."""
     if not regex:
         return ""
-    m = re.search(regex, text or "", re.I | re.S)
+    m = re.search(regex, text or "", re.IGNORECASE | re.DOTALL)
     if not m:
         return ""
     s = m.group(1).strip()
@@ -79,20 +272,22 @@ def parse_as_at(text: str, regex: str) -> str:
     return mm.group(0) if mm else ""
 
 
-def ckan_resource(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def ckan_resource(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     s = session or requests.Session()
     s.headers["User-Agent"] = UA
     api = f"{ds.source.portal.rstrip('/')}/api/3/action"
     p = _package(ds, s, api)
     res = pick_resource(ds, p["resources"])
-    licence = {
+    licence: LicenceRead = {
         "id": p.get("license_id", ""),
         "title": p.get("license_title", ""),
         "url": p.get("license_url", ""),
         "read_from": f"{api}/package_show?id={p['name']}",
         "read_at": _now(),
     }
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if (
         ds.source.manual
         and ds.slug not in MANUAL
@@ -159,7 +354,7 @@ def ckan_resource(ds: Dataset, store_dir: Path, session: requests.Session | None
     return data, m, licence
 
 
-def _same_record(m: store.Manifest, p: dict, res: dict) -> bool:
+def _same_record(m: store.Manifest, p: CkanPackage, res: CkanResource) -> bool:
     """Whether the portal still describes the file the newest version was made from."""
     was = m.source
     return (
@@ -169,40 +364,50 @@ def _same_record(m: store.Manifest, p: dict, res: dict) -> bool:
     )
 
 
-def _package(ds: Dataset, s: requests.Session, api: str) -> dict:
+def _package(ds: Dataset, s: requests.Session, api: str) -> CkanPackage:
     if ds.source.package_match:
-        found = s.get(
-            f"{api}/package_search",
-            params={"q": ds.source.package, "sort": "metadata_created desc", "rows": 100},
-            timeout=60,
-        ).json()
+        query: dict[str, str | int] = {
+            "q": ds.source.package,
+            "sort": "metadata_created desc",
+            "rows": 100,
+        }
+        found = s.get(f"{api}/package_search", params=query, timeout=60).json()
         if not found.get("success"):
-            raise RuntimeError(f"{ds.slug}: package_search failed: {found.get('error')}")
+            msg = f"{ds.slug}: package_search failed: {found.get('error')}"
+            raise RuntimeError(msg)
         name = pick_package(ds, found["result"]["results"])
     else:
         name = ds.source.package
     pkg = s.get(f"{api}/package_show", params={"id": name}, timeout=60).json()
     if not pkg.get("success"):
-        raise RuntimeError(f"{ds.slug}: package_show failed: {pkg.get('error')}")
-    return pkg["result"]
+        msg = f"{ds.slug}: package_show failed: {pkg.get('error')}"
+        raise RuntimeError(msg)
+    result: CkanPackage = pkg["result"]
+    return result
 
 
-def pick_package(ds: Dataset, packages: list[dict]) -> str:
+def pick_package(ds: Dataset, packages: list[CkanPackage]) -> str:
     """The newest package whose name matches, by the date the portal created it."""
     rx = re.compile(ds.source.package_match)
     hits = [p for p in packages if rx.search(p.get("name", ""))]
     if not hits:
-        raise FetchError(f"{ds.slug}: no package matches '{ds.source.package_match}'")
-    return max(hits, key=lambda p: p.get("metadata_created") or "")["name"]
+        msg = f"{ds.slug}: no package matches '{ds.source.package_match}'"
+        raise FetchError(msg)
+    name: str = max(hits, key=lambda p: p.get("metadata_created") or "")["name"]
+    return name
 
 
-def pick_resource(ds: Dataset, resources: list[dict]) -> dict:
-    """The named resource, or the newest whose name matches: latest created, then last listed,
-    since a portal that re-imports old files gives them all one creation date."""
+def pick_resource(ds: Dataset, resources: list[CkanResource]) -> CkanResource:
+    """The named resource, or the newest whose name matches.
+
+    The newest is the latest created, then the last listed, since a portal that re-imports old
+    files gives them all one creation date.
+    """
     if not ds.source.resource_match:
         res = next((r for r in resources if r["id"] == ds.source.resource), None)
         if res is None:
-            raise RuntimeError(f"{ds.slug}: resource {ds.source.resource} not in package")
+            msg = f"{ds.slug}: resource {ds.source.resource} not in package"
+            raise RuntimeError(msg)
         return res
     rx = re.compile(ds.source.resource_match)
     hits = [
@@ -211,12 +416,13 @@ def pick_resource(ds: Dataset, resources: list[dict]) -> dict:
         if rx.search((r.get("name") or "").strip())
     ]
     if not hits:
-        raise FetchError(f"{ds.slug}: no resource matches '{ds.source.resource_match}'")
+        msg = f"{ds.slug}: no resource matches '{ds.source.resource_match}'"
+        raise FetchError(msg)
     # A re-import gives every resource one creation date; its file's change date then decides.
     return max(hits, key=lambda h: h[:3])[3]
 
 
-def etag(headers) -> str:
+def etag(headers: Mapping[str, str]) -> str:
     """The ETag without its quotes, keeping the W/ that marks a weak one."""
     tag = headers.get("ETag", "").strip()
     weak = tag.startswith("W/")
@@ -224,9 +430,12 @@ def etag(headers) -> str:
     return f"W/{tag}" if weak else tag
 
 
-def resource_filename(res: dict) -> str:
-    """The file's name from its URL. A name with no extension takes the resource's stated format,
-    since the reader is chosen by extension."""
+def resource_filename(res: CkanResource) -> str:
+    """The file's name from its URL.
+
+    A name with no extension takes the resource's stated format, since the reader is chosen by
+    extension.
+    """
     name = res["url"].split("?", 1)[0].rsplit("/", 1)[-1]
     # A download script, main.html?download&realfilename=layer.zip, names the file it serves.
     query = urllib.parse.parse_qs(urllib.parse.urlsplit(res["url"]).query)
@@ -244,9 +453,12 @@ def resource_filename(res: dict) -> str:
 
 
 def free_version(changed: str, taken: set[str], today: dt.date) -> tuple[str, str]:
-    """The version label for a changed file: the publisher's change date, or when a version
-    already holds that date, the fetch date, or else the next day no version holds. The note
-    says why the label is not the change date."""
+    """The version label for a changed file, and a note.
+
+    The label is the publisher's change date, or when a version already holds that date, the fetch
+    date, or else the next day no version holds. The note says why the label is not the change
+    date.
+    """
     if changed not in taken:
         return changed, ""
     day = today
@@ -271,7 +483,7 @@ def _session(session: requests.Session | None) -> requests.Session:
 class Fetched:
     """A file a person downloaded, shaped like the response the adapters read."""
 
-    def __init__(self, content: bytes, headers: dict[str, str]):
+    def __init__(self, content: bytes, headers: dict[str, str]) -> None:
         self.content = content
         self.headers = requests.structures.CaseInsensitiveDict(headers)
         self.status_code = 200
@@ -281,47 +493,58 @@ class Fetched:
 MANUAL: dict[str, Path] = {}
 
 
-class ManualDue(RuntimeError):
+class ManualDue(RuntimeError):  # noqa: N818 - a signal that a person must fetch
     pass
 
 
-def _download(ds: Dataset, s: requests.Session, url: str):
-    """The file's bytes and headers: by the session, or from the file a person downloaded when
-    the entry's host turns automated clients away."""
+def _download(ds: Dataset, s: requests.Session, url: str) -> Download:
+    """The file's bytes and headers.
+
+    They come by the session, or from the file a person downloaded when the entry's host turns
+    automated clients away.
+    """
     if ds.source.manual:
         if ds.slug not in MANUAL:
-            raise ManualDue(f"{ds.slug}: download {url} and run the fetch with --file")
+            msg = f"{ds.slug}: download {url} and run the fetch with --file"
+            raise ManualDue(msg)
         got = MANUAL[ds.slug]
         if got.is_dir():
             # A stack's files are given as one folder, each under the name its address ends in.
             got = got / urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1])
             if not got.is_file():
-                raise FetchError(f"{ds.slug}: {got.name} is not in {MANUAL[ds.slug]}")
+                msg = f"{ds.slug}: {got.name} is not in {MANUAL[ds.slug]}"
+                raise FetchError(msg)
         return Fetched(got.read_bytes(), {})
     r = s.get(url, timeout=600, allow_redirects=True)
     r.raise_for_status()
     return r
 
 
-def _changed(ds: Dataset, value, unit: int = 0) -> str:
-    """The portal's change date as UTC ISO, from an epoch in seconds (unit 1), milliseconds
-    (unit 1000) or an ISO string (unit 0). A version is dated by it, so a portal that states none
-    is a failed fetch rather than a guessed date."""
+def _changed(ds: Dataset, value: object, unit: int = 0) -> str:
+    """The portal's change date as UTC ISO.
+
+    It is read from an epoch in seconds (unit 1), milliseconds (unit 1000) or an ISO string
+    (unit 0). A version is dated by it, so a portal that states none is a failed fetch rather than
+    a guessed date.
+    """
     try:
         if unit:
-            return dt.datetime.fromtimestamp(int(value) / unit, dt.UTC).isoformat()
+            return dt.datetime.fromtimestamp(int(value) / unit, dt.UTC).isoformat()  # type: ignore[call-overload]  # None raises the TypeError that reports no date
         return _normal_iso(str(value))
     except UNREADABLE_DATE as e:
-        raise FetchError(f"{ds.slug}: the portal states no change date ({value!r})") from e
+        msg = f"{ds.slug}: the portal states no change date ({value!r})"
+        raise FetchError(msg) from e
 
 
-def _licence(
-    ds: Dataset, stated: str, normalised: str, title: str, url: str, read_from: str
-) -> dict:
+def _licence(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    ds: Dataset, stated: str, normalised: str, title: str, url: str, *, read_from: str
+) -> LicenceRead:
     """The licence a portal states, keeping its own code and the id worked out from its words.
+
     `id` is the one the register is checked against: the portal's code when the entry names one
     in licence.portal_id, as a CKAN portal's id is, and otherwise the worked-out id. `read_from`
-    is the address the statement was read from, and `read_at` when."""
+    is the address the statement was read from, and `read_at` when.
+    """
     return {
         "id": stated if ds.licence.portal_id else normalised,
         "stated": stated,
@@ -337,29 +560,33 @@ def _now() -> str:
     return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 
 
-def _portal_version(
+def _portal_version(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     store_dir: Path,
     s: requests.Session,
     url: str,
     changed: str,
+    *,
     filename: str,
-    source: dict,
-    licence: dict,
-):
-    """Download a portal's export and make its manifest. The export is dated by the portal's own
-    change date, and an unchanged SHA-256 is no version."""
-    existing = store.manifests(store_dir, ds.slug)
+    source: ManifestSource,
+    licence: LicenceRead,
+) -> FetchResult:
+    """Download a portal's export and make its manifest.
+
+    The export is dated by the portal's own change date, and an unchanged SHA-256 is no version.
+    """
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     r = s.get(url, timeout=600, allow_redirects=True)
     # A portal that builds its export on request answers 202 until the file is ready.
     for _ in range(EXPORT_WAITS):
-        if r.status_code != 202:
+        if r.status_code != HTTPStatus.ACCEPTED:
             break
         time.sleep(EXPORT_WAIT_SECONDS)
         r = s.get(url, timeout=600, allow_redirects=True)
     r.raise_for_status()
-    if r.status_code != 200:
-        raise FetchError(f"{ds.slug}: {url} answered HTTP {r.status_code} without the file")
+    if r.status_code != HTTPStatus.OK:
+        msg = f"{ds.slug}: {url} answered HTTP {r.status_code} without the file"
+        raise FetchError(msg)
     data = r.content
     expect_page(ds, url, r, data)
     digest = hashlib.sha256(data).hexdigest()
@@ -377,24 +604,31 @@ def _portal_version(
         bytes=len(data),
         filename=filename,
         encoding=_encoding(filename, data, ds.source.encoding),
-        source={
-            "url": url,
-            "portal": ds.source.portal,
-            **source,
-            "etag": etag(r.headers),
-            "http_last_modified": r.headers.get("Last-Modified", ""),
-        },
+        source=_portal_source(url, ds.source.portal, source, r.headers),
         licence=licence,
         notes=[note] if note else [],
     )
     return data, m, licence
 
 
-def socrata_view(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def _portal_source(
+    url: str, portal: str, source: ManifestSource, headers: Mapping[str, str]
+) -> ManifestSource:
+    # The keys in the order the manifest has always written them; source's own keep their place.
+    out: ManifestSource = {"url": url, "portal": portal}
+    out.update(source)
+    out["etag"] = etag(headers)
+    out["http_last_modified"] = headers.get("Last-Modified", "")
+    return out
+
+
+def socrata_view(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     """A Socrata dataset, such as the ACT's, exported whole as CSV. package is its four-by-four."""
     s = _session(session)
     base = ds.source.portal.rstrip("/")
-    view = catalogue.get_json(s, f"{base}/api/views/{ds.source.package}.json")
+    view = catalogue.get_json_as(_SocrataView, s, f"{base}/api/views/{ds.source.package}.json")
     lic = view.get("license") or {}
     title = lic.get("name") or ""
     return _portal_version(
@@ -403,28 +637,31 @@ def socrata_view(ds: Dataset, store_dir: Path, session: requests.Session | None 
         s,
         f"{base}/api/views/{ds.source.package}/rows.csv?accessType=DOWNLOAD",
         _changed(ds, view.get("rowsUpdatedAt") or view.get("viewLastModified"), 1),
-        f"{ds.source.package}.csv",
-        {
+        filename=f"{ds.source.package}.csv",
+        source={
             "package": ds.source.package,
             "resource_name": view.get("name", ""),
             "rows_updated_at": view.get("rowsUpdatedAt"),
         },
-        _licence(
+        licence=_licence(
             ds,
             view.get("licenseId") or title,
             catalogue.licence_id(title),
             title,
             lic.get("termsLink", ""),
-            f"{base}/api/views/{ds.source.package}.json",
+            read_from=f"{base}/api/views/{ds.source.package}.json",
         ),
     )
 
 
-def opendatasoft(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
+def opendatasoft(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
     """An Opendatasoft dataset exported whole as comma-separated CSV. package is its dataset id."""
     s = _session(session)
     base = f"{ds.source.portal.rstrip('/')}/api/explore/v2.1/catalog/datasets/{ds.source.package}"
-    meta = (catalogue.get_json(s, base).get("metas") or {}).get("default") or {}
+    found = catalogue.get_json_as(_OdsDataset, s, base)
+    meta = (found.get("metas") or {}).get("default") or {}
     title = meta.get("license") or ""
     return _portal_version(
         ds,
@@ -432,37 +669,41 @@ def opendatasoft(ds: Dataset, store_dir: Path, session: requests.Session | None 
         s,
         f"{base}/exports/csv?delimiter=%2C&with_bom=false",
         _changed(ds, meta.get("data_processed") or meta.get("modified")),
-        f"{ds.source.package}.csv",
-        {
+        filename=f"{ds.source.package}.csv",
+        source={
             "package": ds.source.package,
             "resource_name": meta.get("title", ""),
             "data_processed": meta.get("data_processed"),
         },
-        _licence(
+        licence=_licence(
             ds,
             title,
             catalogue.cc_url(meta.get("license_url") or "") or catalogue.licence_id(title),
             title,
             meta.get("license_url") or "",
-            base,
+            read_from=base,
         ),
     )
 
 
-def arcgis_hub(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A layer of an ArcGIS Hub item, as the CSV the site's download API serves. package is the
-    item id and resource the layer number, 0 when absent."""
+def arcgis_hub(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
+    """A layer of an ArcGIS Hub item, as the CSV the site's download API serves.
+
+    package is the item id and resource the layer number, 0 when absent.
+    """
     s = _session(session)
     base = ds.source.portal.rstrip("/")
-    item = catalogue.get_json(
-        s, f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}"
+    item = catalogue.get_json_as(
+        _HubAnswer, s, f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}"
     )
     props = item.get("properties") or item
     lic_id, lic_title = catalogue.hub_licence(props)
     layer = ds.source.resource or "0"
     changed = props.get("modified")
-    if props.get("url"):
-        info = catalogue.get_json(s, f"{props['url'].rstrip('/')}/{layer}", {"f": "json"})
+    if url := props.get("url"):
+        info = catalogue.get_json_as(_LayerInfo, s, f"{url.rstrip('/')}/{layer}", {"f": "json"})
         changed = (info.get("editingInfo") or {}).get("lastEditDate") or changed
     return _portal_version(
         ds,
@@ -470,28 +711,32 @@ def arcgis_hub(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         s,
         f"{base}/api/download/v1/items/{ds.source.package}/csv?layers={layer}",
         _changed(ds, changed, 1000),
-        f"{ds.source.package}_{layer}.csv",
-        {
+        filename=f"{ds.source.package}_{layer}.csv",
+        source={
             "package": ds.source.package,
             "resource": layer,
             "resource_name": props.get("title", ""),
             "service": props.get("url", ""),
         },
-        _licence(
+        licence=_licence(
             ds,
             props.get("license") or lic_id,
             lic_id,
             lic_title,
             "",
-            f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}",
+            read_from=f"{base}/api/search/v1/collections/dataset/items/{ds.source.package}",
         ),
     )
 
 
-def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """An ArcGIS feature layer with no file behind it: every feature is read in pages ordered by
-    the layer's object id, in WGS84, and kept as one GeoJSON file. url is the layer; the licence
-    is the one the CKAN package named in portal and package states."""
+def arcgis_feature(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
+    """An ArcGIS feature layer with no file behind it, kept as one GeoJSON file.
+
+    Every feature is read in pages ordered by the layer's object id, in WGS84. url is the layer;
+    the licence is the one the CKAN package named in portal and package states.
+    """
     s = _session(session)
     p = _package(ds, s, f"{ds.source.portal.rstrip('/')}/api/3/action")
     stated = p.get("license_id", "")
@@ -501,20 +746,22 @@ def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | Non
         normalise_licence_id(stated, ds.source.portal),
         p.get("license_title", ""),
         p.get("license_url", ""),
-        f"{ds.source.portal.rstrip('/')}/api/3/action/package_show?id={p['name']}",
+        read_from=f"{ds.source.portal.rstrip('/')}/api/3/action/package_show?id={p['name']}",
     )
     layer = ds.source.url.rstrip("/")
-    info = catalogue.get_json(s, layer, {"f": "pjson"})
+    info = catalogue.get_json_as(_LayerInfo, s, layer, {"f": "pjson"})
     if "fields" not in info:
-        raise FetchError(f"{ds.slug}: {layer} is not a feature layer: {str(info)[:200]}")
+        msg = f"{ds.slug}: {layer} is not a feature layer: {str(info)[:200]}"
+        raise FetchError(msg)
     oid = info.get("objectIdField") or next(
         (f["name"] for f in info["fields"] if f["type"] == "esriFieldTypeOID"), "OBJECTID"
     )
     page = min(int(info.get("maxRecordCount") or 1000), 2000)
-    feats: list[dict] = []
+    feats: list[GeoFeature] = []
     offset = 0
     while True:
-        got = catalogue.get_json(
+        got = catalogue.get_json_as(
+            _FeaturePage,
             s,
             f"{layer}/query",
             {
@@ -529,17 +776,19 @@ def arcgis_feature(ds: Dataset, store_dir: Path, session: requests.Session | Non
             timeout=300,
         )
         if "features" not in got:
-            raise FetchError(f"{ds.slug}: page at {offset} is not GeoJSON: {str(got)[:200]}")
+            msg = f"{ds.slug}: page at {offset} is not GeoJSON: {str(got)[:200]}"
+            raise FetchError(msg)
         feats.extend(got["features"])
         if len(got["features"]) < page:
             break
         offset += page
     if not feats:
-        raise FetchError(f"{ds.slug}: {layer} returned no features")
+        msg = f"{ds.slug}: {layer} returned no features"
+        raise FetchError(msg)
     lines = ",\n".join(json.dumps(f, sort_keys=True, separators=(",", ":")) for f in feats)
     data = f'{{"type":"FeatureCollection","features":[\n{lines}\n]}}\n'.encode()
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     date_fields = [f["name"] for f in info["fields"] if f["type"] == "esriFieldTypeDate"]
@@ -640,16 +889,20 @@ ALA_NOTE = (
 )
 
 
-def _ala_count(s, base: str, q: str, fq: list[str]) -> int:
-    got = catalogue.get_json(s, base, {"q": q, "fq": fq, "pageSize": 0}, timeout=120)
+def _ala_count(s: requests.Session, base: str, q: str, fq: list[str]) -> int:
+    got = catalogue.get_json_as(_AlaCount, s, base, {"q": q, "fq": fq, "pageSize": 0}, timeout=120)
     if "totalRecords" not in got:
-        raise FetchError(f"ALA count failed: {str(got)[:200]}")
+        msg = f"ALA count failed: {str(got)[:200]}"
+        raise FetchError(msg)
     return int(got["totalRecords"])
 
 
-def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
+def _ala_pages(
+    s: requests.Session, base: str, q: str, fq: list[str], n: int
+) -> Iterator[AlaOccurrence]:
     for start in range(0, n, ALA_PAGE):
-        got = catalogue.get_json(
+        got = catalogue.get_json_as(
+            _AlaPage,
             s,
             base,
             {
@@ -667,15 +920,25 @@ def _ala_pages(s, base: str, q: str, fq: list[str], n: int):
         )
         rows = got.get("occurrences")
         if rows is None:
-            raise FetchError(f"ALA page at {start} failed: {str(got)[:200]}")
+            msg = f"ALA page at {start} failed: {str(got)[:200]}"
+            raise FetchError(msg)
         yield from rows
         if len(rows) < ALA_PAGE:
             break
 
 
-def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: float, dim: int):
-    """Rows of a query too large for the API's paging, split by load time, then by latitude
-    and longitude, then by year, until every slice fits."""
+# A slice of the map this narrow is not split again.
+ALA_MIN_SPAN = 0.0001
+
+
+def _ala_slices(  # noqa: C901, PLR0913 - the slicing rule in one place; the options are keyword-only
+    s: requests.Session, base: str, q: str, fq: list[str], n: int, *, lo: float, hi: float, dim: int
+) -> Iterator[AlaOccurrence]:
+    """Rows of a query too large for the API's paging, read in slices.
+
+    The query is split by load time, then by latitude and longitude, then by year, until every
+    slice fits.
+    """
     if n <= ALA_DEEP:
         yield from _ala_pages(s, base, q, fq, n)
         return
@@ -684,30 +947,40 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: floa
     if field == "first_loaded_date":
         if hi - lo <= 1:
             # One second's load: the rows without coordinates go by year, the rest by place.
-            for cond, a, b, d in (
+            for cond, start, end, d in (
                 ("-decimalLatitude:*", 0, 2200, 3),
                 ("decimalLatitude:*", -90, 90, 1),
             ):
                 sub = [*fq, cond]
                 m = _ala_count(s, base, q, sub)
                 if m:
-                    yield from _ala_slices(s, base, q, sub, m, a, b, d)
+                    yield from _ala_slices(s, base, q, sub, m, lo=start, hi=end, dim=d)
             return
         mid = lo + (hi - lo) / 2
-        fmt = lambda t: dt.datetime.fromtimestamp(t, dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        fmt: Callable[[float], str] = lambda t: dt.datetime.fromtimestamp(t, dt.UTC).strftime(  # noqa: E731
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
         halves = [
             (f"{field}:[{fmt(lo)} TO {fmt(mid)}}}", lo, mid),
             (f"{field}:[{fmt(mid)} TO {fmt(hi)}]", mid, hi),
         ]
     elif field == "year":
         if hi - lo <= 1:
-            raise FetchError(f"ALA: {n} rows in one place and year cannot be read: {fq}")
+            msg = f"ALA: {n} rows in one place and year cannot be read: {fq}"
+            raise FetchError(msg)
         mid = int(lo + (hi - lo) / 2)
         halves = [(f"year:[{int(lo)} TO {mid}}}", lo, mid), (f"year:[{mid} TO {int(hi)}]", mid, hi)]
     else:
-        if hi - lo <= 0.0001:
+        if hi - lo <= ALA_MIN_SPAN:
             yield from _ala_slices(
-                s, base, q, fq, n, -180 if dim == 1 else 0, 180 if dim == 1 else 2200, dim + 1
+                s,
+                base,
+                q,
+                fq,
+                n,
+                lo=-180 if dim == 1 else 0,
+                hi=180 if dim == 1 else 2200,
+                dim=dim + 1,
             )
             return
         mid = (lo + hi) / 2
@@ -719,27 +992,30 @@ def _ala_slices(s, base: str, q: str, fq: list[str], n: int, lo: float, hi: floa
         sub = [*fq, cond]
         m = _ala_count(s, base, q, sub)
         if m:
-            yield from _ala_slices(s, base, q, sub, m, a, b, dim)
+            yield from _ala_slices(s, base, q, sub, m, lo=a, hi=b, dim=dim)
 
 
-def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """The Atlas of Living Australia's search API: every record the search matches from each
-    provider the register names, under an open licence, kept as one CSV. The version is dated
-    by the newest load date among the rows. The manifest counts each provider's rows with and
-    without the licence filter, and a provider whose open rows fall while its rows do not is a
-    licence change, which stops the fetch."""
+def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:  # noqa: C901, PLR0912, PLR0915 - the adapter's steps, read in order
+    """The Atlas of Living Australia's search API, kept as one CSV.
+
+    Every record the search matches is read from each provider the register names, under an open
+    licence. The version is dated by the newest load date among the rows. The manifest counts each
+    provider's rows with and without the licence filter, and a provider whose open rows fall while
+    its rows do not is a licence change, which stops the fetch.
+    """
     s = _session(session)
     base = ds.source.url.rstrip("/")
     if not ds.source.search or not ds.source.providers:
-        raise FetchError(f"{ds.slug}: an ala source needs a search and providers")
+        msg = f"{ds.slug}: an ala source needs a search and providers"
+        raise FetchError(msg)
     common = [
         "country:Australia",
         "license:(" + " OR ".join(f'"{x}"' for x in ALA_LICENCES) + ")",
     ]
-    existing = store.manifests(store_dir, ds.slug)
-    before = (existing[-1].source.get("providers") or {}) if existing else {}
-    rows: dict[str, dict] = {}
-    counts: dict[str, dict] = {}
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
+    before = existing[-1].source.get("providers") or {} if existing else {}
+    rows: dict[str, AlaOccurrence] = {}
+    counts: dict[str, dict[str, int]] = {}
     now = dt.datetime.now(dt.UTC).timestamp()
     for uid in ds.source.providers:
         fq = [*common, f"dataResourceUid:{uid}"]
@@ -749,29 +1025,33 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
         # Fewer open rows from a provider whose rows did not fall means it changed a licence.
         was = before.get(uid) or {}
         if was and n < was.get("open", 0) and every >= was.get("all", 0):
-            raise LicenceDrift(
+            msg = (
                 f"{ds.slug}: {uid} had {was['open']} rows under an open licence and now has {n}"
                 f" of {every}. Its licence has changed; review before fetching again."
             )
+            raise LicenceDrift(msg)
         got = 0
-        for r in _ala_slices(s, base, ds.source.search, fq, n, 0, now, 0):
+        for r in _ala_slices(s, base, ds.source.search, fq, n, lo=0, hi=now, dim=0):
             key = r.get("uuid") or r.get("id")
             if key and key not in rows:
                 rows[key] = r
                 got += 1
         if got != n:
-            raise FetchError(f"{ds.slug}: {uid} has {n} rows and {got} were read")
+            msg = f"{ds.slug}: {uid} has {n} rows and {got} were read"
+            raise FetchError(msg)
     if not rows:
-        raise FetchError(f"{ds.slug}: the query matched no rows")
+        msg = f"{ds.slug}: the query matched no rows"
+        raise FetchError(msg)
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
     w.writerow(ALA_COLUMNS)
     for key in sorted(rows):
         r = rows[key]
         other = r.get("otherProperties") or {}
-        line = [key]
+        fields: Mapping[str, object] = r
+        line: list[object] = [key]
         for f in ALA_FIELDS[1:]:
-            v = r.get(f, other.get(f))
+            v = fields.get(f, other.get(f))
             if f == "firstLoadedDate" and v:
                 v = str(v)[:19] + "Z"
             line.append("" if v is None else v)
@@ -787,7 +1067,7 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
         "CC-BY-4.0",
         "CC BY 4.0 and CC0, by provider",
         ds.licence.evidence,
-        f"{base}/occurrences/search",
+        read_from=f"{base}/occurrences/search",
     )
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
@@ -803,7 +1083,8 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
         default="",
     )
     if not newest:
-        raise FetchError(f"{ds.slug}: no row states a load date")
+        msg = f"{ds.slug}: no row states a load date"
+        raise FetchError(msg)
     changed = _changed(ds, newest[:19] + "+00:00")
     today = dt.datetime.now(TZ).date()
     version, note = free_version(_date_local(changed), {m.version for m in existing}, today)
@@ -837,17 +1118,20 @@ def page_text(body: bytes) -> str:
     return " ".join(text.split())
 
 
-def statement_licence(ds: Dataset, s: requests.Session) -> dict:
-    """The licence a publisher states on its own page, for a file no portal describes: the
-    register's licence holds while the page still carries the words the entry quotes."""
+def statement_licence(ds: Dataset, s: requests.Session) -> LicenceRead:
+    """The licence a publisher states on its own page, for a file no portal describes.
+
+    The register's licence holds while the page still carries the words the entry quotes.
+    """
     r = s.get(ds.licence.evidence, timeout=120)
     r.raise_for_status()
     body = r.content
     if ds.licence.statement not in page_text(body):
-        raise LicenceDrift(
+        msg = (
             f"{ds.slug}: {ds.licence.evidence} no longer says '{ds.licence.statement[:80]}'; "
             "review the licence before fetching again"
         )
+        raise LicenceDrift(msg)
     return {
         "id": ds.licence.id,
         "stated": ds.licence.statement,
@@ -862,10 +1146,13 @@ def statement_licence(ds: Dataset, s: requests.Session) -> dict:
 WFS_PAGES = 1000
 
 
-def _wfs_pages(ds: Dataset, s: requests.Session):
-    """Every feature of a WFS GetFeature, `page_size` at a time in the order its sortBy gives, as
-    one GeoJSON FeatureCollection. The last response stands for the whole for its headers."""
-    feats: list = []
+def _wfs_pages(ds: Dataset, s: requests.Session) -> tuple[Download, bytes]:
+    """Every feature of a WFS GetFeature, as one GeoJSON FeatureCollection.
+
+    Features are read `page_size` at a time in the order its sortBy gives. The last response stands
+    for the whole for its headers.
+    """
+    feats: list[JSON] = []
     sep = "&" if "?" in ds.source.url else "?"
     for page in range(WFS_PAGES):
         url = f"{ds.source.url}{sep}count={ds.source.page_size}&startIndex={page * ds.source.page_size}"
@@ -876,7 +1163,8 @@ def _wfs_pages(ds: Dataset, s: requests.Session):
         if len(got) < ds.source.page_size:
             break
     else:
-        raise FetchError(f"{ds.slug}: more than {WFS_PAGES} pages of features")
+        msg = f"{ds.slug}: more than {WFS_PAGES} pages of features"
+        raise FetchError(msg)
     lines = ",\n".join(json.dumps(x, sort_keys=True, separators=(",", ":")) for x in feats)
     return r, f'{{"type":"FeatureCollection","features":[\n{lines}\n]}}\n'.encode()
 
@@ -888,13 +1176,15 @@ UNREAD_DATE_NOTE = (
 )
 
 
-def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A file at a fixed URL on the publisher's own site, with no portal record. The version is
-    dated by the server's Last-Modified, or failing that by the fetch, and the licence is the
-    evidence page's own words, read every run."""
+def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:
+    """A file at a fixed URL on the publisher's own site, with no portal record.
+
+    The version is dated by the server's Last-Modified, or failing that by the fetch, and the
+    licence is the evidence page's own words, read every run.
+    """
     s = _session(session)
     licence = statement_licence(ds, s)
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if ds.source.page_size:
         r, data = _wfs_pages(ds, s)
     else:
@@ -974,10 +1264,14 @@ KIWIS_STATIONS_NOTE = (
 )
 
 
-def _kiwis_query(s: requests.Session, base: str, request: str, **params):
-    """One KiWIS query. The service answers 500 to a space sent as "+", so the query is
-    percent-encoded, and a refusal it explains in JSON, such as too many values, is final
-    rather than retried."""
+def _kiwis_query[T](
+    _shape: type[T], s: requests.Session, base: str, request: str, **params: str
+) -> T:
+    """One KiWIS query.
+
+    The service answers 500 to a space sent as "+", so the query is percent-encoded, and a refusal
+    it explains in JSON, such as too many values, is final rather than retried.
+    """
     query = {
         "service": "kisters",
         "type": "queryServices",
@@ -988,27 +1282,31 @@ def _kiwis_query(s: requests.Session, base: str, request: str, **params):
     }
     encoded = urllib.parse.urlencode(query, quote_via=urllib.parse.quote)
     try:
-        got = catalogue.get_json(s, f"{base}?{encoded}", timeout=600)
+        got: T | JSONObject = catalogue.get_json_as(_shape, s, f"{base}?{encoded}", timeout=600)
     except requests.HTTPError as e:
         try:
             said = e.response.json() if e.response is not None else None
         except ValueError:
             said = None
         if isinstance(said, dict) and said.get("code"):
-            raise FetchError(
-                f"KiWIS {request} refused: {said.get('code')}: {said.get('message')}"
-            ) from e
+            msg = f"KiWIS {request} refused: {said.get('code')}: {said.get('message')}"
+            raise FetchError(msg) from e
         raise
     if isinstance(got, dict):
-        raise FetchError(f"KiWIS {request} failed: {str(got)[:200]}")
+        msg = f"KiWIS {request} failed: {str(got)[:200]}"
+        raise FetchError(msg)
     return got
 
 
-def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[dict]:
-    """The values of a batch of series. The service counts values its own way, so a batch it
-    refuses as too large is split until it answers."""
+def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[KiwisSeries]:
+    """The values of a batch of series.
+
+    The service counts values its own way, so a batch it refuses as too large is split until it
+    answers.
+    """
     try:
         return _kiwis_query(
+            list[KiwisSeries],
             s,
             base,
             "getTimeseriesValues",
@@ -1019,7 +1317,7 @@ def _kiwis_values(s: requests.Session, base: str, batch: list[str]) -> list[dict
             md_returnfields="station_no,ts_id",
         )
     except FetchError as e:
-        if "TooManyResults" not in str(e) or len(batch) < 2:
+        if "TooManyResults" not in str(e) or len(batch) <= 1:
             raise
         half = len(batch) // 2
         return [*_kiwis_values(s, base, batch[:half]), *_kiwis_values(s, base, batch[half:])]
@@ -1031,19 +1329,23 @@ def _kiwis_state(owner: str) -> str:
     return head.strip() if sep else ""
 
 
-def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """The Bureau of Meteorology's Water Data Online (a Kisters KiWIS service). `search` is the
-    parameter type, `package` the time series name and `resource` the table: `stations` is the
-    stations reporting the parameter with their attributes, `values` every value of the series for
-    every station, as one CSV each. The licence is the evidence page's own words."""
+def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:  # noqa: C901 - the adapter's steps, read in order
+    """The Bureau of Meteorology's Water Data Online (a Kisters KiWIS service).
+
+    `search` is the parameter type, `package` the time series name and `resource` the table:
+    `stations` is the stations reporting the parameter with their attributes, `values` every value
+    of the series for every station, as one CSV each. The licence is the evidence page's own words.
+    """
     s = _session(session)
     if not (
         ds.source.search and ds.source.package and ds.source.resource in ("stations", "values")
     ):
-        raise FetchError(f"{ds.slug}: a kiwis source needs search, package and resource")
+        msg = f"{ds.slug}: a kiwis source needs search, package and resource"
+        raise FetchError(msg)
     licence = statement_licence(ds, s)
     base = ds.source.url
     raw = _kiwis_query(
+        list[list[str]],
         s,
         base,
         "getStationList",
@@ -1054,7 +1356,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
     stations = {r[0]: dict(zip(header, r, strict=True)) for r in rows}
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
-    source: dict = {"url": base, "parameter": ds.source.search, "stations": len(stations)}
+    source: ManifestSource = {"url": base, "parameter": ds.source.search, "stations": len(stations)}
     if ds.source.resource == "stations":
         w.writerow([*KIWIS_STATION_COLUMNS.values(), "state"])
         for no in sorted(stations):
@@ -1068,6 +1370,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
         changed, notes = dt.datetime.now(dt.UTC).isoformat(), [KIWIS_STATIONS_NOTE]
     else:
         series = _kiwis_query(
+            list[list[str]],
             s,
             base,
             "getTimeseriesList",
@@ -1078,8 +1381,9 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
         )
         dated = [dict(zip(series[0], r, strict=True)) for r in series[1:] if r[3] and r[4]]
         if not dated:
-            raise FetchError(f"{ds.slug}: no station has a dated {ds.source.package} series")
-        values: dict[str, list] = {}
+            msg = f"{ds.slug}: no station has a dated {ds.source.package} series"
+            raise FetchError(msg)
+        values: dict[str, list[tuple[str, float | None, int | None]]] = {}
         for batch in _kiwis_batches(dated):
             for ts in _kiwis_values(s, base, batch):
                 values[ts["station_no"]] = ts.get("data") or []
@@ -1092,12 +1396,13 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
                 newest = max(newest, stamp)
                 w.writerow([no, st.get("station_name", ""), state, stamp[:10], value, quality])
         if not newest:
-            raise FetchError(f"{ds.slug}: the series hold no values")
+            msg = f"{ds.slug}: the series hold no values"
+            raise FetchError(msg)
         changed, notes = _changed(ds, newest), [KIWIS_NOTE]
         source |= {"series": ds.source.package, "series_read": len(values), "newest": newest}
     data = out.getvalue().encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     today = dt.datetime.now(TZ).date()
@@ -1118,7 +1423,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
     return data, m, licence
 
 
-def _kiwis_batches(series: list[dict]) -> list[list[str]]:
+def _kiwis_batches(series: list[dict[str, str]]) -> list[list[str]]:
     """Series packed into requests by the days each covers, under the service's value limit."""
     est = []
     for r in series:
@@ -1141,19 +1446,20 @@ def _kiwis_batches(series: list[dict]) -> list[list[str]]:
 
 
 AIHW_LISTING = "https://www.aihw.gov.au/api/search/all-downloadable-resources"
-AIHW_ATTRS = re.compile(r'<div[^>]*class="s-downloadable-resources[^"]*"(.*?)>', re.S)
+AIHW_ATTRS = re.compile(r'<div[^>]*class="s-downloadable-resources[^"]*"(.*?)>', re.DOTALL)
 
 
-def _aihw_listing(page: bytes) -> dict:
+def _aihw_listing(page: bytes) -> JSONObject:
     """The query the AIHW data page makes for its file list, from the wrapper's attributes."""
     for m in AIHW_ATTRS.finditer(page.decode("utf-8", "replace")):
         d = dict(re.findall(r'data-([a-z-]+)="([^"]*)"', m.group(1)))
         if "report-node-guid" in d:
             return _aihw_query(d)
-    raise FetchError("the page has no downloadable resources list")
+    msg = "the page has no downloadable resources list"
+    raise FetchError(msg)
 
 
-def _aihw_query(d: dict) -> dict:
+def _aihw_query(d: dict[str, str]) -> JSONObject:
     def flag(k: str) -> bool:
         return d.get(k, "").lower() == "true"
 
@@ -1191,11 +1497,13 @@ def _aihw_query(d: dict) -> dict:
     }
 
 
-def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A data table workbook of the Australian Institute of Health and Welfare. `url` is the
-    report's data page, whose file list the Institute's site fetches from its search API; the
-    newest file whose title matches `resource_match` is downloaded, since a release can carry
-    a new file name and address. The licence is the copyright page's own words."""
+def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:
+    """A data table workbook of the Australian Institute of Health and Welfare.
+
+    `url` is the report's data page, whose file list the Institute's site fetches from its search
+    API; the newest file whose title matches `resource_match` is downloaded, since a release can
+    carry a new file name and address. The licence is the copyright page's own words.
+    """
     s = _session(session)
     licence = statement_licence(ds, s)
     page = s.get(ds.source.url, timeout=120)
@@ -1212,17 +1520,18 @@ def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
     rx = re.compile(ds.source.resource_match or ".")
     hits = [x for x in results if rx.search(x.get("resultTitle") or "")]
     if not hits:
-        raise FetchError(
+        msg = (
             f"{ds.slug}: no listed file matches '{ds.source.resource_match}' among "
             f"{[x.get('resultTitle') for x in results][:8]}"
         )
+        raise FetchError(msg)
     hit = max(
         hits, key=lambda x: (x.get("resultDateTimeFormatted") or "", x.get("resultUrl") or "")
     )
     url = hit["resultUrl"]
     if url.startswith("/"):
         url = "https://www.aihw.gov.au" + url
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     f = _download(ds, s, url)
     data = f.content
     expect_page(ds, url, f, data)
@@ -1267,12 +1576,16 @@ def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
     return data, m, licence
 
 
-def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A file on Zenodo, followed across versions of one concept record. `url` is the records
-    API, `package` the concept record id and `resource_match` the file name. The licence is the
-    one the newest version's metadata states, and the version is dated by that record."""
+def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -> FetchResult:
+    """A file on Zenodo, followed across versions of one concept record.
+
+    `url` is the records API, `package` the concept record id and `resource_match` the file name.
+    The licence is the one the newest version's metadata states, and the version is dated by that
+    record.
+    """
     s = _session(session)
-    got = catalogue.get_json(
+    got = catalogue.get_json_as(
+        _ZenodoSearch,
         s,
         ds.source.url,
         {"q": f"conceptrecid:{ds.source.package}", "sort": "mostrecent", "size": 1},
@@ -1280,27 +1593,29 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
     )
     hits = (got.get("hits") or {}).get("hits") or []
     if not hits:
-        raise FetchError(f"{ds.slug}: no Zenodo record has concept id {ds.source.package}")
+        msg = f"{ds.slug}: no Zenodo record has concept id {ds.source.package}"
+        raise FetchError(msg)
     rec = hits[0]
     meta = rec.get("metadata") or {}
     stated = str((meta.get("license") or {}).get("id") or "")
+    empty: _ZenodoLicence = {}
+    lic = meta.get("license", empty)
     licence = _licence(
         ds,
         stated,
         normalise_licence_id(stated),
         stated,
-        meta.get("license", {}).get("url", ""),
-        f"{ds.source.url}?q=conceptrecid:{ds.source.package}",
+        lic.get("url", ""),  # type: ignore[union-attr]  # a null license fails here as it always has; fixing it is a change of its own
+        read_from=f"{ds.source.url}?q=conceptrecid:{ds.source.package}",
     )
     rx = re.compile(ds.source.resource_match or ".")
     files = [f for f in rec.get("files") or [] if rx.search(f.get("key") or "")]
     if len(files) != 1:
-        raise FetchError(
-            f"{ds.slug}: {len(files)} files match '{ds.source.resource_match}' in record {rec.get('id')}"
-        )
+        msg = f"{ds.slug}: {len(files)} files match '{ds.source.resource_match}' in record {rec.get('id')}"
+        raise FetchError(msg)
     f = files[0]
     url = f["links"]["self"]
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     r = _download(ds, s, url)
     data = r.content
     expect_page(ds, url, r, data)
@@ -1342,44 +1657,42 @@ STACK_NOTE = (
 )
 
 
-def _stack_rows(
+def _stack_rows(  # noqa: C901, PLR0912, PLR0913 - one reader for every stacked layout; the options are keyword-only
     data: bytes,
     filename: str,
     header_match: str,
     section_match: str = "",
     header_depth: int = 1,
+    *,
     group_match: str = "",
     footnote_marks: bool = False,
 ) -> tuple[list[str], list[list[str]]]:
-    """A workbook's or a CSV's header and rows as text, the header being the first row whose first
-    cell is header_match, since the publisher's title rows above it vary. With section_match the
-    file holds several small tables, each under a title that pattern matches, read as one row per
-    cell. A header over header_depth rows names each column by its lowest filled cell. With
-    group_match, a row with only its first cell filled names the group of the rows below it when
-    the pattern matches, and is a footnote otherwise. With footnote_marks, a footnote number at the
-    end of the first cell moves to a Note column."""
-    from .normalise import _cell, _distinct
+    """A workbook's or a CSV's header and rows as text.
 
+    The header is the first row whose first cell is header_match, since the publisher's title rows
+    above it vary. With section_match the file holds several small tables, each under a title that
+    pattern matches, read as one row per cell. A header over header_depth rows names each column by
+    its lowest filled cell. With group_match, a row with only its first cell filled names the group
+    of the rows below it when the pattern matches, and is a footnote otherwise. With
+    footnote_marks, a footnote number at the end of the first cell moves to a Note column.
+    """
     if filename.lower().endswith(".xls"):
-        from .normalise import xls_to_xlsx
-
         data, filename = xls_to_xlsx(data), filename + "x"
     if _is_xlsx(filename):
-        import openpyxl
-
         wb = openpyxl.load_workbook(
             io.BytesIO(data), read_only=True, data_only=True, keep_links=False
         )
-        rows = wb.worksheets[0].iter_rows(values_only=True)
-        close = wb.close
+        rows: Iterator[Sequence[object]] = wb.worksheets[0].iter_rows(values_only=True)
+        close: Callable[[], None] | None = wb.close
     elif filename.lower().endswith(".csv"):
         text = data.decode(detect_encoding(data))
         rows = iter(list(csv.reader(io.StringIO(text))))
         close = None
     else:
-        raise FetchError(
+        msg = (
             f"{filename}: a stack reads workbooks and CSV files, not {filename.rsplit('.', 1)[-1]}"
         )
+        raise FetchError(msg)
     if section_match:
         out = _section_rows(rows, filename, header_match, section_match)
         if close:
@@ -1398,7 +1711,8 @@ def _stack_rows(
                 header.pop()
             break
     if not header:
-        raise FetchError(f"{filename}: no row starts with '{header_match}'")
+        msg = f"{filename}: no row starts with '{header_match}'"
+        raise FetchError(msg)
     out = []
     group = ""
     for r in rows:
@@ -1421,12 +1735,13 @@ def _stack_rows(
     return (["Group", *header] if group_match else header), out
 
 
-def _section_rows(rows, filename: str, header_match: str, section_match: str) -> list[list[str]]:
-    from .normalise import _cell
-
+def _section_rows(
+    rows: Iterable[Sequence[object]], filename: str, header_match: str, section_match: str
+) -> list[list[str]]:
     rx = re.compile(section_match)
     out: list[list[str]] = []
-    section, header = "", []
+    section = ""
+    header: list[str] = []
     for r in rows:
         vals = [_cell(v).strip().lstrip("\ufeff") for v in r]
         if not any(vals):
@@ -1437,7 +1752,8 @@ def _section_rows(rows, filename: str, header_match: str, section_match: str) ->
             header = []
         elif vals[0] == header_match:
             if not section:
-                raise FetchError(f"{filename}: a '{header_match}' header has no title above it")
+                msg = f"{filename}: a '{header_match}' header has no title above it"
+                raise FetchError(msg)
             header = vals
         elif header and any(vals[1:]):
             # A row with its first cell alone is a footnote.
@@ -1447,22 +1763,24 @@ def _section_rows(rows, filename: str, header_match: str, section_match: str) ->
                 if v and header[i]
             )
     if not out:
-        raise FetchError(f"{filename}: no table under a title matching '{section_match}'")
+        msg = f"{filename}: no table under a title matching '{section_match}'"
+        raise FetchError(msg)
     return out
 
 
 def _stack(
-    ds: Dataset, s: requests.Session, files: list[dict]
-) -> tuple[bytes, list[dict], int, int]:
-    """Every file read into one table, its columns laid out as the first file has them, ordered by
-    every column with a row two files share kept once. Each file is a dict with url, filename and
-    whatever the manifest should say of it."""
-    from .register import FILE_SOURCE
+    ds: Dataset, s: requests.Session, files: list[StackFile]
+) -> tuple[bytes, list[StackFile], int, int]:
+    """Every file read into one table.
 
+    Its columns are laid out as the first file has them, and it is ordered by every column, with a
+    row two files share kept once. Each file is a dict with url, filename and whatever the manifest
+    should say of it.
+    """
     named = any(x.source == FILE_SOURCE for x in ds.fields)
     header: list[str] = []
     rows: list[list[str]] = []
-    read = []
+    read: list[StackFile] = []
     for f in files:
         got = _download(ds, s, f["url"])
         expect_page(ds, f["url"], got, got.content)
@@ -1472,33 +1790,33 @@ def _stack(
             ds.source.header_match,
             ds.source.section_match,
             ds.source.header_depth,
-            ds.source.group_match,
-            ds.source.footnote_marks,
+            group_match=ds.source.group_match,
+            footnote_marks=ds.source.footnote_marks,
         )
         if named:
             label = f.get("name") or f["filename"]
             if ds.source.file_match:
                 hit = re.search(ds.source.file_match, label)
                 if not hit:
-                    raise FetchError(f"{ds.slug}: '{label}' does not match the file_match pattern")
+                    msg = f"{ds.slug}: '{label}' does not match the file_match pattern"
+                    raise FetchError(msg)
                 label = hit[1] if hit.groups() else hit[0]
             h = [*h, FILE_SOURCE]
             body = [[*row, label] for row in body]
         if header and sorted(h) != sorted(header):
-            raise FetchError(f"{ds.slug}: {f['filename']} has columns {h}, the first file {header}")
+            msg = f"{ds.slug}: {f['filename']} has columns {h}, the first file {header}"
+            raise FetchError(msg)
         header = header or h
         if h != header:
             at = [h.index(c) for c in header]
             body = [[row[i] for i in at] for row in body]
         rows.extend(body)
-        read.append(
-            {k: v for k, v in f.items() if k != "filename"}
-            | {
-                "sha256": hashlib.sha256(got.content).hexdigest(),
-                "rows": len(body),
-                "http_last_modified": got.headers.get("Last-Modified", ""),
-            }
-        )
+        kept = f.copy()
+        kept.pop("filename")
+        kept["sha256"] = hashlib.sha256(got.content).hexdigest()
+        kept["rows"] = len(body)
+        kept["http_last_modified"] = got.headers.get("Last-Modified", "")
+        read.append(kept)
     unique = sorted(set(map(tuple, rows)))
     out = io.StringIO()
     w = csv.writer(out, lineterminator="\n")
@@ -1507,17 +1825,18 @@ def _stack(
     return out.getvalue().encode("utf-8"), read, len(rows), len(rows) - len(unique)
 
 
-def _stack_version(
+def _stack_version(  # noqa: PLR0913 - the options are keyword-only and named at each call
     ds: Dataset,
     store_dir: Path,
     data: bytes,
     changed: str,
-    source: dict,
-    licence: dict,
+    source: ManifestSource,
+    *,
+    licence: LicenceRead,
     notes: tuple[str, ...] = (),
-):
+) -> FetchResult:
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     today = dt.datetime.now(TZ).date()
@@ -1538,31 +1857,38 @@ def _stack_version(
     return data, m, licence
 
 
-def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A series a CKAN portal holds as many workbooks across many packages, read whole into one
-    table. `package` is the search text, `package_match` the packages to take by name,
-    `resource_match` the resources by name (every workbook when blank), `header_match` the first
-    cell of each workbook's header row. Every package must state the one licence."""
+def ckan_stack(  # noqa: C901 - the adapter's steps, read in order
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
+    """A series a CKAN portal holds as many workbooks across many packages, read into one table.
+
+    `package` is the search text, `package_match` the packages to take by name, `resource_match`
+    the resources by name (every workbook when blank), `header_match` the first cell of each
+    workbook's header row. Every package must state the one licence.
+    """
     s = _session(session)
     api = f"{ds.source.portal.rstrip('/')}/api/3/action"
-    found = catalogue.get_json(
-        s, f"{api}/package_search", {"q": ds.source.package, "rows": 1000}, timeout=120
+    found = catalogue.get_json_as(
+        CkanSearch, s, f"{api}/package_search", {"q": ds.source.package, "rows": 1000}, timeout=120
     )
     if not found.get("success"):
-        raise FetchError(f"{ds.slug}: package_search failed: {found.get('error')}")
+        msg = f"{ds.slug}: package_search failed: {found.get('error')}"
+        raise FetchError(msg)
     rx = re.compile(ds.source.package_match)
     packages = sorted(
         (p for p in found["result"]["results"] if rx.search(p.get("name", ""))),
         key=lambda p: p["name"],
     )
     if not packages:
-        raise FetchError(f"{ds.slug}: no package matches '{ds.source.package_match}'")
+        msg = f"{ds.slug}: no package matches '{ds.source.package_match}'"
+        raise FetchError(msg)
     stated = {
         (p.get("license_id", ""), p.get("license_title", ""), p.get("license_url", ""))
         for p in packages
     }
     if len(stated) != 1:
-        raise LicenceDrift(f"{ds.slug}: the packages state different licences: {sorted(stated)}")
+        msg = f"{ds.slug}: the packages state different licences: {sorted(stated)}"
+        raise LicenceDrift(msg)
     lic_id, lic_title, lic_url = next(iter(stated))
     licence = _licence(
         ds,
@@ -1570,10 +1896,10 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         normalise_licence_id(lic_id, ds.source.portal),
         lic_title,
         lic_url,
-        f"{api}/package_search?q={urllib.parse.quote(ds.source.package)}",
+        read_from=f"{api}/package_search?q={urllib.parse.quote(ds.source.package)}",
     )
     rrx = re.compile(ds.source.resource_match) if ds.source.resource_match else None
-    resources = []
+    resources: list[tuple[CkanPackage, CkanResource]] = []
     for p in packages:
         for r in p.get("resources") or []:
             if rrx and not rrx.search((r.get("name") or "").strip()):
@@ -1583,9 +1909,10 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
                 continue
             resources.append((p, r))
     if not resources:
-        raise FetchError(f"{ds.slug}: the packages hold no workbooks to read")
+        msg = f"{ds.slug}: the packages hold no workbooks to read"
+        raise FetchError(msg)
     resources.sort(key=lambda pr: (pr[1].get("created") or "", pr[1]["id"]))
-    files = [
+    files: list[StackFile] = [
         {
             "url": r["url"],
             "filename": resource_filename(r),
@@ -1600,18 +1927,19 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         for p, r in resources
     )
     if ds.source.manual and ds.slug not in MANUAL:
-        existing = store.manifests(store_dir, ds.slug)
+        existing = store.manifests(store_dir, ds.slug, fetches=True)
         was = existing[-1].source if existing else {}
         if was.get("newest_resource") == changed and sorted(
             w["resource"] for w in was.get("workbooks", [])
         ) == sorted(f["resource"] for f in files):
             return None, existing[-1], licence
-        raise ManualDue(
+        msg = (
             f"{ds.slug}: download {ds.source.url} (each of its {len(files)} files, into one folder) "
             "and run the fetch with --file"
         )
+        raise ManualDue(msg)
     data, read, n, repeated = _stack(ds, s, files)
-    source = {
+    source: ManifestSource = {
         "url": ds.source.url,
         "portal": ds.source.portal,
         "search": ds.source.package,
@@ -1621,15 +1949,17 @@ def ckan_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
         "rows_repeated": repeated,
         "newest_resource": changed,
     }
-    return _stack_version(ds, store_dir, data, changed, source, licence)
+    return _stack_version(ds, store_dir, data, changed, source, licence=licence)
 
 
-LINK_RE = re.compile(r"""<a\b[^>]*?href\s*=\s*["']([^"']+)["']""", re.I)
+LINK_RE = re.compile(r"""<a\b[^>]*?href\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
 
 
 def page_links(page: bytes, base: str, pattern: str) -> list[str]:
-    """Every link on a page whose address, decoded, matches the pattern: absolute, once each, in
-    the order the page gives them."""
+    """Every link on a page whose address, decoded, matches the pattern.
+
+    The links are absolute, once each, in the order the page gives them.
+    """
     rx = re.compile(pattern)
     out: list[str] = []
     for href in LINK_RE.findall(page.decode("utf-8", "replace")):
@@ -1639,20 +1969,23 @@ def page_links(page: bytes, base: str, pattern: str) -> list[str]:
     return out
 
 
-def file_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = None):
-    """A series a publisher lists on its own page as one file per period, read whole into one
-    table. `url` is the page, `resource_match` the pattern each file's link matches, and
-    `header_match` the first cell of each file's header row. The licence is the evidence page's
-    own words, and the version is dated by the newest file's Last-Modified."""
+def file_stack(
+    ds: Dataset, store_dir: Path, session: requests.Session | None = None
+) -> FetchResult:
+    """A series a publisher lists on its own page as one file per period, read into one table.
+
+    `url` is the page, `resource_match` the pattern each file's link matches, and `header_match`
+    the first cell of each file's header row. The licence is the evidence page's own words, and
+    the version is dated by the newest file's Last-Modified.
+    """
     s = _session(session)
     licence = statement_licence(ds, s)
     page = _download(ds, s, ds.source.url)
     links = page_links(page.content, ds.source.url, ds.source.resource_match)
     if not links:
-        raise FetchError(
-            f"{ds.slug}: {ds.source.url} links to no file matching '{ds.source.resource_match}'"
-        )
-    files = [
+        msg = f"{ds.slug}: {ds.source.url} links to no file matching '{ds.source.resource_match}'"
+        raise FetchError(msg)
+    files: list[StackFile] = [
         {"url": u, "filename": urllib.parse.unquote(u.split("?", 1)[0].rsplit("/", 1)[-1])}
         for u in links
     ]
@@ -1664,7 +1997,7 @@ def file_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
             changed = max(changed, when.astimezone(dt.UTC).isoformat())
         except UNREADABLE_DATE:
             pass
-    source = {
+    source: ManifestSource = {
         "url": ds.source.url,
         "files": read,
         "rows_read": n,
@@ -1673,11 +2006,17 @@ def file_stack(ds: Dataset, store_dir: Path, session: requests.Session | None = 
     }
     # No file states a change date, so the version is dated by the fetch, and its notes say so.
     return _stack_version(
-        ds, store_dir, data, changed or _now(), source, licence, () if changed else (FILE_NOTE,)
+        ds,
+        store_dir,
+        data,
+        changed or _now(),
+        source,
+        licence=licence,
+        notes=() if changed else (FILE_NOTE,),
     )
 
 
-ADAPTERS = {
+ADAPTERS: dict[str, Adapter] = {
     "ckan-stack": ckan_stack,
     "file-stack": file_stack,
     "file": http_file,
@@ -1693,7 +2032,7 @@ ADAPTERS = {
 }
 
 
-class LicenceDrift(RuntimeError):
+class LicenceDrift(RuntimeError):  # noqa: N818 - named before the rule, and logs name it
     pass
 
 
@@ -1701,20 +2040,21 @@ class FetchError(RuntimeError):
     """The portal answered, but not with the file."""
 
 
-def expect_page(ds: Dataset, url: str, r, data: bytes) -> None:
-    """An empty body or an HTML page where a data file should be is refused. Some portals answer
-    requests from cloud addresses with an empty 200; that must never become a version."""
+def expect_page(ds: Dataset, url: str, r: Download, data: bytes) -> None:
+    """Refuses an empty body or an HTML page where a data file should be.
+
+    Some portals answer requests from cloud addresses with an empty 200; that must never become a
+    version.
+    """
     ctype = r.headers.get("Content-Type", "") if r.headers else ""
     status = getattr(r, "status_code", "?")
     if not data:
-        raise FetchError(
-            f"{ds.slug}: {url} returned no bytes (HTTP {status}, {ctype or 'no content type'})"
-        )
+        msg = f"{ds.slug}: {url} returned no bytes (HTTP {status}, {ctype or 'no content type'})"
+        raise FetchError(msg)
     name = url.split("?", 1)[0].lower()
     if "html" in ctype.lower() and not name.endswith((".html", ".htm")):
-        raise FetchError(
-            f"{ds.slug}: {url} returned an HTML page instead of the file (HTTP {status}): {data[:120]!r}"
-        )
+        msg = f"{ds.slug}: {url} returned an HTML page instead of the file (HTTP {status}): {data[:120]!r}"
+        raise FetchError(msg)
 
 
 # What each portal's own licence codes mean, from the portal's license_list. A generic code such
@@ -1756,8 +2096,11 @@ def portal_defines(portal_id: str, portal: str) -> str:
 
 
 def normalise_licence_id(portal_id: str, portal: str = "") -> str:
-    """A portal's licence code onto the register's ids, read as that portal's license_list defines
-    it. A generic code the portal does not version gives "", which no register id matches."""
+    """A portal's licence code onto the register's ids.
+
+    The code is read as that portal's license_list defines it. A generic code the portal does not
+    version gives "", which no register id matches.
+    """
     s = (portal_id or "").strip().upper().replace("_", "-")
     if s in EXACT:
         return EXACT[s]
@@ -1770,7 +2113,8 @@ def normalise_licence_id(portal_id: str, portal: str = "") -> str:
 
 def _normal_iso(iso: str) -> str:
     """Portal timestamps carry no zone and are UTC."""
-    x = dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    # fromisoformat refuses "Z" after a bare date, which a portal may write.
+    x = dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))  # noqa: FURB162
     return (x if x.tzinfo else x.replace(tzinfo=dt.UTC)).astimezone(dt.UTC).isoformat()
 
 
@@ -1783,7 +2127,7 @@ def _is_workbook(filename: str) -> bool:
 
 
 def _encoding(filename: str, data: bytes, preferred: str) -> str:
-    """xlsx and zip name their container; a text file names its character set."""
+    """An xlsx or zip names its container; a text file names its character set."""
     if _is_xlsx(filename):
         return "xlsx"
     if filename.lower().endswith(".xls"):
@@ -1793,22 +2137,27 @@ def _encoding(filename: str, data: bytes, preferred: str) -> str:
     return detect_encoding(data, preferred)
 
 
-def check_licence(ds: Dataset, licence: dict) -> None:
-    """Runs on every fetch, changed bytes or not: a licence the portal now states differently
-    from the register stops the run before anything is written. A register entry may name the
-    portal's exact licence id when the portal's id is ambiguous and the evidence page settles it."""
+def check_licence(ds: Dataset, licence: LicenceRead) -> None:
+    """Stops the run when the portal's licence differs from the register's.
+
+    It runs on every fetch, changed bytes or not, and stops before anything is written. A register
+    entry may name the portal's exact licence id when the portal's id is ambiguous and the evidence
+    page settles it.
+    """
     if ds.licence.portal_id:
         defined = portal_defines(ds.licence.portal_id, getattr(ds.source, "portal", ""))
         if defined and defined != ds.licence.id:
-            raise LicenceDrift(
+            msg = (
                 f"{ds.slug}: {portal_host(ds.source.portal)} defines '{ds.licence.portal_id}' as "
                 f"{defined}, but the register says {ds.licence.id}"
             )
+            raise LicenceDrift(msg)
         if licence.get("id", "") != ds.licence.portal_id:
-            raise LicenceDrift(
+            msg = (
                 f"{ds.slug}: portal states licence '{licence.get('id')}' ({licence.get('title')}) "
                 f"but the register expects '{ds.licence.portal_id}'; review before publishing"
             )
+            raise LicenceDrift(msg)
         return
     # An adapter that worked the id out from the portal's words has it in final form already.
     found = (
@@ -1817,70 +2166,87 @@ def check_licence(ds: Dataset, licence: dict) -> None:
         else normalise_licence_id(licence.get("id", ""), ds.source.portal)
     )
     if not found:
-        raise LicenceDrift(
+        msg = (
             f"{ds.slug}: the portal states '{licence.get('id')}' ({licence.get('title')}), which names "
             "no licence version there; read the version on the dataset page and set licence.portal_id"
         )
+        raise LicenceDrift(msg)
     if found != ds.licence.id.upper():
-        raise LicenceDrift(
+        msg = (
             f"{ds.slug}: portal states licence '{licence.get('id')}' ({licence.get('title')}) "
             f"but the register says {ds.licence.id}; review before publishing"
         )
+        raise LicenceDrift(msg)
 
 
 def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
     """Fetch one dataset into the store. Returns the new manifest, or None if unchanged."""
     if ds.source.adapter not in ADAPTERS:
-        raise RuntimeError(f"{ds.slug}: no adapter '{ds.source.adapter}'")
+        msg = f"{ds.slug}: no adapter '{ds.source.adapter}'"
+        raise RuntimeError(msg)
     data, m, licence = ADAPTERS[ds.source.adapter](ds, store_dir)
     # Every version records where and when its licence was read, so the record can be audited.
     for k in ("read_from", "read_at"):
         if not licence.get(k):
-            raise FetchError(f"{ds.slug}: the {ds.source.adapter} adapter did not record {k}")
+            msg = f"{ds.slug}: the {ds.source.adapter} adapter did not record {k}"
+            raise FetchError(msg)
     check_licence(ds, licence)
+    if ds.update != "release":
+        return fetch_rolling(ds, store_dir, data, m, licence, dt.datetime.now(TZ).date())
     if data is None:
         return None
     m.rows_sha256, n, misfit = _rows(ds, m, data)
-    from .serialise.profile import layout
 
     m.parquet = layout(ds)
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if m.rows_sha256 and existing and existing[-1].rows_sha256 == m.rows_sha256:
         return None
     # Portals sometimes serve an export with its header and nothing else for a while.
     if n == 0 and existing:
-        raise FetchError(f"{ds.slug}: the portal served no rows; the newest version has some")
-    if misfit:
-        # Held here, so one release that outgrows a declared INT32 field never stops a deploy.
-        raise FetchError(
-            f"{ds.slug}: {'; '.join(misfit)}; take the field out of int32 before this version "
-            "is stored"
-        )
+        msg = f"{ds.slug}: the portal served no rows; the newest version has some"
+        raise FetchError(msg)
+    _hold_misfits(ds, misfit)
+    m.period = periods.recorded(ds.period)
     if ds.source.feed:
-        m = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
-        if m is None:
+        fed = feed_version(
+            m, store.manifests(store_dir, ds.slug, fetches=True), dt.datetime.now(TZ).date()
+        )
+        if fed is None:
             return None
+        m = fed
     m.caps = store.CAPS_VERSION
     store.write(store_dir, m, data)
     return m
 
 
 def rows_digest(ds: Dataset, m: store.Manifest, data: bytes) -> str:
-    """SHA-256 of the normalised rows taken in sorted order, or "" when the file does not
-    normalise here; the build then reports why. Some portals re-sort an export on every reload."""
+    """SHA-256 of the normalised rows taken in sorted order.
+
+    It is "" when the file does not normalise here; the build then reports why. Some portals
+    re-sort an export on every reload.
+    """
     return _rows(ds, m, data)[0]
 
 
-def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None, list[str]]:
-    """The rows digest, the row count, which is None when the file does not normalise here, and
-    the declared INT32 fields the rows do not fit."""
-    from .normalise import normalise
-    from .serialise.profile import misfits
+def _hold_misfits(ds: Dataset, misfit: list[str]) -> None:
+    # Held here, so one fetch that outgrows a declared INT32 field never stops a deploy.
+    if misfit:
+        msg = (
+            f"{ds.slug}: {'; '.join(misfit)}; take the field out of int32 before this version "
+            "is stored"
+        )
+        raise FetchError(msg)
 
+
+def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None, list[str]]:
+    """The rows digest, the row count and the declared INT32 fields the rows do not fit.
+
+    The row count is None when the file does not normalise here.
+    """
     if ds.kind != "table":
         return "", None, []
     try:
-        tbl = normalise(ds, m, data)
+        tbl = normalise.normalise(ds, m, data)
     except Exception:  # noqa: BLE001 - any failure falls back to the byte comparison
         return "", None, []
     cols = [tbl.table.column(n).to_pylist() for n in tbl.table.column_names]
@@ -1899,11 +2265,150 @@ FEED_NOTE = (
 )
 
 
-def feed_version(m: store.Manifest, existing: list[store.Manifest], today: dt.date):
-    """A feed's version is the day it was fetched. A second change on a day that already has a
-    version waits for the next day's fetch, so a day is never split or rewritten."""
+def feed_version(
+    m: store.Manifest, existing: list[store.Manifest], today: dt.date
+) -> store.Manifest | None:
+    """A feed's version is the day it was fetched.
+
+    A second change on a day that already has a version waits for the next day's fetch, so a day
+    is never split or rewritten.
+    """
     if any(x.version == today.isoformat() for x in existing):
         return None
     m.version = today.isoformat()
     m.notes = [FEED_NOTE]
+    return m
+
+
+ROLLING_NOTE = (
+    "The publisher sends the whole table each time, so this fetch is dated by the day it was read "
+    "and compared with the fetch before it by key."
+)
+FEED_CLASS_NOTE = (
+    "The publisher serves only what is current, so this fetch is dated by the day it was read and "
+    "compared with the fetch before it by key."
+)
+
+
+def _held(store_dir: Path, m: store.Manifest) -> bytes:
+    """A stored fetch's bytes, which a rolling source compares the next fetch with."""
+    try:
+        store.verify(store_dir, m)
+    except (FileNotFoundError, ValueError) as e:
+        msg = f"{m.dataset}: {e}; run `publicdata store pull --rolling` before fetching"
+        raise FetchError(msg) from e
+    return store.source_path(store_dir, m).read_bytes()
+
+
+def fetch_rolling(
+    ds: Dataset,
+    store_dir: Path,
+    data: bytes | None,
+    m: store.Manifest,
+    _licence: LicenceRead,
+    today: dt.date,
+) -> store.Manifest | None:
+    """A rolling source or a feed.
+
+    A read whose rows, less the volatile columns, are those of the fetch before is no fetch. When
+    the month has turned since the last snapshot and the newest fetch is not one, that fetch is
+    kept as a snapshot under its own date. Every fetch kept writes its change log beside its
+    manifest, a feed's its history too, and becomes a snapshot when updates.cut says so. A feed
+    records every read, changed or not, in read.json.
+    """
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
+    prev = existing[-1] if existing else None
+    snaps = [x for x in existing if x.snapshot]
+    if prev is not None and prev.version == today.isoformat():
+        return None  # A day is one fetch; a second change waits for the next run.
+    if data is None:
+        return _promote(ds, store_dir, prev, today)
+    tbl = normalise.normalise(ds, m, data)
+    # An empty feed is a state like any other: nothing is current. A rolling table never is.
+    if tbl.rows == 0 and existing and ds.update != "feed":
+        msg = f"{ds.slug}: the portal served no rows; the newest fetch has some"
+        raise FetchError(msg)
+    before = normalise.normalise(ds, prev, _held(store_dir, prev)) if prev else None
+    if before is not None and updates.digest(before) == updates.digest(tbl):
+        return _promote(ds, store_dir, prev, today)
+    _hold_misfits(ds, misfits(tbl.table, ds.int32))
+    log = updates.compare(before, tbl, today)
+    why = updates.cut(ds, log, snaps, today)
+    m = replace(
+        m,
+        version=today.isoformat(),
+        notes=[ROLLING_NOTE if ds.update == "rolling" else FEED_CLASS_NOTE],
+        snapshot=bool(why),
+        cut=why,
+        history=None,
+        period=periods.recorded(ds.period),
+        update=ds.update,
+        volatile=list(ds.volatile),
+        parquet=layout(ds),
+        caps=store.CAPS_VERSION,
+    )
+    m.rows_sha256 = updates.digest(tbl)
+    tbl = replace(tbl, manifest=m)
+    log["to"] = m.version
+    log["fetched_at"] = m.fetched_at
+    log["snapshot"] = why
+    seen = None
+    if ds.update == "feed":
+        held = None
+        if prev is not None and prev.history:
+            old = store.history_path(store_dir, prev)
+            if not old.exists():
+                msg = f"{ds.slug}: {old} is missing; run `publicdata store pull --rolling`"
+                raise FetchError(msg)
+            held = pq.read_table(old)
+        seen = updates.history(held, tbl, m.version, prev.version if prev else "")
+    d = store.write(store_dir, m, data)
+    if seen is not None:
+        pq.write_table(seen, d / "history.parquet", compression="zstd", row_group_size=65_536)
+        m.history = {
+            "sha256": store.sha256_file(d / "history.parquet"),
+            "bytes": (d / "history.parquet").stat().st_size,
+            "rows": seen.num_rows,
+        }
+        (d / "manifest.json").write_text(m.to_json(), encoding="utf-8")
+    store.change_log(store_dir, m).write_text(pretty(log), encoding="utf-8")
+    if ds.update == "feed":
+        store.write_read(store_dir, ds.slug, m.version, m.version)
+    return m
+
+
+PROMOTED_NOTE = (
+    "Kept as a dated version on {day}, when a read in a later month found the table as this "
+    "fetch left it."
+)
+
+
+def _promote(
+    ds: Dataset,
+    store_dir: Path,
+    prev: store.Manifest | None,
+    today: dt.date,
+) -> store.Manifest | None:
+    """An unchanged read.
+
+    When the month has turned since the last snapshot and the newest fetch is no snapshot, that
+    fetch becomes one where it stands, under its own date; nothing is dated again.
+    """
+    if prev is None:
+        # An adapter answers unchanged only against a stored fetch.
+        msg = f"{ds.slug}: an unchanged read with no fetch before it"
+        raise FetchError(msg)
+    if ds.update == "feed":
+        store.write_read(store_dir, ds.slug, today.isoformat(), prev.version)
+    if prev.snapshot:
+        return None
+    # Judged by the fetch's own date: it was the last change of its month or of its period.
+    why = updates.closing(periods.of_manifest(prev), dt.date.fromisoformat(prev.version), today)
+    if not why:
+        return None
+    # Recorded in the manifest alone; the fetch's change log, published already, stays as it is.
+    m = replace(prev, snapshot=True, cut=why, notes=[*prev.notes, PROMOTED_NOTE.format(day=today)])
+    (store.version_dir(store_dir, m.dataset, m.version) / "manifest.json").write_text(
+        m.to_json(), encoding="utf-8"
+    )
     return m

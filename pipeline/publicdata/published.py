@@ -1,15 +1,20 @@
-"""A cached version's Parquet, which its cache entry leaves out, read back from where the build
-that made it put it: a shard's tree, or the published files in R2."""
+"""A cached version's Parquet, which its cache entry leaves out, read back from where it was put.
+
+The build that made it put it in a shard's tree, or in the published files in R2.
+"""
 
 from __future__ import annotations
 
 import tempfile
 import threading
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .cache import _link_or_copy
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
 
 # The deploy reads every version's Parquet for its figures, so downloads run side by side.
 WORKERS = 16
@@ -19,12 +24,15 @@ class Published:
     def __init__(
         self,
         out: Path,
-        roots: list[Path] = (),
+        roots: Iterable[Path | str] = (),
         source: Path | None = None,
         download: Callable[[str, Path], bool] | None = None,
-    ):
-        """source is a directory laid out as the published site; download(rel, path) fetches a
-        published file into path and says whether it was there."""
+    ) -> None:
+        """Where the files a build left out can be found.
+
+        `source` is a directory laid out as the published site; download(rel, path) fetches a
+        published file into path and says whether it was there.
+        """
         self.out = out
         self.roots = [Path(r) for r in roots] + ([Path(source)] if source else [])
         self.source = Path(source) if source else None
@@ -34,8 +42,10 @@ class Published:
         self._lock = threading.Lock()
 
     def path(self, rel: str) -> Path:
-        """out/rel, linked or downloaded in when the build left it out. A file no one holds
-        stays missing, so the reader that needed it fails on its name."""
+        """The path out/rel, linked or downloaded in when the build left it out.
+
+        A file no one holds stays missing, so the reader that needed it fails on its name.
+        """
         p = self.out / rel
         if p.exists():
             return p
@@ -52,9 +62,11 @@ class Published:
         return p
 
     def copy(self, rel: str) -> Path | None:
-        """The file the site already serves at rel, or None when it serves none yet. A dated file
-        is never overwritten outside a replace, so this can be older bytes than the build made
-        at out/rel, which stays as it is."""
+        """The file the site already serves at rel, or None when it serves none yet.
+
+        A dated file is never overwritten outside a replace, so this can be older bytes than the
+        build made at out/rel, which stays as it is.
+        """
         with self._lock:
             if rel in self._copies:
                 return self._copies[rel]
@@ -95,9 +107,12 @@ def path(out: Path, rel: str) -> Path:
 
 
 def served(out: Path, rel: str) -> tuple[Path, bool]:
-    """rel as the site serves it, and whether that is the copy already published: the history
-    archive, the diffs and a grown format are made from it, so a version built again without a
-    replace still yields what the published files hold, and the check can make the same."""
+    """The file at `rel` as the site serves it, and whether that is the copy already published.
+
+    The history archive, the diffs and a grown format are made from it, so a version built again
+    without a replace still yields what the published files hold, and the check can make the
+    same.
+    """
     if current is not None and current.out == out and (p := current.copy(rel)) is not None:
         return p, True
     return path(out, rel), False

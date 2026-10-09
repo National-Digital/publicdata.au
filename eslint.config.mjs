@@ -98,6 +98,11 @@ export default [
     files: ['scripts/**/*.mjs'],
     rules: { 'no-console': 'off' },
   },
+  // The house checks are functions Puppeteer serialises into the page, so they run with its globals.
+  {
+    files: ['scripts/a11y-checks.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
   // site.js runs on every page as written, so it keeps the ES5 syntax older browsers parse. The
   // rules that need later syntax are off for it.
   {

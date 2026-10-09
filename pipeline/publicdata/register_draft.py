@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import io
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import pyarrow as pa
 import requests
@@ -21,6 +21,61 @@ from .fetch import UA, normalise_licence_id
 from .normalise import NormaliseError, convert, detect_encoding, read_csv, read_xlsx, xls_to_xlsx
 from .publishers import JUR_SEGMENT, PORTAL_JUR, Publisher, clean_title, slugify
 from .register import CLOSED_LICENCES, OPEN_LICENCES, Field, draft_label
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from .fetch import CkanPackage
+    from .normalise import ArrowChunked
+    from .register import FieldType
+
+    class DraftLicence(TypedDict, total=False):
+        id: str
+        reviewed: str
+        evidence: str
+        attribution: str
+
+    class DraftSource(TypedDict, total=False):
+        adapter: str
+        portal: str
+        package: str
+        resource: str
+        url: str
+        sheet: str
+        header_row: int
+        encoding: str
+
+    class DraftField(TypedDict, total=False):
+        name: str
+        label: str
+        source: str
+        type: str
+        date_format: str
+
+    class DraftEntry(TypedDict, total=False):
+        """A drafted register entry, with its keys in the order the YAML writes them."""
+
+        slug: str
+        title: str
+        status: str
+        summary: str
+        description: str
+        publisher: dict[str, str]
+        licence: DraftLicence
+        source: DraftSource
+        suppression: list[str]
+        search_title: str
+        also_known_as: list[str]
+        keywords: list[str]
+        faq: list[str]
+        fields: list[DraftField]
+        blocked_reason: str
+
+
+class _PackageShow(TypedDict, total=False):
+    success: bool
+    result: CkanPackage
+
 
 SAMPLE_BYTES = 20_000_000
 WORKBOOK_BYTES = 200_000_000
@@ -35,7 +90,7 @@ TABULAR = {
 DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y", "%Y%m%d")
 DATETIME_FORMATS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M")
 # Cells a publisher writes in place of a small or withheld count.
-SUPPRESSION = re.compile(r"^(<\s*\d+|n\.?p\.?|\*+|\.\.|c)$", re.I)
+SUPPRESSION = re.compile(r"^(<\s*\d+|n\.?p\.?|\*+|\.\.|c)$", re.IGNORECASE)
 GOVERNMENT = {
     "Cth": "Australian Government",
     "NSW": "NSW Government",
@@ -67,14 +122,16 @@ def portal_for(url: str) -> tuple[catalogue.Portal, str, str]:
     """The CKAN portal, package name and any resource id a dataset URL names."""
     hit = locate(url)
     if not hit or hit[1] != "name":
-        raise DraftError(f"{url} does not name a dataset on a portal page")
+        msg = f"{url} does not name a dataset on a portal page"
+        raise DraftError(msg)
     host, _, name = hit
     portal = next(
         (p for p in catalogue.PORTALS if p.host.removeprefix("www.") == host and p.kind == "ckan"),
         None,
     )
     if portal is None:
-        raise DraftError(f"{host} is not a CKAN portal the catalogue reads")
+        msg = f"{host} is not a CKAN portal the catalogue reads"
+        raise DraftError(msg)
     m = re.search(r"/resource/([0-9a-f-]{36})", url)
     return portal, name, m.group(1) if m else ""
 
@@ -91,7 +148,7 @@ def field_name(header: str, taken: set[str]) -> str:
     return name
 
 
-def _fits(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...] = ()) -> bool:
+def _fits(arr: ArrowChunked, f: Field, suppression: tuple[str, ...] = ()) -> bool:
     try:
         convert(arr, f, suppression)
     except UNFIT:
@@ -99,7 +156,7 @@ def _fits(arr: pa.ChunkedArray, f: Field, suppression: tuple[str, ...] = ()) -> 
     return True
 
 
-def infer(name: str, header: str, arr: pa.ChunkedArray) -> tuple[Field, tuple[str, ...]]:
+def infer(name: str, header: str, arr: ArrowChunked) -> tuple[Field, tuple[str, ...]]:
     """The field and any suppression tokens it uses, typed by the normaliser's own conversion."""
     values = {v.strip() for v in arr.to_pylist() if v is not None and v.strip()}
     base = Field(name, header)
@@ -117,10 +174,14 @@ def infer(name: str, header: str, arr: pa.ChunkedArray) -> tuple[Field, tuple[st
             return Field(name, header, t), tokens
     if not coded and _fits(arr, Field(name, header, "boolean")):
         return Field(name, header, "boolean"), ()
-    for t, formats in (("date", DATE_FORMATS), ("datetime", DATETIME_FORMATS)):
+    dated: tuple[tuple[FieldType, tuple[str, ...]], ...] = (
+        ("date", DATE_FORMATS),
+        ("datetime", DATETIME_FORMATS),
+    )
+    for d, formats in dated:
         for fmt in formats:
-            if _fits(arr, Field(name, header, t, date_format=fmt)):
-                return Field(name, header, t, date_format=fmt), ()
+            if _fits(arr, Field(name, header, d, date_format=fmt)):
+                return Field(name, header, d, date_format=fmt), ()
     return base, ()
 
 
@@ -135,17 +196,23 @@ def _get(s: requests.Session, url: str, cap: int) -> tuple[bytes, bool]:
     return buf.getvalue(), False
 
 
-def sample_table(data: bytes, kind: str, cut: bool, sheet: str = "", header_row: int = 1):
+def sample_table(
+    data: bytes, kind: str, *, cut: bool, sheet: str = "", header_row: int = 1
+) -> tuple[pa.Table, str]:
     try:
-        return _sample_table(data, kind, cut, sheet, header_row)
+        return _sample_table(data, kind, cut=cut, sheet=sheet, header_row=header_row)
     except UNFIT as e:
-        raise DraftError(f"the file could not be read as {kind.upper()}: {e}") from e
+        msg = f"the file could not be read as {kind.upper()}: {e}"
+        raise DraftError(msg) from e
 
 
-def _sample_table(data: bytes, kind: str, cut: bool, sheet: str, header_row: int):
+def _sample_table(
+    data: bytes, kind: str, *, cut: bool, sheet: str, header_row: int
+) -> tuple[pa.Table, str]:
     if kind in ("xlsx", "xls"):
         if cut:
-            raise DraftError("the workbook is larger than a draft reads; draft it by hand")
+            msg = "the workbook is larger than a draft reads; draft it by hand"
+            raise DraftError(msg)
         if kind == "xls":
             data = xls_to_xlsx(data)
         return read_xlsx(data, sheet, header_row), "xlsx"
@@ -155,7 +222,7 @@ def _sample_table(data: bytes, kind: str, cut: bool, sheet: str, header_row: int
     return read_csv(data, enc), enc
 
 
-def _licence(pkg: dict, host: str = "") -> str:
+def _licence(pkg: CkanPackage, host: str = "") -> str:
     lic = normalise_licence_id(pkg.get("license_id") or "", host)
     if lic in OPEN_LICENCES or lic in CLOSED_LICENCES:
         return lic
@@ -163,7 +230,9 @@ def _licence(pkg: dict, host: str = "") -> str:
     return by_title or lic or "not-specified"
 
 
-def publisher_for(portal: catalogue.Portal, pkg: dict, curated: list[Publisher]) -> dict:
+def publisher_for(
+    portal: catalogue.Portal, pkg: CkanPackage, curated: list[Publisher]
+) -> dict[str, str]:
     org = pkg.get("organization") or {}
     key = f"{portal.code}:{org.get('name') or 'unknown'}"
     cur = next((p for p in curated if key in p.orgs), None)
@@ -183,37 +252,44 @@ def publisher_for(portal: catalogue.Portal, pkg: dict, curated: list[Publisher])
     }
 
 
-def draft(
+# A draft with more fields than this is flagged for a person to trim.
+MANY_FIELDS = 50
+
+
+def draft(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a draft's steps in order; the options are keyword-only
     url: str,
     curated: list[Publisher],
     session: requests.Session | None = None,
     resource: str = "",
     slug: str = "",
+    *,
     sheet: str = "",
     header_row: int = 1,
-) -> tuple[str, dict, list[str]]:
+) -> tuple[str, DraftEntry, list[str]]:
     """Returns (slug, the entry, notes for the reviewer)."""
     s = session or requests.Session()
     s.headers["User-Agent"] = UA
     portal, name, in_url = portal_for(url)
-    pkg = catalogue.get_json(s, f"{portal.api}/package_show", {"id": name})
+    pkg = catalogue.get_json_as(_PackageShow, s, f"{portal.api}/package_show", {"id": name})
     if not pkg.get("success"):
-        raise DraftError(f"{portal.host}: package_show found no dataset {name}")
+        msg = f"{portal.host}: package_show found no dataset {name}"
+        raise DraftError(msg)
     p = pkg["result"]
     want = resource or in_url
     tabular = [r for r in p.get("resources") or [] if (r.get("format") or "").upper() in TABULAR]
     res = next((r for r in p["resources"] if r["id"] == want), None) if want else None
     if want and res is None:
-        raise DraftError(f"resource {want} is not in {name}")
+        msg = f"resource {want} is not in {name}"
+        raise DraftError(msg)
     if res is not None and (res.get("format") or "").upper() not in TABULAR:
-        raise DraftError(
-            f"resource {want} is {res.get('format') or 'of no stated format'}, not CSV or Excel"
-        )
+        msg = f"resource {want} is {res.get('format') or 'of no stated format'}, not CSV or Excel"
+        raise DraftError(msg)
     if res is None:
         if not tabular:
-            raise DraftError(f"{name} has no CSV or Excel resource")
-        res = next((r for r in tabular if r["format"].upper() == "CSV"), tabular[0])
-    notes = []
+            msg = f"{name} has no CSV or Excel resource"
+            raise DraftError(msg)
+        res = next((r for r in tabular if (r.get("format") or "").upper() == "CSV"), tabular[0])
+    notes: list[str] = []
     if len(tabular) > 1:
         notes.append(
             "other tabular resources: "
@@ -223,20 +299,22 @@ def draft(
         )
     kind = TABULAR.get((res.get("format") or "").upper(), "csv")
     data, cut = _get(s, res["url"], WORKBOOK_BYTES if kind in ("xlsx", "xls") else SAMPLE_BYTES)
-    raw, enc = sample_table(data, kind, cut, sheet, header_row)
+    raw, enc = sample_table(data, kind, cut=cut, sheet=sheet, header_row=header_row)
     if cut:
         notes.append(
             f"types were inferred from the first {raw.num_rows:,} rows; the build types every row and stops on one that does not fit"
         )
     taken: set[str] = set()
-    fields, suppression = [], set()
+    fields: list[Field] = []
+    suppression: set[str] = set()
     headers = [c.strip() for c in raw.column_names]
     names = [field_name(h, taken) for h in headers]
     for n, h, col in zip(names, headers, raw.columns, strict=True):
         f, tokens = infer(n, h, col)
         fields.append(f)
         suppression |= set(tokens)
-    labels, seen = {}, set()
+    labels: dict[str, str] = {}
+    seen: set[str] = set()
     for f in fields:
         label = draft_label(f.name, names)
         if label in seen:
@@ -253,7 +331,7 @@ def draft(
     seg = JUR_SEGMENT[pub["jurisdiction"]]
     words = slugify(title).removeprefix(f"{seg}-")
     slug = slug or f"{seg}-{words}"[:64].rstrip("-")
-    entry = {
+    entry: DraftEntry = {
         "slug": slug,
         "title": title,
         "status": "building" if open_ else ("blocked" if lic in CLOSED_LICENCES else "assessing"),
@@ -272,32 +350,24 @@ def draft(
                 else ""
             ),
         },
-        "source": {
-            "adapter": "ckan-resource",
-            "portal": portal.api.removesuffix("/api/3/action"),
-            "package": p["name"],
-            "resource": res["id"],
-            "url": landing,
-            **({"sheet": sheet} if sheet else {}),
-            **({"header_row": header_row} if header_row != 1 else {}),
-            **({"encoding": "utf-8-sig"} if enc == "utf-8-sig" else {}),
-        },
-        **({"suppression": sorted(suppression)} if suppression else {}),
-        "search_title": "",
-        "also_known_as": [],
-        "keywords": [],
-        "faq": [],
-        "fields": [
-            {
-                "name": f.name,
-                "label": labels[f.name],
-                "source": f.source,
-                "type": f.type,
-                **({"date_format": f.date_format} if f.type in ("date", "datetime") else {}),
-            }
-            for f in fields
-        ],
+        "source": _draft_source(
+            portal,
+            package=p["name"],
+            resource=res["id"],
+            landing=landing,
+            sheet=sheet,
+            header_row=header_row,
+            enc=enc,
+        ),
     }
+    # Each key goes in after the last, so the YAML lists them in this order.
+    if suppression:
+        entry["suppression"] = sorted(suppression)
+    entry["search_title"] = ""
+    entry["also_known_as"] = []
+    entry["keywords"] = []
+    entry["faq"] = []
+    entry["fields"] = [_draft_field(f, labels[f.name]) for f in fields]
     if not entry["licence"]["attribution"]:
         entry["licence"].pop("attribution")
     if entry["status"] == "blocked":
@@ -307,11 +377,11 @@ def draft(
     if not open_:
         notes.append(f"the portal states the licence as {p.get('license_title') or lic!r}")
     geo = [f.name for f in fields if re.search(r"(^|_)(lat|latitude|lon|lng|longitude)$", f.name)]
-    if len(geo) >= 2:
+    if len(geo) > 1:
         notes.append(
             f"{' and '.join(geo)} look like coordinates; add geometry with the publisher's CRS"
         )
-    if len(fields) > 50:
+    if len(fields) > MANY_FIELDS:
         notes.append(
             f"{len(fields)} columns: if they are dates or periods, the table may need unpivot"
         )
@@ -321,14 +391,47 @@ def draft(
     return slug, entry, notes
 
 
-def to_yaml(entry: dict) -> str:
+def _draft_source(  # noqa: PLR0913 - one value per key the source writes
+    portal: catalogue.Portal,
+    *,
+    package: str,
+    resource: str,
+    landing: str,
+    sheet: str,
+    header_row: int,
+    enc: str,
+) -> DraftSource:
+    out: DraftSource = {
+        "adapter": "ckan-resource",
+        "portal": portal.api.removesuffix("/api/3/action"),
+        "package": package,
+        "resource": resource,
+        "url": landing,
+    }
+    if sheet:
+        out["sheet"] = sheet
+    if header_row != 1:
+        out["header_row"] = header_row
+    if enc == "utf-8-sig":
+        out["encoding"] = "utf-8-sig"
+    return out
+
+
+def _draft_field(f: Field, label: str) -> DraftField:
+    out: DraftField = {"name": f.name, "label": label, "source": f.source, "type": f.type}
+    if f.type in ("date", "datetime"):
+        out["date_format"] = f.date_format
+    return out
+
+
+def to_yaml(entry: DraftEntry) -> str:
     text = yaml.safe_dump(entry, sort_keys=False, allow_unicode=True, width=100)
     for k in TODO:
         text = re.sub(
             rf"^{k}:",
             f"# TODO: write {k.replace('_', ' ')} before this entry goes live.\n{k}:",
             text,
-            flags=re.M,
+            flags=re.MULTILINE,
         )
     return text
 
@@ -336,6 +439,7 @@ def to_yaml(entry: dict) -> str:
 def write(register_dir: Path, slug: str, text: str) -> Path:
     path = register_dir / f"{slug}.yaml"
     if path.exists():
-        raise DraftError(f"{path.name} already exists")
+        msg = f"{path.name} already exists"
+        raise DraftError(msg)
     path.write_text(text, encoding="utf-8")
     return path

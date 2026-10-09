@@ -1,15 +1,37 @@
-// Runs axe-core over built pages in both colour schemes and fails on any WCAG 2.2 AA
-// violation. Usage: node scripts/a11y.mjs <dist> [path ...]. With no paths, a fixed set of
-// representative pages is checked. Chrome is found on PATH or at CHROME_PATH.
+// Holds built pages to WCAG 2.2 AAA: axe-core's rules through the AAA tags in both colour
+// schemes, then the house checks in a11y-checks.mjs at 1280px, 2560px (the type must grow) and
+// 320px (reflow, the working checks again for content only a narrow screen shows, and the menu
+// opened, closed and without script), and with the text-spacing
+// override. docs/ACCESSIBILITY.md states the target and
+// the regions held to AA. Usage: node scripts/a11y.mjs <dist> [path ...]. With no paths, a fixed
+// set of representative pages is checked. Chrome is found at CHROME_PATH or /usr/bin/google-chrome.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { HOUSE, TEXT_SPACING, exceptionsFor, house, paintedContrast } from './a11y-checks.mjs';
 
 const require = createRequire(import.meta.url);
 const AXE = require.resolve('axe-core/axe.min.js');
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'];
+const TAGS = [
+  'wcag2a',
+  'wcag2aa',
+  'wcag2aaa',
+  'wcag21a',
+  'wcag21aa',
+  'wcag21aaa',
+  'wcag22aa',
+  'best-practice',
+  'experimental',
+];
+// hidden-content only ever asks a person to look at whatever is hidden, so it can never pass.
+const RULES = { 'hidden-content': { enabled: false } };
+const CONTRAST = new Set(['color-contrast', 'color-contrast-enhanced']);
+const EXCEPTIONS = JSON.parse(
+  await readFile(new URL('./a11y-exceptions.json', import.meta.url), 'utf8'),
+);
+const used = new Set();
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css',
@@ -29,6 +51,8 @@ const DEFAULT = [
   '/publishers/',
   '/about/',
   '/terms/',
+  '/accessibility/',
+  '/glossary/',
   '/privacy/',
   '/topics/roads/',
   '/d/qld-road-crash-locations/',
@@ -39,6 +63,7 @@ const DEFAULT = [
   '/c/qld-road-crashes/',
   '/qld/',
 ];
+const WORK = { width: 1280, height: 900 };
 
 const [dist, ...paths] = process.argv.slice(2);
 if (!dist) {
@@ -80,46 +105,191 @@ const browser = await puppeteer.launch({
   args: ['--no-sandbox', '--disable-gpu'],
 });
 const axe = await readFile(AXE, 'utf8');
+// The functions handed to page.evaluate run in the page, so they reach its globals through globalThis.
+const settle = (page) =>
+  page.evaluate(
+    () =>
+      new Promise((r) => {
+        globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(r));
+      }),
+  );
 let failed = 0;
+// Opens the menu from the keyboard, checks it, then closes it with Escape from its first link. Assumes the page
+// is already at the narrow width.
+async function menuRuns(page) {
+  const sel = 'header button[aria-controls][aria-expanded]';
+  const toggle = await page.$$eval(sel, (bs) =>
+    bs.findIndex((b) => b.getBoundingClientRect().width > 0),
+  );
+  if (toggle < 0) {
+    return [];
+  }
+  const runs = [];
+  await (await page.$$(sel))[toggle].focus();
+  await page.keyboard.press('Enter');
+  await settle(page);
+  runs.push(await page.evaluate(house, HOUSE, 'menu-open'));
+  await page.evaluate((s) => {
+    const b = [...globalThis.document.querySelectorAll(s)].find(
+      (x) => x.getBoundingClientRect().width > 0,
+    );
+    const first = globalThis.document
+      .getElementById(b.getAttribute('aria-controls'))
+      ?.querySelector('a[href], button');
+    (first || b).focus();
+  }, sel);
+  await page.keyboard.press('Escape');
+  await settle(page);
+  runs.push(await page.evaluate(house, HOUSE, 'menu-closed'));
+  return runs;
+}
+async function noScriptRun(path) {
+  const page = await browser.newPage();
+  try {
+    await page.setJavaScriptEnabled(false);
+    await page.setViewport({ width: HOUSE.reflowWidth, height: 900 });
+    await page.goto(base + path, { waitUntil: 'load', timeout: 60000 });
+    return await page.evaluate(house, HOUSE, 'menu-nojs');
+  } finally {
+    await page.close();
+  }
+}
+const report = (path, scheme, problems) => {
+  if (!problems.length) {
+    console.log(`✓ ${path} (${scheme})`);
+    return;
+  }
+  failed++;
+  console.log(`✗ ${path} (${scheme}): ${problems.length} problem(s)`);
+  for (const p of problems) {
+    console.log(`  ${p}`);
+  }
+};
 try {
   for (const scheme of ['light', 'dark']) {
     for (const path of pages) {
       const page = await browser.newPage();
-      await page.setViewport({ width: 1280, height: 900 });
+      await page.setViewport(WORK);
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
       const resp = await page.goto(base + path, { waitUntil: 'networkidle0', timeout: 60000 });
       if (!resp || resp.status() !== 200) {
-        console.log(`✗ ${path} (${scheme}): HTTP ${resp ? resp.status() : 'none'}`);
-        failed++;
+        report(path, scheme, [`HTTP ${resp ? resp.status() : 'none'}`]);
         await page.close();
         continue;
       }
+      const problems = [];
       await page.evaluate(axe);
       const result = await page.evaluate(
-        // Runs in the page, so it reaches the page's globals through globalThis.
-        (tags) =>
-          globalThis.axe.run(globalThis.document, { runOnly: { type: 'tag', values: tags } }),
+        (tags, rules) =>
+          globalThis.axe.run(globalThis.document, {
+            runOnly: { type: 'tag', values: tags },
+            rules,
+          }),
         TAGS,
+        RULES,
       );
-      const bad = result.violations.filter(
-        (v) =>
-          ['serious', 'critical'].includes(v.impact) || v.tags.some((t) => t.startsWith('wcag')),
-      );
-      if (bad.length) {
-        failed++;
-        console.log(`✗ ${path} (${scheme}): ${bad.length} rule(s)`);
-        for (const v of bad) {
-          console.log(`  ${v.id} [${v.impact}] ${v.help}`);
-          for (const n of v.nodes.slice(0, 5)) {
-            console.log(`    ${n.target.join(' ')}`);
-            console.log(`      ${n.failureSummary.split('\n').join(' ').slice(0, 300)}`);
+      for (const v of result.violations) {
+        problems.push(`axe ${v.id} [${v.impact}] ${v.help}`);
+        for (const n of v.nodes.slice(0, 5)) {
+          problems.push(`    ${n.target.join(' ')}`);
+          problems.push(`      ${n.failureSummary.split('\n').join(' ').slice(0, 300)}`);
+        }
+        if (v.nodes.length > 5) {
+          problems.push(`    … and ${v.nodes.length - 5} more`);
+        }
+      }
+      // A result axe leaves for review fails unless the painted measurement settles it or an
+      // exception in a11y-exceptions.json covers it.
+      const contrast = new Set();
+      const reviews = [];
+      for (const v of result.incomplete) {
+        for (const n of v.nodes) {
+          if (CONTRAST.has(v.id)) {
+            contrast.add(n.target.join(' '));
+          } else {
+            reviews.push({
+              rule: v.id,
+              target: n.target.join(' '),
+              detail: (n.any[0] || n.all[0] || n.none[0] || {}).message || v.help,
+            });
           }
         }
-      } else {
-        console.log(`✓ ${path} (${scheme})`);
       }
+      for (const f of await paintedContrast(page, [...contrast])) {
+        reviews.push({
+          rule: 'painted-contrast',
+          target: f.target,
+          detail:
+            f.ratio === null
+              ? 'no glyph could be measured'
+              : `${f.ratio.toFixed(2)}:1 against the background painted behind it, needs ${f.need}:1`,
+        });
+      }
+      for (const r of reviews) {
+        let covered = null;
+        for (const e of exceptionsFor(EXCEPTIONS, path, r.rule)) {
+          if (
+            await page.evaluate(
+              (t, w) => !!globalThis.document.querySelector(t)?.closest(w),
+              r.target,
+              e.within,
+            )
+          ) {
+            covered = e;
+          }
+        }
+        if (covered) {
+          used.add(covered);
+        } else {
+          problems.push(`review ${r.rule}: ${r.target}: ${r.detail}`);
+        }
+      }
+      // The house checks depend on layout and type, not colour, so one scheme is enough.
+      if (scheme === 'light') {
+        const runs = [];
+        runs.push(await page.evaluate(house, HOUSE, 'all'));
+        await page.setViewport({ width: HOUSE.wideWidth, height: 1440 });
+        await settle(page);
+        runs.push(await page.evaluate(house, HOUSE, 'type'));
+        await page.setViewport({ width: HOUSE.reflowWidth, height: 900 });
+        await settle(page);
+        runs.push(await page.evaluate(house, HOUSE, 'reflow'));
+        runs.push(await page.evaluate(house, HOUSE, 'all'));
+        runs.push(...(await menuRuns(page)));
+        await page.setViewport(WORK);
+        await page.addStyleTag({ content: TEXT_SPACING });
+        await settle(page);
+        runs.push(await page.evaluate(house, HOUSE, 'spacing'));
+        runs.push(await noScriptRun(path));
+        const byRule = new Map();
+        for (const f of runs.flat()) {
+          if (!byRule.has(f.rule)) {
+            byRule.set(f.rule, []);
+          }
+          byRule.get(f.rule).push(f);
+        }
+        for (const [rule, fs] of byRule) {
+          problems.push(`house ${rule}: ${fs.length} node(s)`);
+          for (const f of fs.slice(0, 8)) {
+            problems.push(`    ${f.target}: ${f.detail}`);
+          }
+          if (fs.length > 8) {
+            problems.push(`    … and ${fs.length - 8} more`);
+          }
+        }
+      }
+      report(path, scheme, problems);
       await page.close();
     }
+  }
+  for (const e of EXCEPTIONS) {
+    if (used.has(e) || paths.length) {
+      continue;
+    }
+    failed++;
+    console.log(
+      `✗ exception for ${e.rule} within ${e.within} on ${e.pages} matched nothing; remove it`,
+    );
   }
 } finally {
   await browser.close();

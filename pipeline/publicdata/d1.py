@@ -1,7 +1,8 @@
 """SQL that loads dataset versions into D1 for the query API.
 
-Each loaded version is one table built from the version's own data.parquet, read as its
-data.sqlite holds it, so the API answers from the same typed rows as every file. The latest version of each live dataset is loaded; a
+Each loaded version is one table built from the version's own data.parquet, or its period parts
+in order for a version stored as parts, read as its data.sqlite holds it, so the API answers from
+the same typed rows as every file. The latest version of each live dataset is loaded; a
 dataset keeps at most KEEP versions in the database, and every version stays available as files.
 `_versions` records what is loaded, with the field list the API validates queries against.
 
@@ -26,11 +27,65 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pyarrow.parquet as pq
 
+from .build import part_dir, version_url
+from .provenance import header
+from .records import connect
 from .serialise import SQLITE_TYPES, dumps
 from .serialise.profile import sha256, signature
+from .store import Manifest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+    from typing import Literal, NotRequired, Protocol, TypedDict
+
+    from .provenance import Header
+    from .register import Dataset
+
+    type Kind = Literal["create", "insert", "update", "index", "fts", "register"]
+    type Stmt = tuple[Kind, str, int]
+    type Log = Callable[[str], object]
+
+    class Row(TypedDict):
+        """A row D1 answers, by the columns of the tables this module reads."""
+
+        slug: NotRequired[str]
+        version: NotRequired[str]
+        tbl: NotRequired[str]
+        rows: NotRequired[int]
+        part: NotRequired[int]
+        attempts: NotRequired[int]
+        error: NotRequired[str | None]
+        since: NotRequired[str]
+        tried: NotRequired[str | None]
+        name: NotRequired[str]
+        n: NotRequired[int]
+
+    class LoadManifest(TypedDict):
+        """What load_parts writes beside a version's parts, and _jobs reads back."""
+
+        slug: str
+        version: str
+        tbl: str
+        rows: int
+        parts: list[str]
+        cum: list[int]
+        indexes: int
+        fts: bool
+        updates: int
+        keep: int
+
+    class D1(Protocol):
+        def file(self, path: Path) -> bool: ...
+        def query(self, sql: str) -> list[Row]: ...
+
+    class Registered(TypedDict):
+        tbl: str
+        rows: int
+
 
 KEEP = 2
 MAX_STATEMENT = 90_000  # D1 allows 100 KB per statement
@@ -105,7 +160,7 @@ def table_name(slug: str, version: str) -> str:
     return "v_" + re.sub(r"[^a-z0-9]", "_", slug) + "_" + version.replace("-", "")
 
 
-def literal(v) -> str:
+def literal(v: object) -> str:
     if v is None:
         return "NULL"
     if isinstance(v, bool):
@@ -119,56 +174,91 @@ def literal(v) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def version_sql(
+def version_sql(  # noqa: PLR0913 - the options are keyword-only and named at each call
     sqlite_path: Path,
     slug: str,
     version: str,
     index_fields: tuple[str, ...],
     tbl: str | None = None,
+    *,
     fts: tuple[str, ...] = (),
-):
-    """Yields the statements that create and fill one table from a SQLite file shaped as a
-    version's data.sqlite, as the catalogue and served indexes are."""
-    for _, stmt, _ in _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl, fts):
+) -> Iterator[str]:
+    """Yields the statements that create and fill one table from a SQLite file.
+
+    The file is shaped as a version's data.sqlite, as the catalogue and served indexes are.
+    """
+    for _, stmt, _ in _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl, fts=fts):
         yield stmt
 
 
-def _sqlite_stmts(sqlite_path, slug, version, index_fields, tbl=None, fts=()):
+def _sqlite_stmts(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    sqlite_path: Path,
+    slug: str,
+    version: str,
+    index_fields: tuple[str, ...],
+    tbl: str | None = None,
+    *,
+    fts: tuple[str, ...] = (),
+) -> Iterator[Stmt]:
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         cols = [(c[1], c[2]) for c in src.execute("PRAGMA table_info(records)").fetchall()]
         header = dict(src.execute("SELECT key, value FROM publicdata").fetchall())
         rows = src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
         yield from _table_sql(
-            slug, version, index_fields, cols, header, _fields(src), rows, tbl, fts
+            slug,
+            version,
+            index_fields,
+            cols,
+            header,
+            fields=_fields(src),
+            rows=rows,
+            tbl=tbl,
+            fts=fts,
         )
     finally:
         src.close()
 
 
 def parquet_version_sql(
-    parquet: Path, ds, version: str, index_fields: tuple[str, ...], tbl: str | None = None
-):
-    """Yields the statements that create and fill one dataset version's table from its Parquet,
-    typed as its data.sqlite and in the Parquet's row order, which is the publisher's unless
-    the version was written under a sort."""
+    parquet: Path, ds: Dataset, version: str, index_fields: tuple[str, ...], tbl: str | None = None
+) -> Iterator[str]:
+    """Yields the statements that create and fill one dataset version's table from its Parquet.
+
+    The table is typed as its data.sqlite and filled in the Parquet's row order, which is the
+    publisher's unless the version was written under a sort.
+    """
     for _, stmt, _ in _parquet_stmts(parquet, ds, version, index_fields, tbl):
         yield stmt
 
 
-def _parquet_stmts(parquet, ds, version, index_fields, tbl=None):
-    from .records import connect
-
-    cols = parquet_columns(parquet, ds)
-    header = {
-        k: v if isinstance(v, str) else dumps(v)
-        for k, v in json.loads(pq.read_schema(parquet).metadata[b"publicdata"]).items()
-    }
+def _parquet_stmts(  # noqa: PLR0913 - parquet_version_sql's, and a parts header by keyword
+    parquet: Path | list[Path],
+    ds: Dataset,
+    version: str,
+    index_fields: tuple[str, ...],
+    tbl: str | None = None,
+    *,
+    header: Mapping[str, object] | None = None,
+) -> Iterator[Stmt]:
+    """Parquet is the version's file, or its parts in order with the version's header."""
+    first = parquet if isinstance(parquet, Path) else parquet[0]
+    cols = parquet_columns(first, ds)
+    if header is None:
+        header = json.loads(pq.read_schema(first).metadata[b"publicdata"])
+    head = {k: v if isinstance(v, str) else dumps(v) for k, v in header.items()}
     with connect(parquet, [c for c, _ in cols]) as src:
         src.execute(f"SELECT {', '.join(_q(c) for c, _ in cols)} FROM records")
         rows = (r for batch in iter(lambda: src.fetchmany(10_000), []) for r in batch)
         yield from _table_sql(
-            ds.slug, version, index_fields, cols, header, built_fields(ds, parquet), rows, tbl
+            ds.slug,
+            version,
+            index_fields,
+            cols,
+            head,
+            fields=built_fields(ds, first),
+            rows=rows,
+            tbl=tbl,
         )
 
 
@@ -176,17 +266,31 @@ def _q(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def parquet_columns(parquet: Path, ds) -> list[tuple[str, str]]:
+def parquet_columns(parquet: Path, ds: Dataset) -> list[tuple[str, str]]:
     """The records table's columns and SQLite types, as the SQLite writer declares them."""
     have = set(pq.read_schema(parquet).names)
     cols = [(f.name, SQLITE_TYPES[f.type]) for f in ds.fields if f.name in have]
     return cols + ([("suppressed", "TEXT")] if "suppressed" in have else [])
 
 
-def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None, fts=()):
-    """Yields (kind, statement, rows it inserts). Kinds "create", "insert" and "update" fill the
-    table; "index", "fts" and "register" finish it and can run again. The registration names the
-    table and holds only if the table has every row and every index."""
+def _table_sql(  # noqa: C901, PLR0912, PLR0913, PLR0915 - one table's statements, read in order
+    slug: str,
+    version: str,
+    index_fields: Sequence[str],
+    cols: Sequence[tuple[str, str]],
+    header: Mapping[str, str],
+    *,
+    fields: list[dict[str, str]],
+    rows: Iterable[Sequence[object]],
+    tbl: str | None = None,
+    fts: tuple[str, ...] = (),
+) -> Iterator[Stmt]:
+    """Yields (kind, statement, rows it inserts).
+
+    Kinds "create", "insert" and "update" fill the table; "index", "fts" and "register" finish it
+    and can run again. The registration names the table and holds only if the table has every row
+    and every index.
+    """
     tbl = tbl or table_name(slug, version)
     names = [c for c, _ in cols]
     if fts:
@@ -199,7 +303,8 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
     )
     head = f'INSERT INTO "{tbl}" ({", ".join(f"{chr(34)}{n}{chr(34)}" for n in names)}) VALUES '
     # D1's limit is in bytes, and a name or an address in another script takes several per letter.
-    batch, size, n = [], len(head.encode()), 0
+    batch: list[str] = []
+    size, n = len(head.encode()), 0
     wide: dict[int, int] = {}
     max_rows = max(1, MAX_VALUES // max(1, len(names)))
     for row in rows:
@@ -210,7 +315,7 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
             if batch:
                 yield "insert", head + ",".join(batch) + ";", len(batch)
                 batch, size = [], len(head.encode())
-            yield from _wide_row(tbl, head, names, row, n, wide)
+            yield from _wide_row(tbl, head, names, row, n, wide=wide)
             continue
         if batch and (size + width + 2 > MAX_STATEMENT or len(batch) >= max_rows):
             yield "insert", head + ",".join(batch) + ";", len(batch)
@@ -227,19 +332,23 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
         yield "fts", f'DROP TABLE IF EXISTS "{tbl}_fts";', 0
         yield (
             "fts",
-            f"CREATE VIRTUAL TABLE \"{tbl}_fts\" USING fts5({text}, content='{tbl}', "
-            "content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2');",
+            (
+                f"CREATE VIRTUAL TABLE \"{tbl}_fts\" USING fts5({text}, content='{tbl}', "
+                "content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2');"
+            ),
             0,
         )
         for a in range(0, n, FTS_ROWS):
             yield (
                 "fts",
-                f'INSERT INTO "{tbl}_fts" (rowid, {text}) SELECT rowid, {text} FROM "{tbl}" '
-                f"WHERE rowid > {a} AND rowid <= {a + FTS_ROWS};",
+                (
+                    f'INSERT INTO "{tbl}_fts" (rowid, {text}) SELECT rowid, {text} FROM "{tbl}" '
+                    f"WHERE rowid > {a} AND rowid <= {a + FTS_ROWS};"
+                ),
                 0,
             )
     # The provenance header every file of this version carries, parsed back to one object.
-    prov = {}
+    prov: dict[str, object] = {}
     for k, v in header.items():
         try:
             prov[k] = json.loads(v)
@@ -259,8 +368,10 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
     )
     holds = [
         f'(SELECT COUNT(*) FROM "{tbl}") = {n}',
-        "(SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = "
-        f"{literal(tbl)}) = {len(indexes)}",
+        (
+            "(SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = "
+            f"{literal(tbl)}) = {len(indexes)}"
+        ),
     ]
     if fts:
         holds.append(f'(SELECT COUNT(*) FROM "{tbl}_fts_docsize") = {n}')
@@ -278,17 +389,18 @@ def _table_sql(slug, version, index_fields, cols, header, fields, rows, tbl=None
     register = f"INSERT OR REPLACE INTO _versions SELECT {values} WHERE {' AND '.join(holds)};"
     if len(register.encode()) > MAX_STATEMENT:
         # Raised once every row is read and before any part is written.
-        raise TooWide(
+        msg = (
             f"its registration check is {len(register.encode()):,} bytes, over D1's statement limit"
         )
+        raise TooWide(msg)
     yield "register", register, 0
 
 
-class TooWide(ValueError):
+class TooWide(ValueError):  # noqa: N818 - named before the rule, and logs name it
     """A row larger than D1 holds; its version stays files-only."""
 
 
-def _raw_size(v) -> int:
+def _raw_size(v: object) -> int:
     if isinstance(v, str):
         return len(v.encode())
     if isinstance(v, bytes):
@@ -296,19 +408,32 @@ def _raw_size(v) -> int:
     return 0
 
 
-def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict[int, int]):
-    """A row too long for one statement: it goes in with its longest text and blob values empty,
-    and each of those is then appended a piece at a time. The table is new and fills in order, so
-    the row is the `rowid`th. Records the row's bytes in `wide` for the check at registration."""
+def _wide_row(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    tbl: str,
+    head: str,
+    names: list[str],
+    row: Sequence[object],
+    rowid: int,
+    *,
+    wide: dict[int, int],
+) -> Iterator[Stmt]:
+    """A row too long for one statement, inserted in pieces.
+
+    It goes in with its longest text and blob values empty, and each of those is then appended a
+    piece at a time. The table is new and fills in order, so the row is the `rowid`th. Records the
+    row's bytes in `wide` for the check at registration.
+    """
     if sum(_raw_size(v) for v in row) > MAX_ROW:
-        raise TooWide(f"row {rowid} is larger than D1 holds")
+        msg = f"row {rowid} is larger than D1 holds"
+        raise TooWide(msg)
     lits = [literal(v) for v in row]
-    later = []
+    later: list[int] = []
     for i in sorted(range(len(row)), key=lambda i: -len(lits[i].encode())):
         if len(head.encode()) + sum(len(x.encode()) for x in lits) + len(lits) + 2 <= MAX_STATEMENT:
             break
         if not isinstance(row[i], (str, bytes)):
-            raise TooWide(f"row {rowid} is too long for one statement")
+            msg = f"row {rowid} is too long for one statement"
+            raise TooWide(msg)
         lits[i] = "''" if isinstance(row[i], str) else "X''"
         later.append(i)
     yield "insert", head + "(" + ",".join(lits) + ");", 1
@@ -326,6 +451,8 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict
                     0,
                 )
             continue
+        # Only text and bytes are put off, and bytes went above.
+        v = cast("str", v)
         a = 0
         while a < len(v):
             k = room
@@ -336,13 +463,32 @@ def _wide_row(tbl: str, head: str, names: list[str], row, rowid: int, wide: dict
     wide[rowid] = sum(_raw_size(v) for v in row)
 
 
-def queryable(ds, csv_bytes: int | None) -> bool:
-    """Whether the query API serves this version, by the size of its data.csv. The build and
-    the loader both ask here."""
+def parts_csv(records: Sequence[Mapping[str, object]]) -> int | None:
+    """The CSV a version stored as parts would load from: its parts' CSVs together.
+
+    Each repeats the header line, so their sum is never less than one data.csv of the same rows.
+    None when a part does not record its size.
+    """
+    sizes: list[int] = []
+    for r in records:
+        files = r.get("files")
+        gz = files.get("csv.gz") if isinstance(files, dict) else None
+        size = gz.get("csv_bytes") if isinstance(gz, dict) else None
+        if not isinstance(size, int):
+            return None
+        sizes.append(size)
+    return sum(sizes) if sizes else None
+
+
+def queryable(ds: Dataset, csv_bytes: int | None) -> bool:
+    """Whether the query API serves this version, by the size of its data.csv.
+
+    The build and the loader both ask here.
+    """
     return bool(ds.query and csv_bytes and csv_bytes <= MAX_CSV)
 
 
-def _fields(src: sqlite3.Connection) -> list[dict]:
+def _fields(src: sqlite3.Connection) -> list[dict[str, str]]:
     """The fields of the records table, as _versions lists them for the API."""
     names = [c[1] for c in src.execute("PRAGMA table_info(records)").fetchall()]
     return [
@@ -352,7 +498,7 @@ def _fields(src: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def built_fields(ds, parquet: Path) -> list[dict]:
+def built_fields(ds: Dataset, parquet: Path) -> list[dict[str, str]]:
     """The field list a version registers, as its data.sqlite's fields table names them."""
     have = set(pq.read_schema(parquet).names)
     fields = [{"name": f.name, "type": f.type} for f in ds.fields if f.name in have]
@@ -367,22 +513,68 @@ def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:
         if p.exists():
             for res in json.loads(p.read_text(encoding="utf-8")).get("resources", []):
                 if str(res.get("path", "")).endswith(want):
-                    return res.get("bytes")
+                    size: int | None = res.get("bytes")
+                    return size
     return None
+
+
+def _parts(
+    roots: list[Path], ds: Dataset, version: str
+) -> tuple[list[Path], int | None, Header] | None:
+    """A version stored as parts, as the loader reads it.
+
+    That is its parts' Parquet in the manifest's order, the size of their CSV, and the version's
+    provenance header, which no part need carry since a finished part can be an earlier version's
+    file. None for a version written whole, or when a part is in none of the roots.
+    """
+    rel = Path("d") / ds.slug / "v" / version / "manifest.json"
+    path = next((r / rel for r in roots if (r / rel).exists()), None)
+    if path is None:
+        return None
+    built = json.loads(path.read_text(encoding="utf-8"))
+    if built.get("whole", True) or not built.get("parts"):
+        return None
+    files: list[Path] = []
+    for rec in built["parts"]:
+        rel = Path(part_dir(ds.slug, rec, version)) / rec["files"]["parquet"]["path"]
+        found = next((r / rel for r in roots if (r / rel).exists()), None)
+        if found is None:
+            print(f"d1: {ds.slug}@{version} stays files-only: {rel} is not in the build")  # noqa: T201 - the deploy log
+            return None
+        files.append(found)
+    csv = parts_csv(built["parts"])
+    m = Manifest.read(path)
+    head = header(ds, m, built["rows"], version_url(ds.slug, version) + "data.duckdb")
+    return files, csv, head
+
+
+def _order(files: list[Path]) -> str:
+    """The row order a version's file, or its parts, are in, as _orders records it."""
+    return "|".join(dict.fromkeys(signature(f) for f in files))
+
+
+def _digest(files: list[Path]) -> str:
+    if len(files) == 1:
+        return sha256(files[0])
+    return hashlib.sha256("".join(sha256(f) for f in files).encode()).hexdigest()
 
 
 def rows_written(text: str) -> int:
     """A count of rows as a dispatch input gives it: 10000000, 10_000,000, 10M, 500k or 1G."""
     m = re.fullmatch(r"\s*(\d[\d_,]*)\s*([kKmMgG]?)\s*", text or "")
     if not m:
-        raise ValueError(f"{text!r} is not a count of rows, such as 10000000 or 10M")
+        msg = f"{text!r} is not a count of rows, such as 10000000 or 10M"
+        raise ValueError(msg)
     n = int(m[1].replace("_", "").replace(",", ""))
     return n * {"": 1, "k": 10**3, "m": 10**6, "g": 10**9}[m[2].lower()]
 
 
-def load_table(slug: str, version: str, *content) -> str:
-    """The table one load fills: the version's name and a digest of what goes in it, so a load
-    never writes into a table the API reads, and a load resumed later is of the same rows."""
+def load_table(slug: str, version: str, *content: object) -> str:
+    """The table one load fills: the version's name and a digest of what goes in it.
+
+    That way a load never writes into a table the API reads, and a load resumed later is of the
+    same rows.
+    """
     h = hashlib.sha256(LOADER.encode())
     for c in content:
         h.update(b"\0" + (c if isinstance(c, bytes) else json.dumps(c).encode()))
@@ -406,22 +598,25 @@ def _sqlite_digest(path: Path, table: str = "records") -> bytes:
         src.close()
 
 
-def write_loads(
+def write_loads(  # noqa: PLR0913 - the options are keyword-only and named at each call
     roots: list[Path],
-    datasets,
+    datasets: Iterable[Dataset],
     loaded: dict[str, list[str]],
     out: Path,
     stamp: str = "",
+    *,
     loaded_fields: dict[tuple[str, str], str] | None = None,
     loaded_orders: dict[tuple[str, str], str] | None = None,
 ) -> list[Path]:
-    """SQL files for each live dataset whose latest version is not loaded yet, in parts that run
-    in name order, with a manifest the loader plans from. `roots` are the built trees to look for
-    data.parquet in, such as dist and the tree split off for R2. A loaded version whose fields
-    differ from the built one, as when a column is joined in, or whose rows were taken in another
-    order than its Parquet's, is loaded again into a table of its own."""
+    """SQL files for each live dataset whose latest version is not loaded yet.
+
+    They come in parts that run in name order, with a manifest the loader plans from. `roots` are
+    the built trees to look for data.parquet in, such as dist and the tree split off for R2. A
+    loaded version whose fields differ from the built one, as when a column is joined in, or whose
+    rows were taken in another order than its Parquet's, is loaded again into a table of its own.
+    """
     out.mkdir(parents=True, exist_ok=True)
-    written = []
+    written: list[Path] = []
     latest_json = next((r / "latest.json" for r in roots if (r / "latest.json").exists()), None)
     latest = json.loads(latest_json.read_text(encoding="utf-8")) if latest_json else {}
     for ds in datasets:
@@ -430,32 +625,37 @@ def write_loads(
             continue
         rel = Path("d") / ds.slug / "v" / version / "data.parquet"
         src = next((r / rel for r in roots if (r / rel).exists()), None)
+        files: list[Path] = [src] if src else []
+        head: Header | None = None
+        csv = _csv_bytes(roots, ds.slug, version) if src else None
+        if src is None and (split := _parts(roots, ds, version)):
+            files, csv, head = split
         if version in loaded.get(ds.slug, []):
             had = (loaded_fields or {}).get((ds.slug, version))
             ord_ = (loaded_orders or {}).get((ds.slug, version), "")
             if (
                 had is None
-                or src is None
-                or (json.loads(had) == built_fields(ds, src) and ord_ == signature(src))
+                or not files
+                or (json.loads(had) == built_fields(ds, files[0]) and ord_ == _order(files))
             ):
                 continue
-        if src is None or not queryable(ds, _csv_bytes(roots, ds.slug, version)):
+        if not files or not queryable(ds, csv):
             continue
         index = (*ds.key, *ds.partition_by)
-        sig = signature(src)
+        sig = _order(files)
         tbl = load_table(
             ds.slug,
             version,
-            sha256(src),
-            parquet_columns(src, ds),
-            built_fields(ds, src),
+            _digest(files),
+            parquet_columns(files[0], ds),
+            built_fields(ds, files[0]),
             list(index),
             sig,
         )
         try:
-            stmts = list(_parquet_stmts(src, ds, version, index, tbl))
+            stmts = list(_parquet_stmts(src or files, ds, version, index, tbl, header=head))
         except TooWide as e:
-            print(f"d1: {ds.slug}@{version} stays files-only: {e}")
+            print(f"d1: {ds.slug}@{version} stays files-only: {e}")  # noqa: T201 - the deploy log
             continue
         # The order is recorded only once the version is registered under this table.
         order = (
@@ -463,14 +663,30 @@ def write_loads(
             f"{literal(sig)} WHERE EXISTS (SELECT 1 FROM _versions WHERE slug = "
             f"{literal(ds.slug)} AND version = {literal(version)} AND tbl = {literal(tbl)});"
         )
-        written += _write_load(out, ds.slug, version, tbl, stmts, stamp, KEEP, after=[order])
+        written += _write_load(
+            out, ds.slug, version, tbl, stmts, stamp=stamp, keep=KEEP, after=[order]
+        )
     return written
 
 
-def _write_load(out, slug, version, tbl, stmts, stamp, keep, fts=False, after=()) -> list[Path]:
-    """Writes one load's parts and its manifest. Every part but the last only adds rows, and
-    `cum` records the rows the table holds after each, which is what a resumed load checks. The
-    last part builds the indexes and registers the version, and can run again."""
+def _write_load(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    out: Path,
+    slug: str,
+    version: str,
+    tbl: str,
+    stmts: Iterable[Stmt],
+    *,
+    stamp: str,
+    keep: int,
+    fts: bool = False,
+    after: Iterable[str] = (),
+) -> list[Path]:
+    """Writes one load's parts and its manifest.
+
+    Every part but the last only adds rows, and `cum` records the rows the table holds after each,
+    which is what a resumed load checks. The last part builds the indexes and registers the
+    version, and can run again.
+    """
     body: list[list[str]] = []
     cum: list[int] = []
     finish = [REGISTRY, ORDERS]
@@ -500,7 +716,7 @@ def _write_load(out, slug, version, tbl, stmts, stamp, keep, fts=False, after=()
             f"{literal(version)} AND tbl = {literal(tbl)});"
         )
     key = f"{slug}@{version}"
-    paths = []
+    paths: list[Path] = []
     for i, part in enumerate([*body, finish], 1):
         path = out / f"{key}.part{i:03d}.sql"
         with path.open("w", encoding="utf-8", newline="\n") as f:
@@ -510,7 +726,7 @@ def _write_load(out, slug, version, tbl, stmts, stamp, keep, fts=False, after=()
                 f.write(f"-- load {stamp}\n")
             f.writelines(s + "\n" for s in part)
         paths.append(path)
-    manifest = {
+    manifest: LoadManifest = {
         "slug": slug,
         "version": version,
         "tbl": tbl,
@@ -551,7 +767,7 @@ CATALOGUE_FIELDS = (
 FTS_ROWS = 20_000
 
 
-def catalogue_sqlite(path: Path, rows: list[dict], version: str) -> None:
+def catalogue_sqlite(path: Path, rows: Sequence[Mapping[str, object]], version: str) -> None:
     """The index as a SQLite file shaped like a version's data.sqlite, so it loads the same way."""
     path.unlink(missing_ok=True)
     db = sqlite3.connect(path)
@@ -575,9 +791,11 @@ def catalogue_sqlite(path: Path, rows: list[dict], version: str) -> None:
 
 
 def catalogue_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str = "") -> list[Path]:
-    """Load parts for the catalogue index when this harvest is not loaded yet. A harvest is a new
-    version only when the portals' lists changed, so an unchanged catalogue never loads again.
-    One index is kept."""
+    """Load parts for the catalogue index when this harvest is not loaded yet.
+
+    A harvest is a new version only when the portals' lists changed, so an unchanged catalogue
+    never loads again. One index is kept.
+    """
     src = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     version = dict(src.execute("SELECT key, value FROM publicdata").fetchall())["catalogue_read"]
     src.close()
@@ -593,13 +811,13 @@ def catalogue_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str 
                 version,
                 ("id", "portal", "host", "name", "url", "vote"),
                 tbl,
-                ("title", "summary", "publisher"),
+                fts=("title", "summary", "publisher"),
             )
         )
     except TooWide as e:
-        print(f"d1: {CATALOGUE}@{version} not loaded: {e}")
+        print(f"d1: {CATALOGUE}@{version} not loaded: {e}")  # noqa: T201 - the deploy log
         return []
-    return _write_load(out, CATALOGUE, version, tbl, stmts, stamp, 1, fts=True)
+    return _write_load(out, CATALOGUE, version, tbl, stmts, stamp=stamp, keep=1, fts=True)
 
 
 # The datasets served here, for search_datasets: one small table with a full-text index, kept in
@@ -619,9 +837,12 @@ SERVED_FIELDS = (
 )
 
 
-def served_table(path: Path, rows: list[dict]) -> str:
-    """Adds the served datasets to the catalogue index file. Returns the version, which is a hash
-    of the rows so a changed register loads again without waiting for a harvest."""
+def served_table(path: Path, rows: Sequence[Mapping[str, object]]) -> str:
+    """Adds the served datasets to the catalogue index file.
+
+    Returns the version, which is a hash of the rows so a changed register loads again without
+    waiting for a harvest.
+    """
     body = json.dumps([[r[f] for f in SERVED_FIELDS] for r in rows], ensure_ascii=False)
     version = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
     db = sqlite3.connect(path)
@@ -661,19 +882,19 @@ def served_loads(sqlite_path: Path, loaded: list[str], out: Path, stamp: str = "
     try:
         tbl = load_table(SERVED, version, _sqlite_digest(tmp))
         text = ("title", "summary", "publisher", "keywords", "fields")
-        stmts = list(_sqlite_stmts(tmp, SERVED, version, ("slug",), tbl, text))
+        stmts = list(_sqlite_stmts(tmp, SERVED, version, ("slug",), tbl, fts=text))
     except TooWide as e:
-        print(f"d1: {SERVED}@{version} not loaded: {e}")
+        print(f"d1: {SERVED}@{version} not loaded: {e}")  # noqa: T201 - the deploy log
         return []
     finally:
         tmp.unlink()
-    return _write_load(out, SERVED, version, tbl, stmts, stamp, 1, fts=True)
+    return _write_load(out, SERVED, version, tbl, stmts, stamp=stamp, keep=1, fts=True)
 
 
 class Wrangler:
     """Runs D1 commands through wrangler. Tests pass a stand-in."""
 
-    def __init__(self, database: str = "publicdata"):
+    def __init__(self, database: str = "publicdata") -> None:
         self.database = database
 
     def file(self, path: Path) -> bool:
@@ -691,7 +912,7 @@ class Wrangler:
         ]
         return subprocess.run(cmd, check=False).returncode == 0
 
-    def query(self, sql: str) -> list[dict]:
+    def query(self, sql: str) -> list[Row]:
         cmd = [
             "npx",
             "--yes",
@@ -711,11 +932,12 @@ class Wrangler:
         except ValueError:
             out = {}
         if r.returncode != 0 or isinstance(out, dict):
-            raise RuntimeError(f"D1 query failed: {sql[:80]}: {r.stdout[:300]} {r.stderr[:300]}")
+            msg = f"D1 query failed: {sql[:80]}: {r.stdout[:300]} {r.stderr[:300]}"
+            raise RuntimeError(msg)
         return [row for part in out for row in part.get("results", [])]
 
 
-class Unknown(RuntimeError):
+class Unknown(RuntimeError):  # noqa: N818 - named before the rule, and logs name it
     """D1 did not answer a check, so what a table holds is not known. Never read as absent."""
 
 
@@ -723,7 +945,7 @@ def _absent(e: Exception) -> bool:
     return "no such table" in str(e)
 
 
-def _ask(db, sql: str) -> list[dict]:
+def _ask(db: D1, sql: str) -> list[Row]:
     """A query, asked again when D1 fails to answer. A missing table is an answer."""
     for i in range(ASKS):
         try:
@@ -732,10 +954,11 @@ def _ask(db, sql: str) -> list[dict]:
             if _absent(e) or i == ASKS - 1:
                 raise
             time.sleep(ASK_DELAY)
-    raise AssertionError("unreachable")
+    msg = "unreachable"
+    raise AssertionError(msg)
 
 
-def _registry(db) -> dict[tuple[str, str], dict]:
+def _registry(db: D1) -> dict[tuple[str, str], Registered]:
     try:
         rows = _ask(db, "SELECT slug, version, tbl, rows FROM _versions")
     except RuntimeError as e:
@@ -745,11 +968,11 @@ def _registry(db) -> dict[tuple[str, str], dict]:
     return {(r["slug"], r["version"]): {"tbl": r["tbl"], "rows": int(r["rows"])} for r in rows}
 
 
-def registered(db) -> dict[tuple[str, str], int]:
+def registered(db: D1) -> dict[tuple[str, str], int]:
     return {k: v["rows"] for k, v in _registry(db).items()}
 
 
-def _count(db, tbl: str) -> int | None:
+def _count(db: D1, tbl: str) -> int | None:
     """The rows a table holds, None when it does not exist. Raises Unknown when D1 does not say."""
     try:
         return int(_ask(db, f'SELECT COUNT(*) AS n FROM "{tbl}"')[0]["n"])
@@ -758,12 +981,15 @@ def _count(db, tbl: str) -> int | None:
             return None
         raise Unknown(str(e)) from e
     except (LookupError, TypeError, ValueError) as e:
-        raise Unknown(f"no count for {tbl}: {e}") from e
+        msg = f"no count for {tbl}: {e}"
+        raise Unknown(msg) from e
 
 
-def holds(db, tbl: str, expected: int) -> bool:
-    """One COUNT per table: D1 caps compound SELECTs at five terms. Raises Unknown rather than
-    answer False when D1 cannot be asked."""
+def holds(db: D1, tbl: str, expected: int) -> bool:
+    """One COUNT per table, since D1 caps compound SELECTs at five terms.
+
+    Raises Unknown rather than answer False when D1 cannot be asked.
+    """
     return _count(db, tbl) == expected
 
 
@@ -816,9 +1042,9 @@ class Job:
 
 
 def _jobs(folder: Path) -> list[Job]:
-    jobs = []
+    jobs: list[Job] = []
     for m in sorted(folder.glob("*.json")):
-        d = json.loads(m.read_text(encoding="utf-8"))
+        d: LoadManifest = json.loads(m.read_text(encoding="utf-8"))
         jobs.append(
             Job(
                 key=m.name[: -len(".json")],
@@ -837,30 +1063,41 @@ def _jobs(folder: Path) -> list[Job]:
     return jobs
 
 
-def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], now: str):
-    """Orders the loads and splits them into this deploy's and later ones'. A load that got part
-    way goes first, then the dataset that has waited longest, then the smaller. Loads are taken
-    while they fit the budget, and the first in line is taken whatever its size, so a version
-    larger than the budget loads alone in some deploy and none waits for good. A dataset whose
-    loads failed in MAX_FAILURES deploys, of any versions, is skipped until a load of it succeeds
-    or `retry` names it; a failure also restarts its wait, so it goes behind the others."""
-    queue = []
+def plan(
+    jobs: list[Job], state: dict[str, Row], budget: int, retry: set[str], now: str
+) -> tuple[list[Job], list[Job]]:
+    """Orders the loads and splits them into this deploy's and later ones'.
+
+    A load that got part way goes first, then the dataset that has waited longest, then the
+    smaller. Loads are taken while they fit the budget, and the first in line is taken whatever
+    its size, so a version larger than the budget loads alone in some deploy and none waits for
+    good. A dataset whose loads failed in MAX_FAILURES deploys, of any versions, is skipped until
+    a load of it succeeds or `retry` names it; a failure also restarts its wait, so it goes behind
+    the others.
+    """
+    queue: list[Job] = []
     for j in jobs:
         row = state.get(j.slug)
         j.since = row["since"] if row else now
         j.attempts = int(row["attempts"]) if row else 0
         if row and row["version"] == j.version:
             part, done = int(row["part"]), int(row["rows"])
-            if row["tbl"] == j.tbl and j.resumable and 0 < part <= len(j.cum):
-                if j.cum[part - 1] == done:
-                    j.start = part
+            if (
+                row["tbl"] == j.tbl
+                and j.resumable
+                and 0 < part <= len(j.cum)
+                and j.cum[part - 1] == done
+            ):
+                j.start = part
         if j.attempts >= MAX_FAILURES and not ({"all", j.slug} & retry):
             j.outcome = "skipped"
             j.note = f"failed in {j.attempts} deploys: {(row or {}).get('error') or ''}"[:300]
             continue
         queue.append(j)
     queue.sort(key=lambda j: (j.start == 0, j.since, j.planned(), j.key))
-    take, wait, used = [], [], 0
+    take: list[Job] = []
+    wait: list[Job] = []
+    used = 0
     for j in queue:
         if not take or used + j.planned() <= budget:
             take.append(j)
@@ -871,7 +1108,7 @@ def plan(jobs: list[Job], state: dict[str, dict], budget: int, retry: set[str], 
     return take, wait
 
 
-def _upsert(rows: list[tuple], since: bool = False) -> str:
+def _upsert(rows: list[tuple[object, ...]], *, since: bool = False) -> str:
     return (
         "INSERT INTO _loads (slug, version, tbl, part, rows, attempts, error, since, tried) VALUES "
         + ",".join("(" + ", ".join(literal(v) for v in r) + ")" for r in rows)
@@ -886,11 +1123,16 @@ def _drops(tbl: str) -> list[str]:
     return [f'DROP TABLE IF EXISTS "{tbl}_fts";', f'DROP TABLE IF EXISTS "{tbl}";']
 
 
-def _note_pending(db, jobs: list[Job], state: dict[str, dict], served: set[str], log) -> None:
-    """Records each pending load the registry of loads lacks or holds for another table, keeping
-    the time its dataset began to wait, and drops a table an earlier load left part filled. A row
-    whose dataset is no longer pending goes, with any table it was filling."""
-    rows, sql = [], []
+def _note_pending(
+    db: D1, jobs: list[Job], state: dict[str, Row], served: set[str], log: Log
+) -> None:
+    """Records each pending load the registry of loads lacks or holds for another table.
+
+    It keeps the time its dataset began to wait, and drops a table an earlier load left part
+    filled. A row whose dataset is no longer pending goes, with any table it was filling.
+    """
+    rows: list[tuple[object, ...]] = []
+    sql: list[str] = []
     pending = {j.slug for j in jobs}
     for j in jobs:
         row = state.get(j.slug)
@@ -926,26 +1168,30 @@ def _note_pending(db, jobs: list[Job], state: dict[str, dict], served: set[str],
             return
 
 
-class _Skip(Exception):
+class _Skip(Exception):  # noqa: N818 - a signal that skips this deploy
     """Nothing was written, and this deploy cannot tell where the load stands."""
 
 
-class _Defer(Exception):
+class _Defer(Exception):  # noqa: N818 - a signal that waits for the next deploy
     """The deploy's budget is spent; nothing of this load was written."""
 
 
 class _Budget:
-    """Rows written so far in this deploy. A load reserves its plan before it writes, and each
-    part run again, or a resume that has to start over, is charged on top. Once retries have
-    used it up, loads not yet started wait for the next deploy; the first in line always runs."""
+    """Rows written so far in this deploy.
 
-    def __init__(self, cap: int):
+    A load reserves its plan before it writes, and each part run again, or a resume that has to
+    start over, is charged on top. Once retries have used it up, loads not yet started wait for
+    the next deploy; the first in line always runs.
+    """
+
+    def __init__(self, cap: int) -> None:
         self.cap, self.spent, self.lock = cap, 0, threading.Lock()
 
     def reserve(self, j: Job, need: int) -> None:
         with self.lock:
             if not j.first and self.spent + need > self.cap:
-                raise _Defer(f"{self.spent:,} of the {self.cap:,} rows written already spent")
+                msg = f"{self.spent:,} of the {self.cap:,} rows written already spent"
+                raise _Defer(msg)
             self.spent += need
             j.charged += need
 
@@ -955,15 +1201,18 @@ class _Budget:
             j.charged += rows
 
 
-class _Failed(Exception):
-    def __init__(self, done: int, why: str):
+class _Failed(Exception):  # noqa: N818 - a signal the load records
+    def __init__(self, done: int, why: str) -> None:
         super().__init__(why)
         self.done = done
 
 
-def _fill(db, j: Job, budget: _Budget, log) -> None:
-    """Runs the parts that add rows, from where the last load stopped if the table still holds
-    exactly the rows that load recorded. Raises _Failed with the parts known to be in place."""
+def _fill(db: D1, j: Job, budget: _Budget, log: Log) -> None:  # noqa: C901 - one load's parts and their retries, read in order
+    """Runs the parts that add rows.
+
+    It starts from where the last load stopped if the table still holds exactly the rows that load
+    recorded. Raises _Failed with the parts known to be in place.
+    """
     start = j.start
     if start:
         try:
@@ -1001,7 +1250,7 @@ def _fill(db, j: Job, budget: _Budget, log) -> None:
             restamp(j.body[i], t)
 
 
-def _finish(db, j: Job, budget: _Budget, log) -> None:
+def _finish(db: D1, j: Job, budget: _Budget, log: Log) -> None:
     """Builds the indexes and registers the version, which holds only if the table is whole."""
     with IMPORT_LOCK:
         n = _count(db, j.tbl)
@@ -1032,10 +1281,13 @@ def _finish(db, j: Job, budget: _Budget, log) -> None:
     raise _Failed(len(j.body), "its indexes or registration did not complete")
 
 
-def _sweep(db, keep: set[str], log) -> None:
-    """Drops the load tables, and their full-text indexes, that no registration, pending load
-    or load of this deploy names: what a confirmation D1 did not answer, or a cleanup that
-    failed, left behind. Only names shaped as load_table makes them are touched."""
+def _sweep(db: D1, keep: set[str], log: Log) -> None:
+    """Drops the load tables, and their full-text indexes, that nothing names.
+
+    A table goes when no registration, pending load or load of this deploy names it; it is what a
+    confirmation D1 did not answer, or a cleanup that failed, left behind. Only names shaped as
+    load_table makes them are touched.
+    """
     try:
         names = {
             r["name"]
@@ -1058,16 +1310,19 @@ def _sweep(db, keep: set[str], log) -> None:
             return
 
 
-def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> None:
-    """After the new table is registered: unregisters the versions beyond the ones kept, then
-    drops the tables no registration names any more, the one this load replaced among them."""
+def _clean(db: D1, j: Job, reg: dict[tuple[str, str], Registered], folder: Path, log: Log) -> None:
+    """Unregisters the versions beyond the ones kept, after the new table is registered.
+
+    It then drops the tables no registration names any more, the one this load replaced among
+    them.
+    """
     others = sorted((v for s, v in reg if s == j.slug and v != j.version), reverse=True)
     # Newer versions are kept first, so a re-run of an older deploy never drops one.
     kept = [v for v in others if v > j.version][: j.keep - 1]
     kept += [v for v in others if v < j.version][: j.keep - 1 - len(kept)]
     gone = [v for v in others if v not in kept]
     names = {reg[(j.slug, v)]["tbl"] for v in kept} | {j.tbl}
-    stmts = []
+    stmts: list[str] = []
     for v in gone:
         stmts += [
             f"DELETE FROM _versions WHERE slug = {literal(j.slug)} AND version = {literal(v)};",
@@ -1087,7 +1342,7 @@ def _clean(db, j: Job, reg: dict[tuple[str, str], dict], folder: Path, log) -> N
             log(f"d1 load: {j.key} is loaded; dropping what it replaced reported an error")
 
 
-def _record_failure(db, j: Job, done: int, why: str, now: str, log) -> None:
+def _record_failure(db: D1, j: Job, done: int, why: str, now: str, *, log: Log) -> None:  # noqa: PLR0913 - the options are keyword-only and named at each call
     j.attempts += 1
     rows = j.cum[done - 1] if done else 0
     try:
@@ -1103,12 +1358,22 @@ def _record_failure(db, j: Job, done: int, why: str, now: str, log) -> None:
         log(f"d1 load: {j.key} failure could not be recorded: {e}")
 
 
-def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, budget: _Budget, log) -> None:
+def _run(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    db: D1,
+    j: Job,
+    reg: dict[tuple[str, str], Registered],
+    served: set[str],
+    folder: Path,
+    *,
+    now: str,
+    budget: _Budget,
+    log: Log,
+) -> None:
     try:
         if j.tbl in served:
             # Registered by a deploy that could not confirm it; only the finish part runs again.
             if j.fts:
-                raise _Failed(0, f"{j.tbl} is registered; its full-text index is not rebuilt")
+                raise _Failed(0, f"{j.tbl} is registered; its full-text index is not rebuilt")  # noqa: TRY301 - recorded below with every failure
             budget.reserve(j, j.finishing())
         else:
             budget.reserve(j, j.planned())
@@ -1124,19 +1389,19 @@ def _run(db, j: Job, reg, served: set[str], folder: Path, now: str, budget: _Bud
         return
     except _Failed as e:
         log(f"d1 load: {j.key} failed: {e}")
-        _record_failure(db, j, e.done, str(e), now, log)
+        _record_failure(db, j, e.done, str(e), now, log=log)
         j.outcome, j.note = "failed", str(e)
         return
     except Unknown as e:
         # Counted as a failure with no progress, so a check D1 never answers cannot reload a
         # version on every deploy. Nothing is unregistered: a registered version stays served.
         log(f"d1 load: {j.key} not checked, D1 did not answer: {e}")
-        _record_failure(db, j, 0, f"unchecked: {e}", now, log)
+        _record_failure(db, j, 0, f"unchecked: {e}", now, log=log)
         j.outcome, j.note = "unchecked", str(e)[:300]
         return
     except (RuntimeError, OSError, ValueError, KeyError, IndexError) as e:
         log(f"d1 load: {j.key} failed: {e}")
-        _record_failure(db, j, 0, str(e), now, log)
+        _record_failure(db, j, 0, str(e), now, log=log)
         j.outcome, j.note = "failed", str(e)[:300]
         return
     j.outcome = "resumed" if j.start else "loaded"
@@ -1159,8 +1424,8 @@ def _stale(j: Job, now: str) -> bool:
     return at - since > datetime.timedelta(days=STALE_DAYS)
 
 
-def _summary(
-    path: Path | None, jobs: list[Job], budget: int, log, spent: int = 0, now: str = ""
+def _summary(  # noqa: PLR0913 - the options are keyword-only and named at each call
+    path: Path | None, jobs: list[Job], budget: int, log: Log, spent: int = 0, *, now: str = ""
 ) -> None:
     order = {"loaded": 0, "resumed": 0, "failed": 1, "unchecked": 2, "deferred": 3, "skipped": 4}
     jobs = sorted(jobs, key=lambda j: (order.get(j.outcome, 5), j.key))
@@ -1193,8 +1458,10 @@ def _summary(
     ]
     if stale:
         lines += [
-            f"Skipped, or waiting over {STALE_DAYS} days; the API answers from the version "
-            "before each:",
+            (
+                f"Skipped, or waiting over {STALE_DAYS} days; the API answers from the version "
+                "before each:"
+            ),
             "",
             *(
                 f"- {j.key}: {'skipped, ' + j.note if j.outcome == 'skipped' else 'waiting'}"
@@ -1220,21 +1487,24 @@ def _summary(
         log(f"d1 load: no step summary: {e}")
 
 
-def load(
+def load(  # noqa: PLR0913 - the options are keyword-only and named at each call
     folder: Path,
-    db,
-    log=print,
+    db: D1,
+    log: Log = print,
     workers: int = WORKERS,
     budget: int = BUDGET,
+    *,
     retry: set[str] | None = None,
     summary: Path | None = None,
     now: str | None = None,
 ) -> int:
     """Loads this deploy's share of the pending versions and leaves the rest to later deploys.
+
     A part that reports an error is counted: one that applied is kept, one that did not is run
     again, anything else fails the version. A failed version keeps its progress and the version
     before it keeps serving. Up to `workers` versions load at once. Returns the number of
-    versions that failed in this deploy."""
+    versions that failed in this deploy.
+    """
     jobs = _jobs(folder)
     now = now or datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     for ddl in (REGISTRY, ORDERS, LOADS):
@@ -1254,7 +1524,7 @@ def load(
     )
 
     def one(j: Job) -> None:
-        _run(db, j, reg, served, folder, now, spent, log)
+        _run(db, j, reg, served, folder, now=now, budget=spent, log=log)
 
     if workers <= 1:
         for j in take:
@@ -1262,5 +1532,5 @@ def load(
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(one, take))
-    _summary(summary, jobs, budget, log, spent.spent, now)
+    _summary(summary, jobs, budget, log, spent.spent, now=now)
     return sum(j.outcome == "failed" for j in jobs)

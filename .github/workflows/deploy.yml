@@ -136,8 +136,9 @@ jobs:
           for f in register.py cache.py; do
             git show "$base:pipeline/publicdata/$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
           done
-          # The base's copy of each changed register entry, to find the rebuild numbers raised.
-          { grep -E '^register/.*\.yaml$' "$RUNNER_TEMP/changed.txt" || true; } | while read -r f; do
+          # The base's copy of each changed register entry, to find the rebuild numbers raised, and
+          # of each changed manifest, to find the notes a partition_by edit must add.
+          { grep -E '^(register/.*\.yaml|store/.*/manifest\.json)$' "$RUNNER_TEMP/changed.txt" || true; } | while read -r f; do
             mkdir -p "$before/$(dirname "$f")"
             git show "$base:$f" > "$before/$f" 2>/dev/null || rm -f "$before/$f"
           done
@@ -454,6 +455,16 @@ jobs:
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: python -m publicdata cache push --cache "$BUILD_CACHE" --prune
+      # Live account data, so it goes in after the build; a figure that cannot be read is marked
+      # unavailable and never stops the deploy. Its token holds Account Analytics Read and nothing else.
+      - name: Measure stored bytes for health.json
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          CLOUDFLARE_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_ANALYTICS_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: python -m publicdata measure "$DIST/health.json"
       - name: Deploy to Cloudflare Pages
         id: pages
         if: env.HAS_CF == 'true'
@@ -528,6 +539,20 @@ jobs:
           fi
           python -m publicdata d1 sql --root "$DIST" --root "$DIST_LARGE" --loaded loaded.json --out d1-load --stamp "$GITHUB_RUN_ID" --catalogue catalogue-search.sqlite
           python -m publicdata d1 load --dir d1-load --budget "${D1_BUDGET:-0}" --retry "$D1_RETRY" --summary "$GITHUB_STEP_SUMMARY"
+      # The MCP server answers counts from a version's rollup in R2 before any other engine, so
+      # rollups follow what D1 holds after the load, plus every version of a query: false entry.
+      # A rollup is written again when its version's Parquet changes, and the rest are deleted.
+      - name: Write rollups for the versions queries reach
+        if: env.HAS_CF == 'true' && github.event_name != 'pull_request' && vars.D1_ENABLED == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          REPLACE: ${{ github.event.inputs.replace }}
+        run: |
+          npx --no-install wrangler d1 execute publicdata --remote --json \
+            --command "SELECT slug, version, rows, fields FROM _versions" > held.json
+          python -m publicdata rollup --loaded held.json --root "$DIST" --root "$DIST_LARGE" --out rollups ${REPLACE:+--replace $REPLACE}
       - name: Comment the preview URL
         if: env.HAS_CF == 'true' && github.event_name == 'pull_request'
         env:

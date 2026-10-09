@@ -6,15 +6,17 @@ the portal, until it is serialised here and has a dataset page.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Protocol
 from urllib.parse import parse_qs, urlparse
 
 from . import REPO, SITE
-from .catalogue import BY_CODE
+from .catalogue import BY_CODE, record_id
 from .provenance import OPERATOR_ORG
 from .publishers import (
     JUR_NAME,
@@ -27,7 +29,107 @@ from .publishers import (
     org_key,
     resolve,
 )
-from .register import Dataset
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+    from typing import NotRequired, TypedDict
+
+    from .catalogue import Record
+    from .register import Dataset
+    from .site import DatasetRow
+    from .store import PortalStats
+
+    class Page(Protocol):
+        def __call__(self, rel: str, template: str, md: str, **ctx: object) -> None: ...
+
+    class SearchRow(TypedDict):
+        """A listed catalogue record as the search index in D1 holds it."""
+
+        id: str
+        title: str
+        summary: str
+        publisher: str
+        publisher_path: str
+        jur: str
+        portal: str
+        host: str
+        name: str
+        url: str
+        licence: str
+        formats: str
+        modified: str
+        state: str
+        vote: str
+        note: str
+
+    class RecordRow(TypedDict):
+        """A listed record as a publisher page shows it."""
+
+        id: str
+        title: str
+        url: str
+        summary: str
+        formats: str
+        licence: str
+        modified: str
+        served: str
+        candidate: bool
+        vote: str
+        reason: str
+        portal: str
+        task: str
+
+    class Stats(TypedDict):
+        records: int
+        listed_n: int
+        listed: str
+        candidates_n: int
+        candidates: str
+        live: int
+
+    class LiveRow(DatasetRow):
+        """A served dataset's row on its publisher's page."""
+
+        publisher_path: str
+
+    class PubEntry(TypedDict):
+        """A publisher in the browse pages and catalogue/publishers.json."""
+
+        slug: str
+        path: str
+        url: str
+        name: str
+        short: str
+        jurisdiction: str
+        level: str
+        portals: list[str]
+        orgs: list[str]
+        listed: int
+        candidates: int
+        live: int
+        listed_fmt: str
+        candidates_fmt: str
+        bar: NotRequired[int]
+
+    class Group(TypedDict):
+        title: str
+        publishers: list[PubEntry]
+
+    class JurRow(TypedDict):
+        """A government in the browse page and the home page's table."""
+
+        code: str
+        path: str
+        name: str
+        portals: list[str]
+        publishers: str
+        publishers_n: int
+        listed: str
+        listed_n: int
+        candidates: str
+        live: int
+        bar: NotRequired[int]
+
 
 HOST = SITE.replace("https://", "")
 # A publisher page with fewer listed datasets than this, and nothing served, is kept out of the
@@ -107,12 +209,12 @@ def count(n: int, one: str, many: str | None = None) -> str:
 class Directory:
     pubs: dict[tuple[str, str], Publisher]
     ds_pub: dict[str, Publisher]
-    records: dict[str, list[dict]] = field(default_factory=dict)  # by publisher path
+    records: dict[str, list[Record]] = field(default_factory=dict)  # by publisher path
     served: dict[str, str] = field(default_factory=dict)  # record id -> path of its page here
     chosen: dict[str, str] = field(default_factory=dict)  # record id -> register slug not built yet
     as_at: str = ""
-    unread: dict[str, dict] = field(default_factory=dict)  # portal code -> harvest stats
-    jur_rows: list[dict] = field(default_factory=list)  # filled by render, for the home page
+    unread: dict[str, PortalStats] = field(default_factory=dict)  # portal code -> harvest stats
+    jur_rows: list[JurRow] = field(default_factory=list)  # filled by render, for the home page
     tasks: dict[str, int] = field(default_factory=dict)  # vote key -> open contributor issue
 
     def task_url(self, key: str) -> str:
@@ -124,7 +226,7 @@ class Directory:
 
     def notes(self, jurisdiction: str | None = None) -> list[str]:
         """A sentence for each portal the latest harvest could not read."""
-        out = []
+        out: list[str] = []
         for code, st in sorted(self.unread.items()):
             portal = BY_CODE.get(code)
             if not portal or (jurisdiction and PORTAL_JUR[portal.jurisdiction] != jurisdiction):
@@ -163,11 +265,11 @@ class Directory:
 
 def plan(
     datasets: list[Dataset],
-    records: list[dict],
+    records: list[Record],
     curated: list[Publisher],
     as_at: str,
-    stats: dict | None = None,
-):
+    stats: Mapping[str, PortalStats] | None = None,
+) -> Directory:
     portal_jur = {p.code: p.jurisdiction for p in BY_CODE.values()}
     pubs, by_org = resolve(records, curated, portal_jur)
     by_name = {(r["portal"], r["name"]): r for r in records}
@@ -183,7 +285,8 @@ def plan(
     for ds in datasets:
         d.ds_pub[ds.slug] = for_dataset(ds, pubs, by_org, by_name, portal_by_host)
         host = (ds.source.portal or "").split("://")[-1].removeprefix("www.").split("/")[0]
-        rec = by_name.get((portal_by_host.get(host), ds.source.package))
+        portal = portal_by_host.get(host)
+        rec = by_name.get((portal, ds.source.package)) if portal is not None else None
         if ds.status in ("live", "building"):
             # A record named by its id in the source URL; a bare URL is too loose to mark served.
             rec = rec or find(ds.source.url, by_name, by_id, {}, portal_by_host)
@@ -212,10 +315,12 @@ PORTAL_HOSTS = {
 }
 
 
-def locate(url: str) -> tuple[str, str, str] | None:
-    """What a pasted portal URL names: (host, "name", package name), (host, "id", record id) or
-    (host, "url", bare url). functions/_catalogue.js does the same and the tests hold them
-    together."""
+def locate(url: str) -> tuple[str, str, str] | None:  # noqa: PLR0911 - one return per way a record is placed
+    """What a pasted portal URL names.
+
+    The answer is (host, "name", package name), (host, "id", record id) or (host, "url", bare
+    url). functions/_catalogue.js does the same and the tests hold them together.
+    """
     try:
         u = urlparse(url.strip())
     except ValueError:
@@ -239,11 +344,16 @@ def locate(url: str) -> tuple[str, str, str] | None:
     return host, "url", _bare(url)
 
 
-def find(url, by_name, by_id, by_url, portal_by_host) -> dict | None:
+def find(
+    url: str,
+    by_name: Mapping[tuple[str, str], Record],
+    by_id: Mapping[str, Record],
+    by_url: Mapping[str, Record],
+    portal_by_host: Mapping[str, str],
+) -> Record | None:
     hit = locate(url or "")
     if not hit:
         return None
-    from .catalogue import record_id
 
     host, kind, value = hit
     code = portal_by_host.get(host)
@@ -255,11 +365,14 @@ def find(url, by_name, by_id, by_url, portal_by_host) -> dict | None:
     return rec or by_url.get(_bare(url))
 
 
-def search_rows(d: Directory) -> list[dict]:
-    """One row per listed catalogue record for the search index in D1. `vote` is the key a vote
-    goes under: the record's id, or the register slug when the record is already chosen."""
+def search_rows(d: Directory) -> list[SearchRow]:
+    """One row per listed catalogue record for the search index in D1.
+
+    `vote` is the key a vote goes under: the record's id, or the register slug when the record is
+    already chosen.
+    """
     pub_by_path = {p.path: p for p in d.pubs.values()}
-    out = []
+    out: list[SearchRow] = []
     for path, recs in d.records.items():
         pub = pub_by_path[path]
         for r in recs:
@@ -321,7 +434,7 @@ def licence_name(lic: str | None) -> str:
     return lic
 
 
-def _reason(r: dict) -> str:
+def _reason(r: Record) -> str:
     if r["open"] is None:
         return "no licence stated"
     if not r["open"]:
@@ -329,14 +442,18 @@ def _reason(r: dict) -> str:
     return "no download"
 
 
-def _row(r: dict, served: dict[str, str], chosen: dict[str, str], task: str = "") -> dict:
+SHOWN_FORMATS = 4
+
+
+def _row(r: Record, served: dict[str, str], chosen: dict[str, str], task: str = "") -> RecordRow:
     fmts = r["formats"]
     return {
         "id": r["id"],
         "title": r["title"],
         "url": r["url"],
         "summary": r["summary"] if r["summary"] != "No notes provided" else "",
-        "formats": ", ".join(fmts[:4]) + (f" +{len(fmts) - 4}" if len(fmts) > 4 else ""),
+        "formats": ", ".join(fmts[:SHOWN_FORMATS])
+        + (f" +{len(fmts) - SHOWN_FORMATS}" if len(fmts) > SHOWN_FORMATS else ""),
         "licence": licence_name(r["licence"]),
         "modified": r["modified"],
         "served": served.get(r["id"], ""),
@@ -348,7 +465,7 @@ def _row(r: dict, served: dict[str, str], chosen: dict[str, str], task: str = ""
     }
 
 
-def _stats(recs: list[dict], live: int) -> dict:
+def _stats(recs: list[Record], live: int) -> Stats:
     listed = [r for r in recs if r["kind"] in LISTED_KINDS]
     return {
         "records": len(recs),
@@ -360,7 +477,7 @@ def _stats(recs: list[dict], live: int) -> dict:
     }
 
 
-def _other_kinds(recs: list[dict], portals: list[str]) -> str:
+def _other_kinds(recs: list[Record], portals: list[str]) -> str:
     kinds = Counter(r["kind"] for r in recs if r["kind"] not in LISTED_KINDS)
     if not kinds:
         return ""
@@ -375,22 +492,29 @@ def shard(record_id: str) -> str:
     return f"{portal}-{rest[0]}"
 
 
-def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -> list[str]:
+def render(  # noqa: C901, PLR0912, PLR0915 - the directory's pages in the order they are written
+    d: Directory,
+    page: Page,
+    write: Callable[[str, str], object],
+    live_rows: Mapping[str, DatasetRow],
+    breadcrumbs: Callable[[list[tuple[str, str]]], dict[str, object]],
+) -> list[str]:
     """Writes the browse page, one page per government and one per publisher, and their JSON.
-    Returns the URLs that belong in the sitemap."""
+
+    Returns the URLs that belong in the sitemap.
+    """
     urls: list[str] = []
     # Before the first harvest there is no catalogue: pages show what is served, make no claim
     # about the portals and stay out of the index.
     have = any(d.records.values())
     pub_by_path = {p.path: p for p in d.pubs.values()}
-    live_by_pub: dict[str, list[dict]] = defaultdict(list)
+    live_by_pub: dict[str, list[LiveRow]] = defaultdict(list)
     for slug, row in live_rows.items():
         p = d.ds_pub[slug]
-        row = {**row, "publisher_path": p.path}
-        live_by_pub[p.path].append(row)
+        live_by_pub[p.path].append({**row, "publisher_path": p.path})
     as_at_long = _long(d.as_at)
-    pub_index = []
-    jur_pubs: dict[str, list[dict]] = defaultdict(list)
+    pub_index: list[PubEntry] = []
+    jur_pubs: dict[str, list[PubEntry]] = defaultdict(list)
     for (jur, _slug), p in sorted(d.pubs.items(), key=lambda kv: kv[1].name.lower()):
         recs = sorted(d.records.get(p.path, []), key=lambda r: r["title"].lower())
         recs.sort(key=lambda r: r["modified"] or "", reverse=True)
@@ -404,7 +528,7 @@ def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -
         # A record with an open contributor issue is listed even past the newest SHOWN.
         rows = rows[:SHOWN] + [r for r in rows[SHOWN:] if r["task"]]
         index = have and (st["listed_n"] >= INDEX_MIN or st["live"] > 0 or len(recs) >= INDEX_MIN)
-        entry = {
+        entry: PubEntry = {
             "slug": p.slug,
             "path": p.path,
             "url": SITE + p.path,
@@ -593,7 +717,7 @@ def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -
         if index:
             urls.append(SITE + p.path)
 
-    jur_rows = []
+    jur_rows: list[JurRow] = []
     for code, seg, jname in JURISDICTIONS:
         entries = jur_pubs.get(code, [])
         if not entries:
@@ -602,7 +726,7 @@ def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -
         live = [x for e in entries for x in live_by_pub.get(e["path"], [])]
         st = _stats(recs, len([x for x in live if x["latest"]]))
         portals = sorted({pt for e in entries for pt in e["portals"]})
-        groups = []
+        groups: list[Group] = []
         most = max((e["listed"] for e in entries), default=0)
         for level in ("federal", "state", "local", "other"):
             ps = sorted(
@@ -800,7 +924,7 @@ def render(d: Directory, page, write, live_rows: dict[str, dict], breadcrumbs) -
     )
     if have:
         urls.insert(0, SITE + "/browse/")
-    votable: dict[str, dict] = defaultdict(dict)
+    votable: dict[str, dict[str, list[str]]] = defaultdict(dict)
     for path, recs in d.records.items():
         pub = pub_by_path.get(path)
         for r in recs:
@@ -848,9 +972,43 @@ def _who(p: Publisher, jur: str) -> str:
     return f"{p.name} is {noun}{site}."
 
 
-def _listing_note(rows: list[dict], live: list[dict]) -> str:
-    """What the listing holds: the topics served here, else the file types the portal lists
-    and when a listing last changed."""
+# A portal's format codes as words a reader knows; the glossary explains the abbreviations kept, and
+# a code not listed here is written in lower case, as a word rather than an abbreviation.
+FORMAT_WORDS = {
+    "API": "API",
+    "ARCGIS GEOSERVICES REST API": "ArcGIS REST API",
+    "CSV": "CSV",
+    "DOC": "Word",
+    "DOCX": "Word",
+    "ESRI REST": "ArcGIS REST API",
+    "GEOJSON": "GeoJSON",
+    "GEOTIFF": "GeoTIFF",
+    "GML": "GML",
+    "GPKG": "GeoPackage",
+    "HTML": "HTML",
+    "JSON": "JSON",
+    "KML": "KML",
+    "KMZ": "KMZ",
+    "PDF": "PDF",
+    "SHP": "Shapefile",
+    "TIFF": "TIFF",
+    "TSV": "TSV",
+    "TXT": "text",
+    "WFS": "WFS",
+    "WMS": "WMS",
+    "XLS": "Excel",
+    "XLSX": "Excel",
+    "XML": "XML",
+    "ZIP": "ZIP",
+}
+
+
+def _listing_note(rows: list[Record], live: list[LiveRow]) -> str:
+    """What the listing holds.
+
+    That is the topics served here, else the file types the portal lists and when a listing last
+    changed.
+    """
     # Only a dataset with a built version is served; a new entry waits for its first fetch.
     topics = sorted({t for x in live if x.get("live", True) for t in x.get("topics", [])})
     if topics:
@@ -859,7 +1017,7 @@ def _listing_note(rows: list[dict], live: list[dict]) -> str:
     newest = max((r.get("modified") or "" for r in rows), default="")
     parts = []
     if fmts:
-        top = [f for f, _ in fmts.most_common(3)]
+        top = [FORMAT_WORDS.get(f.upper(), f.lower()) for f, _ in fmts.most_common(3)]
         parts.append(f"Most of its files are {join(top)}")
     if newest:
         parts.append(f"the newest listing changed on {_long(newest)}")
@@ -876,7 +1034,6 @@ def _bar(n: int, top: int) -> int:
 def _long(iso: str) -> str:
     if not iso:
         return "never"
-    import datetime as dt
 
     x = dt.date.fromisoformat(iso[:10])
     return f"{x.day} {x.strftime('%B %Y')}"

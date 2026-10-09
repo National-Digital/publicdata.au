@@ -56,16 +56,19 @@
       var u = D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
       return FILE_URL.test(u) ? u : '';
     }
-    // download_name() in site.py and functions/_download.js.
+    // download_name() in site.py, with the suffix it gives each format and the date latest/ serves.
+    // A page cached from before a deploy lacks both for five minutes, so the older rule stands in.
     function saveAs() {
       var v = ver ? ver.value : 'latest',
-        file = D.formats[fmt()].file;
-      return (
-        D.slug +
-        '_' +
-        (v === 'latest' ? D.latest : v) +
-        (file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_'))
-      );
+        d = D.formats[fmt()],
+        file = d.file;
+      var tail =
+        d.suffix !== undefined && d.suffix !== null
+          ? d.suffix
+          : file.indexOf('data.') === 0
+            ? file.slice(4)
+            : '_' + file.replace(/\//g, '_');
+      return D.slug + '_' + (v === 'latest' ? D.served || D.latest : v) + tail;
     }
     function quote(s) {
       return '"' + s + '"';
@@ -633,9 +636,15 @@
       update();
     });
 
-    var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0' });
+    var urlBox = el('div', {
+      class: 'path',
+      id: 'q-url',
+      tabindex: '0',
+      role: 'region',
+      'aria-label': 'Query URL',
+    });
     var runB = el('button', { type: 'button', class: 'btn', text: 'Run' });
-    var openA = el('a', { class: 'btn ghost', text: 'Open', rel: 'nofollow' });
+    var openA = el('a', { class: 'btn ghost', text: 'Open the result', rel: 'nofollow' });
     var copyB = el('button', { type: 'button', class: 'copy', text: 'Copy URL' });
     copyB.addEventListener('click', function () {
       var t = urlBox.textContent;
@@ -1080,13 +1089,24 @@
     });
   }
 
-  // The header on a narrow screen: the menu button shows and hides the site links.
+  // The header on a narrow screen: the menu button shows and hides the site links, and Escape
+  // closes them and returns focus to the button.
   var menu = document.querySelector('.menu');
   if (menu) {
-    menu.addEventListener('click', function () {
-      var on = menu.getAttribute('aria-expanded') !== 'true';
+    var header = menu.closest('header');
+    var setMenu = function (on) {
       menu.setAttribute('aria-expanded', on ? 'true' : 'false');
-      menu.closest('header').classList.toggle('open', on);
+      header.classList.toggle('open', on);
+    };
+    menu.addEventListener('click', function () {
+      setMenu(menu.getAttribute('aria-expanded') !== 'true');
+    });
+    header.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || menu.getAttribute('aria-expanded') !== 'true') {
+        return;
+      }
+      setMenu(false);
+      menu.focus();
     });
   }
 
@@ -1862,9 +1882,17 @@
       return Promise.resolve()
         .then(function () {
           slug = slugOf(input);
+          var order = [alias + '.desc']
+            .concat(
+              group.map(function (g) {
+                return g + '.asc';
+              })
+            )
+            .map(encValue)
+            .join(',');
           var qs = filters(input.where).concat([
             'metric=' + encValue(metric),
-            'order=' + encValue(alias + '.desc'),
+            'order=' + order,
             'limit=' + limit,
           ]);
           if (group.length) {

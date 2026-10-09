@@ -31,6 +31,8 @@ cd pipeline
 python -m publicdata register validate
 python -m publicdata build --fixtures --out /tmp/pd
 python -m publicdata gate /tmp/pd
+ruff check . && ruff format --check .
+mypy
 pytest -n auto
 cd .. && node --test functions/*.test.mjs scripts/*.test.mjs
 npx eslint . --max-warnings 0
@@ -63,7 +65,7 @@ licence, not the AGPL. Only styles from its free package may be added there; see
 ## Git hooks
 
 The `core.hooksPath` line in Set up switches on three hooks in `.githooks/`. They catch on your
-machine what CI would fail a few minutes later, and they replace no CI check.
+machine what CI would fail a few minutes later.
 
 - `prepare-commit-msg` adds the DCO `Signed-off-by` trailer to every commit, once.
 - `pre-commit` runs `ruff check` and `ruff format --check` on the staged content of each staged
@@ -85,36 +87,44 @@ machine what CI would fail a few minutes later, and they replace no CI check.
   versions, when one differs, and runs it anyway.
 - `pre-commit` also runs ESLint with `--max-warnings 0` and `prettier --check` on the staged
   content of each staged JavaScript file the two configs cover and of `.prettierrc.json`, using
-  the versions in `node_modules`. It names each file and rule that fails and stops the commit once the other
-  checks have run. A commit with no such file runs neither tool. Each file takes about a second.
-- `pre-push` runs the fast tests in the working tree: `pytest -m "not slow" -n auto` in `pipeline/`
-  and `node --test functions/*.test.mjs scripts/*.test.mjs`. It stops the push when a test fails.
-  It should take under a minute on a laptop.
+  the versions in `node_modules`. It names each file and rule that fails and stops the commit once
+  the other checks have run. A commit with no such file runs neither tool. Each file takes about a
+  second.
+- `pre-push` checks what the push changes, comparing each branch with what the remote holds, or
+  a new branch with where it leaves the remote's main. When the push changes `pipeline/`, it runs
+  `mypy` there, then the fast tests in the working tree, `pytest -m "not slow" -n auto`. When it
+  changes `clients/python/`, it runs the client's two mypy runs, `mypy` and
+  `mypy --python-version 3.14`. It runs `node --test functions/*.test.mjs scripts/*.test.mjs` on
+  every push. mypy keeps its cache between runs, so a later push checks only what changed. The
+  hook stops the push when a check fails, and should take under a minute on a laptop.
 
 The fast tests are every test that is not marked `slow`. `pipeline/tests/conftest.py` decides
 which tests are slow: those that use the fixture store or a fixture site build (`SLOW_FIXTURES`)
-and those named in `SLOW_TESTS`. Move a test in or out of the fast run there. CI runs every test.
+and those named in `SLOW_TESTS`. Move a test in or out of the fast run there.
 
-A hook whose tool is missing prints one line saying what it skipped and lets the commit or push
-through: `ruff` for `pre-commit`, `pytest` or the activated virtual environment for the Python
-tests, and `node` for the JavaScript tests. The workflow and JavaScript checks in `pre-commit` are
-the exceptions. A commit that stages `.github/` fails when actionlint, shellcheck or zizmor is
-missing, with a line naming the version CI pins and where to get it. A commit that stages
-JavaScript fails when `node_modules` is missing, with a line asking you to run
-`npm ci --ignore-scripts`, because CI always runs ESLint and Prettier. To skip the hooks once,
-pass `--no-verify` to `git commit` or `git push`.
+A hook with Python to check that cannot find `ruff`, `mypy`, `pytest` or the pipeline's
+environment stops the commit or push with one line saying what to install. A commit that stages
+`.github/` fails in the same way when actionlint, shellcheck or zizmor is missing, with a line
+naming the version CI pins and where to get it. A commit that stages JavaScript fails when
+`node_modules` is missing, with a line asking you to run `npm ci --ignore-scripts`, because CI
+always runs ESLint and Prettier. A missing `node` skips the JavaScript tests with a line saying
+so. To skip the hooks once, pass `--no-verify` to `git commit` or `git push`.
 
 CI's pipeline job puts the same pinned actionlint, shellcheck and zizmor on its PATH, so the
 hook's tests in `pipeline/tests/test_hooks.py` run there, and its `npm ci` gives the JavaScript
 check's tests their `node_modules`. Locally they skip when a tool is not installed.
+
+CI runs every check again, every test included, whatever the hooks did. The hooks catch a failure
+before the push, and they replace none of CI's checks.
 
 ## Private copies
 
 Workflows with side effects (deploy, fetch, catalogue, hubs, publishing the clients, approving
 data PRs) run only in `National-Digital/publicdata.au`. In a fork or a private copy, only the
 checks run: tests, sign-off, PR title and secret scanning. `pipeline/tests/test_repo.py` fails if a
-new job with side effects lacks that condition. Dependabot reads its config wherever it is, so
-delete `.github/dependabot.yml` in a private copy if you do not want its pull requests.
+new job with side effects lacks that condition. Renovate opens dependency pull requests only in a
+repository its GitHub app covers. It skips forks, and a private copy gets them only if the app is
+installed on it; delete `renovate.json` there if you do not want them.
 
 ## Commits and pull requests
 
@@ -176,7 +186,9 @@ superlative claims. [`BRAND.md`](BRAND.md#typography) sets the typography the ga
 publicdata.au has four kinds of version, and each has its own rule.
 
 - **Datasets** are versioned by date, not by number. A version is named for the day the publisher
-  changed the source, and an unchanged source makes no version. The
+  changed the source, and an unchanged source makes no version. A table the publisher resends
+  whole, or a feed of what is current, keeps every changed read with a change log and makes a
+  dated version only by the rules under `update` in Reference. The
   [Archive](docs/ARCHITECTURE.md#archive) section says what may change once one is published.
 - **The site, API and MCP server** follow [semantic versioning](https://semver.org/) through
   release tags (`v2.21.1`). Each merge to `main` releases one: `feat` raises the minor number,
@@ -253,7 +265,10 @@ Edit `register/<slug>.yaml` and open a `fix(register): ...` pull request. A fiel
 renamed, a resource that moved or a header that changed row are the usual causes. The fix applies
 from the next version. When a fault in our conversion or a wrong attribution has already reached
 published versions, those versions are rebuilt as [docs/CORRECTIONS.md](docs/CORRECTIONS.md)
-describes. When the publisher changes its licence, the fetch stops that dataset until a
+describes. An edit to `partition_by` changes the `by/` files of every version already published,
+so it is a correction too, and the deploy's plan fails it until each of those versions' manifests
+carries a note ([A change to `partition_by`](docs/CORRECTIONS.md#a-change-to-partition_by)).
+When the publisher changes its licence, the fetch stops that dataset until a
 person has read the new licence and updated `licence` and `licence.reviewed`.
 
 ## Manual sources
@@ -371,15 +386,24 @@ each version lives in one file that the workflows or the pipeline read:
 | npm packages, wrangler, and the Chrome build the accessibility check runs (from `puppeteer-core`) | `package-lock.json` |
 | GitHub Actions | the commit SHA in each `uses:` |
 | Runner image | `ubuntu-24.04` in each `runs-on:` |
-| R and its CRAN snapshot date | `.github/workflows/clients.yml` |
+| R, its CRAN snapshot date and the R client's lint tools | `.github/workflows/clients.yml` |
 | DuckDB's spatial extension | `pipeline/publicdata/spatial-extension.json` |
+| gh on the fetch runner, gitleaks, and mcp-publisher, each with its SHA-256 | `fetch.yml` and `catalogue.yml`, `secrets.yml`, `deploy.yml` |
 | zizmor, actionlint and shellcheck | `.github/workflows/ci.yml` |
 
-An upgrade is a pull request of its own. Dependabot opens one a month for the Python packages, the
-npm packages and the Actions; raise the others by hand, and the spatial extension as below. The Python version and the keyed
-libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles) are in the build's cache key, so
-raising one rebuilds every version, about four hours on main. Merge such a pull request on a day
-with no data pull request due.
+An upgrade is a pull request of its own. Renovate (`renovate.json`) raises every version in the
+table but the last two rows on the first of each month, to exact versions only, with one pull request
+per group and each major raise in a pull request of its own. The groups are the Actions, the
+runner image, the pipeline's packages, the client's packages, the npm packages, R and its
+snapshot, and duckdb with the spatial extension's pin; Python, Node and uv each get their own.
+Security fixes come as soon as GitHub's advisories name them. The last two rows' tools are raised
+by hand, since a raise needs the new hash. A runner image raise must also change the Ubuntu codename
+in the R snapshot's URL in `clients.yml`. Check a change to `renovate.json` with
+`npx --yes --package renovate@44.143.0 -- renovate-config-validator --strict`.
+
+The Python version and the keyed libraries (pyarrow, duckdb, xlsxwriter, openpyxl, xlrd, pmtiles)
+are in the build's cache key, so raising one rebuilds every version, about four hours on main.
+Merge such a pull request on a day with no data pull request due.
 
 DuckDB serves its spatial extension for each release and can replace it within one, so we keep a
 copy of the build we use in R2, under `_toolchain/` in `publicdata-raw`, named by the DuckDB
@@ -390,11 +414,14 @@ differs or when the pin is for another DuckDB than the one installed. The datase
 extension are keyed on its build, and every job of a deploy checks that it has the same build as
 the plan.
 
-A raise of `duckdb` needs the extension for the new release. Once the pull request that raises it
-is open, a maintainer runs the Spatial extension workflow on main with that pull request's branch.
-It checks that the build DuckDB serves is the one DuckDB's own install fetches, copies it to R2 and
-commits the new pin to the branch. Until then the pull request's checks fail. A new build changes
-the key of every dataset that loads the extension, so those versions are built again.
+A raise of `duckdb` needs the extension for the new release. Renovate raises the release in the
+pin with the package, and its checks fail, naming the workflow, until the rest of the pin follows:
+a maintainer runs the Spatial extension workflow on main with that pull request's branch. It
+checks that the build DuckDB serves is the one DuckDB's own install fetches, copies it to R2 and
+commits the new pin to the branch. Renovate then leaves the branch alone, so merge it before the
+month's pipeline pull request, and run the workflow again if Renovate is asked to rebase it. A new
+build changes the key of every dataset that loads the extension, so those versions are built
+again.
 
 ## Licences that are not Creative Commons
 
@@ -424,13 +451,57 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
 3. On merge, the Python client publishes to PyPI by trusted publishing when the version is new.
    A maintainer builds the R tarball and submits it to CRAN by hand, with `cran-comments.md`.
 
+The R client is held to lintr and styler on every pull request. `clients/r/.lintr` turns on every
+linter lintr has and names the few it turns off, each with its reason. The Clients workflow fails
+on any finding and on any file styler would change. To check before pushing, install the package
+and run both from `clients/r`:
+
+```
+R CMD INSTALL .
+Rscript -e 'lintr::lint_package()'
+Rscript -e 'styler::style_pkg()'
+```
+
+`style_pkg()` rewrites the files in place, so commit what it changes. A line that has to break a
+rule carries `# nolint: <linter>. <reason>`.
+
 ## Reference
 
-- Comments state constraints the code cannot show, in one or two lines of *why*.
+- Comments state constraints the code cannot show, in one or two lines of *why*. The Python
+  client's public API carries a docstring on each function, class and method, since `help()` and
+  editors show it; anywhere else a docstring is optional and holds a *why*, as a comment does.
+- Both Python packages select every ruff rule, with ruff pinned in each `pyproject.toml`. An
+  ignore states its reason beside it in `pyproject.toml`, and a `# noqa` names its code, with a
+  reason when the line does not make it plain. Run `ruff check . && ruff format --check .` in
+  `pipeline/` or `clients/python/`, as CI does; `ruff check --fix` and `ruff format` apply the
+  fixes ruff is sure of. Since `ALL` means every rule the pinned version knows, a ruff upgrade
+  goes in a pull request of its own that fixes the findings its new rules bring.
+- Both Python packages are type checked by mypy in strict mode, tests included. mypy, the stub
+  packages and its settings are pinned in each `pyproject.toml`. Run `mypy` in `pipeline/`. The
+  client takes two runs in `clients/python/`, as CI does. `mypy` checks it against Python 3.10,
+  the oldest it supports, which holds it to 3.10's syntax and standard library; pandas-stubs
+  reads as Any there. `mypy --python-version 3.14` checks its pandas and geopandas code. An
+  ignore names its code and gives its reason on the same line, as in
+  `# type: ignore[attr-defined]  # the stubs lack Table.sort_by`, and mypy fails one that is no
+  longer needed.
+- Neither package writes `Any`. mypy refuses it in an annotation, a decorated function, a generic
+  left without its parameters and a type from an unstubbed module. A value that arrives as Any,
+  from `json.loads`, `yaml.safe_load` or a library without stubs, is given its type once where it
+  is parsed: a TypedDict for a shape the code reads by key, the `JSON` alias in
+  `publicdata/jsontypes.py` for one whose keys vary, or `object` narrowed where it is used. mypy's
+  check of every Any expression stays off, since it would flag each such value before that
+  narrowing. The few places a library's own types leave no choice carry
+  `# type: ignore[explicit-any]` with the reason.
 - Before writing a helper, search for one that already exists. Follow the conventions of the
   neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
   failing-fixture test does not count.
+- Every page meets WCAG 2.2 AAA, with dense data regions held to AA; [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md)
+  states the target, what `scripts/a11y.mjs` enforces and the regions excepted. Sizes are in rem,
+  never px. An abbreviation the site's own prose uses goes in `pipeline/publicdata/glossary.json`,
+  which the about page renders; a publisher's code or value quoted in register copy goes in
+  backticks, and `register validate` fails an entry that uses an abbreviation the glossary lacks.
+  A template that puts a publisher's value in the site's own sentence marks it `data-quoted`.
 - New datasets enter through `register/<slug>.yaml` with licence id, evidence URL,
   attribution and column allow-list declared, or `register validate` stops the build.
   `publicdata register draft <portal dataset url>` writes a first entry from a CKAN portal: the
@@ -463,8 +534,35 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   the WA, SA and Victorian portals and CC BY 3.0 AU on data.gov.au (`PORTAL_LICENCES` in fetch.py). NSW and
   NT name no version for `cc-by`, so an entry there sets `licence.portal_id` and the version from the
   dataset page, and an entry whose id disagrees with the portal's own definition is stopped.
-- A source that is a live feed of what is current sets `feed: true`. The daily run fetches only feeds
-  (`fetch --feeds`), and each day a feed changes is one version dated by that day.
+- `update` is how the source changes: `release` (the default), `rolling` or `feed`. A release is a
+  dated edition, and each changed fetch is a version. A `rolling` source sends its whole table each
+  time and is read weekly; a `feed` holds only what is current and is read daily. Both need a
+  `key`. Each read that changed a row is stored as a fetch with a change log by key, served at
+  `latest/` and listed in `/d/<slug>/changes/`, and it becomes a dated snapshot when it is the
+  first fetch, when it revises a finished period, when more than 5% of rows changed, when a
+  period has closed or when it is the first change of the month. An unchanged read in a later month
+  makes the newest fetch a snapshot under its own date, as the last change of its month. Each
+  fetch records its class, so changing `update` leaves the versions already made as they were. A feed also keeps every state each key has
+  held, with `first_seen` and `last_seen` (the dates this site first and last read it, marked as
+  computed in the history's Table Schema), and records its newest read in the raw store, so a
+  quiet day opens no pull request; an empty feed is a state like any other. While an earlier fetch of the dataset waits in an open
+  pull request, the fetch holds it back. Each hub takes a rolling source or a feed at
+  most once a month, and Zenodo takes only its Parquet and gzipped CSV. docs/ARCHITECTURE.md has the details.
+- `volatile` lists fields a rolling source or a feed rewrites on every read, such as
+  `updated_at`. They are published, and a read that changed nothing else is no change.
+- `period: {field, grain}` splits a table into parts by the `year`, `fiscal` (July to June)
+  year, `quarter` or `month` of a date field (an integer year field takes grain `year`), with
+  rows that have no date in an `undated` part. Each fetch records the period in its manifest and
+  a version is split by its own, so adding a period changes no version already published; the
+  next fetch is the first one split. A table whose rows carry a date needs one once its newest version is over
+  100 MB of Parquet or 5 million rows, and a feed always does. The grain is the largest that
+  keeps every part's Parquet at or under 100 MB, and the gate checks both. `revision_window`
+  (default 2) counts the open periods; an older part is finished, written once and reused by
+  later versions while its rows and column types stay the same, and a change to it is flagged as
+  a revision. Past 100 MB or 5 million rows in
+  all, a version is its parts and a DuckDB file over them, with no whole-table files.
+- The older `source.feed: true` is a release read daily, one version for each day it changed.
+  A new feed uses `update: feed` instead, and an entry gives one or the other.
 - Geometry is declared on the entry. Points name their `lon` and `lat` fields and the publisher's `crs`;
   their coordinates are published as given. A `kind: polygon` or `kind: line` layer is read whole from a
   shapefile, GeoPackage or GeoJSON (`source.member` names it inside a zip), moved to GDA2020 (EPSG:7844), and
@@ -506,6 +604,10 @@ breaking change (see Versioning). The MCP tools are held to a quality bar, descr
   `FY18-19`, or `FY2019` for the year that ends in June 2019), and the chart names each bar as the
   publisher wrote it. A value that is not a financial year is left out. `chart: none`
   draws no chart, for a table with no year worth drawing.
+- `rollup` lists field sets a version's rollup weighs as the register's own questions, such as
+  `[type, registration_date]`, for a count readers ask that the query layer cannot otherwise
+  afford, as on a table too large for D1 whose Parquet is not sorted for it. It shapes no
+  version's files.
 - `search_title` is the phrase a dataset's title tag targets and no two entries may share one;
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,

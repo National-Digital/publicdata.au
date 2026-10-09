@@ -1,13 +1,70 @@
+import datetime as dt
+import json
+from typing import TYPE_CHECKING, TypedDict, cast
+
 import pytest
 import yaml
 
-from publicdata.fetch import LicenceDrift, check_licence, normalise_licence_id, parse_as_at
-from publicdata.register import Field
+from publicdata import __main__ as cli
+from publicdata import fetch as f
+from publicdata import store
+from publicdata.fetch import (
+    ALA_DEEP,
+    ALA_PAGE,
+    UA,
+    FetchError,
+    LicenceDrift,
+    _package,
+    ala,
+    arcgis_feature,
+    check_licence,
+    etag,
+    expect_page,
+    free_version,
+    normalise_licence_id,
+    parse_as_at,
+    pick_package,
+    pick_resource,
+    resource_filename,
+)
+from publicdata.register import Field, Source
 
 from .conftest import ROOT, make_dataset
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+    from pathlib import Path
 
-def test_licence_drift_stops_the_run_even_with_unchanged_bytes():
+    import requests
+
+    from publicdata.fetch import CkanPackage, CkanResource
+    from publicdata.register import Dataset
+
+    # uuid, load time, latitude, year and any other fields of one Atlas record.
+    type AlaRow = tuple[str, str, float | None, int, dict[str, str]]
+
+    class _Params(TypedDict, total=False):
+        """The query parameters the stand-in portals read."""
+
+        id: str
+        q: str
+        sort: str
+        rows: int
+        fq: list[str]
+        pageSize: int
+        startIndex: int
+        fl: str
+        resultOffset: int
+        orderByFields: str
+        outSR: int
+
+
+def _as_session(s: object) -> requests.Session:
+    # The stand-ins answer the calls an adapter makes of a session.
+    return cast("requests.Session", s)
+
+
+def test_licence_drift_stops_the_run_even_with_unchanged_bytes() -> None:
     ds = make_dataset([Field("a", "A")])
     check_licence(ds, {"id": "CC-BY-4.0", "title": "Creative Commons Attribution 4.0"})
     check_licence(ds, {"id": "cc-by-4.0"})
@@ -17,7 +74,7 @@ def test_licence_drift_stops_the_run_even_with_unchanged_bytes():
         check_licence(ds, {"id": "", "title": ""})
 
 
-def test_a_generic_licence_code_means_what_its_portal_defines():
+def test_a_generic_licence_code_means_what_its_portal_defines() -> None:
     assert normalise_licence_id("cc-by", "https://data.gov.au/data") == "CC-BY-3.0-AU"
     assert normalise_licence_id("cc-by-sa", "https://data.gov.au/data/") == "CC-BY-SA-3.0-AU"
     assert normalise_licence_id("cc-by", "https://catalogue.data.wa.gov.au") == "CC-BY-4.0"
@@ -29,93 +86,91 @@ def test_a_generic_licence_code_means_what_its_portal_defines():
     assert normalise_licence_id("cc-zero") == "CC0-1.0"
 
 
-def test_a_generic_code_no_portal_versions_is_refused():
+def test_a_generic_code_no_portal_versions_is_refused() -> None:
     # NSW and NT point cc-by at the unversioned opendefinition page; no version may be guessed.
     assert normalise_licence_id("cc-by", "https://data.nsw.gov.au/data") == ""
     assert normalise_licence_id("cc-by", "https://data.nt.gov.au") == ""
     assert normalise_licence_id("cc-by") == ""
 
 
-def test_as_at_from_publishers_words():
+def test_as_at_from_publishers_words() -> None:
     rx = r"to:?[\s•]*(\d{1,2} [A-Za-z]+ \d{4})"
     assert parse_as_at("1 January 2001 to:\r\n•\t30 June 2025 for fatal", rx) == "2025-06-30"
     assert parse_as_at("crashes 1 January 2001 to 30 June 2025.", rx) == "2025-06-30"
     assert parse_as_at("no date here", rx) == ""
 
 
-def test_an_empty_or_html_answer_is_refused_not_stored():
-    import pytest
-
-    from publicdata.fetch import FetchError, expect_page
-
+def test_an_empty_or_html_answer_is_refused_not_stored() -> None:
     class D:
         slug = "x"
 
     class R:
         status_code = 200
 
-        def __init__(self, ctype):
+        def __init__(self, ctype: str) -> None:
             self.headers = {"Content-Type": ctype} if ctype else {}
 
+    # Stand-ins for the two attributes expect_page reads of each.
+    ds = cast("Dataset", D())
+
+    def r(ctype: str) -> requests.Response:
+        return cast("requests.Response", R(ctype))
+
     with pytest.raises(FetchError, match="returned no bytes"):
-        expect_page(D(), "https://portal.example/file.csv", R(""), b"")
+        expect_page(ds, "https://portal.example/file.csv", r(""), b"")
     with pytest.raises(FetchError, match="HTML page"):
         expect_page(
-            D(),
+            ds,
             "https://portal.example/file.csv",
-            R("text/html; charset=utf-8"),
+            r("text/html; charset=utf-8"),
             b"<html>blocked</html>",
         )
-    expect_page(D(), "https://portal.example/file.csv", R("text/csv"), b"a,b\n1,2\n")
+    expect_page(ds, "https://portal.example/file.csv", r("text/csv"), b"a,b\n1,2\n")
 
 
-def test_one_failing_dataset_does_not_stop_the_others(monkeypatch, capsys):
-    from publicdata import __main__ as cli
-    from publicdata import fetch as f
-
-    def fake(ds, store_dir):
+def test_one_failing_dataset_does_not_stop_the_others(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fake(ds: Dataset, store_dir: Path) -> None:
         if ds.slug == "qld-road-casualties":
-            raise f.FetchError("qld-road-casualties: returned no bytes")
-        return None
+            msg = "qld-road-casualties: returned no bytes"
+            raise f.FetchError(msg)
 
     monkeypatch.setattr(f, "fetch", fake)
     assert cli.main(["fetch", "qld-road-casualties", "qld-road-crash-factors"]) == 0
     out = capsys.readouterr().out
-    assert "qld-road-casualties: FAILED" in out and "qld-road-crash-factors: unchanged" in out
+    assert "qld-road-casualties: FAILED" in out
+    assert "qld-road-crash-factors: unchanged" in out
     assert "0 new version(s), 1 failed" in out
 
 
-def test_every_workflow_file_parses():
+def test_every_workflow_file_parses() -> None:
     # GitHub drops a workflow it cannot parse without a failing check, and the schedule stops.
-    for f in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
-        d = yaml.safe_load(f.read_text(encoding="utf-8"))
-        assert d.get("jobs"), f.name
+    for wf in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        d = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        assert d.get("jobs"), wf.name
 
 
-def test_a_second_file_on_a_taken_day_gets_the_next_free_day_and_says_why():
-    import datetime as dt
-
-    from publicdata.fetch import free_version
-
+def test_a_second_file_on_a_taken_day_gets_the_next_free_day_and_says_why() -> None:
     assert free_version("2026-04-24", {"2026-01-01"}, dt.date(2026, 9, 30)) == ("2026-04-24", "")
     v, note = free_version("2026-04-24", {"2026-04-24"}, dt.date(2026, 9, 30))
-    assert v == "2026-09-30" and "2026-04-24" in note
+    assert v == "2026-09-30"
+    assert "2026-04-24" in note
     v, _ = free_version("2026-09-30", {"2026-09-30", "2026-10-01"}, dt.date(2026, 9, 30))
     assert v == "2026-10-02"
 
 
-def test_new_versions_are_grouped_by_government_for_their_own_pull_requests(monkeypatch, tmp_path):
-    import json
-
-    from publicdata import __main__ as cli
-    from publicdata import fetch as f
-
-    def fake(ds, store_dir):
+def test_new_versions_are_grouped_by_government_for_their_own_pull_requests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake(ds: Dataset, store_dir: Path) -> object:
         if ds.slug == "qld-road-crash-factors":
-            raise f.FetchError("qld-road-crash-factors: returned no bytes")
+            msg = "qld-road-crash-factors: returned no bytes"
+            raise f.FetchError(msg)
 
         class M:
             version, bytes, encoding, sha256 = "2026-10-01", 1, "utf-8", "0" * 64
+            snapshot, cut = True, ""
 
         return M()
 
@@ -129,15 +184,12 @@ def test_new_versions_are_grouped_by_government_for_their_own_pull_requests(monk
     }
 
 
-def test_the_newest_matching_resource_is_fetched():
-    from publicdata.fetch import FetchError, pick_resource
-    from publicdata.register import Source
-
+def test_the_newest_matching_resource_is_fetched() -> None:
     ds = make_dataset(
         [Field("a", "A")],
         source=Source(adapter="ckan-resource", url="u", package="p", resource_match=r"by LGA"),
     )
-    resources = [
+    resources: list[CkanResource] = [
         {"id": "old", "name": "Recorded offences by LGA - Dec 2019", "created": "2020-05-06"},
         {"id": "state", "name": "Recorded offences - Jun 2026", "created": "2026-09-24"},
         {"id": "reimport", "name": "Recorded offences by LGA - Sep 2019", "created": "2020-05-06"},
@@ -151,10 +203,7 @@ def test_the_newest_matching_resource_is_fetched():
         pick_resource(ds, resources[1:2])
 
 
-def test_the_newest_matching_package_is_fetched():
-    from publicdata.fetch import FetchError, pick_package
-    from publicdata.register import Source
-
+def test_the_newest_matching_package_is_fetched() -> None:
     ds = make_dataset(
         [Field("a", "A")],
         source=Source(
@@ -164,7 +213,7 @@ def test_the_newest_matching_package_is_fetched():
             resource_match=r"\.csv$",
         ),
     )
-    packages = [
+    packages: list[CkanPackage] = [
         {"name": "current-nt-crime-statistics-june-2026", "metadata_created": "2026-08-17"},
         {"name": "current-nt-crime-statistics-july-2026", "metadata_created": "2026-09-14"},
         {"name": "nt-crime-statistics-archive", "metadata_created": "2026-09-20"},
@@ -174,10 +223,7 @@ def test_the_newest_matching_package_is_fetched():
         pick_package(ds, packages[2:])
 
 
-def test_a_package_pattern_searches_with_the_package_text():
-    from publicdata.fetch import _package
-    from publicdata.register import Source
-
+def test_a_package_pattern_searches_with_the_package_text() -> None:
     ds = make_dataset(
         [Field("a", "A")],
         source=Source(
@@ -188,17 +234,17 @@ def test_a_package_pattern_searches_with_the_package_text():
             resource_match=r"\.csv$",
         ),
     )
-    calls = []
+    calls: list[tuple[str, _Params | None]] = []
 
     class R:
-        def __init__(self, body):
+        def __init__(self, body: object) -> None:
             self.body = body
 
-        def json(self):
+        def json(self) -> object:
             return self.body
 
     class S:
-        def get(self, url, params=None, timeout=None):
+        def get(self, url: str, params: _Params | None = None, timeout: float | None = None) -> R:
             calls.append((url.rsplit("/", 1)[-1], params))
             if url.endswith("package_search"):
                 names = [
@@ -210,9 +256,12 @@ def test_a_package_pattern_searches_with_the_package_text():
                     for i, n in enumerate(names)
                 ]
                 return R({"success": True, "result": {"results": results}})
+            assert params is not None
             return R({"success": True, "result": {"name": params["id"], "resources": []}})
 
-    assert _package(ds, S(), "https://portal/api/3/action")["name"].endswith("july-2026")
+    assert _package(ds, _as_session(S()), "https://portal/api/3/action")["name"].endswith(
+        "july-2026"
+    )
     assert calls[0] == (
         "package_search",
         {"q": "current-nt-crime-statistics", "sort": "metadata_created desc", "rows": 100},
@@ -220,9 +269,7 @@ def test_a_package_pattern_searches_with_the_package_text():
     assert calls[1] == ("package_show", {"id": "current-nt-crime-statistics-july-2026"})
 
 
-def test_a_file_with_no_extension_is_named_from_the_resource_format():
-    from publicdata.fetch import resource_filename
-
+def test_a_file_with_no_extension_is_named_from_the_resource_format() -> None:
     page = "https://www.dffh.vic.gov.au/moving-annual-rent-suburb-september-quarter-2025-excel"
     assert resource_filename({"url": page, "format": "XLSX"}).endswith("-excel.xlsx")
     assert resource_filename({"url": "https://x/a/data.csv", "format": "XLSX"}) == "data.csv"
@@ -232,50 +279,58 @@ def test_a_file_with_no_extension_is_named_from_the_resource_format():
     assert resource_filename({"url": "https://x/a/data", "format": ""}) == "data"
 
 
-def test_the_user_agent_names_the_site_in_a_form_firewalls_accept():
-    from publicdata.fetch import UA
-
+def test_the_user_agent_names_the_site_in_a_form_firewalls_accept() -> None:
     # dffh.vic.gov.au resets the connection for either of these.
     assert "publicdata.au/about" in UA
-    assert "fetcher" not in UA.lower() and "://" not in UA
+    assert "fetcher" not in UA.lower()
+    assert "://" not in UA
 
 
 class _Resp:
-    def __init__(self, body, ctype="application/json", status=200):
+    def __init__(self, body: object, ctype: str = "application/json", status: int = 200) -> None:
         self._body = body
         self.status_code = status
         self.headers = {"Content-Type": ctype}
 
-    def json(self):
+    def json(self) -> object:
         return self._body
 
     @property
-    def content(self):
+    def content(self) -> bytes:
         return self._body if isinstance(self._body, bytes) else str(self._body).encode()
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> None:
         pass
 
 
 class _Session:
-    """Answers each URL from a table and records what was asked, so an adapter's reads are
-    checked without a network."""
+    """Answers each URL from a table and records what was asked.
 
-    def __init__(self, table):
-        self.table, self.calls, self.headers = table, [], {}
+    An adapter's reads are then checked without a network.
+    """
 
-    def get(self, url, params=None, timeout=None, allow_redirects=True):
+    def __init__(self, table: Mapping[str, Callable[[_Params], _Resp]]) -> None:
+        self.table = table
+        self.calls: list[tuple[str, _Params]] = []
+        self.headers: dict[str, str] = {}
+
+    def get(
+        self,
+        url: str,
+        params: _Params | None = None,
+        timeout: float | None = None,
+        *,
+        allow_redirects: bool = True,
+    ) -> _Resp:
         self.calls.append((url, params or {}))
         for key, fn in self.table.items():
             if url.startswith(key):
                 return fn(params or {})
-        raise AssertionError(f"unexpected url {url}")
+        msg = f"unexpected url {url}"
+        raise AssertionError(msg)
 
 
-def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
-    from publicdata.fetch import arcgis_feature
-    from publicdata.register import Source
-
+def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path: Path) -> None:
     ds = make_dataset(
         [Field("id", "ID", "integer")],
         source=Source(
@@ -307,7 +362,7 @@ def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
         ],
     }
 
-    def feats(offset):
+    def feats(offset: int) -> object:
         rows = [
             {
                 "type": "Feature",
@@ -327,40 +382,47 @@ def test_arcgis_feature_pages_the_layer_in_id_order_into_one_geojson(tmp_path):
             "https://gis.example.gov.au/rest/services/CRASH/FeatureServer/0": lambda p: _Resp(info),
         }
     )
-    data, m, licence = arcgis_feature(ds, tmp_path, s)
+    data, m, licence = arcgis_feature(ds, tmp_path, _as_session(s))
     check_licence(ds, licence)
     queries = [p for u, p in s.calls if u.endswith("/query")]
     assert [q["resultOffset"] for q in queries] == [0, 2]
     assert all(q["orderByFields"] == "ID" and q["outSR"] == 4326 for q in queries)
-    import json
 
+    assert data is not None
     fc = json.loads(data)
     assert [f["properties"]["ID"] for f in fc["features"]] == [1, 2, 3]
-    assert m.filename == "t.geojson" and m.source["features"] == 3
-    assert m.source["date_fields"] == ["WHEN"] and m.source["last_edit_date"] is None
+    assert m.filename == "t.geojson"
+    assert m.source["features"] == 3
+    assert m.source["date_fields"] == ["WHEN"]
+    assert m.source["last_edit_date"] is None
     # No edit date on the layer, so the newest record dates the version: 1364602560000 ms is
     # 2013-03-30 in Brisbane.
-    assert m.version == "2013-03-30" and m.source["newest_record"] == 1364602560000
+    assert m.version == "2013-03-30"
+    assert m.source["newest_record"] == 1364602560000
     assert any("newest record" in n for n in m.notes)
     assert any("no file" in n for n in m.notes)
     # The same layer gives the same bytes, so an unchanged layer is no version.
-    from publicdata import store
 
     store.write(tmp_path, m, data)
-    again, m2, _ = arcgis_feature(ds, tmp_path, s)
-    assert again is None and m2.version == m.version
+    again, m2, _ = arcgis_feature(ds, tmp_path, _as_session(s))
+    assert again is None
+    assert m2.version == m.version
 
 
-def _ala_session(rows, lat_of=lambda r: r[2]):
-    """A fake Atlas: rows per provider as (uuid, loaded, latitude, year, extra), filtered by the
-    fq conditions the adapter sends."""
-    from publicdata.fetch import ALA_DEEP, ALA_PAGE
+def _ala_session(
+    rows: Mapping[str, Sequence[AlaRow]],
+    lat_of: Callable[[AlaRow], float | None] = lambda r: r[2],
+) -> _Session:
+    """A fake Atlas: rows per provider as (uuid, loaded, latitude, year, extra).
 
-    def rng(f):
+    The rows are filtered by the fq conditions the adapter sends.
+    """
+
+    def rng(f: str) -> tuple[str, str, bool]:
         lo, hi = f.split("[", 1)[1].rstrip("]}").split(" TO ")
         return lo, hi, f.endswith("}")
 
-    def keep(r, f):
+    def keep(r: AlaRow, f: str) -> bool:
         if f.startswith("first_loaded_date:"):
             lo, hi, ex = rng(f)
             t = r[1][:19] + "Z"
@@ -369,7 +431,7 @@ def _ala_session(rows, lat_of=lambda r: r[2]):
             return lat_of(r) is None
         if f == "decimalLatitude:*":
             return lat_of(r) is not None
-        if f.startswith("decimalLatitude:[") or f.startswith("decimalLongitude:["):
+        if f.startswith(("decimalLatitude:[", "decimalLongitude:[")):
             lo, hi, ex = rng(f)
             v = lat_of(r) if f.startswith("decimalLat") else 150.0
             return v is not None and (
@@ -381,16 +443,18 @@ def _ala_session(rows, lat_of=lambda r: r[2]):
             return int(lo) <= y < int(hi) if ex else int(lo) <= y <= int(hi)
         return True
 
-    def search(params):
+    def search(params: _Params) -> _Resp:
         fqs = params.get("fq") or []
         uid = next(f.split(":", 1)[1] for f in fqs if f.startswith("dataResourceUid:"))
         out = [r for r in rows[uid] if all(keep(r, f) for f in fqs)]
         if params.get("pageSize") == 0:
             return _Resp({"totalRecords": len(out)})
-        assert params["pageSize"] == ALA_PAGE and params["startIndex"] < ALA_DEEP
+        assert params["pageSize"] == ALA_PAGE
+        assert params["startIndex"] < ALA_DEEP
         # Pages sorted by load date skip rows across a tie; only the unique id is stable.
         assert params["sort"] == "id"
-        assert "catalogNumber" in params["fl"] and "raw_" not in params["fl"]
+        assert "catalogNumber" in params["fl"]
+        assert "raw_" not in params["fl"]
         page = out[params["startIndex"] : params["startIndex"] + ALA_PAGE]
         return _Resp(
             {
@@ -410,9 +474,7 @@ def _ala_session(rows, lat_of=lambda r: r[2]):
     return _Session({"https://api.example.org/occurrences/search": search})
 
 
-def _ala_dataset(providers=("dr1", "dr2")):
-    from publicdata.register import Source
-
+def _ala_dataset(providers: tuple[str, ...] = ("dr1", "dr2")) -> Dataset:
     return make_dataset(
         [Field("record_id", "uuid", "string")],
         source=Source(
@@ -424,10 +486,9 @@ def _ala_dataset(providers=("dr1", "dr2")):
     )
 
 
-def test_ala_reads_each_provider_in_slices_and_dates_the_version_by_the_newest_load(tmp_path):
-    from publicdata import store
-    from publicdata.fetch import ALA_DEEP, ala
-
+def test_ala_reads_each_provider_in_slices_and_dates_the_version_by_the_newest_load(
+    tmp_path: Path,
+) -> None:
     ds = _ala_dataset()
     # dr1 has 3 rows, one a specimen. dr2 has more than the paging limit, half of them loaded in
     # one second and one without coordinates, so the reads split by load time, then by latitude.
@@ -437,7 +498,7 @@ def test_ala_reads_each_provider_in_slices_and_dates_the_version_by_the_newest_l
         "raw_institutionCode": "MEL",
         "license": "CC-BY 4.0 (Int)",
     }
-    rows = {
+    rows: dict[str, list[AlaRow]] = {
         "dr1": [
             ("a1", "2020-01-01T00:00:00.000+00:00", -30.0, 2020, spec),
             ("a2", "2021-06-01T00:00:00.000+00:00", -31.0, 2021, {"license": "CC0"}),
@@ -455,76 +516,88 @@ def test_ala_reads_each_provider_in_slices_and_dates_the_version_by_the_newest_l
         ],
     }
     s = _ala_session(rows)
-    data, m, licence = ala(ds, tmp_path, s)
+    data, m, licence = ala(ds, tmp_path, _as_session(s))
+    assert data is not None
     lines = data.decode().splitlines()
     assert lines[0].startswith("uuid,occurrenceID,raw_catalogNumber,raw_institutionCode,")
     assert lines[0].endswith(",locality,occurrenceStatus,firstLoadedDate")
     assert len(lines) == 1 + 3 + big
-    assert lines[1].startswith("a1,,MEL 1,MEL,") and lines[1].endswith(
-        ",near a road,,2020-01-01T00:00:00Z"
-    )
+    assert lines[1].startswith("a1,,MEL 1,MEL,")
+    assert lines[1].endswith(",near a road,,2020-01-01T00:00:00Z")
     assert m.version == "2024-03-01"
     assert m.source["providers"] == {"dr1": {"open": 3, "all": 3}, "dr2": {"open": big, "all": big}}
     assert m.source["licences"] == {"CC-BY 4.0 (Int)": 1, "CC0": 2 + big}
-    assert licence["id"] == "CC-BY-4.0" and m.filename == f"{ds.slug}.csv"
+    assert licence["id"] == "CC-BY-4.0"
+    assert m.filename == f"{ds.slug}.csv"
     assert any("government providers" in n for n in m.notes)
     assert all("license:(" in str(c[1].get("fq")) for c in s.calls if c[1].get("pageSize"))
     store.write(tmp_path, m, data)
-    assert ala(ds, tmp_path, s)[0] is None
+    assert ala(ds, tmp_path, _as_session(s))[0] is None
 
 
-def test_ala_splits_one_place_and_second_by_year_and_refuses_what_it_cannot_read(tmp_path):
-    from publicdata.fetch import ALA_DEEP, FetchError, ala
-
+def test_ala_splits_one_place_and_second_by_year_and_refuses_what_it_cannot_read(
+    tmp_path: Path,
+) -> None:
     ds = _ala_dataset(providers=("dr1",))
     same = ("2013-04-09T10:58:31.000+00:00", -33.0)
-    rows = {
+    rows: dict[str, list[AlaRow]] = {
         "dr1": [
             (f"c{i:05d}", same[0], same[1], 1990 + (i % 30), {"license": "CC0"})
             for i in range(ALA_DEEP + 500)
         ]
     }
-    data, m, _ = ala(ds, tmp_path, _ala_session(rows))
+    data, _m, _ = ala(ds, tmp_path, _as_session(_ala_session(rows)))
+    assert data is not None
     assert len(data.decode().splitlines()) == 1 + ALA_DEEP + 500
     rows["dr1"] = [
         (f"d{i:05d}", same[0], same[1], 1999, {"license": "CC0"}) for i in range(ALA_DEEP + 1)
     ]
     with pytest.raises(FetchError, match="cannot be read"):
-        ala(ds, tmp_path, _ala_session(rows))
+        ala(ds, tmp_path, _as_session(_ala_session(rows)))
 
 
-def test_ala_stops_when_a_provider_loses_open_rows_but_not_rows(tmp_path):
-    from publicdata import store
-    from publicdata.fetch import LicenceDrift, ala
-
+def test_ala_stops_when_a_provider_loses_open_rows_but_not_rows(tmp_path: Path) -> None:
     ds = _ala_dataset(providers=("dr1",))
-    rows = {
+    rows: dict[str, list[AlaRow]] = {
         "dr1": [
             (f"e{i}", "2020-01-01T00:00:00.000+00:00", -30.0, 2020, {"license": "CC0"})
             for i in range(4)
         ]
     }
-    data, m, _ = ala(ds, tmp_path, _ala_session(rows))
+    data, m, _ = ala(ds, tmp_path, _as_session(_ala_session(rows)))
+    assert data is not None
     store.write(tmp_path, m, data)
     # The provider still has four rows, but the licence filter now finds three.
 
     class Narrow(_Session):
-        def get(self, url, params=None, timeout=None, allow_redirects=True):
+        def get(
+            self,
+            url: str,
+            params: _Params | None = None,
+            timeout: float | None = None,
+            *,
+            allow_redirects: bool = True,
+        ) -> _Resp:
+            assert params is not None
             fqs = (params or {}).get("fq") or []
             if params.get("pageSize") == 0 and any(f.startswith("license:") for f in fqs):
                 return _Resp({"totalRecords": 3})
-            return super().get(url, params, timeout, allow_redirects)
+            return super().get(url, params, timeout, allow_redirects=allow_redirects)
 
     s = _ala_session(rows)
     with pytest.raises(LicenceDrift, match="licence has changed"):
-        ala(ds, tmp_path, Narrow(s.table))
+        ala(ds, tmp_path, _as_session(Narrow(s.table)))
 
 
-def test_an_etag_loses_its_quotes_and_keeps_its_weak_mark():
-    from publicdata.fetch import etag
-
+def test_an_etag_loses_its_quotes_and_keeps_its_weak_mark() -> None:
     assert etag({"ETag": '"abc-1"'}) == "abc-1"
     assert (
         etag({"ETag": 'W/"1501050059.0-253909-3591704692"'}) == "W/1501050059.0-253909-3591704692"
     )
     assert etag({}) == ""
+
+
+def test_a_portal_date_with_a_zone_and_no_time_reads_as_utc_midnight() -> None:
+    assert f._normal_iso("2026-01-02Z") == "2026-01-02T00:00:00+00:00"
+    assert f._normal_iso("2026-01-02T03:04:05Z") == "2026-01-02T03:04:05+00:00"
+    assert f._normal_iso("2026-01-02T03:04:05") == "2026-01-02T03:04:05+00:00"

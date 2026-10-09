@@ -9,20 +9,35 @@ import struct
 import sys
 from html import escape as html_escape
 from html import unescape as html_unescape
-from pathlib import Path
+from itertools import pairwise
+from typing import TYPE_CHECKING
 
-from . import SITE, explorer, serialise, structured
+from . import SITE, abbreviations, explorer, serialise, structured
+from .ard import problems as ard_problems
+from .periods import PART_MAX, ROWS_MAX, grain_problem
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
 from .serialise.profile import query_key
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
+
+    from .register import Dataset
+
+# Dated tables over the period threshold that were published whole before periods existed. Each
+# is split by a change of its own, which rewrites how its new versions are laid out.
+PERIOD_PENDING: dict[str, str] = {}
+
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
-PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.S)
+PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.DOTALL)
 
 
 def _partition_values(out: Path, slug: str) -> list[str]:
-    """The publisher's own values that a dataset's pages name as places and partitions, longest
-    first, so the copy checks read only this site's words."""
+    """The publisher's own values that a dataset's pages name as places and partitions.
+
+    They come longest first, so the copy checks read only this site's words.
+    """
     vals: set[str] = set()
     for idx in (out / "d" / slug / "v").glob("*/by/*/index.json"):
         for e in json.loads(idx.read_text(encoding="utf-8")).get("partitions", []):
@@ -32,9 +47,9 @@ def _partition_values(out: Path, slug: str) -> list[str]:
     return sorted(vals, key=len, reverse=True)
 
 
-def _without_publisher_values(text: str, page: Path, out: Path, cache: dict) -> str:
+def _without_publisher_values(text: str, page: Path, out: Path, cache: dict[str, list[str]]) -> str:
     parts = page.relative_to(out).parts
-    if len(parts) < 2 or parts[0] != "d":
+    if len(parts) <= 1 or parts[0] != "d":
         return text
     if parts[1] not in cache:
         cache[parts[1]] = _partition_values(out, parts[1])
@@ -44,7 +59,10 @@ def _without_publisher_values(text: str, page: Path, out: Path, cache: dict) -> 
 
 
 def _mcp_resources(out: Path) -> list[str]:
-    """Every dataset page with a query console is an MCP resource whose fields are the page's own."""
+    """Every dataset page with a query console has a field list whose fields are the console's.
+
+    Every field list is an MCP resource.
+    """
     errors: list[str] = []
     listed_file = out / "mcp" / "resources.json"
     if not listed_file.exists():
@@ -52,19 +70,20 @@ def _mcp_resources(out: Path) -> list[str]:
     listed = {r["uri"] for r in json.loads(listed_file.read_text(encoding="utf-8"))["resources"]}
     for page in sorted((out / "d").glob("*/index.html")) if (out / "d").exists() else []:
         slug = page.parent.name
-        m = re.search(r'id="ds-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.S)
+        m = re.search(r'id="ds-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.DOTALL)
         console = (json.loads(m.group(1)) if m else {}).get("console")
         uri = f"{SITE}/d/{slug}/fields.json"
-        if not console:
-            if uri in listed:
-                errors.append(f"mcp/resources.json: {slug} is listed but has no query console")
+        f = page.parent / "fields.json"
+        if not f.exists():
+            if console:
+                errors.append(f"d/{slug}/fields.json: missing")
+            elif uri in listed:
+                errors.append(f"mcp/resources.json: {slug} is listed but has no fields.json")
+            listed.discard(uri)
             continue
         if uri not in listed:
             errors.append(f"mcp/resources.json: {slug} is not listed")
-        f = page.parent / "fields.json"
-        if not f.exists():
-            errors.append(f"d/{slug}/fields.json: missing")
-        elif json.loads(f.read_text(encoding="utf-8")).get("fields") != console["fields"]:
+        if console and json.loads(f.read_text(encoding="utf-8")).get("fields") != console["fields"]:
             errors.append(f"d/{slug}/fields.json: fields differ from the page's query console")
         listed.discard(uri)
     errors += [f"mcp/resources.json: {u} has no dataset page" for u in sorted(listed)]
@@ -73,6 +92,11 @@ def _mcp_resources(out: Path) -> list[str]:
 
 # The limits of the connector directory forms the listing is copied into.
 LISTING_LIMITS = {"name": 100, "one_liner": 200, "description": 2000}
+
+
+# The directory listing allows one to five categories and one to three use cases.
+LISTING_CATEGORIES = 5
+LISTING_USE_CASES = 3
 
 
 def _mcp_listing(out: Path) -> list[str]:
@@ -86,9 +110,9 @@ def _mcp_listing(out: Path) -> list[str]:
         for k, n in LISTING_LIMITS.items()
         if got.get(k) and len(got[k]) > n
     ]
-    if not 1 <= len(got.get("categories") or []) <= 5:
+    if not 1 <= len(got.get("categories") or []) <= LISTING_CATEGORIES:
         errors.append("mcp/listing.json: one to five categories")
-    if not 1 <= len(got.get("use_cases") or []) <= 3:
+    if not 1 <= len(got.get("use_cases") or []) <= LISTING_USE_CASES:
         errors.append("mcp/listing.json: one to three use cases")
     if not got.get("prerequisites"):
         errors.append("mcp/listing.json: prerequisites is missing")
@@ -115,7 +139,7 @@ def _manifest(out: Path) -> list[str]:
         for k in ("id", "name", "short_name", "start_url", "display")
         if not m.get(k)
     ]
-    seen = set()
+    seen: set[tuple[str | None, str]] = set()
     for icon in m.get("icons", []) + [
         i for s in m.get("shortcuts", []) for i in s.get("icons", [])
     ]:
@@ -130,9 +154,11 @@ def _manifest(out: Path) -> list[str]:
                     f"manifest.webmanifest: {icon['src']} is {w}x{h}, declared {icon.get('sizes')}"
                 )
             seen.add((icon.get("sizes"), icon.get("purpose", "any")))
-    for need in (("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")):
-        if need not in seen:
-            errors.append(f"manifest.webmanifest: no {need[1]} icon at {need[0]}")
+    errors.extend(
+        f"manifest.webmanifest: no {need[1]} icon at {need[0]}"
+        for need in (("192x192", "any"), ("512x512", "any"), ("512x512", "maskable"))
+        if need not in seen
+    )
     return errors
 
 
@@ -155,17 +181,21 @@ def _social_card(rel: str, page: str, out: Path) -> list[str]:
     return errors
 
 
-DS_DATA = re.compile(r'id="ds-data">(.*?)</script>', re.S)
+DS_DATA = re.compile(r'id="ds-data">(.*?)</script>', re.DOTALL)
 QUERY_TILE = re.compile(
-    r'Filter and count from a URL</b><p class="mono small">(.*?)</p>(?:<p>(.*?)</p>)?', re.S
+    r'Filter and count from a URL</b><p class="mono small">(.*?)</p>(?:<p>(.*?)</p>)?', re.DOTALL
 )
 
 
-def examples(out: Path, datasets: dict) -> tuple[list[str], list[str]]:
-    """Each dataset page's first query and what its tile answers, marked by where the query came
-    from: the register's example, or the build's pick for a reader to look over. A register
-    example that answers nothing is an error, since a person chose it to be read."""
-    report, errors = [], []
+def examples(out: Path, datasets: dict[str, Dataset]) -> tuple[list[str], list[str]]:
+    """Each dataset page's first query and what its tile answers.
+
+    Each is marked by where the query came from: the register's example, or the build's pick for
+    a reader to look over. A register example that answers nothing is an error, since a person
+    chose it to be read.
+    """
+    report: list[str] = []
+    errors: list[str] = []
     for page in sorted((out / "d").glob("*/index.html")) if (out / "d").exists() else []:
         slug = page.parent.name
         ds = datasets.get(slug)
@@ -184,52 +214,169 @@ def examples(out: Path, datasets: dict) -> tuple[list[str], list[str]]:
     return report, errors
 
 
-def check(out: Path, register_dir: Path, absent: list[str] = (), site: bool = True) -> list[str]:
-    return checked(out, register_dir, absent, site)[0]
+def periods_needed(out: Path, datasets: dict[str, Dataset]) -> list[str]:
+    """A dated table over the period threshold that has no period, and a period grain too fine.
+
+    A table whose rows carry their own date is split by period once its newest version is over
+    100 MB of Parquet or 5 million rows, and a split table's grain is the largest that keeps every
+    part at or under 100 MB. Sizes come from the catalogue and each newest manifest.
+    """
+    errors: list[str] = []
+    cat = out / "catalog.json"
+    newest = out / "latest.json"
+    if not cat.exists() or not newest.exists():
+        return errors
+    sizes = {
+        r["identifier"]: next(
+            (
+                int(d.get("byteSize") or 0)
+                for d in r.get("distribution", [])
+                if d.get("format") == "parquet"
+            ),
+            0,
+        )
+        for r in json.loads(cat.read_text(encoding="utf-8")).get("dataset", [])
+    }
+    for slug, version in json.loads(newest.read_text(encoding="utf-8")).items():
+        ds = datasets.get(slug)
+        man = out / "d" / slug / "v" / version / "manifest.json"
+        if ds is None or ds.kind != "table" or not man.exists():
+            continue
+        m = json.loads(man.read_text(encoding="utf-8"))
+        if m.get("period"):
+            got = {r["period"]: r["files"]["parquet"]["bytes"] for r in m.get("parts", [])}
+            grain = m["period"]["grain"]
+            if why := grain_problem(got, grain):
+                errors.append(f"{slug}/{version}: period grain {grain}: {why}")
+        # A period applies from the next fetch, so the register entry is what is asked for.
+        if ds.period is not None:
+            continue
+        dated = any(f.type in ("date", "datetime") for f in ds.fields)
+        layer = ds.geometry is not None and ds.geometry["kind"] in ("polygon", "line")
+        big = sizes.get(slug, 0) > PART_MAX or int(m.get("rows", 0)) > ROWS_MAX
+        if dated and big and not layer and slug not in PERIOD_PENDING:
+            errors.append(
+                f"{slug}/{version}: {m.get('rows')} rows and {sizes.get(slug, 0)} bytes of Parquet "
+                "need a period; give the register entry period: {field, grain}"
+            )
+    return errors
 
 
-def checked(
-    out: Path, register_dir: Path, absent: list[str] = (), site: bool = True
+def query_explained(out: Path, datasets: dict[str, Dataset]) -> list[str]:
+    """A table dataset's page either runs the query console or says why the API does not serve it.
+
+    So a dataset never leaves the query API unremarked.
+    """
+    errors: list[str] = []
+    for page in sorted((out / "d").glob("*/index.html")) if (out / "d").exists() else []:
+        ds = datasets.get(page.parent.name)
+        if ds is None or ds.kind != "table":
+            continue
+        text = page.read_text(encoding="utf-8")
+        m = re.search(r'id="ds-data">(.*?)</script>', text, re.DOTALL)
+        if m and not json.loads(m.group(1)).get("console") and "data-no-query" not in text:
+            errors.append(
+                f"d/{ds.slug}/index.html: not in the query API and the page says no reason"
+            )
+    return errors
+
+
+def fetch_sequence(out: Path) -> list[str]:
+    """Each fetch of a rolling source or a feed is compared with the fetch before it.
+
+    One compared with an older fetch was made while the one between waited unmerged, so its
+    change log and a feed's history skip a state.
+    """
+    errors: list[str] = []
+    for idx in sorted((out / "d").glob("*/changes/index.json")) if (out / "d").exists() else []:
+        fetches = json.loads(idx.read_text(encoding="utf-8")).get("fetches", [])
+        for a, b in pairwise(fetches):
+            if b.get("from") != a["fetch"]:
+                errors.append(
+                    f"{idx.parts[-3]}: the fetch of {b['fetch']} was compared with {b.get('from')}, "
+                    f"not {a['fetch']}; remove store/{idx.parts[-3]}/{b['fetch']}/ and fetch again"
+                )
+    return errors
+
+
+def check(
+    out: Path, register_dir: Path, absent: Iterable[str] = (), *, site: bool = True
+) -> list[str]:
+    return checked(out, register_dir, absent, site=site)[0]
+
+
+def ard_errors(out: Path) -> list[str]:
+    """The discovery manifest and every catalogue it links here must pass Lighthouse's ARD rules.
+
+    Each linked catalogue must also exist.
+    """
+    doc = json.loads((out / ".well-known/ard.json").read_text(encoding="utf-8"))
+    errors = [f"ard: {p}" for p in ard_problems(doc)]
+    for e in doc.get("entries", []):
+        url = e.get("url", "")
+        if e.get("type") != "application/ai-catalog+json" or not url.startswith(SITE + "/"):
+            continue
+        f = out / url.removeprefix(SITE + "/")
+        if not f.exists():
+            errors.append(f"ard: {e['identifier']} links {url}, which the build did not write")
+            continue
+        nested = json.loads(f.read_text(encoding="utf-8"))
+        errors += [f"ard: {p}" for p in ard_problems(nested, top=False, where=url)]
+    return errors
+
+
+def checked(  # noqa: C901, PLR0912, PLR0915 - one check per rule the gate holds a version to
+    out: Path, register_dir: Path, absent: Iterable[str] = (), *, site: bool = True
 ) -> tuple[list[str], list[str]]:
-    """The gate's errors, and the list of every dataset page's first query. absent lists files a cached build left out because an earlier build published them; the
+    """The gate's errors, and the list of every dataset page's first query.
+
+    absent lists files a cached build left out because an earlier build published them; the
     deploy's push refuses to go ahead unless R2 holds every one. Without site, only the dated
-    versions are checked, as a deploy shard builds them without pages."""
+    versions are checked, as a deploy shard builds them without pages.
+    """
     errors: list[str] = []
     absent = set(absent)
     datasets = {d.slug: d for d in load(register_dir)}
-    for req in (
-        ()
-        if not site
-        else (
-            "index.html",
-            "catalog.json",
-            "places.json",
-            "backlog.json",
-            "llms.txt",
-            "llms-full.txt",
-            "health.json",
-            "robots.txt",
-            "sitemap.xml",
-            ".well-known/ard.json",
-            ".well-known/ai-catalog.json",
-            ".well-known/security.txt",
-            "_headers",
-            "_routes.json",
-            "latest.json",
-            "withheld.json",
-            "openapi.json",
-            "mcp/resources.json",
-            "mcp/server-card",
-            "mcp/listing.json",
-            "manifest.webmanifest",
-            "favicon.svg",
-            "favicon.ico",
-            "apple-touch-icon.png",
-            "og/site.png",
+    errors.extend(
+        f"missing {req}"
+        for req in (
+            ()
+            if not site
+            else (
+                "index.html",
+                "catalog.json",
+                "places.json",
+                "backlog.json",
+                "llms.txt",
+                "llms-full.txt",
+                "health.json",
+                "robots.txt",
+                "sitemap.xml",
+                ".well-known/ard.json",
+                ".well-known/ai-catalog.json",
+                ".well-known/api-catalog",
+                "skills/publicdata-au/SKILL.md",
+                ".well-known/security.txt",
+                "_headers",
+                "_routes.json",
+                "latest.json",
+                "current.json",
+                "withheld.json",
+                "openapi.json",
+                "mcp/resources.json",
+                "mcp/server-card",
+                "mcp/listing.json",
+                "manifest.webmanifest",
+                "favicon.svg",
+                "favicon.ico",
+                "apple-touch-icon.png",
+                "og/site.png",
+            )
         )
-    ):
-        if not (out / req).exists():
-            errors.append(f"missing {req}")
+        if not (out / req).exists()
+    )
+    if site and (out / ".well-known/ard.json").exists():
+        errors += ard_errors(out)
     ddir = out / "d"
     for vman in sorted(ddir.glob("*/v/*/manifest.json")) if ddir.exists() else []:
         slug = vman.parts[-4]
@@ -252,13 +399,19 @@ def checked(
         vdir = vman.parent
         rel = vdir.relative_to(out).as_posix()
 
-        def have(name: str, vdir=vdir, rel=rel) -> bool:
+        def have(name: str, vdir: Path = vdir, rel: str = rel) -> bool:
             return (vdir / name).exists() or f"{rel}/{name}" in absent
 
         if ds.kind == "database":
-            need = ("data.duckdb", "schema.json", "schema.sql") + tuple(
-                f"tables/{t.name}.parquet" for t in ds.tables
+            need = (
+                "data.duckdb",
+                "schema.json",
+                "schema.sql",
+                *(f"tables/{t.name}.parquet" for t in ds.tables),
             )
+        elif m.get("whole", True) is False:
+            # Written as parts alone: the DuckDB file over them, and each part this version wrote.
+            need = ("data.duckdb", "schema.json", "schema.sql")
         else:
             rows = int(m.get("rows", 0))
             gone = None
@@ -272,17 +425,19 @@ def checked(
                     errors.append(
                         f"{slug}/{version}: formats_left_out names a format no cap covers"
                     )
-                for f in serialise.MEASURED:
-                    if f"data.{f}" not in measured:
-                        errors.append(f"{slug}/{version}: measured_bytes lacks data.{f}")
+                errors.extend(
+                    f"{slug}/{version}: measured_bytes lacks data.{f}"
+                    for f in serialise.MEASURED
+                    if f"data.{f}" not in measured
+                )
                 for name, n in measured.items():
                     if (vdir / name).is_file() and (vdir / name).stat().st_size != n:
                         errors.append(f"{slug}/{version}: measured_bytes disagrees with {name}")
-                for x in (*gone, "arrow"):
-                    if have(f"data.{x}"):
-                        errors.append(
-                            f"{slug}/{version}: data.{x} is published though the caps leave it out"
-                        )
+                errors.extend(
+                    f"{slug}/{version}: data.{x} is published though the caps leave it out"
+                    for x in (*gone, "arrow")
+                    if have(f"data.{x}")
+                )
                 vpage = vdir / "index.html"
                 if site and vpage.exists():
                     text = vpage.read_text(encoding="utf-8")
@@ -298,10 +453,15 @@ def checked(
                 "schema.sql",
                 "data.csv-metadata.json",
             )
-        for f in need:
-            if not have(f):
-                errors.append(f"{slug}/{version}: missing {f}")
-        if ds.kind != "database":
+        for part in (*m.get("parts", []), *(m.get("history") or {}).get("parts", [])):
+            if part["tree"] == version:
+                need = (*need, *(f["path"] for f in part["files"].values()))
+            elif not (ddir / slug / "v" / part["tree"] / "manifest.json").exists():
+                errors.append(
+                    f"{slug}/{version}: part {part['period']} is in {part['tree']}, which is not published"
+                )
+        errors.extend(f"{slug}/{version}: missing {f}" for f in need if not have(f))
+        if ds.kind != "database" and m.get("whole", True):
             q = query_key(slug, version)
             if not (out / q).exists() and q not in absent:
                 errors.append(f"{slug}/{version}: missing its query copy {q}")
@@ -317,65 +477,86 @@ def checked(
         # version page, the data package and the catalogue, so no one reaches the files
         # without seeing it.
         if ds.licence.condition:
-            for rel_page in (
-                ddir / slug / "index.html",
-                ddir / slug / "index.md",
-                ddir / slug / "datapackage.json",
-                vdir / "index.html",
-                vdir / "index.md",
-                out / "catalog.json",
-            ):
-                if rel_page.exists() and ds.licence.condition[:60] not in rel_page.read_text(
-                    encoding="utf-8"
-                ):
-                    errors.append(
-                        f"{rel_page.relative_to(out).as_posix()}: the licence condition is not stated"
-                    )
+            errors.extend(
+                f"{rel_page.relative_to(out).as_posix()}: the licence condition is not stated"
+                for rel_page in (
+                    ddir / slug / "index.html",
+                    ddir / slug / "index.md",
+                    ddir / slug / "datapackage.json",
+                    vdir / "index.html",
+                    vdir / "index.md",
+                    out / "catalog.json",
+                )
+                if rel_page.exists()
+                and ds.licence.condition[:60] not in rel_page.read_text(encoding="utf-8")
+            )
         # A cached version's data.json was checked by the build that published it.
         if (vdir / "data.json").exists():
-            with (vdir / "data.json").open(encoding="utf-8") as f:
-                head = f.read(4000)
-            for needle in ('"attribution"', '"licence"', '"sha256"', '"not_endorsed"'):
-                if needle not in head:
-                    errors.append(f"{slug}/{version}: data.json header lacks {needle}")
+            with (vdir / "data.json").open(encoding="utf-8") as fh:
+                head = fh.read(4000)
+            errors.extend(
+                f"{slug}/{version}: data.json header lacks {needle}"
+                for needle in ('"attribution"', '"licence"', '"sha256"', '"not_endorsed"')
+                if needle not in head
+            )
     if not site:
         return errors, []
     for page in sorted(ddir.glob("*/explore/index.html")) if ddir.exists() else []:
-        rel = page.relative_to(out)
-        m = re.search(r'id="ex-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.S)
+        erel = page.relative_to(out)
+        m = re.search(r'id="ex-data">(.*?)</script>', page.read_text(encoding="utf-8"), re.DOTALL)
         data = json.loads(m.group(1)) if m else None
         if not data:
-            errors.append(f"{rel}: no explorer data")
+            errors.append(f"{erel}: no explorer data")
             continue
         vdir = out / data["vendor"].strip("/")
-        errors += [f"{rel}: vendor lacks {f}" for f in explorer.REQUIRED if not (vdir / f).exists()]
         errors += [
-            f"{rel}: missing {v['parquet']}"
+            f"{erel}: vendor lacks {f}" for f in explorer.REQUIRED if not (vdir / f).exists()
+        ]
+        errors += [
+            f"{erel}: missing {v['parquet']}"
             for v in data["versions"]
             if not (out / v["parquet"].lstrip("/")).exists()
             and v["parquet"].lstrip("/") not in absent
         ]
         if not (page.parent.parent / "embed" / "index.html").exists():
-            errors.append(f"{rel}: no embed page beside it")
+            errors.append(f"{erel}: no embed page beside it")
         # The API saves a dashboard only for a version listed here.
         listed = page.parent / "versions.json"
         if not listed.exists() or json.loads(listed.read_text(encoding="utf-8")).get(
             "versions"
         ) != [v["version"] for v in data["versions"]]:
-            errors.append(f"{rel}: explore/versions.json missing or out of step")
+            errors.append(f"{erel}: explore/versions.json missing or out of step")
     report, wrong = examples(out, datasets)
     errors += wrong
+    errors += periods_needed(out, datasets)
+    errors += fetch_sequence(out)
+    errors += query_explained(out, datasets)
     errors += _mcp_resources(out)
     errors += _mcp_listing(out)
     errors += _manifest(out)
-    pages = []
+    pages: list[tuple[str, str]] = []
     cache: dict[str, list[str]] = {}
+    # Publishers' names are proper names, not abbreviations the site owes a reader (SC 3.1.4).
+    names = tuple(
+        {n for d in datasets.values() for n in (d.publisher.name, d.publisher.short) if n}
+    )
+    # A publisher page from the portals' catalogues reads past its own publisher's name too.
+    listed = out / "catalogue" / "publishers.json"
+    page_names = {
+        p["path"].strip("/") + "/index.html": tuple(n for n in (p["name"], p["short"]) if n)
+        for p in (
+            json.loads(listed.read_text(encoding="utf-8"))["publishers"] if listed.is_file() else ()
+        )
+    }
     for html in sorted(out.rglob("*.html")):
-        page = html.read_text(encoding="utf-8")
-        pages.append((str(html.relative_to(out)), page))
-        errors += structured.check_page(page, pages[-1][0])
-        errors += _social_card(pages[-1][0], page, out)
-        text = _without_publisher_values(PORTAL_TEXT.sub("", page), html, out, cache)
+        body = html.read_text(encoding="utf-8")
+        pages.append((str(html.relative_to(out)), body))
+        errors += structured.check_page(body, pages[-1][0])
+        errors += _social_card(pages[-1][0], body, out)
+        text = _without_publisher_values(PORTAL_TEXT.sub("", body), html, out, cache)
+        errors += abbreviations.check_page(
+            text, pages[-1][0], names + page_names.get(pages[-1][0], ())
+        )
         if (
             "not endorsed" not in text
             and "has not endorsed" not in text
@@ -388,8 +569,8 @@ def checked(
     return errors, report
 
 
-def main(out: Path, register_dir: Path, absent: list[str] = (), site: bool = True) -> int:
-    errors, report = checked(out, register_dir, absent, site)
+def main(out: Path, register_dir: Path, absent: Iterable[str] = (), *, site: bool = True) -> int:
+    errors, report = checked(out, register_dir, absent, site=site)
     if site:
         picked = sum(1 for line in report if line.startswith("rules"))
         print(f"examples: {len(report)} dataset pages, {picked} picked by the rules")

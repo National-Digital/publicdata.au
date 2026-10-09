@@ -7,7 +7,7 @@ as dated, versioned, schema-carrying files that never send traffic back to the s
 
 ```
 register/**/<slug>.yaml source, fetch strategy, cadence, licence + evidence, attribution,
-                       column allow-list, geometry, partition key, status
+                       column allow-list, geometry, partition key, update class, period, status
 pipeline/publicdata/
   fetch.py             adapters: file (a fixed URL, licence checked against the evidence page's
                        words), kiwis (Water Data Online series as one CSV), aihw (an AIHW data
@@ -20,6 +20,11 @@ pipeline/publicdata/
                        depth of 5,000)
   register_draft.py    a first register entry from a CKAN dataset URL, for review
   store.py             raw/<slug>/<YYYY-MM-DD>/<sha256>.<ext> + manifest, append-only
+  updates.py           rolling sources and feeds: each fetch's change log by key, when a fetch
+                       becomes a snapshot, and a feed's history of every row state
+  periods.py           period labels (year, quarter, month, undated), the revision window and
+                       the part size the grain is held to
+  parts.py             a period table's parts, each written once it is finished
   normalise.py         CSV/XLSX/GeoJSON -> tabular model + Table Schema, allow-listed columns;
                        a point geometry becomes two fields, a zip yields its named member
   serialise/           pure functions: json, ndjson, csv, csv.gz, parquet, sqlite, duckdb, xlsx,
@@ -63,7 +68,10 @@ pipeline/publicdata/
    since review. A grant that is not Creative Commons is admitted only through
    `register/licences/`, which quotes the publisher on reproduction, adaptation, commercial use
    and attribution. Old versions stay up under the licence they were published under.
-6. Versions are dated by source change and keep their content; unchanged hash, no version. The
+6. Versions are dated by source change and keep their content; unchanged hash, no version. A
+   release makes a version of every changed fetch. A rolling source or a feed keeps every fetch
+   that changed it, with a change log, and only some fetches become snapshots, the dated versions;
+   the rest are served at `latest/` until the next one (see Update classes). The
    [Archive](#archive) section says how long they are kept and what may change.
 7. Serialisers are pure functions of the model. Two builds of one snapshot are byte-identical,
    and CI proves it.
@@ -71,8 +79,11 @@ pipeline/publicdata/
    source hash.
 9. Requesters are organisations, never people.
 10. Every page and catalogue record says the publisher has not endorsed the site.
-11. Every page passes WCAG 2.2 AA in both colour schemes; CI runs axe over the fixture build
-    (`scripts/a11y.mjs`). A map is a PNG file under `maps/` in an `img` whose alt is worked
+11. Every page meets WCAG 2.2 AAA, with dense data regions (tables, dataset listings, the
+    explorer) held to AA for target size and type floor; `docs/ACCESSIBILITY.md` states the
+    target, the checks and the exceptions. CI runs axe's AAA rules in both colour schemes and
+    the house checks at three widths over the fixture build (`scripts/a11y.mjs`), and the
+    gate holds every abbreviation in the site's prose to the glossary on the about page. A map is a PNG file under `maps/` in an `img` whose alt is worked
     out from the cells, with a vector SVG over it; no SVG embeds a raster, and every figure's
     label is derived from what it draws.
 
@@ -102,13 +113,23 @@ pipeline/publicdata/
 /d/<slug>/changes.json               consecutive diffs: row deltas and schema diffs
 /d/<slug>/diff/<a>..<b>.json         diff between two consecutive versions
 /d/<slug>/history.tar.zst            every version's parquet + manifest
-/d/<slug>/latest/  -> /d/<slug>/v/<YYYY-MM-DD>/      302, max-age 300
+/d/<slug>/latest/  -> /d/<slug>/v/<YYYY-MM-DD>/      302, max-age 300; a rolling source's or
+                                     a feed's files are its newest fetch, served in place,
+                                     max-age 300 (latest/ itself still redirects)
+/d/<slug>/fetch/<fetch-date>/        that newest fetch's own folder, which latest/ reads
+/d/<slug>/changes/index.json         a rolling source's or a feed's every fetch: date, counts,
+                                     whether it became a snapshot and why
+/d/<slug>/changes/<fetch-date>.json  one fetch against the fetch before it, by key
 /d/<slug>/v/<date>/                  version page: kept and cited, noindex, not in the sitemap
 /d/<slug>/v/<date>/data.{ndjson,csv,csv.gz,parquet,duckdb}     on every table version
 /d/<slug>/v/<date>/data.{json,sqlite,xlsx}                       within their size limits
 /d/<slug>/v/<date>/data.{gpkg,geo.parquet,geojson,pmtiles}        with coordinates or shapes
 /d/<slug>/v/<date>/data.arrow        versions without the caps stamp only
 /d/<slug>/v/<date>/by/<field>/<value>.json           where partition_by is declared
+/d/<slug>/v/<date>/parts/<period>.{parquet,csv.gz}   where period is declared; a finished
+                                     part may live under an earlier date, as the manifest says
+/d/<slug>/v/<date>/history/<period>.{parquet,csv.gz} a feed's row states with first_seen and
+                                     last_seen
 /d/<slug>/v/<date>/manifest.json     source URL, fetched-at, SHA-256 of source bytes
 /d/<slug>/v/<date>/source.<ext>      the bytes as fetched, served from publicdata-raw
 /d/<slug>/v/<date>/SHA256SUMS        SHA-256 of every file, under its download name
@@ -119,6 +140,8 @@ pipeline/publicdata/
 /government/                         what a public servant needs before using the site
 /llms.txt
 /health.json
+/current.json                        rolling sources and feeds: the fetch each latest/ holds and
+                                     the name of its publisher's file
 ```
 
 Dated versions are cached for a year. Every dataset page carries schema.org Dataset
@@ -232,14 +255,123 @@ Schema and keys, and `schema.sql` with the CREATE TABLE statements, references a
 database has no JSON, CSV, Excel or SQLite files, no partitions, no query API and no explorer; its
 page lists the tables and shows how to attach the file from R, Python and DuckDB, and two versions
 are compared table by table by row count. The DuckDB file's bytes are not reproducible, since its
-storage picks a compression for each block by sampling, so CI compares DuckDB files by content
-(`python -m publicdata.dbcheck`) and everything else byte for byte.
+storage lays out and packs its blocks differently on each write, and its length can differ too. CI
+compares DuckDB files by content (`python -m publicdata.dbcheck`) and everything else byte for
+byte, and no page or catalogue states a DuckDB file's size.
 
 What shapes the defaults is the register: field types, `key` and `partition_by`. A table keyed by
 several fields with a count field is charted as the sum of that count; any other table counts its
 rows. A text field with 2 to 30 values becomes the master bar chart; a date field, or an integer
 field named for a year, becomes the trend. A dataset whose Parquet is over 100 MB gets no explorer,
 because the explorer holds the whole file in the browser.
+
+## Update classes
+
+A register entry's `update` says how its source changes. Each class keeps rule 6, and every
+snapshot is immutable for good.
+
+- `release` (the default) is a dated edition: each changed fetch is a version, dated by the
+  publisher's change. Every entry in the register today is a release. It is checked weekly.
+- `rolling` is a table the publisher sends whole each time. It is read weekly. Each read is
+  compared with the newest fetch by `key`, and a read that changed nothing outside the entry's
+  `volatile` columns (an `updated_at` the publisher restamps, say) is no fetch at all. A changed
+  read is stored as a fetch, dated by the day it was read, with its change log beside its
+  manifest (`store/<slug>/<date>/changes.json`): rows added, removed and changed by key, the keys
+  of each (up to 10,000 of each kind), the periods it touched and the finished ones among them,
+  which are its revisions. It refreshes `latest/`. It becomes a snapshot, the dated version the
+  site publishes, when it is the first fetch, when it revises a finished period, when more than
+  5% of the previous fetch's rows changed, when a period has closed since the last snapshot, or
+  when it is the first change of a month. A read in a later month or period that finds the table
+  as a fetch that is no snapshot left it makes that fetch a snapshot where it stands, judged by
+  the fetch's own date: it was the last change of its month (`month-end`) or before its period
+  closed (`period-end`). Its manifest gains `"snapshot": true` and the reason under its own date,
+  and its change log, already published, is left as it was. `updates.cut` and `updates.closing`
+  hold the rules. Each fetch records the class in its manifest (`update`), and a version flags
+  revisions by the class it was fetched under, so changing an entry's class leaves its versions
+  as they are.
+- `feed` is current state only, read daily. It follows the rolling rules and keeps one more
+  table: every state a key has held, with the first and last fetch that held it (`first_seen`,
+  `last_seen`), without the volatile columns. The fetch keeps it beside the source as
+  `history.parquet`, and each snapshot and `latest/` publish it split by period, with
+  `history/schema.json` marking `first_seen` and `last_seen` as computed by this site
+  (`publicdata:derived`, as a joined column is): they are the dates the site first and last read
+  the row in that state, and the dataset page says so. A state the
+  feed no longer holds keeps the date of the last fetch that held it, and one that comes back
+  starts a new row. States are compared on the columns both sides hold, so a column that stops
+  being volatile joins the history with nulls for the rows before. An empty read is a state
+  too: it is a fetch, its change log removes every row and its history closes them. Every read
+  writes `read.json`, the day it read and the fetch it found, which `store push` puts in
+  publicdata-raw at `<slug>/read.json` beside the feed's folders. It never goes into git, so a
+  quiet day opens no pull request. The build pulls it as it pulls `history.parquet`, and
+  `latest/`'s history carries the rows the newest fetch held to that read; latest's cache key
+  takes the read. A record that is missing, or that names a fetch the checkout does not hold yet,
+  is not taken, and `last_seen` stops at the newest fetch. A quiet read reaches `latest/` at the
+  next deploy. A feed always has a period.
+
+The manifest of a fetch that is no snapshot says `"snapshot": false`, and a snapshot's says
+why it was cut (`cut`). Both kinds stay in the raw store. `latest/` of a rolling source or a
+feed is its newest fetch built whole, every format and its parts, under `d/<slug>/fetch/<date>/`
+named for that fetch. `current.json` names the fetch and the publisher's file of each such
+dataset, and the `/d/` function serves `latest/<file>` from that folder, on Pages or in R2,
+with a five-minute cache and the dated file name to save it as; `latest/source.<ext>` comes from
+the raw store. A file an older fetch wrote is never served again, and while a deploy is half out
+the old `current.json` keeps pointing at the old folder. A release's `latest/` still redirects
+to its newest dated version, and `latest.json` names every dataset's newest snapshot, which the
+query API, the catalogue and the hubs read. The older `source.feed: true` is a release read daily,
+one version per day it changed; `update: feed` replaces it and an entry may not give both.
+
+Each read is compared with the newest fetch the checkout holds, so the fetch holds a rolling
+source or a feed back (`fetch --hold`) while an earlier fetch of it waits in an open pull
+request. The gate checks that every change log was compared with the fetch just before it, so a
+log that skipped one is never published.
+
+## Periods
+
+`period: {field, grain}` names the date field (or an integer year with grain `year`) and the
+grain: `year`, `fiscal` (the July to June financial year), `quarter` or `month`. A fetch records
+the register's period in its manifest, and a version is split by the period its own manifest
+names. Adding a period to an entry with history therefore changes none of its versions: the
+next fetch is the first one split.
+
+A table whose rows carry their own date needs a period once its newest version is over 100 MB of
+Parquet or 5 million rows, and a feed always does. The grain is the largest that keeps each
+part's Parquet at or under 100 MB. The gate holds both rules: a dated table over the threshold
+whose register entry has no period fails, unless `gate.PERIOD_PENDING` names it with the change
+that will split it, and the newest version's grain fails when a part is too large or the next
+longer grain would still fit.
+
+Each part is `parts/<period>.parquet` and `parts/<period>.csv.gz` under the version, named
+`2025`, `2025-26`, `2025-Q1` or `2025-01`, with four-digit years and an `undated` part for rows
+that have no date. Every part carries the provenance header with the period it holds, and every
+part follows the Parquet layout the version's manifest records (its sort, lookup and INT32
+fields), so every part of a version has the same column types. `revision_window`
+(default 2) counts the open periods: the current one and the one before. An older part is
+finished. A finished part is written once: a later snapshot whose rows for that period are the
+same, volatile columns included, and whose column types are the same does not write it again,
+and its manifest points at the earlier version that holds the file. A part is marked `revised`
+when the change logs since the snapshot before name its period as revised, which is the same
+list the manifest's `revised` holds; for a version fetched as a release, which keeps no change
+log, a finished part whose rows outside the volatile columns differ from the snapshot before's.
+The two ways never share a cache key. A feed's history
+parts change whenever a current row's `last_seen` moves, and are never called revisions. The
+undated part is never finished. Which parts a version reuses depends on the snapshot before it,
+so a version's cache key takes that snapshot's key and the revisions logged since, and a cold
+build lays the parts out as a warm one does. Each part is digested and written on its own, so a
+version's parts are separate build units.
+
+`data.<ext>` of a split table is the whole table, written beside the parts while the parts'
+Parquet adds up to 100 MB or less and the table has 5 million rows or fewer. Past that, the version
+is its parts and `data.duckdb`, which holds a `parts` table naming each part's URL and a
+`records()` table macro that reads every part's Parquet over HTTPS when it is called
+(`records(files := [...])` reads the parts named). `"whole": false` in the manifest says so. Such
+a version has no console, explorer or pages by place, since each reads one whole file; its
+dataset page says so, and says when the query API serves it from its parts, and `llms.txt` lists only the files it has. The gate fails a table
+dataset's page that has no query console and gives no reason. A diff or the history archive
+reads the parts back, and so do the pages: their figures, sample rows and the home page map
+read the parts joined into one Parquet file outside the built tree. The explorer stays on the
+newest version published whole and says so. The hubs take one table, so such a version is not
+copied, each hub keeps the newest whole version, and the dataset page names it. Either way there
+is one dataset page, and it lists the newest snapshot's parts.
 
 ## Explorer
 
@@ -281,12 +413,18 @@ This site is the version history the portals do not keep. The archive role has i
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
   its manifest.
-- Raw bytes are kept for every version in append-only object storage with versioning on, and
-  a `history` branch in git holds every manifest and diff report, so the archive can be
-  rebuilt from either.
+- Raw bytes are kept for every version in the R2 bucket `publicdata-raw`, and a `history`
+  branch in git holds every manifest and diff report, so the archive can be rebuilt from
+  either. R2 keeps no earlier copies of an object, so the push keeps the bucket append-only:
+  `publicdata store push` skips any object that already exists under a version whose manifest
+  is committed, and it takes no option to replace one.
 - Any two versions can be compared: `/d/<slug>/diff/<a>..<b>.json` lists added, removed and
   changed rows by the declared key, and field-level schema differences. `changes.json` is
   the same for consecutive pairs.
+- A rolling source or a feed keeps every fetch that changed it, snapshot or not, in the raw store
+  with its change log, so the archive holds the dated versions and every state the site read
+  between them. `/d/<slug>/changes/` publishes each fetch's log. A finished period's part is kept
+  once and named by every later snapshot that holds the same rows.
 - `versions.json` per dataset lists every version with date, as-at, row count, field count,
   source hash and encoding. `/d/<slug>/history.tar.zst` bundles every version's data.parquet
   and manifest for offline use.
@@ -298,11 +436,55 @@ Pages on Cloudflare Pages (project `publicdata-au`), data in R2. After the build
 split --versioned` moves every file of a dated version, its page included, and anything over the
 Pages per-file limit, into a tree that is pushed to the R2 bucket `publicdata-dist` at the same
 key as its URL path. Dated keys are written once; a mutable key such as `history.tar.zst` is
-rewritten when its SHA-256 changes. `_routes.json` runs the function only on `latest/`, dated version trees, diffs and the history
-archive, so a dataset page and its JSON are served as Pages files; split refuses a large file no
-route reaches. The Pages Function under `functions/d/` serves a static file
+rewritten when its SHA-256 changes. `_routes.json` runs the function only on `latest/`, dated
+version and fetch trees, diffs, change logs and the history archive, so a dataset page and its
+JSON are served as Pages files; split refuses a large file no route reaches. Each data file it
+serves saves under a name it gives in `content-disposition`, and no page, folder, diff or index of
+versions gets one. The name is `<slug>_<version>` and the file: `data.csv` is
+`<slug>_<version>.csv`, a period part adds its period (`_2022.parquet`, `_undated.parquet`), a
+feed's history part `_history_` and its period, a file under `latest/` or `fetch/` the fetch's
+date, a change log its fetch's date (`_changes.json`), the change log index none, and the history
+archive the newest version `latest.json` names. `download_name` in site.py and
+`functions/_download.js` hold the rule, tied by `pipeline/tests/fixtures/download_names.json`,
+and the dataset page's script takes each format's suffix and the date `latest/` serves from the
+build. The Pages Function under `functions/d/` serves a static file
 when Pages has it, redirects `latest/` from `latest.json`, and otherwise streams the object from
-R2 with byte ranges, a sized HEAD and immutable caching. A dataset missing from `latest.json` (the register withheld it)
+R2 with a sized HEAD and immutable caching.
+
+A dated text file (CSV, NDJSON, JSON, GeoJSON, `schema.sql` and any other text over 1 KB) is
+stored in R2 gzipped: deterministic gzip at level 6 with no name and mtime 0, marked
+`Content-Encoding: gzip`, with the decoded size and SHA-256 as metadata (`size`, `sha256`).
+`dist-push` gzips them on upload, with botocore's checksums set to `when_required` so that an
+upload is never marked `aws-chunked`; readers still treat Content-Encoding as a list of tokens.
+The query layer's files under `_q/` are never gzipped. The function sends the stored bytes with
+`Content-Encoding: gzip` to a client that accepts gzip, which it reads from
+`request.cf.clientAcceptEncoding` because the runtime always asks for gzip itself, and decodes
+them with `DecompressionStream` for any other client. Such a response drops `no-transform`, so the
+edge, which caches whichever encoding it was sent first, can decode it for a client that cannot.
+A HEAD gives the size of what a GET would send.
+
+Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles,
+`data.csv.gz` and the publisher's file, which are stored as written. A range asked of a CSV,
+NDJSON, JSON or GeoJSON file is answered 200 with the whole file and `Accept-Ranges: none`, which
+a range client reads as a server without ranges. A reader that scans lazily or seeks, such as
+polars `scan_csv` or `scan_ndjson` or an fsspec file opened over HTTP, should read `data.parquet`
+or `data.csv.gz` instead.
+
+A version's `data.csv.gz` is the CSV gzipped the same way, so `dist-push` stores no separate copy
+of it once the CSV is stored gzipped: the function serves `data.csv.gz` from the stored CSV's
+bytes as `application/gzip`, with no `Content-Encoding` and with byte ranges. A replace writes an
+existing `data.csv.gz` again, because the function serves a stored key before the alias. Versions
+pushed before this keep their own `data.csv.gz`. `publicdata r2 restore-gzip` rewrites the text
+files stored before this in place. It checks every object's hash before and after, makes both
+the rewrite and any rollback conditional on the ETag it read, so a deploy writing the same key is
+never undone, is a dry run from the listing unless given `--apply`, and skips what is already
+gzipped; `--dedupe-csv-gz` also deletes an old `data.csv.gz` whose bytes the gzipped CSV now
+holds. A deployment whose function predates gzip at rest serves these objects wrongly, so once
+they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe.
+`publicdata r2 shared-report` counts the bytes that storing identical dated files once would
+save, reading the bucket only; `docs/content-addressed-store.md` records why that waits.
+
+A dataset missing from `latest.json` (the register withheld it)
 answers 410 for every file R2 still holds, `latest/` included, and so does each path in
 `withheld.json`, the publisher's files of an entry with `source_withheld`, which the build stops
 writing but R2 kept. Query copies (`_q/<slug>/<version>.parquet`) go to `publicdata-dist` alone:
@@ -321,7 +503,10 @@ once the push's checks pass. The push stops before any upload when a copy in the
 follow its entry's layout. The gate
 wants every table version's query copy in the tree or among the files a cached build left out,
 and `dist-push --expect` wants each of those in R2 under a record of the entry's layout, so a
-cached version is never published beside a copy in another layout. The edge caches nothing over 512 MB
+cached version is never published beside a copy in another layout. A version written as parts
+alone has no query copy, and `latest/` is no version. For a dataset `current.json` names, a
+file under `latest/` is its newest fetch, served from Pages or R2 in place with a five-minute
+cache. The edge caches nothing over 512 MB
 and, until it learns a file is too large, answers a byte range with the whole file, so a dated
 file over 500 MB is redirected to its URL with `?edge=bypass`; a zone Cache Rule placed after
 "Dated version trees" bypasses the cache for that query, and without it large files fall back to
@@ -331,9 +516,10 @@ because it says whether it is the newest. Pull-request previews skip
 `--versioned`, because they never write to R2.
 
 A version built once is not built again while its inputs are unchanged: its source, its register
-entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps a build cache in R2, under `_build/` in
-`publicdata-raw` (`publicdata cache pull|push`), that holds for each version only its small
-files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
+entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps
+a build cache in the R2 bucket `publicdata-build-cache` (`publicdata cache pull|push`), apart from
+the raw store so that no credential the fetch runner holds can write it. It holds for each version
+only its small files: the manifest, the schema and the SQL. Its other files were pushed to `publicdata-dist` by
 the deploy that built them, so a cached build lists them in `absent.json` instead of writing them,
 the gate counts them as present, and `dist-push --expect` stops the deploy if R2 lacks any of
 them or holds one of their query copies in another layout. The Parquet a diff, the history archive or a page reads is read back from
@@ -383,7 +569,7 @@ cached, so none of them is in the entry or `absent.json`. The limits live in
 `serialise/__init__.py` and apply only to versions built for the first time. The
 determinism job proves this by building the fixtures with a subset of formats into a cache and
 then with every format, and comparing the result with a plain build (`build --formats`). The cache is saved only after the R2 push succeeds, each entry's record after its files,
-and the last push of a deploy to main notes the entries its build pruned in `_build/.unused.json`.
+and the last push of a deploy to main notes the entries its build pruned in `.unused.json`.
 An entry is deleted, its record first, only once it has stayed unused for a day, so a preview
 that listed it before main stopped using it still finds it whole. Source bytes are
 pulled only for versions the cache does not hold. A deploy dispatched with `replace` builds
@@ -460,12 +646,36 @@ cancelled stops the deploy too. A fork's pull request has no access to the store
 first checked on the push to main, and a failure there stops every deploy until it is fixed. The reference is the cache entry because it records
 what the build made when the version was last built, which is what a reuse stands for. A dated
 file in R2 is never overwritten outside a replace dispatch, so it keeps the bytes of the version's
-first build, and a raised number alone does not change it. The diffs and the history archive are
+first build, and a raised number alone does not change it. Outside a replace, a push also adds no
+partition file to a version whose manifest R2 holds. An edit to `partition_by` builds every
+stored version again, and `dist-push` stops before it writes the new `by/` files and names the
+versions for a replace dispatch ([CORRECTIONS.md](CORRECTIONS.md#a-change-to-partition_by)). The diffs and the history archive are
 therefore made from the published copy of each version's Parquet and manifest wherever R2 holds
 one, in a deploy and in the check alike (`published.served`), so they describe the files the site
 serves and old bytes in R2 are no difference. When the sampled datasets that differ are more than
 one, the message asks for `REBUILD`, since the check passes once the sampled entries are raised
 and the unsampled ones would be reused unchanged.
+
+## Storage cost
+
+R2 bills storage, and the archive only grows. `/health.json` carries two figures under `storage`,
+each saying what it covers. `projected` is the build's estimate, with the versions-a-year model of
+`python -m publicdata cost`: the bytes every built version holds in `publicdata-dist` with its
+publisher's file once in `publicdata-raw`, the same a year on, the growth a year from each entry's
+newest version and the versions its cadence and history give, and the D1 rows written a year. The
+two differ in how they size a version: `cost` reads the live catalogue and counts every stored
+version at its newest one's size, where the build counts each version's own files. `measured` is
+Cloudflare's own figure for every object in those two buckets, build cache and query copies
+included. Each bucket's figure is its newest reading from the past 7 days, and `measured_at` is
+the time of the older of the two. The deploy to production writes it into the built `health.json`
+before pushing the pages (`publicdata measure`), so the build stays the same from the same inputs.
+When it cannot be read, `available` is false with a reason from a fixed set, and the deploy goes
+on. The step reads with its own token, `CLOUDFLARE_ANALYTICS_TOKEN` in the `production`
+environment, which holds Account Analytics Read and nothing else. Without it the reason says no
+token is set. Neither figure is priced; R2 Standard is $0.015 per GB-month after 10 GB free.
+
+The Cloudflare account also holds a budget alert on its usage-based spend, and the maintainers
+receive it.
 
 ## Query API
 
@@ -479,13 +689,17 @@ per version with indexes on the key and partition fields, and records it in `_ve
 field list, licence and attribution, and in `_orders` with the order its rows were taken in
 (`profile.signature`); a loaded version whose Parquet is in another order is loaded again, so its
 rowid agrees with the Parquet and the console. At most two versions per dataset are loaded; every version
-stays available as files. A version whose data.csv is over 500 MB, or a dataset whose entry sets
+stays available as files. A version stored as period parts is loaded from its parts in the
+manifest's order, each part in its own order, with the provenance header its DuckDB file holds,
+while the CSVs of its parts together come to 500 MB or less; each part's manifest record keeps
+its CSV's size (`csv_bytes`) for that. A version whose data.csv is over 500 MB, or a dataset whose entry sets
 `query: false`, is not loaded, and its page, OpenAPI and MCP resources leave the query API out;
 `d1.queryable` is the one rule both the build and the loader read. Every other version is for the
-Parquet engine, which reads the version's query copy in `publicdata-dist`, never its data.parquet. Up to four versions load at
+Parquet engine, which reads the version's query copy in `publicdata-dist` first. Up to four versions load at
 once, each one's parts in order. Filters follow PostgREST (`field=gte.2020`, `in.(a,b)`, `is.null`,
 `like.*x*`, `not.` to negate), every name is checked against the field list and every value is
-bound. Paging asks for one row more than the limit and returns a `next` URL on the version's own
+bound. `like` and `ilike` treat `*` as the wildcard and ignore case in ASCII letters only, as
+SQLite's LIKE does. Paging asks for one row more than the limit and returns a `next` URL on the version's own
 path. JSON responses carry the version, licence and attribution; CSV and NDJSON carry them in
 headers. Dated answers are cached at the edge for good, the newest for five minutes. Above 60
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
@@ -514,10 +728,137 @@ days, whose API answers come from the version before. Each deploy also drops the
 neither `_versions` nor `_loads` names, as a failed cleanup can leave. Only deploys of main load,
 one at a time.
 
+The MCP server's `query_rows` and `count_rows` answer from D1 for the versions it holds. Any
+other version, older than the two loaded, over the size limit or in an entry with `query: false`,
+is read from Parquet in R2 (`functions/_parquet.js`) with the same filters. The build writes a field list,
+`d/<slug>/fields.json`, for every dataset whose newest version has a data.parquet, from that file,
+or is stored as period parts, from its parts in order, whether or not D1 loads it, so `list_fields` answers for every dataset the row tools serve. The build writes a
+profile copy of every version, old ones included, at `_q/<slug>/<version>.parquet` in
+`publicdata-dist`, which no route serves, and the engine reads that first when its row count,
+version and source hash match the published file's footer. A failed read of the copy fails the
+call, so the published file never stands in for it by accident. Without a matching copy it reads
+the published `data.parquet`, but only when that file carries the profile's footer key
+`publicdata.profile` (ADR 0008). Otherwise the query is refused with DuckDB SQL that answers it
+from the published file, since an unsorted scan of the old files took 20 seconds of CPU in the
+benchmark. Answers, errors and the SQL always name the published file, never `_q/`. A version
+written only as period parts has neither file, so the engine reads it as the list of part files
+its manifest gives, in the manifest's period order, and treats them as one table whose rows come
+in that order and then in each part's own order. The newest part's footer gives the fields. A
+filter on the period field is compared with each part's label, which bounds the dates or the year
+it can hold, and a part that cannot match is never opened. The footers of the parts left, at most
+120 for one call, are read six at a time and kept by key and ETag; row groups and pages are then
+ruled out in each part as in one file, under one budget for the whole call, and counts and
+aggregates combine across the parts. A refused call gives DuckDB SQL over the parts it would have
+read, ordered by `list_position` of each part in that list and then `file_row_number`, which
+returns the same rows in the same order. An answer names the periods it read and the version's
+manifest, and takes the attribution the manifest records. The manifest is read through
+`storedText`, since R2 holds it gzipped once it passes 1 KB. A correction rewrites a version's
+parts under the same keys and its manifest with a note, so an answer is cached under the digest
+of the manifest's text, and the manifest an isolate holds is checked against its ETag after a
+minute, as a footer is. A sorted profile
+file has a page index, and one without is read a column chunk at a time. Each version's
+footer, and the page index of each column a query touches, are read once per isolate and held to
+the file's ETag. The page index is written just before the footer, so when the 64 KB read of a
+file's tail holds it too, that part of the tail is kept and the index costs no read of its own. A query copy is written again in place when its entry's `sort`, `lookup` or
+`int32` changes, so every range read passes `onlyIf: { etagMatches }`; a read the copy refuses
+drops the footer, and the call reads it again once. A footer over a minute old is checked against
+the copy's ETag before it is used. Row-group
+statistics, and page statistics where there is a page index, rule out what cannot match, and
+rows that the statistics prove match are counted without being read. The pages left are fetched six at a time, ranges
+less than 256 KB apart read as one, and decoded with hyparquet a few row groups at a time.
+Before any data is read, the pages a query needs are priced from the page index, and a call may
+read 64 row groups, 8 MB, 4 million values and 160 ranges. An ordered page holds every row
+before it, so offset + limit, or the rows that can match where that is fewer, may come to at most
+100,000 rows there. Each candidate row of an order costs one more value for every eight levels of
+that heap, since it is compared once per level. An aggregate holds one bucket per distinct group
+and may hold 50,000. Each value a `like` pattern
+with a `*` is matched against counts once more for every eight characters of the pattern. A
+query that needs more is refused with the same DuckDB SQL. Values come back as D1 gives them: booleans as 1 and 0, dates as text, the
+suppressed flags joined by semicolons, and a 64-bit integer as a number while it is exact and as
+its digits beyond that. Sums and averages are compensated as SQLite's are, and `like` is matched
+without backtracking. Rows the statistics prove match are counted and paged by arithmetic, never
+one index per row. Without an order, and for ties, an answer from Parquet follows the file's own
+order: the declared sort, then the key, then the source position. D1 keeps the publisher's
+order, and the DuckDB SQL rebuilds the file's order from the published file with
+`file_row_number`. Footers are kept least recently used first. Answers are cached at the edge by
+version, engine version and the ETag of the file read, so a copy written again never answers from
+the cache of the one before. Each answer links the version's manifest, since the query API path
+answers only while D1 holds the version. A file with no `publicdata` provenance key is refused.
+
+A page of rows without an order that the budget refuses, because counting every match reads too
+much, takes its count from the version's rollup when a cube holds every filter field and the file
+follows the profile. It then reads in file order only until the page is full or the count is
+reached, a few pages of the first filter column at a time and doubling, reading the column whose
+page statistics leave the fewest rows first and each other one only over the rows still matching. A
+page still over the budget is refused with the full query's cost. The picked rows' columns are read
+over runs of picks that lie on the same or the next page, so pages between two distant picks are
+skipped, and a column chunk's dictionary is charged once per read however many ranges it serves.
+
 It stays off until the D1 database exists, is bound as `DB` in wrangler.toml, the repository
 variable `D1_ENABLED` is true, and `QUERY_API` in site.py is flipped so OpenAPI lists it. Until
 then the endpoints answer 503 and point to the files. The query builder is tested against
 node:sqlite in CI.
+
+## Rollups
+
+The MCP tool `count_rows` answers from a version's rollup before it asks D1. A rollup is one
+gzipped JSON object in `publicdata-dist` under `_rollup/<slug>/<version>.json.gz`, outside the
+published tree, holding the version's counts and totals grouped several ways ("cubes"). It is a
+cache of answers the query API gives and is not offered as a download. It carries the version's
+provenance header. The build never imports `rollup.py`, so rollups shape no version and the build
+cache does not key on them.
+
+`publicdata rollup` runs after the D1 load and follows what D1 holds, which `_versions` lists, so a
+version too large or too wide for D1 and a deploy with D1 off get no rollup. An entry with `query:
+false` is in no D1 table, so every version its built `versions.json` lists, less those taken down,
+gets one: the Parquet engine answers those versions, and a count over a field the file is not sorted
+by costs more than its budget there. Each rollup is stored with the identity of the Parquet it was
+built from: the SHA-256 the push stores with every object, or the ETag of one pushed before it did.
+A version whose published Parquet has another identity, or which `--replace` names, gets its rollup
+written again, and the rollups of versions D1 no longer holds are deleted. The Parquet is read from
+a built tree when the tree holds the same bytes, and from `publicdata-dist` otherwise, so a version
+this deploy took from the build cache still gets its rollup. DuckDB reads it on one thread with a
+float's NaN as null, as `data.sqlite` holds it, and totals floats with compensated summation, so the
+same Parquet always gives the same rollup. A version whose totals include an infinity has no JSON
+form and is left to D1.
+
+A published version keeps the schema it was built with, so a rollup takes its fields from the
+version. They are the fields `_versions` lists for it, or the register's when D1 lists none, kept
+only where the Parquet has the column and typed by the column when the stated type does not fit
+it. A version that fails for any other reason, such as a download error, is logged as a warning
+and skipped. Its rollup stays when it was built from the bytes R2 still publishes, the other
+versions are written and pushed, and the next deploy tries it again.
+
+A version gets a rollup when its table has at least 5,000 rows; a smaller table is answered at once
+by any engine. The candidate cubes are the field sets the entry's `rollup`, `example` and `chart`
+ask about, each field readers count by (at most 1,000 values, or any date), and each pair of the 24
+most likely such fields. They are taken greedily by the weight of questions each newly answers per
+byte (a register question 100, a count by one field 10, a pair 2) until 1 MB, each costed for the
+totals it holds, which leave out the fields it groups on. A cube with more groups than half the rows
+is left out. Each cube totals up to four numeric fields, the register's example and chart measures
+first, as sum, non-null count, minimum and maximum, so counts, sums, averages, minima and maxima all
+come from it. The cap holds on the gzipped bytes: a rollup over it drops its last-chosen cubes and
+is built again.
+
+The function picks the smallest cube that holds every field a query filters or groups on and the
+field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the answer is the one
+`/aggregate` gives; `functions/_rollup.test.mjs` runs random queries through both on the fixture in
+`pipeline/tests/fixtures/rollup`, whose rollup the Python tests pin byte for byte. Each filter is
+decided once per distinct value, and LIKE patterns match without backtracking. `count_rows` orders
+equal totals by its groups, so its top groups are the same from either engine and from the query it
+cites. The function reads a rollup only while its stored identity matches the published Parquet's,
+and checks again after a minute. It answers any version it has a current rollup for. A query no cube
+holds and a withheld dataset fall through to the Parquet engine or D1. Answers name the version and
+its `/aggregate` URL, and for a version D1 does not hold, also the version's Parquet file and
+manifest, as the Parquet engine's do.
+
+The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
+measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their
+Parquet, median 152 KB), which answer the fields of 84.5% of the register's example and chart
+questions, 98.2% of counts by one field and 78% of counts by one field filtered on another.
+Doubling the cap gains three points on pairs and doubles the parse time, while counts alone
+answer the same fields in a third of the bytes but none of the sums and averages most register
+questions ask for. In workerd a cold rollup answers in 6 to 25 ms and a warm one in about 1 ms.
 
 ## Catalogue
 
@@ -586,6 +927,14 @@ notes say so. A source whose file host turns automated clients away is marked `m
 reads its portal record, lists a changed file in the **Manual downloads due** issue, and takes the
 bytes from a file a person downloaded (`fetch --file`).
 
+A rolling source's or a feed's fetches sit in the same layout, one dated folder each, with
+`changes.json` committed beside the manifest, and a feed's `history.parquet` beside the source
+and its `read.json` beside its folders in R2, neither of them in git. The fetch compares each read with the newest
+fetch, so it first pulls that fetch's bytes (`store pull --rolling`, the feeds alone on the daily
+run); a dataset whose bytes cannot be pulled is reported and its fetch fails alone. A build pulls every snapshot and only the newest fetch, which `latest/`
+is built from. The weekly run reads every entry and the daily run reads the feeds, and a fetch
+that is no snapshot goes into its government's pull request like a version.
+
 ## Votes and requests
 
 The backlog is the whole catalogue. The build writes one search row per listed record
@@ -631,7 +980,9 @@ licence, attribution, the publisher's file hash) and text that links the version
 back survives a re-upload. A licence with no hub mapping in `hubs.LICENCES` is refused, a licence with a
 condition of use is refused since no hub can state it, a database is refused since the hubs take
 one table, and an Australian port goes up as "other" with the licence named in the text where a
-hub has no id for it. Zenodo gets a DOI per version under one concept DOI, and relates each record to the version
+hub has no id for it. A rolling source or a feed goes to each hub at most once a month, from a snapshot: only when its
+newest snapshot is in a later month than the newest copy that hub holds. Zenodo takes Parquet and
+gzipped CSV alone for it. Zenodo gets a DOI per version under one concept DOI, and relates each record to the version
 URL, the dataset page and the publisher's page. `--render <dir>` writes what each hub would
 receive, without the data, for review.
 

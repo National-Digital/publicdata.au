@@ -11,6 +11,17 @@ export const json = (body, status = 200, extra = {}) =>
 
 export const SLUG = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
+// Content-Encoding is a list of tokens; an upload can leave aws-chunked beside gzip.
+export const gzipped = (obj) =>
+  (obj.httpMetadata?.contentEncoding || '')
+    .split(',')
+    .some((t) => t.trim().toLowerCase() === 'gzip');
+
+export const gunzip = (body) => new Response(body.pipeThrough(new DecompressionStream('gzip')));
+
+// An R2 binding returns the bytes as stored, and a text file over GZIP_MIN is stored gzipped.
+export const storedText = (obj) => (gzipped(obj) ? gunzip(obj.body).text() : obj.text());
+
 export const today = () => new Date().toISOString().slice(0, 10);
 
 // The salt lives only in the private votes bucket and is created on first use, so a missing

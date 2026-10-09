@@ -27,8 +27,8 @@ faq:
   a: One gambling stream in one month, with the player expenditure in dollars. Player expenditure is the amount
     players lost, which is what they bet less what they won. The streams are Casino, EGM (gaming machines in
     hotels and clubs), Keno, Lottery and Wagering.
-- q: What is the CNP row?
-  a: The file holds one row for November 2013 with the stream CNP and no amount. The publisher does not define
+- q: What is the `CNP` row?
+  a: The file holds one row for November 2013 with the stream `CNP` and no amount. The publisher does not define
     it, and the row is kept as published.
 summary: The amount players lost each month in Queensland on casinos, gaming machines, keno, lotteries and
   wagering, since July 2004.

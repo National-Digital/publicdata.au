@@ -2,34 +2,42 @@ import copy
 import io
 import socket
 from contextlib import redirect_stderr, redirect_stdout
+from typing import TYPE_CHECKING
 
 import pytest
 
 from publicdata import tdqs
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
-def _tools():
+    from publicdata.api_text import Tool
+
+
+def _tools() -> list[Tool]:
     return copy.deepcopy(tdqs.tools())
 
 
-def _by_name(ts, name):
+def _by_name(ts: list[Tool], name: str) -> Tool:
     return next(t for t in ts if t["name"] == name)
 
 
-def _drop(t, sentence):
+def _drop(t: Tool, sentence: str) -> None:
     t["description"] = " ".join(s for s in tdqs.sentences(t["description"]) if s != sentence)
 
 
-def _run(ts):
+def _run(ts: list[Tool]) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
         rc = tdqs.check(ts)
     return rc, out.getvalue(), err.getvalue()
 
 
-def test_the_current_tool_definitions_pass_offline(monkeypatch):
-    def refuse(*a, **k):
-        raise AssertionError("the check opened a connection")
+def test_the_current_tool_definitions_pass_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*a: object, **k: object) -> None:
+        msg = "the check opened a connection"
+        raise AssertionError(msg)
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
@@ -37,7 +45,7 @@ def test_the_current_tool_definitions_pass_offline(monkeypatch):
     assert tdqs.main(["check"]) == 0
 
 
-def test_two_runs_print_the_same_bytes(monkeypatch):
+def test_two_runs_print_the_same_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     ts = _tools()
     _by_name(ts, "query_rows")["inputSchema"]["properties"]["limit"]["description"] = ""
@@ -45,7 +53,9 @@ def test_two_runs_print_the_same_bytes(monkeypatch):
     assert _run(_tools()) == _run(_tools())
 
 
-def test_a_parameter_without_a_description_names_the_tool_and_parameter(monkeypatch):
+def test_a_parameter_without_a_description_names_the_tool_and_parameter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     ts = _tools()
     del _by_name(ts, "query_rows")["inputSchema"]["properties"]["limit"]["description"]
@@ -55,14 +65,16 @@ def test_a_parameter_without_a_description_names_the_tool_and_parameter(monkeypa
 
 
 @pytest.mark.parametrize(
-    "quality,sentence",
+    ("quality", "sentence"),
     [
         ("limits", "Each call costs one of the 60 queries each address may make in 10 seconds."),
         ("returns", "Up to 50 matches come back in one answer, with no paging."),
         ("usage", "If nothing matches, try fewer or broader words, then search_catalogue."),
     ],
 )
-def test_removing_the_sentence_for_a_quality_fails_that_quality(quality, sentence):
+def test_removing_the_sentence_for_a_quality_fails_that_quality(
+    quality: str, sentence: str
+) -> None:
     ts = _tools()
     t = _by_name(ts, "search_datasets")
     assert sentence in tdqs.sentences(t["description"])
@@ -77,34 +89,42 @@ RETURN_SENTENCES = {
     "list_fields": ["The answer describes the newest version, in one page."],
     "list_partitions": ["Every value comes back in one answer, with no paging."],
     "query_rows": [
-        "One page holds up to limit rows, and offset steps through the rest until next_offset "
-        "is null."
+        (
+            "One page holds up to limit rows, and offset steps through the rest until next_offset "
+            "is null."
+        )
     ],
     "count_rows": [
         "Groups come back largest first, and truncated means raise limit or narrow where."
     ],
     "diff_versions": [
-        "One answer holds the counts of rows added, removed, changed and unchanged, the keys of "
-        "the rows added, removed and changed, and up to ten changed rows with their old and new "
-        "values."
+        (
+            "One answer holds the counts of rows added, removed, changed and unchanged, the keys of "
+            "the rows added, removed and changed, and up to ten changed rows with their old and new "
+            "values."
+        )
     ],
     "search_catalogue": ["A page holds 20 records, those that can take a vote first."],
     "list_backlog": [
-        "Votes on catalogue records that no entry has claimed yet come back apart, under the vote "
-        "key search_catalogue uses.",
-        "The whole backlog comes back in one answer, with no paging, and the call costs nothing "
-        "against the rate limit.",
+        (
+            "Votes on catalogue records that no entry has claimed yet come back apart, under the vote "
+            "key search_catalogue uses."
+        ),
+        (
+            "The whole backlog comes back in one answer, with no paging, and the call costs nothing "
+            "against the rate limit."
+        ),
     ],
     "upvote_dataset": ["The answer gives the dataset's vote total after this call."],
 }
 
 
-def test_every_tool_has_its_return_sentence_listed():
+def test_every_tool_has_its_return_sentence_listed() -> None:
     assert set(RETURN_SENTENCES) == {t["name"] for t in tdqs.tools()}
 
 
 @pytest.mark.parametrize("name", sorted(RETURN_SENTENCES))
-def test_removing_the_return_sentence_fails_returns_for_every_tool(name):
+def test_removing_the_return_sentence_fails_returns_for_every_tool(name: str) -> None:
     ts = _tools()
     t = _by_name(ts, name)
     for sentence in RETURN_SENTENCES[name]:
@@ -113,7 +133,7 @@ def test_removing_the_return_sentence_fails_returns_for_every_tool(name):
     assert any(e.startswith(f"{name}: returns:") for e in tdqs.problems(ts)[0])
 
 
-def test_removing_the_purpose_sentence_fails_purpose():
+def test_removing_the_purpose_sentence_fails_purpose() -> None:
     ts = _tools()
     t = _by_name(ts, "get_dataset")
     _drop(t, tdqs.sentences(t["description"])[0])
@@ -121,7 +141,7 @@ def test_removing_the_purpose_sentence_fails_purpose():
 
 
 @pytest.mark.parametrize(
-    "quality,change",
+    ("quality", "change"),
     [
         (
             "purpose",
@@ -138,14 +158,15 @@ def test_removing_the_purpose_sentence_fails_purpose():
         ("length", lambda t: t.update(description=t["description"] + " And" + " it" * 40 + ".")),
     ],
 )
-def test_each_quality_fails_on_its_own(quality, change):
+def test_each_quality_fails_on_its_own(quality: str, change: Callable[[Tool], object]) -> None:
     ts = _tools()
     change(_by_name(ts, "query_rows"))
     errors = tdqs.problems(ts)[0]
-    assert errors and all(e.startswith(f"query_rows: {quality}:") for e in errors), errors
+    assert errors
+    assert all(e.startswith(f"query_rows: {quality}:") for e in errors), errors
 
 
-def test_a_read_only_tool_that_says_it_writes_fails():
+def test_a_read_only_tool_that_says_it_writes_fails() -> None:
     ts = _tools()
     t = _by_name(ts, "upvote_dataset")
     t["annotations"]["readOnlyHint"] = True
@@ -155,7 +176,7 @@ def test_a_read_only_tool_that_says_it_writes_fails():
     )
 
 
-def test_an_inconsistent_name_fails_for_the_tool_and_a_duplicate_fails_the_set():
+def test_an_inconsistent_name_fails_for_the_tool_and_a_duplicate_fails_the_set() -> None:
     ts = _tools()
     t = _by_name(ts, "diff_versions")
     t["name"] = "diffVersions"
@@ -172,7 +193,14 @@ def test_an_inconsistent_name_fails_for_the_tool_and_a_duplicate_fails_the_set()
     )
 
 
-def test_similar_tools_must_name_each_other():
+def test_a_tool_with_no_name_fails_naming_and_the_others_still_run() -> None:
+    ts = _tools()
+    del _by_name(ts, "diff_versions")["name"]
+    errors = tdqs.problems(ts)[0]
+    assert "None: naming: name None should be lowercase verb_object snake case" in errors[0]
+
+
+def test_similar_tools_must_name_each_other() -> None:
     ts = _tools()
     q, c = _by_name(ts, "query_rows"), _by_name(ts, "count_rows")
     for t, other in ((q, "count_rows"), (c, "query_rows")):
@@ -184,7 +212,7 @@ def test_similar_tools_must_name_each_other():
     ) in errors
 
 
-def test_too_many_tools_fails_the_set():
+def test_too_many_tools_fails_the_set() -> None:
     ts = _tools()
     base = _by_name(ts, "list_backlog")
     for i in range(tdqs.MAX_TOOLS):
@@ -200,7 +228,9 @@ def test_too_many_tools_fails_the_set():
     assert any(e.startswith("tool set: tool count:") for e in tdqs.problems(ts)[0])
 
 
-def test_the_step_summary_carries_the_report(tmp_path, monkeypatch):
+def test_the_step_summary_carries_the_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     assert _run(_tools())[0] == 0

@@ -100,3 +100,15 @@ test('csv quotes only what needs it', () => {
     'a,b\n"x,y",\n"say ""hi""",2\n',
   );
 });
+
+test('like and ilike ignore case in ASCII letters only, as SQLite does', () => {
+  db.prepare('INSERT INTO "v_t_20260424" VALUES (?, ?, ?, ?)').run('Éden Park', 2022, 0, 50);
+  const n = (qs) => run(rowsQuery('v_t_20260424', fields, P(qs))).length;
+  for (const op of ['like', 'ilike']) {
+    assert.equal(n(`lga=${op}.gold*`), 2, op);
+    assert.equal(n(`lga=${op}.GOLD COAST`), 2, op);
+    assert.equal(n(`lga=${op}.ÉDEN*`), 1, op);
+    assert.equal(n(`lga=${op}.éden*`), 0, op);
+  }
+  db.exec('DELETE FROM "v_t_20260424" WHERE lga = \'Éden Park\'');
+});

@@ -7,18 +7,41 @@ bytes. Two runs over the same snapshot are byte-identical, which CI checks.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import re
 import shutil
-import sqlite3
 import zipfile
-from pathlib import Path
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
+import duckdb
 import pyarrow as pa
 import pyarrow.compute as pc
 import xlsxwriter
 
-from ..normalise import Table
+from publicdata.rows import one_row
+from publicdata.spine import DATUM, LAYERS, is_spine
+
+if TYPE_CHECKING:
+    import sqlite3
+    from collections.abc import Callable, Iterator
+    from pathlib import Path
+
+    from publicdata.jsontypes import JSON, JSONObject
+    from publicdata.normalise import Arr, Table
+    from publicdata.provenance import Header
+    from publicdata.register import Dataset
+
+    type Writer = Callable[[Table, Header, Path, Path], None]
+
+    class PartitionEntry(TypedDict):
+        """One partition file in a version's index."""
+
+        value: JSON
+        rows: int
+        json: str
+        geojson: NotRequired[str]
+
 
 # Every whole-table format, in the order the site lists them. A version whose store manifest has
 # no `caps` stamp keeps the set it was built with, Arrow included.
@@ -82,14 +105,16 @@ FORMAT_LABEL = {
 LIMIT: set[str] | None = None
 
 
-def capped(manifest) -> bool:
-    """Whether a version takes the capped format set: its store manifest, or the built manifest's
-    dict, carries the fetch's caps stamp."""
+def capped(manifest: object) -> bool:
+    """Whether a version takes the capped format set.
+
+    It does when its store manifest, or the built manifest's dict, carries the fetch's caps stamp.
+    """
     caps = manifest.get("caps") if isinstance(manifest, dict) else getattr(manifest, "caps", 0)
     return bool(caps)
 
 
-def _kind(geometry: bool | str) -> str:
+def _kind(geometry: bool | str) -> str:  # noqa: FBT001 - True for points, or a shape kind's name
     return "point" if geometry is True else (geometry or "")
 
 
@@ -97,7 +122,7 @@ def _geo_formats(kind: str) -> tuple[str, ...]:
     return () if not kind else GEO_FORMATS if kind == "point" else SHAPE_FORMATS
 
 
-def cappable(geometry: bool | str) -> list[str]:
+def cappable(geometry: bool | str) -> list[str]:  # noqa: FBT001 - True for points, or a shape kind's name
     """The formats the caps can leave out of a version of this kind, in CAPS order."""
     have = set(FORMATS) | set(_geo_formats(_kind(geometry)))
     return [f for f in CAPS if f in have]
@@ -128,7 +153,7 @@ def _over(size: int, limit: int) -> str:
     return f"{mb} MB" if float(mb.replace(",", "")) > limit / 1e6 else f"{size:,} bytes"
 
 
-def legacy_left_out(rows: int, geometry: bool | str) -> dict[str, str]:
+def legacy_left_out(rows: int, geometry: bool | str) -> dict[str, str]:  # noqa: FBT001 - True for points, or a shape kind's name
     """The formats a version without the caps stamp lacks, by the row limits it was built under."""
     over = {"xlsx"} if rows > EXCEL_MAX_ROWS else set()
     if rows > JSON_MAX_ROWS:
@@ -148,16 +173,22 @@ def _row_reason(fmt: str) -> str:
     )
 
 
-def reasons(rows: int, geometry: bool | str, gone: dict[str, str] | None) -> dict[str, str]:
-    """Each format a version lacks, with the reason: a capped version's recorded
-    formats_left_out, or the row limits of a version without the caps stamp."""
+def reasons(rows: int, geometry: bool | str, gone: dict[str, str] | None) -> dict[str, str]:  # noqa: FBT001 - True for points, or a shape kind's name
+    """Each format a version lacks, with the reason.
+
+    The reason is a capped version's recorded formats_left_out, or the row limits of a version
+    without the caps stamp.
+    """
     return dict(gone) if gone is not None else legacy_left_out(rows, geometry)
 
 
-def formats_for(rows: int, geometry: bool | str, gone: dict[str, str] | None = None) -> list[str]:
-    """The formats a version carries. `geometry` is the dataset's geometry kind, or True for
-    points. `gone` is a capped version's formats_left_out, as its manifest records it; None gives
-    the set of a version without the caps stamp."""
+def formats_for(rows: int, geometry: bool | str, gone: dict[str, str] | None = None) -> list[str]:  # noqa: FBT001 - True for points, or a shape kind's name
+    """The formats a version carries.
+
+    `geometry` is the dataset's geometry kind, or True for points. `gone` is a capped version's
+    formats_left_out, as its manifest records it; None gives the set of a version without the
+    caps stamp.
+    """
     kind = _kind(geometry)
     base = LEGACY_FORMATS if gone is None else FORMATS
     over = reasons(rows, kind, gone)
@@ -165,18 +196,23 @@ def formats_for(rows: int, geometry: bool | str, gone: dict[str, str] | None = N
     return out if LIMIT is None else [f for f in out if f in LIMIT]
 
 
-COMPACT = {"ensure_ascii": False, "separators": (",", ":")}
+class _Compact(TypedDict):
+    ensure_ascii: bool
+    separators: tuple[str, str]
 
 
-def dumps(o) -> str:
+COMPACT: _Compact = {"ensure_ascii": False, "separators": (",", ":")}
+
+
+def dumps(o: object) -> str:
     return json.dumps(o, **COMPACT)
 
 
-def pretty(o) -> str:
+def pretty(o: object) -> str:
     return json.dumps(o, ensure_ascii=False, indent=2) + "\n"
 
 
-def slugify(v) -> str:
+def slugify(v: object) -> str:
     if v is None:
         return "_null"
     s = re.sub(r"[^a-z0-9]+", "-", str(v).lower()).strip("-")
@@ -185,9 +221,9 @@ def slugify(v) -> str:
 
 def json_view(t: pa.Table) -> pa.Table:
     """Dates and timestamps as ISO strings so rows serialise without a custom encoder."""
-    cols = []
+    cols: list[Arr] = []
     for name in t.column_names:
-        c = t.column(name)
+        c: Arr = t.column(name)
         if pa.types.is_date(c.type):
             c = pc.strftime(c, format="%Y-%m-%d")
         elif pa.types.is_timestamp(c.type):
@@ -196,19 +232,17 @@ def json_view(t: pa.Table) -> pa.Table:
     return pa.table(cols, names=t.column_names)
 
 
-def iter_rows(t: pa.Table, batch: int = 20_000):
+def iter_rows(t: pa.Table, batch: int = 20_000) -> Iterator[dict[str, object]]:
     for b in t.to_batches(batch):
         yield from b.to_pylist()
 
 
-def table_schema(tbl: Table) -> dict:
-    from ..spine import LAYERS, is_spine
-
+def table_schema(tbl: Table) -> JSONObject:  # noqa: C901 - one branch per field type
     ds = tbl.dataset
     used = {p["layer"]: p for p in tbl.places}
-    fields = []
+    fields: list[JSON] = []
     for f in ds.fields:
-        d = {"name": f.name, "type": f.type, "title": f.source}
+        d: JSONObject = {"name": f.name, "type": f.type, "title": f.source}
         if is_spine(f.source):
             key = f.source.removeprefix("(spine: ").rstrip(")")
             d["title"] = f.display
@@ -236,14 +270,12 @@ def table_schema(tbl: Table) -> dict:
                 "The suppressed cells are null.",
             }
         )
-    schema = {"fields": fields, "missingValues": [""]}
+    schema: JSONObject = {"fields": fields, "missingValues": [""]}
     if ds.key:
         schema["primaryKey"] = list(ds.key)
     if ds.suppression:
         schema["publicdata:suppressionTokens"] = list(ds.suppression)
     if ds.geometry:
-        from ..spine import DATUM
-
         kind = ds.geometry["kind"]
         schema["publicdata:geometry"] = {
             "kind": kind,
@@ -264,7 +296,9 @@ SUPPRESSED_NOTE = (
 
 def field_rows(tbl: Table) -> list[tuple[str, str, str, str]]:
     """(name, type, publisher header, description) for every published column, suppressed included."""
-    rows = [(f.name, f.type, f.source, f.description) for f in tbl.dataset.fields]
+    rows: list[tuple[str, str, str, str]] = [
+        (f.name, f.type, f.source, f.description) for f in tbl.dataset.fields
+    ]
     if "suppressed" in tbl.table.column_names:
         rows.append(("suppressed", "array", "", SUPPRESSED_NOTE))
     return rows
@@ -280,7 +314,7 @@ SQLITE_TYPES = {
 }
 
 
-def _meta_tables(con: sqlite3.Connection, tbl: Table, header: dict) -> None:
+def _meta_tables(con: sqlite3.Connection, tbl: Table, header: Header) -> None:
     con.execute("CREATE TABLE publicdata (key TEXT PRIMARY KEY, value TEXT)")
     con.execute(
         "CREATE TABLE fields (name TEXT PRIMARY KEY, type TEXT, source TEXT, description TEXT)"
@@ -305,14 +339,16 @@ DUCKDB_TYPES = {
 DUCKDB_SMALL_ROWS = 1_000_000
 
 
-def duckdb_connect(path: Path, rows: int | None, name: str = "db", threads: int | None = 1):
+def duckdb_connect(
+    path: Path, rows: int | None, name: str = "db", threads: int | None = 1
+) -> duckdb.DuckDBPyConnection:
     """A DuckDB connection with a fresh database at path attached as `name` and made current.
-    `rows` picks the block size: a small table takes 16 KB blocks, and None keeps DuckDB's
-    default, as a database of many tables does. One thread by default: a table is written
-    once, and a bounded build matters more than speed; a database build passes None and takes
-    every core."""
-    import duckdb
 
+    `rows` picks the block size: a small table takes 16 KB blocks, and None keeps DuckDB's
+    default, as a database of many tables does. One thread by default: a table is written once,
+    and a bounded build matters more than speed; a database build passes None and takes every
+    core.
+    """
     if path.exists():
         path.unlink()
     con = duckdb.connect()
@@ -325,7 +361,9 @@ def duckdb_connect(path: Path, rows: int | None, name: str = "db", threads: int 
     return con
 
 
-def duckdb_meta(con, header: dict, fields: list[tuple[str, str, str, str]]) -> None:
+def duckdb_meta(
+    con: duckdb.DuckDBPyConnection, header: Header, fields: list[tuple[str, str, str, str]]
+) -> None:
     """The provenance and the field list as tables, as the SQLite file carries them."""
     con.execute("CREATE TABLE publicdata (key VARCHAR PRIMARY KEY, value VARCHAR)")
     con.execute(
@@ -339,7 +377,9 @@ def duckdb_meta(con, header: dict, fields: list[tuple[str, str, str, str]]) -> N
         con.executemany("INSERT INTO fields VALUES (?, ?, ?, ?)", fields)
 
 
-def duckdb_comment(con, table: str, column: str | None, text: str) -> None:
+def duckdb_comment(
+    con: duckdb.DuckDBPyConnection, table: str, column: str | None, text: str
+) -> None:
     if not text:
         return
     t = text.replace("'", "''")
@@ -350,12 +390,13 @@ def duckdb_comment(con, table: str, column: str | None, text: str) -> None:
 
 
 def duckdb_digest(path: Path) -> str:
-    """A digest of what a DuckDB file holds: every table's columns and rows in their stored
-    order, every view's text, constraint, index and comment, the block size and the storage
-    version. The bytes of two files written from the same rows differ, since the storage
-    compresses by sampling, so the determinism check compares this instead."""
-    import duckdb
+    """A digest of what a DuckDB file holds.
 
+    It covers every table's columns and rows in their stored order, every view's text,
+    constraint, index and comment, the block size and the storage version. The bytes of two
+    files written from the same rows differ, since the storage lays out and packs its blocks
+    differently each time, so the determinism check compares this instead.
+    """
     con = duckdb.connect()
     con.execute("SET threads = 1")
     con.execute(f"ATTACH '{path.as_posix()}' AS d (READ_ONLY)")
@@ -373,21 +414,27 @@ def duckdb_digest(path: Path) -> str:
         for (t,) in tables:
             names = ", ".join(f'"{c}"' for tn, c, _ in cols if tn == t)
             # The row id is each row's place, so rows written in another order differ.
-            n, h = con.execute(
-                f'SELECT count(*), coalesce(bit_xor(hash(rowid, {names})), 0) FROM d."{t}"'
-            ).fetchone()
-            s = con.execute(
-                f'SELECT coalesce(sum(hash(rowid, {names}) % 1000003), 0) FROM d."{t}"'
-            ).fetchone()[0]
+            n, h = one_row(
+                con.execute(
+                    f'SELECT count(*), coalesce(bit_xor(hash(rowid, {names})), 0) FROM d."{t}"'
+                )
+            )
+            s = one_row(
+                con.execute(f'SELECT coalesce(sum(hash(rowid, {names}) % 1000003), 0) FROM d."{t}"')
+            )[0]
             parts.append(f"{t}:{n}:{h}:{s}")
-        for q in (
-            "SELECT block_size FROM pragma_database_size() WHERE database_name = 'd'",
-            "SELECT tags FROM duckdb_databases() WHERE database_name = 'd'",
-            "SELECT table_name, constraint_type, constraint_text FROM duckdb_constraints() "
-            "WHERE database_name = 'd' ORDER BY ALL",
-            "SELECT index_name, sql FROM duckdb_indexes() WHERE database_name = 'd' ORDER BY ALL",
-        ):
-            parts.append(dumps(con.execute(q).fetchall()))
+        parts.extend(
+            dumps(con.execute(q).fetchall())
+            for q in (
+                "SELECT block_size FROM pragma_database_size() WHERE database_name = 'd'",
+                "SELECT tags FROM duckdb_databases() WHERE database_name = 'd'",
+                (
+                    "SELECT table_name, constraint_type, constraint_text FROM duckdb_constraints() "
+                    "WHERE database_name = 'd' ORDER BY ALL"
+                ),
+                "SELECT index_name, sql FROM duckdb_indexes() WHERE database_name = 'd' ORDER BY ALL",
+            )
+        )
         parts.append(
             dumps(
                 con.execute(
@@ -414,38 +461,44 @@ def duckdb_digest(path: Path) -> str:
         )
     finally:
         con.close()
-    import hashlib
 
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
 
-def write_partitions(tbl: Table, header_for, out: Path) -> dict:
+def write_partitions(
+    tbl: Table, header_for: Callable[[int, str], Header], out: Path
+) -> dict[str, list[PartitionEntry]]:
     """by/<field>/<value>.json for every declared partition field. Returns an index."""
-    index = {}
+    index: dict[str, list[PartitionEntry]] = {}
     for fname in tbl.dataset.partition_by:
         col = tbl.table.column(fname)
-        values = sorted(set(col.to_pylist()), key=lambda v: (v is None, str(v)))
+        values: list[str | int | float | bool | dt.date | None] = sorted(
+            set(col.to_pylist()), key=lambda v: (v is None, str(v))
+        )
         d = out / "by" / fname
         d.mkdir(parents=True, exist_ok=True)
-        entries = []
-        seen = {}
+        entries: list[PartitionEntry] = []
+        seen: dict[str, object] = {}
         for v in values:
             s = slugify(v)
             if s in seen and seen[s] != v:
-                raise ValueError(f"{fname}: '{v}' and '{seen[s]}' both slugify to {s}")
+                msg = f"{fname}: '{v}' and '{seen[s]}' both slugify to {s}"
+                raise ValueError(msg)
             seen[s] = v
-            mask = pc.is_null(col) if v is None else pc.equal(col, v)
+            mask = pc.is_null(col) if v is None else pc.equal(col, v)  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
             part = tbl.table.filter(mask)
             h = header_for(part.num_rows, f"by/{fname}/{s}.json")
             # A date partition is named by its ISO date in JSON.
-            jv = v.isoformat() if hasattr(v, "isoformat") else v
+            jv: JSON = v.isoformat() if isinstance(v, dt.date) else v
             h["partition"] = {"field": fname, "value": jv}
             write_json(tbl, h, d / f"{s}.json", rows=part)
-            entry = {"value": jv, "rows": part.num_rows, "json": f"by/{fname}/{s}.json"}
+            entry: PartitionEntry = {
+                "value": jv,
+                "rows": part.num_rows,
+                "json": f"by/{fname}/{s}.json",
+            }
             # Points only: a layer's shapes are one file each, in the layer's own formats.
-            if (tbl.dataset.geometry or {}).get(
-                "kind", "point"
-            ) == "point" and tbl.dataset.geometry:
+            if tbl.dataset.geometry and tbl.dataset.geometry.get("kind", "point") == "point":
                 hg = header_for(part.num_rows, f"by/{fname}/{s}.geojson")
                 hg["partition"] = {"field": fname, "value": jv}
                 write_geojson(tbl, hg, d / f"{s}.geojson", rows=part)
@@ -458,9 +511,11 @@ def write_partitions(tbl: Table, header_for, out: Path) -> dict:
     return index
 
 
-def write_dictionary(ds, header: dict, path: Path) -> None:
-    """The field list as a workbook: one row per field, then the provenance. The created date
-    is the version date, so two builds write the same bytes."""
+def write_dictionary(ds: Dataset, header: Header, path: Path) -> None:
+    """The field list as a workbook: one row per field, then the provenance.
+
+    The created date is the version date, so two builds write the same bytes.
+    """
     when = dt.datetime.fromisoformat(header["version"] + "T00:00:00")
     wb = xlsxwriter.Workbook(str(path), {"default_date_format": "yyyy-mm-dd"})
     wb.set_properties(
@@ -506,10 +561,13 @@ def write_dictionary(ds, header: dict, path: Path) -> None:
     wb.close()
 
 
-def _fixed_zip(path: Path, stamp: tuple) -> None:
-    """Rewrite a zip so every entry carries one timestamp. XlsxWriter uses the clock. A zip
-    cannot record a date before 1980, so an older version is stamped 1 January 1980."""
-    stamp = max(tuple(stamp), (1980, 1, 1, 0, 0, 0))
+def _fixed_zip(path: Path, stamp: tuple[int, int, int, int, int, int]) -> None:
+    """Rewrite a zip so every entry carries one timestamp.
+
+    XlsxWriter uses the clock. A zip cannot record a date before 1980, so an older version is
+    stamped 1 January 1980.
+    """
+    stamp = max(stamp, (1980, 1, 1, 0, 0, 0))
     tmp = path.with_suffix(path.suffix + ".tmp")
     with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
         for info in src.infolist():
@@ -531,7 +589,7 @@ SQL_TYPES = {
 }
 
 
-def schema_sql(tbl: Table, header: dict) -> str:
+def schema_sql(tbl: Table, header: Header) -> str:
     """CREATE TABLE for PostgreSQL, with a COPY line for the CSV. Works in most SQL dialects."""
     ds = tbl.dataset
     name = ds.slug.replace("-", "_")
@@ -570,12 +628,16 @@ CSVW_TYPES = {
 }
 
 
-def csvw_metadata(tbl: Table, header: dict) -> dict:
+def csvw_metadata(tbl: Table, header: Header) -> JSONObject:
     """W3C CSV on the Web metadata for data.csv."""
     ds = tbl.dataset
-    columns = []
+    columns: list[JSON] = []
     for f in ds.fields:
-        c = {"name": f.name, "titles": [f.name, f.source], "datatype": CSVW_TYPES[f.type]}
+        c: JSONObject = {
+            "name": f.name,
+            "titles": [f.name, f.source],
+            "datatype": CSVW_TYPES[f.type],
+        }
         if f.description:
             c["dc:description"] = f.description
         columns.append(c)
@@ -589,7 +651,7 @@ def csvw_metadata(tbl: Table, header: dict) -> dict:
                 "dc:description": "Fields the publisher suppressed in this row. The cells are null.",
             }
         )
-    schema = {"columns": columns}
+    schema: JSONObject = {"columns": columns}
     if ds.key:
         schema["primaryKey"] = list(ds.key)
     return {
@@ -630,26 +692,26 @@ from .writers.pmtiles import write_pmtiles  # noqa: E402
 from .writers.sqlite import write_sqlite  # noqa: E402
 from .writers.xlsx import write_xlsx  # noqa: E402
 
-WRITERS = {
-    "json": lambda tbl, header, path, vdir: write_json(tbl, header, path),
-    "ndjson": lambda tbl, header, path, vdir: write_ndjson(tbl, header, path),
-    "csv": lambda tbl, header, path, vdir: write_csv(tbl, path),
-    "parquet": lambda tbl, header, path, vdir: (
+WRITERS: dict[str, Writer] = {
+    "json": lambda tbl, header, path, _vdir: write_json(tbl, header, path),
+    "ndjson": lambda tbl, header, path, _vdir: write_ndjson(tbl, header, path),
+    "csv": lambda tbl, _header, path, _vdir: write_csv(tbl, path),
+    "parquet": lambda tbl, header, path, _vdir: (
         write_shape_parquet(tbl, header, path)
         if tbl.geometry is not None
         else write_parquet(tbl, header, path)
     ),
-    "sqlite": lambda tbl, header, path, vdir: write_sqlite(tbl, header, path),
-    "duckdb": lambda tbl, header, path, vdir: write_duckdb(tbl, header, path),
-    "xlsx": lambda tbl, header, path, vdir: write_xlsx(tbl, header, path),
-    "arrow": lambda tbl, header, path, vdir: write_arrow(tbl, header, path),
-    "csv.gz": lambda tbl, header, path, vdir: write_csv_gz(tbl, path, vdir),
-    "geojson": lambda tbl, header, path, vdir: write_geojson(tbl, header, path),
-    "gpkg": lambda tbl, header, path, vdir: write_gpkg(tbl, header, path),
-    "geo.parquet": lambda tbl, header, path, vdir: write_geo_parquet(tbl, header, path),
-    "pmtiles": lambda tbl, header, path, vdir: write_pmtiles(tbl, header, path),
+    "sqlite": lambda tbl, header, path, _vdir: write_sqlite(tbl, header, path),
+    "duckdb": lambda tbl, header, path, _vdir: write_duckdb(tbl, header, path),
+    "xlsx": lambda tbl, header, path, _vdir: write_xlsx(tbl, header, path),
+    "arrow": lambda tbl, header, path, _vdir: write_arrow(tbl, header, path),
+    "csv.gz": lambda tbl, _header, path, vdir: write_csv_gz(tbl, path, vdir),
+    "geojson": lambda tbl, header, path, _vdir: write_geojson(tbl, header, path),
+    "gpkg": lambda tbl, header, path, _vdir: write_gpkg(tbl, header, path),
+    "geo.parquet": lambda tbl, header, path, _vdir: write_geo_parquet(tbl, header, path),
+    "pmtiles": lambda tbl, header, path, _vdir: write_pmtiles(tbl, header, path),
 }
-assert set(WRITERS) == {*LEGACY_FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}
+assert set(WRITERS) == {*LEGACY_FORMATS, *GEO_FORMATS, *SHAPE_FORMATS}  # noqa: S101 - the module's own tables agree
 # The module that writes each format, for the cache's writer keys, and the formats a writer
 # derives its file from, whose modules its key takes in too.
 WRITER_MODULES = {fmt: fmt.replace(".", "_") for fmt in WRITERS}
