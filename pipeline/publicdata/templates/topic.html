@@ -5,11 +5,12 @@
 <h1>{{ topic.name }}</h1>
 <p class="lede" style="margin-top:12px">{{ topic.blurb }} {% if topic.count %}{{ topic.count }} dataset{{ '' if topic.count == 1 else 's' }} served here, {{ topic.rows }} rows in all, each in every format with a query API, a browser explorer and a version history.{% else %}Nothing is served under it yet.{% endif %}</p>
 
-{% if cards %}<div class="cards single">{% for d in cards %}{% include "card.html" %}{% endfor %}</div>{% endif %}
+{% if cards %}<div class="sec-head"><h2>Served here</h2></div>
+<div class="cards single" data-conformance="aa">{% for d in cards %}{% include "card.html" %}{% endfor %}</div>{% endif %}
 
 {% if coming %}<h2>Coming</h2>
 <p class="muted" style="margin-top:0">Chosen for building, in vote order. <a href="/backlog/">Vote to move one up</a>.</p>
-<div class="cards single">{% for d in coming %}{% include "card.html" %}{% endfor %}</div>{% endif %}
+<div class="cards single" data-conformance="aa">{% for d in coming %}{% include "card.html" %}{% endfor %}</div>{% endif %}
 
 <div class="sec-head"><h2>More on the portals</h2></div>
 <p style="margin-top:0">Every dataset listed on Australia's government open-data portals can be searched, and one with an open licence and a download can be voted for. <a href="{{ topic.search }}">Search the catalogue for {{ topic.name|lower }}</a>.</p>

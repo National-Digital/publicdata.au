@@ -60,7 +60,7 @@ faq:
   a: The publisher's file repeats some combinations on separate rows, likely from attributes it does not
     publish. Rows are kept as published, so add the counts together for a total.
 - q: What do the codes mean?
-  a: Make is the register's six character make code, such as TOYOTA or M G. Vehicle class is a number and
+  a: Make is the register's six character make code, such as `TOYOTA` or `M G`. Vehicle class is a number and
     fuel type a one letter code, such as P, D and E, as the register holds them. The publisher does not
     publish a key to the codes with this file.
 - q: Which quarter is it?

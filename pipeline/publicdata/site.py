@@ -14,10 +14,10 @@ from pathlib import Path
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import OPERATOR, REPO, SITE, brand, explorer, figures
+from . import OPERATOR, REPO, SITE, abbreviations, brand, explorer, figures
 from . import api_text as at
 from . import ard as ardspec
-from .build import DatasetOut, VersionOut, dataset_url, version_url
+from .build import DatasetOut, VersionOut, dataset_url, source_name, version_url
 from .cache import BuildCache
 from .cost import fleet_from_build
 from .d1 import KEEP, queryable
@@ -140,12 +140,12 @@ def fmt_int(n: int) -> str:
 
 
 URL_RE = re.compile(r"https://[^\s<>\"]+")
+# A code or a publisher's value quoted in copy: register text and the site's own answers.
+CODE_RE = re.compile(r"`([^`\n]+)`")
 
 
-def linkify(text: str) -> str:
-    """Escape the prose and link each bare https URL. Trailing punctuation stays outside the link."""
+def _links(text: str) -> str:
     out, pos = [], 0
-    text = str(text)
     for m in URL_RE.finditer(text):
         url = m.group(0).rstrip(".,;:)")
         out.append(html.escape(text[pos : m.start()]))
@@ -156,6 +156,29 @@ def linkify(text: str) -> str:
     return "".join(out)
 
 
+def linkify(text: str) -> str:
+    """Escape the prose, set each code in backticks as code and link each bare https URL.
+    Trailing punctuation stays outside the link."""
+    out, pos = [], 0
+    text = str(text)
+    for m in CODE_RE.finditer(text):
+        out.append(_links(text[pos : m.start()]))
+        out.append(f"<code>{html.escape(m.group(1))}</code>")
+        pos = m.end()
+    out.append(_links(text[pos:]))
+    return "".join(out)
+
+
+def quoting(text: str, *values) -> str:
+    """Escape text and mark the publisher's values in it as quoted, so the abbreviation check reads
+    past a place name such as BRISBANE - EAST or a filter such as BOTH DIRECTIONS."""
+    out = html.escape(str(text))
+    vs = sorted({html.escape(str(v)) for v in values if str(v)}, key=len, reverse=True)
+    if not vs:
+        return out
+    return re.sub("|".join(map(re.escape, vs)), r"<span data-quoted>\g<0></span>", out)
+
+
 def env() -> Environment:
     e = Environment(
         loader=PackageLoader("publicdata", "templates"),
@@ -164,6 +187,8 @@ def env() -> Environment:
         lstrip_blocks=True,
     )
     e.filters["linkify"] = linkify
+    e.filters["code"] = inline_code
+    e.filters["quoting"] = quoting
     e.globals["cadence_words"] = cadence_words
     e.globals["download_name"] = download_name
     return e
@@ -184,7 +209,96 @@ def _change_words(c: dict | None) -> str:
     return f" ({c['added']} added, {c['removed']} removed, {c['changed']} changed)"
 
 
+def checks_words(ds: Dataset, what: str = "file") -> str:
+    """How this site follows the source, by its update class."""
+    from .updates import CHURN
+
+    if ds.update == "release":
+        return f"This site checks the portal every week and adds a dated version when the {what} changes."
+    how = (
+        "reads the whole table every week" if ds.update == "rolling" else "reads the feed every day"
+    )
+    when = (
+        f"on the first change of each month, when a period closes, when more than {CHURN:.0%} of "
+        "rows change and when a finished period is revised"
+        if ds.period
+        else f"on the first change of each month and when more than {CHURN:.0%} of rows change"
+    )
+    return (
+        f"This site {how}, writes a change log by key for each read that changed it and serves "
+        f"the newest read at latest/. It keeps a dated version {when}."
+    )
+
+
+def _no_query(ds: Dataset, v: VersionOut) -> str:
+    """Why the query API does not serve a dataset, which its page says so it never drops out
+    unexplained."""
+    from .d1 import MAX_CSV
+
+    if not v.whole:
+        grain = _grain_words(v.manifest.period["grain"])
+        return (
+            f"This version is split by {grain} and is too large to be one file. The query API, "
+            "the explorer and the pages by place each read one whole file, so they are not "
+            "offered for it. Its DuckDB file reads every part."
+        )
+    if not ds.query:
+        return "The register keeps this dataset out of the query API. Every file is still served."
+    if (v.files.get("data.csv") or 0) > MAX_CSV:
+        return (
+            f"Its CSV file is over {MAX_CSV // 1_000_000} MB, more than the query API "
+            "loads, so the files serve it."
+        )
+    return "The query API is not loaded for this version. Every file is still served."
+
+
+def _grain_words(grain: str) -> str:
+    return "financial year" if grain == "fiscal" else grain
+
+
+def _parts_view(ds: Dataset, out: Path, version: str) -> dict | None:
+    """A period table's parts as its dataset page lists them, with a feed's history parts."""
+    from .parts import FORMATS, url
+
+    man = json.loads(
+        (out / "d" / ds.slug / "v" / version / "manifest.json").read_text(encoding="utf-8")
+    )
+    if not man.get("period"):
+        return None
+    grain = man["period"]["grain"]
+
+    def rows(recs: list[dict]) -> list[dict]:
+        return [
+            {
+                "period": r["period"],
+                "rows_fmt": fmt_int(r["rows"]),
+                "finished": r["finished"],
+                "revised": r["revised"],
+                "tree": r["tree"],
+                "files": [
+                    {
+                        "label": FORMAT_LABEL[f],
+                        "url": url(ds.slug, r, f),
+                        "size": fmt_size(r["files"][f]["bytes"]),
+                    }
+                    for f in FORMATS
+                ],
+            }
+            for r in recs
+        ]
+
+    return {
+        "field": ds.field(man["period"]["field"]).display.lower(),
+        "grain": _grain_words(grain),
+        "whole": man.get("whole", True),
+        "parts": rows(man.get("parts", [])),
+        "history": rows((man.get("history") or {}).get("parts", [])),
+    }
+
+
 def _version_view(ds: Dataset, v, change: dict | None) -> dict:
+    from .updates import CUT_WORDS
+
     m = v.manifest
     return {
         "version": m.version,
@@ -203,6 +317,7 @@ def _version_view(ds: Dataset, v, change: dict | None) -> dict:
         "ext": m.ext,
         "source_url": m.source.get("url", ""),
         "portal_licence": (m.licence or {}).get("title") or (m.licence or {}).get("id", ""),
+        "cut": CUT_WORDS.get(m.cut, ""),
     }
 
 
@@ -258,16 +373,22 @@ def _file_formats_text() -> str:
 
 
 def _fmts(ds: Dataset, v: VersionOut) -> list[str]:
-    have = set(formats_for(v.rows, geo_kind(ds), v.left_out))
+    # A version written as parts alone has one whole file, the DuckDB file over its parts.
+    have = set(formats_for(v.rows, geo_kind(ds), v.left_out) if v.whole else ["duckdb"])
     return [f for f in SITE_ORDER if f in have]
 
 
 def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
     """Why each format a table version lacks is not there, one sentence each, in site order."""
-    if ds.kind == "database":
+    if ds.kind == "database" or not v.whole:
         return []
     gone = reasons(v.rows, geo_kind(ds), v.left_out)
     return [gone[f] for f in SITE_ORDER if f in gone]
+
+
+def inline_code(text: str) -> str:
+    """Register copy escaped for HTML, with a publisher's code in backticks set as code."""
+    return CODE_RE.sub(r"<code>\1</code>", html.escape(text, quote=False))
 
 
 def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
@@ -335,24 +456,47 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
     vbase = version_url(ds.slug, m.version)
     fmts = _format_names(ds, v)
     short = _short_title(ds)
-    out = [
-        (
-            f"How do I download {short} as a CSV file?",
-            f"Open {base}latest/data.csv. It redirects to the newest dated version, which is {vbase}data.csv today. "
-            f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
-        )
-    ]
+    if not v.whole:
+        grain = _grain_words(m.period["grain"])
+        out = [
+            (
+                f"How do I download {short} as a CSV file?",
+                f"The table is too large to be one file, so it is one gzipped CSV and one Parquet file per {grain}, listed on this page. "
+                f"{vbase}data.duckdb attaches over HTTPS and its records() reads every {grain} at once. A dated URL never changes.",
+            ),
+            (
+                f"Can I open {short} in Excel?",
+                f"Not as one workbook. Each {grain}'s CSV opens in Excel, or load the Parquet files with Power Query.",
+            ),
+        ]
+    elif ds.update != "release":
+        out = [
+            (
+                f"How do I download {short} as a CSV file?",
+                f"Open {base}latest/data.csv for the newest read, which changes when the source does and is cached for five minutes. "
+                f"The newest dated version is {vbase}data.csv. The same paths serve {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
+            )
+        ]
+    else:
+        out = [
+            (
+                f"How do I download {short} as a CSV file?",
+                f"Open {base}latest/data.csv. It redirects to the newest dated version, which is {vbase}data.csv today. "
+                f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same.",
+            )
+        ]
     why = reasons(v.rows, geo_kind(ds), v.left_out).get("xlsx")
     if not why:
         excel = f"Yes. {vbase}data.xlsx is a workbook with the {fmt_int(v.rows)} rows on a records sheet, the field list on a second sheet and the provenance on a third. The CSV also opens in Excel."
     else:
         excel = f"Not as a workbook. {why} Load the CSV or the Parquet file with Power Query, or take one partition file at a time."
-    out.append(
-        (
-            f"Can I open {short} in Excel?",
-            excel + f" {vbase}data.csv.gz is the CSV at about a tenth of the size.",
+    if v.whole:
+        out.append(
+            (
+                f"Can I open {short} in Excel?",
+                excel + f" {vbase}data.csv.gz is the CSV at about a tenth of the size.",
+            )
         )
-    )
     years = _years(ds, m, span)
     if years:
         out.append(
@@ -367,7 +511,7 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
         out.append(
             (
                 f"How often is {short} updated?",
-                f"{cadence_words(ds)[1]} This site checks the portal every week and adds a dated version when the file changes.",
+                f"{cadence_words(ds)[1]} {checks_words(ds)}",
             )
         )
     lic = ds.licence
@@ -399,9 +543,9 @@ def _faq(ds: Dataset, v: VersionOut, partitions: dict, span: str = "") -> list[t
         out.append(
             (
                 f"How do I get only the rows for one {pf.replace('_', ' ')}?",
-                f"Every version has one JSON file per value of {pf}, {len(entries)} files in the current version, listed with row counts at {vbase}by/{pf}/index.json."
+                f"Every version has one JSON file per value of `{pf}`, {len(entries)} files in the current version, listed with row counts at {vbase}by/{pf}/index.json."
                 + (
-                    f" For example {vbase}{ex['json']} holds the {fmt_int(ex['rows'])} rows where {pf} is {ex['value']}."
+                    f" For example {vbase}{ex['json']} holds the {fmt_int(ex['rows'])} rows where `{pf}` is `{ex['value']}`."
                     if ex
                     else ""
                 )
@@ -563,7 +707,11 @@ def _faq_jsonld(faq: list[tuple[str, str]]) -> dict:
         "@context": "https://schema.org",
         "@type": "FAQPage",
         "mainEntity": [
-            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}}
+            {
+                "@type": "Question",
+                "name": CODE_RE.sub(r"\1", q),
+                "acceptedAnswer": {"@type": "Answer", "text": CODE_RE.sub(r"\1", a)},
+            }
             for q, a in faq
         ],
     }
@@ -1158,6 +1306,7 @@ ROUTES = (
     "/api/*",
     "/mcp",
     "/d/*/latest/*",
+    "/d/*/fetch/*",
     "/d/*/v/*",
     "/d/*/diff/*",
     "/d/*/history.tar.zst",
@@ -1331,6 +1480,24 @@ def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict]:
     version."""
     vb = version_url(ds.slug, v.manifest.version)
     name = ds.slug.replace("-", "_")
+    if not v.whole:
+        from .parts import url
+
+        newest = next(r for r in reversed(v.parts) if r["period"] != "undated")
+        return [
+            {
+                "label": "DuckDB",
+                "kind": "command",
+                "value": f"INSTALL httpfs; LOAD httpfs;\nATTACH '{vb}data.duckdb' AS {name} (READ_ONLY);\nSELECT count(*) FROM {name}.records();",
+                "note": f"records() reads every {_grain_words(v.manifest.period['grain'])}'s Parquet over HTTPS; records(files := [...]) reads the ones you name.",
+            },
+            {
+                "label": "Parquet",
+                "kind": "command",
+                "value": f"import pandas as pd\ndf = pd.read_parquet('{url(ds.slug, newest, 'parquet')}')",
+                "note": f"One Parquet file per {_grain_words(v.manifest.period['grain'])}, for pandas, Polars, Arrow, Spark and R's arrow package.",
+            },
+        ]
     if ds.kind == "database":
         start = ds.views[0].name if ds.views else ds.tables[0].name
         first = ds.tables[0]
@@ -1412,7 +1579,7 @@ def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict]:
             "label": "DuckDB",
             "kind": "command",
             "value": f"INSTALL httpfs; LOAD httpfs;\nATTACH '{vb}data.duckdb' AS {name} (READ_ONLY);\nSELECT {key}, count(*) FROM {name}.records GROUP BY 1 ORDER BY 2 DESC;",
-            "note": "The DuckDB file attaches read-only over HTTPS and only the blocks a query touches are read. Parquet works the same way: FROM read_parquet(url).",
+            "note": "The DuckDB file attaches read-only over HTTPS and only the blocks a query touches are read. Parquet works the same way: <code>FROM read_parquet(url)</code>.",
         },
         *script,
     ]
@@ -1446,14 +1613,14 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
         (
             f"How do I get one table of {short}?",
             f"Every table is a Parquet file under {vbase}tables/, for example {vbase}tables/{ds.tables[0].name}.parquet, which pandas, R, Polars, Spark and DuckDB read directly. "
-            f"{vbase}schema.sql has the CREATE TABLE statements with the keys and references, and {vbase}schema.json the same as Table Schema.",
+            f"{vbase}schema.sql has the SQL that creates every table, with the keys and references, and {vbase}schema.json the same as Table Schema.",
         ),
     ]
     if ds.source.cadence:
         out.append(
             (
                 f"How often is {short} updated?",
-                f"{cadence_words(ds)[1]} This site checks the portal every week and adds a dated version when the release changes.",
+                f"{cadence_words(ds)[1]} {checks_words(ds, 'release')}",
             )
         )
     lic = ds.licence
@@ -1606,7 +1773,11 @@ def _md_twin_dataset(
         *([f"Also called: {', '.join(ds.also_known_as)}.", ""] if ds.also_known_as else []),
         "## Download",
         "",
-        f"Latest version, redirects to `{vbase}`:",
+        (
+            f"Latest version, redirects to `{vbase}`:"
+            if ds.update == "release"
+            else "Newest read, served in place and cached for five minutes:"
+        ),
         "",
     ]
     for fmt in _fmts(ds, v):
@@ -1844,7 +2015,7 @@ PROSE = {
 <li>The dataset page states the licence, the attribution and a contact, and carries the change log.</li>
 </ol>
 <h2>What this site does with it</h2>
-<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. <a href="https://nationaldigital.com.au/contact/">National Digital</a>, which runs this site, will talk through a layout with any agency that asks. No government agency has endorsed this site.</p>
+<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. National Digital, which runs this site, will talk through a layout with any agency that asks on its <a href="https://nationaldigital.com.au/contact/">contact page</a>. No government agency has endorsed this site.</p>
 <h2>Further reading</h2>
 <ul>
 <li><a href="https://www.w3.org/TR/dwbp/">Data on the Web Best Practices</a> from the W3C, in particular the practices on persistent URIs, version indicators and version history.</li>
@@ -1901,11 +2072,11 @@ PROSE = {
 <h2>Per dataset</h2>
 <ul>
 <li><code>/d/&lt;slug&gt;/datapackage.json</code> is a Frictionless data package pointing at the latest version.</li>
-<li><code>/d/&lt;slug&gt;/schema.json</code> is a Table Schema. Types are string, integer, number, boolean, date and datetime. Beside each version, <code>schema.sql</code> is the same as a CREATE TABLE and <code>data.csv-metadata.json</code> is W3C CSV on the Web metadata.</li>
+<li><code>/d/&lt;slug&gt;/schema.json</code> is a Table Schema. Types are string, integer, number, boolean, date and datetime. Beside each version, <code>schema.sql</code> is the same as a <code>CREATE TABLE</code> and <code>data.csv-metadata.json</code> is W3C CSV on the Web metadata.</li>
 <li><code>/d/&lt;slug&gt;/fields.json</code> lists each queryable field with its type, the publisher's description, its range and the values it holds when it has few. The MCP server offers it as a resource.</li>
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
-<li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
+<li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects. A table the publisher resends whole, or a feed of what is current, serves its newest read at the same path with a five-minute cache instead, and lists every read's changes in <code>/d/&lt;slug&gt;/changes/index.json</code>.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there. Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles, csv.gz and the publisher's file. CSV, NDJSON, JSON and GeoJSON are sent whole, gzipped when the client accepts it, so a reader that scans lazily or seeks, such as polars <code>scan_csv</code> or fsspec, should read data.parquet or data.csv.gz.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/SHA256SUMS</code> lists the SHA-256 of every file in the version, each under the name it downloads as, such as <code>&lt;slug&gt;_&lt;date&gt;.csv</code>. Run <code>sha256sum -c --ignore-missing SHA256SUMS</code> beside the files (<code>shasum -a 256 -c --ignore-missing SHA256SUMS</code> on a Mac), or save them with <code>curl -OJ</code> so the names match. Each list carries a GitHub artifact attestation from the deploy that wrote it, which <code>gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au --source-ref refs/heads/main</code> checks.</li>
@@ -1944,6 +2115,14 @@ PROSE = {
 <p>The site sets no cookies. Page views are counted by Cloudflare Web Analytics, which is served from this site's own provider, stores nothing in the browser and does not follow anyone across sites. There is no other tracking. Votes in the backlog are counted once per browser per day using a salted hash that changes every day. Nobody is asked who they are. The <a href="/privacy/">privacy page</a> sets out everything the site records.</p>
 <h2>Security</h2>
 <p>The disclosure policy is at <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+""",
+    ),
+    "glossary": (
+        "Glossary",
+        "Every abbreviation publicdata.au uses in its own words, with what it stands for.",
+        """
+<p>Every abbreviation this site uses in its own words is listed here with what it stands for. Publishers' own titles, codes and cell values are quoted as published, so they can hold abbreviations this list does not explain.</p>
+{glossary}
 """,
     ),
     "contribute": (
@@ -1985,7 +2164,58 @@ PROSE = {
 <h2>Hosting</h2>
 <p>Cloudflare hosts the site and handles every request, including the address it came from, to deliver it and to block abuse. The <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare privacy policy</a> covers that handling.</p>
 <h2>Contact</h2>
-<p>Questions about privacy go to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+<p>Questions about privacy go to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+""",
+    ),
+    "accessibility": (
+        "Accessibility",
+        "How publicdata.au is built and checked so people who use assistive technology can use it, and how to report a barrier.",
+        """
+<p>Last updated 8 October 2026.</p>
+<h2>Our commitment</h2>
+<p>We want everyone to be able to use publicdata.au and its data, whatever their disability, device or assistive technology. We aim to provide equal access consistently with the Disability Discrimination Act 1992. Meeting a standard supports that aim. We will still respond to any barrier a person meets and offer a reasonable alternative where one is needed.</p>
+<h2>The standard the site is held to</h2>
+<p>The site is built to the Web Content Accessibility Guidelines (WCAG) 2.2 at level AAA, the highest of its three levels. Dense data regions, which are long tables, dataset listings and the data explorer, are held to level AA for the size of targets and type, and to AAA for everything else. A table of many rows cannot give every cell a large target and still work as a table.</p>
+<p>We do not claim that every page conforms. The automated checks below run on a fixed set of pages that covers every kind of page the site builds. Some criteria have no reliable automated test and are met by design and checked in review.</p>
+<h2>How it is checked</h2>
+<p>Every change to the site has to pass these checks before it can be merged. Each runs in the light and in the dark colour scheme.</p>
+<ul>
+<li>The axe-core rules for WCAG 2.2 at levels A, AA and AAA, including its experimental rules, which include text contrast of at least 7 to 1.</li>
+<li>Any result axe cannot decide fails the build until it is settled. Contrast over a gradient, an image or a chart is settled by measuring the colours painted behind the text, and anything else a person reviews and records with the reason.</li>
+<li>A menu on a narrow screen that opens and closes from the keyboard and shows its links without script.</li>
+<li>Text of at least 0.875rem where it is read and 0.75rem elsewhere. The base size grows on wide screens and follows the size set in your browser.</li>
+<li>Paragraphs and lists of no more than 80 characters a line.</li>
+<li>Links, buttons and fields of at least 44 by 44 pixels, or 24 by 24 inside a dense data region.</li>
+<li>Link text that says where the link goes.</li>
+<li>A visible focus outline on everything you can reach with the keyboard.</li>
+<li>No sideways scrolling at 320 pixels wide, or with line, letter, word and paragraph spacing increased.</li>
+<li>Every abbreviation in the site's own text spelt out on the page or listed in the <a href="/glossary/">glossary</a>.</li>
+</ul>
+<p>Each check is first run against a page built to fail it, so a check that stops working fails the build. The abbreviation rule also runs on every page of every deploy and on the text of each new or changed dataset entry.</p>
+<h2>What the site provides</h2>
+<ul>
+<li>A skip link, labelled navigation and search, one main heading on every page and section headings in order.</li>
+<li>Charts and maps with a text description worked out from the values they show. The same numbers are in the dataset's files.</li>
+<li>Tables that scroll with the keyboard and are named for screen readers.</li>
+<li>Every dataset's rows as a CSV file, which opens in a spreadsheet or a text editor, and in most cases as Excel and JSON as well.</li>
+<li>A plain Markdown copy of every page, linked at the foot of the page.</li>
+<li>Colours that give way to your browser's forced-colours mode or your own style sheet, and light and dark schemes that follow your device's setting.</li>
+<li>Nothing timed. The only animation is the explorer's loading indicator, which stops when your device asks for reduced motion.</li>
+</ul>
+<h2>Known limitations</h2>
+<ul>
+<li>The data explorer is built on Perspective, a third-party component, and needs JavaScript and a recent browser. Its region is held to level AA, and we cannot change how the component itself works. The dataset page has every file and the query API as alternatives.</li>
+<li>Titles, descriptions and field names quoted from a publisher stay in the publisher's words, so they can hold abbreviations or terms the site does not expand.</li>
+<li>The publisher's own file is served as it was published. When it is a document or spreadsheet that is hard to use, the converted files usually work better.</li>
+<li>A map shows its values by shading. Its description and the dataset's files give the numbers.</li>
+</ul>
+<h2>Report a barrier or ask for another format</h2>
+<p>If part of the site is hard to use, tell us the page, what you were trying to do and, if you are comfortable saying, the browser or assistive technology you use. You can also ask for a dataset in a format the site does not offer. Write to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a> or open an issue <a href="{repo}/issues">on GitHub</a>.</p>
+<p>When a report shows a barrier a machine can detect, we add a check for it to the gate so it cannot come back.</p>
+<h2>If you are not satisfied</h2>
+<p>We will try to resolve a concern with you directly. You can also make a complaint to the <a href="https://humanrights.gov.au/complaints">Australian Human Rights Commission</a>.</p>
+<h2>Review</h2>
+<p>This statement changes when the checks change. The checks are in the site's source, and <a href="{repo}/blob/main/docs/ACCESSIBILITY.md">the accessibility record</a> lists each criterion, the regions held to AA and how the criteria with no automated test are met.</p>
 """,
     ),
     "terms": (
@@ -2016,7 +2246,7 @@ PROSE = {
 <h2>Governing law</h2>
 <p>These terms are governed by the law of Queensland. The courts of Queensland, and federal courts sitting in Queensland, may hear any dispute about them. This does not stop you from relying on the Australian Consumer Law. If part of these terms cannot be enforced, the rest still applies.</p>
 <h2>Concerns and contact</h2>
-<p>To raise a copyright or privacy concern about a dataset, or to ask us to remove one, write to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Errors in the serialisation go through <a href="/about/#corrections">corrections</a>.</p>
+<p>To raise a copyright or privacy concern about a dataset, or to ask us to remove one, write to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Errors in the serialisation go through <a href="/about/#corrections">corrections</a>.</p>
 """,
     ),
 }
@@ -2026,7 +2256,7 @@ PROSE = {
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
     "8 October 2026",
-    "9c980b65ff9a94242796d36470ef0ea4558f56c1ab299c5829c6d2443003bfec",
+    "f44f36158e75c29067d5959f0ba918826872c1331369d4d53f89efc93d32a1e5",
 )
 
 
@@ -3403,7 +3633,9 @@ def render_site(
                 use_tabs=_use_tabs(ds, latest),
                 mcp_add=at.spec()["mcp"]["add_command"],
                 jur_long=JUR_LONG[ds.publisher.jurisdiction],
-                description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
+                description_paras=[
+                    inline_code(p) for p in ds.description.split("\n\n") if p.strip()
+                ],
                 history_size=fmt_size((out / "d" / ds.slug / "history.tar.zst").stat().st_size),
                 attribution=attribution(ds, m),
                 portal_host=(m.source.get("url") or "").split("/")[2]
@@ -3567,6 +3799,7 @@ def render_site(
             fig=fig,
             example_rows=[(k, figures.fmt(v)) for k, v in example],
             example_words=(_example_title(ds, console) if example else ""),
+            example_values=[f["value"] for f in console["example"]["filters"]] if example else [],
             rows_example=_example_query(ds.slug, console, "rows") if console else "",
             aggregate_example=_example_query(ds.slug, console, "aggregate") if console else "",
             format_count=len(formats) - (1 if fmt_data.get("partition") else 0),
@@ -3579,8 +3812,11 @@ def render_site(
             partitions=partitions,
             siblings=siblings,
             jur_long=JUR_LONG[ds.publisher.jurisdiction],
-            description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
+            description_paras=[inline_code(p) for p in ds.description.split("\n\n") if p.strip()],
             has_suppressed=bool(ds.suppression),
+            update_note=checks_words(ds) if ds.update != "release" else "",
+            no_query="" if console else _no_query(ds, latest),
+            parts=_parts_view(ds, out, m.version),
             history_size=fmt_size((out / "d" / ds.slug / "history.tar.zst").stat().st_size),
             attribution=attr,
             portal_host=(m.source.get("url") or "").split("/")[2] if m.source.get("url") else "",
@@ -4309,7 +4545,10 @@ def render_site(
             .replace("{skill_path}", SKILL_PATH)
             .replace("{repo}", REPO)
             .replace("{gh}", GH_MARK)
+            .replace("{glossary}", abbreviations.render(abbreviations.glossary()))
         )
+        if left := re.findall(r"\{[a-z_]+\}", body):
+            raise ValueError(f"{slug}: placeholder {', '.join(left)} was never filled")
         md = "\n".join(
             [
                 "---",
@@ -4477,6 +4716,21 @@ def render_site(
         ),
     )
     _write(out, "latest.json", pretty({o.dataset.slug: o.latest.manifest.version for o in live}))
+    # The rolling sources and feeds, whose latest/ is their newest fetch served in place.
+    _write(
+        out,
+        "current.json",
+        pretty(
+            {
+                o.dataset.slug: {
+                    "fetch": o.current.manifest.version,
+                    "source": source_name(o.dataset, o.current.manifest) or None,
+                }
+                for o in live
+                if o.current
+            }
+        ),
+    )
     # The publisher's files a register entry no longer republishes. R2 still holds the copies
     # made before, so the /d/ function refuses each path listed here.
     _write(
@@ -4561,6 +4815,12 @@ def render_site(
             if ds.licence.condition:
                 full.append(f"  Licence condition: {ds.licence.condition}")
             continue
+        if not o.latest.whole:
+            grain = m.period["grain"]
+            line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(o.latest.rows)} rows, {len(ds.fields)} fields, in {len(o.latest.parts)} parts by {grain}. DuckDB {vb}data.duckdb (records() reads every part over HTTPS) · Parquet and gzipped CSV per part, listed in {vb}manifest.json · Markdown {dataset_url(ds.slug)}index.md"
+            llms.append(line)
+            full += [line, "  Fields: " + ", ".join(f"{f.name} ({f.type})" for f in ds.fields)]
+            continue
         files = " · ".join(
             f"{FORMAT_LABEL[f]} {vb}data.{f}"
             for f in ("parquet", "json", "csv", "xlsx", "sqlite", "duckdb", "geojson", "gpkg")
@@ -4592,6 +4852,7 @@ def render_site(
             f"- {SITE}/government/index.md",
             f"- {SITE}/agents/index.md",
             f"- {SITE}/about/index.md",
+            f"- {SITE}/glossary/index.md",
             f"- {SITE}/contribute/index.md",
             "",
             "## Source",
@@ -4807,6 +5068,7 @@ def render_site(
         f"{SITE}/agents/",
         f"{SITE}/about/",
         f"{SITE}/contribute/",
+        f"{SITE}/accessibility/",
         f"{SITE}/privacy/",
         f"{SITE}/terms/",
     ]

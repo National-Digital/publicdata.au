@@ -8,11 +8,11 @@
 {% for n in notes or [] %}<p class="notice" style="margin-top:10px">{{ n }}</p>{% endfor %}
 {% if live %}
 <div class="sec-head"><h2>Served here</h2><a href="/">All datasets</a></div>
-<div class="cards">{% for d in live %}{% include "card.html" %}{% endfor %}</div>
+<div class="cards" data-conformance="aa">{% for d in live %}{% include "card.html" %}{% endfor %}</div>
 {% endif %}
 {% for group in groups %}
-<div class="sec-head"><h2>{{ group.title }}</h2><span class="muted" style="font-size:14px">{{ group.publishers|length }} publisher{{ '' if group.publishers|length == 1 else 's' }}{% if catalogue %}, by datasets listed{% endif %}</span></div>
+<div class="sec-head"><h2>{{ group.title }}</h2><span class="muted small">{{ group.publishers|length }} publisher{{ '' if group.publishers|length == 1 else 's' }}{% if catalogue %}, by datasets listed{% endif %}</span></div>
 <div class="pubbars">{% for p in group.publishers %}<a class="pubbar" href="{{ p.path }}"><span class="pname">{{ p.name }}</span>{% if catalogue %}<span class="pbar"><i style="width:{{ p.bar }}%"></i></span><span class="pn">{{ p.listed_fmt }}</span>{% else %}<span class="pbar"></span><span class="pn"></span>{% endif %}<span class="pn live">{% if p.live %}{{ p.live }} served{% endif %}</span></a>{% endfor %}</div>
 {% endfor %}
-<p class="muted" style="font-size:14px;margin-top:24px">{% if catalogue %}Counts come from the portals' own catalogues, read {{ as_at_long }}. {% endif %}The list is also available as <a href="/catalogue/publishers.json" class="mono">/catalogue/publishers.json</a>.</p>
+<p class="muted small" style="margin-top:24px">{% if catalogue %}Counts come from the portals' own catalogues, read {{ as_at_long }}. {% endif %}The list is also available as <a href="/catalogue/publishers.json" class="mono">/catalogue/publishers.json</a>.</p>
 {% endblock %}

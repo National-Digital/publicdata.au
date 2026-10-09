@@ -37,7 +37,7 @@ summary: The zones of South Australian government high schools that take their c
   per school, for the newest enrolment year.
 description: School Zones for South Australian Government High Schools from the Department for Education. A school
   zone is the area from which the school accepts its core intake, and the school gives priority enrolment to children
-  who live inside it. Each row is one school's zone with its name, site number and type, SEC for a secondary school or PRSEC for a combined primary and secondary school.
+  who live inside it. Each row is one school's zone with its name, site number and type, `SEC` for a secondary school or `PRSEC` for a combined primary and secondary school.
 publisher:
   name: Department for Education
   short: Education

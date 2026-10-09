@@ -2,6 +2,6 @@
   <div class="tabs" role="tablist" aria-label="How to connect">{% for c in connect %}<button type="button" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" aria-controls="ctab-{{ tabs_id|default('home') }}-{{ loop.index }}" id="ctab-{{ tabs_id|default('home') }}-{{ loop.index }}-tab">{{ c.label }}</button>{% endfor %}</div>
   {% for c in connect %}<div class="pane" role="tabpanel" id="ctab-{{ tabs_id|default('home') }}-{{ loop.index }}" aria-labelledby="ctab-{{ tabs_id|default('home') }}-{{ loop.index }}-tab"{% if not loop.first %} hidden{% endif %}>
     {% if c.kind == 'text' %}<p class="how">{{ c.value }}</p>{% else %}<pre><code id="ctab-{{ tabs_id|default('home') }}-{{ loop.index }}-code">{{ c.value }}</code><button class="copy abs" type="button" data-copy-target="ctab-{{ tabs_id|default('home') }}-{{ loop.index }}-code">Copy</button></pre>{% endif %}
-    <p>{{ c.note }}</p>
+    <p>{{ c.note|safe }}</p>
   </div>{% endfor %}
 </div>

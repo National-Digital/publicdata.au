@@ -11,11 +11,18 @@ from html import escape as html_escape
 from html import unescape as html_unescape
 from pathlib import Path
 
-from . import SITE, explorer, serialise, structured
+from . import SITE, abbreviations, explorer, serialise, structured
 from .ard import problems as ard_problems
 from .register import OPEN_LICENCES, load
 from .serialise.geo import geo_kind
 from .serialise.profile import query_key
+
+# Dated tables over the period threshold that were published whole before periods existed. Each
+# is split by a change of its own, which rewrites how its new versions are laid out.
+PERIOD_PENDING = {
+    "au-eucalypt-records": "Parquet over 100 MB; to be split by year of the record's event date",
+    "au-water-storage-levels": "over 5 million rows; to be split by year of the observation date",
+}
 
 # Titles and summaries quoted from a portal are the publisher's words and are not rewritten.
 PORTAL_TEXT = re.compile(r"<!--portal-text-->.*?<!--/portal-text-->", re.S)
@@ -187,6 +194,86 @@ def examples(out: Path, datasets: dict) -> tuple[list[str], list[str]]:
     return report, errors
 
 
+def periods_needed(out: Path, datasets: dict) -> list[str]:
+    """A table whose rows carry their own date is split by period once its newest version is over
+    100 MB of Parquet or 5 million rows, and a split table's grain is the largest that keeps every
+    part at or under 100 MB. Sizes come from the catalogue and each newest manifest."""
+    from .periods import PART_MAX, ROWS_MAX, grain_problem
+
+    errors: list[str] = []
+    cat = out / "catalog.json"
+    newest = out / "latest.json"
+    if not cat.exists() or not newest.exists():
+        return errors
+    sizes = {
+        r["identifier"]: next(
+            (
+                int(d.get("byteSize") or 0)
+                for d in r.get("distribution", [])
+                if d.get("format") == "parquet"
+            ),
+            0,
+        )
+        for r in json.loads(cat.read_text(encoding="utf-8")).get("dataset", [])
+    }
+    for slug, version in json.loads(newest.read_text(encoding="utf-8")).items():
+        ds = datasets.get(slug)
+        man = out / "d" / slug / "v" / version / "manifest.json"
+        if ds is None or ds.kind != "table" or not man.exists():
+            continue
+        m = json.loads(man.read_text(encoding="utf-8"))
+        if m.get("period"):
+            got = {r["period"]: r["files"]["parquet"]["bytes"] for r in m.get("parts", [])}
+            grain = m["period"]["grain"]
+            if why := grain_problem(got, grain):
+                errors.append(f"{slug}/{version}: period grain {grain}: {why}")
+        # A period applies from the next fetch, so the register entry is what is asked for.
+        if ds.period is not None:
+            continue
+        dated = any(f.type in ("date", "datetime") for f in ds.fields)
+        layer = (ds.geometry or {}).get("kind") in ("polygon", "line")
+        big = sizes.get(slug, 0) > PART_MAX or int(m.get("rows", 0)) > ROWS_MAX
+        if dated and big and not layer and slug not in PERIOD_PENDING:
+            errors.append(
+                f"{slug}/{version}: {m.get('rows')} rows and {sizes.get(slug, 0)} bytes of Parquet "
+                "need a period; give the register entry period: {field, grain}"
+            )
+    return errors
+
+
+def query_explained(out: Path, datasets: dict) -> list[str]:
+    """A table dataset's page either runs the query console or says why the query API does not
+    serve it, so a dataset never leaves the API unremarked."""
+    errors = []
+    for page in sorted((out / "d").glob("*/index.html")) if (out / "d").exists() else []:
+        ds = datasets.get(page.parent.name)
+        if ds is None or ds.kind != "table":
+            continue
+        text = page.read_text(encoding="utf-8")
+        m = re.search(r'id="ds-data">(.*?)</script>', text, re.S)
+        if m and not json.loads(m.group(1)).get("console") and "data-no-query" not in text:
+            errors.append(
+                f"d/{ds.slug}/index.html: not in the query API and the page says no reason"
+            )
+    return errors
+
+
+def fetch_sequence(out: Path) -> list[str]:
+    """Each fetch of a rolling source or a feed is compared with the fetch before it. One
+    compared with an older fetch was made while the one between waited unmerged, so its change
+    log and a feed's history skip a state."""
+    errors = []
+    for idx in sorted((out / "d").glob("*/changes/index.json")) if (out / "d").exists() else []:
+        fetches = json.loads(idx.read_text(encoding="utf-8")).get("fetches", [])
+        for a, b in zip(fetches, fetches[1:], strict=False):
+            if b.get("from") != a["fetch"]:
+                errors.append(
+                    f"{idx.parts[-3]}: the fetch of {b['fetch']} was compared with {b.get('from')}, "
+                    f"not {a['fetch']}; remove store/{idx.parts[-3]}/{b['fetch']}/ and fetch again"
+                )
+    return errors
+
+
 def check(out: Path, register_dir: Path, absent: list[str] = (), site: bool = True) -> list[str]:
     return checked(out, register_dir, absent, site)[0]
 
@@ -239,6 +326,7 @@ def checked(
             "_headers",
             "_routes.json",
             "latest.json",
+            "current.json",
             "withheld.json",
             "openapi.json",
             "mcp/resources.json",
@@ -284,6 +372,9 @@ def checked(
             need = ("data.duckdb", "schema.json", "schema.sql") + tuple(
                 f"tables/{t.name}.parquet" for t in ds.tables
             )
+        elif m.get("whole", True) is False:
+            # Written as parts alone: the DuckDB file over them, and each part this version wrote.
+            need = ("data.duckdb", "schema.json", "schema.sql")
         else:
             rows = int(m.get("rows", 0))
             gone = None
@@ -323,10 +414,17 @@ def checked(
                 "schema.sql",
                 "data.csv-metadata.json",
             )
+        for part in (*m.get("parts", []), *(m.get("history") or {}).get("parts", [])):
+            if part["tree"] == version:
+                need = (*need, *(f["path"] for f in part["files"].values()))
+            elif not (ddir / slug / "v" / part["tree"] / "manifest.json").exists():
+                errors.append(
+                    f"{slug}/{version}: part {part['period']} is in {part['tree']}, which is not published"
+                )
         for f in need:
             if not have(f):
                 errors.append(f"{slug}/{version}: missing {f}")
-        if ds.kind != "database":
+        if ds.kind != "database" and m.get("whole", True):
             q = query_key(slug, version)
             if not (out / q).exists() and q not in absent:
                 errors.append(f"{slug}/{version}: missing its query copy {q}")
@@ -390,17 +488,35 @@ def checked(
             errors.append(f"{rel}: explore/versions.json missing or out of step")
     report, wrong = examples(out, datasets)
     errors += wrong
+    errors += periods_needed(out, datasets)
+    errors += fetch_sequence(out)
+    errors += query_explained(out, datasets)
     errors += _mcp_resources(out)
     errors += _mcp_listing(out)
     errors += _manifest(out)
     pages = []
     cache: dict[str, list[str]] = {}
+    # Publishers' names are proper names, not abbreviations the site owes a reader (SC 3.1.4).
+    names = tuple(
+        {n for d in datasets.values() for n in (d.publisher.name, d.publisher.short) if n}
+    )
+    # A publisher page from the portals' catalogues reads past its own publisher's name too.
+    listed = out / "catalogue" / "publishers.json"
+    page_names = {
+        p["path"].strip("/") + "/index.html": tuple(n for n in (p["name"], p["short"]) if n)
+        for p in (
+            json.loads(listed.read_text(encoding="utf-8"))["publishers"] if listed.is_file() else ()
+        )
+    }
     for html in sorted(out.rglob("*.html")):
         page = html.read_text(encoding="utf-8")
         pages.append((str(html.relative_to(out)), page))
         errors += structured.check_page(page, pages[-1][0])
         errors += _social_card(pages[-1][0], page, out)
         text = _without_publisher_values(PORTAL_TEXT.sub("", page), html, out, cache)
+        errors += abbreviations.check_page(
+            text, pages[-1][0], names + page_names.get(pages[-1][0], ())
+        )
         if (
             "not endorsed" not in text
             and "has not endorsed" not in text

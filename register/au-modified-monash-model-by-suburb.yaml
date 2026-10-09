@@ -37,7 +37,7 @@ faq:
     category found within it, with the area of the suburb in that category. A suburb that spans two
     categories has a row for each.
 - q: What do the MMM categories mean?
-  a: The Modified Monash Model ranks places from MM 1, metropolitan areas, to MM 7, very remote
+  a: The Modified Monash Model (MM) ranks places from MM 1, metropolitan areas, to MM 7, very remote
     communities, by remoteness and town size. The department uses it for health workforce programs and
     rural incentives. A practice's own classification is set by its street address in the department's
     locator, so a suburb split across categories needs that check.

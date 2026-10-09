@@ -341,7 +341,7 @@ def stacked_svg(s: dict, label: str, w: int = 680, h: int = 300) -> str:
     )
     if cats != [""]:
         svg += (
-            '<div class="legend">'
+            '<div class="legend" data-quoted>'
             + "".join(
                 f'<span><i style="background:var(--s{k + 1})"></i>{_esc(c)}</span>'
                 for k, c in enumerate(cats)

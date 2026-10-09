@@ -271,7 +271,7 @@ def _regrown(ds: Dataset, m, cache: BuildCache, key: str, out: Path, rels: list[
     parquet, _ = published.served(out, f"{vrel}/data.parquet")
     if not parquet.is_file():
         return None
-    tbl = _built_table(ds, m, out, parquet)
+    tbl = _built_table(ds, m, out, parquet=parquet)
     if m.parquet.get("sort"):
         tbl = _source_order(tbl, cache, key, parquet)
         if tbl is None:
@@ -386,17 +386,18 @@ def check(
     the entries a deploy would reuse, with the diffs between them, and the history archive when
     every version was built. Returns the differences, each naming its file, and how many
     versions were compared and how many a deploy would build again anyway."""
-    from .build import build_dataset, version_key
+    from .build import build_dataset, version_keys
 
     ms = checked_versions(ds, store_dir, cap)
-    whole = len(ms) == len(store.manifests(store_dir, ds.slug))
+    chain = dict((m.version, k) for m, k in version_keys(cache, ds, store_dir))
     fresh = build_dataset(ds, store_dir, out, newest=len(ms))
+    whole = len(fresh.versions) == len(store.manifests(store_dir, ds.slug))
     problems: list[str] = []
     compared = rebuilt = 0
     keys = []
     for v in fresh.versions:
         m = v.manifest
-        key = version_key(cache, ds, m, store_dir)
+        key = chain[m.version]
         keys.append(key)
         where = f"d/{ds.slug}/v/{m.version}/"
         meta = _entry(cache, key)
