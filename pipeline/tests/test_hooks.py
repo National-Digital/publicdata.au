@@ -392,6 +392,129 @@ def test_pre_commit_warns_when_a_tool_is_not_the_version_ci_pins(
     assert f"warning: zizmor is 0.0.1 here and {pin} in CI" in out.stdout + out.stderr
 
 
+def test_every_path_the_workflow_check_watches_exists() -> None:
+    hook = (ROOT / ".githooks" / "pre-commit").read_text(encoding="utf-8")
+    m = re.search(r'^wf_paths="([^"]*)"$', hook, re.MULTILINE)
+    assert m
+    assert [p for p in m.group(1).split() if not (ROOT / p).exists()] == []
+
+
+R_PINS = dict(
+    re.findall(
+        r"\b(lintr|cyclocomp|styler)@([0-9.]+)",
+        (ROOT / ".github/workflows/clients.yml").read_text(),
+    )
+)
+R_VERSIONS = "".join(f"{p} {v} \\n" for p, v in R_PINS.items())
+
+
+@pytest.fixture
+def r_repo(repo: Path) -> Path:
+    """The fixture repository with the clients workflow, whose pins the R check reads."""
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    shutil.copy(ROOT / ".github" / "workflows" / "clients.yml", repo / ".github" / "workflows")
+    (repo / "clients" / "r").mkdir(parents=True)
+    shutil.copy(ROOT / "clients" / "r" / ".lintr", repo / "clients" / "r")
+    _run([GIT, "add", "."], repo, [], check=True)
+    _run([GIT, "commit", "-q", "--no-verify", "-m", "ci: clients"], repo, [], check=True)
+    return repo
+
+
+def _r_bin(tmp_path: Path, **tools: str | Path | None) -> Path:
+    """_bin plus the utilities the R check calls, which a developer's PATH always has."""
+    names = ("sed", "grep", "head", "paste", "mktemp", "rm", "cat", "pwd")
+    return _bin(tmp_path, **{t: shutil.which(t) for t in names}, **tools)
+
+
+def _rscript(tmp_path: Path, versions: str = R_VERSIONS, status: int = 0) -> Path:
+    """An Rscript that answers the version query and logs each other call with what it sees."""
+    log = tmp_path / "rscript.log"
+    return _fake(
+        tmp_path,
+        "Rscript",
+        f"case $2 in *packageVersion*) printf '{versions}'; exit 0 ;; esac\n"
+        f'{{ pwd; printf "%s\\n" "$2"; cat R/x.R 2>/dev/null; }} >> {log}\n'
+        f"exit {status}",
+    )
+
+
+R_CODE = {"clients/r/R/x.R": "x <- 1\n"}
+
+
+def test_pre_commit_runs_lintr_and_styler_as_ci_does_on_a_copy_of_the_staged_client(
+    r_repo: Path, tmp_path: Path
+) -> None:
+    path = [_r_bin(tmp_path, Rscript=_rscript(tmp_path))]
+    (r_repo / "clients" / "r" / "R").mkdir()
+    (r_repo / "clients" / "r" / "R" / "x.R").write_text("x <- 1\n", encoding="utf-8")
+    _run([GIT, "add", "."], r_repo, path, check=True)
+    (r_repo / "clients" / "r" / "R" / "x.R").write_text("unstaged <- 2\n", encoding="utf-8")
+    out = _run([GIT, "commit", "-m", "test: change"], r_repo, path)
+    assert out.returncode == 0, out.stdout + out.stderr
+    log = (tmp_path / "rscript.log").read_text(encoding="utf-8").splitlines()
+    ci = (ROOT / ".github/workflows/clients.yml").read_text(encoding="utf-8")
+    calls = re.findall(r"run: Rscript -e '(.*(?:lint_package|style_pkg).*)'$", ci, re.MULTILINE)
+    assert len(calls) == 2
+    assert [log[1], log[4]] == calls
+    assert log[0] == log[3]
+    assert log[0].endswith("/clients/r")
+    assert not log[0].startswith(str(r_repo))
+    assert log[2] == log[5] == "x <- 1"
+    assert not Path(log[0]).exists()
+
+
+def test_pre_commit_stops_a_commit_lintr_or_styler_fails(r_repo: Path, tmp_path: Path) -> None:
+    out = _commit(r_repo, R_CODE, [_r_bin(tmp_path, Rscript=_rscript(tmp_path, status=1))])
+    assert out.returncode != 0
+    assert "lintr or styler found problems in clients/r" in out.stdout + out.stderr
+
+
+@needs_ruff
+def test_an_r_failure_still_lets_the_python_check_report(r_repo: Path, tmp_path: Path) -> None:
+    files = {**R_CODE, "pipeline/publicdata/bad.py": "import os\n"}
+    path = [_r_bin(tmp_path, Rscript=_rscript(tmp_path, status=1), ruff=RUFF)]
+    out = _commit(r_repo, files, path)
+    assert out.returncode != 0
+    assert "lintr or styler found problems" in out.stdout + out.stderr
+    assert "F401" in out.stdout + out.stderr
+
+
+def test_pre_commit_fails_when_r_is_missing(r_repo: Path, tmp_path: Path) -> None:
+    out = _commit(r_repo, R_CODE, [_r_bin(tmp_path)])
+    assert out.returncode != 0
+    pins = ", ".join(f'"{p}@{v}"' for p, v in R_PINS.items())
+    assert "Rscript not found; install R from" in out.stdout + out.stderr
+    assert f"pak::pak(c({pins}))" in out.stdout + out.stderr
+
+
+@pytest.mark.parametrize("missing", ["lintr", "cyclocomp", "styler"])
+def test_pre_commit_fails_when_an_r_package_is_missing(
+    r_repo: Path, tmp_path: Path, missing: str
+) -> None:
+    versions = R_VERSIONS.replace(f"{missing} {R_PINS[missing]} ", f"{missing} missing ")
+    out = _commit(r_repo, R_CODE, [_r_bin(tmp_path, Rscript=_rscript(tmp_path, versions))])
+    assert out.returncode != 0
+    pin = f"{missing}@{R_PINS[missing]}"
+    assert f"R package {missing} not found; install {pin}" in out.stdout + out.stderr
+    assert not (tmp_path / "rscript.log").exists()
+
+
+def test_pre_commit_warns_when_an_r_package_is_not_the_version_ci_pins(
+    r_repo: Path, tmp_path: Path
+) -> None:
+    versions = R_VERSIONS.replace(f"styler {R_PINS['styler']} ", "styler 0.0.1 ")
+    out = _commit(r_repo, R_CODE, [_r_bin(tmp_path, Rscript=_rscript(tmp_path, versions))])
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert f"warning: styler is 0.0.1 here and {R_PINS['styler']} in CI" in out.stdout + out.stderr
+
+
+def test_pre_commit_runs_no_r_check_without_staged_r_code(r_repo: Path, tmp_path: Path) -> None:
+    files = {"clients/r/NEWS.md": "# x\n", "clients/r/man/x.Rd": "x\n", "docs/x.R.txt": "x\n"}
+    out = _commit(r_repo, files, [_r_bin(tmp_path)])
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "not found" not in out.stdout + out.stderr
+
+
 needs_node_modules = pytest.mark.skipif(
     NODE is None or NPX is None or not (ROOT / "node_modules" / ".bin" / "eslint").exists(),
     reason="node or node_modules is not installed",
@@ -580,6 +703,80 @@ def test_pre_push_runs_no_python_check_when_no_python_changed(repo: Path, tmp_pa
     out = _run([GIT, "push", str(remote), "HEAD:main"], repo, path)
     assert out.returncode == 0, out.stdout + out.stderr
     assert not ran.exists()
+
+
+def _register_repo(repo: Path, tmp_path: Path, files: dict[str, str]) -> Path:
+    """The fixture repository with the real pipeline package and files, already on a remote."""
+    shutil.rmtree(repo / "pipeline" / "publicdata")
+    shutil.copytree(
+        ROOT / "pipeline" / "publicdata",
+        repo / "pipeline" / "publicdata",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8")
+    remote = tmp_path / "remote.git"
+    _run([GIT, "init", "-q", "--bare", str(remote)], tmp_path, [], check=True)
+    _run([GIT, "add", "."], repo, [], check=True)
+    _run([GIT, "commit", "-q", "--no-verify", "-m", "chore: base"], repo, [], check=True)
+    _run([GIT, "push", "-q", "--no-verify", str(remote), "HEAD:main"], repo, [], check=True)
+    return remote
+
+
+ENTRY = """slug: {slug}
+title: X
+status: backlog
+publisher:
+  name: Agency
+  jurisdiction: Cth
+licence:
+  id: CC-BY-4.0
+source:
+  url: https://example.gov.au/
+"""
+
+
+def _push_register(repo: Path, remote: Path, text: str) -> subprocess.CompletedProcess[str]:
+    (repo / "register").mkdir(exist_ok=True)
+    (repo / "register" / "x-y.yaml").write_text(text, encoding="utf-8")
+    _run([GIT, "add", "."], repo, [], check=True)
+    _run([GIT, "commit", "-q", "--no-verify", "-m", "data: x"], repo, [], check=True)
+    return _run([GIT, "push", str(remote), "HEAD:main"], repo, [VENV_BIN, _bin(repo.parent)])
+
+
+def test_pre_push_runs_the_register_tests_alone_when_the_register_changes(
+    repo: Path, tmp_path: Path
+) -> None:
+    files = {"pipeline/tests/test_register.py": FAILING, "pipeline/tests/test_other.py": PASSING}
+    remote = _register_repo(repo, tmp_path, files)
+    out = _push_register(repo, remote, ENTRY.format(slug="x-y"))
+    assert out.returncode != 0
+    assert "test_breaks" in out.stdout + out.stderr
+    assert "1 failed" in out.stdout + out.stderr
+
+
+def test_pre_push_passes_a_valid_register_change_without_the_rest_of_the_suite(
+    repo: Path, tmp_path: Path
+) -> None:
+    slow = SLOW_FAILURE.replace("assert False", "assert True")
+    files = {
+        "pipeline/tests/test_register.py": PASSING + "\n\n" + slow,
+        "pipeline/tests/test_other.py": FAILING,
+    }
+    remote = _register_repo(repo, tmp_path, files)
+    out = _push_register(repo, remote, ENTRY.format(slug="x-y"))
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "2 passed" in out.stdout
+    assert "entries valid" not in out.stdout
+
+
+def test_pre_push_stops_a_register_entry_validation_refuses(repo: Path, tmp_path: Path) -> None:
+    remote = _register_repo(repo, tmp_path, {"pipeline/tests/test_register.py": PASSING})
+    out = _push_register(repo, remote, ENTRY.format(slug="other"))
+    assert out.returncode != 0
+    assert "slug 'other' does not match filename" in out.stdout + out.stderr
+    assert "publicdata register validate failed" in out.stdout + out.stderr
 
 
 def test_pre_push_fails_when_mypy_is_missing(repo: Path, tmp_path: Path) -> None:

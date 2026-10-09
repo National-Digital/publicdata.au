@@ -1,6 +1,7 @@
 #!/bin/sh
-# Runs CI's mypy checks and the fast tests (pytest -m "not slow", the JS tests) before a push,
-# each only when the push changes the files it covers. Skip once with git push --no-verify.
+# Runs CI's mypy checks, the fast tests (pytest -m "not slow", the JS tests) and the register's
+# checks before a push, each only when the push changes the files it covers. Skip once with
+# git push --no-verify.
 
 # Git exports these to the hook from a linked worktree; a test's own scratch repo must not see them.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR GIT_CONFIG_PARAMETERS
@@ -59,6 +60,21 @@ if touches pipeline; then
   # pytest exits 5 when it collects no test, which is no failure here.
   (cd pipeline && pytest -q -m "not slow" -n auto -p no:cacheprovider)
   case $? in 0 | 5) ;; *) status=1 ;; esac
+fi
+
+# A register change runs what the Register validates job runs and the register's own tests, slow
+# ones included, since they load the real register. Validation lists every entry, so its output
+# is shown only when it fails.
+if touches register; then
+  if ! command -v pytest >/dev/null 2>&1 || ! python -c 'import publicdata, xdist' >/dev/null 2>&1; then
+    missing "pytest or the pipeline's environment" './pipeline[dev]'
+  fi
+  if ! validated=$(cd pipeline && python -m publicdata register validate 2>&1); then
+    printf '%s\n' "$validated"
+    echo "pre-push: publicdata register validate failed"
+    status=1
+  fi
+  (cd pipeline && pytest -q -p no:cacheprovider tests/test_register.py) || status=1
 fi
 
 if ! command -v node >/dev/null 2>&1; then
