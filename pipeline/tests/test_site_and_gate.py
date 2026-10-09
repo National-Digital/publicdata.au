@@ -378,6 +378,26 @@ def test_temporal_coverage_is_only_what_the_publisher_states() -> None:
     )
 
 
+def test_every_attribute_selector_in_the_page_scripts_matches_a_template_attribute() -> None:
+    # A selector naming an attribute no page renders attaches its handler to nothing, silently.
+    package = ROOT / "pipeline" / "publicdata"
+    rendered: set[str] = set()
+    for t in (package / "templates").glob("*.html"):
+        html = t.read_text(encoding="utf-8")
+        rendered |= {a.lower() for a in re.findall(r"\s([A-Za-z][\w-]*)(?==|[\s>/{])", html)}
+    checked: list[str] = []
+    missing: list[str] = []
+    for name in ("site.js", "explorer.js"):
+        js = (package / "static" / name).read_text(encoding="utf-8")
+        for _, selector in re.findall(r"querySelector(?:All)?\(\s*(['\"])(.*?)\1", js):
+            for attr in re.findall(r"\[\s*([A-Za-z][\w-]*)", selector):
+                checked.append(attr)
+                if attr.lower() not in rendered:
+                    missing.append(f"{name}: {selector}")
+    assert checked
+    assert missing == []
+
+
 def test_openapi_document_names_every_live_slug(
     register_dir: Path, tmp_path: Path, site_copy: Path
 ) -> None:

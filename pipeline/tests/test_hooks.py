@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 GIT = shutil.which("git") or "git"
 RUFF = shutil.which("ruff")
 NODE = shutil.which("node")
+NPX = shutil.which("npx")
 VENV_BIN = Path(sys.executable).parent
 
 
@@ -55,6 +56,8 @@ def repo(tmp_path: Path) -> Path:
     shutil.copy(ROOT / "pipeline" / "pyproject.toml", r / "pipeline" / "pyproject.toml")
     (r / "clients" / "python").mkdir(parents=True)
     shutil.copy(ROOT / "clients" / "python" / "pyproject.toml", r / "clients" / "python")
+    for name in ("eslint.config.mjs", ".prettierrc.json", ".prettierignore"):
+        shutil.copy(ROOT / name, r / name)
     # Each tree is a package, as in the repository, so a sample file meets INP001 and D104.
     (r / "pipeline" / "publicdata").mkdir()
     (r / "pipeline" / "publicdata" / "__init__.py").write_text('"""Pipeline."""\n')
@@ -387,6 +390,103 @@ def test_pre_commit_warns_when_a_tool_is_not_the_version_ci_pins(
     assert out.returncode == 0, out.stdout + out.stderr
     pin = CI_PINS["ZIZMOR"]
     assert f"warning: zizmor is 0.0.1 here and {pin} in CI" in out.stdout + out.stderr
+
+
+needs_node_modules = pytest.mark.skipif(
+    NODE is None or NPX is None or not (ROOT / "node_modules" / ".bin" / "eslint").exists(),
+    reason="node or node_modules is not installed",
+)
+
+
+def _node(repo: Path, tmp_path: Path, *, node_modules: bool = True) -> list[Path]:
+    """Node and npx on the path, and the checkout's node_modules unless the test leaves it out."""
+    (repo / ".git" / "info" / "exclude").write_text("node_modules\n.npm\n", encoding="utf-8")
+    if node_modules:
+        (repo / "node_modules").symlink_to(ROOT / "node_modules")
+    # npx runs each package's bin through sh.
+    return [_bin(tmp_path, node=NODE, npx=NPX, sh=shutil.which("sh"))]
+
+
+@needs_node_modules
+def test_pre_commit_stops_an_eslint_error_and_names_the_file_and_rule(
+    repo: Path, tmp_path: Path
+) -> None:
+    out = _commit(repo, {"functions/bad.js": "var x = 1;\n"}, _node(repo, tmp_path))
+    assert out.returncode != 0
+    assert "functions/bad.js" in out.stdout + out.stderr
+    assert "no-var" in out.stdout + out.stderr
+
+
+@needs_node_modules
+def test_pre_commit_stops_a_file_prettier_would_reformat(repo: Path, tmp_path: Path) -> None:
+    out = _commit(repo, {"functions/ugly.js": "export const x = {a:1};\n"}, _node(repo, tmp_path))
+    assert out.returncode != 0
+    assert "functions/ugly.js: not formatted" in out.stdout + out.stderr
+
+
+@needs_node_modules
+def test_pre_commit_checks_the_staged_javascript(repo: Path, tmp_path: Path) -> None:
+    path = _node(repo, tmp_path)
+    staged = {"scripts/bad.mjs": "var x = 1;\n", "scripts/ugly.mjs": "export const x = {a:1};\n"}
+    for name, text in staged.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8")
+    _run([GIT, "add", "."], repo, path, check=True)
+    for name in staged:
+        (repo / name).write_text("export const x = 1;\n", encoding="utf-8")
+    out = _run([GIT, "commit", "-m", "test: change"], repo, path)
+    assert out.returncode != 0
+    assert "no-var" in out.stdout + out.stderr
+    assert "scripts/ugly.mjs: not formatted" in out.stdout + out.stderr
+
+
+@needs_node_modules
+def test_pre_commit_stops_a_prettier_config_prettier_would_reformat(
+    repo: Path, tmp_path: Path
+) -> None:
+    out = _commit(repo, {".prettierrc.json": '{"printWidth":100,\n\n"x":1}'}, _node(repo, tmp_path))
+    assert out.returncode != 0
+    assert ".prettierrc.json: not formatted" in out.stdout + out.stderr
+
+
+@needs_node_modules
+def test_a_clean_javascript_commit_passes(repo: Path, tmp_path: Path) -> None:
+    files = {"functions/good.js": "export const x = { a: 1 };\n"}
+    out = _commit(repo, files, _node(repo, tmp_path))
+    assert out.returncode == 0, out.stdout + out.stderr
+
+
+def test_pre_commit_runs_no_javascript_check_without_staged_javascript(
+    repo: Path, tmp_path: Path
+) -> None:
+    fake = tmp_path / "fake-npx"
+    fake.write_text(f"#!/bin/sh\ntouch {tmp_path / 'ran'}\nexit 1\n", encoding="utf-8")
+    fake.chmod(0o755)
+    files = {"register/x.yaml": "slug: x\n", "functions/x.js.txt": "x\n", "docs/x.js": "x\n"}
+    out = _commit(repo, files, [_bin(tmp_path, npx=fake)])
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert not (tmp_path / "ran").exists()
+
+
+@pytest.mark.skipif(NODE is None or NPX is None, reason="node is not installed")
+def test_pre_commit_fails_when_node_modules_is_missing(repo: Path, tmp_path: Path) -> None:
+    path = _node(repo, tmp_path, node_modules=False)
+    out = _commit(repo, {"functions/good.js": "export const x = 1;\n"}, path)
+    assert out.returncode != 0
+    assert "(run: npm ci --ignore-scripts)" in out.stdout + out.stderr
+
+
+@needs_node_modules
+@needs_ruff
+def test_a_javascript_failure_still_lets_the_python_check_report(
+    repo: Path, tmp_path: Path
+) -> None:
+    files = {"functions/bad.js": "var x = 1;\n", "pipeline/publicdata/bad.py": "import os\n"}
+    path = [*_node(repo, tmp_path), _bin(tmp_path, ruff=RUFF)]
+    out = _commit(repo, files, path)
+    assert out.returncode != 0
+    assert "no-var" in out.stdout + out.stderr
+    assert "F401" in out.stdout + out.stderr
 
 
 def _push(

@@ -1,7 +1,9 @@
 // download_name() in pipeline/publicdata/site.py: data.csv of qld-x 2026-04-24 saves as
 // qld-x_2026-04-24.csv. pipeline/tests/fixtures/download_names.json holds the two together.
 export function downloadName(slug, version, rel) {
-  const tail = rel.startsWith('data.') ? rel.slice(4) : '_' + (rel.startsWith('parts/') ? rel.slice(6) : rel).replace(/\//g, '_');
+  const tail = rel.startsWith('data.')
+    ? rel.slice(4)
+    : '_' + (rel.startsWith('parts/') ? rel.slice(6) : rel).replace(/\//g, '_');
   return slug + (version ? '_' + version : '') + tail;
 }
 
@@ -15,8 +17,20 @@ const ARCHIVE = /^d\/([a-z0-9-]+)\/history\.tar\.zst$/;
 export function disposition(key, latest = {}) {
   const inline = (name) => `inline; filename="${name}"`;
   let m = key.match(FILE);
-  if (m) return /^index\.(html|md)$/.test(m[3]) ? null : inline(downloadName(m[1], m[2], m[3]));
-  if ((m = key.match(LOG))) return inline(m[2] ? downloadName(m[1], m[2], 'changes.json') : downloadName(m[1], '', 'changes/index.json'));
-  if ((m = key.match(ARCHIVE))) return inline(downloadName(m[1], Object.hasOwn(latest, m[1]) ? latest[m[1]] : '', 'history.tar.zst'));
+  if (m) {
+    return /^index\.(html|md)$/.test(m[3]) ? null : inline(downloadName(m[1], m[2], m[3]));
+  }
+  if ((m = key.match(LOG))) {
+    return inline(
+      m[2]
+        ? downloadName(m[1], m[2], 'changes.json')
+        : downloadName(m[1], '', 'changes/index.json'),
+    );
+  }
+  if ((m = key.match(ARCHIVE))) {
+    return inline(
+      downloadName(m[1], Object.hasOwn(latest, m[1]) ? latest[m[1]] : '', 'history.tar.zst'),
+    );
+  }
   return null;
 }

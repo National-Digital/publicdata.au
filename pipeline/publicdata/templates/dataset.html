@@ -62,7 +62,7 @@
     <span class="fmt-note">"Latest" redirects to the newest version and will change when the publisher releases again. A dated version keeps its content.</span>
   </div>
   <div class="urlbox"><div class="path" id="url" tabindex="0" role="region" aria-label="Latest file URL">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}" download="{{ download_name(ds.slug, served, formats[0].file) }}">Download this file</a></div>
-  <p class="fmt-note" id="fmt-note"></p>
+  {% for f in formats %}<p class="fmt-note" data-note="{{ f.key }}"{% if not loop.first %} hidden{% endif %}>{{ f.note|safe }}</p>{% endfor %}
   {% if left_out %}<p class="fmt-note">{{ left_out|join(' ') }}</p>{% endif %}
   <div>
     <div class="tools" role="tablist" aria-label="How to use" id="tools"></div>

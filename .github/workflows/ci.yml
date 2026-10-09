@@ -250,6 +250,8 @@ jobs:
         with:
           node-version-file: .node-version
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx --no-install eslint . --max-warnings 0
+      - run: npx --no-install prettier --check .
       # The query builder's SQL runs against node:sqlite, the same engine D1 uses.
       - run: node --test functions/*.test.mjs scripts/*.test.mjs
 

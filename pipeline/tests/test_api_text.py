@@ -47,7 +47,9 @@ def test_limits_operators_and_parameters_match_the_functions() -> None:
     handled = set(re.findall(r"op === '(\w+)'", q))
     assert set(S["operators"]) == (ops | handled | {"is.null"}) - {"is"}
     assert re.findall(r"'(\w+)'", _search(r"const METRICS = \[(.*?)\]", q)[1]) == S["metrics"]
-    reserved = set(re.findall(r"'(\w+)'", _search(r"const RESERVED = new Set\(\[(.*?)\]\)", q)[1]))
+    reserved = set(
+        re.findall(r"'(\w+)'", _search(r"(?s)const RESERVED = new Set\(\[(.*?)\]\)", q)[1])
+    )
     assert reserved == set(at.query_params())
     a = (FUNCTIONS / "_api.js").read_text(encoding="utf-8")
     q_, w = _search(r'"fair-use";q=(\d+);w=(\d+)', a).groups()
