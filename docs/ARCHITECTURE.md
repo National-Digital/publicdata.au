@@ -92,7 +92,9 @@ pipeline/publicdata/
     `deploy.yml`). The preview is served noindex, so only the crawlability audit is left to
     production, where `/d/qld-road-crash-locations/explore/` is exempt from it because it is noindex
     by design. A weekly PageSpeed Insights run holds production to the same targets with the
-    Lighthouse Google ships, and opens an issue labelled `psi` when it falls short (`psi.yml`).
+    Lighthouse Google ships, and opens an issue labelled `psi` when a page falls short on two runs
+    in a row (`psi.yml`). Its API key is the secret `PSI_API_KEY` in the `psi` environment. A run
+    the API refuses fails without opening an issue.
 
 ## Licence gate
 

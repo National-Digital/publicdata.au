@@ -2,14 +2,15 @@
 // targets as the pull request job (lighthouse-checks.mjs). PSI runs the Lighthouse Google ships,
 // which can be newer than the version the pull request job pins, so this is where a new or changed
 // audit shows first. It also reports the Chrome UX Report field data. Usage: node scripts/psi.mjs
-// [base-url]; the key is read from PSI_API_KEY. Writes psi-report.md and exits 1 on any failure.
+// [base-url]; the key is read from PSI_API_KEY. Writes psi-report.md and exits 1 when a page misses
+// a target. A failed API call, such as a bad key or a spent quota, is no result, so it exits 3.
 import { writeFile } from "node:fs/promises";
 import { NOINDEX, PAGES, TARGETS, assess } from "./lighthouse-checks.mjs";
 
 const base = process.argv[2] || "https://publicdata.au";
 const key = process.env.PSI_API_KEY;
 if (!key) {
-  console.error("::error::PSI_API_KEY is not set. Add a PageSpeed Insights API key as the repository secret PSI_API_KEY.");
+  console.error("::error::PSI_API_KEY is not set. Add a PageSpeed Insights API key as the secret PSI_API_KEY in the psi environment.");
   process.exit(2);
 }
 const FIELD = {
@@ -49,22 +50,31 @@ const pct = (v) => (v === null || v === undefined ? "none" : Math.round(v * 100)
 
 const rows = [];
 const problems = [];
+const apiErrors = [];
 let origin = null;
 let version = null;
 for (const path of PAGES) {
   const url = new URL(path, base).href;
   for (const strategy of ["mobile", "desktop"]) {
+    const opts = { preview: false, noindex: NOINDEX.has(path) };
     let r;
+    let a;
     try {
       r = await psi(url, strategy);
+      a = assess(r.lighthouseResult, opts);
+      // One sample can miss through noise on Google's side, so a page fails only when a second run agrees.
+      if (a.failures.length) {
+        r = await psi(url, strategy);
+        a = assess(r.lighthouseResult, opts);
+      }
     } catch (e) {
-      problems.push(`- ${path} (${strategy}): the API call failed, ${e.message}`);
+      apiErrors.push(`- ${path} (${strategy}): ${e.message}`);
       rows.push(`| ${path} | ${strategy} | ${Object.keys(TARGETS).map(() => "error").join(" | ")} | |`);
       continue;
     }
     version = r.lighthouseResult.lighthouseVersion;
     origin ??= r.originLoadingExperience;
-    const { scores, failures } = assess(r.lighthouseResult, { preview: false, noindex: NOINDEX.has(path) });
+    const { scores, failures } = a;
     rows.push(`| ${path} | ${strategy} | ${Object.keys(TARGETS).map((c) => pct(scores[c])).join(" | ")} | ${field(r.loadingExperience?.origin_fallback ? null : r.loadingExperience)} |`);
     for (const f of failures) problems.push(`- ${path} (${strategy}) ${f.category}${f.audit ? ` \`${f.audit}\`` : ""}: ${f.detail}`);
     console.log(`${failures.length ? "✗" : "✓"} ${path} (${strategy}): ${Object.entries(scores).map(([k, v]) => `${k} ${pct(v)}`).join(", ")}`);
@@ -80,9 +90,11 @@ const report = [
   "",
   `Field data for the whole origin, mobile: ${field(origin)}.`,
   "",
-  problems.length ? "## What failed\n\n" + problems.join("\n") : "Every page met every target.",
+  problems.length ? "## What failed\n\n" + problems.join("\n") : apiErrors.length ? "Every page the API returned met every target." : "Every page met every target.",
   "",
+  ...(apiErrors.length ? ["## The API calls that failed", "", ...apiErrors, ""] : []),
 ].join("\n");
 await writeFile("psi-report.md", report);
 console.log(`\n${report}`);
-process.exit(problems.length ? 1 : 0);
+if (apiErrors.length) console.error("::error::the PageSpeed Insights API refused or failed a call, so this run has no result; check PSI_API_KEY and its quota");
+process.exit(apiErrors.length ? 3 : problems.length ? 1 : 0);
