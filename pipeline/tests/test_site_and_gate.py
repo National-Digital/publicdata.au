@@ -23,9 +23,11 @@ from publicdata.register import Field, RegisterError, load, parse
 from publicdata.site import (
     _change_words,
     _console,
+    _faq_jsonld,
     _temporal,
     download_name,
     linkify,
+    quoting,
     register_path,
 )
 from publicdata.store import Manifest
@@ -178,7 +180,7 @@ def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, c
     # A visitor gets the office format first; Parquet stays a click away.
     assert ds.index('data-fmt="xlsx"') < ds.index('data-fmt="parquet"')
     assert (
-        'id="url" tabindex="0">https://publicdata.au/d/qld-road-crash-locations/latest/data.xlsx'
+        'id="url" tabindex="0" role="region" aria-label="Latest file URL">https://publicdata.au/d/qld-road-crash-locations/latest/data.xlsx'
         in ds
     )
     # The register's own questions are the caveats box, above the fold; the generated ones stay.
@@ -196,7 +198,7 @@ def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, c
     assert '<h2 id="places">By council area</h2>' in ds
     place = out / "d" / "qld-road-crash-locations" / "in" / "gold-coast-city" / "index.html"
     ptext = place.read_text(encoding="utf-8")
-    assert "<h1>Crashes in Gold Coast City</h1>" in ptext
+    assert "<h1>Crashes in <span data-quoted>Gold Coast City</span></h1>" in ptext
     assert "noindex" not in ptext
     assert (
         place.with_name("index.md")
@@ -295,7 +297,9 @@ def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, c
     assert "max-age=31536000, immutable" in fn
     assert "immutable, no-transform" in fn
     assert "max-age=300, no-transform" in fn
-    assert "content-encoding" not in fn
+    # Only a stored gzipped text file is sent with Content-Encoding, and then as stored.
+    assert fn.count("set('content-encoding'") == 1
+    assert "encodeBody: 'manual'" in fn
     assert "obj.range.suffix !== undefined" in fn
     assert (
         "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, or"
@@ -401,6 +405,23 @@ def test_linkify_escapes_and_links_only_the_url() -> None:
     assert linkify("Open https://a.example/data.csv, then stop.") == (
         'Open <a href="https://a.example/data.csv">https://a.example/data.csv</a>, then stop.'
     )
+    assert linkify("It writes `NULL` & `<5`, see https://a.example/x.") == (
+        'It writes <code>NULL</code> &amp; <code>&lt;5</code>, see <a href="https://a.example/x">https://a.example/x</a>.'
+    )
+
+
+def test_quoting_marks_the_publishers_value_and_escapes_the_rest() -> None:
+    assert quoting("Rows in A & B - EAST", "A & B - EAST") == (
+        "Rows in <span data-quoted>A &amp; B - EAST</span>"
+    )
+    assert quoting("Rows <here>", "") == "Rows &lt;here&gt;"
+    assert quoting("Sites where direction is not BOTH and kind is span", "BOTH", "span") == (
+        "Sites where direction is not <span data-quoted>BOTH</span> and kind is "
+        "<span data-quoted>span</span>"
+    )
+    faq: JSON = json.loads(json.dumps(_faq_jsonld([("What is `CNP`?", "The stream `CNP`.")])))
+    assert dig(faq, "mainEntity", 0, "name") == "What is CNP?"
+    assert dig(faq, "mainEntity", 0, "acceptedAnswer", "text") == "The stream CNP."
 
 
 def test_harvard_is_author_date_with_the_version_and_no_access_date() -> None:
@@ -444,7 +465,9 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(
         "group": ["casualty_road_user_type"],
         "metric": "sum.casualty_count",
     }
-    assert "Casualties by road user where severity is Hospitalised: " in page
+    assert (
+        "Casualties by road user where severity is <span data-quoted>Hospitalised</span>: " in page
+    )
     year = next(f for f in c["fields"] if f["name"] == "crash_year")
     region = next(f for f in c["fields"] if f["name"] == "crash_police_region")
     assert region["values"] == sorted(cast("list[str]", region["values"]))

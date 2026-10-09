@@ -9,17 +9,40 @@ import html
 import json
 import re
 import shutil
+import tempfile
 import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
-from . import OPERATOR, REPO, SITE, brand, directory, explorer, figures, serialise
+from . import (
+    OPERATOR,
+    REPO,
+    SITE,
+    abbreviations,
+    brand,
+    directory,
+    explorer,
+    figures,
+    published,
+    serialise,
+)
 from . import api_text as at
-from .build import DatasetOut, VersionOut, dataset_url, version_url
+from . import ard as ardspec
+from .build import (
+    DatasetOut,
+    VersionOut,
+    dataset_url,
+    part_dir,
+    part_files,
+    source_name,
+    version_url,
+)
 from .cost import fleet_from_build
-from .d1 import KEEP, catalogue_sqlite, queryable, served_table
+from .d1 import KEEP, MAX_CSV, catalogue_sqlite, parts_csv, queryable, served_table
+from .parts import FORMATS as PART_FORMATS
+from .parts import url as part_url
 from .provenance import (
     CITE_REQUEST,
     NOT_ENDORSED,
@@ -32,7 +55,7 @@ from .provenance import (
     long_date,
 )
 from .publishers import JUR_NAME, JUR_SEGMENT, JURISDICTIONS
-from .records import connect, one_row
+from .records import connect, joined, one_row
 from .register import NEWEST, WHERE_OPS, Dataset
 from .serialise import (
     FORMAT_LABEL,
@@ -50,11 +73,13 @@ from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
 from .spine import DATUM as SPINE_DATUM
 from .spine import LAYERS as SPINE_LAYERS
 from .topics import TOPICS
+from .updates import CHURN, CUT_WORDS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from typing import NotRequired, ReadOnly
 
+    from .build import PartRecord
     from .cache import BuildCache
     from .catalogue import Record
     from .directory import Directory, Page
@@ -66,7 +91,7 @@ if TYPE_CHECKING:
     from .records import Records
     from .register import Condition, Example, Field
     from .serialise import PartitionEntry
-    from .store import Manifest, PortalStats
+    from .store import Manifest, ManifestPeriod, PortalStats
 
     class QuickLink(TypedDict):
         name: str
@@ -91,6 +116,43 @@ if TYPE_CHECKING:
         ext: str
         source_url: str
         portal_licence: str
+        cut: str
+
+    class PartsHistory(TypedDict, total=False):
+        parts: list[PartRecord]
+
+    class PartsManifest(TypedDict, total=False):
+        """What the dataset page reads of a version's manifest.json to list its parts."""
+
+        period: ManifestPeriod
+        whole: bool
+        parts: list[PartRecord]
+        history: PartsHistory | None
+
+    class PartFileView(TypedDict):
+        label: str
+        url: str
+        download: str
+        size: str
+
+    class PartView(TypedDict):
+        period: str
+        rows_fmt: str
+        finished: bool
+        revised: bool
+        tree: str
+        tree_long: str
+        files: list[PartFileView]
+
+    class PartsView(TypedDict):
+        """A period table's parts as its dataset page lists them."""
+
+        field: str
+        grain: str
+        version: str
+        whole: bool
+        parts: list[PartView]
+        history: list[PartView]
 
     class Copy(TypedDict):
         """Where a dataset is also published."""
@@ -108,6 +170,7 @@ if TYPE_CHECKING:
 
     class FormatNote(TypedDict):
         file: str
+        suffix: str
         note: str
 
     class SampleTable(Preview):
@@ -328,14 +391,34 @@ FORMAT_NOTES = {
 }
 
 
-def download_name(slug: str, version: str, rel: str) -> str:
-    """The name a version's file saves under.
+def save_suffix(rel: str) -> str:
+    """What follows the slug and version in a saved file's name.
 
-    For example, data.csv of qld-x 2026-04-24 is qld-x_2026-04-24.csv. functions/_download.js
-    does the same.
+    data.csv is .csv, a period part parts/2022.parquet is _2022.parquet, and any other path is
+    joined with underscores.
     """
-    tail = rel[4:] if rel.startswith("data.") else "_" + rel.replace("/", "_")
-    return f"{slug}_{version}{tail}"
+    if rel.startswith("data."):
+        return rel[4:]
+    return "_" + rel.removeprefix("parts/").replace("/", "_")
+
+
+def download_name(slug: str, version: str, rel: str) -> str:
+    """The name a file saves under.
+
+    For example, data.csv of qld-x 2026-04-24 is qld-x_2026-04-24.csv, and a file of no one
+    version, such as the change log index, has no date. functions/_download.js does the same,
+    and the dataset page's script takes each format's suffix from the build.
+    """
+    return slug + (f"_{version}" if version else "") + save_suffix(rel)
+
+
+def served_date(o: DatasetOut) -> str:
+    """The date of what latest/ serves.
+
+    That is a rolling source's or a feed's newest fetch, which current.json names, else the
+    newest snapshot.
+    """
+    return (o.current or _newest(o)).manifest.version
 
 
 def fmt_size(n: int | None) -> str:
@@ -353,12 +436,12 @@ def fmt_int(n: float) -> str:
 
 
 URL_RE = re.compile(r"https://[^\s<>\"]+")
+# A code or a publisher's value quoted in copy: register text and the site's own answers.
+CODE_RE = re.compile(r"`([^`\n]+)`")
 
 
-def linkify(text: str) -> str:
-    """Escape the prose and link each bare https URL. Trailing punctuation stays outside the link."""
+def _links(text: str) -> str:
     out, pos = [], 0
-    text = str(text)
     for m in URL_RE.finditer(text):
         url = m.group(0).rstrip(".,;:)")
         out.append(html.escape(text[pos : m.start()]))
@@ -369,6 +452,34 @@ def linkify(text: str) -> str:
     return "".join(out)
 
 
+def linkify(text: str) -> str:
+    """Escape the prose, set each code in backticks as code and link each bare https URL.
+
+    Trailing punctuation stays outside the link.
+    """
+    out, pos = [], 0
+    text = str(text)
+    for m in CODE_RE.finditer(text):
+        out.append(_links(text[pos : m.start()]))
+        out.append(f"<code>{html.escape(m.group(1))}</code>")
+        pos = m.end()
+    out.append(_links(text[pos:]))
+    return "".join(out)
+
+
+def quoting(text: str, *values: object) -> str:
+    """Escape text and mark the publisher's values in it as quoted.
+
+    The abbreviation check then reads past a place name such as BRISBANE - EAST or a filter such
+    as BOTH DIRECTIONS.
+    """
+    out = html.escape(str(text))
+    vs = sorted({html.escape(str(v)) for v in values if str(v)}, key=len, reverse=True)
+    if not vs:
+        return out
+    return re.sub("|".join(map(re.escape, vs)), r"<span data-quoted>\g<0></span>", out)
+
+
 def env() -> Environment:
     e = Environment(
         loader=PackageLoader("publicdata", "templates"),
@@ -377,6 +488,8 @@ def env() -> Environment:
         lstrip_blocks=True,
     )
     e.filters["linkify"] = linkify
+    e.filters["code"] = inline_code
+    e.filters["quoting"] = quoting
     e.globals["cadence_words"] = cadence_words
     e.globals["download_name"] = download_name
     return e
@@ -395,6 +508,107 @@ def _change_words(c: Mapping[str, JSON] | None) -> str:
     if "added" not in c:
         return f" ({c['rows_from']} rows before)"
     return f" ({c['added']} added, {c['removed']} removed, {c['changed']} changed)"
+
+
+def checks_words(ds: Dataset, what: str = "file") -> str:
+    """How this site follows the source, by its update class."""
+    if ds.update == "release":
+        return f"This site checks the portal every week and adds a dated version when the {what} changes."
+    how = (
+        "reads the whole table every week" if ds.update == "rolling" else "reads the feed every day"
+    )
+    when = (
+        f"on the first change of each month, when a period closes, when more than {CHURN:.0%} of "
+        "rows change and when a finished period is revised"
+        if ds.period
+        else f"on the first change of each month and when more than {CHURN:.0%} of rows change"
+    )
+    return (
+        f"This site {how}, writes a change log by key for each read that changed it and serves "
+        f"the newest read at latest/. It keeps a dated version {when}."
+    )
+
+
+def _no_query(ds: Dataset, v: VersionOut) -> str:
+    """Why the query API does not serve a dataset.
+
+    Its page says so, so it never drops out unexplained.
+    """
+    if not v.whole:
+        grain = _grain_words(_period_grain(v.manifest))
+        if QUERY_API and queryable(ds, parts_csv(v.parts)):
+            return (
+                f"This version is split by {grain} and is too large to be one file. The query "
+                f"API serves it from its parts at {SITE}/api/v1/datasets/{ds.slug}/rows. The "
+                "console, the explorer and the pages by place each read one whole file, so they "
+                "are not offered for it. Its DuckDB file reads every part."
+            )
+        return (
+            f"This version is split by {grain} and is too large to be one file. The query API, "
+            "the explorer and the pages by place each read one whole file, so they are not "
+            "offered for it. Its DuckDB file reads every part."
+        )
+    if not ds.query:
+        return "The register keeps this dataset out of the query API. Every file is still served."
+    if (v.files.get("data.csv") or 0) > MAX_CSV:
+        return (
+            f"Its CSV file is over {MAX_CSV // 1_000_000} MB, more than the query API "
+            "loads, so the files serve it."
+        )
+    return "The query API is not loaded for this version. Every file is still served."
+
+
+def _grain_words(grain: str) -> str:
+    return "financial year" if grain == "fiscal" else grain
+
+
+def _period_grain(m: Manifest) -> str:
+    """The grain of a version split by period, which only such a version is asked for."""
+    if m.period is None:
+        msg = f"{m.dataset} {m.version}: a version in parts records no period"
+        raise ValueError(msg)
+    return m.period["grain"]
+
+
+def _parts_view(ds: Dataset, out: Path, version: str) -> PartsView | None:
+    """A period table's parts as its dataset page lists them, with a feed's history parts."""
+    man: PartsManifest = json.loads(
+        (out / "d" / ds.slug / "v" / version / "manifest.json").read_text(encoding="utf-8")
+    )
+    period = man.get("period")
+    if not period:
+        return None
+
+    def rows(recs: list[PartRecord]) -> list[PartView]:
+        return [
+            {
+                "period": r["period"],
+                "rows_fmt": fmt_int(r["rows"]),
+                "finished": r["finished"],
+                "revised": r["revised"],
+                "tree": r["tree"],
+                "tree_long": long_date(r["tree"]) if r["tree"] != version else "",
+                "files": [
+                    {
+                        "label": FORMAT_LABEL[f],
+                        "url": part_url(ds.slug, r, f),
+                        "download": download_name(ds.slug, r["tree"], r["files"][f]["path"]),
+                        "size": fmt_size(r["files"][f]["bytes"]),
+                    }
+                    for f in PART_FORMATS
+                ],
+            }
+            for r in recs
+        ]
+
+    return {
+        "field": ds.field(period["field"]).display.lower(),
+        "grain": _grain_words(period["grain"]),
+        "version": version,
+        "whole": man.get("whole", True),
+        "parts": rows(man.get("parts", [])),
+        "history": rows((man.get("history") or {}).get("parts", [])),
+    }
 
 
 def _version_view(ds: Dataset, v: VersionOut, change: Mapping[str, JSON] | None) -> VersionView:
@@ -416,6 +630,7 @@ def _version_view(ds: Dataset, v: VersionOut, change: Mapping[str, JSON] | None)
         "ext": m.ext,
         "source_url": m.source.get("url", ""),
         "portal_licence": (m.licence or {}).get("title") or (m.licence or {}).get("id", ""),
+        "cut": CUT_WORDS.get(m.cut, ""),
     }
 
 
@@ -482,16 +697,22 @@ def _file_formats_text() -> str:
 
 
 def _fmts(ds: Dataset, v: VersionOut) -> list[str]:
-    have = set(formats_for(v.rows, geo_kind(ds), v.left_out))
+    # A version written as parts alone has one whole file, the DuckDB file over its parts.
+    have = set(formats_for(v.rows, geo_kind(ds), v.left_out) if v.whole else ["duckdb"])
     return [f for f in SITE_ORDER if f in have]
 
 
 def _left_out(ds: Dataset, v: VersionOut) -> list[str]:
     """Why each format a table version lacks is not there, one sentence each, in site order."""
-    if ds.kind == "database":
+    if ds.kind == "database" or not v.whole:
         return []
     gone = reasons(v.rows, geo_kind(ds), v.left_out)
     return [gone[f] for f in SITE_ORDER if f in gone]
+
+
+def inline_code(text: str) -> str:
+    """Register copy escaped for HTML, with a publisher's code in backticks set as code."""
+    return CODE_RE.sub(r"<code>\1</code>", html.escape(text, quote=False))
 
 
 def _format_names(ds: Dataset, v: VersionOut) -> list[str]:
@@ -562,34 +783,69 @@ def _seo_description(ds: Dataset, v: VersionOut, span: str = "") -> str:
     return " ".join(parts)
 
 
-def _faq(
-    ds: Dataset, v: VersionOut, partitions: Mapping[str, Sequence[PartitionEntry]], span: str = ""
-) -> list[tuple[str, str]]:
-    m = v.manifest
+def _download_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
+    """The answers on downloading a table and opening it in Excel, by how its version is stored."""
     base = dataset_url(ds.slug)
-    vbase = version_url(ds.slug, m.version)
+    vbase = version_url(ds.slug, v.manifest.version)
     fmts = _format_names(ds, v)
     short = _short_title(ds)
-    out = [
-        (
-            f"How do I download {short} as a CSV file?",
+    if not v.whole:
+        grain = _grain_words(_period_grain(v.manifest))
+        out = [
             (
-                f"Open {base}latest/data.csv. It redirects to the newest dated version, which is {vbase}data.csv today. "
-                f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same."
+                f"How do I download {short} as a CSV file?",
+                (
+                    f"The table is too large to be one file, so it is one gzipped CSV and one Parquet file per {grain}, listed on this page. "
+                    f"{vbase}data.duckdb attaches over HTTPS and its records() reads every {grain} at once. A dated URL never changes."
+                ),
             ),
-        )
-    ]
+            (
+                f"Can I open {short} in Excel?",
+                f"Not as one workbook. Each {grain}'s CSV opens in Excel, or load the Parquet files with Power Query.",
+            ),
+        ]
+    elif ds.update != "release":
+        out = [
+            (
+                f"How do I download {short} as a CSV file?",
+                (
+                    f"Open {base}latest/data.csv for the newest read, which changes when the source does and is cached for five minutes. "
+                    f"The newest dated version is {vbase}data.csv. The same paths serve {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same."
+                ),
+            )
+        ]
+    else:
+        out = [
+            (
+                f"How do I download {short} as a CSV file?",
+                (
+                    f"Open {base}latest/data.csv. It redirects to the newest dated version, which is {vbase}data.csv today. "
+                    f"The same path serves {', '.join(f for f in fmts if f != 'CSV')}. A dated URL never changes, so use it when the file must stay the same."
+                ),
+            )
+        ]
     why = reasons(v.rows, geo_kind(ds), v.left_out).get("xlsx")
     if not why:
         excel = f"Yes. {vbase}data.xlsx is a workbook with the {fmt_int(v.rows)} rows on a records sheet, the field list on a second sheet and the provenance on a third. The CSV also opens in Excel."
     else:
         excel = f"Not as a workbook. {why} Load the CSV or the Parquet file with Power Query, or take one partition file at a time."
-    out.append(
-        (
-            f"Can I open {short} in Excel?",
-            excel + f" {vbase}data.csv.gz is the CSV at about a tenth of the size.",
+    if v.whole:
+        out.append(
+            (
+                f"Can I open {short} in Excel?",
+                excel + f" {vbase}data.csv.gz is the CSV at about a tenth of the size.",
+            )
         )
-    )
+    return out
+
+
+def _faq(
+    ds: Dataset, v: VersionOut, partitions: Mapping[str, Sequence[PartitionEntry]], span: str = ""
+) -> list[tuple[str, str]]:
+    m = v.manifest
+    vbase = version_url(ds.slug, m.version)
+    short = _short_title(ds)
+    out = _download_faq(ds, v)
     years = _years(ds, m, span)
     if years:
         out.append(
@@ -604,7 +860,7 @@ def _faq(
         out.append(
             (
                 f"How often is {short} updated?",
-                f"{cadence_words(ds)[1]} This site checks the portal every week and adds a dated version when the file changes.",
+                f"{cadence_words(ds)[1]} {checks_words(ds)}",
             )
         )
     lic = ds.licence
@@ -636,9 +892,9 @@ def _faq(
         out.append(
             (
                 f"How do I get only the rows for one {pf.replace('_', ' ')}?",
-                f"Every version has one JSON file per value of {pf}, {len(entries)} files in the current version, listed with row counts at {vbase}by/{pf}/index.json."
+                f"Every version has one JSON file per value of `{pf}`, {len(entries)} files in the current version, listed with row counts at {vbase}by/{pf}/index.json."
                 + (
-                    f" For example {vbase}{ex['json']} holds the {fmt_int(ex['rows'])} rows where {pf} is {ex['value']}."
+                    f" For example {vbase}{ex['json']} holds the {fmt_int(ex['rows'])} rows where `{pf}` is `{ex['value']}`."
                     if ex
                     else ""
                 )
@@ -723,7 +979,7 @@ def _dataset_jsonld(
                 "@type": "DataDownload",
                 "encodingFormat": MEDIA[fmt],
                 "contentUrl": f"{vbase}{name}",
-                "contentSize": str(v.files.get(name, "")),
+                **({"contentSize": str(n)} if (n := v.size(name)) is not None else {}),
             }
         )
     return {
@@ -803,7 +1059,11 @@ def _faq_jsonld(faq: list[tuple[str, str]]) -> dict[str, object]:
         "@context": "https://schema.org",
         "@type": "FAQPage",
         "mainEntity": [
-            {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}}
+            {
+                "@type": "Question",
+                "name": CODE_RE.sub(r"\1", q),
+                "acceptedAnswer": {"@type": "Answer", "text": CODE_RE.sub(r"\1", a)},
+            }
             for q, a in faq
         ],
     }
@@ -850,12 +1110,58 @@ def _dcat_dataset(ds: Dataset, o: DatasetOut) -> dict[str, object]:
                 "mediaType": MEDIA[fmt],
                 "accessURL": f"{base}latest/{name}",
                 "downloadURL": f"{vbase}{name}",
-                "byteSize": v.files.get(name),
+                **({"byteSize": n} if (n := v.size(name)) is not None else {}),
                 "conformsTo": f"{base}schema.json",
                 **({"title": name.split("/")[-1].rsplit(".", 1)[0]} if "/" in name else {}),
             }
             for name, fmt in _files_of(ds, v)
         ],
+    }
+
+
+def _health_schema() -> dict[str, object]:
+    n = {"type": "integer", "minimum": 0}
+    return {
+        "type": "object",
+        "properties": {
+            "storage": {
+                "type": "object",
+                "description": "What the archive holds in R2. `projected` is the build's "
+                "estimate and `measured` is Cloudflare's own figure, read at deploy.",
+                "properties": {
+                    "projected": {
+                        "type": "object",
+                        "properties": {
+                            "covers": {"type": "string"},
+                            "stored_bytes": n | {"description": "Stored now"},
+                            "stored_bytes_in_a_year": n | {"description": "Stored a year on"},
+                            "growth_bytes_per_year": n,
+                            "d1_rows_written_per_year": n,
+                        },
+                    },
+                    "measured": {
+                        "type": "object",
+                        "required": ["available"],
+                        "properties": {
+                            "available": {"type": "boolean"},
+                            "reason": {
+                                "type": "string",
+                                "description": "Why there is no measurement, when available is false",
+                            },
+                            "covers": {"type": "string"},
+                            "measured_at": {
+                                "type": "string",
+                                "format": "date-time",
+                                "description": "When Cloudflare measured the oldest bucket figure",
+                            },
+                            "stored_bytes": n,
+                            "objects": n,
+                            "buckets": {"type": "object", "additionalProperties": n},
+                        },
+                    },
+                },
+            },
+        },
     }
 
 
@@ -969,10 +1275,11 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[FormatButton], dict[s
         {"key": f, "label": FORMAT_LABEL[f], "file": f"data.{f}"} for f in order
     ]
     for f in formats:
-        f["size"] = fmt_size(latest.files.get(f["file"]))
+        f["size"] = fmt_size(latest.size(f["file"]))
     fmt_data: dict[str, FormatNote] = {
         f["key"]: {
             "file": f["file"],
+            "suffix": save_suffix(f["file"]),
             "note": _format_note(ds, f["key"], latest.rows),
         }
         for f in formats
@@ -992,6 +1299,7 @@ def _picker(ds: Dataset, latest: VersionOut) -> tuple[list[FormatButton], dict[s
             )
             fmt_data["partition"] = {
                 "file": ex["json"],
+                "suffix": save_suffix(ex["json"]),
                 "note": FORMAT_NOTES["partition"].format(
                     field=pf, count=len(entries), example=ex["json"]
                 ),
@@ -1381,10 +1689,76 @@ ROUTES = (
     "/api/*",
     "/mcp",
     "/d/*/latest/*",
+    "/d/*/fetch/*",
     "/d/*/v/*",
     "/d/*/diff/*",
     "/d/*/history.tar.zst",
+    "/d/*/changes/*",
 )
+
+
+SKILL_PATH = f"skills/{at.spec()['skill']['name']}/SKILL.md"
+SKILL_URL = f"{SITE}/{SKILL_PATH}"
+RFC9727 = "https://www.rfc-editor.org/info/rfc9727"
+
+
+def _skill(for_agents: str, query_line: str) -> str:
+    """The Agent Skill the discovery manifest lists.
+
+    It is built from the words llms.txt and the MCP server already use.
+    """
+    s = at.spec()
+    return "\n".join(
+        [
+            "---",
+            f"name: {s['skill']['name']}",
+            f"description: {s['skill']['description']}",
+            "---",
+            "",
+            f"# {s['skill']['title']}",
+            "",
+            s["site"]["summary"],
+            "",
+            "## With the MCP server",
+            "",
+            s["mcp"]["intro"],
+            "",
+            s["mcp"]["instructions"],
+            "",
+            "## With the files and the query API",
+            "",
+            for_agents,
+            "",
+            query_line,
+            "",
+            f"Every live dataset is listed in {SITE}/llms.txt with its latest download URLs, and {SITE}/llms-full.txt adds each field. {SITE}/catalog.json is the same list as a DCAT catalogue.",
+            "",
+        ]
+    )
+
+
+def _api_catalog() -> dict[str, object]:
+    """The RFC 9727 API catalogue: the query API and the MCP server, each with its description."""
+    return {
+        "linkset": [
+            {
+                "anchor": f"{SITE}/api/v1/",
+                "service-desc": [
+                    {"href": f"{SITE}/openapi.json", "type": "application/vnd.oai.openapi+json"}
+                ],
+                "service-doc": [{"href": f"{SITE}/agents/", "type": "text/html"}],
+                "status": [{"href": f"{SITE}/health.json", "type": "application/json"}],
+            },
+            {
+                "anchor": f"{SITE}/mcp",
+                "service-desc": [
+                    {"href": f"{SITE}/mcp/server-card", "type": "application/mcp-server-card+json"}
+                ],
+                "service-doc": [{"href": f"{SITE}/agents/#mcp", "type": "text/html"}],
+                "status": [{"href": f"{SITE}/health.json", "type": "application/json"}],
+            },
+        ]
+    }
 
 
 # The map chart fetches OpenStreetMap tiles from its worker, and only when a map panel is shown.
@@ -1466,7 +1840,7 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict[str, object]:
                 ],
                 "refs": sorted({f.references.split(".", 1)[0] for f in t.fields if f.references}),
                 "parquet": vb + name,
-                "size": fmt_size(v.files.get(name)),
+                "size": fmt_size(v.size(name)),
             }
         )
     largest = max(tables, key=lambda t: t["rows"]) if tables else None
@@ -1474,7 +1848,6 @@ def _db_view(ds: Dataset, v: VersionOut) -> dict[str, object]:
         "tables": tables,
         "views": [{"name": x.name, "description": x.description, "sql": x.sql} for x in ds.views],
         "duckdb": vb + "data.duckdb",
-        "duckdb_size": "about " + fmt_size(v.files.get("data.duckdb")),
         "parquet_size": fmt_size(
             sum(v.files.get(f"tables/{t.name}.parquet", 0) for t in ds.tables)
         ),
@@ -1497,6 +1870,23 @@ def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict[str,
     """
     vb = version_url(ds.slug, v.manifest.version)
     name = ds.slug.replace("-", "_")
+    if not v.whole:
+        newest = next(r for r in reversed(v.parts) if r["period"] != "undated")
+        grain = _grain_words(_period_grain(v.manifest))
+        return [
+            {
+                "label": "DuckDB",
+                "kind": "command",
+                "value": f"INSTALL httpfs; LOAD httpfs;\nATTACH '{vb}data.duckdb' AS {name} (READ_ONLY);\nSELECT count(*) FROM {name}.records();",
+                "note": f"records() reads every {grain}'s Parquet over HTTPS; records(files := [...]) reads the ones you name.",
+            },
+            {
+                "label": "Parquet",
+                "kind": "command",
+                "value": f"import pandas as pd\ndf = pd.read_parquet('{part_url(ds.slug, newest, 'parquet')}')",
+                "note": f"One Parquet file per {grain}, for pandas, Polars, Arrow, Spark and R's arrow package.",
+            },
+        ]
     if ds.kind == "database":
         start = ds.views[0].name if ds.views else ds.tables[0].name
         first = ds.tables[0]
@@ -1578,7 +1968,7 @@ def _use_tabs(ds: Dataset, v: VersionOut, aggregate: str = "") -> list[dict[str,
             "label": "DuckDB",
             "kind": "command",
             "value": f"INSTALL httpfs; LOAD httpfs;\nATTACH '{vb}data.duckdb' AS {name} (READ_ONLY);\nSELECT {key}, count(*) FROM {name}.records GROUP BY 1 ORDER BY 2 DESC;",
-            "note": "The DuckDB file attaches read-only over HTTPS and only the blocks a query touches are read. Parquet works the same way: FROM read_parquet(url).",
+            "note": "The DuckDB file attaches read-only over HTTPS and only the blocks a query touches are read. Parquet works the same way: <code>FROM read_parquet(url)</code>.",
         },
         *script,
     ]
@@ -1615,7 +2005,7 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
             f"How do I get one table of {short}?",
             (
                 f"Every table is a Parquet file under {vbase}tables/, for example {vbase}tables/{ds.tables[0].name}.parquet, which pandas, R, Polars, Spark and DuckDB read directly. "
-                f"{vbase}schema.sql has the CREATE TABLE statements with the keys and references, and {vbase}schema.json the same as Table Schema."
+                f"{vbase}schema.sql has the SQL that creates every table, with the keys and references, and {vbase}schema.json the same as Table Schema."
             ),
         ),
     ]
@@ -1623,7 +2013,7 @@ def _db_faq(ds: Dataset, v: VersionOut) -> list[tuple[str, str]]:
         out.append(
             (
                 f"How often is {short} updated?",
-                f"{cadence_words(ds)[1]} This site checks the portal every week and adds a dated version when the release changes.",
+                f"{cadence_words(ds)[1]} {checks_words(ds, 'release')}",
             )
         )
     lic = ds.licence
@@ -1693,7 +2083,7 @@ def _md_twin_database(  # noqa: PLR0913 - the options are keyword-only and named
         *([f"Also called: {', '.join(ds.also_known_as)}.", ""] if ds.also_known_as else []),
         "## Files",
         "",
-        f"- DuckDB, every table and view: {vbase}data.duckdb (about {fmt_size(v.files.get('data.duckdb'))}). Attach it read-only over HTTPS: ATTACH '{vbase}data.duckdb' AS db (READ_ONLY);",
+        f"- DuckDB, every table and view: {vbase}data.duckdb. Attach it read-only over HTTPS: ATTACH '{vbase}data.duckdb' AS db (READ_ONLY);",
         f"- Parquet, one file per table: {vbase}tables/<table>.parquet",
         f"- SQL: {vbase}schema.sql (CREATE TABLE with keys, references and the views)",
         f"- Schema: {vbase}schema.json",
@@ -1780,12 +2170,17 @@ def _md_twin_dataset(  # noqa: C901, PLR0912, PLR0913 - the page's sections in o
         *([f"Also called: {', '.join(ds.also_known_as)}.", ""] if ds.also_known_as else []),
         "## Download",
         "",
-        f"Latest version, redirects to `{vbase}`:",
+        (
+            f"Latest version, redirects to `{vbase}`:"
+            if ds.update == "release"
+            else "Newest read, served in place and cached for five minutes:"
+        ),
         "",
     ]
+    sizes = {fmt: fmt_size(v.size(f"data.{fmt}")) for fmt in _fmts(ds, v)}
     lines.extend(
-        f"- {fmt}: {base}latest/data.{fmt} ({fmt_size(v.files.get(f'data.{fmt}'))})"
-        for fmt in _fmts(ds, v)
+        f"- {fmt}: {base}latest/data.{fmt}" + (f" ({size})" if size else "")
+        for fmt, size in sizes.items()
     )
     if why := _left_out(ds, v):
         lines += ["", *why]
@@ -2019,7 +2414,7 @@ PROSE = {
 <li>The dataset page states the licence, the attribution and a contact, and carries the change log.</li>
 </ol>
 <h2>What this site does with it</h2>
-<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. <a href="https://nationaldigital.com.au/contact/">National Digital</a>, which runs this site, will talk through a layout with any agency that asks. No government agency has endorsed this site.</p>
+<p>When a publisher follows this layout, this site reads the current URL each week, and a release it has not seen becomes a dated version here with no person involved, with a diff against the version before and the publisher's own file beside it. A column the register does not name is reported and held until a person reviews it, so a breaking change at the source pauses the mirror until it is understood. The <a href="/publishers/">publishers page</a> says what else a publisher gets. National Digital, which runs this site, will talk through a layout with any agency that asks on its <a href="https://nationaldigital.com.au/contact/">contact page</a>. No government agency has endorsed this site.</p>
 <h2>Further reading</h2>
 <ul>
 <li><a href="https://www.w3.org/TR/dwbp/">Data on the Web Best Practices</a> from the W3C, in particular the practices on persistent URIs, version indicators and version history.</li>
@@ -2066,7 +2461,7 @@ PROSE = {
 <li id="query-api">{query_api}</li>
 <li><a href="/catalogue/publishers.json"><code>/catalogue/publishers.json</code></a> lists every publisher on Australia's government portals with its page and counts. Each publisher page has a <code>catalogue.json</code> of the datasets it lists, with licence, formats and the portal URL.</li>
 <li><a href="/llms.txt"><code>/llms.txt</code></a> lists every dataset with its latest download URLs. <a href="/llms-full.txt"><code>/llms-full.txt</code></a> adds the field list for each.</li>
-<li><a href="/.well-known/ard.json"><code>/.well-known/ard.json</code></a> is the Agentic Resource Discovery manifest, with a display name and representative queries per dataset. The same document is at <code>/.well-known/ai-catalog.json</code>.</li>
+<li><a href="/.well-known/ard.json"><code>/.well-known/ard.json</code></a> is the Agentic Resource Discovery manifest. It lists the MCP server, an agent skill at <a href="/{skill_path}"><code>/{skill_path}</code></a>, a bundle of the catalogues and the API description, and a bundle for each dataset that holds its files and the server that queries it, with representative queries for each. The same document is at <code>/.well-known/ai-catalog.json</code>, and <a href="/.well-known/api-catalog"><code>/.well-known/api-catalog</code></a> lists the APIs as RFC 9727 asks.</li>
 <li><a href="/catalog.json"><code>/catalog.json</code></a> is a DCAT catalogue in JSON-LD, one record per live dataset with a distribution per format.</li>
 <li><a href="/openapi.json"><code>/openapi.json</code></a> is an OpenAPI 3.1 document for every public path, with the dataset slugs as an enum. Load it into any client generator or an agent's tool list.</li>
 <li><a href="/backlog.json"><code>/backlog.json</code></a> is every register entry with its status, licence and the reason if it is blocked. <code>/api/v1/votes</code> has the current vote counts.</li>
@@ -2076,12 +2471,12 @@ PROSE = {
 <h2>Per dataset</h2>
 <ul>
 <li><code>/d/&lt;slug&gt;/datapackage.json</code> is a Frictionless data package pointing at the latest version.</li>
-<li><code>/d/&lt;slug&gt;/schema.json</code> is a Table Schema. Types are string, integer, number, boolean, date and datetime. Beside each version, <code>schema.sql</code> is the same as a CREATE TABLE and <code>data.csv-metadata.json</code> is W3C CSV on the Web metadata.</li>
+<li><code>/d/&lt;slug&gt;/schema.json</code> is a Table Schema. Types are string, integer, number, boolean, date and datetime. Beside each version, <code>schema.sql</code> is the same as a <code>CREATE TABLE</code> and <code>data.csv-metadata.json</code> is W3C CSV on the Web metadata.</li>
 <li><code>/d/&lt;slug&gt;/fields.json</code> lists each queryable field with its type, the publisher's description, its range and the values it holds when it has few. The MCP server offers it as a resource.</li>
 <li><code>/d/&lt;slug&gt;/versions.json</code> lists every version with its date, row count, source hash and URL.</li>
 <li><code>/d/&lt;slug&gt;/changes.json</code> summarises each consecutive diff. <code>/d/&lt;slug&gt;/diff/&lt;a&gt;..&lt;b&gt;.json</code> compares two consecutive versions by key.</li>
-<li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects.</li>
-<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there.</li>
+<li><code>/d/&lt;slug&gt;/latest/data.&lt;format&gt;</code> redirects with a 302 to the newest dated version. Follow redirects. A table the publisher resends whole, or a feed of what is current, serves its newest read at the same path with a five-minute cache instead, and lists every read's changes in <code>/d/&lt;slug&gt;/changes/index.json</code>.</li>
+<li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/data.&lt;format&gt;</code> keeps its content and is cached for a year. Formats: csv, csv.gz, ndjson, parquet and duckdb on every version, with xlsx, json and sqlite while the table is within their size limits. A dataset with coordinates or shapes adds gpkg, geo.parquet for points and geojson within its size limit, and a boundary layer adds pmtiles vector tiles. Versions whose manifest has no caps field were fetched before the size limits and also carry arrow. A version page says why a format is not there. Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles, csv.gz and the publisher's file. CSV, NDJSON, JSON and GeoJSON are sent whole, gzipped when the client accepts it, so a reader that scans lazily or seeks, such as polars <code>scan_csv</code> or fsspec, should read data.parquet or data.csv.gz.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/by/&lt;field&gt;/&lt;value&gt;.json</code> is a smaller file for one value of a partition field. <code>by/&lt;field&gt;/index.json</code> lists them.</li>
 <li><code>/d/&lt;slug&gt;/v/&lt;date&gt;/SHA256SUMS</code> lists the SHA-256 of every file in the version, each under the name it downloads as, such as <code>&lt;slug&gt;_&lt;date&gt;.csv</code>. Run <code>sha256sum -c --ignore-missing SHA256SUMS</code> beside the files (<code>shasum -a 256 -c --ignore-missing SHA256SUMS</code> on a Mac), or save them with <code>curl -OJ</code> so the names match. Each list carries a GitHub artifact attestation from the deploy that wrote it, which <code>gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au --source-ref refs/heads/main</code> checks.</li>
 </ul>
@@ -2119,6 +2514,14 @@ PROSE = {
 <p>The site sets no cookies. Page views are counted by Cloudflare Web Analytics, which is served from this site's own provider, stores nothing in the browser and does not follow anyone across sites. There is no other tracking. Votes in the backlog are counted once per browser per day using a salted hash that changes every day. Nobody is asked who they are. The <a href="/privacy/">privacy page</a> sets out everything the site records.</p>
 <h2>Security</h2>
 <p>The disclosure policy is at <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+""",
+    ),
+    "glossary": (
+        "Glossary",
+        "Every abbreviation publicdata.au uses in its own words, with what it stands for.",
+        """
+<p>Every abbreviation this site uses in its own words is listed here with what it stands for. Publishers' own titles, codes and cell values are quoted as published, so they can hold abbreviations this list does not explain.</p>
+{glossary}
 """,
     ),
     "contribute": (
@@ -2160,7 +2563,58 @@ PROSE = {
 <h2>Hosting</h2>
 <p>Cloudflare hosts the site and handles every request, including the address it came from, to deliver it and to block abuse. The <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare privacy policy</a> covers that handling.</p>
 <h2>Contact</h2>
-<p>Questions about privacy go to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+<p>Questions about privacy go to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
+""",
+    ),
+    "accessibility": (
+        "Accessibility",
+        "How publicdata.au is built and checked so people who use assistive technology can use it, and how to report a barrier.",
+        """
+<p>Last updated 8 October 2026.</p>
+<h2>Our commitment</h2>
+<p>We want everyone to be able to use publicdata.au and its data, whatever their disability, device or assistive technology. We aim to provide equal access consistently with the Disability Discrimination Act 1992. Meeting a standard supports that aim. We will still respond to any barrier a person meets and offer a reasonable alternative where one is needed.</p>
+<h2>The standard the site is held to</h2>
+<p>The site is built to the Web Content Accessibility Guidelines (WCAG) 2.2 at level AAA, the highest of its three levels. Dense data regions, which are long tables, dataset listings and the data explorer, are held to level AA for the size of targets and type, and to AAA for everything else. A table of many rows cannot give every cell a large target and still work as a table.</p>
+<p>We do not claim that every page conforms. The automated checks below run on a fixed set of pages that covers every kind of page the site builds. Some criteria have no reliable automated test and are met by design and checked in review.</p>
+<h2>How it is checked</h2>
+<p>Every change to the site has to pass these checks before it can be merged. Each runs in the light and in the dark colour scheme.</p>
+<ul>
+<li>The axe-core rules for WCAG 2.2 at levels A, AA and AAA, including its experimental rules, which include text contrast of at least 7 to 1.</li>
+<li>Any result axe cannot decide fails the build until it is settled. Contrast over a gradient, an image or a chart is settled by measuring the colours painted behind the text, and anything else a person reviews and records with the reason.</li>
+<li>A menu on a narrow screen that opens and closes from the keyboard and shows its links without script.</li>
+<li>Text of at least 0.875rem where it is read and 0.75rem elsewhere. The base size grows on wide screens and follows the size set in your browser.</li>
+<li>Paragraphs and lists of no more than 80 characters a line.</li>
+<li>Links, buttons and fields of at least 44 by 44 pixels, or 24 by 24 inside a dense data region.</li>
+<li>Link text that says where the link goes.</li>
+<li>A visible focus outline on everything you can reach with the keyboard.</li>
+<li>No sideways scrolling at 320 pixels wide, or with line, letter, word and paragraph spacing increased.</li>
+<li>Every abbreviation in the site's own text spelt out on the page or listed in the <a href="/glossary/">glossary</a>.</li>
+</ul>
+<p>Each check is first run against a page built to fail it, so a check that stops working fails the build. The abbreviation rule also runs on every page of every deploy and on the text of each new or changed dataset entry.</p>
+<h2>What the site provides</h2>
+<ul>
+<li>A skip link, labelled navigation and search, one main heading on every page and section headings in order.</li>
+<li>Charts and maps with a text description worked out from the values they show. The same numbers are in the dataset's files.</li>
+<li>Tables that scroll with the keyboard and are named for screen readers.</li>
+<li>Every dataset's rows as a CSV file, which opens in a spreadsheet or a text editor, and in most cases as Excel and JSON as well.</li>
+<li>A plain Markdown copy of every page, linked at the foot of the page.</li>
+<li>Colours that give way to your browser's forced-colours mode or your own style sheet, and light and dark schemes that follow your device's setting.</li>
+<li>Nothing timed. The only animation is the explorer's loading indicator, which stops when your device asks for reduced motion.</li>
+</ul>
+<h2>Known limitations</h2>
+<ul>
+<li>The data explorer is built on Perspective, a third-party component, and needs JavaScript and a recent browser. Its region is held to level AA, and we cannot change how the component itself works. The dataset page has every file and the query API as alternatives.</li>
+<li>Titles, descriptions and field names quoted from a publisher stay in the publisher's words, so they can hold abbreviations or terms the site does not expand.</li>
+<li>The publisher's own file is served as it was published. When it is a document or spreadsheet that is hard to use, the converted files usually work better.</li>
+<li>A map shows its values by shading. Its description and the dataset's files give the numbers.</li>
+</ul>
+<h2>Report a barrier or ask for another format</h2>
+<p>If part of the site is hard to use, tell us the page, what you were trying to do and, if you are comfortable saying, the browser or assistive technology you use. You can also ask for a dataset in a format the site does not offer. Write to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a> or open an issue <a href="{repo}/issues">on GitHub</a>.</p>
+<p>When a report shows a barrier a machine can detect, we add a check for it to the gate so it cannot come back.</p>
+<h2>If you are not satisfied</h2>
+<p>We will try to resolve a concern with you directly. You can also make a complaint to the <a href="https://humanrights.gov.au/complaints">Australian Human Rights Commission</a>.</p>
+<h2>Review</h2>
+<p>This statement changes when the checks change. The checks are in the site's source, and <a href="{repo}/blob/main/docs/ACCESSIBILITY.md">the accessibility record</a> lists each criterion, the regions held to AA and how the criteria with no automated test are met.</p>
 """,
     ),
     "terms": (
@@ -2191,7 +2645,7 @@ PROSE = {
 <h2>Governing law</h2>
 <p>These terms are governed by the law of Queensland. The courts of Queensland, and federal courts sitting in Queensland, may hear any dispute about them. This does not stop you from relying on the Australian Consumer Law. If part of these terms cannot be enforced, the rest still applies.</p>
 <h2>Concerns and contact</h2>
-<p>To raise a copyright or privacy concern about a dataset, or to ask us to remove one, write to <a href="https://nationaldigital.com.au/contact/">National Digital</a>. Errors in the serialisation go through <a href="/about/#corrections">corrections</a>.</p>
+<p>To raise a copyright or privacy concern about a dataset, or to ask us to remove one, write to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Errors in the serialisation go through <a href="/about/#corrections">corrections</a>.</p>
 """,
     ),
 }
@@ -2201,7 +2655,7 @@ PROSE = {
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
     "8 October 2026",
-    "9c980b65ff9a94242796d36470ef0ea4558f56c1ab299c5829c6d2443003bfec",
+    "f44f36158e75c29067d5959f0ba918826872c1331369d4d53f89efc93d32a1e5",
 )
 
 
@@ -2496,10 +2950,16 @@ def _query_paths(
 HINT_VALUES = 150  # a field with more distinct values than this gets no value list
 
 
-def _fields_resource(o: DatasetOut, console: Console) -> dict[str, object]:
-    """A dataset's fields as the MCP server's resource: what the query console knows, as data."""
+def _fields_resource(o: DatasetOut, hints: Console, *, api: bool) -> dict[str, object]:
+    """A dataset's fields as the MCP server's resource.
+
+    They are read from the newest version's data.parquet, or its parts, as the query console's
+    are. The query API's URLs are given only when it loads the dataset; the server's row tools
+    answer either way, from the version's Parquet.
+    """
     ds, m = o.dataset, _newest(o).manifest
-    api = f"{SITE}/api/v1/datasets/{ds.slug}/"
+    base = f"{SITE}/api/v1/datasets/{ds.slug}/"
+    urls = {"rows_url": base + "rows", "aggregate_url": base + "aggregate"} if api else {}
     return {
         "slug": ds.slug,
         "title": ds.title,
@@ -2509,19 +2969,19 @@ def _fields_resource(o: DatasetOut, console: Console) -> dict[str, object]:
         "version": m.version,
         "rows": _newest(o).rows,
         "dataset_page": dataset_url(ds.slug),
-        "rows_url": api + "rows",
-        "aggregate_url": api + "aggregate",
+        **urls,
         "where": at.plain(at.spec()["webmcp"]["where"]),
         "key": list(ds.key),
         "partition_by": list(ds.partition_by),
-        "fields": console["fields"],
+        "fields": hints["fields"],
     }
 
 
-def _console(ds: Dataset, parquet: Path) -> Console:
+def _console(ds: Dataset, parquet: Path | list[Path]) -> Console:
     """Fields with value hints and a first query for the dataset page's query console.
 
-    Both are read from the same rows the query API is loaded from.
+    Both are read from the same rows the query API is loaded from: the version's data.parquet, or
+    its parts.
     """
     con = connect(parquet, [f.name for f in ds.fields])
     cols = set(con.columns())
@@ -2849,7 +3309,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                     "tags": ["catalogue"],
                     "summary": "Build health",
                     "operationId": "getHealth",
-                    "responses": {"200": j("ok")},
+                    "responses": {"200": j("ok", _health_schema())},
                 }
             },
             "/d/{slug}/datapackage.json": {
@@ -2955,7 +3415,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
             "/d/{slug}/v/{version}/data.{format}": {
                 "get": {
                     "tags": ["version"],
-                    "summary": "The whole dataset in one format. Cached one year. Range requests are honoured.",
+                    "summary": "The whole dataset in one format. Cached one year. Byte ranges are offered on Parquet, DuckDB, SQLite, Arrow, Excel, GeoPackage, PMTiles and csv.gz. CSV, NDJSON, JSON and GeoJSON are sent whole, gzipped when the client accepts it, so a lazy or range reader should use parquet or csv.gz.",
                     "operationId": "getData",
                     "parameters": [slug_p, ver_p, fmt_p],
                     "responses": {
@@ -3390,6 +3850,25 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     by_slug = {o.dataset.slug: o for o in outs}
     live = [o for o in outs if o.versions]
     live_slugs = {o.dataset.slug for o in live}
+    rows_tmp = tempfile.TemporaryDirectory(prefix="publicdata-rows-")
+
+    def rows_of(ds: Dataset, v: VersionOut) -> Path:
+        """The Parquet a page draws a version's figures and sample from.
+
+        That is its data.parquet, or for a version written as parts alone, its parts joined in a
+        file outside the tree.
+        """
+        if v.whole:
+            return out / "d" / ds.slug / "v" / v.manifest.version / "data.parquet"
+        dest = Path(rows_tmp.name) / f"{ds.slug}_{v.manifest.version}.parquet"
+        if not dest.exists():
+            rels = [
+                f"{part_dir(ds.slug, r, v.manifest.version)}/{r['files']['parquet']['path']}"
+                for r in v.parts
+            ]
+            joined([published.path(out, rel) for rel in rels], dest)
+        return dest
+
     built_at = max(
         (v.manifest.fetched_at for o in live for v in o.versions),
         default="1970-01-01T00:00:00+00:00",
@@ -3471,25 +3950,22 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     ) -> None:
         """One page per dated version: its files, its change from the version before and its figure."""
         for v, view in zip(o.versions, views, strict=True):
-            vfig = (
-                fig
-                if v is latest
-                else figures.dataset_figures(
-                    ds,
-                    v.manifest,
-                    hints,
-                    out / "d" / ds.slug / "v" / v.manifest.version / "data.parquet",
-                    out,
-                )
-            )
+            if v is latest:
+                vfig = fig
+            else:
+                rows = rows_of(ds, v)
+                vfig = figures.dataset_figures(ds, v.manifest, hints, rows, out)
+                # An older version's joined parts are read once, so they do not stay on disk.
+                if not v.whole:
+                    rows.unlink(missing_ok=True)
             files = [
                 {
                     "name": k,
-                    "size": fmt_size(s),
+                    "size": fmt_size(v.size(k)),
                     "url": f"{version_url(ds.slug, v.manifest.version)}{k}",
                     "download": download_name(ds.slug, v.manifest.version, k),
                 }
-                for k, s in v.files.items()
+                for k in v.files
                 if "/" not in k
             ]
             md = "\n".join(
@@ -3516,7 +3992,10 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                         if ds.licence.condition
                         else []
                     ),
-                    *[f"- {f['name']}: {f['url']} ({f['size']})" for f in files],
+                    *[
+                        f"- {f['name']}: {f['url']}" + (f" ({f['size']})" if f["size"] else "")
+                        for f in files
+                    ],
                     "",
                     *[f"{why}\n" for why in _left_out(ds, v)],
                     f"SHA-256 of every file, under the names they download as: {version_url(ds.slug, v.manifest.version)}SHA256SUMS",
@@ -3557,6 +4036,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     # Dataset pages and version pages.
     resources = []
     queried: list[DatasetOut] = []
+    # Served by the query API from their parts, with no console on their pages.
+    served_parts: list[DatasetOut] = []
     figs: dict[str, Figures] = {}
     consoles: dict[str, Console | None] = {}
     views_by: dict[str, list[VersionView]] = {}
@@ -3619,7 +4100,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 use_tabs=_use_tabs(ds, latest),
                 mcp_add=at.spec()["mcp"]["add_command"],
                 jur_long=JUR_LONG[ds.publisher.jurisdiction],
-                description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
+                description_paras=[
+                    inline_code(p) for p in ds.description.split("\n\n") if p.strip()
+                ],
                 history_size=fmt_size((out / "d" / ds.slug / "history.tar.zst").stat().st_size),
                 attribution=attribution(ds, m),
                 portal_host=(m.source.get("url") or "").split("/")[2]
@@ -3636,17 +4119,32 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             ds.partition_by[0] if ds.partition_by else (ds.key[0] if ds.key else ds.fields[0].name)
         )
         console = hints = None
-        rows_path = out / "d" / ds.slug / "v" / m.version / "data.parquet"
+        rows_path = rows_of(ds, latest)
         if rows_path.exists():
             hints = _console(ds, rows_path)
-        if QUERY_API and hints and queryable(ds, latest.files.get("data.csv")):
+        api = bool(
+            QUERY_API and hints and latest.whole and queryable(ds, latest.files.get("data.csv"))
+        )
+        listed, served = hints, api
+        if not latest.whole and latest.parts:
+            # A version stored as parts has no console. The row tools answer it from its parts,
+            # and the query API loads it from them while their CSV is within its limit.
+            if listed is None:
+                listed = _console(ds, part_files(out, ds.slug, m.version, latest.parts))
+            served = bool(QUERY_API and queryable(ds, parts_csv(latest.parts)))
+            if served:
+                served_parts.append(o)
+        if api and hints is not None:
             queried.append(o)
             console = hints
             _write(out, f"d/{ds.slug}/openapi.json", pretty(_dataset_openapi(o, console)))
             console["api"] = f"/api/v1/datasets/{ds.slug}/"
             console["site"] = SITE
             console["versions"] = [v["version"] for v in reversed(views)][:KEEP]
-            fields_body = pretty(_fields_resource(o, console))
+        # The MCP server's row tools answer from Parquet what D1 does not load, so every table
+        # with a data.parquet or parts gets its field list, whether or not the query API serves it.
+        if listed:
+            fields_body = pretty(_fields_resource(o, listed, api=served))
             _write(out, f"d/{ds.slug}/fields.json", fields_body)
             resources.append(
                 {
@@ -3679,7 +4177,10 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             for v, view in reversed(list(zip(o.versions, views, strict=True)))
             if 0 < v.files.get("data.parquet", 0) <= explorer.MAX_PARQUET
         ]
-        if hints and ex_versions and ex_versions[0]["version"] == m.version:
+        # A version in parts has no one file to load, so the explorer stays on the newest whole
+        # one, and opens none when that one is too large for it.
+        newest_whole = next((v.manifest.version for v in reversed(o.versions) if v.whole), "")
+        if hints and ex_versions and ex_versions[0]["version"] == newest_whole:
             explore = {
                 "slug": ds.slug,
                 "title": ds.title,
@@ -3701,6 +4202,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "title": ds.title,
                 "base": base,
                 "latest": latest.manifest.version,
+                "served": served_date(o),
                 "formats": fmt_data,
                 "example_field": example_field,
                 "console": console,
@@ -3768,6 +4270,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             licence_record=licence_record(ds, latest.manifest),
             spine_attribution=SPINE_ATTRIBUTION,
             copies=copies,
+            copies_hold="" if latest.whole else newest_whole,
             collection_href=collection_url(ds.collection) if ds.collection else "",
             entry_path=register_path(ds),
             problem_url=f"{REPO}/issues/new?{problem}",
@@ -3779,6 +4282,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             ds=ds,
             base=base,
             latest=views[-1],
+            served=served_date(o),
             versions=views,
             formats=formats,
             left_out=_left_out(ds, latest),
@@ -3788,6 +4292,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             fig=fig,
             example_rows=[(k, figures.fmt(v)) for k, v in example],
             example_words=(_example_title(ds, console) if example and console else ""),
+            example_values=(
+                [f["value"] for f in console["example"]["filters"]] if example and console else []
+            ),
             rows_example=_example_query(ds.slug, console, "rows") if console else "",
             aggregate_example=_example_query(ds.slug, console, "aggregate") if console else "",
             format_count=len(formats) - (1 if fmt_data.get("partition") else 0),
@@ -3800,8 +4307,11 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             partitions=partitions,
             siblings=siblings,
             jur_long=JUR_LONG[ds.publisher.jurisdiction],
-            description_paras=[p for p in ds.description.split("\n\n") if p.strip()],
+            description_paras=[inline_code(p) for p in ds.description.split("\n\n") if p.strip()],
             has_suppressed=bool(ds.suppression),
+            update_note=checks_words(ds) if ds.update != "release" else "",
+            no_query="" if console else _no_query(ds, latest),
+            parts=_parts_view(ds, out, m.version),
             history_size=fmt_size((out / "d" / ds.slug / "history.tar.zst").stat().st_size),
             attribution=attr,
             portal_host=(m.source.get("url") or "").split("/")[2] if m.source.get("url") else "",
@@ -3851,6 +4361,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 ],
                 ex_data=_script_json({**explore, "embed": False}),
                 explore_versions=ex_versions,
+                explore_newest=ex_versions[0]["version"] == m.version,
                 explore_master="masters" in explore["defaults"],
                 engine_size=engine_size,
                 parquet_url=ex_versions[0]["parquet"],
@@ -4064,8 +4575,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         present += [x for x in states if x not in present]
         hero_slug = hero_slug or slug
         g = ho.dataset.geometry
-        db = out / "d" / slug / "v" / _newest(ho).manifest.version / "data.parquet"
-        c = figures.cells(db, g["lon"], g["lat"], spec["where"])
+        c = figures.cells(rows_of(ho.dataset, _newest(ho)), g["lon"], g["lat"], spec["where"])
         if c:
             parts.append((states[0], c))
             hero_total += round(sum(c.values()))
@@ -4093,6 +4603,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "slug": hero.dataset.slug,
         "title": hero.dataset.title,
         "version": _newest(hero).manifest.version,
+        "served": served_date(hero),
         "rows": fmt_int(_newest(hero).rows),
         "formats": [f for f in demo_formats if f["key"] != "partition"],
         "ds_data": _escape_script(
@@ -4102,6 +4613,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                     "title": hero.dataset.title,
                     "base": dataset_url(hero.dataset.slug),
                     "latest": _newest(hero).manifest.version,
+                    "served": served_date(hero),
                     "formats": demo_data,
                     "example_field": hero.dataset.partition_by[0]
                     if hero.dataset.partition_by
@@ -4539,9 +5051,14 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             .replace("{mcp_privacy}", at.as_html(at.spec()["mcp"]["privacy"]))
             .replace("{terms_limits}", at.as_html(at.spec()["api"]["terms_limits"]))
             .replace("{terms_changed}", TERMS_CHANGED[0])
+            .replace("{skill_path}", SKILL_PATH)
             .replace("{repo}", REPO)
             .replace("{gh}", GH_MARK)
+            .replace("{glossary}", abbreviations.render(abbreviations.glossary()))
         )
+        if left := re.findall(r"\{[a-z_]+\}", body):
+            msg = f"{slug}: placeholder {', '.join(left)} was never filled"
+            raise ValueError(msg)
         md = "\n".join(
             [
                 "---",
@@ -4709,6 +5226,21 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         ),
     )
     _write(out, "latest.json", pretty({o.dataset.slug: _newest(o).manifest.version for o in live}))
+    # The rolling sources and feeds, whose latest/ is their newest fetch served in place.
+    _write(
+        out,
+        "current.json",
+        pretty(
+            {
+                o.dataset.slug: {
+                    "fetch": o.current.manifest.version,
+                    "source": source_name(o.dataset, o.current.manifest) or None,
+                }
+                for o in live
+                if o.current
+            }
+        ),
+    )
     # The publisher's files a register entry no longer republishes. R2 still holds the copies
     # made before, so the /d/ function refuses each path listed here.
     _write(
@@ -4723,7 +5255,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             )
         ),
     )
-    _write(out, "openapi.json", pretty(_openapi(live, queried)))
+    _write(out, "openapi.json", pretty(_openapi(live, queried + served_parts)))
     _write(
         out,
         "health.json",
@@ -4739,6 +5271,17 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             }
         ),
     )
+    for_agents = (
+        "No keys or accounts, and no download limit on files. "
+        + at.spec()["api"]["rate_limit"]
+        + " `latest/` redirects (302) to the newest dated version; dated versions keep their content. Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a `publicdata` header with the publisher, licence, attribution, a ready-made `cite` string and the source SHA-256. "
+        + at.spec()["site"]["suppressed"]
+        + " When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL."
+    )
+    query_line = (
+        f"Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
+        + FILTER_HELP
+    )
     llms = [
         f"# {HOST}",
         "",
@@ -4746,16 +5289,15 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "",
         "## For agents",
         "",
-        "No keys or accounts, and no download limit on files. "
-        + at.spec()["api"]["rate_limit"]
-        + " `latest/` redirects (302) to the newest dated version; dated versions keep their content. Every JSON, NDJSON, GeoJSON, Parquet and SQLite file carries a `publicdata` header with the publisher, licence, attribution, a ready-made `cite` string and the source SHA-256. When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL.",
+        for_agents,
         "",
         f"- Catalogue (DCAT JSON-LD): {SITE}/catalog.json",
         f"- Discovery manifest (ARD): {SITE}/.well-known/ard.json",
+        f"- Agent skill: {SKILL_URL}",
+        f"- API catalogue (RFC 9727): {SITE}/.well-known/api-catalog",
         f"- OpenAPI 3.1 for every path: {SITE}/openapi.json",
         "- MCP server: " + at.plain(at.spec()["mcp"]["intro"]),
-        f"- Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
-        + FILTER_HELP,
+        f"- {query_line}",
         f"- Every dataset on Australia's government portals, by government and publisher: {SITE}/browse/ (as data: {SITE}/catalogue/publishers.json, and catalogue.json on each publisher page)",
         f"- Backlog and licences: {SITE}/backlog.json",
         f"- Vote counts: {SITE}/api/v1/votes",
@@ -4782,6 +5324,12 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             )
             if ds.licence.condition:
                 full.append(f"  Licence condition: {ds.licence.condition}")
+            continue
+        if not _newest(o).whole:
+            grain = _period_grain(m)
+            line = f"- [{ds.title}]({dataset_url(ds.slug)}): {ds.summary} Publisher {ds.publisher.name}. {ds.licence.title}. Latest {m.version}, {fmt_int(_newest(o).rows)} rows, {len(ds.fields)} fields, in {len(_newest(o).parts)} parts by {grain}. DuckDB {vb}data.duckdb (records() reads every part over HTTPS) · Parquet and gzipped CSV per part, listed in {vb}manifest.json · Markdown {dataset_url(ds.slug)}index.md"
+            llms.append(line)
+            full += [line, "  Fields: " + ", ".join(f"{f.name} ({f.type})" for f in ds.fields)]
             continue
         files = " · ".join(
             f"{FORMAT_LABEL[f]} {vb}data.{f}"
@@ -4818,6 +5366,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 f"- {SITE}/government/index.md",
                 f"- {SITE}/agents/index.md",
                 f"- {SITE}/about/index.md",
+                f"- {SITE}/glossary/index.md",
                 f"- {SITE}/contribute/index.md",
                 "",
                 "## Source",
@@ -4827,82 +5376,117 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             ]
         )
         _write(out, name, "\n".join(doc))
+    _write(out, SKILL_PATH, _skill(for_agents, query_line))
     urn: Callable[[str, str], str] = lambda ns, n: f"urn:air:{HOST}:{ns}:{n}"  # noqa: E731
+    host: dict[str, str] = {
+        "displayName": HOST,
+        "identifier": HOST,
+        "logoUrl": f"{SITE}/icon-512.png",
+    }
+    mcp: dict[str, object] = {
+        "identifier": urn("mcp", "server"),
+        "displayName": "MCP server",
+        "type": "application/mcp-server-card+json",
+        "tags": ["mcp", "open-data"],
+        "capabilities": at.tool_names(),
+        "description": at.plain(at.spec()["mcp"]["intro"]),
+        "url": f"{SITE}/mcp/server-card",
+        "representativeQueries": [
+            "mcp server for australian government data",
+            "query australian open data from an agent",
+            "count road crashes by year with an mcp tool",
+        ],
+    }
+    skill = at.spec()["skill"]
+    site_entries: list[dict[str, object]] = [
+        {
+            "identifier": urn("catalog", "dcat"),
+            "displayName": "Dataset catalogue",
+            "type": "application/ld+json",
+            "tags": ["dcat", "open-data"],
+            "description": "DCAT catalogue of every live dataset with a distribution per format.",
+            "url": f"{SITE}/catalog.json",
+            "representativeQueries": [
+                "which Australian government datasets are available as Parquet",
+                "list open data on publicdata.au",
+                "find a dataset by publisher",
+            ],
+        },
+        {
+            "identifier": urn("llms-txt", "index"),
+            "displayName": "llms.txt",
+            "type": "text/plain",
+            "description": "Every dataset with its latest download URLs and instructions for agents.",
+            "url": f"{SITE}/llms.txt",
+            "representativeQueries": [
+                "how do I download a dataset from publicdata.au",
+                "what is the latest version of a dataset",
+            ],
+        },
+        {
+            "identifier": urn("openapi", "json"),
+            "displayName": "OpenAPI description",
+            "type": "application/json",
+            "tags": ["openapi"],
+            "description": "OpenAPI 3.1 document for every public path: catalogue, dataset files, versions, diffs, votes and requests.",
+            "url": f"{SITE}/openapi.json",
+            "representativeQueries": [
+                "what endpoints does publicdata.au have",
+                "how do I call the publicdata.au vote API",
+                "openapi spec for publicdata.au",
+            ],
+        },
+        {
+            "identifier": urn("backlog", "json"),
+            "displayName": "Backlog",
+            "type": "application/json",
+            "description": "Every requested dataset with status, licence and the reason if blocked.",
+            "url": f"{SITE}/backlog.json",
+            "representativeQueries": [
+                "which datasets are blocked by licence",
+                "what has been requested on publicdata.au",
+            ],
+        },
+    ]
     ard: ArdDoc = {
         "specVersion": "1.0",
-        "host": {"displayName": HOST, "identifier": HOST, "logoUrl": f"{SITE}/icon-512.png"},
+        "host": host,
         "entries": [
+            mcp,
             {
-                "identifier": urn("catalog", "dcat"),
-                "displayName": "Dataset catalogue",
-                "type": "application/ld+json",
-                "tags": ["dcat", "open-data"],
-                "description": "DCAT catalogue of every live dataset with a distribution per format.",
-                "url": f"{SITE}/catalog.json",
+                "identifier": urn("skill", skill["name"]),
+                "displayName": skill["title"],
+                "type": ardspec.SKILL,
+                "tags": ["agent-skills", "open-data"],
+                "description": skill["description"],
+                "url": SKILL_URL,
+                "representativeQueries": skill["queries"],
+            },
+            {
+                "identifier": urn("catalog", "site"),
+                "displayName": "Catalogues and API description",
+                "type": ardspec.CATALOGUE,
+                "tags": ["dcat", "openapi", "open-data"],
+                "description": "The DCAT catalogue, llms.txt, the OpenAPI description and the backlog.",
+                "url": f"{SITE}/agents/ai-catalog.json",
                 "representativeQueries": [
-                    "which Australian government datasets are available as Parquet",
                     "list open data on publicdata.au",
-                    "find a dataset by publisher",
-                ],
-            },
-            {
-                "identifier": urn("llms-txt", "index"),
-                "displayName": "llms.txt",
-                "type": "text/plain",
-                "description": "Every dataset with its latest download URLs and instructions for agents.",
-                "url": f"{SITE}/llms.txt",
-                "representativeQueries": [
-                    "how do I download a dataset from publicdata.au",
-                    "what is the latest version of a dataset",
-                ],
-            },
-            {
-                "identifier": urn("openapi", "json"),
-                "displayName": "OpenAPI description",
-                "type": "application/json",
-                "tags": ["openapi"],
-                "description": "OpenAPI 3.1 document for every public path: catalogue, dataset files, versions, diffs, votes and requests.",
-                "url": f"{SITE}/openapi.json",
-                "representativeQueries": [
                     "what endpoints does publicdata.au have",
-                    "how do I call the publicdata.au vote API",
-                    "openapi spec for publicdata.au",
-                ],
-            },
-            {
-                "identifier": urn("mcp", "server"),
-                "displayName": "MCP server",
-                "type": "application/mcp-server-card+json",
-                "tags": ["mcp", "open-data"],
-                "description": at.plain(at.spec()["mcp"]["intro"]),
-                "url": f"{SITE}/mcp/server-card",
-                "representativeQueries": [
-                    "mcp server for australian government data",
-                    "query australian open data from an agent",
-                    "count road crashes by year with an mcp tool",
-                ],
-            },
-            {
-                "identifier": urn("backlog", "json"),
-                "displayName": "Backlog",
-                "type": "application/json",
-                "description": "Every requested dataset with status, licence and the reason if blocked.",
-                "url": f"{SITE}/backlog.json",
-                "representativeQueries": [
                     "which datasets are blocked by licence",
-                    "what has been requested on publicdata.au",
                 ],
             },
         ],
     }
+    # Each dataset is a bundle of its files and the server that queries it, so a search service
+    # can match a question to one dataset and still read only agent types at the top level.
     for o in live:
         ds, m = o.dataset, _newest(o).manifest
-        main_file, main_fmt = _files_of(ds, _newest(o))[0]
+        vb = version_url(ds.slug, m.version)
         ard["entries"].append(
             {
                 "identifier": urn("dataset", ds.slug),
                 "displayName": ds.title,
-                "type": MEDIA[main_fmt],
+                "type": ardspec.CATALOGUE,
                 "tags": ["open-data", ds.publisher.jurisdiction.lower(), ds.licence.id.lower()],
                 "description": f"{ds.summary} Latest version {m.version}, {fmt_int(_newest(o).rows)} rows. "
                 + (
@@ -4910,17 +5494,45 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                     if ds.kind == "database"
                     else "Also JSON, CSV, SQLite, DuckDB and NDJSON at the same path."
                 ),
-                "url": f"{version_url(ds.slug, m.version)}{main_file}",
+                "url": f"{dataset_url(ds.slug)}ai-catalog.json",
+                "version": m.version,
+                "updatedAt": m.fetched_at,
                 "representativeQueries": [
                     ds.title.lower(),
                     f"{ds.publisher.short.lower()} {ds.title.split(',')[0].lower()} data",
                     f"download {ds.title.split(',')[0].lower()} as parquet",
-                ][:5],
+                ],
             }
         )
+        bundle: list[dict[str, object]] = [
+            {
+                "identifier": urn(f"dataset:{ds.slug}", name.replace("/", ".")),
+                "displayName": f"{ds.title}, "
+                + (
+                    f"table {name[7:-8]}"
+                    if name.startswith("tables/")
+                    else FORMAT_LABEL.get(fmt, fmt)
+                ),
+                "type": MEDIA[fmt],
+                "url": f"{vb}{name}",
+                "version": m.version,
+            }
+            for name, fmt in _files_of(ds, _newest(o))
+        ]
+        _write(
+            out,
+            f"d/{ds.slug}/ai-catalog.json",
+            pretty({"specVersion": "1.0", "host": host, "entries": [*bundle, mcp]}),
+        )
+    _write(
+        out,
+        "agents/ai-catalog.json",
+        pretty({"specVersion": "1.0", "host": host, "entries": site_entries}),
+    )
     body = pretty(ard)
     _write(out, ".well-known/ard.json", body)
     _write(out, ".well-known/ai-catalog.json", body)
+    _write(out, ".well-known/api-catalog", pretty(_api_catalog()))
     # What a connector directory's form asks for, so a submission copies it and never drifts.
     _write(out, "mcp/listing.json", pretty(at.directory_listing()))
     server_card = pretty(at.server_card())
@@ -4975,6 +5587,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         f"{SITE}/agents/",
         f"{SITE}/about/",
         f"{SITE}/contribute/",
+        f"{SITE}/accessibility/",
         f"{SITE}/privacy/",
         f"{SITE}/terms/",
     ]
@@ -5058,7 +5671,20 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "/llms.txt",
                 "  Content-Type: text/plain; charset=utf-8",
                 "/mcp/server-card",
-                "  Content-Type: application/json; charset=utf-8",
+                "  Content-Type: application/mcp-server-card+json",
+                "/.well-known/mcp/server-card.json",
+                "  Content-Type: application/mcp-server-card+json",
+                "/.well-known/ard.json",
+                f"  Content-Type: {ardspec.CATALOGUE}",
+                "/.well-known/ai-catalog.json",
+                f"  Content-Type: {ardspec.CATALOGUE}",
+                "/d/:slug/ai-catalog.json",
+                f"  Content-Type: {ardspec.CATALOGUE}",
+                "/agents/ai-catalog.json",
+                f"  Content-Type: {ardspec.CATALOGUE}",
+                "/.well-known/api-catalog",
+                f'  Content-Type: application/linkset+json; profile="{RFC9727}"',
+                '  Link: </.well-known/api-catalog>; rel="api-catalog"',
                 "/.well-known/mcp-registry-auth",
                 "  Content-Type: text/plain; charset=utf-8",
                 "/.well-known/openai-apps-challenge",
@@ -5098,3 +5724,4 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     # The function that reads R2 serves pages moved there too, and needs the same headers.
     _write(out, "static/page-headers.json", pretty(SITE_HEADERS))
     _write(out, "_routes.json", pretty({"version": 1, "include": list(ROUTES), "exclude": []}))
+    rows_tmp.cleanup()

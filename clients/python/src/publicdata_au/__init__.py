@@ -439,12 +439,12 @@ def lte(value: object) -> Filter:
 
 
 def like(pattern: str) -> Filter:
-    """`*` stands for any run of characters. Case-sensitive."""
+    """`*` stands for any run of characters. Case is ignored in ASCII letters only."""
     return Filter(f"like.{pattern}")
 
 
 def ilike(pattern: str) -> Filter:
-    """As `like`, ignoring case."""
+    """The same as `like`."""
     return Filter(f"ilike.{pattern}")
 
 

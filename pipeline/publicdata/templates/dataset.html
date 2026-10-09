@@ -9,11 +9,11 @@
 <div class="crumbs"><a href="/">Datasets</a> / {% if jur_path %}<a href="{{ jur_path }}">{{ jur_long }}</a>{% else %}{{ jur_long }}{% endif %} / {% if publisher_path %}<a href="{{ publisher_path }}">{{ ds.publisher.short }}</a>{% else %}{{ ds.publisher.short }}{% endif %}{% if ds.collection %} / <a href="{{ collection_href }}">{{ ds.collection_title }}</a>{% endif %}</div>
 <div class="ds-head"><h1>{{ ds.title }}</h1><span class="chip {{ ds.status }}">{{ ds.status }}</span></div>
 <div class="meta-row"><span>Publisher <b>{{ ds.publisher.name }}</b></span>{% if ds.source.cadence %}<span>Updated <b>{{ cadence_words(ds)[0] }}</b></span>{% endif %}<span>Licence <b><a href="{{ ds.licence.url }}" rel="license">{{ ds.licence.title }}</a></b></span><span>Latest <b class="mono">{{ latest.version }}</b></span>{% if latest.as_at %}<span>As at <b>{{ latest.as_at_long }}</b></span>{% endif %}<span>Rows <b>{{ latest.rows_fmt }}</b></span><span>Fields <b>{{ ds.fields|length }}</b></span></div>
-{% for para in description_paras %}<p class="{{ 'lede' if loop.first else '' }}" style="margin-top:14px">{{ para }}</p>{% endfor %}
-{% if ds.also_known_as %}<p class="muted" style="font-size:14.5px">Also called: {{ ds.also_known_as|join(', ') }}.</p>{% endif %}
-{% if siblings %}<p class="muted" style="font-size:14.5px">Part of <b><a href="{{ collection_href }}">{{ ds.collection_title }}</a></b>, {{ siblings|length + 1 }} tables the publisher releases together: {% for s in siblings %}<a href="/d/{{ s.slug }}/">{{ s.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+{% for para in description_paras %}<p class="{{ 'lede' if loop.first else '' }}" style="margin-top:14px">{{ para|safe }}</p>{% endfor %}
+{% if ds.also_known_as %}<p class="muted aka">Also called: {{ ds.also_known_as|join(', ') }}.</p>{% endif %}
+{% if siblings %}<p class="muted small">Part of <b><a href="{{ collection_href }}">{{ ds.collection_title }}</a></b>, {{ siblings|length + 1 }} tables the publisher releases together: {% for s in siblings %}<a href="/d/{{ s.slug }}/">{{ s.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
 {% if ds.licence.condition or ds.faq %}<div class="caveats"><span class="k">Before you use it</span>
-<dl>{% if ds.licence.condition %}<dt>The licence has a condition</dt><dd>{{ ds.licence.condition }}</dd>{% endif %}{% for q, a in ds.faq %}<dt>{{ q }}</dt><dd>{{ a|linkify|safe }}</dd>{% endfor %}</dl></div>{% endif %}
+<dl>{% if ds.licence.condition %}<dt>The licence has a condition</dt><dd>{{ ds.licence.condition }}</dd>{% endif %}{% for q, a in ds.faq %}<dt>{{ q|code|safe }}</dt><dd>{{ a|linkify|safe }}</dd>{% endfor %}</dl></div>{% endif %}
 {% if related %}<nav class="related" aria-label="Related datasets"><span class="k">Same subject, other publishers</span>
 <ul>{% for r in related %}<li><a href="/d/{{ r.slug }}/">{{ r.title }}<span class="chip jur">{{ r.jur }}</span></a></li>{% endfor %}</ul></nav>{% endif %}
 </div>
@@ -25,7 +25,7 @@
       <div class="fright">
         <div class="stats"><div class="stat"><b>{{ latest.rows_fmt }}</b><span>{{ (ds.row_label or "rows")|lower }}</span></div>{% if fig.years %}<div class="stat"><b>{{ fig.years }}</b><span>years drawn</span></div>{% endif %}<div class="stat"><b>{{ ds.fields|length }}</b><span>fields</span></div><div class="stat"><b>{{ format_count }}</b><span>formats</span></div><div class="stat"><b>{{ versions|length }}</b><span>version{{ '' if versions|length == 1 else 's' }}</span></div></div>
         {% if fig.chart %}<figure class="fchart">{{ fig.chart|safe }}<figcaption>{{ fig.chart_caption }} {% if fig.map and fig.basis == 'a count of rows' %}Both figures are counts of rows{% elif fig.map %}The chart is {{ fig.basis }} and the map a count of rows{% else %}The figure is {{ fig.basis }}{% endif %} from version {{ latest.version }}, worked out in the build. Nothing else is added.</figcaption></figure>{% endif %}
-        <div class="ctas">{% if explore_url %}<a class="btn" href="{{ explore_url }}">Open this dashboard in the explorer</a>{% endif %}<a class="btn ghost" href="#get">Download</a>{% if console %}<a class="btn ghost" href="#query">Query</a>{% endif %}</div>
+        <div class="ctas">{% if explore_url %}<a class="btn" href="{{ explore_url }}">Open this dashboard in the explorer</a>{% endif %}<a class="btn ghost" href="#get">Download the files</a>{% if console %}<a class="btn ghost" href="#query">Query</a>{% endif %}</div>
       </div>
     </div>
   </div>
@@ -43,7 +43,7 @@
 </section>
 <div class="tiles3">
   {% if explore_url %}<a class="tile" href="{{ explore_url }}"><span class="k">Explore</span><b>Chart every row in your browser</b><p>{% if fig.chart %}The dashboard above, live.{% else %}A dashboard over every row.{% endif %} Click to filter, add panels, share a link or embed a frame.</p></a>{% endif %}
-  {% if console %}<a class="tile" href="#query"><span class="k">Query API</span><b>Filter and count from a URL</b><p class="mono small">{{ aggregate_example.split('?')[0].rstrip('/').split('/')[-1] }}?{{ aggregate_example.split('?', 1)[1] }}</p>{% if example_rows %}<p>{{ example_words }}: {% for k, v in example_rows[:4] %}{{ v }} {{ k }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}</a>{% endif %}
+  {% if console %}<a class="tile" href="#query"><span class="k">Query API</span><b>Filter and count from a URL</b><p class="mono small">{{ aggregate_example.split('?')[0].rstrip('/').split('/')[-1] }}?{{ aggregate_example.split('?', 1)[1] }}</p>{% if example_rows %}<p>{{ example_words|quoting(*example_values)|safe }}: {% for k, v in example_rows[:4] %}{{ v }} <span data-quoted>{{ k }}</span>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}</a>{% endif %}
 </div>
 
 <h2 id="get">{% if formats|length > 3 %}Download it as {{ formats[0].label }}, {{ formats[1].label }}, {{ formats[2].label }} and {{ format_count - 3 }} more formats{% else %}Download it as {{ formats|map(attribute='label')|join(' or ') }}{% endif %}</h2>
@@ -61,7 +61,7 @@
     </select>
     <span class="fmt-note">"Latest" redirects to the newest version and will change when the publisher releases again. A dated version keeps its content.</span>
   </div>
-  <div class="urlbox"><div class="path" id="url" tabindex="0">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}" download="{{ download_name(ds.slug, latest.version, formats[0].file) }}">Download</a></div>
+  <div class="urlbox"><div class="path" id="url" tabindex="0" role="region" aria-label="Latest file URL">{{ base }}latest/{{ formats[0].file }}</div><button class="copy" type="button" data-copy-target="url">Copy URL</button><a class="btn" id="dl" href="{{ base }}latest/{{ formats[0].file }}" download="{{ download_name(ds.slug, served, formats[0].file) }}">Download this file</a></div>
   <p class="fmt-note" id="fmt-note"></p>
   {% if left_out %}<p class="fmt-note">{{ left_out|join(' ') }}</p>{% endif %}
   <div>
@@ -86,19 +86,20 @@
 <div>
   <h2>What is in it</h2>
   <p>Column names are made <span class="mono">snake_case</span> and the publisher's original header is kept beside each one. Blank cells are <span class="mono">null</span>. Nothing is added, removed, ranked or summarised.{% if ds.note %} {{ ds.note }}{% endif %}</p>
-  <div class="tbl"><table class="ledger schema">
+  <div class="tbl" tabindex="0" role="region" aria-label="Columns" data-conformance="aa"><table class="ledger schema">
   <thead><tr><th>Field</th><th>Type</th><th>Publisher's header</th><th>Note</th></tr></thead>
   <tbody>
   {% for f in ds.fields %}<tr><td>{{ f.name }}</td><td class="ty">{{ f.type }}</td><td>{{ f.source }}</td><td>{{ f.description }}</td></tr>{% endfor %}
   {% if has_suppressed %}<tr><td>suppressed</td><td class="ty">array</td><td></td><td>Names of the fields the publisher suppressed in this row. The cells are null.</td></tr>{% endif %}
   </tbody></table></div>
-  <p class="muted" style="font-size:14px"><a href="{{ base }}schema.xlsx">Download this table as a data dictionary</a> (Excel), or read it as a Frictionless Table Schema at <a href="{{ base }}schema.json" class="mono">schema.json</a>.{% if ds.key %} The key is <span class="mono">{{ ds.key|join(', ') }}</span>.{% endif %}</p>
+  <p class="muted small"><a href="{{ base }}schema.xlsx">Download this table as a data dictionary</a> (Excel), or read it as a Frictionless Table Schema at <a href="{{ base }}schema.json" class="mono">schema.json</a>.{% if ds.key %} The key is <span class="mono">{{ ds.key|join(', ') }}</span>.{% endif %}</p>
 
   <h2>{{ sample_rows.heading }}</h2>
-  <p>{{ sample_rows.note }}</p>
-  <div class="tbl" tabindex="0" role="region" aria-label="{{ sample_rows.heading }}"><table class="ledger sample">
+  <p>{{ sample_rows.note|code|safe }}</p>
+  <div class="tbl" tabindex="0" role="region" aria-label="{{ sample_rows.heading }}" data-conformance="aa"><table class="ledger sample">
   <thead><tr>{% for f in sample_rows.fields %}<th>{{ f }}</th>{% endfor %}</tr></thead>
   <!--portal-text--><tbody>{% for r in sample_rows.rows %}<tr>{% for v in r %}<td{% if v is none %} class="nul">null{% else %}>{{ v }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody><!--/portal-text--></table></div>
+  {% if formats|selectattr('key', 'equalto', 'ndjson')|list %}
   {% set sample_file = 'data.json' if formats|selectattr('key', 'equalto', 'json')|list else 'data.ndjson' %}
   <details class="faq qref"><summary>The first row as JSON</summary>
   <p>As it appears in <span class="mono">{{ sample_file }}</span>.</p>
@@ -106,7 +107,11 @@
 {{ sample|e }}<button class="copy abs" type="button" data-copy-target="sample-code">Copy</button></pre>
 <textarea id="sample-code" hidden>{{ sample|e }}</textarea>
   </details>
+  {% endif %}
 
+  {% if no_query %}
+  <p class="muted" id="no-query" data-no-query>{{ no_query }}</p>
+  {% endif %}
   {% if console %}
   <h2 id="query">Query it without downloading</h2>
   <p>{{ api_doc.summary|safe }} Build a query here and run it, then copy the URL or the code into your own work.</p>
@@ -115,12 +120,12 @@
   </div>
   <details class="faq qref"><summary>How filters work</summary>
   <p>{{ api_doc.filters|safe }}</p>
-  <div class="tbl"><table class="ledger schema">
+  <div class="tbl" tabindex="0" role="region" aria-label="Filter operators" data-conformance="aa"><table class="ledger schema">
   <thead><tr><th>Operator</th><th>What it matches</th></tr></thead>
   <tbody>
   {% for syntax, desc in api_doc.operators %}<tr><td class="mono">{{ syntax }}</td><td>{{ desc|safe }}</td></tr>
   {% endfor %}</tbody></table></div>
-  <div class="tbl"><table class="ledger schema">
+  <div class="tbl" tabindex="0" role="region" aria-label="Query parameters" data-conformance="aa"><table class="ledger schema">
   <thead><tr><th>Parameter</th><th>What it does</th></tr></thead>
   <tbody>
   {% for name, desc in api_doc.params %}<tr><td>{{ name }}</td><td>{{ desc|safe }}</td></tr>
@@ -136,33 +141,46 @@
   <p>The same rows split by a field, one JSON file each{% if ds.geometry %} with a GeoJSON beside it{% endif %}. Each file carries the same provenance header.</p>
   {% for p in partitions %}
   <h3 style="margin-top:18px">By {{ p.field }} <span class="muted" style="font-weight:300">({{ p.entries|length }} files)</span></h3>
-  <div class="quick" style="margin-top:8px">{% for e in p.entries %}<a href="{{ base }}v/{{ latest.version }}/{{ e.json }}" title="{{ e.rows }} rows">{{ e.value if e.value is not none else 'blank' }}</a>{% endfor %}</div>
-  <p class="muted" style="font-size:14px"><a href="{{ base }}v/{{ latest.version }}/by/{{ p.field }}/index.json" class="mono">by/{{ p.field }}/index.json</a> lists every file with its row count.</p>
+  <div class="quick" data-conformance="aa" style="margin-top:8px">{% for e in p.entries %}<a href="{{ base }}v/{{ latest.version }}/{{ e.json }}" title="{{ e.rows }} rows">{{ e.value if e.value is not none else 'blank' }}</a>{% endfor %}</div>
+  <p class="muted small"><a href="{{ base }}v/{{ latest.version }}/by/{{ p.field }}/index.json" class="mono">by/{{ p.field }}/index.json</a> lists every file with its row count.</p>
   {% endfor %}
   {% endif %}
 
+  {% if parts %}
+  <h2 id="parts">By {{ parts.grain }}</h2>
+  <p>The table is split by the {{ parts.grain }} of its {{ parts.field }}, one part per {{ parts.grain }}, with rows that have no {{ parts.field }} in the undated part.{% if not parts.whole %} It is too large to be one file, so this version is its parts and a DuckDB file whose <span class="mono">records()</span> reads every part.{% endif %} A finished part is written once and kept by later versions while its rows stay the same, and is marked unchanged since the version that wrote it; one that changes later is marked revised.</p>
+  <ul class="places">{% for p in parts.parts %}<li><span>{{ p.period }}{% if p.revised %} (revised){% elif p.tree_long %} (unchanged since {{ p.tree_long }}){% elif p.finished %} (finished){% endif %}</span><span>{{ p.rows_fmt }} rows · {% for f in p.files %}<a href="{{ f.url }}" download="{{ f.download }}">{{ f.label }}</a> {{ f.size }}{% if not loop.last %} · {% endif %}{% endfor %}</span></li>{% endfor %}</ul>
+  {% if parts.history %}
+  <p>Every state a row has held in the feed, split the same way. Its first_seen and last_seen columns are added by this site: the dates it first and last read the row in that state, marked as computed in <span class="mono">history/schema.json</span>.</p>
+  <ul class="places">{% for p in parts.history %}<li><span>{{ p.period }}</span><span>{{ p.rows_fmt }} rows · {% for f in p.files %}<a href="{{ f.url }}" download="{{ f.download }}">{{ f.label }}</a> {{ f.size }}{% if not loop.last %} · {% endif %}{% endfor %}</span></li>{% endfor %}</ul>
+  {% endif %}
+  {% endif %}
   {% if places %}
   <h2 id="places">By {{ place_label|lower }}</h2>
   <p>One page for each {{ place_label|lower }}, with its own count, chart and files. The rows are the same rows as this table.</p>
-  <ul class="places">{% for p in places %}<li><a href="{{ p.href }}">{{ p.value }}</a><span>{{ p.rows_fmt }}</span></li>{% endfor %}</ul>
+  <ul class="places" data-conformance="aa">{% for p in places %}<li><a href="{{ p.href }}">{{ p.value }}</a><span>{{ p.rows_fmt }}</span></li>{% endfor %}</ul>
   {% endif %}
 
   <h2 id="changes">What changed</h2>
+  {% if update_note %}
+  <p>{{ update_note }} The newest read is at <a href="{{ base }}latest/" class="mono">latest/</a> and every read's changes are listed in <a href="{{ base }}changes/index.json" download="{{ download_name(ds.slug, '', 'changes/index.json') }}" class="mono">changes/index.json</a>.</p>
+  {% else %}
   <p>One version for every release the publisher has made since this site started following the dataset. The date is the day the file changed on the portal.{% if latest.as_at %} The "as at" date is the publisher's own.{% endif %}</p>
+  {% endif %}
   <ul class="rail">
     {% for v in versions|reverse %}
     <li{% if loop.first %} class="latest"{% endif %}><span class="vd"><a href="{{ base }}v/{{ v.version }}/">{{ v.version }}</a></span>{% if v.as_at %}<span class="asat">as at {{ v.as_at_long }}</span>{% endif %}
       <div class="row2"><span>{{ v.rows_fmt }} rows</span>{% if v.change.added is defined %}<span class="delta"><span class="add">+{{ v.change.added }} added</span> <span class="rem">−{{ v.change.removed }} removed</span> <span class="chg">{{ v.change.changed }} changed</span></span>{% endif %}<span>{{ v.fields }} fields</span><span>{{ v.encoding }}</span><span class="mono">{{ v.sha256[:12] }}</span></div>
       {% if v.backfilled %}<div class="note">Backfilled from the portal's own release history.</div>{% endif %}
-      {% for n in v.notes %}<div class="note">{{ n }}</div>{% endfor %}</li>
+      {% if v.cut %}<div class="note">Kept as a dated version because {{ v.cut }}.</div>{% endif %}{% for n in v.notes %}<div class="note">{{ n }}</div>{% endfor %}</li>
     {% endfor %}
   </ul>
-  <p class="muted" style="font-size:14px"><a href="{{ base }}versions.json" class="mono">versions.json</a> · <a href="{{ base }}changes.json" class="mono">changes.json</a> · <a href="{{ base }}history.tar.zst" class="mono">history.tar.zst</a> ({{ history_size }}, every version's Parquet and manifest)</p>
+  <p class="muted small"><a href="{{ base }}versions.json" class="mono">versions.json</a> · <a href="{{ base }}changes.json" class="mono">changes.json</a> · <a href="{{ base }}history.tar.zst" download="{{ download_name(ds.slug, latest.version, 'history.tar.zst') }}" class="mono">history.tar.zst</a> ({{ history_size }}, every version's Parquet and manifest)</p>
 
   {% if faq_auto %}
   <h2 id="questions">Questions</h2>
   <div class="faq">
-  {% for q, a in faq_auto %}<details{% if loop.first %} open{% endif %}><summary>{{ q }}</summary><p>{{ a|linkify|safe }}</p></details>
+  {% for q, a in faq_auto %}<details{% if loop.first %} open{% endif %}><summary>{{ q|code|safe }}</summary><p>{{ a|linkify|safe }}</p></details>
   {% endfor %}
   </div>
   {% endif %}
@@ -195,7 +213,7 @@
       {% for c in copies %}<li><a href="{{ c.url }}" rel="noopener">{{ c.hub }}</a><span>{{ c.note }}</span></li>
       {% endfor %}
     </ul>
-    <p class="small">Each copy carries the same attribution and links back to this page.</p>
+    <p class="small">Each copy carries the same attribution and links back to this page.{% if copies_hold %} The hubs take one table, so they hold version <span class="mono">{{ copies_hold }}</span>, the newest published as one file.{% endif %}</p>
   </div>
   {% endif %}
   <div class="card">

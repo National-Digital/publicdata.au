@@ -1,7 +1,7 @@
 """Compare the DuckDB files of two built trees by what they hold.
 
-A DuckDB file's bytes are not reproducible: its storage picks a compression for each block by
-sampling, so two writes of the same rows differ. CI proves determinism with a byte comparison of
+A DuckDB file's bytes are not reproducible: two writes of the same rows lay out and pack their
+blocks differently, and can differ in length. CI proves determinism with a byte comparison of
 everything else and this comparison of every data.duckdb, table by table, row by row.
 
     python -m publicdata.dbcheck /tmp/build-a /tmp/build-b

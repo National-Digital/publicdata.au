@@ -364,6 +364,7 @@ class Entry:
     search_title: str = ""
     sizes: dict[str, int] = field(default_factory=dict)
     site: str = SITE
+    update: str = "release"
 
     @property
     def page(self) -> str:
@@ -418,6 +419,12 @@ def entry(  # noqa: PLR0913 - the options are keyword-only and named at each cal
         for d in record.get("distribution", [])
         if f"/v/{version}/" in d.get("downloadURL", "")
     }
+    if manifest.get("whole", True) is False:
+        msg = (
+            f"version {version} is published in parts, which no hub takes as one table; "
+            "each copy keeps the newest whole version"
+        )
+        raise Excluded(msg)
     if "parquet" not in files:
         msg = f"version {version} has no parquet file"
         raise Refused(msg)
@@ -449,6 +456,7 @@ def entry(  # noqa: PLR0913 - the options are keyword-only and named at each cal
             if f"/v/{version}/" in d.get("downloadURL", "")
         },
         site=site,
+        update=getattr(registered, "update", "release") or "release",
     )
 
 
@@ -724,6 +732,13 @@ KAGGLE_FILES = {f: FORMAT_NAMES[f] for f in ("parquet", "csv", "json", "sqlite")
 HF_FORMATS = ("parquet",)
 HF_STRAY = ["data.csv", "data.json", "data.jsonl", "data.sqlite", "data.xlsx"]
 ZENODO_FORMATS = ("parquet", "csv", "json", "xlsx")
+# A rolling source or a feed can cut several snapshots a month, so every hub takes it at most once
+# a month, and Zenodo, which keeps every version for good, takes Parquet and gzipped CSV alone.
+ROLLING_ZENODO_FORMATS = ("parquet", "csv.gz")
+
+
+def zenodo_formats(e: Entry) -> tuple[str, ...]:
+    return ZENODO_FORMATS if e.update == "release" else ROLLING_ZENODO_FORMATS
 
 
 def carried(e: Entry, formats: Iterable[str]) -> list[str]:
@@ -1013,7 +1028,7 @@ def zenodo_metadata(e: Entry, community: str | None = None) -> ZenodoMetadata:
             f"<blockquote>{escape(e.attribution)}</blockquote>",
             p(NOT_ENDORSED),
             (
-                f"<p>The rows are in {escape(_and([f'data.{f}' for f in carried(e, ZENODO_FORMATS)]))}. "
+                f"<p>The rows are in {escape(_and([f'data.{f}' for f in carried(e, zenodo_formats(e))]))}. "
                 "schema.json describes the fields, and publicdata.json names the version, licence, "
                 "attribution and the SHA-256 of the publisher's file.</p>"
             ),
@@ -1321,7 +1336,7 @@ class Zenodo:
         _write_json(work / "publicdata.json", provenance(e))
         _write_json(work / "schema.json", {"fields": list(e.fields)})
         paths = []
-        for fmt in carried(e, ZENODO_FORMATS):
+        for fmt in carried(e, zenodo_formats(e)):
             fetch(e.files[fmt], work / f"data.{fmt}")
             paths.append(work / f"data.{fmt}")
         return [*paths, work / "schema.json", work / "publicdata.json"]
@@ -1839,6 +1854,9 @@ def _one(  # noqa: PLR0913 - the options are keyword-only and named at each call
         return
     if held and max(held) > e.version:
         log(f"{name} {slug}: holds {max(held)}, newer than the site's {e.version}")
+        return
+    if e.update != "release" and held and max(held)[:7] == e.version[:7]:
+        log(f"{name} {slug}: holds {max(held)}, and a {e.update} source is copied once a month")
         return
     work = Path(tempfile.mkdtemp(prefix=f"{name}-{slug}-", dir=work_root))
     try:

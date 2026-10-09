@@ -343,11 +343,22 @@ def test_a_changed_parquet_writer_rebuilds_the_version(
     rebuilt: list[str] = []
     real_build = build.build_version
 
-    def counted(
-        ds: Dataset, m: Manifest, data: bytes, out: Path, store_dir: Path | None = None
+    def counted(  # noqa: PLR0913 - mirrors build_version
+        ds: Dataset,
+        m: Manifest,
+        data: bytes,
+        out: Path,
+        store_dir: Path | None = None,
+        *,
+        tree: str = "",
+        prior: str = "",
+        revised: set[str] | None = None,
+        read: str = "",
     ) -> tuple[Table, VersionOut]:
         rebuilt.append(ds.slug)
-        return real_build(ds, m, data, out, store_dir)
+        return real_build(
+            ds, m, data, out, store_dir, tree=tree, prior=prior, revised=revised, read=read
+        )
 
     monkeypatch.setattr(build, "build_version", counted)
     grown = tmp_path / "grown"

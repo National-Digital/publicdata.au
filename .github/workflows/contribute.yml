@@ -27,13 +27,14 @@ concurrency:
 
 jobs:
   sync:
+    name: sync
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
-      issues: write
+      issues: write # opens, updates and closes the dataset issues
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

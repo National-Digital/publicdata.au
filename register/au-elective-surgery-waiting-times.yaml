@@ -61,7 +61,7 @@ faq:
     (within 90 days) or non-urgent (within 365 days). The Institute notes that states and hospitals assign
     the categories differently, which affects comparisons.
 - q: What do the blanks mean?
-  a: The Institute writes <5 for a count under five and NP where the data did not meet its criteria. Those
+  a: The Institute writes `<5` for a count under five and `NP` where the data did not meet its criteria. Those
     cells are null here with a suppressed flag. A dash, meaning no patients were reported, and Not peered
     are null. The share within recommended time is a fraction, so 0.95 means 95 per cent.
 summary: Median waiting times for elective surgery and the share treated within the recommended time,

@@ -19,16 +19,19 @@ import re
 import time
 import urllib.parse
 import zoneinfo
+from dataclasses import replace
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 import openpyxl
+import pyarrow.parquet as pq
 import requests
 
-from . import catalogue, normalise, store
+from . import catalogue, normalise, periods, store, updates
 from .normalise import _cell, _distinct, detect_encoding, xls_to_xlsx
 from .register import FILE_SOURCE
+from .serialise import pretty
 from .serialise.profile import layout, misfits
 
 if TYPE_CHECKING:
@@ -284,7 +287,7 @@ def ckan_resource(
         "read_from": f"{api}/package_show?id={p['name']}",
         "read_at": _now(),
     }
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if (
         ds.source.manual
         and ds.slug not in MANUAL
@@ -572,7 +575,7 @@ def _portal_version(  # noqa: PLR0913 - the options are keyword-only and named a
 
     The export is dated by the portal's own change date, and an unchanged SHA-256 is no version.
     """
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     r = s.get(url, timeout=600, allow_redirects=True)
     # A portal that builds its export on request answers 202 until the file is ready.
     for _ in range(EXPORT_WAITS):
@@ -785,7 +788,7 @@ def arcgis_feature(
     lines = ",\n".join(json.dumps(f, sort_keys=True, separators=(",", ":")) for f in feats)
     data = f'{{"type":"FeatureCollection","features":[\n{lines}\n]}}\n'.encode()
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     date_fields = [f["name"] for f in info["fields"] if f["type"] == "esriFieldTypeDate"]
@@ -1009,7 +1012,7 @@ def ala(ds: Dataset, store_dir: Path, session: requests.Session | None = None) -
         "country:Australia",
         "license:(" + " OR ".join(f'"{x}"' for x in ALA_LICENCES) + ")",
     ]
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     before = existing[-1].source.get("providers") or {} if existing else {}
     rows: dict[str, AlaOccurrence] = {}
     counts: dict[str, dict[str, int]] = {}
@@ -1181,7 +1184,7 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
     """
     s = _session(session)
     licence = statement_licence(ds, s)
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if ds.source.page_size:
         r, data = _wfs_pages(ds, s)
     else:
@@ -1399,7 +1402,7 @@ def kiwis(ds: Dataset, store_dir: Path, session: requests.Session | None = None)
         source |= {"series": ds.source.package, "series_read": len(values), "newest": newest}
     data = out.getvalue().encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     today = dt.datetime.now(TZ).date()
@@ -1528,7 +1531,7 @@ def aihw(ds: Dataset, store_dir: Path, session: requests.Session | None = None) 
     url = hit["resultUrl"]
     if url.startswith("/"):
         url = "https://www.aihw.gov.au" + url
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     f = _download(ds, s, url)
     data = f.content
     expect_page(ds, url, f, data)
@@ -1612,7 +1615,7 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
         raise FetchError(msg)
     f = files[0]
     url = f["links"]["self"]
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     r = _download(ds, s, url)
     data = r.content
     expect_page(ds, url, r, data)
@@ -1833,7 +1836,7 @@ def _stack_version(  # noqa: PLR0913 - the options are keyword-only and named at
     notes: tuple[str, ...] = (),
 ) -> FetchResult:
     digest = hashlib.sha256(data).hexdigest()
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if existing and existing[-1].sha256 == digest:
         return None, existing[-1], licence
     today = dt.datetime.now(TZ).date()
@@ -1924,7 +1927,7 @@ def ckan_stack(  # noqa: C901 - the adapter's steps, read in order
         for p, r in resources
     )
     if ds.source.manual and ds.slug not in MANUAL:
-        existing = store.manifests(store_dir, ds.slug)
+        existing = store.manifests(store_dir, ds.slug, fetches=True)
         was = existing[-1].source if existing else {}
         if was.get("newest_resource") == changed and sorted(
             w["resource"] for w in was.get("workbooks", [])
@@ -2187,27 +2190,26 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
             msg = f"{ds.slug}: the {ds.source.adapter} adapter did not record {k}"
             raise FetchError(msg)
     check_licence(ds, licence)
+    if ds.update != "release":
+        return fetch_rolling(ds, store_dir, data, m, licence, dt.datetime.now(TZ).date())
     if data is None:
         return None
     m.rows_sha256, n, misfit = _rows(ds, m, data)
 
     m.parquet = layout(ds)
-    existing = store.manifests(store_dir, ds.slug)
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
     if m.rows_sha256 and existing and existing[-1].rows_sha256 == m.rows_sha256:
         return None
     # Portals sometimes serve an export with its header and nothing else for a while.
     if n == 0 and existing:
         msg = f"{ds.slug}: the portal served no rows; the newest version has some"
         raise FetchError(msg)
-    if misfit:
-        # Held here, so one release that outgrows a declared INT32 field never stops a deploy.
-        msg = (
-            f"{ds.slug}: {'; '.join(misfit)}; take the field out of int32 before this version "
-            "is stored"
-        )
-        raise FetchError(msg)
+    _hold_misfits(ds, misfit)
+    m.period = periods.recorded(ds.period)
     if ds.source.feed:
-        fed = feed_version(m, store.manifests(store_dir, ds.slug), dt.datetime.now(TZ).date())
+        fed = feed_version(
+            m, store.manifests(store_dir, ds.slug, fetches=True), dt.datetime.now(TZ).date()
+        )
         if fed is None:
             return None
         m = fed
@@ -2223,6 +2225,16 @@ def rows_digest(ds: Dataset, m: store.Manifest, data: bytes) -> str:
     re-sort an export on every reload.
     """
     return _rows(ds, m, data)[0]
+
+
+def _hold_misfits(ds: Dataset, misfit: list[str]) -> None:
+    # Held here, so one fetch that outgrows a declared INT32 field never stops a deploy.
+    if misfit:
+        msg = (
+            f"{ds.slug}: {'; '.join(misfit)}; take the field out of int32 before this version "
+            "is stored"
+        )
+        raise FetchError(msg)
 
 
 def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None, list[str]]:
@@ -2264,4 +2276,138 @@ def feed_version(
         return None
     m.version = today.isoformat()
     m.notes = [FEED_NOTE]
+    return m
+
+
+ROLLING_NOTE = (
+    "The publisher sends the whole table each time, so this fetch is dated by the day it was read "
+    "and compared with the fetch before it by key."
+)
+FEED_CLASS_NOTE = (
+    "The publisher serves only what is current, so this fetch is dated by the day it was read and "
+    "compared with the fetch before it by key."
+)
+
+
+def _held(store_dir: Path, m: store.Manifest) -> bytes:
+    """A stored fetch's bytes, which a rolling source compares the next fetch with."""
+    try:
+        store.verify(store_dir, m)
+    except (FileNotFoundError, ValueError) as e:
+        msg = f"{m.dataset}: {e}; run `publicdata store pull --rolling` before fetching"
+        raise FetchError(msg) from e
+    return store.source_path(store_dir, m).read_bytes()
+
+
+def fetch_rolling(
+    ds: Dataset,
+    store_dir: Path,
+    data: bytes | None,
+    m: store.Manifest,
+    _licence: LicenceRead,
+    today: dt.date,
+) -> store.Manifest | None:
+    """A rolling source or a feed.
+
+    A read whose rows, less the volatile columns, are those of the fetch before is no fetch. When
+    the month has turned since the last snapshot and the newest fetch is not one, that fetch is
+    kept as a snapshot under its own date. Every fetch kept writes its change log beside its
+    manifest, a feed's its history too, and becomes a snapshot when updates.cut says so. A feed
+    records every read, changed or not, in read.json.
+    """
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
+    prev = existing[-1] if existing else None
+    snaps = [x for x in existing if x.snapshot]
+    if prev is not None and prev.version == today.isoformat():
+        return None  # A day is one fetch; a second change waits for the next run.
+    if data is None:
+        return _promote(ds, store_dir, prev, today)
+    tbl = normalise.normalise(ds, m, data)
+    # An empty feed is a state like any other: nothing is current. A rolling table never is.
+    if tbl.rows == 0 and existing and ds.update != "feed":
+        msg = f"{ds.slug}: the portal served no rows; the newest fetch has some"
+        raise FetchError(msg)
+    before = normalise.normalise(ds, prev, _held(store_dir, prev)) if prev else None
+    if before is not None and updates.digest(before) == updates.digest(tbl):
+        return _promote(ds, store_dir, prev, today)
+    _hold_misfits(ds, misfits(tbl.table, ds.int32))
+    log = updates.compare(before, tbl, today)
+    why = updates.cut(ds, log, snaps, today)
+    m = replace(
+        m,
+        version=today.isoformat(),
+        notes=[ROLLING_NOTE if ds.update == "rolling" else FEED_CLASS_NOTE],
+        snapshot=bool(why),
+        cut=why,
+        history=None,
+        period=periods.recorded(ds.period),
+        update=ds.update,
+        volatile=list(ds.volatile),
+        parquet=layout(ds),
+        caps=store.CAPS_VERSION,
+    )
+    m.rows_sha256 = updates.digest(tbl)
+    tbl = replace(tbl, manifest=m)
+    log["to"] = m.version
+    log["fetched_at"] = m.fetched_at
+    log["snapshot"] = why
+    seen = None
+    if ds.update == "feed":
+        held = None
+        if prev is not None and prev.history:
+            old = store.history_path(store_dir, prev)
+            if not old.exists():
+                msg = f"{ds.slug}: {old} is missing; run `publicdata store pull --rolling`"
+                raise FetchError(msg)
+            held = pq.read_table(old)
+        seen = updates.history(held, tbl, m.version, prev.version if prev else "")
+    d = store.write(store_dir, m, data)
+    if seen is not None:
+        pq.write_table(seen, d / "history.parquet", compression="zstd", row_group_size=65_536)
+        m.history = {
+            "sha256": store.sha256_file(d / "history.parquet"),
+            "bytes": (d / "history.parquet").stat().st_size,
+            "rows": seen.num_rows,
+        }
+        (d / "manifest.json").write_text(m.to_json(), encoding="utf-8")
+    store.change_log(store_dir, m).write_text(pretty(log), encoding="utf-8")
+    if ds.update == "feed":
+        store.write_read(store_dir, ds.slug, m.version, m.version)
+    return m
+
+
+PROMOTED_NOTE = (
+    "Kept as a dated version on {day}, when a read in a later month found the table as this "
+    "fetch left it."
+)
+
+
+def _promote(
+    ds: Dataset,
+    store_dir: Path,
+    prev: store.Manifest | None,
+    today: dt.date,
+) -> store.Manifest | None:
+    """An unchanged read.
+
+    When the month has turned since the last snapshot and the newest fetch is no snapshot, that
+    fetch becomes one where it stands, under its own date; nothing is dated again.
+    """
+    if prev is None:
+        # An adapter answers unchanged only against a stored fetch.
+        msg = f"{ds.slug}: an unchanged read with no fetch before it"
+        raise FetchError(msg)
+    if ds.update == "feed":
+        store.write_read(store_dir, ds.slug, today.isoformat(), prev.version)
+    if prev.snapshot:
+        return None
+    # Judged by the fetch's own date: it was the last change of its month or of its period.
+    why = updates.closing(periods.of_manifest(prev), dt.date.fromisoformat(prev.version), today)
+    if not why:
+        return None
+    # Recorded in the manifest alone; the fetch's change log, published already, stays as it is.
+    m = replace(prev, snapshot=True, cut=why, notes=[*prev.notes, PROMOTED_NOTE.format(day=today)])
+    (store.version_dir(store_dir, m.dataset, m.version) / "manifest.json").write_text(
+        m.to_json(), encoding="utf-8"
+    )
     return m

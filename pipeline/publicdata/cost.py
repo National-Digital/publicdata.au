@@ -12,6 +12,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -29,6 +30,7 @@ import yaml
 from . import SITE, fetch, store
 from .cadence import FEED_MAX, per_year
 from .d1 import MAX_CSV, queryable
+from .serialise import pretty
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -69,6 +71,56 @@ if TYPE_CHECKING:
     class VersionsDoc(TypedDict, total=False):
         latest: str
         versions: list[VersionRows]
+
+    class Projected(TypedDict):
+        covers: str
+        stored_bytes: int
+        stored_bytes_in_a_year: int
+        growth_bytes_per_year: int
+        d1_rows_written_per_year: int
+
+    class Measured(TypedDict):
+        available: bool
+        reason: NotRequired[str]
+        covers: NotRequired[str]
+        measured_at: NotRequired[str]
+        stored_bytes: NotRequired[int]
+        objects: NotRequired[int]
+        buckets: NotRequired[dict[str, int]]
+
+    class Storage(TypedDict):
+        """health.json's storage figures."""
+
+        projected: Projected
+        measured: Measured
+
+    class HealthDoc(TypedDict, total=False):
+        """A built health.json; only its storage is read, and the rest is written back as read."""
+
+        storage: dict[str, object] | None
+
+    # The parts of the GraphQL Analytics API's answer that the measurement reads.
+    class R2Max(TypedDict):
+        payloadSize: int
+        metadataSize: int
+        objectCount: int
+
+    class R2Dimensions(TypedDict):
+        datetime: str
+
+    class R2Group(TypedDict):
+        max: R2Max
+        dimensions: R2Dimensions
+
+    class R2Viewer(TypedDict, total=False):
+        accounts: list[dict[str, list[R2Group]]]
+
+    class R2Data(TypedDict, total=False):
+        viewer: R2Viewer | None
+
+    class R2Answer(TypedDict, total=False):
+        data: R2Data | None
+        errors: list[JSON]
 
 
 # The parts of GitHub's answers that the approval check reads.
@@ -144,6 +196,12 @@ ZIP_DIRECTORY_MAX = 64 * 10**6
 # The fewest published bytes per row of any table in the fleet is about 205.
 PUBLISHED_BYTES_PER_ROW = 200
 DEFAULT_PER_YEAR = 52
+# A DuckDB file's length differs from one write to the next, so the catalogue gives none and its
+# bound is counted. Of 3,358 table builds none was over 1.25 times its CSV plus 600 KB of blocks,
+# and the one database's file was 1.3 times its Parquet tables.
+DUCKDB_PER_CSV = 1.25
+DUCKDB_PER_TABLES = 2
+DUCKDB_BLOCKS = 600_000
 APPROVAL_LABEL = "cost-approved"
 CATALOG = f"{SITE}/catalog.json"
 UA = "publicdata.au cost (+https://publicdata.au/about/)"
@@ -296,12 +354,12 @@ def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple
     return float(max(recent, 1)), "observed"
 
 
-def _upper(path: str, n: int) -> int:
-    """A DuckDB file's size is published to one significant figure; count its upper bound."""
-    if path.endswith(".duckdb") and n >= 10:  # noqa: PLR2004 - one digit is one significant figure
-        digit: int = 10 ** (len(str(n)) - 1)
-        return n + digit // 2
-    return n
+def duckdb_bound(files: dict[str, int]) -> int:
+    """The most bytes a version's data.duckdb is counted at, from the files whose size is stated."""
+    tables = sum(n for p, n in files.items() if p.startswith("tables/"))
+    if tables:
+        return DUCKDB_PER_TABLES * tables + DUCKDB_BLOCKS
+    return int(DUCKDB_PER_CSV * files.get("data.csv", 0)) + DUCKDB_BLOCKS
 
 
 def catalogue_sizes(catalog: Catalog) -> dict[str, dict[str, int]]:
@@ -313,8 +371,9 @@ def catalogue_sizes(catalog: Catalog) -> dict[str, dict[str, int]]:
         for d in rec.get("distribution", []):
             url = d.get("downloadURL", "")
             if mark in url:
-                path = url.split(mark, 1)[1]
-                files[path] = _upper(path, int(d.get("byteSize") or 0))
+                files[url.split(mark, 1)[1]] = int(d.get("byteSize") or 0)
+        if "data.duckdb" in files:
+            files["data.duckdb"] = duckdb_bound(files)
         out[rec["identifier"]] = files
     return out
 
@@ -628,6 +687,35 @@ def project(  # noqa: C901, PLR0913 - one projection, read in order
     return out
 
 
+# What /health.json's storage figures cover, so a reader can tell the estimate from the measurement.
+PROJECTED_COVERS = (
+    "An estimate from the build: every version's files in publicdata-dist and its publisher's file "
+    "once in publicdata-raw, with a year's growth at each entry's newest version times the versions "
+    "its cadence and history give a year. It leaves out the build cache and the query copies."
+)
+MEASURED_COVERS = (
+    "Cloudflare's own measurement of every object in publicdata-dist and publicdata-raw, the build "
+    "cache and the query copies included. Each bucket's figure is its newest reading from the past "
+    "7 days, and measured_at is the time of the older of the two."
+)
+MEASURED_BUCKETS = ("publicdata-dist", "publicdata-raw")
+# True of a build and of a deploy whose measure step did not finish.
+UNSTAMPED = "no deploy to production has written Cloudflare's measurement into this file"
+GRAPHQL = "https://api.cloudflare.com/client/v4/graphql"
+# One newest reading per bucket, so the account's other buckets and the sampling rate never crowd
+# it out.
+_R2_BUCKET = (
+    "b{i}: r2StorageAdaptiveGroups(limit: 1, orderBy: [datetime_DESC], filter: "
+    '{{bucketName: "{b}", datetime_geq: $since}}) '
+    "{{ max {{ payloadSize metadataSize objectCount }} dimensions {{ datetime }} }}"
+)
+R2_STORAGE = (
+    "query ($account: string!, $since: Time!) { viewer { accounts(filter: {accountTag: $account}) { "
+    + " ".join(_R2_BUCKET.format(i=i, b=b) for i, b in enumerate(MEASURED_BUCKETS))
+    + " } } }"
+)
+
+
 @dataclass(frozen=True)
 class Fleet:
     stored_bytes: int
@@ -642,11 +730,16 @@ class Fleet:
     def gb_per_year(self) -> float:
         return self.bytes_per_year / GB
 
-    def as_json(self) -> dict[str, int]:
+    def as_json(self) -> Storage:
         return {
-            "stored_bytes": self.stored_bytes,
-            "growth_bytes_per_year": self.bytes_per_year,
-            "d1_rows_written_per_year": self.d1_rows_per_year,
+            "projected": {
+                "covers": PROJECTED_COVERS,
+                "stored_bytes": self.stored_bytes,
+                "stored_bytes_in_a_year": self.stored_bytes + self.bytes_per_year,
+                "growth_bytes_per_year": self.bytes_per_year,
+                "d1_rows_written_per_year": self.d1_rows_per_year,
+            },
+            "measured": unmeasured(UNSTAMPED),
         }
 
 
@@ -659,13 +752,110 @@ def fleet(projections: list[Projection]) -> Fleet:
     )
 
 
+def unmeasured(reason: str) -> Measured:
+    return {"available": False, "reason": reason}
+
+
+class Unmeasured(Exception):  # noqa: N818 - a reason, published as it is worded
+    """A reason the measurement is unavailable, worded to be published."""
+
+
+def measure_r2(account: str, token: str, now: dt.datetime) -> Measured:
+    """The newest stored bytes Cloudflare reports for each archive bucket.
+
+    The token needs Account Analytics Read.
+    """
+    since = (now - dt.timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    body = json.dumps({"query": R2_STORAGE, "variables": {"account": account, "since": since}})
+    req = urllib.request.Request(
+        GRAPHQL,
+        data=body.encode(),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": UA,
+        },
+    )
+
+    def post() -> R2Answer:
+        with _open(req, 30) as r:
+            answer: R2Answer = json.load(r)
+            return answer
+
+    try:
+        doc = retry(post)
+    except urllib.error.HTTPError as e:
+        msg = f"the GraphQL Analytics API answered HTTP {e.code}"
+        raise Unmeasured(msg) from e
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        msg = "the GraphQL Analytics API could not be read"
+        raise Unmeasured(msg) from e
+    if doc.get("errors"):
+        msg = "the GraphQL Analytics API refused the query"
+        raise Unmeasured(msg)
+    data = doc.get("data")
+    viewer = data.get("viewer") if data else None
+    accounts = (viewer.get("accounts") if viewer else None) or []
+    if not accounts:
+        msg = "the token cannot read the account's analytics"
+        raise Unmeasured(msg)
+    newest: dict[str, R2Group] = {}
+    for i, b in enumerate(MEASURED_BUCKETS):
+        if (groups := accounts[0].get(f"b{i}")) and groups[0]:
+            newest[b] = groups[0]
+    if missing := [b for b in MEASURED_BUCKETS if b not in newest]:
+        msg = f"no storage reading for {', '.join(missing)} since {since}"
+        raise Unmeasured(msg)
+    buckets = {
+        b: int(g["max"]["payloadSize"]) + int(g["max"]["metadataSize"]) for b, g in newest.items()
+    }
+    return {
+        "available": True,
+        "covers": MEASURED_COVERS,
+        "measured_at": min(g["dimensions"]["datetime"] for g in newest.values()),
+        "stored_bytes": sum(buckets.values()),
+        "objects": sum(int(g["max"]["objectCount"]) for g in newest.values()),
+        "buckets": buckets,
+    }
+
+
+def stamp_health(path: Path, measure: Callable[[], Measured]) -> Measured:
+    """Writes the measured figure into a built health.json.
+
+    Only an Unmeasured reason is published; any other failure is logged and published as
+    unreadable, so it never stops a deploy.
+    """
+    try:
+        measured = measure()
+    except Unmeasured as e:
+        measured = unmeasured(str(e))
+    except Exception as e:  # noqa: BLE001 - its text can hold a secret, so only the log sees it
+        print(f"measure: {type(e).__name__}: {e}", file=sys.stderr)
+        measured = unmeasured("the measurement could not be read")
+    health: HealthDoc = json.loads(path.read_text(encoding="utf-8"))
+    storage = health.get("storage")
+    if not isinstance(storage, dict):
+        storage = {}
+        health["storage"] = storage
+    storage["measured"] = measured
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(pretty(health), encoding="utf-8")
+    tmp.replace(path)
+    return measured
+
+
 def build_version_bytes(ds: Dataset, v: VersionOut) -> int:
     """A built version's bytes in R2, counted from every file it lists.
 
     The publisher's file in the raw store counts too, which a withheld source keeps without
-    listing.
+    listing. A DuckDB file counts at its bound, as the catalogue would give it, so two builds of
+    one snapshot state the same total.
     """
-    return sum(v.files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
+    files = {k: n for k in v.files if (n := v.size(k)) is not None}
+    if "data.duckdb" in v.files:
+        files["data.duckdb"] = duckdb_bound(files)
+    return sum(files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
 
 
 def fleet_from_build(outs: Iterable[DatasetOut], today: dt.date) -> Fleet:
@@ -1115,7 +1305,8 @@ def run(  # noqa: PLR0913 - the options are keyword-only and named at each call
     f = fleet(projections)
     print(
         f"cost: {f.gb_per_year:,.1f} GB a year projected over {len(projections)} entries; "
-        f"{f.stored_gb:,.1f} GB stored (estimated); {f.d1_rows_per_year:,} D1 rows written a year"
+        f"{f.stored_gb:,.1f} GB stored (estimated), {f.stored_gb + f.gb_per_year:,.1f} GB in a "
+        f"year; {f.d1_rows_per_year:,} D1 rows written a year"
     )
     for p in projections:
         if p.slug in changed:

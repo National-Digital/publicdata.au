@@ -29,7 +29,7 @@ from .build import (
     _source_order,
     _want,
     build_dataset,
-    version_key,
+    version_keys,
     write_formats,
 )
 from .cache import (
@@ -151,6 +151,42 @@ def bumped(before: Path, datasets: list[Dataset]) -> list[str]:
         if raw.get("rebuild", 0) != ds.rebuild:
             out.append(ds.slug)
     return sorted(out)
+
+
+def unnoted_partitions(
+    before: Path, datasets: list[Dataset], store_dir: Path, changed: list[str]
+) -> dict[str, list[str]]:
+    """The published versions, by dataset, whose entry's partition_by the change edits unnoted.
+
+    Such an edit adds or drops by/ files in every stored version, so it is a correction
+    (docs/CORRECTIONS.md) and each version it reaches carries a note of it; a version whose
+    manifest gains no note is listed. before holds the base's copy of each changed register
+    entry and manifest at its path.
+    """
+    out: dict[str, list[str]] = {}
+    for ds in datasets:
+        if not ds.path or not Path(ds.path).is_relative_to(REPO):
+            continue
+        old = before / Path(ds.path).relative_to(REPO)
+        if not old.is_file():
+            continue
+        raw = yaml.safe_load(old.read_text(encoding="utf-8")) or {}
+        if tuple(raw.get("partition_by") or ()) == ds.partition_by:
+            continue
+        bare: list[str] = []
+        for m in store.manifests(store_dir, ds.slug):
+            rel = f"store/{ds.slug}/{m.version}/manifest.json"
+            if rel in changed:
+                if not (before / rel).is_file():
+                    continue  # a version this change adds, which nothing has published
+                old_man: JSONObject = json.loads((before / rel).read_text(encoding="utf-8"))
+                was = old_man.get("notes")
+                if len(m.notes) > (len(was) if isinstance(was, list) else 0):
+                    continue
+            bare.append(f"d/{ds.slug}/v/{m.version}/")
+        if bare:
+            out[ds.slug] = bare
+    return out
 
 
 def checked_versions(ds: Dataset, store_dir: Path, cap: int = CAP) -> list[store.Manifest]:
@@ -278,7 +314,7 @@ def _regrown(  # noqa: PLR0913 - the options are keyword-only and named at each 
     parquet, _ = published.served(out, f"{vrel}/data.parquet")
     if not parquet.is_file():
         return None
-    tbl = _built_table(ds, m, out, parquet)
+    tbl = _built_table(ds, m, out, parquet=parquet)
     if m.parquet.get("sort"):
         ordered = _source_order(tbl, cache, key, parquet)
         if ordered is None:
@@ -403,14 +439,15 @@ def check(
     would build again anyway.
     """
     ms = checked_versions(ds, store_dir, cap)
-    whole = len(ms) == len(store.manifests(store_dir, ds.slug))
+    chain = {m.version: k for m, k in version_keys(cache, ds, store_dir)}
     fresh = build_dataset(ds, store_dir, out, newest=len(ms))
+    whole = len(fresh.versions) == len(store.manifests(store_dir, ds.slug))
     problems: list[str] = []
     compared = rebuilt = 0
     keys: list[str] = []
     for v in fresh.versions:
         m = v.manifest
-        key = version_key(cache, ds, m, store_dir)
+        key = chain[m.version]
         keys.append(key)
         where = f"d/{ds.slug}/v/{m.version}/"
         meta = _entry(cache, key, CacheMeta)

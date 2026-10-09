@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   write:
+    name: write
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
     runs-on: ubuntu-24.04
@@ -26,6 +27,8 @@ jobs:
       parts: ${{ steps.lists.outputs.parts }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
@@ -47,13 +50,14 @@ jobs:
 
   # An attestation takes at most 1,024 subjects, so each part of the listing is signed on its own.
   sign:
+    name: sign ${{ matrix.part }}
     needs: write
     if: needs.write.outputs.parts != '[]'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      id-token: write
-      attestations: write
+      id-token: write # the OIDC token Sigstore certifies to sign the attestation
+      attestations: write # stores the attestation with the repository
     strategy:
       matrix:
         part: ${{ fromJSON(needs.write.outputs.parts) }}

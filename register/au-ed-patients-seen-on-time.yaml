@@ -62,7 +62,7 @@ faq:
     60 minutes for semi-urgent and 120 minutes for non-urgent patients. The share is a fraction, so 0.8
     means 80 per cent.
 - q: What do the blanks mean?
-  a: The Institute writes <5 for a count under five and NP where the data did not meet its criteria or more
+  a: The Institute writes `<5` for a count under five and `NP` where the data did not meet its criteria or more
     than 10 per cent of times were missing. Those cells are null here with a suppressed flag. A dash, meaning
     no patients were reported, and Not peered are null. The Institute's file also marks with an asterisk
     the figures to interpret with caution, in a column with no heading, which is not carried here.

@@ -193,6 +193,18 @@ def test_query_api_is_named_only_when_it_serves_the_dataset() -> None:
         assert "query API" not in t
 
 
+def test_a_version_published_in_parts_is_not_copied_and_fails_no_run() -> None:
+    split: JSONObject = {**MANIFEST, "period": {"field": "date", "grain": "year"}, "whole": False}
+    with pytest.raises(hubs.Excluded, match="published in parts"):
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    assert hubs.entry(RECORD, VERSIONS, SCHEMA, {**split, "whole": True}).version
+    with pytest.raises(hubs.Excluded) as e:
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    lines: list[str] = []
+    assert hubs.run({"h": FakeHub()}, [("x", e.value)], fake_fetch, None, lines.append) == 0
+    assert lines == [f"h x: not copied, {e.value}"]
+
+
 def test_kaggle_limits() -> None:
     m = hubs.kaggle_metadata(make(), "publicdataau")
     assert len(m["title"]) <= 50
@@ -1493,3 +1505,36 @@ def test_reading_the_site_retries_a_dropped_connection_but_never_an_upload() -> 
     assert retry.total >= 3
     assert retry.is_retry("GET", 503)
     assert not retry.is_retry("POST", 503)
+
+
+def test_every_hub_takes_a_rolling_source_at_most_once_a_month(tmp_path: Path) -> None:
+    e = dataclasses.replace(make(), update="rolling", version="2026-10-20")
+    zen, hf = FakeHub(), FakeHub()
+    lines: list[str] = []
+    fails = hubs.run(
+        {"zenodo": zen, "huggingface": hf}, [(e.slug, e)], fake_fetch, tmp_path, lines.append
+    )
+    assert fails == 0
+    assert zen.published == hf.published == ["2026-10-20"]
+    for name in ("zenodo", "huggingface", "kaggle"):
+        again = FakeHub(held={"2026-10-01"})
+        hubs.run({name: again}, [(e.slug, e)], fake_fetch, tmp_path, lines.append)
+        assert again.published == []
+        assert "copied once a month" in lines[-1]
+        nov = dataclasses.replace(e, version="2026-11-03")
+        hubs.run({name: again}, [(e.slug, nov)], fake_fetch, tmp_path, lines.append)
+        assert again.published == ["2026-11-03"]
+    # A release is copied whenever it is newer.
+    rel = FakeHub(held={"2026-09-01"})
+    newer = dataclasses.replace(make(), version="2026-09-20")
+    hubs.run({"kaggle": rel}, [(e.slug, newer)], fake_fetch, tmp_path, lines.append)
+    assert rel.published == ["2026-09-20"]
+
+
+def test_a_rolling_source_goes_to_zenodo_as_parquet_and_gzipped_csv() -> None:
+    e = make()
+    rolling = dataclasses.replace(
+        e, update="feed", files={**e.files, "csv.gz": "u"}, sizes={"csv.gz": 10}
+    )
+    assert hubs.zenodo_formats(e) == hubs.ZENODO_FORMATS
+    assert hubs.carried(rolling, hubs.zenodo_formats(rolling)) == ["parquet", "csv.gz"]

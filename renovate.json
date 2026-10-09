@@ -1,0 +1,152 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":gitSignOff"
+  ],
+  "ignorePresets": [
+    ":dependencyDashboard",
+    ":semanticPrefixFixDepsChoreOthers"
+  ],
+  "timezone": "Australia/Brisbane",
+  "schedule": [
+    "* * 1 * *"
+  ],
+  "prHourlyLimit": 0,
+  "rangeStrategy": "pin",
+  "semanticCommits": "enabled",
+  "semanticCommitType": "build",
+  "semanticCommitScope": null,
+  "enabledManagers": [
+    "pyenv",
+    "nodenv",
+    "github-actions",
+    "pip_requirements",
+    "npm",
+    "custom.regex"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "uv, from uv.toml",
+      "managerFilePatterns": [
+        "/^uv\\.toml$/"
+      ],
+      "matchStrings": [
+        "required-version = \"==(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "uv",
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "R, from the R client's CI",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/clients\\.yml$/"
+      ],
+      "matchStrings": [
+        "r-version: (?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "r-base",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The Posit Package Manager CRAN snapshot the R client's CI installs from",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/clients\\.yml$/"
+      ],
+      "matchStrings": [
+        "packagemanager\\.posit\\.co/cran/__linux__/[a-z]+/(?<currentValue>\\d{4}-\\d{2}-\\d{2})"
+      ],
+      "depNameTemplate": "posit-cran-snapshot",
+      "datasourceTemplate": "custom.posit-cran",
+      "versioningTemplate": "regex:^(?<major>\\d{4})-(?<minor>\\d{2})-(?<patch>\\d{2})$"
+    },
+    {
+      "customType": "regex",
+      "description": "The DuckDB release the spatial extension pin is for; the Spatial extension workflow completes the pin",
+      "managerFilePatterns": [
+        "/^pipeline/publicdata/spatial-extension\\.json$/"
+      ],
+      "matchStrings": [
+        "\"duckdb\": \"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "duckdb",
+      "datasourceTemplate": "pypi"
+    }
+  ],
+  "customDatasources": {
+    "posit-cran": {
+      "defaultRegistryUrlTemplate": "https://packagemanager.posit.co/__api__/repos/cran/transaction-dates",
+      "format": "json",
+      "transformTemplates": [
+        "{\"releases\": $map($, function($v) { {\"version\": $v.alias} })}"
+      ]
+    }
+  },
+  "packageRules": [
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepTypes": [
+        "action"
+      ],
+      "groupName": "actions",
+      "semanticCommitType": "ci",
+      "pinDigests": true
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepTypes": [
+        "github-runner"
+      ],
+      "groupName": "runner image",
+      "semanticCommitType": "ci"
+    },
+    {
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "matchFileNames": [
+        "pipeline/requirements.txt"
+      ],
+      "groupName": "pipeline"
+    },
+    {
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "matchFileNames": [
+        "clients/python/requirements.txt"
+      ],
+      "groupName": "client"
+    },
+    {
+      "matchManagers": [
+        "npm"
+      ],
+      "groupName": "npm"
+    },
+    {
+      "matchFileNames": [
+        "pipeline/requirements.txt",
+        "pipeline/publicdata/spatial-extension.json"
+      ],
+      "matchPackageNames": [
+        "duckdb"
+      ],
+      "groupName": "duckdb and its spatial extension"
+    },
+    {
+      "matchDepNames": [
+        "r-base",
+        "posit-cran-snapshot"
+      ],
+      "groupName": "R"
+    }
+  ]
+}

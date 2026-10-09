@@ -12,7 +12,7 @@ import duckdb
 import pyarrow.feather as pf
 import pyarrow.parquet as pq
 
-from publicdata import serialise
+from publicdata import build, serialise
 from publicdata.__main__ import main
 from publicdata.build import build_dataset
 from publicdata.database import build_database
@@ -119,6 +119,23 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     assert (a / "d" / ds.slug / "datapackage.json").exists()
     assert (a / "d" / ds.slug / "history.tar.zst").exists()
     shutil.rmtree(a)
+
+
+def test_the_length_of_a_duckdb_file_changes_no_other_published_byte(
+    fixture_site: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Two writes of the same rows can differ in length, so no file may state one.
+    size = build._size
+    monkeypatch.setattr(
+        build, "_size", lambda p: size(p) + (262_144 if p.name == "data.duckdb" else 0)
+    )
+    out = tmp_path / "dist"
+    assert main(["build", "--fixtures", "--out", str(out)]) == 0
+    assert _tree(out) == _tree(fixture_site)
+    files = [f for f in _tree(out) if not f.endswith("data.duckdb")]
+    _same, diff, err = filecmp.cmpfiles(fixture_site, out, files, shallow=False)
+    assert not diff
+    assert not err
 
 
 def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(

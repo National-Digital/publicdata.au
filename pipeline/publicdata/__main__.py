@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | hubs | contribute | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip|shared-report | hubs | contribute | cost | measure."""
 
 from __future__ import annotations
 
@@ -19,8 +19,9 @@ if TYPE_CHECKING:
 
     from .build import DatasetOut
     from .cache import BuildCache
-    from .cost import EntryYaml
+    from .cost import EntryYaml, Measured
     from .hubs import HubRecord
+    from .jsontypes import JSON, JSONObject
     from .register import Dataset
 
 from . import REPO, SITE
@@ -32,8 +33,9 @@ STORE = ROOT / "store"
 FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
 
 
-def cmd_register(args: argparse.Namespace) -> int:
+def cmd_register(args: argparse.Namespace) -> int:  # noqa: C901 - each register check, read in order
     from . import store  # noqa: PLC0415 - CLI start-up
+    from .abbreviations import check_copy, register_copy  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
     from .validate import int32_misfits  # noqa: PLC0415 - CLI start-up
 
@@ -41,6 +43,13 @@ def cmd_register(args: argparse.Namespace) -> int:
     for d in ds:
         print(f"{d.status:9s} {d.slug:40s} {d.licence.id:14s} {d.publisher.short}")
     print(f"{len(ds)} entries valid")
+    words = []
+    for d in ds:
+        if d.status in ("live", "building"):
+            names = tuple(n for n in (d.publisher.name, d.publisher.short) if n)
+            words += check_copy(register_copy(d), d.slug, names)
+    for w in words:
+        print(f"abbreviation: {w}")
     for d in ds:
         bare = [f.name for f in d.fields if not f.label]
         if d.status == "live" and bare:
@@ -63,7 +72,7 @@ def cmd_register(args: argparse.Namespace) -> int:
         print(
             f"int32: {unchecked} stored version(s) not checked, since neither their Parquet nor their source is here"
         )
-    return 1 if bad else 0
+    return 1 if bad or words else 0
 
 
 def cmd_labels(args: argparse.Namespace) -> int:  # noqa: C901 - one pass that drafts, reports and writes
@@ -136,10 +145,11 @@ def cmd_draft(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901 - the fetch command's cases, read in order
+def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 - the fetch command's cases, read in order
     import requests  # noqa: PLC0415 - CLI start-up
 
     from . import fetch  # noqa: PLC0415 - CLI start-up
+    from . import store as st  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
 
     store_dir = Path(args.store)
@@ -161,8 +171,14 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901 - the fetch comman
             continue
         if d.status not in ("live", "building") or d.source.adapter == "none":
             continue
-        if args.feeds and not d.source.feed:
+        if args.feeds and not (d.source.feed or d.update == "feed"):
             continue
+        # A rolling source compares each read with its newest fetch; while an earlier fetch waits
+        # in an open pull request, this checkout lacks it, so the read waits too.
+        if d.slug in args.hold and d.update != "release":
+            print(f"{d.slug}: HELD an earlier fetch is waiting to be merged")
+            continue
+        read_before = st.last_read(store_dir, d.slug)
         # One dataset that cannot be fetched is reported and the rest go ahead.
         try:
             m = fetch.fetch(d, store_dir)
@@ -174,15 +190,27 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901 - the fetch comman
             failed += 1
             print(f"{d.slug}: FAILED {e}")
             continue
+        read = st.last_read(store_dir, d.slug)
+        jur = d.publisher.jurisdiction.lower()
+        # A feed's read record goes to the raw store with store push, never into a pull request,
+        # so a quiet day opens none.
+        if d.update == "feed" and read and read != read_before and m is None:
+            print(f"{d.slug}: read {read['read']}, unchanged since {read['fetch']}")
+            continue
         if m is None:
             print(f"{d.slug}: unchanged")
         else:
             changed += 1
-            groups.setdefault(d.publisher.jurisdiction.lower(), []).append(
-                (store_dir / d.slug / m.version / "manifest.json").as_posix()
+            names = ["manifest.json", *(["changes.json"] if d.update != "release" else [])]
+            groups.setdefault(jur, []).extend(
+                (store_dir / d.slug / m.version / n).as_posix() for n in names
             )
+            # A rolling source's fetch that is not a snapshot publishes its change log and
+            # latest/, and no dated version.
+            what = "version" if m.snapshot else "fetch"
             print(
-                f"{d.slug}: new version {m.version} ({m.bytes} bytes, {m.encoding}, sha256 {m.sha256[:12]})"
+                f"{d.slug}: new {what} {m.version} ({m.bytes} bytes, {m.encoding}, sha256 {m.sha256[:12]})"
+                + (f", snapshot: {m.cut}" if m.cut else "")
             )
     if args.groups:
         Path(args.groups).write_text(json.dumps(groups, indent=2, sort_keys=True) + "\n")
@@ -216,7 +244,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    datasets = load(REGISTER)
+    datasets = load(Path(args.register))
     cache: BuildCache | None = None
     if args.cache and not args.absent:
         sys.exit(
@@ -247,7 +275,7 @@ def _build(
     cache: BuildCache | None,
 ) -> int:
     from . import published  # noqa: PLC0415 - CLI start-up
-    from .build import build_dataset, take_built  # noqa: PLC0415 - CLI start-up
+    from .build import build_dataset, part_dir, take_built  # noqa: PLC0415 - CLI start-up
     from .catalogue import latest as catalogue_latest  # noqa: PLC0415 - CLI start-up
     from .catalogue import load as load_catalogue  # noqa: PLC0415 - CLI start-up
     from .publishers import load_curated  # noqa: PLC0415 - CLI start-up
@@ -277,6 +305,16 @@ def _build(
             for v in o.versions
             if "data.parquet" in v.absent
         ]
+        # A version written as parts alone is drawn from its parts, wherever each was written.
+        want += [
+            f"{part_dir(o.dataset.slug, r, v.manifest.version)}/{r['files']['parquet']['path']}"
+            for o in outs
+            for v in o.versions
+            if not v.whole
+            for r in v.parts
+        ]
+        # A finished part is shared by the versions that reuse it, and is pulled once.
+        want = list(dict.fromkeys(want))
         if published.current is None:
             msg = "build: the published tree is not open"
             raise RuntimeError(msg)
@@ -335,7 +373,9 @@ def _build(
 def cmd_gate(args: argparse.Namespace) -> int:
     from . import gate  # noqa: PLC0415 - CLI start-up
 
-    return gate.main(Path(args.out), REGISTER, _absent(args.absent), site=not args.versions_only)
+    return gate.main(
+        Path(args.out), Path(args.register), _absent(args.absent), site=not args.versions_only
+    )
 
 
 def _absent(path: str | None) -> list[str]:
@@ -430,6 +470,17 @@ def cmd_catalogue_publishers(args: argparse.Namespace) -> int:
     return 0
 
 
+def _objects(v: JSON) -> list[JSONObject]:
+    return [r for r in v if isinstance(r, dict)] if isinstance(v, list) else []
+
+
+def _d1_rows(raw: JSON) -> list[JSONObject]:
+    """The rows of a `wrangler d1 execute --json` answer, or a plain list of rows."""
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "results" in raw[0]:
+        return [r for part in _objects(raw) for r in _objects(part.get("results", []))]
+    return _objects(raw)
+
+
 def cmd_d1(args: argparse.Namespace) -> int:
     """Write one SQL file per live dataset whose latest version the query API has not loaded."""
     from .d1 import (  # noqa: PLC0415 - CLI start-up
@@ -446,17 +497,13 @@ def cmd_d1(args: argparse.Namespace) -> int:
     loaded_orders: dict[tuple[str, str], str] = {}
     if args.loaded and Path(args.loaded).exists():
         raw = json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")
-        rows = (
-            [r for part in raw for r in part.get("results", [])]
-            if isinstance(raw, list) and raw and "results" in raw[0]
-            else raw
-        )
-        for r in rows or []:
-            loaded.setdefault(r["slug"], []).append(r["version"])
+        for r in _d1_rows(raw):
+            slug, version = str(r["slug"]), str(r["version"])
+            loaded.setdefault(slug, []).append(version)
             if "fields" in r:
-                loaded_fields[(r["slug"], r["version"])] = r["fields"]
-            if r.get("ord") is not None:
-                loaded_orders[(r["slug"], r["version"])] = r["ord"]
+                loaded_fields[(slug, version)] = str(r["fields"])
+            if (order := r.get("ord")) is not None:
+                loaded_orders[(slug, version)] = str(order)
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
     parts = write_loads(
         [Path(r) for r in args.root],
@@ -503,11 +550,57 @@ def cmd_d1_load(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def cmd_rollup(args: argparse.Namespace) -> int:
+    """Write, push and prune the rollups.
+
+    A rollup is written for every version D1 holds, and every version of an entry with
+    `query: false`, whose rollup is missing or was built from other bytes; the rest are deleted.
+    """
+    from .r2 import client  # noqa: PLC0415 - CLI start-up
+    from .register import load  # noqa: PLC0415 - CLI start-up
+    from .rollup import R2Store, held, held_fields, served, write  # noqa: PLC0415 - CLI start-up
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"rollup: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    rows = _d1_rows(json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]"))
+    live = [d for d in load(REGISTER) if d.status in ("live", "building")]
+    loaded = held(rows) | served(live, [Path(r) for r in args.root])
+    store = R2Store(client(), args.bucket)
+    written, keep = write(
+        live,
+        loaded,
+        store,
+        Path(args.out),
+        [Path(r) for r in args.root],
+        args.replace,
+        fields=held_fields(rows),
+    )
+    stale = sorted(store.keys() - keep)
+    print(f"rollup: {len(written)} written, {len(keep) - len(written)} current, {len(stale)} stale")
+    if args.dry_run:
+        return 0
+    for w in written:
+        store.put(w)
+    if stale:
+        store.delete(stale)
+    return 0
+
+
 def cmd_store(args: argparse.Namespace) -> int:
     from .r2 import pull_store, push  # noqa: PLC0415 - CLI start-up
 
     store_dir = Path(args.store)
-    if args.sub == "pull":
+    if args.sub == "pull" and args.rolling:
+        from .register import load  # noqa: PLC0415 - CLI start-up
+
+        # A rolling source or a feed is compared with its newest fetch, which the fetch reads.
+        want = ("feed",) if args.feeds else ("rolling", "feed")
+        slugs = tuple(d.slug for d in load(REGISTER) if d.update in want)
+        n = pull_store(store_dir, only=slugs, newest=True) if slugs else 0
+        print(f"store pull: {n} file(s) of the newest fetches")
+    elif args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
         print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
@@ -515,13 +608,28 @@ def cmd_store(args: argparse.Namespace) -> int:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)
         n = 0
-        for src in sorted(store_dir.glob("*/*/source.*")):
-            v = (src.parts[-3], src.parts[-2])
+        # A feed's newest read is one mutable key per dataset beside its folders.
+        for rec in sorted(store_dir.glob("*/read.json")):
+            slug = rec.parent.name
+
+            def is_read(key: str, slug: str = slug) -> bool:
+                return key == f"{slug}/read.json"
+
+            n += push(
+                rec.parent,
+                "publicdata-raw",
+                f"{slug}/",
+                immutable=lambda _key: False,
+                include=is_read,
+            )
+        held = [*store_dir.glob("*/*/source.*"), *store_dir.glob("*/*/history.parquet")]
+        for vdir in sorted({p.parent for p in held}):
+            v = (vdir.parts[-2], vdir.parts[-1])
 
             def immutable(_key: str, v: tuple[str, str] = v) -> bool:
                 return v in committed
 
-            n += push(src.parent, "publicdata-raw", f"{v[0]}/{v[1]}/", immutable=immutable)
+            n += push(vdir, "publicdata-raw", f"{v[0]}/{v[1]}/", immutable=immutable)
         print(f"store push: {n} file(s)")
     return 0
 
@@ -555,7 +663,7 @@ def _with_layers(only: list[str]) -> tuple[str, ...]:
 def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     """The versions the build will take from the cache, so their source bytes are not needed."""
     from . import store  # noqa: PLC0415 - CLI start-up
-    from .build import version_key  # noqa: PLC0415 - CLI start-up
+    from .build import latest_key, newest_fetch, version_keys  # noqa: PLC0415 - CLI start-up
     from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
     from .spine import LAYERS  # noqa: PLC0415 - CLI start-up
@@ -565,8 +673,8 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     cached = {
         (d.slug, m.version)
         for d in datasets
-        for m in store.manifests(store_dir, d.slug)
-        if cache.has(version_key(cache, d, m, store_dir))
+        for m, key in version_keys(cache, d, store_dir)
+        if cache.has(key)
     }
     # A spine-joined version the cache cannot serve reads each layer's newest source.
     needs = {
@@ -580,6 +688,11 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
         ms = store.manifests(store_dir, LAYERS[k].slug)
         if ms:
             cached.discard((LAYERS[k].slug, ms[-1].version))
+    # latest/ is built from a rolling source's newest fetch, which may also be a snapshot.
+    for d in datasets:
+        m = newest_fetch(d, store_dir)
+        if m and not cache.has(latest_key(cache, d, m, store_dir)):
+            cached.discard((d.slug, m.version))
     return cached
 
 
@@ -635,6 +748,18 @@ def cmd_dist_push(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_r2_restore_gzip(args: argparse.Namespace) -> int:
+    from .r2 import restore_gzip  # noqa: PLC0415 - CLI start-up
+
+    t = restore_gzip(
+        prefix=args.prefix,
+        apply=args.apply,
+        workers=args.workers,
+        dedupe_csv_gz=args.dedupe_csv_gz,
+    )
+    return 1 if t["failed"] else 0
+
+
 def cmd_checksums(args: argparse.Namespace) -> int:
     from .checksums import (  # noqa: PLC0415 - CLI start-up
         KEY,
@@ -687,6 +812,29 @@ def cmd_checksums(args: argparse.Namespace) -> int:
             f"checksums: {len(held)} version(s) left without one; "
             "run the Checksums workflow to hash their files from R2 and sign the lists"
         )
+    return 0
+
+
+def cmd_r2_shared_report(args: argparse.Namespace) -> int:
+    from .r2 import shared_report  # noqa: PLC0415 - CLI start-up
+
+    t = shared_report(prefix=args.prefix)
+    for ext, (n, size) in sorted(t["by_ext"].items(), key=lambda e: -e[1][1]):
+        kind = f".{ext}" if ext else "no extension"
+        print(f"shared: {kind}: {n:,} extra {'copy' if n == 1 else 'copies'}, {size:,} bytes")
+    pct = 100 * t["saved"] / t["bytes"] if t["bytes"] else 0
+    print(
+        f"shared: {t['copies']:,} of {t['objects']:,} dated files repeat another's stored bytes; "
+        f"storing each once would save {t['saved']:,} of {t['bytes']:,} bytes ({pct:.2g}%), "
+        f"{t['across']:,} of them across datasets. {t['heads']:,} HEAD request(s) sent"
+        + (f", {t['gone']:,} key(s) deleted while the report ran" if t["gone"] else "")
+        + (
+            f", {t['unhashed']:,} HEADed file(s) with no SHA-256 matched on ETag alone"
+            " and may be undercounted"
+            if t["unhashed"]
+            else ""
+        )
+    )
     return 0
 
 
@@ -757,7 +905,7 @@ def cmd_cache(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_verify(args: argparse.Namespace) -> int:  # noqa: C901, PLR0911, PLR0912 - the plan and run subcommands share their setup
+def cmd_verify(args: argparse.Namespace) -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915 - the plan and run subcommands share their setup
     """Plan or run the real-data check.
 
     plan prints the datasets the check builds, or nothing when no changed path shapes versions
@@ -781,6 +929,19 @@ def cmd_verify(args: argparse.Namespace) -> int:  # noqa: C901, PLR0911, PLR0912
                     f"::error::the default of {k} changed. A version's key leaves out every "
                     "field at its default, so raise REBUILD in pipeline/publicdata/cache.py "
                     "in the same change.",
+                    file=sys.stderr,
+                )
+            return 1
+        if args.before and (
+            bare := verify.unnoted_partitions(Path(args.before), datasets, store_dir, changed)
+        ):
+            for slug, prefixes in bare.items():
+                print(
+                    f"::error::{slug}: partition_by changed, which adds or drops by/ files in "
+                    f"{len(prefixes)} published version(s). That is a correction "
+                    "(docs/CORRECTIONS.md): add a dated note to each version's manifest in "
+                    "store/ in the same change, and once it is merged run the Deploy workflow "
+                    f"with replace set to {' '.join(prefixes)}",
                     file=sys.stderr,
                 )
             return 1
@@ -984,6 +1145,29 @@ def cmd_cost(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_measure(args: argparse.Namespace) -> int:
+    from . import cost  # noqa: PLC0415 - CLI start-up
+
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    token = os.environ.get("CLOUDFLARE_ANALYTICS_TOKEN")
+
+    def measure() -> Measured:
+        if not token:
+            msg = "no analytics token is set for the deploy"
+            raise cost.Unmeasured(msg)
+        if not account:
+            msg = "no Cloudflare account is set for the deploy"
+            raise cost.Unmeasured(msg)
+        return cost.measure_r2(account, token, dt.datetime.now(dt.UTC))
+
+    m = cost.stamp_health(Path(args.health), measure)
+    if m["available"]:
+        print(f"measure: {m['stored_bytes'] / cost.GB:,.1f} GB stored at {m['measured_at']}")
+    else:
+        print(f"measure: storage not measured ({m['reason']})")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parser declares every command in one place
     ap = argparse.ArgumentParser(prog="publicdata")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1021,6 +1205,13 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parse
         "--feeds", action="store_true", help="fetch only the live feeds, as the daily run does"
     )
     f.add_argument(
+        "--hold",
+        nargs="*",
+        default=[],
+        metavar="SLUG",
+        help="rolling sources and feeds with a fetch still waiting in an open pull request",
+    )
+    f.add_argument(
         "--file",
         action="append",
         default=[],
@@ -1029,6 +1220,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parse
     )
     f.set_defaults(fn=cmd_fetch)
     b = sub.add_parser("build")
+    b.add_argument("--register", default=str(REGISTER), help="the register to build from")
     b.add_argument("slug", nargs="*")
     b.add_argument("--store", default=str(STORE))
     b.add_argument("--out", default=str(ROOT / "dist"))
@@ -1143,6 +1335,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parse
     cpr.add_argument("--cache", required=True)
     cpr.set_defaults(fn=cmd_cache_prune)
     g = sub.add_parser("gate")
+    g.add_argument("--register", default=str(REGISTER), help="the register the build read")
     g.add_argument("out", nargs="?", default=str(ROOT / "dist"))
     g.add_argument("--absent", help="the build's list of published files it left out")
     g.add_argument(
@@ -1185,6 +1378,22 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parse
     )
     d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
+    ro = sub.add_parser(
+        "rollup", help="write, push and prune the rollups of the versions queries reach"
+    )
+    ro.add_argument(
+        "--loaded", required=True, help="D1's _versions rows (slug, version, rows, fields) as JSON"
+    )
+    ro.add_argument(
+        "--root", action="append", default=[], help="a built tree to read Parquet from first"
+    )
+    ro.add_argument("--out", required=True)
+    ro.add_argument("--bucket", default="publicdata-dist")
+    ro.add_argument(
+        "--replace", nargs="*", default=[], help="d/<slug>/v/<date>/ prefixes to write again"
+    )
+    ro.add_argument("--dry-run", action="store_true", help="write rollups locally, push none")
+    ro.set_defaults(fn=cmd_rollup)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])
     st.add_argument("--store", default=str(STORE))
@@ -1192,6 +1401,12 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parse
         "--only", nargs="*", default=[], help="dataset slugs to pull, such as catalogue"
     )
     st.add_argument("--cache", help="skip versions this build cache already holds")
+    st.add_argument(
+        "--rolling",
+        action="store_true",
+        help="pull only the newest fetch of each rolling source and feed, as the fetch reads it",
+    )
+    st.add_argument("--feeds", action="store_true", help="with --rolling, the feeds alone")
     st.set_defaults(fn=cmd_store)
     dp = sub.add_parser("dist-push")
     dp.add_argument("--large", default=str(ROOT / "dist-large"))
@@ -1211,6 +1426,26 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parse
         help="push only dated version files, leaving pages to the deploy that builds them all",
     )
     dp.set_defaults(fn=cmd_dist_push)
+    rr = sub.add_parser("r2").add_subparsers(dest="sub", required=True)
+    rg = rr.add_parser(
+        "restore-gzip",
+        help="store the dated text files in publicdata-dist gzipped, in place; a dry run unless --apply",
+    )
+    rg.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
+    rg.add_argument("--apply", action="store_true", help="rewrite the objects, not just count them")
+    rg.add_argument("--workers", type=int, default=4)
+    rg.add_argument(
+        "--dedupe-csv-gz",
+        action="store_true",
+        help="delete a version's data.csv.gz once the gzipped data.csv beside it holds its bytes",
+    )
+    rg.set_defaults(fn=cmd_r2_restore_gzip)
+    rs = rr.add_parser(
+        "shared-report",
+        help="count the bytes publicdata-dist would save by storing dated files with identical bytes once",
+    )
+    rs.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
+    rs.set_defaults(fn=cmd_r2_shared_report)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
@@ -1268,6 +1503,11 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parse
         "--summary", help="append the Markdown table here (default GITHUB_STEP_SUMMARY)"
     )
     co.set_defaults(fn=cmd_cost)
+    me = sub.add_parser(
+        "measure", help="write Cloudflare's measured R2 storage into a built health.json"
+    )
+    me.add_argument("health", help="the health.json to update")
+    me.set_defaults(fn=cmd_measure)
     args = ap.parse_args(argv)
     rc: int = args.fn(args)
     return rc

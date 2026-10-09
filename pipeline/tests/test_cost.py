@@ -22,10 +22,19 @@ from publicdata.register import Dataset, Field, Source, load
 from .conftest import ROOT, make_dataset, make_manifest, present
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
     from pathlib import Path
 
-    from publicdata.cost import Catalog, CatalogRecord, GhEvent, GhRun
+    from publicdata.cost import (
+        Catalog,
+        CatalogRecord,
+        GhEvent,
+        GhRun,
+        Measured,
+        R2Answer,
+        R2Group,
+    )
+    from publicdata.jsontypes import JSON
     from publicdata.register import Geometry
 
     class _RunOptions(TypedDict):
@@ -43,6 +52,13 @@ if TYPE_CHECKING:
     class _ApiOptions(TypedDict, total=False):
         labels: Iterable[str]
         runs: Iterable[GhRun]
+
+    # A bucket's newest reading: when, payload bytes, and optionally metadata bytes and objects.
+    type Reading = tuple[str, int] | tuple[str, int, int, int]
+
+
+class _Opener(Protocol):
+    def __call__(self, req: urllib.request.Request, timeout: float) -> _Resp: ...
 
 
 class _Git(Protocol):
@@ -277,8 +293,31 @@ def test_the_catalogue_is_summed_by_file_so_a_database_keeps_every_table() -> No
         ],
     }  # fmt: skip
     files = cost.catalogue_sizes({"dataset": [rec]})["db"]
-    # DuckDB sizes are published to one significant figure, so the upper bound is counted.
-    assert files == {"data.duckdb": 250_000_000, "tables/a.parquet": 7, "tables/b.parquet": 9}
+    assert files == {
+        "data.duckdb": 2 * 16 + cost.DUCKDB_BLOCKS,
+        "tables/a.parquet": 7,
+        "tables/b.parquet": 9,
+    }
+
+
+def test_a_duckdb_file_counts_at_its_bound_from_the_files_whose_size_is_stated() -> None:
+    def sizes(**files: int) -> int:
+        rec: CatalogRecord = {
+            "identifier": "x",
+            "versionInfo": "2026-10-01",
+            "distribution": [
+                {"byteSize": n, "downloadURL": f"/d/x/v/2026-10-01/{p}"} if n else {"downloadURL": f"/d/x/v/2026-10-01/{p}"}
+                for p, n in files.items()
+            ],
+        }  # fmt: skip
+        return cost.catalogue_sizes({"dataset": [rec]})["x"]["data.duckdb"]
+
+    assert (
+        sizes(**{"data.csv": 40 * 10**6, "data.parquet": 9 * 10**6, "data.duckdb": 0})
+        == 50 * 10**6 + cost.DUCKDB_BLOCKS
+    )
+    assert sizes(**{"tables/a.parquet": 2 * GB, "data.duckdb": 0}) == 4 * GB + cost.DUCKDB_BLOCKS
+    assert sizes(**{"data.csv": 1000, "data.duckdb": 0}) == 1250 + cost.DUCKDB_BLOCKS
 
 
 def test_sizes_are_measured_estimated_from_the_source_or_unknown(tmp_path: Path) -> None:
@@ -664,13 +703,17 @@ def test_the_fleet_counts_storage_cumulatively_and_d1_rows() -> None:
                         d1_indexes=2)  # fmt: skip
     f = cost.fleet([p])
     assert (f.stored_gb, f.gb_per_year, f.d1_rows_per_year) == (20, 20, 15)
-    assert set(f.as_json()) == {"stored_bytes", "growth_bytes_per_year", "d1_rows_written_per_year"}
+    proj = f.as_json()["projected"]
+    assert proj["stored_bytes_in_a_year"] == proj["stored_bytes"] + proj["growth_bytes_per_year"]
 
 
 def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site: Path) -> None:
     health = json.loads((fixture_site / "health.json").read_text("utf-8"))
-    s = health["storage"]
+    assert health["storage"]["measured"] == {"available": False, "reason": cost.UNSTAMPED}
+    s = health["storage"]["projected"]
+    assert s["covers"] == cost.PROJECTED_COVERS
     assert not any("usd" in k for k in s)
+    assert s["stored_bytes_in_a_year"] == s["stored_bytes"] + s["growth_bytes_per_year"]
     stored = 0
     latest: dict[str, tuple[int, int, Path]] = {}
     for vdir in sorted(fixture_site.glob("d/*/v/*")):
@@ -681,8 +724,11 @@ def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site: 
         assert not any(p.name.startswith("source.") for p in files)
         versions = json.loads((vdir.parent.parent / "versions.json").read_text("utf-8"))
         v = next(x for x in versions["versions"] if x["version"] == vdir.name)
+        sizes = {p.relative_to(vdir).as_posix(): _size(p) for p in files}
+        if "data.duckdb" in sizes:
+            sizes["data.duckdb"] = cost.duckdb_bound(sizes)
         # No built tree holds the publisher's file; the raw store keeps it once.
-        n = sum(_size(p) for p in files) + v["bytes"]
+        n = sum(sizes.values()) + v["bytes"]
         stored += n
         latest[vdir.parent.parent.name] = (n, v["rows"], (vdir / "data.csv"))
     assert s["stored_bytes"] == stored > 0
@@ -698,7 +744,152 @@ def test_health_carries_the_fleet_projection_from_the_built_files(fixture_site: 
 
 
 def test_the_cost_module_stays_out_of_the_build_cache_key() -> None:
-    assert {"cost.py", "cadence.py"}.isdisjoint(p.name for p in cache.code_files())
+    assert {"cost.py", "cadence.py", "__main__.py", "site.py"}.isdisjoint(
+        p.name for p in cache.code_files()
+    )
+
+
+def test_the_health_openapi_entry_names_the_storage_fields(fixture_site: Path) -> None:
+    doc = json.loads((fixture_site / "openapi.json").read_text("utf-8"))
+    schema = doc["paths"]["/health.json"]["get"]["responses"]["200"]["content"]
+    storage = schema["application/json"]["schema"]["properties"]["storage"]["properties"]
+    health = json.loads((fixture_site / "health.json").read_text("utf-8"))["storage"]
+    assert set(health["projected"]) == set(storage["projected"]["properties"])
+    assert set(storage["measured"]["properties"]) >= {"available", "reason", "measured_at",
+                                                      "stored_bytes", "covers"}  # fmt: skip
+
+
+def _graphql(groups: Mapping[str, Reading], errors: list[JSON] | None = None) -> _Opener:
+    """Answers as the GraphQL Analytics API would: each bucket's alias holds its newest reading."""
+
+    def fake(req: urllib.request.Request, timeout: float) -> _Resp:
+        assert req.full_url == cost.GRAPHQL
+        assert req.get_method() == "POST"
+        assert isinstance(req.data, bytes)
+        body = json.loads(req.data)
+        assert body["variables"] == {"account": "acct", "since": "2026-10-01T12:00:00Z"}
+        q = body["query"]
+        for i, b in enumerate(cost.MEASURED_BUCKETS):
+            assert f'b{i}: r2StorageAdaptiveGroups(limit: 1, orderBy: [datetime_DESC], filter: {{bucketName: "{b}", datetime_geq: $since}})' in q  # fmt: skip
+        assert "max { payloadSize metadataSize objectCount } dimensions { datetime }" in q
+        account = {
+            f"b{i}": [_group(*groups[b])] if b in groups else []
+            for i, b in enumerate(cost.MEASURED_BUCKETS)
+        }
+        doc: R2Answer = {"data": {"viewer": {"accounts": [account]}}}
+        if errors:
+            doc = {"data": None, "errors": errors}
+        return _Resp(200, {}, json.dumps(doc).encode())
+
+    return fake
+
+
+def _group(when: str, payload: int, meta: int = 0, objects: int = 1) -> R2Group:
+    return {
+        "max": {"payloadSize": payload, "metadataSize": meta, "objectCount": objects},
+        "dimensions": {"datetime": when},
+    }
+
+
+NOW = dt.datetime(2026, 10, 8, 12, tzinfo=dt.UTC)
+
+
+def test_the_measured_figure_is_each_bucket_at_its_newest_reading(
+    monkeypatch: pytest.MonkeyPatch, no_sleep: None
+) -> None:
+    groups: dict[str, Reading] = {
+        "publicdata-dist": ("2026-10-08T10:00:00Z", 1000, 20, 6),
+        "publicdata-raw": ("2026-10-08T09:00:00Z", 300, 0, 2),
+    }
+    monkeypatch.setattr(cost, "_open", _graphql(groups))
+    m = cost.measure_r2("acct", "tok", NOW)
+    assert m == {
+        "available": True,
+        "covers": cost.MEASURED_COVERS,
+        "measured_at": "2026-10-08T09:00:00Z",
+        "stored_bytes": 1320,
+        "objects": 8,
+        "buckets": {"publicdata-dist": 1020, "publicdata-raw": 300},
+    }
+
+
+@pytest.mark.parametrize(
+    ("groups", "errors", "why"),
+    [
+        ({"publicdata-dist": ("2026-10-08T10:00:00Z", 1)}, None, "no storage reading for publicdata-raw"),
+        ({}, [{"message": "not authorized for that account", "accountTag": "acct"}], "refused the query"),
+    ],
+)  # fmt: skip
+@pytest.mark.usefixtures("no_sleep")
+def test_an_unreadable_measurement_is_marked_unavailable_and_keeps_the_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    groups: dict[str, Reading],
+    errors: list[JSON] | None,
+    why: str,
+) -> None:
+    monkeypatch.setattr(cost, "_open", _graphql(groups, errors))
+    health = tmp_path / "health.json"
+    built = {"status": "ok", "storage": {"projected": {"stored_bytes": 5}, "measured": {}}}
+    health.write_text(json.dumps(built), "utf-8")
+    m = cost.stamp_health(health, lambda: cost.measure_r2("acct", "tok", NOW))
+    out = json.loads(health.read_text("utf-8"))
+    assert m["available"] is False
+    assert why in m["reason"]
+    assert "acct" not in m["reason"]
+    assert out == built | {"storage": {"projected": {"stored_bytes": 5}, "measured": m}}
+    assert [p.name for p in tmp_path.iterdir()] == ["health.json"]
+
+
+def test_an_unexpected_failure_publishes_no_detail_of_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An exception's text can hold a header or an account id, so only the step log sees it."""
+    health = tmp_path / "health.json"
+    health.write_text(json.dumps({"storage": None}), "utf-8")
+
+    def boom() -> Measured:
+        msg = "Invalid header value b'Bearer SECRET\\n'"
+        raise ValueError(msg)
+
+    m = cost.stamp_health(health, boom)
+    assert m == {"available": False, "reason": "the measurement could not be read"}
+    assert json.loads(health.read_text("utf-8"))["storage"] == {"measured": m}
+    assert "SECRET" not in health.read_text("utf-8")
+    assert "SECRET" in capsys.readouterr().err
+
+
+def test_the_measure_command_never_fails_a_deploy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CLOUDFLARE_ANALYTICS_TOKEN", raising=False)
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "deploy-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+    monkeypatch.setattr(cost, "_open", lambda *a: pytest.fail("measured without its own token"))
+    health = tmp_path / "health.json"
+    health.write_text(json.dumps({"storage": {}}), "utf-8")
+    assert main(["measure", str(health)]) == 0
+    m = json.loads(health.read_text("utf-8"))["storage"]["measured"]
+    assert m == {"available": False, "reason": "no analytics token is set for the deploy"}
+
+
+def test_the_measure_command_reads_with_the_analytics_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[str | None] = []
+
+    def fake(req: urllib.request.Request, timeout: float) -> _Resp:
+        seen.append(req.get_header("Authorization"))
+        raise urllib.error.HTTPError(cost.GRAPHQL, 403, "Forbidden", Message(), None)
+
+    monkeypatch.setenv("CLOUDFLARE_ANALYTICS_TOKEN", "analytics-token")
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "deploy-token")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+    monkeypatch.setattr(cost, "_open", fake)
+    health = tmp_path / "health.json"
+    health.write_text(json.dumps({"storage": {}}), "utf-8")
+    assert main(["measure", str(health)]) == 0
+    assert set(seen) == {"Bearer analytics-token"}
 
 
 class Host:

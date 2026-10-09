@@ -295,3 +295,9 @@ def test_the_terms_date_moves_with_the_terms_text() -> None:
         "The terms text changed: set TERMS_CHANGED in site.py to today's date and "
         f"hash {site_module.terms_hash()}"
     )
+
+
+def test_no_route_reaches_the_internal_query_copies() -> None:
+    # The build's profile copies live in R2 at _q/, which only the MCP server reads.
+    assert all(r.startswith(("/api/", "/mcp", "/d/")) for r in site_module.ROUTES)
+    assert not any(r.startswith("/_q") or r in ("/*", "/") for r in site_module.ROUTES)

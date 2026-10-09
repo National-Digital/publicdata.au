@@ -92,7 +92,16 @@ if TYPE_CHECKING:
 
     class SiteText(TypedDict):
         summary: str
+        suppressed: str
         file_formats: str
+
+    class SkillText(TypedDict):
+        """The Agent Skill the discovery manifest lists."""
+
+        name: str
+        title: str
+        description: str
+        queries: list[str]
 
     class ApiText(TypedDict):
         summary: str
@@ -159,6 +168,8 @@ if TYPE_CHECKING:
         listing: Listing
         prompts_note: str
         prompts: dict[str, PromptText]
+        tool_text: dict[str, str]
+        parameters: dict[str, str]
         privacy: str
         instructions: str
 
@@ -167,6 +178,7 @@ if TYPE_CHECKING:
 
         _comment: NotRequired[str]
         site: SiteText
+        skill: SkillText
         limits: Limits
         api: ApiText
         operators: dict[str, Operator]
@@ -425,10 +437,16 @@ def resource_text(title: str, publisher: str) -> str:
     return plain(text).replace("{title}", title).replace("{publisher}", publisher)
 
 
-def _input_schema(t: ToolText) -> Schema:
-    """A tool's input schema for any dataset. site.js builds the same, then narrows it on a dataset page."""
+def _input_schema(t: ToolText, overrides: Mapping[str, str] | None = None) -> Schema:
+    """A tool's input schema for any dataset.
+
+    site.js builds the same, then narrows it on a dataset page. `overrides` gives the server's
+    own text for a parameter, by its API name.
+    """
     s = spec()
     w = s["webmcp"]
+    overrides = overrides or {}
+    version = overrides.get("version", w["version"])
     props: dict[str, Schema] = {}
     for k, p in t["input"].items():
         if p.get("api") == "filters":
@@ -437,7 +455,9 @@ def _input_schema(t: ToolText) -> Schema:
         o = p.copy()
         o.pop("api", None)
         if "description" not in o and p.get("api") == "version":
-            o["description"] = w["version"]
+            o["description"] = version
+        elif "description" not in o and p.get("api") in overrides:
+            o["description"] = overrides[p["api"]]
         elif "description" not in o and p.get("api"):
             o["description"] = param_text(p["api"])
         props[k] = o
@@ -471,11 +491,15 @@ def mcp_spec() -> McpSpec:
     m = s["mcp"]
     tools: list[Tool] = []
     for name, t in s["webmcp"]["tools"].items():
+        # The server's row tools read Parquet, so what they say about versions differs from the pages'.
+        description = t["description"]
+        for old, new in m["tool_text"].items():
+            description = description.replace(old, new)
         d: Tool = {
             "name": name,
             "title": t["title"],
-            "description": t["description"],
-            "inputSchema": _input_schema(t),
+            "description": description,
+            "inputSchema": _input_schema(t, m["parameters"]),
             "outputSchema": t["output"],
             "annotations": {"title": t["title"], **t["annotations"]},
         }

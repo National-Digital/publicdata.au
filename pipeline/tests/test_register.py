@@ -543,3 +543,22 @@ def test_a_sample_reads_its_order_and_spread_and_needs_words_for_a_pick() -> Non
         parse(_fielded(sample={"spread": "nope"}), "x")
     with pytest.raises(RegisterError, match="takes where, order"):
         parse(_fielded(sample={"limit": 5}), "x")
+
+
+def test_rollup_lists_field_sets_and_shapes_no_version() -> None:
+    ds = parse(_fielded(rollup=[["state", "year"], ["unit"]]), "x")
+    assert ds.rollup == (("state", "year"), ("unit",))
+    assert parse(_fielded(), "x").rollup == ()
+    # Rollups are built after the build, so the entry the build cache keys on is unchanged.
+    assert repr(ds) == repr(parse(_fielded(), "x"))
+    bads: tuple[object, ...] = (
+        [["nope"]],
+        [[]],
+        [["year", "year"]],
+        ["year"],
+        {"year": 1},
+        [[{"a": 1}]],
+    )
+    for bad in bads:
+        with pytest.raises(RegisterError, match="rollup"):
+            parse(_fielded(rollup=bad), "x")

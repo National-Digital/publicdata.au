@@ -384,7 +384,7 @@ def test_one_version_that_cannot_load_does_not_stop_the_next(
     assert any("qld-road-crash-locations@2026-04-24 failed" in x for x in lines)
 
 
-def test_a_version_too_large_for_d1_is_files_only_everywhere(
+def test_a_version_too_large_for_d1_has_no_query_api_and_keeps_its_field_list(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     out = tmp_path / "dist"
@@ -394,12 +394,22 @@ def test_a_version_too_large_for_d1_is_files_only_everywhere(
     assert (big / "v" / "2026-04-24" / "data.csv").stat().st_size > d1.MAX_CSV
     page = (big / "index.html").read_text(encoding="utf-8")
     assert 'id="console"' not in page
-    assert not (big / "fields.json").exists()
     assert not (big / "openapi.json").exists()
     assert (big / "explore" / "index.html").exists()
+    # The MCP server's row tools answer it from Parquet, so it keeps its field list, built from
+    # its own data.parquet, without the query API's URLs.
+    assert (big / "fields.json").exists(), "no field list for list_fields"
+    small = out / "d" / "qld-road-casualties" / "fields.json"
+    fields = json.loads((big / "fields.json").read_text(encoding="utf-8"))
+    assert "rows_url" not in fields
+    assert "aggregate_url" in json.loads(small.read_text("utf-8"))
+    names = [f["name"] for f in fields["fields"]]
+    (crash,) = [d for d in load(ROOT / "register") if d.slug == "qld-road-crash-locations"]
+    assert names
+    assert set(names) <= {f.name for f in crash.fields}
+    assert any("min" in f or "values" in f for f in fields["fields"])
     listed = json.loads((out / "mcp" / "resources.json").read_text())["resources"]
-    assert "qld-road-crash-locations" not in {r["name"] for r in listed}
-    assert "qld-road-casualties" in {r["name"] for r in listed}
+    assert {"qld-road-crash-locations", "qld-road-casualties"} <= {r["name"] for r in listed}
     doc = json.loads((out / "openapi.json").read_text())
     enum = doc["paths"]["/api/v1/datasets/{slug}/rows"]["get"]["parameters"][0]["schema"]["enum"]
     assert "qld-road-crash-locations" not in enum

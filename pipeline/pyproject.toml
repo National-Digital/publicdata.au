@@ -75,12 +75,12 @@ convention = "google"
 # test may call the private helper it tests. A spreadsheet or Parquet timestamp in a fixture has
 # no zone, as the data has none.
 "tests/**" = ["S101", "PLR2004", "ARG", "SLF001", "DTZ001"]
-# These modules run git, npx (wrangler), esbuild, the Kaggle CLI or the build itself. Each call
-# passes an argument list with no shell, built from the repository and the register, and git and
-# npx are found on PATH as CI installs them.
+# These modules run git, npx (wrangler), esbuild, node, the Kaggle CLI or the build itself. Each
+# call passes an argument list with no shell, built from the repository and the register, and git
+# and npx are found on PATH as CI installs them.
 "publicdata/{cost,d1,explorer,hubs}.py" = ["S603"]
 "publicdata/{__main__,cost}.py" = ["S607"]
-"tests/{conftest,test_cost,test_d1,test_directory,test_hooks,test_r2,test_site_and_gate}.py" = [
+"tests/{conftest,test_cost,test_d1,test_directory,test_hooks,test_parts_sql,test_r2,test_site_and_gate}.py" = [
   "S603",
 ]
 "tests/test_{brand,cost,r2}.py" = ["S607"]
@@ -88,14 +88,16 @@ convention = "google"
 "tests/test_{checksums,r2}.py" = ["N803"]
 # The command line, the commands it hands to (gate.main, cost.run, verify.run) and the modules run
 # with python -m report to the terminal.
-"publicdata/{__main__,checksums,cost,dbcheck,extension,gate,smithery,tdqs,verify}.py" = ["T201"]
+"publicdata/{__main__,checksums,classes_fixture,cost,dbcheck,extension,gate,smithery,tdqs,verify}.py" = [
+  "T201",
+]
 # SQL is built from table and column names the register declares, quoted, with each value bound
 # as a parameter or written by a literal helper. These modules write the DuckDB, SQLite and D1
 # statements, and their tests read them back.
-"publicdata/{d1,database,figures,records,site,spine}.py" = ["S608"]
+"publicdata/{d1,database,figures,parts,records,rollup,site,spine}.py" = ["S608"]
 "publicdata/serialise/{__init__,geo,profile}.py" = ["S608"]
 "publicdata/serialise/writers/{gpkg,pmtiles,sqlite}.py" = ["S608"]
-"tests/test_{d1,directory,profile,records}.py" = ["S608"]
+"tests/test_{company_fixture,d1,directory,profile,records,updates}.py" = ["S608"]
 # cost reads a publisher URL only once _sized has checked it is http or https, and otherwise
 # reads the site and GitHub's API.
 "publicdata/cost.py" = ["S310"]

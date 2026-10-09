@@ -58,6 +58,22 @@ beside every version as `source.<ext>` with its SHA-256 in `manifest.json`.
 5. **Close the issue.** The issue links the pull request, the `replace` run and the versions it
    rebuilt, and the correction goes in the log below.
 
+## A change to `partition_by`
+
+The partition files under `by/<field>/` are part of each version, so an edit to an entry's
+`partition_by` corrects every version already published. The field is in each version's key, so
+the deploy builds every stored version again with the new partitions and no rebuild number is
+needed. The pull request notes each stored version as step 2 sets out. The deploy's plan fails it
+until every stored version's manifest gains a note, and its error names the prefixes the
+`replace` run takes.
+
+The deploy the merge starts builds the new partition files and stops before it writes any of them.
+Outside a `replace`, `dist-push` refuses to add a file under `by/` to a version whose
+`manifest.json` R2 already holds, and it names those versions. Every deploy of `main` stops at
+that point until a maintainer runs the Deploy workflow with `replace` set to the prefixes, so the
+dispatch follows the merge straight away. A replace overwrites and adds files and deletes none, so
+the files of a field taken out of `partition_by` stay in R2 under each version.
+
 ## What a rebuild does not reach
 
 The Deploy run replaces the files in R2, and `publicdata purge` clears `d/<slug>/v/<date>/` and
@@ -119,4 +135,4 @@ once the rebuild is confirmed.
 
 | Date | Versions | What was wrong | What changed | Copies cleared | Pull request |
 | --- | --- | --- | --- | --- | --- |
-| 6 October 2026 | `d/au-births-by-age-of-mother/v/2026-10-03/`, `d/au-births-by-age-of-father/v/2026-10-03/`, `d/au-births-by-state/v/2026-10-03/`, `d/au-building-approvals-by-lga-2025-26/v/2026-10-03/` | The attribution in every file linked the ABS dataflow at `explore.data.abs.gov.au`, a host that no longer resolves. | The register entries link the same dataflows at `dataexplorer.abs.gov.au`, and the dataset pages have shown the working link since the deploy of 6 October 2026. The data is unchanged. A dated note in each version's manifest and a `replace` rebuild of the four versions are still to come, and until the rebuild runs the dated files keep the dead link. | None has been cleared yet. Each version is its dataset's newest, so its D1 row is deleted before the `replace` run, and the run purges the edge. Cached client copies keep the dead link until the user clears the cache. | [#33](https://github.com/National-Digital/publicdata.au/pull/33) |
+| 6 October 2026 | `d/au-births-by-age-of-mother/v/2026-10-03/`, `d/au-births-by-age-of-father/v/2026-10-03/`, `d/au-births-by-state/v/2026-10-03/`, `d/au-building-approvals-by-lga-2025-26/v/2026-10-03/` | The attribution in every file linked the ABS dataflow at `explore.data.abs.gov.au`, a host that no longer resolves. | The register entries link the same dataflows at `dataexplorer.abs.gov.au`, and the dataset pages have shown the working link since the deploy of 6 October 2026. The data is unchanged. Each version's manifest carries a dated note saying so. A `replace` rebuild of the four versions is still to come, and until it runs the dated files keep the dead link. | None has been cleared yet. Each version is its dataset's newest, so its D1 row is deleted before the `replace` run, and the run purges the edge. The Hugging Face and Kaggle copies are refreshed after the rebuild, and each dataset's history archive is rebuilt by raising its `rebuild` number once the `replace` run has finished. The files in the four Zenodo records keep the dead link. Cached client copies keep the dead link until the user clears the cache. | [#33](https://github.com/National-Digital/publicdata.au/pull/33), [#118](https://github.com/National-Digital/publicdata.au/pull/118) |

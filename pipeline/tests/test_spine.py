@@ -280,6 +280,7 @@ def test_the_places_question_names_only_the_layers_a_dataset_joins() -> None:
         files: ClassVar[dict[str, int]] = {}
         left_out: ClassVar[dict[str, str]] = {}
         rows = 300
+        whole = True
 
     ds = parse(crashes_raw(enrich=["postcode", "lga"]), "qld")
     qs = [q for q, _ in _faq(ds, V, {})]  # type: ignore[arg-type]  # a VersionOut stand-in

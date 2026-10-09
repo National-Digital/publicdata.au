@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pr-title-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-title:
     name: Check title

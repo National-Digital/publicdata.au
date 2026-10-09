@@ -26,10 +26,12 @@
       var file = D.formats[f].file;
       return D.base + (v === 'latest' ? 'latest/' : 'v/' + v + '/') + file;
     }
-    // download_name() in site.py and functions/_download.js.
+    // download_name() in site.py, with the suffix it gives each format and the date latest/ serves.
+    // A page cached from before a deploy lacks both for five minutes, so the older rule stands in.
     function saveAs() {
-      var v = ver ? ver.value : 'latest', file = D.formats[fmt()].file;
-      return D.slug + '_' + (v === 'latest' ? D.latest : v) + (file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_'));
+      var v = ver ? ver.value : 'latest', d = D.formats[fmt()], file = d.file;
+      var tail = d.suffix != null ? d.suffix : file.indexOf('data.') === 0 ? file.slice(4) : '_' + file.replace(/\//g, '_');
+      return D.slug + '_' + (v === 'latest' ? D.served || D.latest : v) + tail;
     }
     function q(s) { return '"' + s + '"'; }
     function tools(f, u) {
@@ -198,9 +200,9 @@
     verSel.addEventListener('change', function () { S.version = verSel.value; update(); });
     fmtSel.addEventListener('change', function () { S.format = fmtSel.value; update(); });
 
-    var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0' });
+    var urlBox = el('div', { class: 'path', id: 'q-url', tabindex: '0', role: 'region', 'aria-label': 'Query URL' });
     var runB = el('button', { type: 'button', class: 'btn', text: 'Run' });
-    var openA = el('a', { class: 'btn ghost', text: 'Open', rel: 'nofollow' });
+    var openA = el('a', { class: 'btn ghost', text: 'Open the result', rel: 'nofollow' });
     var copyB = el('button', { type: 'button', class: 'copy', text: 'Copy URL' });
     copyB.addEventListener('click', function () { var t = urlBox.textContent; if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { say('Copied'); }, function () { say('Select and copy'); }); else say('Select and copy'); });
     var tabs = el('div', { class: 'tools', role: 'tablist', 'aria-label': 'Query code' });
@@ -394,13 +396,20 @@
     });
   }
 
-  // The header on a narrow screen: the menu button shows and hides the site links.
+  // The header on a narrow screen: the menu button shows and hides the site links, and Escape
+  // closes them and returns focus to the button.
   var menu = document.querySelector('.menu');
   if (menu) {
-    menu.addEventListener('click', function () {
-      var on = menu.getAttribute('aria-expanded') !== 'true';
+    var header = menu.closest('header');
+    var setMenu = function (on) {
       menu.setAttribute('aria-expanded', on ? 'true' : 'false');
-      menu.closest('header').classList.toggle('open', on);
+      header.classList.toggle('open', on);
+    };
+    menu.addEventListener('click', function () { setMenu(menu.getAttribute('aria-expanded') !== 'true'); });
+    header.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || menu.getAttribute('aria-expanded') !== 'true') return;
+      setMenu(false);
+      menu.focus();
     });
   }
 
@@ -621,25 +630,25 @@
     var vbase = function (slug) { return latest(slug).then(function (v) { return '/d/' + encodeURIComponent(slug) + '/v/' + v + '/'; }); };
     var partitionIndex = function (slug, field) { return vbase(slug).then(function (b) { return getJSON(b + 'by/' + encodeURIComponent(field) + '/index.json').then(function (ix) { ix.base = b; return ix; }); }); };
     var API = '/api/v1/datasets/';
-    var enc = function (v) { return encodeURIComponent(String(v)); };
+    var encValue = function (v) { return encodeURIComponent(String(v)); };
     var filters = function (where) {
       var out = [];
       Object.keys(where || {}).forEach(function (k) {
-        var w = where[k], f = enc(k);
+        var w = where[k], f = encValue(k);
         if (w === null) out.push(f + '=is.null');
         else if (Array.isArray(w)) {
           if (w.some(function (x) { return String(x).indexOf(',') >= 0; })) throw new Error('a list value cannot contain a comma; filter ' + k + ' on one value at a time');
-          out.push(f + '=in.' + enc('(' + w.join(',') + ')'));
+          out.push(f + '=in.' + encValue('(' + w.join(',') + ')'));
         } else if (typeof w === 'object') {
-          if (w.min !== undefined) out.push(f + '=gte.' + enc(w.min));
-          if (w.max !== undefined) out.push(f + '=lte.' + enc(w.max));
-          if (w.like !== undefined) out.push(f + '=ilike.' + enc(w.like));
-        } else out.push(f + '=eq.' + enc(w));
+          if (w.min !== undefined) out.push(f + '=gte.' + encValue(w.min));
+          if (w.max !== undefined) out.push(f + '=lte.' + encValue(w.max));
+          if (w.like !== undefined) out.push(f + '=ilike.' + encValue(w.like));
+        } else out.push(f + '=eq.' + encValue(w));
       });
       return out;
     };
     var api = function (slug, op, version, qs) {
-      var u = API + enc(slug) + '/' + (version ? 'versions/' + enc(version) + '/' : '') + op + (qs.length ? '?' + qs.join('&') : '');
+      var u = API + encValue(slug) + '/' + (version ? 'versions/' + encValue(version) + '/' : '') + op + (qs.length ? '?' + qs.join('&') : '');
       return fetch(u).then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (b) {
           if (r.status === 429) throw new Error('rate limited; wait ' + (r.headers.get('retry-after') || '10') + ' seconds and call again');
@@ -710,8 +719,8 @@
       return Promise.resolve().then(function () {
         slug = slugOf(input);
         var qs = filters(input.where).concat(['limit=' + limit, 'offset=' + offset]);
-        if (input.select && input.select.length) qs.push('select=' + input.select.map(enc).join(','));
-        if (input.order) qs.push('order=' + enc(input.order));
+        if (input.select && input.select.length) qs.push('select=' + input.select.map(encValue).join(','));
+        if (input.order) qs.push('order=' + encValue(input.order));
         return api(slug, 'rows', input.version, qs);
       }).then(function (b) {
         return total(slug, b.version, input.where).then(function (n) {
@@ -724,8 +733,9 @@
       var alias = metric === 'count' ? 'count' : metric.replace('.', '_');
       return Promise.resolve().then(function () {
         slug = slugOf(input);
-        var qs = filters(input.where).concat(['metric=' + enc(metric), 'order=' + enc(alias + '.desc'), 'limit=' + limit]);
-        if (group.length) qs.push('group=' + group.map(enc).join(','));
+        var order = [alias + '.desc'].concat(group.map(function (g) { return g + '.asc'; })).map(encValue).join(',');
+        var qs = filters(input.where).concat(['metric=' + encValue(metric), 'order=' + order, 'limit=' + limit]);
+        if (group.length) qs.push('group=' + group.map(encValue).join(','));
         return api(slug, 'aggregate', input.version, qs);
       }).then(function (b) {
         return total(slug, b.version, input.where).then(function (n) {

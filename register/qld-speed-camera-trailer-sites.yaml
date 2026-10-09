@@ -21,7 +21,7 @@ keywords:
 faq:
 - q: What is in each row?
   a: One site where a road safety camera trailer may be placed, with the site code, the road and locality,
-    and whether the site is active or parked. A direction such as [NB] after the locality is the direction
+    and whether the site is active or parked. A direction such as `[NB]` after the locality is the direction
     of travel the camera faces.
 - q: Does it show where trailers are today?
   a: No. It lists the approved sites only.

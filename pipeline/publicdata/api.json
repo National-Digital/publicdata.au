@@ -2,7 +2,14 @@
   "_comment": "Every sentence the site says about the query API and the agent tools. The tools under webmcp serve both the pages and the MCP server at /mcp. The build writes them into openapi.json, the agents page, llms.txt, each dataset page and its Markdown twin, site.js and functions/_tools.json. {name} is filled from limits; `code` becomes code in HTML. The gate checks limits, operators, metrics and parameters against functions/_query.js and functions/_api.js.",
   "site": {
     "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs that never change. Every release is a dated version that keeps its content, with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it.",
+    "suppressed": "A cell the publisher suppressed, such as \"<5\", is null, and the row's `suppressed` field names each field suppressed in that row. Report such a value as withheld by the publisher.",
     "file_formats": "parquet, csv, csv.gz, ndjson and duckdb are on every table version. xlsx is there up to {xlsx_mb} MB of CSV and {excel_rows} rows, json up to {json_mb} MB of NDJSON, and sqlite up to {sqlite_mb} MB of CSV. gpkg, and geo.parquet for points, exist only for datasets that declare geometry, with geojson up to a {geojson_mb} MB file, and pmtiles only for polygon and line layers. A version's manifest.json lists each format the limits left out, with the reason, under formats_left_out, and that set never changes. A version whose manifest has no caps field was fetched before these limits: it also has arrow, its xlsx stops at the Excel row limit, and its json and geojson stop at {json_rows} rows."
+  },
+  "skill": {
+    "name": "publicdata-au",
+    "title": "Using publicdata.au",
+    "description": "Use when a question needs Australian government open data. It finds a dataset on publicdata.au, reads its rows through the MCP server, the query API or the files, and cites the publisher's attribution with the dated version the answer came from.",
+    "queries": ["find australian government open data", "query an australian government dataset from an agent", "cite a dataset from publicdata.au"]
   },
   "limits": {
     "requests": 60,
@@ -16,7 +23,7 @@
     "rows": "`/api/v1/datasets/<slug>/rows` filters, selects, orders and pages any dataset.",
     "aggregate": "`/api/v1/datasets/<slug>/aggregate` counts, sums, averages, minimums and maximums by group.",
     "versions": "Without a version the API answers from the newest loaded version, and that answer changes when the publisher releases again. Put `versions/<date>/` before `rows` or `aggregate` for an answer from that version alone. `/api/v1/datasets/<slug>/versions` lists the loaded versions.",
-    "filters": "Each filter is `field=operator.value` in the query string, and every filter must match. A number or date field compares as a number or date, and a text field compares as text. Values are case-sensitive except with `ilike`. Prefix `not.` to negate a filter, as `not.eq.value`.",
+    "filters": "Each filter is `field=operator.value` in the query string, and every filter must match. A number or date field compares as a number or date, and a text field compares as text. Values are case-sensitive, except that `like` and `ilike` ignore case in the ASCII letters A to Z. Prefix `not.` to negate a filter, as `not.eq.value`.",
     "provenance": "Every JSON answer carries the version, licence and attribution. CSV and NDJSON answers carry them in response headers.",
     "terms_limits": "The query API allows {requests} requests in {window_seconds} seconds from one address. The MCP server counts each row tool call as two requests, against its own limit of {requests} requests in {window_seconds} seconds from one address. Files have no rate limit.",
     "rate_limit": "The API allows {requests} requests in {window_seconds} seconds from one address. Above that it answers 429 for {block_seconds} seconds with a `Retry-After` header, a `RateLimit-Policy` header and a JSON body that gives the limit. Every API answer carries the same `RateLimit-Policy`. A client should wait the `Retry-After` seconds, or read the files, which have no limit."
@@ -28,8 +35,8 @@
     "gte": { "label": "at least", "syntax": "gte.value", "description": "Greater than or equal to the value." },
     "lt": { "label": "less than", "syntax": "lt.value", "description": "Less than the value." },
     "lte": { "label": "at most", "syntax": "lte.value", "description": "Less than or equal to the value." },
-    "like": { "label": "matches", "syntax": "like.*text*", "description": "Matches a pattern where `*` stands for any run of characters. Case-sensitive." },
-    "ilike": { "label": "contains", "syntax": "ilike.*text*", "description": "The same as `like`, ignoring case." },
+    "like": { "label": "matches", "syntax": "like.*text*", "description": "Matches a pattern where `*` stands for any run of characters, ignoring case in the ASCII letters A to Z." },
+    "ilike": { "label": "contains", "syntax": "ilike.*text*", "description": "The same as `like`. Both ignore case in ASCII letters only, so É and é differ." },
     "in": { "label": "is one of", "syntax": "in.(a,b,c)", "description": "Equal to any value in the list. A value cannot contain a comma." },
     "is.null": { "label": "is blank", "not_label": "is not blank", "syntax": "is.null", "description": "Blank in the source, or suppressed by the publisher." }
   },
@@ -75,7 +82,7 @@
       },
       "get_dataset": {
         "title": "Read a dataset",
-        "description": "Read a served dataset's data package and full version history. Use it to download the whole table, check the licence, or find version dates for diff_versions and the version parameter.\nFor field names use list_fields. To answer a question from the rows use query_rows or count_rows, which need no download.\nslug is lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, such as au-road-deaths.\nThe whole history comes back in one answer, with no paging. It needs no key or sign-in, and costs nothing against the rate limit. A slug that is not served returns a 404 error.",
+        "description": "Read a served dataset's data package and full version history: licence, attribution, whole-table files and the version dates diff_versions and the version parameter take. It carries no rows. To answer from the rows use query_rows or count_rows, and for field names use list_fields.\nslug is lowercase letters, digits and hyphens, the part after /d/ in a dataset page URL, such as au-road-deaths.\nThe whole history comes back in one answer, with no paging. It needs no key or sign-in, and costs nothing against the rate limit. A slug that is not served returns a 404 error.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" }
@@ -95,7 +102,7 @@
       },
       "list_partitions": {
         "title": "List partition files",
-        "description": "List the download files that split a served dataset's newest version by one field, such as one file per year. Use it to hand someone a slice of the data as a file. To answer a question use query_rows or count_rows instead, and for the whole table use get_dataset. field must be one of the partition_by fields that list_fields names, and any other field returns a 404 error. Every value comes back in one answer, with no paging. The call costs nothing against the rate limit.",
+        "description": "List the download files that split a served dataset's newest version by one field, such as one file per year. Use it to hand someone a slice of the data as a file. It gives file links and no rows, so to answer a question use query_rows or count_rows instead, and for the whole table as one file use get_dataset. field must be one of the partition_by fields that list_fields names, and any other field returns a 404 error. Every value comes back in one answer, with no paging. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "Dataset slug from search_datasets" },
@@ -106,7 +113,7 @@
       },
       "query_rows": {
         "title": "Query rows",
-        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nOne page holds up to limit rows, and offset steps through the rest until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
+        "description": "Read individual rows of a served dataset, filtered across the whole table. For totals and breakdowns use count_rows, and for files use get_dataset or list_partitions.\nField names and values for where, select and order come from list_fields.\nFilters hold at most 90 values per call, and a list value cannot contain a comma.\nversion must be one of the two newest versions.\nA version too large for one file is stored as period parts and answered from them, in period order. A filter on the period field reads only the parts it can match, and parts names the periods read.\nOne page holds up to limit rows, and offset steps through the rest until next_offset is null. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "api": "rows",
         "input": {
@@ -119,11 +126,11 @@
           "version": { "api": "version", "type": "string" }
         },
         "required": ["slug"],
-        "output": {"type": "object", "properties": {"version": {"type": ["string", "null"], "description": "The version answered"}, "rows": {"type": "array", "items": {"type": "object"}, "description": "The rows, with the fields in select or every field"}, "matched": {"type": "integer", "description": "Rows in the whole table that match where"}, "next_offset": {"type": ["integer", "null"], "description": "offset for the next page, or null on the last"}, "query": {"type": "string", "description": "The query API URL that gives the same answer"}, "attribution": {"type": ["string", "null"], "description": "The publisher's attribution string, to show with any answer"}}, "required": ["version", "rows", "matched", "next_offset", "query"]}
+        "output": {"type": "object", "properties": {"version": {"type": ["string", "null"], "description": "The version answered"}, "rows": {"type": "array", "items": {"type": "object"}, "description": "The rows, with the fields in select or every field"}, "matched": {"type": "integer", "description": "Rows in the whole table that match where"}, "next_offset": {"type": ["integer", "null"], "description": "offset for the next page, or null on the last"}, "query": {"type": "string", "description": "The query API URL for the same query, which answers while the API has the version loaded"}, "file": {"type": "string", "description": "The Parquet file the answer was read from, when it came from the file"}, "parts": {"type": "array", "items": {"type": "string"}, "description": "The periods whose parts the answer was read from, when the version is stored as period parts. The manifest gives each part's file"}, "manifest": {"type": "string", "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"}, "attribution": {"type": ["string", "null"], "description": "The publisher's attribution string, to show with any answer"}}, "required": ["version", "rows", "matched", "next_offset", "query"]}
       },
       "count_rows": {
         "title": "Count and sum rows",
-        "description": "Count, sum, average, minimum or maximum rows of a served dataset across the whole table, grouped by up to three fields. For the rows themselves use query_rows.\nField names and values for group_by and where come from list_fields.\nsum and avg need a numeric or true-or-false field. min and max take any field.\nversion must be one of the two newest versions.\nGroups come back largest first, and truncated means raise limit or narrow where. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
+        "description": "Count, sum, average, minimum or maximum rows of a served dataset across the whole table, grouped by up to three fields. For the rows themselves use query_rows.\nField names and values for group_by and where come from list_fields.\nsum and avg need a numeric or true-or-false field. min and max take any field.\nversion must be one of the two newest versions.\nA version too large for one file is stored as period parts and answered from them. A filter on the period field reads only the parts it can match, and parts names the periods read.\nGroups come back largest first, and truncated means raise limit or narrow where. An unknown field or version returns an error naming it.\nEach call costs two of the {requests} queries each address may make in {window_seconds} seconds.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "api": "aggregate",
         "input": {
@@ -135,7 +142,7 @@
           "version": { "api": "version", "type": "string" }
         },
         "required": ["slug"],
-        "output": {"type": "object", "properties": {"version": {"type": ["string", "null"], "description": "The version answered"}, "group_by": {"type": "array", "items": {"type": "string"}}, "metric": {"type": "string"}, "groups": {"type": "array", "items": {"type": "object"}, "description": "One object per group, holding the group_by fields and the metric value, largest first"}, "truncated": {"type": "boolean", "description": "True when more groups exist than limit"}, "matched": {"type": "integer", "description": "Rows in the whole table that match where"}, "query": {"type": "string", "description": "The query API URL that gives the same answer"}, "attribution": {"type": ["string", "null"], "description": "The publisher's attribution string, to show with any answer"}}, "required": ["version", "group_by", "metric", "groups", "truncated", "matched", "query"]}
+        "output": {"type": "object", "properties": {"version": {"type": ["string", "null"], "description": "The version answered"}, "group_by": {"type": "array", "items": {"type": "string"}}, "metric": {"type": "string"}, "groups": {"type": "array", "items": {"type": "object"}, "description": "One object per group, holding the group_by fields and the metric value, largest first"}, "truncated": {"type": "boolean", "description": "True when more groups exist than limit"}, "matched": {"type": "integer", "description": "Rows in the whole table that match where"}, "query": {"type": "string", "description": "The query API URL for the same query, which answers while the API has the version loaded"}, "file": {"type": "string", "description": "The Parquet file the answer was read from, when it came from the file"}, "parts": {"type": "array", "items": {"type": "string"}, "description": "The periods whose parts the answer was read from, when the version is stored as period parts. The manifest gives each part's file"}, "manifest": {"type": "string", "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"}, "attribution": {"type": ["string", "null"], "description": "The publisher's attribution string, to show with any answer"}}, "required": ["version", "group_by", "metric", "groups", "truncated", "matched", "query"]}
       },
       "diff_versions": {
         "title": "Compare versions",
@@ -172,7 +179,7 @@
       },
       "upvote_dataset": {
         "title": "Vote for a dataset",
-        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, and a second vote from the same caller on the same day adds nothing. The answer gives the dataset's vote total after this call. The call costs nothing against the rate limit.",
+        "description": "Add one anonymous vote for a government dataset that publicdata.au does not serve yet, so it is built sooner. To read a served dataset use search_datasets, and to see the votes so far use list_backlog.\nslug is a vote key from search_catalogue, such as act-3u5a-ve4j, or a list_backlog slug.\nA dataset that is served, being built or closed returns an error saying it is not open for votes.\nNo identity is recorded, so a vote cannot be withdrawn, and a second vote from the same caller on the same day adds nothing. The answer gives the dataset's vote total after this call. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "slug": { "type": "string", "description": "The vote key of a search_catalogue row, or a slug from /backlog.json" }
@@ -181,7 +188,7 @@
         "output": {"type": "object", "properties": {"slug": {"type": "string"}, "votes": {"type": "integer", "description": "The dataset's vote total after this call"}}, "required": ["slug", "votes"]}
       }
     },
-    "where": "Filters by field name, applied to the whole table. A value may be a scalar for an exact, case-sensitive match, a list of scalars to match any of them, null to match blank or suppressed cells, {\"min\": n, \"max\": n} for an inclusive range, or {\"like\": \"*text*\"} for a case-insensitive match where * is the wildcard. A blank cell never matches a scalar, a list or a range.",
+    "where": "Filters by field name, applied to the whole table. A value may be a scalar for an exact, case-sensitive match, a list of scalars to match any of them, null to match blank or suppressed cells, {\"min\": n, \"max\": n} for an inclusive range, or {\"like\": \"*text*\"} for a pattern where * is the wildcard and case is ignored in ASCII letters. A blank cell never matches a scalar, a list or a range.",
     "version": "A version date, YYYY-MM-DD, from get_dataset. The newest version loaded for queries when absent."
   },
   "mcp": {
@@ -197,7 +204,7 @@
       {"label": "Any MCP client", "kind": "command", "value": "https://publicdata.au/mcp", "note": "Streamable HTTP. Cursor, VS Code or any client that connects to a remote MCP server."},
       {"label": "Paste a prompt", "kind": "prompt", "value": "Using https://publicdata.au/llms.txt, how many people died on Queensland roads in 2025, by month?", "note": "For an assistant that reads the web and has no connector."}
     ],
-    "intro": "`https://publicdata.au/mcp` is a remote MCP server over Streamable HTTP with the same tools, defined in the same place, so a tool added to the pages is added here too. It needs no key and no account. The row tools are held to the query API's limit of {requests} queries in {window_seconds} seconds from one address, and each call is two queries because it also counts the matching rows. Add it to Claude Code with `claude mcp add --transport http publicdata https://publicdata.au/mcp`, add the URL in Claude as a custom connector, or give it to any client that connects to remote MCP servers. Each queryable dataset is also a resource at `https://publicdata.au/d/<slug>/fields.json`, which lists its fields with their types, the publisher's descriptions, their ranges and the values they hold, so an agent can read a dataset's shape before it writes a query.",
+    "intro": "`https://publicdata.au/mcp` is a remote MCP server over Streamable HTTP with the same tools, defined in the same place, so a tool added to the pages is added here too. It needs no key and no account. Its row tools also answer for the versions the query API does not load, from each version's Parquet file once that file is rebuilt under the query profile. A query that would read too much of a file is refused with DuckDB SQL that answers it from the file. The row tools are held to the query API's limit of {requests} queries in {window_seconds} seconds from one address, and each call is two queries because it also counts the matching rows. Add it to Claude Code with `claude mcp add --transport http publicdata https://publicdata.au/mcp`, add the URL in Claude as a custom connector, or give it to any client that connects to remote MCP servers. Each dataset with a table is also a resource at `https://publicdata.au/d/<slug>/fields.json`, which lists its fields with their types, the publisher's descriptions, their ranges and the values they hold, so an agent can read a dataset's shape before it writes a query.",
     "resource": "The fields of {title}, from {publisher}: each field's type and the publisher's description, the range of numbers and dates, and the values a field holds when it has few. Use them to write where filters for query_rows and count_rows.",
     "resource_template": "The fields of one dataset by slug: types, the publisher's descriptions, ranges and the values each field holds. Find slugs with search_datasets or resources/list.",
     "listing": {
@@ -237,6 +244,13 @@
         },
         "text": "Find datasets on publicdata.au about {topic} with search_datasets. For each match, read its fields with list_fields, then say in a sentence what it holds, who publishes it, its licence and the years it covers."
       }
+    },
+    "tool_text": {
+      "version must be one of the two newest versions.": "version can be any date in the version history from get_dataset."
+    },
+    "parameters": {
+      "version": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent.",
+      "order": "field.asc or field.desc, comma-separated. When absent, and for ties, a version the query API loads keeps the publisher's order, and any other version the order of its Parquet file, which follows the dataset's declared sort where it has one."
     },
     "privacy": "The MCP server records nothing about who calls it or what they ask. To keep the rate limit, it counts row tool calls per address in Cloudflare's cache for {window_seconds} seconds.",
     "instructions": "Australian government open data, republished at URLs that never change. Find a dataset with search_datasets, read its fields with list_fields, then answer from the whole table with query_rows or count_rows. A dataset that is not served yet can be found with search_catalogue and voted for with upvote_dataset. Every answer names the version it came from and the publisher's attribution string. When you show the data to a person, use the attribution string, say it came from publicdata.au and link to the version the answer came from, https://publicdata.au/d/<slug>/v/<version>/. Use of this server is under https://publicdata.au/terms/."

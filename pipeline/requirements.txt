@@ -1,5 +1,5 @@
 # Exact versions for every install of the pipeline: CI, the deploy, the hubs and the fetch
-# runner read this as a constraint. Dependabot raises them in one monthly pull request.
+# runner read this as a constraint. Renovate raises them in one monthly pull request.
 # pyarrow, duckdb, xlsxwriter, openpyxl, xlrd and pmtiles are in the build's cache key, so
 # raising one rebuilds every version.
 anyio==4.15.1

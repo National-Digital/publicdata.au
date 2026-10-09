@@ -170,6 +170,7 @@ def test_new_versions_are_grouped_by_government_for_their_own_pull_requests(
 
         class M:
             version, bytes, encoding, sha256 = "2026-10-01", 1, "utf-8", "0" * 64
+            snapshot, cut = True, ""
 
         return M()
 

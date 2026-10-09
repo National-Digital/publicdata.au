@@ -47,7 +47,7 @@ faq:
     using Child Care Benefit approved services of that type, the number of services, and the mean and
     standard deviation of their fees per hour.
 - q: What are the service types?
-  a: LDC is long day care, for children who have not yet started school. BSC and ASC are before and after
+  a: In the publisher's codes, `LDC` is long day care, for children who have not yet started school. `BSC` and `ASC` are before and after
     school hours care, mostly for school children.
 - q: What do the blanks mean?
   a: The department rounds child counts to the nearest 10 and shows counts under 5 as <10, and service

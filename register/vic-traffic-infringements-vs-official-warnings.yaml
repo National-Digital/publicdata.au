@@ -40,7 +40,7 @@ faq:
 - q: What does each row hold?
   a: One kind of issuing agency for the quarter named on the row, such as fixed and mobile cameras,
     police on the spot, tolling or distracted driver and seatbelt cameras, with the infringements issued
-    and the official warnings issued. The TOTAL row is the publisher's own.
+    and the official warnings issued. The `TOTAL` row is the publisher's own.
 - q: How do warnings relate to the fines?
   a: The publisher says an official warning is issued when an infringement is withdrawn after internal
     review, and a warning may not relate to infringements issued in the same period. Police on the spot

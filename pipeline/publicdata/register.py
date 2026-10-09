@@ -149,6 +149,7 @@ if TYPE_CHECKING:
         example: object
         chart: object
         sample: object
+        rollup: object
         collection_search_title: object
         place_field: object
         rebuild: object
@@ -158,6 +159,9 @@ if TYPE_CHECKING:
         database: RawDatabase
         tables: list[RawTable]
         views: list[RawView]
+        update: object
+        volatile: list[object]
+        period: object
 
     class RawGrant(TypedDict, total=False):
         id: object
@@ -233,6 +237,13 @@ WIDE_KEYS = {
 }
 type Status = Literal["live", "building", "backlog", "blocked", "assessing"]
 STATUSES: tuple[Status, ...] = ("live", "building", "backlog", "blocked", "assessing")
+# How a source changes. A release is a dated edition. A rolling table is the whole table sent again
+# each time, and a feed is current state only; both keep a change log for every fetch and a dated
+# snapshot only when updates.cut says so.
+type Update = Literal["release", "rolling", "feed"]
+UPDATES: tuple[Update, ...] = ("release", "rolling", "feed")
+type Grain = Literal["year", "fiscal", "quarter", "month"]
+GRAINS: tuple[Grain, ...] = ("year", "fiscal", "quarter", "month")
 type FieldType = Literal["string", "integer", "number", "boolean", "date", "datetime"]
 TYPES: tuple[FieldType, ...] = ("string", "integer", "number", "boolean", "date", "datetime")
 JURISDICTIONS = ("Cth", "NSW", "Vic", "Qld", "WA", "SA", "Tas", "ACT", "NT", "Local")
@@ -418,6 +429,19 @@ class Database:
 
 
 @dataclass(frozen=True)
+class Period:
+    """The date field a table is split on, and the length of each part.
+
+    Parts in the newest `revision_window` periods are open; older ones are finished and written
+    once.
+    """
+
+    field: str
+    grain: Grain
+    revision_window: int = 2
+
+
+@dataclass(frozen=True)
 class Source:
     adapter: str
     url: str
@@ -512,6 +536,9 @@ class Dataset:
     chart: Chart | None = None
     # The rows the page shows as a sample. It shapes no version's bytes, so it stays out of the repr.
     sample: Sample | None = field(default=None, repr=False)
+    # Field sets a version's rollup weighs as the register's own questions, for counts no other
+    # engine answers within its budget. Rollups are built after the build, so it is not in the repr.
+    rollup: tuple[tuple[str, ...], ...] = field(default=(), repr=False)
     # Upstream columns knowingly left out, each with the reason, such as a third party's series.
     # They are recorded in the manifest and are not held as unknown.
     omit: dict[str, str] = field(default_factory=dict)
@@ -535,6 +562,13 @@ class Dataset:
     database: Database | None = None
     tables: tuple[TableSpec, ...] = ()
     views: tuple[View, ...] = ()
+    # The class decides when a fetch is cut as a snapshot and shapes no version's bytes. The
+    # volatile columns decide which changed parts are revisions, so they stay in the key.
+    update: Update = field(default="release", repr=False)
+    volatile: tuple[str, ...] = ()
+    # Recorded in each fetch's manifest when it is stored, and a version is split by the period
+    # its own manifest names, so adding one to an entry never changes the versions before it.
+    period: Period | None = field(default=None, repr=False)
 
     @property
     def publishable(self) -> bool:
@@ -771,6 +805,7 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         example=_example(raw.get("example"), fields, ctx),
         chart=_chart(raw.get("chart"), fields, ctx),
         sample=_sample(raw.get("sample"), fields, ctx),
+        rollup=_rollup(raw.get("rollup"), fields, ctx),
         collection_search_title=str(raw.get("collection_search_title", "")).strip(),
         place_field=str(raw.get("place_field", "")).strip(),
         rebuild=_rebuild(raw.get("rebuild", 0), ctx),
@@ -779,6 +814,7 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         source_withheld=str(raw.get("source_withheld", "")).strip(),
         kind=kind,
         **(_database(raw, ctx) if kind == "database" else {}),
+        **_update(raw, fields, key, ctx, kind=kind, geometry=geometry),
     )
     if kind == "database":
         for k in (
@@ -953,6 +989,90 @@ def _profile(raw: RawEntry, fields: list[Field], kind: str, ctx: str) -> _Profil
                 raise RegisterError(msg)
         out[name] = names
     return {"sort": out["sort"], "lookup": out["lookup"], "int32": out["int32"]}
+
+
+class _Update(TypedDict):
+    update: Update
+    volatile: tuple[str, ...]
+    period: Period | None
+
+
+def _update(  # noqa: C901, PLR0913 - one check per rule of the update class; the options are keyword-only
+    raw: RawEntry,
+    fields: list[Field],
+    key: tuple[str, ...],
+    ctx: str,
+    *,
+    kind: str,
+    geometry: Geometry | None,
+) -> _Update:
+    """The update class, its volatile columns and the period a table is split on."""
+    update = str(raw.get("update", "release"))
+    if update not in UPDATES:
+        msg = f"{ctx}: update '{update}' not one of {UPDATES}"
+        raise RegisterError(msg)
+    by = {f.name: f for f in fields}
+    volatile = tuple(str(x) for x in raw.get("volatile") or ())
+    if update != "release":
+        if kind != "table":
+            msg = f"{ctx}: a {update} source is one table"
+            raise RegisterError(msg)
+        # The change log compares fetches row by row, which needs the rows' own key.
+        if not key:
+            msg = f"{ctx}: a {update} source needs a key"
+            raise RegisterError(msg)
+        if (raw.get("source") or {}).get("feed"):
+            msg = f"{ctx}: update: feed replaces source.feed; give one"
+            raise RegisterError(msg)
+    elif volatile:
+        msg = f"{ctx}: volatile columns are for a rolling source or a feed"
+        raise RegisterError(msg)
+    for v in volatile:
+        if v not in by:
+            msg = f"{ctx}: volatile '{v}' is not a declared field"
+            raise RegisterError(msg)
+        if v in key:
+            msg = f"{ctx}: volatile '{v}' is part of the key"
+            raise RegisterError(msg)
+    period = _period(raw.get("period"), by, kind, geometry, ctx)
+    if update == "feed" and period is None:
+        msg = f"{ctx}: a feed's history grows without end, so it needs a period"
+        raise RegisterError(msg)
+    return {"update": update, "volatile": volatile, "period": period}
+
+
+def _period(
+    p: object, by: dict[str, Field], kind: str, geometry: Geometry | None, ctx: str
+) -> Period | None:
+    if not p:
+        return None
+    if not isinstance(p, dict) or not set(p) <= {"field", "grain", "revision_window"}:
+        msg = f"{ctx}: period takes field, grain and revision_window"
+        raise RegisterError(msg)
+    name = str(_req(p, "field", f"{ctx}.period"))
+    grain = str(_req(p, "grain", f"{ctx}.period"))
+    window = int(p.get("revision_window", 2))
+    if kind != "table":
+        msg = f"{ctx}: a database is not split into periods"
+        raise RegisterError(msg)
+    if geometry and geometry.get("kind") != "point":
+        msg = f"{ctx}: a {geometry['kind']} layer is not split into periods"
+        raise RegisterError(msg)
+    if grain not in GRAINS:
+        msg = f"{ctx}: period.grain '{grain}' not one of {GRAINS}"
+        raise RegisterError(msg)
+    period = Period(field=name, grain=grain, revision_window=window)
+    f = by.get(period.field)
+    if f is None:
+        msg = f"{ctx}: period.field '{period.field}' is not a declared field"
+        raise RegisterError(msg)
+    if f.type not in ("date", "datetime") and not (f.type == "integer" and period.grain == "year"):
+        msg = f"{ctx}: period.field is a date or datetime field, or an integer year for grain year"
+        raise RegisterError(msg)
+    if period.revision_window < 1:
+        msg = f"{ctx}: period.revision_window counts the open periods, at least 1"
+        raise RegisterError(msg)
+    return period
 
 
 LABEL_MAX = 60
@@ -1178,6 +1298,29 @@ def _geometry(raw: Geometry | None, seen: set[str], ctx: str) -> Geometry | None
         msg = f"{ctx}: a {g['kind']} layer carries its geometry, not lon and lat"
         raise RegisterError(msg)
     return g
+
+
+def _rollup(raw: object, fields: list[Field], ctx: str) -> tuple[tuple[str, ...], ...]:
+    if raw is None:
+        return ()
+    ctx = f"{ctx}: rollup"
+    names = {f.name for f in fields}
+    if not isinstance(raw, list):
+        msg = f"{ctx} is a list of field lists"
+        raise RegisterError(msg)
+    out: list[tuple[str, ...]] = []
+    for s in raw:
+        if (
+            not isinstance(s, list)
+            or not s
+            or not all(isinstance(x, str) for x in s)
+            or len(set(s)) != len(s)
+            or not set(s) <= names
+        ):
+            msg = f"{ctx}: {s!r} must list distinct declared fields"
+            raise RegisterError(msg)
+        out.append(tuple(str(x) for x in s))
+    return tuple(out)
 
 
 def _omit(raw: object, fields: list[Field], ctx: str) -> dict[str, str]:
