@@ -846,6 +846,35 @@ def test_the_week_counts_a_dataset_by_its_first_fetch_and_others_by_version_date
     assert _week([]) == ""
 
 
+def test_the_week_dates_a_fetch_in_brisbane_time_as_the_labels_are() -> None:
+    def out(slug: str, *versions: tuple[str, str]) -> DatasetOut:
+        return DatasetOut(
+            make_dataset([], slug=slug),
+            [
+                VersionOut(make_manifest(b"", version=v, fetched_at=f), 0, {}, [], 0, {})
+                for v, f in versions
+            ],
+        )
+
+    # 19:30 UTC on 8 October is 05:30 on 9 October in Brisbane.
+    morning = out(
+        "morning",
+        ("2026-01-02", "2026-01-02T01:00:00+00:00"),
+        ("2026-10-09", "2026-10-08T19:30:00+00:00"),
+    )
+    ahead = out(
+        "ahead",
+        ("2026-01-02", "2026-01-02T01:00:00+00:00"),
+        ("2026-10-10", "2026-10-08T19:30:00+00:00"),
+    )
+    opened = out("opened", ("2026-10-03", "2026-10-02T19:30:00+00:00"))
+    before = out("before", ("2026-10-02", "2026-10-01T19:30:00+00:00"))
+    assert _week([morning, ahead, opened, before]) == (
+        "In the week to 9 October 2026, this site published 1 dataset for the first time, "
+        "and 1 other dataset had a new version dated in the week."
+    )
+
+
 def test_a_withheld_source_is_left_out_listed_and_not_expected(
     register_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -41,6 +41,7 @@ from .build import (
 )
 from .cost import fleet_from_build
 from .d1 import KEEP, MAX_CSV, catalogue_sqlite, parts_csv, queryable, served_table
+from .fetch import TZ
 from .parts import FORMATS as PART_FORMATS
 from .parts import url as part_url
 from .provenance import (
@@ -648,18 +649,22 @@ def _week(live: list[DatasetOut]) -> str:
 
     Added counts the datasets this site first fetched in the week, since a publisher may date a
     first version years back. Updated counts the others with a version dated in the week. Both
-    read the stored manifests, so two builds of one snapshot agree.
+    read the stored manifests, so two builds of one snapshot agree. A fetch is dated in the
+    fetch's time zone, which dates the version labels too.
     """
-    fetched = [v.manifest.fetched_at[:10] for o in live for v in o.versions]
-    if not fetched:
+
+    def day(fetched_at: str) -> str:
+        return dt.datetime.fromisoformat(fetched_at).astimezone(TZ).date().isoformat()
+
+    first = {o.dataset.slug: min(day(v.manifest.fetched_at) for v in o.versions) for o in live}
+    if not first:
         return ""
-    end = max(fetched)
+    end = max(day(v.manifest.fetched_at) for o in live for v in o.versions)
     start = (dt.date.fromisoformat(end) - dt.timedelta(days=6)).isoformat()
-    added = {
-        o.dataset.slug for o in live if min(v.manifest.fetched_at[:10] for v in o.versions) >= start
-    }
+    added = {slug for slug, d in first.items() if d >= start}
     updated = sum(
-        o.dataset.slug not in added and any(v.manifest.version[:10] >= start for v in o.versions)
+        o.dataset.slug not in added
+        and any(start <= v.manifest.version[:10] <= end for v in o.versions)
         for o in live
     )
 
