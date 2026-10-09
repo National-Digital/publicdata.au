@@ -1,9 +1,12 @@
+import base64
 import datetime as dt
 import gzip
 import http.client
 import io
 import json
+import os
 import subprocess
+import textwrap
 import urllib.error
 import urllib.request
 import zipfile
@@ -1211,13 +1214,11 @@ def test_only_a_web_url_is_probed() -> None:
         cost.probe(ds)
 
 
-def _upload_token(claims):
+def _upload_token(claims: JSON) -> _Opener:
     """Answers as the Pages API does: an upload token whose payload carries the plan's claims."""
-    import base64
-
     body = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
 
-    def fake(req, timeout):
+    def fake(req: urllib.request.Request, timeout: float) -> _Resp:
         assert req.full_url == cost.PAGES_API.format(account="acct", project="publicdata-au")
         assert req.get_header("Authorization") == "Bearer tok"
         return _Resp(200, {}, json.dumps({"result": {"jwt": f"h.{body}.s"}}).encode())
@@ -1225,43 +1226,108 @@ def _upload_token(claims):
     return fake
 
 
-def test_the_pages_file_cap_is_the_upload_tokens_claim_or_pages_default(monkeypatch):
+def test_the_pages_file_cap_is_the_upload_tokens_claim_or_pages_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(cost, "_open", _upload_token({"max_file_count_allowed": 100_000}))
     assert cost.pages_file_cap("acct", "tok") == 100_000
-    for claims in ({}, {"max_file_count_allowed": "lots"}, {"max_file_count_allowed": True}):
-        monkeypatch.setattr(cost, "_open", _upload_token(claims))
+    claims: list[JSON] = [{}, {"max_file_count_allowed": "lots"}, {"max_file_count_allowed": True}]
+    for c in claims:
+        monkeypatch.setattr(cost, "_open", _upload_token(c))
         assert cost.pages_file_cap("acct", "tok") == cost.PAGES_FILES == 20_000
 
 
-def test_an_unreadable_pages_cap_says_why_without_the_token(monkeypatch, capsys):
-    from publicdata.__main__ import main
+def test_an_unreadable_pages_cap_says_why_and_prints_no_cap(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_sleep: None
+) -> None:
+    def refused(req: urllib.request.Request, timeout: float) -> _Resp:
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", Message(), None)
 
-    def refused(req, timeout):
-        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
-
-    monkeypatch.setattr(cost, "SLEEP", lambda s: None)
     monkeypatch.setattr(cost, "_open", refused)
     with pytest.raises(cost.Unmeasured, match="HTTP 403"):
         cost.pages_file_cap("acct", "tok")
-    monkeypatch.setattr(cost, "_open", lambda req, timeout: _Resp(200, {}, b'{"result": {}}'))
-    with pytest.raises(cost.Unmeasured, match="no upload token"):
-        cost.pages_file_cap("acct", "tok")
+    for answer in (b'{"result": {}}', b'{"result": {"jwt": "h.e30"}}', b"[]"):
+        monkeypatch.setattr(cost, "_open", lambda req, timeout, a=answer: _Resp(200, {}, a))
+        with pytest.raises(cost.Unmeasured, match="no upload token"):
+            cost.pages_file_cap("acct", "tok")
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
-    assert main(["pages-cap"]) == 0
+    assert main(["pages-cap"]) == 1
     out = capsys.readouterr()
-    assert out.out == "20000\n"
-    assert "no upload token, so the default of 20,000 is assumed" in out.err
+    assert out.out == ""
+    assert "no upload token, so no cap is read" in out.err
     assert "tok" not in out.err.replace("token", "")
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN")
     monkeypatch.setattr(cost, "_open", lambda *a: pytest.fail("read without a token"))
-    assert main(["pages-cap"]) == 0
-    assert capsys.readouterr().out == "20000\n"
+    assert main(["pages-cap"]) == 1
+    assert capsys.readouterr().out == ""
 
 
-def test_split_warns_near_the_pages_cap_and_fails_over_it(tmp_path, capsys):
-    from publicdata.__main__ import main
+# Stands in for python in the deploy step: pages-cap prints $CAP and fails when it is empty, and
+# split records its arguments and prints its count only when it is given a cap.
+FAKE_PYTHON = """#!/bin/sh
+case "$3" in
+  pages-cap) [ -n "$CAP" ] && echo "$CAP"; [ -n "$CAP" ] ;;
+  split) echo "$@" > "$ARGS"
+    case "$*" in *--max-files*) echo "split: 3 file(s) left for Pages, of the $CAP cap" ;; esac ;;
+esac
+"""
 
+
+def _deploy_split(tmp_path: Path, cap: str) -> tuple[subprocess.CompletedProcess[str], str, str]:
+    """Run the deploy step's lines from the cap read to split's exit, with python faked."""
+    lines = (ROOT / ".github/workflows/deploy.yml").read_text("utf-8").splitlines()
+    start = next(i for i, ln in enumerate(lines) if "publicdata pages-cap" in ln)
+    end = next(i for i, ln in enumerate(lines) if i > start and 'exit "$status"' in ln)
+    script = textwrap.dedent("\n".join(lines[start : end + 1]))
+    bin_, dist = tmp_path / "bin", tmp_path / "dist"
+    bin_.mkdir()
+    dist.mkdir()
+    for n in range(3):
+        (dist / f"{n}.html").write_text("x")
+    (bin_ / "python").write_text(FAKE_PYTHON)
+    (bin_ / "python").chmod(0o755)
+    summary, args = tmp_path / "summary.md", tmp_path / "args"
+    env = {
+        "PATH": f"{bin_}:{os.environ['PATH']}",
+        "CAP": cap,
+        "ARGS": str(args),
+        "DIST": str(dist),
+        "DIST_LARGE": str(tmp_path / "large"),
+        "GITHUB_STEP_SUMMARY": str(summary),
+    }
+    run = subprocess.run(
+        ["bash", "-eo", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    read = [f.read_text() if f.exists() else "" for f in (args, summary)]
+    return run, read[0], read[1]
+
+
+def test_the_deploy_checks_the_pages_cap_it_reads(tmp_path: Path) -> None:
+    run, args, summary = _deploy_split(tmp_path, "100000")
+    assert run.returncode == 0, run.stderr
+    assert "--max-files 100000" in args
+    assert "::warning::" not in run.stdout
+    assert summary == "split: 3 file(s) left for Pages, of the 100000 cap\n"
+
+
+def test_the_deploy_warns_and_checks_no_cap_when_none_is_read(tmp_path: Path) -> None:
+    run, args, summary = _deploy_split(tmp_path, "")
+    assert run.returncode == 0, run.stderr
+    assert "--max-files" not in args
+    assert "::warning::The Pages file cap could not be read from the account" in run.stdout
+    assert "split: 3 file(s) left for Pages. The Pages file cap could not be read" in summary
+    assert "of the 20,000" not in summary
+
+
+def test_split_warns_near_the_pages_cap_and_fails_over_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     out, large = tmp_path / "dist", tmp_path / "large"
     out.mkdir()
     for n in range(8):

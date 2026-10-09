@@ -453,10 +453,13 @@ R2 with a sized HEAD and immutable caching.
 
 A Pages deployment may hold only so many files, and the account's plan sets how many: 20,000 on
 a free Cloudflare plan and 100,000 on paid ones. `publicdata pages-cap` reads the figure from
-the `max_file_count_allowed` claim in the project's upload token, as wrangler does, and assumes
-20,000 when the token cannot be read or states none. The deploy hands it to `split --max-files`,
-which puts the count of files left for Pages beside the cap in the deploy's summary, warns from
-80% of the cap, and fails the deploy above it before anything is published. A preview keeps the
+the `max_file_count_allowed` claim in the project's upload token, as wrangler does, and takes
+20,000 when the token states none. The deploy hands it to `split --max-files`, which puts the
+count of files left for Pages beside the cap in the deploy's summary, warns from 80% of the cap,
+and fails the deploy above it before anything is published. When the token cannot be read,
+`pages-cap` prints nothing and fails, and the deploy warns that the cap was not read, puts the
+count in the summary on its own and publishes without checking it, since Pages may well accept
+it. A preview keeps the
 version files of the versions it builds on Pages, so its count runs ahead of production's and it
 warns first. Near the cap, either the account moves to a plan that allows more files, or the
 place pages are served from R2, as the closed #132 does and can be reopened to do.

@@ -448,18 +448,26 @@ def cmd_split(args: argparse.Namespace) -> int:
     return 1 if stranded else 0
 
 
-def cmd_pages_cap(args) -> int:
-    from . import cost
+def cmd_pages_cap(_args: argparse.Namespace) -> int:
+    """Print the file cap the account's plan sets on a Pages deployment.
+
+    When the cap cannot be read, it prints nothing, says why on stderr and exits 1. The deploy
+    then leaves the count unchecked, since a failed read is no evidence of the account's cap.
+    """
+    from . import cost  # noqa: PLC0415 - CLI start-up
 
     account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
     token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    if not (account and token):
+        print(
+            "pages cap: no Cloudflare token or account is set, so no cap is read", file=sys.stderr
+        )
+        return 1
     try:
-        if not (account and token):
-            raise cost.Unmeasured("no Cloudflare token or account is set")
         cap = cost.pages_file_cap(account, token)
     except cost.Unmeasured as e:
-        print(f"pages cap: {e}, so the default of {cost.PAGES_FILES:,} is assumed", file=sys.stderr)
-        cap = cost.PAGES_FILES
+        print(f"pages cap: {e}, so no cap is read", file=sys.stderr)
+        return 1
     print(cap)
     return 0
 

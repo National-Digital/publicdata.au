@@ -437,12 +437,20 @@ jobs:
           [ -f absent.json ] || echo '[]' > absent.json
           python -m publicdata gate "$DIST" --absent absent.json
           # The cap is the account's, read from the project's upload token; the summary keeps the
-          # count beside it, so the deploy warns well before Pages would refuse it.
-          cap=$(python -m publicdata pages-cap)
+          # count beside it, so the deploy warns well before Pages would refuse it. A cap that
+          # cannot be read is not checked, so a failed read never stops a deploy Pages would take.
+          cap=$(python -m publicdata pages-cap) || cap=
+          if [ -z "$cap" ]; then
+            echo "::warning::The Pages file cap could not be read from the account, so the deploy does not check its file count against it"
+          fi
           status=0
-          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 --max-files "$cap" ${VERSIONED:+"$VERSIONED"} > split.log 2>&1 || status=$?
+          python -m publicdata split --out "$DIST" --large "$DIST_LARGE" --limit-mib 24 ${cap:+--max-files "$cap"} ${VERSIONED:+"$VERSIONED"} > split.log 2>&1 || status=$?
           cat split.log
-          grep 'left for Pages' split.log >> "$GITHUB_STEP_SUMMARY" || true
+          if [ -n "$cap" ]; then
+            grep 'left for Pages' split.log >> "$GITHUB_STEP_SUMMARY" || true
+          else
+            echo "split: $(find "$DIST" -type f | wc -l) file(s) left for Pages. The Pages file cap could not be read from the account, so this count was not checked against it." >> "$GITHUB_STEP_SUMMARY"
+          fi
           [ "$status" -eq 0 ] || exit "$status"
           df -h / | tail -1
       - name: Push version files to R2
