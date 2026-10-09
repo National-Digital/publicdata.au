@@ -42,7 +42,7 @@ summary: Offences flagged as family and domestic abuse-related that were reporte
   newest financial year, counted by quarter, postcode and offence type. Updated quarterly.
 description: The family and domestic abuse-related offences file from South Australia Police's crime statistics.
   Each row is one quarter, postcode and offence, with the number of offences of that type reported to police that
-  were flagged as being of a family and domestic abuse nature. The publisher writes NOT DISCLOSED where it does not
+  were flagged as being of a family and domestic abuse nature. The publisher writes `NOT DISCLOSED` where it does not
   give the postcode, and that is kept as published.
 publisher:
   name: South Australia Police
@@ -75,7 +75,7 @@ fields:
   label: Postcode
   source: Postcode - Incident
   type: string
-  description: Kept as text, since the publisher writes NOT DISCLOSED for some incidents.
+  description: Kept as text, since the publisher writes `NOT DISCLOSED` for some incidents.
 - name: offence_level_1
   label: Offence group
   source: Offence Level 1 Description

@@ -7,6 +7,10 @@ const R2 = {
   'd/x/v/2026-04-24/index.html': '<html>v</html>',
   'd/x/v/2026-04-24/index.md': '# v',
   'd/x/v/2026-04-24/data.csv': 'a,b\n1,2\n',
+  'd/r/fetch/2026-10-06/data.parquet': 'PAR1',
+  // A file an older fetch wrote, which latest/ must never serve again.
+  'd/r/fetch/2026-09-29/data.xlsx': 'old',
+  'd/r/latest/data.xlsx': 'old',
 };
 const BIG = 'd/x/v/2026-04-24/data.duckdb';
 const obj = (key, body, range) => ({
@@ -19,7 +23,9 @@ const env = {
   ASSETS: { fetch: async (r) => {
     const u = new URL(r.url || r);
     if (u.pathname === '/static/page-headers.json') return Response.json({ 'Content-Security-Policy': "default-src 'self'", 'X-Content-Type-Options': 'nosniff' });
-    if (u.pathname === '/latest.json') return Response.json({ x: '2026-04-24' });
+    if (u.pathname === '/latest.json') return Response.json({ x: '2026-04-24', r: '2026-09-01' });
+    if (u.pathname === '/current.json') return Response.json({ r: { fetch: '2026-10-06', source: 'source.csv' } });
+    if (u.pathname === '/d/r/fetch/2026-10-06/data.csv') return new Response('k,v\n1,2\n', { headers: { 'cache-control': 'public, max-age=31536000' } });
     if (u.pathname === '/withheld.json') return Response.json(['/d/x/v/2026-04-24/source.csv']);
     return new Response('nf', { status: 404 });
   } },
@@ -170,6 +176,29 @@ test('a path with escapes is sent to its plain form, where a withheld file is st
   assert.equal((await get('/d/x/v/2026-04-24/data.csv%3Fa')).status, 404);
   assert.equal((await get('/d/x/v/2026-04-24/%E0%A4%A')).status, 404);
   assert.equal((await get('/d/x/v/2026-04-24/data.csv')).status, 200);
+});
+
+test("a rolling source's latest/ is its newest fetch, served in place with a five-minute cache", async () => {
+  const pages = await get('/d/r/latest/data.csv');
+  assert.equal(pages.status, 200);
+  assert.equal(await pages.text(), 'k,v\n1,2\n');
+  assert.equal(pages.headers.get('cache-control'), 'public, max-age=300, no-transform');
+  assert.equal(pages.headers.get('location'), null);
+  assert.equal(pages.headers.get('content-disposition'), 'inline; filename="r_2026-10-06.csv"');
+  const r2 = await get('/d/r/latest/data.parquet');
+  assert.equal(r2.status, 200);
+  assert.equal(await r2.text(), 'PAR1');
+  assert.match(r2.headers.get('cache-control'), /max-age=300/);
+  // Only the current fetch's folder is read, so an older fetch's file is gone from latest/.
+  assert.equal((await get('/d/r/latest/data.xlsx')).status, 404);
+  const raw = { get: async (k) => (k === 'r/2026-10-06/source.csv' ? obj(k, 'src') : null), head: async () => null };
+  const src = await onRequestGet({ request: new Request('https://publicdata.au/d/r/latest/source.csv'), env: { ...env, RAW: raw } });
+  assert.equal(src.status, 200);
+  assert.equal(await src.text(), 'src');
+  // A release still redirects to its newest dated version.
+  const rel = await get('/d/x/latest/data.csv');
+  assert.equal(rel.status, 302);
+  assert.equal(rel.headers.get('location'), '/d/x/v/2026-04-24/data.csv');
 });
 
 // A text file as dist-push stores it: gzipped, marked so, with its decoded size and hash.

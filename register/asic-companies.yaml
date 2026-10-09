@@ -47,11 +47,11 @@ faq:
     that has changed its name has one row for each name it has held, and the current name indicator says
     which row is the name in force.
 - q: What do the type, class, sub-class and status codes mean?
-  a: The codes are ASIC's own. Type is APTY for an Australian proprietary company, APUB for an Australian
-    public company, FNOS for a foreign company, RACN for a registered Australian body and CCIV for a
-    corporate collective investment vehicle. Status is REGD for registered, DRGD for deregistered, EXAD for
-    external administration, SOFF for strike-off action in progress, NOAC for not active, CNCL for cancelled
-    and DISS for dissolved. The class and sub-class codes are set out in the publisher's help file on the
+  a: The codes are ASIC's own. Type is `APTY` for an Australian proprietary company, `APUB` for an Australian
+    public company, `FNOS` for a foreign company, `RACN` for a registered Australian body and `CCIV` for a
+    corporate collective investment vehicle. Status is `REGD` for registered, `DRGD` for deregistered, `EXAD` for
+    external administration, `SOFF` for strike-off action in progress, `NOAC` for not active, `CNCL` for cancelled
+    and `DISS` for dissolved. The class and sub-class codes are set out in the publisher's help file on the
     source page.
 - q: Why is the ABN blank for some companies?
   a: The publisher writes 0 where a company has no ABN. That 0 is kept here as a null value.

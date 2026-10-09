@@ -25,13 +25,13 @@ collection_description: |
   Each table holds one quarter. Urgency category 1 patients are clinically recommended to be treated within 30 days, category 2 within 90 days and category 3 within 365 days. Queensland Health writes a dash where a figure is not given, and those cells are null here with a suppressed flag.
 faq:
 - q: What is in each row?
-  a: One public hospital and one urgency category, 1, 2, 3 or ALL, for the quarter, with the patients
+  a: One public hospital and one urgency category, 1, 2, 3 or `ALL`, for the quarter, with the patients
     treated and the share treated within the recommended time, the change in patients treated on a year
     before, the patients waiting, those waiting longer than recommended, and the share waiting within
     the recommended time, split by whether the patient is ready for surgery.
 - q: What does a dash mean?
   a: Queensland Health writes a dash where it gives no figure for a hospital, such as a percentage with
-    no patients behind it. Those cells are null here and flagged as suppressed. A few cells read NULL,
+    no patients behind it. Those cells are null here and flagged as suppressed. A few cells read `NULL`,
     and those are null too.
 - q: Which quarter is it?
   a: The quarter ending September 2025. Queensland Health adds a file each quarter. This table is fixed

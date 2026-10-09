@@ -162,7 +162,9 @@ superlative claims. [`BRAND.md`](BRAND.md#typography) sets the typography the ga
 publicdata.au has four kinds of version, and each has its own rule.
 
 - **Datasets** are versioned by date, not by number. A version is named for the day the publisher
-  changed the source, and an unchanged source makes no version. The
+  changed the source, and an unchanged source makes no version. A table the publisher resends
+  whole, or a feed of what is current, keeps every changed read with a change log and makes a
+  dated version only by the rules under `update` in Reference. The
   [Archive](docs/ARCHITECTURE.md#archive) section says what may change once one is published.
 - **The site, API and MCP server** follow [semantic versioning](https://semver.org/) through
   release tags (`v2.21.1`). Each merge to `main` releases one: `feat` raises the minor number,
@@ -446,6 +448,12 @@ rule carries `# nolint: <linter>. <reason>`.
   neighbouring files.
 - Every CI gate must be proven to fail on the defect it guards against. A gate without a
   failing-fixture test does not count.
+- Every page meets WCAG 2.2 AAA, with dense data regions held to AA; [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md)
+  states the target, what `scripts/a11y.mjs` enforces and the regions excepted. Sizes are in rem,
+  never px. An abbreviation the site's own prose uses goes in `pipeline/publicdata/glossary.json`,
+  which the about page renders; a publisher's code or value quoted in register copy goes in
+  backticks, and `register validate` fails an entry that uses an abbreviation the glossary lacks.
+  A template that puts a publisher's value in the site's own sentence marks it `data-quoted`.
 - New datasets enter through `register/<slug>.yaml` with licence id, evidence URL,
   attribution and column allow-list declared, or `register validate` stops the build.
   `publicdata register draft <portal dataset url>` writes a first entry from a CKAN portal: the
@@ -478,8 +486,35 @@ rule carries `# nolint: <linter>. <reason>`.
   the WA, SA and Victorian portals and CC BY 3.0 AU on data.gov.au (`PORTAL_LICENCES` in fetch.py). NSW and
   NT name no version for `cc-by`, so an entry there sets `licence.portal_id` and the version from the
   dataset page, and an entry whose id disagrees with the portal's own definition is stopped.
-- A source that is a live feed of what is current sets `feed: true`. The daily run fetches only feeds
-  (`fetch --feeds`), and each day a feed changes is one version dated by that day.
+- `update` is how the source changes: `release` (the default), `rolling` or `feed`. A release is a
+  dated edition, and each changed fetch is a version. A `rolling` source sends its whole table each
+  time and is read weekly; a `feed` holds only what is current and is read daily. Both need a
+  `key`. Each read that changed a row is stored as a fetch with a change log by key, served at
+  `latest/` and listed in `/d/<slug>/changes/`, and it becomes a dated snapshot when it is the
+  first fetch, when it revises a finished period, when more than 5% of rows changed, when a
+  period has closed or when it is the first change of the month. An unchanged read in a later month
+  makes the newest fetch a snapshot under its own date, as the last change of its month. Each
+  fetch records its class, so changing `update` leaves the versions already made as they were. A feed also keeps every state each key has
+  held, with `first_seen` and `last_seen` (the dates this site first and last read it, marked as
+  computed in the history's Table Schema), and records its newest read in the raw store, so a
+  quiet day opens no pull request; an empty feed is a state like any other. While an earlier fetch of the dataset waits in an open
+  pull request, the fetch holds it back. Each hub takes a rolling source or a feed at
+  most once a month, and Zenodo takes only its Parquet and gzipped CSV. docs/ARCHITECTURE.md has the details.
+- `volatile` lists fields a rolling source or a feed rewrites on every read, such as
+  `updated_at`. They are published, and a read that changed nothing else is no change.
+- `period: {field, grain}` splits a table into parts by the `year`, `fiscal` (July to June)
+  year, `quarter` or `month` of a date field (an integer year field takes grain `year`), with
+  rows that have no date in an `undated` part. Each fetch records the period in its manifest and
+  a version is split by its own, so adding a period changes no version already published; the
+  next fetch is the first one split. A table whose rows carry a date needs one once its newest version is over
+  100 MB of Parquet or 5 million rows, and a feed always does. The grain is the largest that
+  keeps every part's Parquet at or under 100 MB, and the gate checks both. `revision_window`
+  (default 2) counts the open periods; an older part is finished, written once and reused by
+  later versions while its rows and column types stay the same, and a change to it is flagged as
+  a revision. Past 100 MB or 5 million rows in
+  all, a version is its parts and a DuckDB file over them, with no whole-table files.
+- The older `source.feed: true` is a release read daily, one version for each day it changed.
+  A new feed uses `update: feed` instead, and an entry gives one or the other.
 - Geometry is declared on the entry. Points name their `lon` and `lat` fields and the publisher's `crs`;
   their coordinates are published as given. A `kind: polygon` or `kind: line` layer is read whole from a
   shapefile, GeoPackage or GeoJSON (`source.member` names it inside a zip), moved to GDA2020 (EPSG:7844), and

@@ -5,8 +5,8 @@
 <div class="ds-head"><h1>{{ heading }}</h1></div>
 <p style="margin-top:14px">{{ intro }}</p>
 {% for n in notes or [] %}<p class="notice" style="margin-top:10px">{{ n }}</p>{% endfor %}
-{% if catalogue %}<form class="catsearch" action="/backlog/" method="get" role="search"><label for="cat-q-browse" class="vh">Search every dataset</label><input id="cat-q-browse" name="q" type="search" placeholder="Search every dataset by topic, title or publisher"><button class="btn" type="submit">Search</button></form>{% endif %}
+{% if catalogue %}<form class="catsearch" action="/backlog/" method="get" role="search" aria-label="Catalogue search"><label for="cat-q-browse" class="vh">Search every dataset</label><input id="cat-q-browse" name="q" type="search" placeholder="Search every dataset by topic, title or publisher"><button class="btn" type="submit">Search</button></form>{% endif %}
 <div class="jtiles">{% for j in jurisdictions %}<a class="jtile" href="{{ j.path }}"><span class="jname">{{ j.name }}</span>{% if catalogue %}<span class="jbar"><i style="width:{{ j.bar }}%"></i></span><span class="jn"><b>{{ j.listed }}</b> listed</span><span class="jn"><b>{{ j.candidates }}</b> open with a download</span>{% endif %}<span class="jn"><b>{{ j.publishers }}</b> publisher{{ '' if j.publishers_n == 1 else 's' }}</span><span class="jn"><b>{{ j.live }}</b> served here</span><span class="jportal">{{ j.portals|join(', ') }}</span></a>{% endfor %}</div>
-{% if catalogue %}<p class="muted" style="font-size:14px;margin-top:20px">Listed is what the portal shows. Open with a download means the licence is open and there is a file to fetch, so a vote can move it into the backlog. Served here is what this site already publishes.</p>{% endif %}
-{% if catalogue %}<p class="muted" style="font-size:14px;margin-top:24px">Counts come from the portals' own catalogues, read {{ as_at_long }}.</p>{% endif %}
+{% if catalogue %}<p class="muted small" style="margin-top:20px">Listed is what the portal shows. Open with a download means the licence is open and there is a file to fetch, so a vote can move it into the backlog. Served here is what this site already publishes.</p>{% endif %}
+{% if catalogue %}<p class="muted small" style="margin-top:24px">Counts come from the portals' own catalogues, read {{ as_at_long }}.</p>{% endif %}
 {% endblock %}

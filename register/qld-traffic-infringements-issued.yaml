@@ -34,7 +34,7 @@ faq:
     so their text sits in the financial year column and the other columns are empty.
 - q: Why does North Brisbane have so many offences?
   a: Almost every camera-detected offence in the file is recorded against the North Brisbane police district,
-    and no other district has more than a few dozen. Toll offences are all recorded under the UNKNOWN region. Compare
+    and no other district has more than a few dozen. Toll offences are all recorded under the `UNKNOWN` region. Compare
     districts on offences that are not camera or toll offences.
 summary: The number of traffic infringement notices and charges issued in Queensland each financial year
   since 2013-14, by police region and district and by offence code and description.
@@ -64,7 +64,7 @@ sample:
       neq: UNKNOWN
   order: [offences.desc]
   label: The offence with the most notices or charges in one financial year in each police region, each
-    region in turn, largest first. Rows with no region or the UNKNOWN region are left out.
+    region in turn, largest first. Rows with no region or the `UNKNOWN` region are left out.
 source:
   adapter: ckan-resource
   portal: https://www.data.qld.gov.au

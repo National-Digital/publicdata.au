@@ -256,6 +256,7 @@ def test_the_places_question_names_only_the_layers_a_dataset_joins():
         files = {}
         left_out = {}
         rows = 300
+        whole = True
 
     qs = [q for q, _ in _faq(parse(crashes_raw(enrich=["postcode", "lga"]), "qld"), V, {})]
     assert "Which postcode and council area is each row of Road crash locations in?" in qs

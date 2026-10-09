@@ -58,7 +58,7 @@ faq:
     change over one and ten years; those columns are derived or not final and are not republished. Earlier
     versions here keep the earlier windows.
 - q: What do the null medians mean?
-  a: The publisher writes NA or a dash where too few sales were recorded in a locality to give a median.
+  a: The publisher writes `NA` or a dash where too few sales were recorded in a locality to give a median.
     Both are kept as null.
 - q: What are the marks beside some medians?
   a: The publisher's sheet has an unheaded column beside each year that holds a ^ or * against some

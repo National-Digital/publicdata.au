@@ -1,0 +1,27 @@
+slug: test-feed
+title: Current road closures
+status: building
+description: A test feed of current road closures, one row per closure the publisher lists now, with the day it was reported.
+update: feed
+period:
+  field: reported
+  grain: year
+publisher:
+  name: Test Roads Office
+  short: Roads Office
+  jurisdiction: Qld
+  url: https://example.gov.au/
+licence:
+  id: CC-BY-4.0
+  evidence: https://example.gov.au/licence
+  attribution: Test Roads Office, CC BY 4.0
+source:
+  adapter: none
+  url: https://example.gov.au/closures.csv
+  cadence: live
+key: [id]
+fields:
+  - {name: id, source: ID}
+  - {name: road, source: Road}
+  - {name: status, source: Status}
+  - {name: reported, source: Reported, type: date}

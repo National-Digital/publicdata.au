@@ -52,7 +52,7 @@ faq:
     the CFA district number and the incident type as a code and as words. The workbook holds one sheet per
     financial year from 2009-10 to 2021-22, and the financial year is kept from the sheet name.
 - q: Why do some rows have no district or incident type?
-  a: The publisher leaves the district blank or writes NULL where none was recorded, and some incidents
+  a: The publisher leaves the district blank or writes `NULL` where none was recorded, and some incidents
     have no type recorded. Both are kept as null.
 - q: What do the incident type codes mean?
   a: They are the codes of the Australasian Incident Reporting System. Each row also carries the type in

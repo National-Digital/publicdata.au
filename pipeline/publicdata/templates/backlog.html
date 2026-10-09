@@ -5,7 +5,7 @@
   <div>
     <h1>The backlog</h1>
     <p class="lede">{% if catalogue_total %}This is every dataset Australian governments list on their open-data portals, {{ catalogue_total }} of them. Search for the one you need and vote for it.{% else %}These are the datasets people have asked for.{% endif %} We build the ones with the most votes first, and we do not ask who you are.</p>
-    {% if catalogue_total %}<form class="catsearch" id="cat-search" role="search">
+    {% if catalogue_total %}<form class="catsearch" id="cat-search" role="search" aria-label="Catalogue search">
       <label for="cat-q" class="vh">Search every dataset</label>
       <input id="cat-q" name="q" type="search" autocomplete="off" placeholder="Search by topic, title or publisher, such as school enrolments">
       <label for="cat-jur" class="vh">Government</label>
@@ -15,7 +15,7 @@
     </form>{% endif %}
   </div>
   <div class="card">
-    <h3>Have a link?</h3>
+    <h2 class="h3">Have a link?</h2>
     <p class="small">Paste the dataset's page from a government portal. If it is in the catalogue, that counts as your vote. If it is not, we point you to a person who can add it.</p>
     <form class="suggest" id="suggest" toolname="request_dataset" tooldescription="Vote for a government dataset by its portal URL. A URL the catalogue holds becomes a vote for that dataset; the answer says so or explains why it cannot take one. No identity is recorded." toolautosubmit><label for="sug" class="vh">Dataset URL</label><input id="sug" name="url" type="url" required placeholder="https://data.gov.au/data/dataset/…" toolparamdescription="The dataset page URL on the publisher's portal"><button class="btn" type="submit">Vote for it</button></form>
     <p class="small" id="sug-result" aria-live="polite" hidden></p>
@@ -25,14 +25,14 @@
 <section id="cat-results" hidden>
 <div class="sec-head"><h2 id="cat-heading">Results</h2></div>
 <p class="muted" id="cat-count" aria-live="polite" style="margin-top:0"></p>
-<div class="tbl"><table class="ledger catlist"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody></tbody></table></div>
+<div class="tbl" tabindex="0" role="region" aria-label="Search results" data-conformance="aa"><table class="ledger catlist"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody></tbody></table></div>
 <p><button class="btn ghost" type="button" id="cat-more" hidden>Show more</button></p>
 </section>
 
 <section id="top-voted">
 <div class="sec-head"><h2>Most wanted</h2>{% if catalogue_total %}<a href="/browse/">Browse by government</a>{% endif %}</div>
 <p class="muted" style="margin-top:0">The datasets with the most votes, which we build in this order.</p>
-<div class="tbl"><table class="ledger catlist" id="most-wanted" data-limit="25"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody>
+<div class="tbl" tabindex="0" role="region" aria-label="Most wanted datasets" data-conformance="aa"><table class="ledger catlist" id="most-wanted" data-limit="25"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody>
 {% for d in rows if d.status not in ('live', 'building') %}
 <tr><td class="t">{{ d.title }}<span class="sub">{{ d.summary }}</span></td><td>{{ d.publisher }} <span class="chip jur">{{ d.jur }}</span></td><td>{{ d.licence }}</td><td><button class="vote" type="button" data-vote="{{ d.slug }}"><b>0</b><span>vote</span></button></td></tr>
 {% endfor %}
@@ -42,7 +42,7 @@
 <div class="sec-head"><h2>Chosen for building</h2></div>
 <p class="muted" style="margin-top:0">Datasets we have read the licence of and planned. Each has a status.</p>
 <div class="legend" style="margin-top:0;margin-bottom:12px"><span class="chip live">live</span> served now <span class="chip building">building</span> licence cleared and in progress <span class="chip backlog">backlog</span> waiting on votes <span class="chip blocked">blocked</span> the licence does not allow it</div>
-<div class="tbl"><table class="ledger">
+<div class="tbl" tabindex="0" role="region" aria-label="Datasets chosen for building" data-conformance="aa"><table class="ledger">
 <thead><tr><th>Dataset</th><th>Publisher</th><th>Licence</th><th>Status</th><th>Votes</th></tr></thead>
 <tbody>
 {% for d in rows %}
@@ -60,5 +60,5 @@
   <div><h3>Build one yourself</h3><p>Anyone can add a dataset from this list. A command drafts the register entry from the portal page, and the <a href="/contribute/#add-a-dataset">contributing page</a> covers the rest, from the licence check to the pull request.</p></div>
   <div><h3>For publishers</h3><p>A grey row shows what would make it buildable. A row with votes shows the demand. If you would rather we built from a file you control, send a stable URL and we will switch to it.</p></div>
 </div>
-<p class="muted" style="font-size:14px;margin-top:24px">Votes are counted once per browser per day and are never tied to a person. The catalogue can be searched at <a href="/api/v1/catalogue?q=road+crashes" class="mono">/api/v1/catalogue</a>, the register is <a href="/backlog.json" class="mono">/backlog.json</a> and the counts are <a href="/api/v1/votes" class="mono">/api/v1/votes</a>.</p>
+<p class="muted small" style="margin-top:24px">Votes are counted once per browser per day and are never tied to a person. The catalogue can be searched at <a href="/api/v1/catalogue?q=road+crashes" class="mono">/api/v1/catalogue</a>, the register is <a href="/backlog.json" class="mono">/backlog.json</a> and the counts are <a href="/api/v1/votes" class="mono">/api/v1/votes</a>.</p>
 {% endblock %}
