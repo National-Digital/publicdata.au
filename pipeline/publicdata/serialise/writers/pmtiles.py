@@ -4,7 +4,14 @@ import gzip
 import json
 from typing import TYPE_CHECKING
 
-from pmtiles.tile import Compression, TileType, zxy_to_tileid
+from pmtiles.tile import (
+    Compression,
+    HeaderDict,
+    TileType,
+    serialize_directory,
+    serialize_header,
+    zxy_to_tileid,
+)
 from pmtiles.writer import Writer
 
 from publicdata.rows import one_row
@@ -23,8 +30,13 @@ from publicdata.serialise.geo import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from publicdata.jsontypes import JSONObject
     from publicdata.normalise import Table
     from publicdata.provenance import Header
+
+# Web Mercator's extent in degrees, the bounds of an archive with no tiles.
+WORLD_LON_E7 = 1_800_000_000
+WORLD_LAT_E7 = 850_511_287
 
 
 def write_pmtiles(tbl: Table, header: Header, path: Path) -> None:
@@ -80,7 +92,24 @@ def write_pmtiles(tbl: Table, header: Header, path: Path) -> None:
     )
     con.close()
     tiles.sort(key=lambda x: x[0])
+    meta: JSONObject = {
+        "name": ds.title,
+        "description": ds.summary or ds.title,
+        "attribution": header["attribution"],
+        "vector_layers": [
+            {
+                "id": ds.slug,
+                "fields": {f.name: MVT_TYPES.get(f.type, "String") for f in ds.fields},
+                "minzoom": 0,
+                "maxzoom": maxzoom,
+            }
+        ],
+        "publicdata": json.loads(dumps(header)),
+    }
     with path.open("wb") as f:
+        if not tiles:
+            f.write(_empty(maxzoom, meta))
+            return
         w = Writer(f)
         for tid, data in tiles:
             w.write_tile(tid, gzip.compress(data, mtime=0))
@@ -98,18 +127,45 @@ def write_pmtiles(tbl: Table, header: Header, path: Path) -> None:
                 "center_lon_e7": int((box[0] + box[2]) / 2 * 1e7),
                 "center_lat_e7": int((box[1] + box[3]) / 2 * 1e7),
             },
-            {
-                "name": ds.title,
-                "description": ds.summary or ds.title,
-                "attribution": header["attribution"],
-                "vector_layers": [
-                    {
-                        "id": ds.slug,
-                        "fields": {f.name: MVT_TYPES.get(f.type, "String") for f in ds.fields},
-                        "minzoom": 0,
-                        "maxzoom": maxzoom,
-                    }
-                ],
-                "publicdata": json.loads(dumps(header)),
-            },
+            meta,
         )
+
+
+def _empty(maxzoom: int, meta: JSONObject) -> bytes:
+    """An archive with no tiles, for a layer with no shapes to draw.
+
+    The library's writer cannot finish an archive without a tile, so this lays it out the same
+    way: the header, an empty root directory and the metadata, with no leaves and no tile data.
+    """
+    root = serialize_directory([])
+    packed = gzip.compress(json.dumps(meta).encode(), mtime=0)
+    end = 127 + len(root) + len(packed)
+    head: HeaderDict = {
+        "version": 3,
+        "root_offset": 127,
+        "root_length": len(root),
+        "metadata_offset": 127 + len(root),
+        "metadata_length": len(packed),
+        "leaf_directory_offset": end,
+        "leaf_directory_length": 0,
+        "tile_data_offset": end,
+        "tile_data_length": 0,
+        "addressed_tiles_count": 0,
+        "tile_entries_count": 0,
+        "tile_contents_count": 0,
+        "clustered": True,
+        "internal_compression": Compression.GZIP,
+        "tile_compression": Compression.GZIP,
+        "tile_type": TileType.MVT,
+        "min_zoom": 0,
+        "max_zoom": maxzoom,
+        "min_lon_e7": -WORLD_LON_E7,
+        "min_lat_e7": -WORLD_LAT_E7,
+        "max_lon_e7": WORLD_LON_E7,
+        "max_lat_e7": WORLD_LAT_E7,
+        "center_zoom": 0,
+        "center_lon_e7": 0,
+        "center_lat_e7": 0,
+    }
+    out: bytes = serialize_header(head) + root + packed
+    return out
