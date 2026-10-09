@@ -20,12 +20,12 @@ keywords:
 - Queensland Health
 faq:
 - q: What is in each row?
-  a: One public hospital and one surgical specialty, such as general surgery, orthopaedics or ENT surgery,
-    or ALL, for the quarter, with the patients treated and the share treated within the recommended time,
+  a: One public hospital and one surgical specialty, such as general surgery, orthopaedics or ear, nose and throat (ENT) surgery,
+    or `ALL`, for the quarter, with the patients treated and the share treated within the recommended time,
     the patients waiting, the long waits and the share waiting within the recommended time.
 - q: What does a dash mean?
   a: Queensland Health writes a dash where it gives no figure for a hospital, such as a percentage with
-    no patients behind it. Those cells are null here and flagged as suppressed. A few cells read NULL,
+    no patients behind it. Those cells are null here and flagged as suppressed. A few cells read `NULL`,
     and those are null too.
 - q: Which quarter is it?
   a: The quarter ending September 2025. This table is fixed to that file, and later quarters need the

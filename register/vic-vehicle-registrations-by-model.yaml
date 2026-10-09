@@ -42,8 +42,8 @@ faq:
   a: A count of vehicles on the Victorian register at the end of the quarter that share one make, model
     and body colour. Boats and trailers are not included.
 - q: What do the codes mean?
-  a: Make and model are the register's codes of up to six characters, such as TOYOTA and RANGER, and colour
-    is a three letter code such as WHI or BLK. Some models are blank or read UNK, as the register holds
+  a: Make and model are the register's codes of up to six characters, such as `TOYOTA` and `RANGER`, and colour
+    is a three letter code such as `WHI` or `BLK`. Some models are blank or read `UNK`, as the register holds
     them, and a few combinations appear on more than one row.
 - q: Which quarter is it?
   a: Each version is the newest quarterly snapshot the department has released. The portal lists earlier

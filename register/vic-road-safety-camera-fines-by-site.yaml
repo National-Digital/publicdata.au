@@ -40,8 +40,8 @@ faq:
     infringements issued and the value of the fines in dollars. Sites are the intersection, freeway and
     distracted driver cameras, described as the program describes them, including the lanes covered.
 - q: What are the rows in capitals?
-  a: Each camera system, such as SPEED AND RED-LIGHT INTERSECTION CAMERA SYSTEMS, CITYLINK CAMERA SYSTEM
-    or MOBILE CAMERA SYSTEM, has a row of its own with the system's total, followed by its sites. The
+  a: Each camera system, such as `SPEED AND RED-LIGHT INTERSECTION CAMERA SYSTEMS`, `CITYLINK CAMERA SYSTEM`
+    or `MOBILE CAMERA SYSTEM`, has a row of its own with the system's total, followed by its sites. The
     mobile camera system has a total only. The last row is the publisher's total for every system in the
     quarter. Add only the system rows, or only the site rows, to avoid counting twice.
 - q: What do the figures include?
@@ -50,7 +50,7 @@ faq:
     numbers can change as infringements are withdrawn or reissued.
 - q: Which quarter is it?
   a: Each version is the newest quarter released, and the quarter is in each row, taken from the sheet's
-    name, for example JUL - SEP 2025. Earlier quarters back to 2018 are listed on the portal, many as
+    name, for example `JUL - SEP 2025`. Earlier quarters back to 2018 are listed on the portal, many as
     older .xls workbooks.
 summary: The number of infringements issued and the dollar value of fines at each Victorian fixed road
   safety camera site and for each camera system in the quarter.

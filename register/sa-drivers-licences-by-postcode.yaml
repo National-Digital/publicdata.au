@@ -37,7 +37,7 @@ faq:
     vehicles, held by people of one age and sex in one postcode at the end of the quarter.
 - q: What are the Total and TRLB05 rows?
   a: The publisher ends the table with a Total row and a footer row naming the report and page. Both are kept as
-    published. The footer's count reads DPTI and is a null here.
+    published. The footer's count reads `DPTI` and is a null here.
 - q: Which date does the table cover?
   a: The newest quarter, the end of June 2026 at the first version. The publisher adds a file each quarter, and
     each becomes a version here.

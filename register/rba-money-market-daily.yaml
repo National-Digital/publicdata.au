@@ -55,7 +55,7 @@ faq:
     January 2011 to 17 May 2013, and the six month yield has only 12 days, in March 2011. The traded high
     and low, the volume and the number of transactions start on 20 May 2013. The newest day can have
     only the total return index until the cash rate for that day is published.
-- q: Why are the bank bill and OIS series not here?
+- q: Why are the bank bill and overnight indexed swap (OIS) series not here?
   a: The RBA table also carries end-of-day bank accepted bill and negotiable certificate of deposit rates
     sourced from the ASX and overnight indexed swap rates sourced from FENICS. The RBA marks them as third
     party material that may not be republished without the owner's consent, so they are left out. The

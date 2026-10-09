@@ -6,26 +6,26 @@
 <div class="meta-row"><span>Government <b><a href="{{ jur_path }}">{{ jur.name }}</a></b></span>{% if catalogue %}<span>Datasets listed <b>{{ stats.listed }}</b></span><span>Open with a download <b>{{ stats.candidates }}</b></span>{% endif %}<span>Served here <b>{{ stats.live }}</b></span>{% if pub.url %}<span>Website <b><a href="{{ pub.url }}" rel="noopener">{{ pub.url.split('/')[2] }}</a></b></span>{% endif %}</div>
 <p style="margin-top:14px">{{ intro }}</p>
 {% if live %}
-<div class="sec-head"><h2>Served here</h2><span class="muted" style="font-size:14px">{{ live|length }} dataset{{ '' if live|length == 1 else 's' }}</span></div>
-<div class="tbl"><table class="ledger">
+<div class="sec-head"><h2>Served here</h2><span class="muted small">{{ live|length }} dataset{{ '' if live|length == 1 else 's' }}</span></div>
+<div class="tbl" tabindex="0" role="region" aria-label="Datasets served here" data-conformance="aa"><table class="ledger">
 <thead><tr><th>Dataset</th><th>Download latest</th><th>Version</th><th class="n">Rows</th></tr></thead>
 <tbody>
-{% for d in live %}<tr><td class="t"><a href="/d/{{ d.slug }}/">{{ d.title }}</a><span class="sub">{{ d.summary }}</span></td><td>{% if d.latest %}<div class="quick">{% for f in d.quick %}<a href="{{ f.url }}">{{ f.name }}</a>{% endfor %}<a href="/d/{{ d.slug }}/">all formats</a></div>{% else %}<span class="muted" style="font-size:14px">available soon</span>{% endif %}</td><td class="mono">{{ d.latest or d.status }}</td><td class="n">{{ d.rows if d.latest else '' }}</td></tr>
+{% for d in live %}<tr><td class="t"><a href="/d/{{ d.slug }}/">{{ d.title }}</a><span class="sub">{{ d.summary }}</span></td><td>{% if d.latest %}<div class="quick">{% for f in d.quick %}<a href="{{ f.url }}" aria-label="{{ f.name }}, {{ d.title }}">{{ f.name }}</a>{% endfor %}<a href="/d/{{ d.slug }}/">all formats</a></div>{% else %}<span class="muted small">available soon</span>{% endif %}</td><td class="mono">{{ d.latest or d.status }}</td><td class="n">{{ d.rows if d.latest else '' }}</td></tr>
 {% endfor %}
 </tbody></table></div>
 {% endif %}
 {% if rows %}
-<div class="sec-head"><h2>On the portal{% if portals|length > 1 %}s{% endif %}</h2><span class="muted" style="font-size:14px">{{ stats.listed }} dataset{{ '' if stats.listed_n == 1 else 's' }}{% if stats.shown < stats.listed_n %}, newest {{ stats.shown }} shown{% endif %}</span></div>
+<div class="sec-head"><h2>On the portal{% if portals|length > 1 %}s{% endif %}</h2><span class="muted small">{{ stats.listed }} dataset{{ '' if stats.listed_n == 1 else 's' }}{% if stats.shown < stats.listed_n %}, newest {{ stats.shown }} shown{% endif %}</span></div>
 <p class="muted" style="margin-top:0">These are the datasets {{ pub.name }} lists on {{ portals|join(' and ') }}. A vote asks us to serialise one. Only the licence can stop us, so a dataset without an open licence cannot take a vote.</p>
-<form class="filter" role="search"><label for="pf" class="vh">Filter this list</label><input id="pf" type="search" placeholder="Filter by title or format" data-filter="#catalogue"></form>
-<!--portal-text--><div class="tbl"><table class="ledger" id="catalogue">
+<form class="filter" role="search" aria-label="Filter this list"><label for="pf" class="vh">Filter this list</label><input id="pf" type="search" placeholder="Filter by title or format" data-filter="#catalogue"></form>
+<!--portal-text--><div class="tbl" tabindex="0" role="region" aria-label="Datasets on the portal" data-conformance="aa"><table class="ledger" id="catalogue">
 <thead><tr><th>Dataset</th><th>Formats</th><th>Licence</th><th>Updated</th><th>Votes</th></tr></thead>
 <tbody>
-{% for r in rows %}<tr><td class="t"><a href="{{ r.url }}" rel="nofollow noopener">{{ r.title }}</a><span class="sub">{{ r.summary }}</span></td><td class="mono" style="font-size:13px">{{ r.formats }}</td><td>{{ r.licence }}</td><td class="mono">{{ r.modified }}</td><td>{% if r.served %}<a class="chip live" href="{{ r.served }}">served</a>{% elif r.candidate %}<button class="vote" type="button" data-vote="{{ r.vote }}"><b>0</b><span>vote</span></button>{% else %}<span class="muted" style="font-size:13px">{{ r.reason }}</span>{% endif %}</td></tr>
+{% for r in rows %}<tr><td class="t"><a href="{{ r.url }}" rel="nofollow noopener">{{ r.title }}</a><span class="sub">{{ r.summary }}</span>{% if r.task %}<span class="sub">Open as a contributor task: <a href="{{ r.task }}" rel="noopener">GitHub issue {{ r.task.rsplit('/', 1)[1] }}</a></span>{% endif %}</td><td class="mono small">{{ r.formats }}</td><td>{{ r.licence }}</td><td class="mono">{{ r.modified }}</td><td>{% if r.served %}<a class="chip live" href="{{ r.served }}">served</a>{% elif r.candidate %}<button class="vote" type="button" data-vote="{{ r.vote }}"><b>0</b><span>vote</span></button>{% else %}<span class="muted small">{{ r.reason }}</span>{% endif %}</td></tr>
 {% endfor %}
 </tbody></table></div><!--/portal-text-->
-{% if stats.shown < stats.listed_n %}<p class="muted" style="font-size:14px">The full list of {{ stats.listed }} is in <a href="{{ pub.path }}catalogue.json" class="mono">catalogue.json</a>.</p>{% endif %}
+{% if stats.shown < stats.listed_n %}<p class="muted small">The full list of {{ stats.listed }} is in <a href="{{ pub.path }}catalogue.json" class="mono">catalogue.json</a>.</p>{% endif %}
 {% endif %}
-{% if other_kinds %}<p class="muted" style="font-size:14px">{{ other_kinds }}</p>{% endif %}
-<p class="muted" style="font-size:14px;margin-top:24px">{% if catalogue %}Listed from the portals' own catalogues, read {{ as_at_long }}. {% endif %}{{ pub.name }} has not endorsed this site. Every dataset here keeps its publisher's licence and attribution. <a href="{{ pub.path }}catalogue.json" class="mono">catalogue.json</a> has this list as data.</p>
+{% if other_kinds %}<p class="muted small">{{ other_kinds }}</p>{% endif %}
+<p class="muted small" style="margin-top:24px">{% if catalogue %}Listed from the portals' own catalogues, read {{ as_at_long }}. {% endif %}{{ pub.name }} has not endorsed this site. Every dataset here keeps its publisher's licence and attribution. <a href="{{ pub.path }}catalogue.json" class="mono">catalogue.json</a> has this list as data.</p>
 {% endblock %}

@@ -1,7 +1,7 @@
 {
   "name": "publicdata-explorer-vendor",
   "private": true,
-  "description": "Browser libraries the build copies into the explorer. Nothing here runs on the server.",
+  "description": "Browser libraries the build copies into the explorer, and the Parquet reader the Pages Functions bundle.",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.32.0",
@@ -9,13 +9,15 @@
     "@perspective-dev/server": "5.5.1",
     "@perspective-dev/viewer": "5.5.1",
     "@perspective-dev/viewer-charts": "5.5.1",
-    "@perspective-dev/viewer-datagrid": "5.5.1"
+    "@perspective-dev/viewer-datagrid": "5.5.1",
+    "fzstd": "0.1.1",
+    "hyparquet": "1.31.2"
   },
   "devDependencies": {
-    "axe-core": "^4.13.0",
+    "axe-core": "4.13.0",
     "esbuild": "0.28.2",
     "lighthouse": "13.5.0",
-    "puppeteer-core": "^25.12.0",
+    "puppeteer-core": "25.12.0",
     "wrangler": "4.148.0"
   }
 }

@@ -9,17 +9,17 @@
 <div class="crumbs"><a href="/">Datasets</a> / {% if jur_path %}<a href="{{ jur_path }}">{{ jur_long }}</a>{% else %}{{ jur_long }}{% endif %} / {% if publisher_path %}<a href="{{ publisher_path }}">{{ ds.publisher.short }}</a>{% else %}{{ ds.publisher.short }}{% endif %}</div>
 <div class="ds-head"><h1>{{ ds.title }}</h1><span class="chip {{ ds.status }}">{{ ds.status }}</span></div>
 <div class="meta-row"><span>Publisher <b>{{ ds.publisher.name }}</b></span>{% if ds.source.cadence %}<span>Updated <b>{{ cadence_words(ds)[0] }}</b></span>{% endif %}<span>Licence <b><a href="{{ ds.licence.url }}" rel="license">{{ ds.licence.title }}</a></b></span><span>Latest <b class="mono">{{ latest.version }}</b></span>{% if latest.as_at %}<span>As at <b>{{ latest.as_at_long }}</b></span>{% endif %}<span>Rows <b>{{ latest.rows_fmt }}</b></span><span>Tables <b>{{ db.tables|length }}</b></span><span>Fields <b>{{ ds.field_count }}</b></span></div>
-{% for para in description_paras %}<p class="{{ 'lede' if loop.first else '' }}" style="margin-top:14px">{{ para }}</p>{% endfor %}
-{% if ds.also_known_as %}<p class="muted" style="font-size:14.5px">Also called: {{ ds.also_known_as|join(', ') }}.</p>{% endif %}
+{% for para in description_paras %}<p class="{{ 'lede' if loop.first else '' }}" style="margin-top:14px">{{ para|safe }}</p>{% endfor %}
+{% if ds.also_known_as %}<p class="muted small aka">Also called: {{ ds.also_known_as|join(', ') }}.</p>{% endif %}
 {% if ds.licence.condition or ds.faq %}<div class="caveats"><span class="k">Before you use it</span>
-<dl>{% if ds.licence.condition %}<dt>The licence has a condition</dt><dd>{{ ds.licence.condition }}</dd>{% endif %}{% for q, a in ds.faq %}<dt>{{ q }}</dt><dd>{{ a|linkify|safe }}</dd>{% endfor %}</dl></div>{% endif %}
+<dl>{% if ds.licence.condition %}<dt>The licence has a condition</dt><dd>{{ ds.licence.condition }}</dd>{% endif %}{% for q, a in ds.faq %}<dt>{{ q|code|safe }}</dt><dd>{{ a|linkify|safe }}</dd>{% endfor %}</dl></div>{% endif %}
 {% if related %}<nav class="related" aria-label="Related datasets"><span class="k">Same subject, other publishers</span>
 <ul>{% for r in related %}<li><a href="/d/{{ r.slug }}/">{{ r.title }}<span class="chip jur">{{ r.jur }}</span></a></li>{% endfor %}</ul></nav>{% endif %}
 </div>
 
 <div class="band figband"><div class="site"><div class="figgrid one"><div class="fright">
   <div class="stats"><div class="stat"><b>{{ latest.rows_fmt }}</b><span>rows</span></div><div class="stat"><b>{{ db.tables|length }}</b><span>tables</span></div><div class="stat"><b>{{ db.views|length }}</b><span>view{{ '' if db.views|length == 1 else 's' }}</span></div><div class="stat"><b>{{ db.references }}</b><span>references</span></div><div class="stat"><b>{{ versions|length }}</b><span>version{{ '' if versions|length == 1 else 's' }}</span></div></div>
-  <div class="ctas"><a class="btn" href="#use">Query it in place</a><a class="btn ghost" href="#get">Download</a></div>
+  <div class="ctas"><a class="btn" href="#use">Query it in place</a><a class="btn ghost" href="#get">Download the files</a></div>
 </div></div></div></div>
 
 <div class="site">
@@ -44,18 +44,18 @@
 </section>
 
 <h2 id="get">Download the database, or one table at a time</h2>
-<p>Every file is from version {{ latest.version }}. A dated version never changes. The same files sit under <span class="mono">{{ base }}latest/</span>, which redirects to the newest version.</p>
+<p>Every file is from version {{ latest.version }}. A dated version keeps its content. The same files sit under <span class="mono">{{ base }}latest/</span>, which redirects to the newest version.</p>
 <ul class="files">
-  <li><a href="{{ db.duckdb }}" class="mono">data.duckdb</a><span>{{ db.duckdb_size }} · every table and view, with the provenance in a <span class="mono">publicdata</span> table</span></li>
-  <li><a href="{{ db.schema_sql }}" class="mono">schema.sql</a><span>CREATE TABLE for every table with keys and references, and the views, for PostgreSQL and most SQL dialects</span></li>
-  <li><a href="{{ db.schema_json }}" class="mono">schema.json</a><span>every table as a Frictionless Table Schema, with primary and foreign keys</span></li>
+  <li><a href="{{ db.duckdb }}" class="mono">data.duckdb</a><span>every table and view, with the provenance in a <span class="mono">publicdata</span> table</span></li>
+  <li><a href="{{ db.schema_sql }}" class="mono">schema.sql</a><span><code>CREATE TABLE</code> for every table with keys and references, and the views, for PostgreSQL and most SQL dialects</span></li>
+  <li><a href="{{ db.schema_json }}" class="mono" aria-label="schema.json for version {{ latest.version }}">schema.json</a><span>every table as a Frictionless Table Schema, with primary and foreign keys</span></li>
   <li><a href="{{ db.source }}" class="mono">source.{{ latest.ext }}</a><span>{{ db.source_size }} · the publisher's archive, byte for byte as fetched</span></li>
 </ul>
 <p>One Parquet file per table, {{ db.parquet_size }} in all, under <span class="mono">tables/</span>. Each carries the provenance header in its metadata.</p>
-<div class="tbl"><table class="ledger schema">
+<div class="tbl" tabindex="0" role="region" aria-label="Tables in the database" data-conformance="aa"><table class="ledger schema">
 <thead><tr><th>Table</th><th>Rows</th><th>Key</th><th>Refers to</th><th>Parquet</th></tr></thead>
 <tbody>
-{% for t in db.tables %}<tr><td><a href="#t-{{ t.name }}" class="mono">{{ t.name }}</a></td><td>{{ t.rows_fmt }}</td><td class="mono">{{ t.key|join(', ') }}</td><td class="mono">{{ t.refs|join(', ') }}</td><td><a href="{{ t.parquet }}">Parquet</a> <span class="muted">{{ t.size }}</span></td></tr>
+{% for t in db.tables %}<tr><td><a href="#t-{{ t.name }}" class="mono">{{ t.name }}</a></td><td>{{ t.rows_fmt }}</td><td class="mono">{{ t.key|join(', ') }}</td><td class="mono">{{ t.refs|join(', ') }}</td><td><a href="{{ t.parquet }}" aria-label="Parquet, {{ t.name }}">Parquet</a> <span class="muted">{{ t.size }}</span></td></tr>
 {% endfor %}</tbody></table></div>
 
 <div class="ds">
@@ -65,7 +65,7 @@
   {% for t in db.tables %}
   <details class="faq qref" id="t-{{ t.name }}"{% if t.name == db.largest.name %} open{% endif %}><summary><span class="mono">{{ t.name }}</span> <span class="muted">{{ t.rows_fmt }} rows, {{ t.fields|length }} fields</span></summary>
   <p>{{ t.description }}{% if t.key %} The key is <span class="mono">{{ t.key|join(', ') }}</span>.{% endif %} Publisher's table <span class="mono">{{ t.source }}</span>. <a href="{{ t.parquet }}" class="mono">{{ t.name }}.parquet</a> ({{ t.size }}).</p>
-  <div class="tbl"><table class="ledger schema">
+  <div class="tbl" tabindex="0" role="region" aria-label="Columns of {{ t.name }}" data-conformance="aa"><table class="ledger schema">
   <thead><tr><th>Field</th><th>Type</th><th>Publisher's header</th><th>Note</th></tr></thead>
   <tbody>
   {% for f in t.fields %}<tr><td>{{ f.name }}</td><td class="ty">{{ f.type }}</td><td>{{ f.source }}</td><td>{{ f.description }}{% if f.references %} <span class="muted">Refers to <span class="mono">{{ f.references }}</span>.</span>{% endif %}</td></tr>{% endfor %}
@@ -82,7 +82,7 @@
   </details>
   {% endfor %}
   {% endif %}
-  <p class="muted" style="font-size:14px">The same schema as a Frictionless Table Schema for every table is at <a href="{{ base }}schema.json" class="mono">schema.json</a>, and as SQL at <a href="{{ db.schema_sql }}" class="mono">schema.sql</a>.</p>
+  <p class="muted small">The same schema as a Frictionless Table Schema for every table is at <a href="{{ base }}schema.json" class="mono">schema.json</a>, and as SQL at <a href="{{ db.schema_sql }}" class="mono">schema.sql</a>.</p>
 
   <h2 id="changes">What changed</h2>
   <p>One version for every release the publisher has made since this site started following the dataset. The date is the day the archive changed on the portal. Versions of a database are compared table by table, by row count.</p>
@@ -94,12 +94,12 @@
       {% for n in v.notes %}<div class="note">{{ n }}</div>{% endfor %}</li>
     {% endfor %}
   </ul>
-  <p class="muted" style="font-size:14px"><a href="{{ base }}versions.json" class="mono">versions.json</a> · <a href="{{ base }}changes.json" class="mono">changes.json</a> · <a href="{{ base }}history.tar.zst" class="mono">history.tar.zst</a> ({{ history_size }}, every version's schema and manifest)</p>
+  <p class="muted small"><a href="{{ base }}versions.json" class="mono">versions.json</a> · <a href="{{ base }}changes.json" class="mono">changes.json</a> · <a href="{{ base }}history.tar.zst" class="mono">history.tar.zst</a> ({{ history_size }}, every version's schema and manifest)</p>
 
   {% if faq_auto %}
   <h2 id="questions">Questions</h2>
   <div class="faq">
-  {% for q, a in faq_auto %}<details{% if loop.first %} open{% endif %}><summary>{{ q }}</summary><p>{{ a|linkify|safe }}</p></details>
+  {% for q, a in faq_auto %}<details{% if loop.first %} open{% endif %}><summary>{{ q|code|safe }}</summary><p>{{ a|linkify|safe }}</p></details>
   {% endfor %}
   </div>
   {% endif %}

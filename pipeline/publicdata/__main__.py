@@ -1,4 +1,4 @@
-"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | hubs | cost."""
+"""publicdata: register validate | draft | labels | fetch | catalogue fetch | build | gate | split | store pull/push | dist-push | checksums | r2 restore-gzip | hubs | contribute | cost."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from . import REPO, SITE
+
 ROOT = Path(__file__).resolve().parents[2]
 REGISTER = ROOT / "register"
 PUBLISHERS = REGISTER / "publishers"
@@ -17,12 +19,20 @@ FIXTURES = ROOT / "pipeline" / "tests" / "fixtures" / "store"
 
 
 def cmd_register(args) -> int:
+    from .abbreviations import check_copy, register_copy
     from .register import load
 
     ds = load(REGISTER)
     for d in ds:
         print(f"{d.status:9s} {d.slug:40s} {d.licence.id:14s} {d.publisher.short}")
     print(f"{len(ds)} entries valid")
+    words = []
+    for d in ds:
+        if d.status in ("live", "building"):
+            names = tuple(n for n in (d.publisher.name, d.publisher.short) if n)
+            words += check_copy(register_copy(d), d.slug, names)
+    for w in words:
+        print(f"abbreviation: {w}")
     for d in ds:
         bare = [f.name for f in d.fields if not f.label]
         if d.status == "live" and bare:
@@ -48,7 +58,7 @@ def cmd_register(args) -> int:
         print(
             f"int32: {unchecked} stored version(s) not checked, since neither their Parquet nor their source is here"
         )
-    return 1 if bad else 0
+    return 1 if bad or words else 0
 
 
 def cmd_labels(args) -> int:
@@ -142,8 +152,16 @@ def cmd_fetch(args) -> int:
             continue
         if d.status not in ("live", "building") or d.source.adapter == "none":
             continue
-        if args.feeds and not d.source.feed:
+        if args.feeds and not (d.source.feed or d.update == "feed"):
             continue
+        # A rolling source compares each read with its newest fetch; while an earlier fetch waits
+        # in an open pull request, this checkout lacks it, so the read waits too.
+        if d.slug in args.hold and d.update != "release":
+            print(f"{d.slug}: HELD an earlier fetch is waiting to be merged")
+            continue
+        from . import store as st
+
+        read_before = st.last_read(store_dir, d.slug)
         # One dataset that cannot be fetched is reported and the rest go ahead.
         try:
             m = fetch(d, store_dir)
@@ -155,15 +173,27 @@ def cmd_fetch(args) -> int:
             failed += 1
             print(f"{d.slug}: FAILED {e}")
             continue
+        read = st.last_read(store_dir, d.slug)
+        jur = d.publisher.jurisdiction.lower()
+        # A feed's read record goes to the raw store with store push, never into a pull request,
+        # so a quiet day opens none.
+        if d.update == "feed" and read and read != read_before and m is None:
+            print(f"{d.slug}: read {read['read']}, unchanged since {read['fetch']}")
+            continue
         if m is None:
             print(f"{d.slug}: unchanged")
         else:
             changed += 1
-            groups.setdefault(d.publisher.jurisdiction.lower(), []).append(
-                (store_dir / d.slug / m.version / "manifest.json").as_posix()
+            names = ["manifest.json", *(["changes.json"] if d.update != "release" else [])]
+            groups.setdefault(jur, []).extend(
+                (store_dir / d.slug / m.version / n).as_posix() for n in names
             )
+            # A rolling source's fetch that is not a snapshot publishes its change log and
+            # latest/, and no dated version.
+            what = "version" if m.snapshot else "fetch"
             print(
-                f"{d.slug}: new version {m.version} ({m.bytes} bytes, {m.encoding}, sha256 {m.sha256[:12]})"
+                f"{d.slug}: new {what} {m.version} ({m.bytes} bytes, {m.encoding}, sha256 {m.sha256[:12]})"
+                + (f", snapshot: {m.cut}" if m.cut else "")
             )
     if args.groups:
         import json
@@ -197,7 +227,7 @@ def cmd_build(args) -> int:
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    datasets = load(REGISTER)
+    datasets = load(Path(args.register))
     cache = None
     if args.cache and not args.absent:
         sys.exit(
@@ -277,6 +307,7 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
             search=Path(args.search) if args.search else None,
             cache=cache,
             hubs=_hubs_record(store_dir),
+            tasks=_tasks(args.tasks),
         )
     if cache is not None:
         if not args.slug:
@@ -308,7 +339,7 @@ def _build(args, out: Path, store_dir: Path, datasets, cache) -> int:
 def cmd_gate(args) -> int:
     from .gate import main
 
-    return main(Path(args.out), REGISTER, _absent(args.absent), not args.versions_only)
+    return main(Path(args.out), Path(args.register), _absent(args.absent), not args.versions_only)
 
 
 def _absent(path: str | None) -> list[str]:
@@ -399,6 +430,13 @@ def cmd_catalogue_publishers(args) -> int:
     return 0
 
 
+def _d1_rows(raw) -> list[dict]:
+    """The rows of a `wrangler d1 execute --json` answer, or a plain list of rows."""
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "results" in raw[0]:
+        return [r for part in raw for r in part.get("results", [])]
+    return raw or []
+
+
 def cmd_d1(args) -> int:
     """Write one SQL file per live dataset whose latest version the query API has not loaded."""
     import json
@@ -411,12 +449,7 @@ def cmd_d1(args) -> int:
     loaded_orders: dict[tuple[str, str], str] = {}
     if args.loaded and Path(args.loaded).exists():
         raw = json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]")
-        rows = (
-            [r for part in raw for r in part.get("results", [])]
-            if isinstance(raw, list) and raw and "results" in raw[0]
-            else raw
-        )
-        for r in rows or []:
+        for r in _d1_rows(raw):
             loaded.setdefault(r["slug"], []).append(r["version"])
             if "fields" in r:
                 loaded_fields[(r["slug"], r["version"])] = r["fields"]
@@ -469,26 +502,78 @@ def cmd_d1_load(args) -> int:
     return 1 if failed else 0
 
 
+def cmd_rollup(args) -> int:
+    """Write the rollup of every version D1 holds whose rollup is missing or was built from other
+    bytes, push them, and delete the rollups of versions D1 no longer holds."""
+    import json
+
+    from .r2 import client
+    from .register import load
+    from .rollup import R2Store, held, held_fields, write
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"rollup: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    rows = _d1_rows(json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]"))
+    loaded = held(rows)
+    live = [d for d in load(REGISTER) if d.status in ("live", "building")]
+    store = R2Store(client(), args.bucket)
+    written, keep = write(
+        live,
+        loaded,
+        store,
+        Path(args.out),
+        [Path(r) for r in args.root],
+        args.replace,
+        fields=held_fields(rows),
+    )
+    stale = sorted(store.keys() - keep)
+    print(f"rollup: {len(written)} written, {len(keep) - len(written)} current, {len(stale)} stale")
+    if args.dry_run:
+        return 0
+    for w in written:
+        store.put(w)
+    if stale:
+        store.delete(stale)
+    return 0
+
+
 def cmd_store(args) -> int:
-    from .brand import FONTS
-    from .r2 import pull_fonts, pull_store, push
+    from .r2 import pull_store, push
 
     store_dir = Path(args.store)
-    if args.sub == "pull":
+    if args.sub == "pull" and args.rolling:
+        from .register import load
+
+        # A rolling source or a feed is compared with its newest fetch, which the fetch reads.
+        want = ("feed",) if args.feeds else ("rolling", "feed")
+        slugs = tuple(d.slug for d in load(REGISTER) if d.update in want)
+        n = pull_store(store_dir, only=slugs, newest=True) if slugs else 0
+        print(f"store pull: {n} file(s) of the newest fetches")
+    elif args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
         n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
-        fonts = pull_fonts(FONTS)
-        print(
-            f"store pull: {n} file(s), {fonts} font(s), {len(cached)} version(s) already built in the cache"
-        )
+        print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
     else:
         # A run that failed before its PR can leave bytes under a version main never took.
         committed = _committed_versions(store_dir)
         n = 0
-        for src in sorted(store_dir.glob("*/*/source.*")):
-            v = (src.parts[-3], src.parts[-2])
+        # A feed's newest read is one mutable key per dataset beside its folders.
+        for rec in sorted(store_dir.glob("*/read.json")):
+            slug = rec.parent.name
             n += push(
-                src.parent,
+                rec.parent,
+                "publicdata-raw",
+                f"{slug}/",
+                immutable=lambda key: False,
+                include=lambda key, slug=slug: key == f"{slug}/read.json",
+            )
+        held = [*store_dir.glob("*/*/source.*"), *store_dir.glob("*/*/history.parquet")]
+        for vdir in sorted({p.parent for p in held}):
+            v = (vdir.parts[-2], vdir.parts[-1])
+            n += push(
+                vdir,
                 "publicdata-raw",
                 f"{v[0]}/{v[1]}/",
                 immutable=lambda key, v=v: v in committed,
@@ -528,7 +613,7 @@ def _with_layers(only: list[str]) -> tuple[str, ...]:
 def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     """The versions the build will take from the cache, so their source bytes are not needed."""
     from . import store
-    from .build import version_key
+    from .build import latest_key, newest_fetch, version_keys
     from .cache import BuildCache
     from .register import load
     from .spine import LAYERS
@@ -538,8 +623,8 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     cached = {
         (d.slug, m.version)
         for d in datasets
-        for m in store.manifests(store_dir, d.slug)
-        if cache.has(version_key(cache, d, m, store_dir))
+        for m, key in version_keys(cache, d, store_dir)
+        if cache.has(key)
     }
     # A spine-joined version the cache cannot serve reads each layer's newest source.
     needs = {
@@ -553,6 +638,11 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
         ms = store.manifests(store_dir, LAYERS[k].slug)
         if ms:
             cached.discard((LAYERS[k].slug, ms[-1].version))
+    # latest/ is built from a rolling source's newest fetch, which may also be a snapshot.
+    for d in datasets:
+        m = newest_fetch(d, store_dir)
+        if m and not cache.has(latest_key(cache, d, m, store_dir)):
+            cached.discard((d.slug, m.version))
     return cached
 
 
@@ -560,10 +650,18 @@ VERSION_PREFIX = re.compile(r"^d/[a-z0-9][a-z0-9-]*/v/\d{4}-\d{2}-\d{2}/$")
 
 
 def cmd_spine_install(args) -> int:
-    from .spine import install
+    from .extension import install
 
     install()
     print("spine: DuckDB spatial extension installed")
+    return 0
+
+
+def cmd_spine_mirror(args) -> int:
+    from .extension import mirror
+
+    pin = mirror(Path(args.pin))
+    print(f"spine: pinned {pin['url']} ({pin['sha256']})")
     return 0
 
 
@@ -598,10 +696,67 @@ def cmd_dist_push(args) -> int:
     return 0
 
 
+def cmd_r2_restore_gzip(args) -> int:
+    from .r2 import restore_gzip
+
+    t = restore_gzip(
+        prefix=args.prefix,
+        apply=args.apply,
+        workers=args.workers,
+        dedupe_csv_gz=args.dedupe_csv_gz,
+    )
+    return 1 if t["failed"] else 0
+
+
+def cmd_checksums(args) -> int:
+    from .checksums import KEY, slugs_in, slugs_in_bucket, update, write_subjects
+    from .r2 import client
+
+    bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
+    if bad:
+        print(f"checksums: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
+        return 2
+    if not args.all and not args.root:
+        print("checksums: name the built trees with --root, or pass --all")
+        return 2
+    s3 = client()
+    slugs = slugs_in_bucket(s3) if args.all else slugs_in(Path(r) for r in args.root)
+    lists: dict[str, str] = {}
+    n, held, changed = update(
+        slugs,
+        replace=tuple(args.replace),
+        download=args.download,
+        s3=s3,
+        lists=lists,
+        every=args.resign,
+    )
+    print(f"checksums: {n} SHA256SUMS written over {len(slugs)} dataset(s)")
+    if args.subjects:
+        parts = write_subjects(lists, Path(args.subjects))
+        print(f"checksums: {len(lists)} list(s) to attest in {len(parts)} part(s)")
+    for prefix in held:
+        print(f"::warning::{prefix}SHA256SUMS not written: a file has no stored SHA-256")
+    # A dated file changes only under a replace, which writes the list again. Anything else
+    # breaks that rule, so it is reported and the version's list keeps what it was first given.
+    for key in changed:
+        slug, version, _ = KEY.match(key).groups()
+        prefix = f"d/{slug}/v/{version}/"
+        print(
+            f"::warning::{key} was written after {prefix}SHA256SUMS, outside a replace. "
+            "A dated version's files never change, so its list is left as it is"
+        )
+    if held:
+        print(
+            f"checksums: {len(held)} version(s) left without one; "
+            "run the Checksums workflow to hash their files from R2 and sign the lists"
+        )
+    return 0
+
+
 def cmd_purge(args) -> int:
     import os
 
-    from .edge import purge
+    from .edge import purge, with_answers
 
     bad = [x for x in args.prefix if not VERSION_PREFIX.match(x)]
     if bad:
@@ -611,7 +766,7 @@ def cmd_purge(args) -> int:
     if not token:
         print("purge: CLOUDFLARE_PURGE_TOKEN is not set")
         return 2
-    print(f"purge: {purge(args.prefix, token)} prefix(es) purged from the edge")
+    print(f"purge: {purge(with_answers(args.prefix), token)} prefix(es) purged from the edge")
     return 0
 
 
@@ -687,6 +842,19 @@ def cmd_verify(args) -> int:
                     f"::error::the default of {k} changed. A version's key leaves out every "
                     "field at its default, so raise REBUILD in pipeline/publicdata/cache.py "
                     "in the same change.",
+                    file=sys.stderr,
+                )
+            return 1
+        if args.before and (
+            bare := verify.unnoted_partitions(Path(args.before), datasets, store_dir, changed)
+        ):
+            for slug, prefixes in bare.items():
+                print(
+                    f"::error::{slug}: partition_by changed, which adds or drops by/ files in "
+                    f"{len(prefixes)} published version(s). That is a correction "
+                    "(docs/CORRECTIONS.md): add a dated note to each version's manifest in "
+                    "store/ in the same change, and once it is merged run the Deploy workflow "
+                    f"with replace set to {' '.join(prefixes)}",
                     file=sys.stderr,
                 )
             return 1
@@ -769,6 +937,13 @@ def _hubs_record(store_dir: Path) -> dict:
     return json.loads(path.read_text("utf-8")) if path.exists() else {}
 
 
+def _tasks(path: str | None) -> dict[str, int]:
+    """The open contributor issues by dataset key; a build without the file shows none."""
+    import json
+
+    return json.loads(Path(path).read_text("utf-8")) if path else {}
+
+
 def cmd_hubs(args) -> int:
     from . import hubs
     from .register import load
@@ -809,6 +984,42 @@ def cmd_hubs(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_contribute(args) -> int:
+    """Keep one issue open for each of the most-wanted datasets, or list the open ones."""
+    import json
+
+    from . import contribute
+    from .register import load
+
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    gh = contribute.GitHub(args.repo, contribute.session(token))
+    if args.sub == "issues":
+        tasks = contribute.open_tasks(gh.issues("open"))
+        Path(args.out).write_text(json.dumps(tasks, indent=1) + "\n", encoding="utf-8")
+        print(f"contribute: {len(tasks)} open task(s) written to {args.out}")
+        return 0
+    if args.votes < 1 or args.cap < 0:
+        sys.exit("contribute: --votes is at least 1 and --cap at least 0")
+    # Issues opened under any other account are invisible to the next scheduled run.
+    if not args.dry_run and os.environ.get("GITHUB_ACTIONS") != "true":
+        sys.exit("contribute: only the Contribute workflow changes issues; pass --dry-run")
+    try:
+        acts = contribute.sync(
+            load(REGISTER),
+            gh,
+            contribute.session(),
+            threshold=args.votes,
+            cap=args.cap,
+            dry_run=args.dry_run,
+            site=args.site,
+        )
+    except contribute.SyncError as e:
+        print(f"contribute: {e}", file=sys.stderr)
+        return 1
+    print(f"contribute: {len(acts)} change(s){' planned' if args.dry_run else ''}")
+    return 0
+
+
 def cmd_cost(args) -> int:
     import datetime as dt
 
@@ -824,8 +1035,11 @@ def cmd_cost(args) -> int:
             return 2
         base, paths = cost.changed_paths(args.base, root)
         entries = cost.changed_entries(register, paths, root)
-        changed |= set(entries)
-        fresh, reshaped = cost.entry_changes(root, base, entries)
+        priced = cost.costed(root, base, entries)
+        if same := sorted(set(entries) - priced):
+            print(f"cost: {', '.join(same)}: edited, but nothing the projection reads changed")
+        changed |= priced
+        fresh, reshaped = cost.entry_changes(root, base, {s: entries[s] for s in priced})
     approve = None
     if args.github_pr:
         repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"]
@@ -883,6 +1097,13 @@ def main(argv=None) -> int:
         "--feeds", action="store_true", help="fetch only the live feeds, as the daily run does"
     )
     f.add_argument(
+        "--hold",
+        nargs="*",
+        default=[],
+        metavar="SLUG",
+        help="rolling sources and feeds with a fetch still waiting in an open pull request",
+    )
+    f.add_argument(
         "--file",
         action="append",
         default=[],
@@ -891,6 +1112,7 @@ def main(argv=None) -> int:
     )
     f.set_defaults(fn=cmd_fetch)
     b = sub.add_parser("build")
+    b.add_argument("--register", default=str(REGISTER), help="the register to build from")
     b.add_argument("slug", nargs="*")
     b.add_argument("--store", default=str(STORE))
     b.add_argument("--out", default=str(ROOT / "dist"))
@@ -918,13 +1140,46 @@ def main(argv=None) -> int:
         help="a shard's built tree; a file the cache leaves out is linked in from it when there",
     )
     b.add_argument(
+        "--tasks",
+        metavar="FILE",
+        help="the open contributor issues by dataset key, as `contribute issues` writes them",
+    )
+    b.add_argument(
         "--published",
         default="",
         metavar="DIR|r2://BUCKET",
         help="where a cached version's Parquet is read back from, as the site lays it out",
     )
     b.set_defaults(fn=cmd_build)
-    pg = sub.add_parser("purge", help="purge replaced versions from the edge cache")
+    ck = sub.add_parser("checksums", help="write SHA256SUMS beside each dated version in R2")
+    ck.add_argument(
+        "--root", action="append", default=[], help="a built tree whose datasets to cover; repeat"
+    )
+    ck.add_argument("--all", action="store_true", help="every dataset R2 holds, as a backfill")
+    ck.add_argument(
+        "--download",
+        action="store_true",
+        help="read and hash a file R2 stored without its SHA-256, instead of skipping its version",
+    )
+    ck.add_argument(
+        "--replace",
+        nargs="*",
+        default=[],
+        metavar="PREFIX",
+        help="versions a replace deploy rewrote, whose lists are made again from scratch",
+    )
+    ck.add_argument(
+        "--subjects", metavar="DIR", help="write the lists to attest here, 1.sha256 and on"
+    )
+    ck.add_argument(
+        "--resign",
+        action="store_true",
+        help="add every list left as it is to --subjects, to attest it again; no list is rewritten",
+    )
+    ck.set_defaults(fn=cmd_checksums)
+    pg = sub.add_parser(
+        "purge", help="purge replaced versions and their query API answers from the edge cache"
+    )
     pg.add_argument("prefix", nargs="+", help="d/<slug>/v/<date>/ prefixes")
     pg.set_defaults(fn=cmd_purge)
     sh = sub.add_parser("shards", help="split the versions the cache cannot serve over build jobs")
@@ -972,6 +1227,7 @@ def main(argv=None) -> int:
     cpr.add_argument("--cache", required=True)
     cpr.set_defaults(fn=cmd_cache_prune)
     g = sub.add_parser("gate")
+    g.add_argument("--register", default=str(REGISTER), help="the register the build read")
     g.add_argument("out", nargs="?", default=str(ROOT / "dist"))
     g.add_argument("--absent", help="the build's list of published files it left out")
     g.add_argument(
@@ -1014,6 +1270,20 @@ def main(argv=None) -> int:
     )
     d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
+    ro = sub.add_parser("rollup", help="write, push and prune the rollups of the versions D1 holds")
+    ro.add_argument(
+        "--loaded", required=True, help="D1's _versions rows (slug, version, rows, fields) as JSON"
+    )
+    ro.add_argument(
+        "--root", action="append", default=[], help="a built tree to read Parquet from first"
+    )
+    ro.add_argument("--out", required=True)
+    ro.add_argument("--bucket", default="publicdata-dist")
+    ro.add_argument(
+        "--replace", nargs="*", default=[], help="d/<slug>/v/<date>/ prefixes to write again"
+    )
+    ro.add_argument("--dry-run", action="store_true", help="write rollups locally, push none")
+    ro.set_defaults(fn=cmd_rollup)
     st = sub.add_parser("store")
     st.add_argument("sub", choices=["pull", "push"])
     st.add_argument("--store", default=str(STORE))
@@ -1021,6 +1291,12 @@ def main(argv=None) -> int:
         "--only", nargs="*", default=[], help="dataset slugs to pull, such as catalogue"
     )
     st.add_argument("--cache", help="skip versions this build cache already holds")
+    st.add_argument(
+        "--rolling",
+        action="store_true",
+        help="pull only the newest fetch of each rolling source and feed, as the fetch reads it",
+    )
+    st.add_argument("--feeds", action="store_true", help="with --rolling, the feeds alone")
     st.set_defaults(fn=cmd_store)
     dp = sub.add_parser("dist-push")
     dp.add_argument("--large", default=str(ROOT / "dist-large"))
@@ -1040,10 +1316,29 @@ def main(argv=None) -> int:
         help="push only dated version files, leaving pages to the deploy that builds them all",
     )
     dp.set_defaults(fn=cmd_dist_push)
+    rr = sub.add_parser("r2").add_subparsers(dest="sub", required=True)
+    rg = rr.add_parser(
+        "restore-gzip",
+        help="store the dated text files in publicdata-dist gzipped, in place; a dry run unless --apply",
+    )
+    rg.add_argument("--prefix", default="d/", help="only keys under this prefix, e.g. d/<slug>/")
+    rg.add_argument("--apply", action="store_true", help="rewrite the objects, not just count them")
+    rg.add_argument("--workers", type=int, default=4)
+    rg.add_argument(
+        "--dedupe-csv-gz",
+        action="store_true",
+        help="delete a version's data.csv.gz once the gzipped data.csv beside it holds its bytes",
+    )
+    rg.set_defaults(fn=cmd_r2_restore_gzip)
     sp = sub.add_parser("spine").add_subparsers(dest="sub", required=True)
     sp.add_parser(
         "install", help="fetch DuckDB's spatial extension so builds stay offline"
     ).set_defaults(fn=cmd_spine_install)
+    sm = sp.add_parser(
+        "mirror", help="copy the spatial extension for the installed DuckDB to R2 and pin it"
+    )
+    sm.add_argument("--pin", required=True, help="the spatial-extension.json to write")
+    sm.set_defaults(fn=cmd_spine_mirror)
     hb = sub.add_parser("hubs", help="copy each dataset's newest version to the data hubs")
     hb.add_argument("--site", default="https://publicdata.au")
     hb.add_argument("--hub", nargs="*", default=["huggingface", "zenodo", "kaggle"])
@@ -1058,6 +1353,16 @@ def main(argv=None) -> int:
         help="re-apply cards, page settings and notebooks to versions a hub already holds",
     )
     hb.set_defaults(fn=cmd_hubs)
+
+    cb = sub.add_parser("contribute", help="the most-wanted datasets as contributor issues")
+    cb.add_argument("sub", choices=["sync", "issues"])
+    cb.add_argument("--repo", default=REPO.removeprefix("https://github.com/"))
+    cb.add_argument("--site", default=SITE)
+    cb.add_argument("--votes", type=int, default=1, help="sync: votes a catalogue record needs")
+    cb.add_argument("--cap", type=int, default=10, help="sync: the most issues open at once")
+    cb.add_argument("--dry-run", action="store_true", help="sync: print the changes, make none")
+    cb.add_argument("--out", default="contribute.json", help="issues: where the open ones go")
+    cb.set_defaults(fn=cmd_contribute)
     co = sub.add_parser(
         "cost", help="project each entry's storage growth and D1 writes and gate changed ones"
     )

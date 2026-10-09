@@ -45,6 +45,12 @@ ZIP_DIRECTORY_MAX = 64 * 10**6
 # The fewest published bytes per row of any table in the fleet is about 205.
 PUBLISHED_BYTES_PER_ROW = 200
 DEFAULT_PER_YEAR = 52
+# A DuckDB file's length differs from one write to the next, so the catalogue gives none and its
+# bound is counted. Of 3,358 table builds none was over 1.25 times its CSV plus 600 KB of blocks,
+# and the one database's file was 1.3 times its Parquet tables.
+DUCKDB_PER_CSV = 1.25
+DUCKDB_PER_TABLES = 2
+DUCKDB_BLOCKS = 600_000
 APPROVAL_LABEL = "cost-approved"
 CATALOG = f"{SITE}/catalog.json"
 UA = "publicdata.au cost (+https://publicdata.au/about/)"
@@ -188,11 +194,12 @@ def versions_per_year(ds: Dataset, versions: list[str], today: dt.date) -> tuple
     return float(max(recent, 1)), "observed"
 
 
-def _upper(path: str, n: int) -> int:
-    """A DuckDB file's size is published to one significant figure; count its upper bound."""
-    if path.endswith(".duckdb") and n >= 10:
-        return n + 10 ** (len(str(n)) - 1) // 2
-    return n
+def duckdb_bound(files: dict[str, int]) -> int:
+    """The most bytes a version's data.duckdb is counted at, from the files whose size is stated."""
+    tables = sum(n for p, n in files.items() if p.startswith("tables/"))
+    if tables:
+        return DUCKDB_PER_TABLES * tables + DUCKDB_BLOCKS
+    return int(DUCKDB_PER_CSV * files.get("data.csv", 0)) + DUCKDB_BLOCKS
 
 
 def catalogue_sizes(catalog: dict) -> dict[str, dict[str, int]]:
@@ -204,8 +211,9 @@ def catalogue_sizes(catalog: dict) -> dict[str, dict[str, int]]:
         for d in rec.get("distribution", []):
             url = d.get("downloadURL", "")
             if mark in url:
-                path = url.split(mark, 1)[1]
-                files[path] = _upper(path, int(d.get("byteSize") or 0))
+                files[url.split(mark, 1)[1]] = int(d.get("byteSize") or 0)
+        if "data.duckdb" in files:
+            files["data.duckdb"] = duckdb_bound(files)
         out[rec["identifier"]] = files
     return out
 
@@ -523,8 +531,12 @@ def fleet(projections: list[Projection]) -> Fleet:
 
 def build_version_bytes(ds: Dataset, v) -> int:
     """A built version's bytes in R2: every file it lists, and the publisher's file in the raw
-    store, which a withheld source keeps without listing."""
-    return sum(v.files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
+    store, which a withheld source keeps without listing. A DuckDB file counts at its bound, as
+    the catalogue would give it, so two builds of one snapshot state the same total."""
+    files = {k: n for k in v.files if (n := v.size(k)) is not None}
+    if "data.duckdb" in v.files:
+        files["data.duckdb"] = duckdb_bound(files)
+    return sum(files.values()) + (v.manifest.bytes if ds.source_withheld else 0)
 
 
 def fleet_from_build(outs, today: dt.date) -> Fleet:
@@ -648,6 +660,40 @@ def entry_changes(
         if shaped or old.get("partition_by") != new.get("partition_by"):
             reshaped[slug] = old
     return fresh, reshaped
+
+
+# Keys besides the source and the shape that a projection reads: whether the entry is
+# published, whether D1 loads it and what D1 indexes.
+COST_KEYS = ("partition_by", "key", "query", "status", "licence")
+
+
+def _costs(raw: dict) -> tuple:
+    src = raw.get("source") or {}
+    return (
+        _source(raw),
+        _shape(raw),
+        src.get("cadence"),
+        src.get("feed"),
+        {k: raw.get(k) for k in COST_KEYS},
+    )
+
+
+def costed(root: Path, base: str, entries: dict[str, str]) -> set[str]:
+    """Changed entries whose edit can move what they cost: new ones, and those whose source,
+    cadence, shape or a key in COST_KEYS differs from the base's. A description, a label or a
+    raised rebuild number leaves the projection as it was, so the gate does not ask for an
+    approval it already had."""
+    out = set()
+    base_paths = _base_paths(root, base)
+    for slug, path in entries.items():
+        if slug not in base_paths:
+            out.add(slug)
+            continue
+        new = yaml.safe_load((root / path).read_text(encoding="utf-8")) or {}
+        old = yaml.safe_load(_git(root, "show", f"{base}:{base_paths[slug]}")) or {}
+        if _costs(old) != _costs(new):
+            out.add(slug)
+    return out
 
 
 def load_catalog(where: str) -> dict:

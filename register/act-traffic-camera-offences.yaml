@@ -41,11 +41,11 @@ faq:
   a: One offence on one day, at one camera location where there is one, for one registration state and
     client type, with the number of infringements and the sum of their penalties in dollars.
 - q: What do the infringement types mean?
-  a: They are the publisher's codes. TRF_RLC covers red light and fixed speed cameras, TRF_CIN mobile
-    speed cameras, TRF_MDDC mobile phone detection cameras, TRF_DSB and TRF_PSB driver and passenger
-    seatbelt offences, TRF_P2P point to point cameras, TRF_TIN infringements issued by police and other
-    officers, and UNRGSTRD and UNINSRD unregistered and uninsured vehicles.
-    The publisher notes that TRF_TIN rows carry no camera location code.
+  a: They are the publisher's codes. `TRF_RLC` covers red light and fixed speed cameras, `TRF_CIN` mobile
+    speed cameras, `TRF_MDDC` mobile phone detection cameras, `TRF_DSB` and `TRF_PSB` driver and passenger
+    seatbelt offences, `TRF_P2P` point to point cameras, `TRF_TIN` infringements issued by police and other
+    officers, and `UNRGSTRD` and `UNINSRD` unregistered and uninsured vehicles.
+    The publisher notes that `TRF_TIN` rows carry no camera location code.
 - q: How do I map the offences?
   a: The camera location code matches the location codes in the ACT traffic camera locations and the
     mobile distraction camera locations tables in this collection. The publisher says some cleaning may

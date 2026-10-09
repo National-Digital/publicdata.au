@@ -6,9 +6,11 @@ name: Fetch
 # has approved it as the fetch's own and the checks are green; nothing is published before then.
 # The portals' dataset lists are harvested by catalogue.yml.
 on:
+  # zizmor: ignore[concurrency-limits] the one fetch runner serialises fetches, and a group would replace a pending one
   schedule:
     - cron: "17 19 * * 1" # Tuesday 05:17 Brisbane
-    # Live feeds (source.feed) every other day of the week, so each day a feed changes is a version.
+    # Feeds (update: feed, and the older source.feed) every other day of the week. A release is
+    # checked and a rolling source read in the weekly run alone.
     - cron: "47 19 * * 0,2-6" # 05:47 Brisbane
   workflow_dispatch:
 
@@ -16,18 +18,21 @@ env:
   UV_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
   UV_BUILD_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
 
+# The fetch app's token pushes the branches and opens the pull requests.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 jobs:
   fetch:
+    name: fetch
+    permissions:
+      contents: read
+      issues: write # keeps the manual downloads issue current
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
     # Some portals, Queensland's among them, turn away cloud runners, so the fetch runs from an
     # Australian host. Its runner group admits this workflow on main and nothing else.
-    runs-on: [self-hosted, publicdata-fetch]
+    runs-on: [self-hosted, publicdata-fetch] # zizmor: ignore[self-hosted-runner] some portals turn cloud runners away
     environment: fetch
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,19 +57,40 @@ jobs:
           python-version: ${{ steps.py.outputs.version }}
           activate-environment: true
       - run: uv pip install -e './pipeline[deploy]'
+      # A rolling source or a feed is compared with its newest fetch, whose bytes are in R2.
+      - name: Pull the newest fetch of each rolling source and feed
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          FEEDS: ${{ github.event.schedule == '47 19 * * 0,2-6' && '--feeds' || '' }}
+        run: python -m publicdata store pull --store store --rolling ${FEEDS:+"$FEEDS"}
       - name: Fetch
         id: run
         env:
           FEEDS: ${{ github.event.schedule == '47 19 * * 0,2-6' && '--feeds' || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
-          python -m publicdata fetch --store store --groups groups.json ${FEEDS} | tee fetch.log
+          # A rolling source or a feed whose earlier fetch still waits in an open pull request is
+          # held, since this checkout lacks that fetch to compare with.
+          # Every open fetch PR and every file in each, since a weekly PR can list hundreds. A failed
+          # read stops the fetch, since an empty hold would let a held source through.
+          prs=$(gh pr list --state open --search "head:data/fetch-" --limit 1000 --json number --jq '.[].number')
+          hold=$(for n in $prs; do
+                   gh api "repos/$GITHUB_REPOSITORY/pulls/$n/files" --paginate --jq '.[].filename' || exit 1
+                 done | awk -F/ '$1 == "store" {print $2}' | sort -u)
+          held=()
+          while read -r slug; do [ -n "$slug" ] && held+=("$slug"); done <<< "$hold"
+          python -m publicdata fetch --store store --groups groups.json ${FEEDS:+"$FEEDS"} --hold "${held[@]}" | tee fetch.log
       - name: Count new versions
         id: fetch
         run: |
-          echo "changed=$(grep -cE ': new version [0-9]{4}-' fetch.log || true)" >> "$GITHUB_OUTPUT"
+          echo "changed=$(grep -cE ': new (version|fetch) [0-9]{4}-' fetch.log || true)" >> "$GITHUB_OUTPUT"
+          echo "reads=$(grep -cE ': read [0-9]{4}-' fetch.log || true)" >> "$GITHUB_OUTPUT"
+      # A feed's read with no change goes to R2 alone, so a quiet day opens no pull request.
       - name: Push raw bytes to R2
-        if: steps.fetch.outputs.changed != '0'
+        if: steps.fetch.outputs.changed != '0' || steps.fetch.outputs.reads != '0'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_API_TOKEN_ID: ${{ secrets.CLOUDFLARE_API_TOKEN_ID }}
@@ -101,14 +127,15 @@ jobs:
           jurs=$(groups)
           for jur in $jurs; do
             mapfile -t files < <(groups "$jur")
-            slugs=$(for f in "${files[@]}"; do basename "$(dirname "$(dirname "$f")")"; done | paste -sd'|')
-            lines=$(grep -E "^($slugs): new version [0-9]{4}-" fetch.log || true)
+            slugs=$(for f in "${files[@]}"; do echo "$f" | cut -d/ -f2; done | sort -u | paste -sd'|')
+            lines=$(grep -E "^($slugs): new (version|fetch) [0-9]{4}-" fetch.log || true)
             # One government's failure is reported and the others still get their pull requests.
             # The other governments' manifests stay untracked in the tree while each branch is cut.
             # A failed command inside an if condition does not stop a set -e shell, so each step is chained.
+            # shellcheck disable=SC2016 # the backticks are a Markdown fence
             if ! {
               git checkout -q --detach "$base" &&
-              git checkout -q -b "data/fetch-$DATE-$jur-${{ github.run_id }}" &&
+              git checkout -q -b "data/fetch-$DATE-$jur-$GITHUB_RUN_ID" &&
               git add "${files[@]}" &&
               git commit -q -s -m "data($jur): new source versions fetched $DATE" -m "$lines" &&
               git push -q -u origin HEAD &&
@@ -117,7 +144,7 @@ jobs:
             }; then
               failed="$failed $jur"
               # A branch pushed without its PR is removed, so the next run starts clean.
-              git push -q origin --delete "data/fetch-$DATE-$jur-${{ github.run_id }}" 2>/dev/null || true
+              git push -q origin --delete "data/fetch-$DATE-$jur-$GITHUB_RUN_ID" 2>/dev/null || true
               echo "No pull request was opened for $jur; its versions are fetched again next run." >> "$GITHUB_STEP_SUMMARY"
             fi
           done
@@ -132,12 +159,13 @@ jobs:
           TITLE: Manual downloads due
         run: |
           open=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          # shellcheck disable=SC2016 # the backticks are Markdown code spans
           due=$(grep -E ': MANUAL ' fetch.log | sed -E 's/^([^:]+): MANUAL [^:]+: download (\S+) .*/- [ ] `\1` from <\2>/' || true)
           if [ -z "$due" ]; then
-            [ -z "$open" ] || gh issue close "$open" --comment "Nothing is due as of run ${{ github.run_id }}."
+            [ -z "$open" ] || gh issue close "$open" --comment "Nothing is due as of run $GITHUB_RUN_ID."
             exit 0
           fi
-          body=$(printf 'The publisher changed these files and their hosts turn automated clients away. Download each in a browser and follow CONTRIBUTING.md, "Manual sources".\n\n%s\n\nRun %s.' "$due" "${{ github.run_id }}")
+          body=$(printf 'The publisher changed these files and their hosts turn automated clients away. Download each in a browser and follow CONTRIBUTING.md, "Manual sources".\n\n%s\n\nRun %s.' "$due" "$GITHUB_RUN_ID")
           printf '%s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$open" ]; then gh issue edit "$open" --body "$body"; else gh issue create --title "$TITLE" --body "$body"; fi
       - name: Fail when anything could not be fetched

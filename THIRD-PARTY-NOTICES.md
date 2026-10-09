@@ -36,7 +36,7 @@ republishing. Licences other than Creative Commons are recorded in `register/lic
 
 | Asset | Owner | Terms |
 | --- | --- | --- |
-| Random Grotesque (`RG-StandardBook`, `RG-StandardMedium`, `RG-StandardBold`) | RandomMaerks (Bao Nguyen) | Licensed to National Digital for its sites. **Not in this repository and not covered by its licences.** The deploy fetches the files from private storage; a build without them falls back to system fonts on the page and Pillow's bundled Aileron on social cards. |
+| Random Grotesque (`RG-StandardRegular`, `RG-StandardMedium`, `RG-StandardBold`) in `pipeline/publicdata/static/fonts/` | RandomMaerks (Bao Nguyen) | Free package (Package 1A, update 2.1) under the [RandomMaerks End-User License Agreement, Type-C](https://randommaerks.gumroad.com/p/rm-eula-type-c). Clause 4.3 allows the free font software to be redistributed with attribution; [`RandomGrotesque-EULA.txt`](pipeline/publicdata/static/fonts/RandomGrotesque-EULA.txt) beside the files is that attribution and reproduces the agreement. **Not covered by this repository's licences.** The paid styles may not be redistributed and must not be added. |
 
 ## Libraries the site serves
 
@@ -48,6 +48,16 @@ time from `package-lock.json`, not committed.
 | `@duckdb/duckdb-wasm` | MIT |
 | `@perspective-dev/client`, `server`, `viewer`, `viewer-charts`, `viewer-datagrid` | Apache-2.0 |
 | `apache-arrow` | Apache-2.0 |
+
+## Libraries the functions bundle
+
+The MCP server reads Parquet files with these npm packages, which the deploy bundles into the
+Pages Functions from `package-lock.json`.
+
+| Package | Licence |
+| --- | --- |
+| `hyparquet` | MIT |
+| `fzstd` | MIT |
 
 ## The GitHub mark
 

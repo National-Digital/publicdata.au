@@ -10,6 +10,8 @@
 {% endif %}<link rel="alternate" type="text/markdown" href="{{ md_url }}" title="This page as Markdown">
 <link rel="alternate" type="application/ld+json" href="{{ site }}/catalog.json" title="DCAT catalogue">
 <link rel="ard" href="{{ site }}/.well-known/ard.json">
+<link rel="ai-catalog" href="/.well-known/ai-catalog.json">
+<link rel="api-catalog" href="/.well-known/api-catalog">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -18,10 +20,10 @@
 <meta name="theme-color" content="{{ theme.dark }}" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-title" content="publicdata">
 {% if origin_trial %}<meta http-equiv="origin-trial" content="{{ origin_trial }}">
-{% endif %}{% if brand_fonts %}<link rel="preload" href="/static/fonts/RG-StandardBook.woff2" as="font" type="font/woff2" crossorigin>
+{% endif %}<link rel="preload" href="/static/fonts/RG-StandardRegular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/RG-StandardMedium.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/RG-StandardBold.woff2" as="font" type="font/woff2" crossorigin>
-{% endif %}<style>{{ css|safe }}</style>
+<style>{{ css|safe }}</style>
 <meta property="og:title" content="{{ title }}">
 <meta property="og:description" content="{{ description }}">
 <meta property="og:url" content="{{ canonical }}">
@@ -43,7 +45,7 @@
 <a class="skip" href="#main">Skip to content</a>
 <div class="site">
 <header class="top">
-  <a class="wordmark" href="/">publicdata<i class="dot"></i>au</a><span class="byline">by <a href="https://nationaldigital.com.au/" rel="noopener">National Digital</a></span>
+  <a class="wordmark" href="/">publicdata<i class="dot"><span class="vh">.</span></i>au</a><span class="byline">by <a href="https://nationaldigital.com.au/" rel="noopener">National Digital</a></span>
   <button class="menu" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
   <nav class="main" id="site-nav" aria-label="Site">
     <a href="/" {% if nav == 'datasets' %}aria-current="page"{% endif %}>Datasets</a>
@@ -53,10 +55,10 @@
     <a href="/agents/" {% if nav == 'agents' %}aria-current="page"{% endif %}>For agents</a>
     <a href="/about/" {% if nav == 'about' %}aria-current="page"{% endif %}>About</a>
   </nav>
-  <form class="search" action="/backlog/" method="get" role="search" toolname="find_dataset_page" tooldescription="Search every dataset on Australia's government open-data portals by title, publisher or topic and open the results page. Datasets served here are marked." toolautosubmit><label for="q" class="vh">Search every government dataset</label><input id="q" name="q" type="search" placeholder="Search every government dataset" toolparamdescription="Words from a dataset title, publisher name or topic"></form>
+  <form class="search" action="/backlog/" method="get" role="search" aria-label="Site search" toolname="find_dataset_page" tooldescription="Search every dataset on Australia's government open-data portals by title, publisher or topic and open the results page. Datasets served here are marked." toolautosubmit><label for="q" class="vh">Search every government dataset</label><input id="q" name="q" type="search" placeholder="Search every government dataset" toolparamdescription="Words from a dataset title, publisher name or topic"></form>
   <a class="gh-top" href="{{ repo }}" rel="noopener" title="publicdata.au on GitHub">{{ gh_mark|safe }}<span class="vh">publicdata.au on GitHub</span></a>
 </header>
-<div class="disclaimer"><span class="long">{% block disclaimer %}This is an independent republication of open government data. No government agency is affiliated with it or has endorsed it. Every file names its publisher, its licence and the attribution the licence asks for.{% endblock %}</span><span class="short">An independent republication of open government data. No government agency has endorsed it. <a href="/government/">Read more</a></span></div>
+<aside class="disclaimer" aria-label="Independence"><span class="long">{% block disclaimer %}This is an independent republication of open government data. No government agency is affiliated with it or has endorsed it. Every file names its publisher, its licence and the attribution the licence asks for.{% endblock %}</span><span class="short">An independent republication of open government data. No government agency has endorsed it, as the <a href="/government/">page for government staff</a> explains.</span></aside>
 </div>
 <main id="main">
 {% block wrap %}<div class="site">
@@ -66,10 +68,10 @@
 <div class="footband">
 <div class="site foot">
 <footer>
-  <div><p><a class="wordmark" href="/">publicdata<i class="dot"></i>au</a></p><p>Built and operated by <a href="https://nationaldigital.com.au/" rel="noopener">National Digital</a>, Burleigh Heads, Queensland. This is a private website. No government agency runs or has endorsed it.</p></div>
+  <div><div class="foot-mark"><a class="wordmark" href="/">publicdata<i class="dot"><span class="vh">.</span></i>au</a></div><p>Built and operated by <a href="https://nationaldigital.com.au/" rel="noopener">National Digital</a>, Burleigh Heads, Queensland. This is a private website. No government agency runs or has endorsed it.</p></div>
   <div><p>Data is republished under each publisher's licence, usually CC BY 3.0 AU or CC BY 4.0. The attribution string is inside every file.</p><p>Wrong value? It is almost always wrong in the source as well, because we publish what the publisher publishes. Wrong serialisation? <a href="/about/#corrections">Tell us</a> and we will fix it and record the fix.</p></div>
   <div><p><a class="gh" href="{{ repo }}" rel="noopener">{{ gh_mark|safe }}publicdata.au on GitHub</a></p><p>The code that builds this site is open source under the AGPL. Anyone can add a dataset, a file format or a fix through a pull request, and the <a href="/contribute/">contributing page</a> explains how.</p></div>
-  <div><p><a href="/">Datasets</a> · <a href="/browse/">Governments</a> · <a href="/backlog/">Backlog</a> · <a href="/government/">For government staff</a> · <a href="/publishers/">For publishers</a> · <a href="/agents/">For agents</a> · <a href="/health.json">Health</a> · <a href="/about/#corrections">Corrections</a> · <a href="/contribute/">Contribute</a> · <a href="/privacy/">Privacy</a> · <a href="/terms/">Terms</a></p><p><a href="{{ md_url }}">This page as Markdown</a> · <a href="/llms.txt">llms.txt</a> · <a href="/catalog.json">catalog.json</a> · <a href="/mcp/server-card">mcp</a></p></div>
+  <div><p><a href="/">Datasets</a> · <a href="/browse/">Governments</a> · <a href="/backlog/">Backlog</a> · <a href="/government/">For government staff</a> · <a href="/publishers/">For publishers</a> · <a href="/agents/">For agents</a> · <a href="/health.json">Health</a> · <a href="/about/#corrections">Corrections</a> · <a href="/glossary/">Glossary</a> · <a href="/contribute/">Contribute</a> · <a href="/accessibility/">Accessibility</a> · <a href="/privacy/">Privacy</a> · <a href="/terms/">Terms</a></p><p><a href="{{ md_url }}">This page as Markdown</a> · <a href="/llms.txt">llms.txt</a> · <a href="/catalog.json">catalog.json</a> · <a href="/mcp/server-card">mcp</a></p></div>
 </footer>
 </div>
 </div>

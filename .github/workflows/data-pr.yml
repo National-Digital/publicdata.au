@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      pull-requests: write
-      actions: read
+      pull-requests: write # approves the pull request, or dismisses an earlier approval
+      actions: read # reads the run that cut the branch
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -36,6 +36,7 @@ jobs:
       HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
       FETCHER: ${{ vars.FETCH_APP_LOGIN }}
       OPENER_TYPE: ${{ github.event.pull_request.user.type }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Approve when every condition holds
         run: |
@@ -47,7 +48,9 @@ jobs:
             exit 0
           }
           [ "$HEAD_REPO" = "$REPO" ] || hold "the branch is on a fork"
-          [ "$OPENER_TYPE" = "Bot" ] && [ -n "$FETCHER" ] && [ "$OPENER" = "$FETCHER" ] || hold "opened by $OPENER ($OPENER_TYPE), not the fetch app"
+          if ! { [ "$OPENER_TYPE" = "Bot" ] && [ -n "$FETCHER" ] && [ "$OPENER" = "$FETCHER" ]; }; then
+            hold "opened by $OPENER ($OPENER_TYPE), not the fetch app"
+          fi
           run=$(gh api "repos/$REPO/actions/runs/${BRANCH##*-}" --jq '"\(.path) \(.head_branch) \(.event)"' 2>/dev/null || true)
           case "$run" in
             ".github/workflows/fetch.yml main schedule"|".github/workflows/fetch.yml main workflow_dispatch"|\
@@ -58,11 +61,30 @@ jobs:
           [ "$(gh api "repos/$REPO/pulls/$PR" --jq .commits)" = 1 ] || hold "more than one commit"
           commit=$(gh api "repos/$REPO/pulls/$PR/commits" --jq '.[0] | "\(.commit.author.email) \(.commit.committer.email)"')
           [ "$commit" = "fetch@publicdata.au fetch@publicdata.au" ] || hold "not a fetch commit: $commit"
-          # A hubs branch may change only the hub record; any other data branch only manifests.
+          # A hubs branch may change only the hub record; any other data branch only manifests and
+          # the change logs of rolling sources and feeds.
           case "$BRANCH" in
             data/hubs-*) allowed='^store/hubs\.json$' ;;
-            *) allowed='^store/[^/]+/[^/]+/manifest\.json$' ;;
+            *) allowed='^store/[^/]+/[^/]+/(manifest|changes)\.json$' ;;
           esac
-          other=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' | grep -vE "$allowed" || true)
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename')
+          other=$(echo "$files" | grep -vE "$allowed" || true)
           [ -z "$other" ] || hold "files this kind of data PR may not change: $other"
+          # A change log belongs to a rolling source or a feed.
+          logs=$(echo "$files" | grep -E '^store/[^/]+/[^/]+/changes\.json$' || true)
+          if [ -n "$logs" ]; then
+            entries=$(gh api "repos/$REPO/git/trees/$HEAD_SHA?recursive=1" --jq '.tree[].path' | grep -E '^register/.+\.yaml$')
+            for f in $logs; do
+              slug=$(echo "$f" | cut -d/ -f2)
+              entry=$(echo "$entries" | grep -E "(^|/)$slug\.yaml$" | head -1)
+              update=""
+              if [ -n "$entry" ]; then
+                update=$(gh api "repos/$REPO/contents/$entry?ref=$HEAD_SHA" -H "Accept: application/vnd.github.raw" | sed -nE 's/^update: *([a-z]+).*/\1/p')
+              fi
+              case "$f:$update" in
+                *:rolling|*:feed) ;;
+                *) hold "$f is for a ${update:-release} entry" ;;
+              esac
+            done
+          fi
           gh pr review "$PR" --repo "$REPO" --approve --body "A fetched-data PR from a scheduled run on main; it merges when the required checks are green."

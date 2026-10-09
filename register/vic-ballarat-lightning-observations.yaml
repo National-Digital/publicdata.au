@@ -34,7 +34,7 @@ faq:
     number of strikes it registered in the measurement period and their average distance. Most readings
     record no strikes.
 - q: How does the sensor work?
-  a: The council's description says the sensor listens for the disturbance a strike makes in an AM radio
+  a: The council's description says the sensor listens for the disturbance a strike makes in an amplitude modulation (AM) radio
     signal, and reports the count of strikes and their average distance in each period, as set out in the
     ATMOS41 manual. The council says it is not an official source of weather information.
 - q: What are the rows with location none?
@@ -98,3 +98,4 @@ fields:
   source: average_distance
   type: number
   description: The average distance to the strikes as the sensor reports it. The portal gives no unit.
+rebuild: 1

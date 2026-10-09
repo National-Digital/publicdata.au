@@ -37,7 +37,7 @@ faq:
     of incidents reached within 15 minutes, the average response time in seconds and the number of incidents.
     The publisher reports the 15 minute share for Code 1 only, so it is blank on Code 2 rows.
 - q: Why are there rows that are not council areas?
-  a: The publisher adds rows for Unincorporated Vic, Interstate LGAs and its Total AV, and ends both the
+  a: The publisher adds rows for Unincorporated Vic, Interstate LGAs and its `Total AV`, and ends both the
     Code 1 and the Code 2 table with a note on Moonee Valley, where inter hospital transfers arriving by air lengthen Code 2 times.
     These rows are kept as published.
 - q: Why is there a row that repeats the column names?

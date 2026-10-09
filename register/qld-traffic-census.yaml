@@ -30,7 +30,7 @@ faq:
 - q: What is in each row?
   a: One traffic count site, year and direction of travel, with the estimated annual average daily traffic, the daily traffic and share in each vehicle class, and growth over one, five and ten years. Each row also gives the road, the segment of road the site represents, the speed limit, the coordinates and the TMR district, TMR region and council area.
 - q: Why do three rows share one site and year?
-  a: Each site has a row for traffic with the gazetted direction of the road, a row against it and a row for both directions combined. Add only the rows for one direction, or use the BOTH DIRECTIONS row.
+  a: Each site has a row for traffic with the gazetted direction of the road, a row against it and a row for both directions combined. Add only the rows for one direction, or use the `BOTH DIRECTIONS` row.
 - q: Is every figure counted in the year it is for?
   a: No. A coverage site is not counted every year, and the publisher then estimates the year's traffic from an earlier count. The year counted column gives when the count was made.
 summary: The annual average daily traffic at every count site on Queensland's state-controlled roads for the latest eleven years, with heavy vehicle and vehicle class counts.

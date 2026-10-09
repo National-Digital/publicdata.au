@@ -61,6 +61,25 @@ def test_fixture_build_is_deterministic_and_carries_provenance(
     shutil.rmtree(a)
 
 
+def test_the_length_of_a_duckdb_file_changes_no_other_published_byte(
+    fixture_site, tmp_path, monkeypatch
+):
+    # Two writes of the same rows can differ in length, so no file may state one.
+    from publicdata import build
+    from publicdata.__main__ import main
+
+    size = build._size
+    monkeypatch.setattr(
+        build, "_size", lambda p: size(p) + (262_144 if p.name == "data.duckdb" else 0)
+    )
+    out = tmp_path / "dist"
+    assert main(["build", "--fixtures", "--out", str(out)]) == 0
+    assert _tree(out) == _tree(fixture_site)
+    files = [f for f in _tree(out) if not f.endswith("data.duckdb")]
+    same, diff, err = filecmp.cmpfiles(fixture_site, out, files, shallow=False)
+    assert not diff and not err
+
+
 def test_geometry_fixture_writes_valid_excel_and_geopackage_and_no_arrow(
     register_dir, fixture_store, tmp_path
 ):

@@ -52,7 +52,7 @@ keywords:
 - New South Wales
 faq:
 - q: What is in each row?
-  a: One station, year, direction, vehicle class and period of the week, such as weekdays or the AM peak, with
+  a: One station, year, direction, vehicle class and period of the week, such as weekdays or the morning (AM) peak, with
     the traffic count Transport for NSW reports for it and its flags for a partial year, data availability,
     reliability and quality.
 - q: How is the traffic count formed?
