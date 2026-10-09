@@ -48,6 +48,7 @@ says where to ask for a dataset or for help, and a vulnerability is reported pri
   fixed, and the log of every correction.
 - [`docs/content-addressed-store.md`](docs/content-addressed-store.md) what storing identical
   files once would save, measured, and why it waits.
+- [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) the WCAG 2.2 AAA target, what CI enforces and the exceptions.
 
 ## Run it
 

@@ -1,6 +1,7 @@
 import { disposition } from '../_download.js';
 
-// /d/* : serve the static file if Pages has it; redirect latest/ to the newest version;
+// /d/* : serve the static file if Pages has it; redirect latest/ to the newest version, or for a
+// rolling source or a feed, serve its newest fetch in place from latest/;
 // otherwise look in R2, which holds every dated version's files and anything over the Pages limit.
 // A version's source.<ext> is the publisher's file, served from the raw store that keeps it.
 const TYPES = {
@@ -38,6 +39,14 @@ async function liveOf(env, url) {
   const r = await env.ASSETS.fetch(new URL('/latest.json', url));
   if (!r.ok) return {};
   return (live = await r.json());
+}
+
+// The rolling sources and feeds, whose latest/ is built in place from their newest fetch.
+let current;
+async function currentOf(env, url) {
+  if (current) return current;
+  const r = await env.ASSETS.fetch(new URL('/current.json', url));
+  return (current = r.ok ? await r.json() : {});
 }
 
 // The publisher's files the register no longer republishes, which R2 still holds.
@@ -90,7 +99,7 @@ export async function onRequestGet({ request, env }) {
   }
   const slug = (url.pathname.match(/^\/d\/([a-z0-9-]+)\//) || [])[1];
   const latest = slug ? await liveOf(env, url) : {};
-  const r = await serve(request, env, url, latest);
+  const r = await serve(request, env, url, latest, slug ? await currentOf(env, url) : {});
   // R2 keeps every version of a dataset the register has since withheld, so a file it still holds
   // is refused here. An unread latest.json withholds nothing; a path with nothing behind it stays 404.
   const gone = slug && Object.keys(latest).length && !(slug in latest);
@@ -105,8 +114,33 @@ export async function onRequestGet({ request, env }) {
   return r;
 }
 
-async function serve(request, env, url, latest) {
+async function serve(request, env, url, latest, inPlace) {
   const m = url.pathname.match(/^\/d\/([a-z0-9-]+)\/latest\/(.*)$/);
+  // latest/ itself has no page of its own, so it still goes to the newest snapshot's page.
+  if (m && m[2] && m[1] in inPlace && m[1] in latest) {
+    // The newest fetch is built under a folder of its own date, which current.json names, so a
+    // file left from an older fetch is never served, and a deploy half out never mixes two.
+    const cur = inPlace[m[1]];
+    const source = cur.source && m[2] === cur.source;
+    const key = `d/${m[1]}/fetch/${cur.fetch}/${m[2]}`;
+    let r;
+    if (source) {
+      const head = request.method === 'HEAD';
+      const raw = `${m[1]}/${cur.fetch}/${m[2]}`;
+      const obj = env.RAW && (await (head ? env.RAW.head(raw) : env.RAW.get(raw, { range: request.headers, onlyIf: request.headers })));
+      r = obj ? await answer(request, url, key, obj, head, env) : null;
+    } else {
+      const asset = await env.ASSETS.fetch(new Request(new URL('/' + key, url), request));
+      r = asset.status !== 404 ? asset : await fromR2(request, env, new URL('/' + key, url));
+    }
+    if (!r || r.status >= 400) return r && r.status !== 404 ? r : new Response('Not found', { status: 404 });
+    const out = new Response(r.body, r);
+    out.headers.set('cache-control', 'public, max-age=300, no-transform');
+    out.headers.set('access-control-allow-origin', '*');
+    const cd = disposition(`d/${m[1]}/v/${cur.fetch}/${m[2]}`);
+    if (cd) out.headers.set('content-disposition', cd);
+    return out;
+  }
   if (m) {
     const v = latest[m[1]];
     if (!v) return new Response('No such dataset', { status: 404 });
@@ -161,6 +195,11 @@ async function fromR2(request, env, url) {
     }
     return null;
   }
+  return answer(request, url, key, obj, head, env, decoded);
+}
+
+// An R2 object as a response: its type, size and byte range, and its cache policy by its key.
+async function answer(request, url, key, obj, head, env, decoded = gzipped(obj)) {
   // A revalidation that will be answered 304 needs no bytes, so it is not sent on.
   const sending = head || ('body' in obj && obj.body);
   if (sending && obj.size > EDGE_MAX && DATED.test(key) && url.searchParams.get('edge') !== BYPASS) {

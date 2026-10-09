@@ -40,7 +40,7 @@ faq:
   a: Yes. The species group column separates sharks from turtles, marine mammals and other animals such as
     rays and fish, which the publisher includes in the same table.
 - q: Why are some scientific names blank?
-  a: The publisher writes NULL where an animal was not identified to species, such as an unknown shark. Those
+  a: The publisher writes `NULL` where an animal was not identified to species, such as an unknown shark. Those
     cells are null here.
 summary: The number of sharks and other animals caught by Queensland's shark nets and drumlines, by month,
   beach, gear and species, since 1996.
@@ -50,7 +50,7 @@ description: 'Counts of animals caught by the Queensland Shark Control Program''
   names, whether the animals were alive or deceased, their fate and its reason, and the number caught.
 
 
-  The cells the publisher writes as NULL are null here.
+  The cells the publisher writes as `NULL` are null here.
 
   '
 publisher:
