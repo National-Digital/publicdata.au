@@ -1,12 +1,12 @@
-import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const SCRIPT = fileURLToPath(new URL("./psi.mjs", import.meta.url));
+const SCRIPT = fileURLToPath(new URL('./psi.mjs', import.meta.url));
 
 // Stands in for the PageSpeed Insights API. PSI_STUB names what it answers: an HTTP status for
 // every call, "flaky", where each page misses performance on its first call and passes after,
@@ -38,13 +38,26 @@ globalThis.fetch = async (u) => {
 `;
 
 function run(stub) {
-  const cwd = mkdtempSync(join(tmpdir(), "psi-"));
-  const r = spawnSync(process.execPath, ["--import", `data:text/javascript,${encodeURIComponent(STUB)}`, SCRIPT, "https://publicdata.au"], {
-    cwd,
-    env: { ...process.env, PSI_API_KEY: "test-key", PSI_STUB: stub },
-    encoding: "utf8",
-  });
-  return { code: r.status, out: r.stdout + r.stderr, report: readFileSync(join(cwd, "psi-report.md"), "utf8") };
+  const cwd = mkdtempSync(join(tmpdir(), 'psi-'));
+  const r = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      `data:text/javascript,${encodeURIComponent(STUB)}`,
+      SCRIPT,
+      'https://publicdata.au',
+    ],
+    {
+      cwd,
+      env: { ...process.env, PSI_API_KEY: 'test-key', PSI_STUB: stub },
+      encoding: 'utf8',
+    },
+  );
+  return {
+    code: r.status,
+    out: r.stdout + r.stderr,
+    report: readFileSync(join(cwd, 'psi-report.md'), 'utf8'),
+  };
 }
 
 for (const status of [400, 403]) {
@@ -57,36 +70,45 @@ for (const status of [400, 403]) {
   });
 }
 
-test("a page that misses a target once and passes on the second run passes", () => {
-  const r = run("flaky");
+test('a page that misses a target once and passes on the second run passes', () => {
+  const r = run('flaky');
   assert.equal(r.code, 0, r.out);
   assert.match(r.report, /Every page met every target\./);
 });
 
-test("a page that misses a target on both runs exits 1 and names it", () => {
-  const r = run("slow");
+test('a page that misses a target on both runs exits 1 and names it', () => {
+  const r = run('slow');
   assert.equal(r.code, 1, r.out);
   assert.match(r.report, /## What failed\n\n- \/ \(mobile\) performance: score 50, needs 90/);
 });
 
 test("a page that misses on both runs exits 1 although another page's call failed, and the report names both", () => {
-  const r = run("mixed");
+  const r = run('mixed');
   assert.equal(r.code, 1, r.out);
   assert.match(r.report, /## What failed\n\n- \/ \(mobile\) performance: score 50, needs 90/);
-  assert.match(r.report, /## The API calls that failed\n\n- \/backlog\/ \(mobile\): mobile https:\/\/publicdata\.au\/backlog\/: HTTP 400/);
+  assert.match(
+    r.report,
+    /## The API calls that failed\n\n- \/backlog\/ \(mobile\): mobile https:\/\/publicdata\.au\/backlog\/: HTTP 400/,
+  );
 });
 
-test("a page that misses and whose second run the API refuses keeps its miss", () => {
-  const r = run("miss-then-error");
+test('a page that misses and whose second run the API refuses keeps its miss', () => {
+  const r = run('miss-then-error');
   assert.equal(r.code, 1, r.out);
   assert.match(r.report, /## What failed\n\n- \/ \(mobile\) performance: score 50, needs 90/);
-  assert.match(r.report, /- \/ \(mobile\), second run: mobile https:\/\/publicdata\.au\/: HTTP 400/);
+  assert.match(
+    r.report,
+    /- \/ \(mobile\), second run: mobile https:\/\/publicdata\.au\/: HTTP 400/,
+  );
 });
 
-test("a page Lighthouse cannot load (NO_FCP) is a miss, with no hint about the key", () => {
-  const r = run("nofcp");
+test('a page Lighthouse cannot load (NO_FCP) is a miss, with no hint about the key', () => {
+  const r = run('nofcp');
   assert.equal(r.code, 1, r.out);
-  assert.match(r.report, /## What failed\n\n- \/ \(mobile\) load: Lighthouse returned error: NO_FCP/);
+  assert.match(
+    r.report,
+    /## What failed\n\n- \/ \(mobile\) load: Lighthouse returned error: NO_FCP/,
+  );
   assert.doesNotMatch(r.report, /## The API calls that failed/);
   assert.doesNotMatch(r.out, /PSI_API_KEY/);
 });
