@@ -3,6 +3,8 @@
 // answer exactly returns null, and the caller asks the next engine. Filters, nulls, LIKE and
 // ordering follow SQLite, so an answer here is the one the query API gives.
 
+import { gunzip } from './_lib.js';
+
 const SITE = 'https://publicdata.au';
 const API = `${SITE}/api/v1/datasets`;
 const VERSION = /^\d{4}-\d{2}-\d{2}$/;
@@ -226,10 +228,6 @@ function aggregateCube(r, fieldMap, params) {
   return { rows: more ? rows.slice(0, limit) : rows, more, matched };
 }
 
-async function gunzipJSON(body) {
-  return new Response(body.pipeThrough(new DecompressionStream('gzip'))).json();
-}
-
 const loaded = new Map();
 let latest;
 
@@ -273,7 +271,7 @@ async function open(ctx, slug, version) {
     if (body && body.body) await body.body.cancel();
     return null;
   }
-  const r = await gunzipJSON(body.body);
+  const r = await gunzip(body.body).json();
   if (loaded.size >= KEEP) loaded.delete(loaded.keys().next().value);
   loaded.set(k, { r, stamp, at: Date.now() });
   return r;

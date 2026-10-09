@@ -17,10 +17,10 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 from . import OPERATOR, REPO, SITE, abbreviations, brand, explorer, figures
 from . import api_text as at
 from . import ard as ardspec
-from .build import DatasetOut, VersionOut, dataset_url, source_name, version_url
+from .build import DatasetOut, VersionOut, dataset_url, part_files, source_name, version_url
 from .cache import BuildCache
 from .cost import fleet_from_build
-from .d1 import KEEP, queryable
+from .d1 import KEEP, parts_csv, queryable
 from .provenance import (
     CITE_REQUEST,
     NOT_ENDORSED,
@@ -237,6 +237,13 @@ def _no_query(ds: Dataset, v: VersionOut) -> str:
 
     if not v.whole:
         grain = _grain_words(v.manifest.period["grain"])
+        if QUERY_API and queryable(ds, parts_csv(v.parts)):
+            return (
+                f"This version is split by {grain} and is too large to be one file. The query "
+                f"API serves it from its parts at {SITE}/api/v1/datasets/{ds.slug}/rows. The "
+                "console, the explorer and the pages by place each read one whole file, so they "
+                "are not offered for it. Its DuckDB file reads every part."
+            )
         return (
             f"This version is split by {grain} and is too large to be one file. The query API, "
             "the explorer and the pages by place each read one whole file, so they are not "
@@ -2495,7 +2502,7 @@ HINT_VALUES = 150  # a field with more distinct values than this gets no value l
 
 def _fields_resource(o: DatasetOut, hints: dict, api: bool) -> dict:
     """A dataset's fields as the MCP server's resource, read from the newest version's
-    data.parquet as the query console's are. The query API's URLs are given only when it loads
+    data.parquet, or its parts, as the query console's are. The query API's URLs are given only when it loads
     the dataset; the server's row tools answer either way, from the version's Parquet."""
     ds, m = o.dataset, o.latest.manifest
     base = f"{SITE}/api/v1/datasets/{ds.slug}/"
@@ -2517,9 +2524,9 @@ def _fields_resource(o: DatasetOut, hints: dict, api: bool) -> dict:
     }
 
 
-def _console(ds: Dataset, parquet: Path) -> dict:
+def _console(ds: Dataset, parquet: Path | list[Path]) -> dict:
     """Fields with value hints and a first query for the dataset page's query console, read from
-    the same rows the query API is loaded from."""
+    the same rows the query API is loaded from: the version's data.parquet, or its parts."""
     con = connect(parquet, [f.name for f in ds.fields])
     cols = set(con.columns())
     names = [f.name for f in ds.fields if f.name in cols]
@@ -3525,6 +3532,8 @@ def render_site(
     # Dataset pages and version pages.
     resources = []
     queried: list[DatasetOut] = []
+    # Served by the query API from their parts, with no console on their pages.
+    served_parts: list[DatasetOut] = []
     figs: dict[str, dict] = {}
     consoles: dict[str, dict | None] = {}
     views_by: dict[str, list[dict]] = {}
@@ -3610,6 +3619,15 @@ def render_site(
         if rows_path.exists():
             hints = _console(ds, rows_path)
         api = bool(QUERY_API and hints and queryable(ds, latest.files.get("data.csv")))
+        listed, served = hints, api
+        if listed is None and not latest.whole and latest.parts:
+            # A version stored as parts has no console, and the row tools answer it from its
+            # parts, so its field list is read from them. The query API loads it from them while
+            # their CSV is within its limit.
+            listed = _console(ds, part_files(out, ds.slug, m.version, latest.parts))
+            served = bool(QUERY_API and queryable(ds, parts_csv(latest.parts)))
+            if served:
+                served_parts.append(o)
         if api:
             queried.append(o)
             console = hints
@@ -3618,9 +3636,9 @@ def render_site(
             console["site"] = SITE
             console["versions"] = [v["version"] for v in reversed(views)][:KEEP]
         # The MCP server's row tools answer from Parquet what D1 does not load, so every table
-        # with a data.parquet gets its field list, whether or not the query API serves it.
-        if hints:
-            fields_body = pretty(_fields_resource(o, hints, api))
+        # with a data.parquet or parts gets its field list, whether or not the query API serves it.
+        if listed:
+            fields_body = pretty(_fields_resource(o, listed, served))
             _write(out, f"d/{ds.slug}/fields.json", fields_body)
             resources.append(
                 {
@@ -4699,7 +4717,7 @@ def render_site(
             )
         ),
     )
-    _write(out, "openapi.json", pretty(_openapi(live, queried)))
+    _write(out, "openapi.json", pretty(_openapi(live, queried + served_parts)))
     _write(
         out,
         "health.json",

@@ -562,25 +562,22 @@ test('a query copy written again in place is read afresh, and no answer from its
   }
 });
 
-test('a version stored only as period parts says so, links its manifest and gives DuckDB SQL over its parts', async () => {
+test('a version stored only as period parts is located from its manifest, under the folder that wrote each part', async () => {
   const V = '2020-06-30', EARLIER = '2020-03-31';
   const part = (period, tree) => ({
     period, rows: 8, tree, finished: true, revised: false,
     files: { parquet: { path: `parts/${period}.parquet`, bytes: 1 }, 'csv.gz': { path: `parts/${period}.csv.gz`, bytes: 1 } },
   });
   // A finished part can be the file an earlier snapshot wrote, under that snapshot's folder.
-  objects.set(`d/${SLUG}/v/${V}/manifest.json`, Buffer.from(JSON.stringify({ version: V, whole: false, parts: [part('2019', EARLIER), part('2020', V)] })));
-  const e = (await call('query_rows', { slug: SLUG, version: V, where: { year: 2019 } })).error;
-  assert.doesNotMatch(e, /has no version/);
-  assert.match(e, new RegExp(`^version ${V} of ${SLUG} is stored as 2 period parts`));
-  assert.ok(e.includes(`https://publicdata.au/d/${SLUG}/v/${V}/manifest.json`), e);
-  const parts = `['https://publicdata.au/d/${SLUG}/v/${EARLIER}/parts/2019.parquet', 'https://publicdata.au/d/${SLUG}/v/${V}/parts/2020.parquet']`;
-  assert.ok(e.endsWith(`SELECT * FROM read_parquet(${parts}, union_by_name = true)`), e);
-  assert.doesNotMatch(e, /_q/);
-  assert.match((await call('count_rows', { slug: SLUG, version: V, group_by: ['lga'] })).error, /is stored as 2 period parts/);
+  objects.set(`d/${SLUG}/v/${V}/manifest.json`, Buffer.from(JSON.stringify({ version: V, whole: false, period: { field: 'year', grain: 'year' }, parts: [part('2019', EARLIER), part('2020', V)] })));
   const at = await openVersion({ DIST }, SLUG, V);
   assert.deepEqual(at.files, []);
   assert.deepEqual(at.parts.map((p) => p.key), [`d/${SLUG}/v/${EARLIER}/parts/2019.parquet`, `d/${SLUG}/v/${V}/parts/2020.parquet`]);
+  assert.deepEqual([at.rows, at.period], [16, { field: 'year', grain: 'year' }]);
+  // Parts the manifest lists but R2 lacks fail the call, which names where the files are.
+  const e = (await call('query_rows', { slug: SLUG, version: V, where: { year: 2019 } })).error;
+  assert.match(e, new RegExp(`^version ${V} of ${SLUG} could not be read; its files are at`));
+  assert.doesNotMatch(e, /_q/);
   // A version with neither a file nor parts still has none.
   assert.match((await call('query_rows', { slug: SLUG, version: '2020-07-31' })).error, /has no version 2020-07-31/);
 });
