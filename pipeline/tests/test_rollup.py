@@ -27,6 +27,7 @@ def _ds(fields, **kw):
         query=True,
         example=None,
         chart=None,
+        rollup=(),
         fields=tuple(SimpleNamespace(name=f["name"], type=f["type"]) for f in fields),
     )
     return SimpleNamespace(**(base | kw))
@@ -103,15 +104,44 @@ def test_plan_answers_the_register_first_and_leaves_out_row_ids(tmp_path):
     assert all(any(f in c for c in p.cubes) for f in ("kind", "region", "year", "n"))
 
 
+def test_plan_holds_the_register_rollup_sets(tmp_path):
+    fields, rows = _wide()
+    run, _ = rollup.parquet_run(_parquet(tmp_path / "a.parquet", fields, rows))
+    declared = ("kind", "region", "year")
+    p = rollup.plan(_ds(fields, rollup=(declared,)), run, len(rows))
+    assert tuple(sorted(declared)) in p.cubes
+    # Left to itself the plan holds pairs at most.
+    assert all(len(c) <= 2 for c in rollup.plan(_ds(fields), run, len(rows)).cubes)
+
+
+def test_a_cube_is_not_charged_for_totals_of_the_fields_it_groups_on():
+    assert rollup.cube_estimate(100, ("a", "m"), ("m", "x")) == rollup.estimate(100, 2, 1)
+    assert rollup.cube_estimate(100, ("a",), ("m", "x")) == rollup.estimate(100, 1, 2)
+
+
+def test_served_lists_every_published_version_of_an_entry_out_of_d1(tmp_path):
+    fields, _ = _wide()
+    root = tmp_path / "dist"
+    (root / "d" / "t").mkdir(parents=True)
+    listed = [
+        {"version": "2026-01-01", "rows": 7_000, "tombstone": None},
+        {"version": "2026-02-01", "rows": 8_000},
+        {"version": "2025-01-01", "rows": 9_000, "tombstone": {"reason": "takedown"}},
+    ]
+    (root / "d" / "t" / "versions.json").write_text(json.dumps({"versions": listed}))
+    logs = []
+    off = [_ds(fields, query=False), _ds(fields, slug="u", query=False)]
+    got = rollup.served([*off, _ds(fields, slug="q")], [tmp_path / "none", root], log=logs.append)
+    assert got == {"t": {"2026-01-01": 7_000, "2026-02-01": 8_000}}
+    assert logs == ["rollup: u has no versions.json in the built tree, so it gets no rollups"]
+
+
 def test_plan_keeps_within_the_cap_and_skips_small_tables(tmp_path):
     fields, rows = _wide()
     run, _ = rollup.parquet_run(_parquet(tmp_path / "b.parquet", fields, rows))
     p = rollup.plan(_ds(fields), run, len(rows), cap=6_000)
     assert (
-        sum(
-            rollup.estimate(g, len(c), len(p.metrics))
-            for c, g in zip(p.cubes, p.groups, strict=True)
-        )
+        sum(rollup.cube_estimate(g, c, p.metrics) for c, g in zip(p.cubes, p.groups, strict=True))
         <= 6_000
     )
     # A plan whose estimate fits but whose bytes do not loses its last cubes until it fits.
@@ -162,12 +192,12 @@ def test_write_covers_what_d1_holds_and_keeps_current_rollups(tmp_path):
     store.stamps = {w.key: w.parquet for w in got}
     again, keep2 = rollup.write([_ds(fields)], held, store, out, log=lambda *_: None)
     assert again == [] and keep2 == keep
-    # A version D1 no longer holds loses its rollup, as does a table out of the API.
+    # A version D1 no longer holds loses its rollup, and a database has none.
     _, keep3 = rollup.write(
         [_ds(fields)], {"t": {"2026-02-01": len(rows)}}, store, out, log=lambda *_: None
     )
     assert keep3 == {"_rollup/t/2026-02-01.json.gz"}
-    assert rollup.write([_ds(fields, query=False)], held, store, out) == ([], set())
+    assert rollup.write([_ds(fields, kind="database")], held, store, out) == ([], set())
     # A small version is not read at all.
     assert rollup.write([_ds(fields)], {"t": {"2026-01-01": 10}}, store, out) == ([], set())
 

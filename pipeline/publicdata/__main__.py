@@ -513,21 +513,22 @@ def cmd_d1_load(args) -> int:
 
 
 def cmd_rollup(args) -> int:
-    """Write the rollup of every version D1 holds whose rollup is missing or was built from other
-    bytes, push them, and delete the rollups of versions D1 no longer holds."""
+    """Write the rollup of every version D1 holds, and of every version of an entry with
+    `query: false`, whose rollup is missing or was built from other bytes, push them, and delete
+    the rest."""
     import json
 
     from .r2 import client
     from .register import load
-    from .rollup import R2Store, held, held_fields, write
+    from .rollup import R2Store, held, held_fields, served, write
 
     bad = [x for x in args.replace if not VERSION_PREFIX.match(x)]
     if bad:
         print(f"rollup: --replace takes d/<slug>/v/<date>/ prefixes only, not {bad}")
         return 2
     rows = _d1_rows(json.loads(Path(args.loaded).read_text(encoding="utf-8") or "[]"))
-    loaded = held(rows)
     live = [d for d in load(REGISTER) if d.status in ("live", "building")]
+    loaded = held(rows) | served(live, [Path(r) for r in args.root])
     store = R2Store(client(), args.bucket)
     written, keep = write(
         live,
@@ -1326,7 +1327,9 @@ def main(argv=None) -> int:
     )
     d1l.add_argument("--summary", help="a Markdown file to append the load plan to")
     d1l.set_defaults(fn=cmd_d1_load)
-    ro = sub.add_parser("rollup", help="write, push and prune the rollups of the versions D1 holds")
+    ro = sub.add_parser(
+        "rollup", help="write, push and prune the rollups of the versions queries reach"
+    )
     ro.add_argument(
         "--loaded", required=True, help="D1's _versions rows (slug, version, rows, fields) as JSON"
     )

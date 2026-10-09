@@ -556,6 +556,10 @@ rule carries `# nolint: <linter>. <reason>`.
   `FY18-19`, or `FY2019` for the year that ends in June 2019), and the chart names each bar as the
   publisher wrote it. A value that is not a financial year is left out. `chart: none`
   draws no chart, for a table with no year worth drawing.
+- `rollup` lists field sets a version's rollup weighs as the register's own questions, such as
+  `[type, registration_date]`, for a count readers ask that the query layer cannot otherwise
+  afford, as on a table too large for D1 whose Parquet is not sorted for it. It shapes no
+  version's files.
 - `search_title` is the phrase a dataset's title tag targets and no two entries may share one;
   a collection's phrase goes in `collection_search_title` on the entry that carries the
   collection description. `place_field` names a `partition_by` field whose values are places,

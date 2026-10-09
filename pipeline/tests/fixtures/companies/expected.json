@@ -1,0 +1,457 @@
+{
+ "slug": "companies",
+ "version": "2026-10-05",
+ "counts": [
+  {
+   "where": {
+    "type": "APTY",
+    "registration_date": {
+     "min": "2024-01-01",
+     "max": "2024-12-31"
+    }
+   },
+   "group_by": [],
+   "groups": [
+    {
+     "count": 796
+    }
+   ],
+   "matched": 796
+  },
+  {
+   "where": {
+    "type": "APTY",
+    "registration_date": {
+     "min": "2024-01-01",
+     "max": "2024-12-31"
+    },
+    "current_name_indicator": true
+   },
+   "group_by": [],
+   "groups": [
+    {
+     "count": 623
+    }
+   ],
+   "matched": 623
+  },
+  {
+   "where": {
+    "registration_date": {
+     "min": "2024-01-01"
+    },
+    "current_name_indicator": null
+   },
+   "group_by": [
+    "type"
+   ],
+   "groups": [
+    {
+     "type": "APTY",
+     "count": 173
+    },
+    {
+     "type": "APUB",
+     "count": 21
+    },
+    {
+     "type": "FNOS",
+     "count": 11
+    },
+    {
+     "type": "RACN",
+     "count": 11
+    },
+    {
+     "type": "CCIV",
+     "count": 10
+    }
+   ],
+   "matched": 226
+  },
+  {
+   "where": {},
+   "group_by": [
+    "status"
+   ],
+   "groups": [
+    {
+     "status": "REGD",
+     "count": 4002
+    },
+    {
+     "status": "DRGD",
+     "count": 999
+    },
+    {
+     "status": "SOFF",
+     "count": 500
+    },
+    {
+     "status": "EXAD",
+     "count": 499
+    }
+   ],
+   "matched": 6000
+  },
+  {
+   "where": {
+    "registration_date": null
+   },
+   "group_by": [],
+   "groups": [
+    {
+     "count": 13
+    }
+   ],
+   "matched": 13
+  },
+  {
+   "where": {
+    "type": [
+     "APUB",
+     "FNOS"
+    ],
+    "registration_date": {
+     "max": "1990-12-31"
+    }
+   },
+   "group_by": [
+    "type"
+   ],
+   "groups": [
+    {
+     "type": "APUB",
+     "count": 230
+    },
+    {
+     "type": "FNOS",
+     "count": 115
+    }
+   ],
+   "matched": 345
+  },
+  {
+   "where": {
+    "registration_date": {
+     "min": "1999-01-01",
+     "max": "2004-06-30"
+    }
+   },
+   "group_by": [
+    "current_name_indicator"
+   ],
+   "groups": [
+    {
+     "current_name_indicator": 1,
+     "count": 328
+    },
+    {
+     "current_name_indicator": null,
+     "count": 91
+    }
+   ],
+   "matched": 419
+  },
+  {
+   "where": {
+    "acn": "000000105"
+   },
+   "group_by": [],
+   "groups": [
+    {
+     "count": 2
+    }
+   ],
+   "matched": 2
+  }
+ ],
+ "rows": [
+  {
+   "where": {
+    "type": "APTY",
+    "registration_date": {
+     "min": "2024-01-01",
+     "max": "2024-12-31"
+    }
+   },
+   "select": [
+    "acn",
+    "company_name",
+    "type",
+    "registration_date"
+   ],
+   "limit": 20,
+   "rows": [
+    {
+     "acn": "000001477",
+     "company_name": "Company 211 name 0",
+     "type": "APTY",
+     "registration_date": "2024-08-23"
+    },
+    {
+     "acn": "000002954",
+     "company_name": "Company 422 name 0",
+     "type": "APTY",
+     "registration_date": "2024-03-18"
+    },
+    {
+     "acn": "000004431",
+     "company_name": "Company 633 name 0",
+     "type": "APTY",
+     "registration_date": "2024-10-13"
+    },
+    {
+     "acn": "000005908",
+     "company_name": "Company 844 name 0",
+     "type": "APTY",
+     "registration_date": "2024-05-08"
+    },
+    {
+     "acn": "000007385",
+     "company_name": "Company 1055 name 0",
+     "type": "APTY",
+     "registration_date": "2024-12-03"
+    },
+    {
+     "acn": "000007385",
+     "company_name": "Company 1055 name 1",
+     "type": "APTY",
+     "registration_date": "2024-12-03"
+    },
+    {
+     "acn": "000008862",
+     "company_name": "Company 1266 name 0",
+     "type": "APTY",
+     "registration_date": "2024-07-25"
+    },
+    {
+     "acn": "000010339",
+     "company_name": "Company 1477 name 0",
+     "type": "APTY",
+     "registration_date": "2024-02-20"
+    },
+    {
+     "acn": "000011816",
+     "company_name": "Company 1688 name 0",
+     "type": "APTY",
+     "registration_date": "2024-09-15"
+    },
+    {
+     "acn": "000013293",
+     "company_name": "Company 1899 name 0",
+     "type": "APTY",
+     "registration_date": "2024-04-10"
+    },
+    {
+     "acn": "000014770",
+     "company_name": "Company 2110 name 0",
+     "type": "APTY",
+     "registration_date": "2024-11-05"
+    },
+    {
+     "acn": "000014770",
+     "company_name": "Company 2110 name 1",
+     "type": "APTY",
+     "registration_date": "2024-11-05"
+    },
+    {
+     "acn": "000016247",
+     "company_name": "Company 2321 name 0",
+     "type": "APTY",
+     "registration_date": "2024-06-27"
+    },
+    {
+     "acn": "000017724",
+     "company_name": "Company 2532 name 0",
+     "type": "APTY",
+     "registration_date": "2024-01-22"
+    },
+    {
+     "acn": "000019201",
+     "company_name": "Company 2743 name 0",
+     "type": "APTY",
+     "registration_date": "2024-08-17"
+    },
+    {
+     "acn": "000019201",
+     "company_name": "Company 2743 name 1",
+     "type": "APTY",
+     "registration_date": "2024-08-17"
+    },
+    {
+     "acn": "000020678",
+     "company_name": "Company 2954 name 0",
+     "type": "APTY",
+     "registration_date": "2024-03-12"
+    },
+    {
+     "acn": "000022155",
+     "company_name": "Company 3165 name 0",
+     "type": "APTY",
+     "registration_date": "2024-10-07"
+    },
+    {
+     "acn": "000022155",
+     "company_name": "Company 3165 name 1",
+     "type": "APTY",
+     "registration_date": "2024-10-07"
+    },
+    {
+     "acn": "000027300",
+     "company_name": "Company 3900 name 0",
+     "type": "APTY",
+     "registration_date": "2024-01-25"
+    }
+   ],
+   "matched": 796
+  },
+  {
+   "where": {
+    "acn": "000000105"
+   },
+   "select": [
+    "company_name",
+    "acn",
+    "type",
+    "status",
+    "registration_date",
+    "current_name_indicator"
+   ],
+   "limit": 50,
+   "rows": [
+    {
+     "company_name": "Company 15 name 0",
+     "acn": "000000105",
+     "type": "APTY",
+     "status": "REGD",
+     "registration_date": "1960-03-01",
+     "current_name_indicator": null
+    },
+    {
+     "company_name": "Company 15 name 1",
+     "acn": "000000105",
+     "type": "APTY",
+     "status": "REGD",
+     "registration_date": "1960-03-01",
+     "current_name_indicator": 1
+    }
+   ],
+   "matched": 2
+  },
+  {
+   "where": {
+    "status": "DRGD"
+   },
+   "select": [
+    "acn",
+    "company_name",
+    "status"
+   ],
+   "limit": 20,
+   "rows": [
+    {
+     "acn": "000000056",
+     "company_name": "Company 8 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000063",
+     "company_name": "Company 9 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000140",
+     "company_name": "Company 20 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000140",
+     "company_name": "Company 20 name 1",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000147",
+     "company_name": "Company 21 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000224",
+     "company_name": "Company 32 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000231",
+     "company_name": "Company 33 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000308",
+     "company_name": "Company 44 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000315",
+     "company_name": "Company 45 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000315",
+     "company_name": "Company 45 name 1",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000392",
+     "company_name": "Company 56 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000399",
+     "company_name": "Company 57 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000476",
+     "company_name": "Company 68 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000483",
+     "company_name": "Company 69 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000560",
+     "company_name": "Company 80 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000560",
+     "company_name": "Company 80 name 1",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000567",
+     "company_name": "Company 81 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000644",
+     "company_name": "Company 92 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000651",
+     "company_name": "Company 93 name 0",
+     "status": "DRGD"
+    },
+    {
+     "acn": "000000728",
+     "company_name": "Company 104 name 0",
+     "status": "DRGD"
+    }
+   ],
+   "matched": 999
+  }
+ ]
+}

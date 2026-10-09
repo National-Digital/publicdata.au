@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { aggregateQuery } from './_query.js';
 import { aggregate, glob, rollup } from './_rollup.js';
 
@@ -123,22 +123,23 @@ test('rollup() reads R2, names the version and its provenance, and skips withhel
   assert.equal(a.attribution, 'A');
   assert.equal(a.matched, count(['severity=eq.Fatal']));
   assert.match(a.query, /\/api\/v1\/datasets\/t\/versions\/2026-01-01\/aggregate\?severity=eq\.Fatal/);
-  // A second-newest version is taken when R2 holds its rollup; an older one never is.
+  assert.equal(a.manifest, 'https://publicdata.au/d/t/v/2026-01-01/manifest.json');
+  // Any version is taken while R2 holds a current rollup of it, and none without one.
   assert.equal(await rollup(ctx, 't', '2025-01-01', 'aggregate', ['metric=count']), null);
   ctx.env.DIST = r2(pq, { '_rollup/t/2025-01-01.json.gz': 'sha256:b1', '_rollup/t/2024-01-01.json.gz': 'sha256:c1' });
   assert.equal((await rollup(ctx, 't', '2025-01-01', 'aggregate', ['metric=count'])).version, '2025-01-01');
-  assert.equal(await rollup(ctx, 't', '2024-01-01', 'aggregate', ['metric=count']), null);
+  assert.equal((await rollup(ctx, 't', '2024-01-01', 'aggregate', ['metric=count'])).version, '2024-01-01');
   assert.equal(await rollup(ctx, 'gone', undefined, 'aggregate', ['metric=count']), null);
   // A slug that names a property every object inherits is not a dataset.
   assert.equal(await rollup(ctx, 'constructor', undefined, 'aggregate', ['metric=count']), null);
   assert.equal(await rollup(ctx, 't', undefined, 'rows', ['limit=5']), null);
-  // Without D1 the cited query URL gives 503, so the rollup does not answer either.
-  assert.equal(await rollup({ env: { ...ctx.env, DB: undefined } }, 't', '2025-01-01', 'aggregate', ['metric=count']), null);
+  // Without D1 the rollup still answers, and count_rows cites the version's files.
+  assert.equal((await rollup({ env: { ...ctx.env, DB: undefined } }, 't', '2025-01-01', 'aggregate', ['metric=count'])).version, '2025-01-01');
 });
 
 test('a rollup built from other bytes than the published Parquet never answers', async () => {
-  // latest.json was read once by the test above; this version is the newest in versions.json.
-  const assets = { '/d/t/versions.json': { versions: [{ version: '2026-03-01' }, { version: '2026-01-01' }] } };
+  // latest.json was read once by the test above.
+  const assets = {};
   const env = {
     DB: {},
     ASSETS: { fetch: async (q) => { const p = new URL(q.url).pathname; return p in assets ? Response.json(assets[p]) : new Response('', { status: 404 }); } },
@@ -164,6 +165,20 @@ test('a rollup built from other bytes than the published Parquet never answers',
   } finally {
     Date.now = now;
   }
+});
+
+test('a rollup with no provenance never answers, as its file would be refused', async () => {
+  const bare = gzipSync(JSON.stringify({ ...R(), publicdata: {} }));
+  const k = '_rollup/t/2026-05-01.json.gz', pk = 'd/t/v/2026-05-01/data.parquet';
+  const env = {
+    ASSETS: { fetch: async () => new Response('', { status: 404 }) },
+    DIST: {
+      get: async (x) => (x === k ? { customMetadata: { parquet: 'sha256:p' }, body: new Response(bare).body } : null),
+      head: async (x) => (x === k ? { customMetadata: { parquet: 'sha256:p' } } : x === pk ? { customMetadata: { sha256: 'p' }, etag: 'e' } : null),
+    },
+  };
+  // latest.json was read once by the first rollup() test.
+  assert.equal(await rollup({ env }, 't', '2026-05-01', 'aggregate', ['metric=count']), null);
 });
 
 test('LIKE patterns match in linear time and as SQLite matches them', () => {

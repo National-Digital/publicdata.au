@@ -309,6 +309,9 @@ class Dataset:
     chart: dict | None = None
     # The rows the page shows as a sample. It shapes no version's bytes, so it stays out of the repr.
     sample: dict | None = field(default=None, repr=False)
+    # Field sets a version's rollup weighs as the register's own questions, for counts no other
+    # engine answers within its budget. Rollups are built after the build, so it is not in the repr.
+    rollup: tuple[tuple[str, ...], ...] = field(default=(), repr=False)
     # Upstream columns knowingly left out, each with the reason, such as a third party's series.
     # They are recorded in the manifest and are not held as unknown.
     omit: dict[str, str] = field(default_factory=dict)
@@ -545,6 +548,7 @@ def parse(raw: dict, ctx: str) -> Dataset:
         example=_example(raw.get("example"), fields, ctx),
         chart=_chart(raw.get("chart"), fields, ctx),
         sample=_sample(raw.get("sample"), fields, ctx),
+        rollup=_rollup(raw.get("rollup"), fields, ctx),
         collection_search_title=str(raw.get("collection_search_title", "")).strip(),
         place_field=str(raw.get("place_field", "")).strip(),
         rebuild=_rebuild(raw.get("rebuild", 0), ctx),
@@ -951,6 +955,27 @@ def _geometry(raw, seen: set[str], ctx: str) -> dict | None:
     elif g.get("lon") or g.get("lat"):
         raise RegisterError(f"{ctx}: a {g['kind']} layer carries its geometry, not lon and lat")
     return g
+
+
+def _rollup(raw, fields: list[Field], ctx: str) -> tuple[tuple[str, ...], ...]:
+    if raw is None:
+        return ()
+    ctx = f"{ctx}: rollup"
+    names = {f.name for f in fields}
+    if not isinstance(raw, list):
+        raise RegisterError(f"{ctx} is a list of field lists")
+    out = []
+    for s in raw:
+        if (
+            not isinstance(s, list)
+            or not s
+            or not all(isinstance(x, str) for x in s)
+            or len(set(s)) != len(s)
+            or not set(s) <= names
+        ):
+            raise RegisterError(f"{ctx}: {s!r} must list distinct declared fields")
+        out.append(tuple(str(x) for x in s))
+    return tuple(out)
 
 
 def _omit(raw, fields: list[Field], ctx: str) -> dict[str, str]:
