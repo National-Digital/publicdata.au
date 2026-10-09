@@ -20,11 +20,15 @@ jobs:
     name: PageSpeed Insights
     if: ${{ github.repository == 'National-Digital/publicdata.au' }}
     runs-on: ubuntu-24.04
+    # Holds PSI_API_KEY, so only a job that names it can read the key.
+    environment: psi
     permissions:
       contents: read
-      issues: write
+      issues: write # opens, comments on and closes the psi issue
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
@@ -39,7 +43,8 @@ jobs:
           [ "$code" = 1 ] && [ ! -f psi-report.md ] && code=3
           echo "code=$code" >> "$GITHUB_OUTPUT"
           [ -f psi-report.md ] && cat psi-report.md >> "$GITHUB_STEP_SUMMARY"
-          # A missing key or a script error is not a result, so it fails the run without an issue.
+          # A missing key, a failed API call or a script error is not a result, so it fails the run
+          # without an issue.
           [ "$code" -le 1 ] || exit "$code"
       - name: Open or update the issue
         if: steps.psi.outputs.code == '1'

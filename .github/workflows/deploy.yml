@@ -463,9 +463,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           BRANCH: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+        # pipefail, so tee does not hide a failed deploy. A URL that cannot be read fails the
+        # Lighthouse job, which tests it, rather than the deploy.
         run: |
+          set -o pipefail
           npx --no-install wrangler pages deploy "$DIST" --project-name publicdata-au --branch "$BRANCH" --commit-dirty=true | tee deploy.log
-          grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log | tail -1 > url.txt
+          { grep -Eo 'https://[a-z0-9.-]+\.pages\.dev' deploy.log || true; } | tail -1 > url.txt
           echo "url=$(cat url.txt)" >> "$GITHUB_OUTPUT"
       # Made from the hashes R2 stored with each file, so the build and its cache key never see it.
       # Straight after the site goes live, which links each list. A failure leaves the lists for the
@@ -577,14 +580,23 @@ jobs:
     steps:
       - name: Stop when the deploy failed
         if: needs.deploy.result != 'success'
+        env:
+          RESULT: ${{ needs.deploy.result }}
         run: |
-          echo "::error::deploy ${{ needs.deploy.result }}, so there is no preview to test"
+          echo "::error::deploy $RESULT, so there is no preview to test"
+          exit 1
+      - name: Stop when the preview URL is missing
+        if: needs.deploy.outputs.deployed == 'true' && env.URL == ''
+        run: |
+          echo "::error::the preview deployed, but its URL could not be read from the wrangler output"
           exit 1
       - name: Note a pull request with no preview
-        if: needs.deploy.outputs.deployed != 'true' || env.URL == ''
+        if: needs.deploy.result == 'success' && needs.deploy.outputs.deployed != 'true'
         run: echo "::notice::No preview was deployed for this pull request, so Lighthouse has nothing to test."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.URL != ''
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: env.URL != ''
         with:
