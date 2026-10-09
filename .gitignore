@@ -11,6 +11,8 @@ raw/
 .env
 .env.*
 store/*/*/source.*
+store/*/*/history.parquet
+store/*/read.json
 dist-large/
 # Lighthouse and Chrome write beside the working directory during local audits.
 lh-*.json
@@ -23,5 +25,3 @@ node_modules/
 .venv*/
 clients/*/dist/
 
-# Licensed for the site only; store pull fetches them from R2.
-pipeline/publicdata/static/fonts/

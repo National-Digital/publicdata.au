@@ -18,7 +18,7 @@ or `"max.<field>"`, or several of them.}
 
 \item{.version}{A version date from [pd_versions()]. Without it the answer
 comes from the newest version and changes when the publisher releases
-again; with it the answer never changes.}
+again; with it the answer comes from that version alone.}
 }
 \value{
 A tibble with one row per group, typed and carrying the same

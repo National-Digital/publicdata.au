@@ -37,7 +37,7 @@ summary: An index of deaths registered in the ACT more than 30 years ago, from 1
 description: The historic death index Access Canberra keeps for deaths registered in the ACT more than
   30 years ago. Each row carries the registration number, the surname and given names of the person who
   died, the date of death, and the father's and mother's surnames and given names where they were
-  recorded. Babies who died before being named are shown as UNNAMED.
+  recorded. Babies who died before being named are shown as `UNNAMED`.
 publisher:
   name: Access Canberra, City and Environment Directorate
   short: Access Canberra

@@ -15,12 +15,12 @@ ROOT = Path(__file__).resolve().parents[2]
 # or is named in SLOW_TESTS (relative to tests/, without parameters).
 SLOW_FIXTURES = {"fixture_site", "site_copy", "fixture_builds", "site", "fixture_store"}
 SLOW_TESTS = {
-    "test_cache.py::test_a_rebuild_prunes_the_old_entries_before_it_builds",
     "test_cache.py::test_a_new_version_diffs_against_the_cached_one_without_its_source",
+    "test_cache.py::test_a_rebuild_prunes_the_old_entries_before_it_builds",
     "test_cache.py::test_a_register_change_rebuilds_and_prune_drops_the_old_entry",
     "test_cache.py::test_a_warm_build_needs_no_source_bytes_and_matches_less_the_published_formats",
     "test_cache.py::test_cached_files_are_read_only",
-    "test_d1.py::test_a_version_too_large_for_d1_is_files_only_everywhere",
+    "test_d1.py::test_a_version_too_large_for_d1_has_no_query_api_and_keeps_its_field_list",
     "test_d1.py::test_openapi_lists_the_query_api_only_once_it_is_switched_on",
     "test_diff.py::test_the_arrow_diff_matches_the_per_row_reference_on_random_versions",
     "test_directory.py::test_a_live_entry_marks_the_record_its_source_url_names_as_served",

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from publicdata import brand
 from publicdata.gate import check
 
 from .conftest import ROOT
@@ -24,9 +23,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     assert '<meta http-equiv="origin-trial" content="AjNME/' in home
     assert home.index("origin-trial") < home.index("<script")
     assert "<style>" in home and 'rel="stylesheet"' not in home
-    preload = 'rel="preload" href="/static/fonts/RG-StandardBook.woff2"' in home
-    assert preload == brand.has_fonts()
-    assert ('"Random Grotesque";font-weight:300' in home) == brand.has_fonts()
+    assert 'rel="preload" href="/static/fonts/RG-StandardRegular.woff2"' in home
+    assert '"Random Grotesque";font-weight:300' in home
     assert ">all formats<" in home and ">more<" not in home
     assert 'toolname="find_dataset_page"' in home
     # Every dataset link on the home page reaches a built page: the explorer is only built for
@@ -135,7 +133,7 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     # A visitor gets the office format first; Parquet stays a click away.
     assert ds.index('data-fmt="xlsx"') < ds.index('data-fmt="parquet"')
     assert (
-        'id="url" tabindex="0">https://publicdata.au/d/qld-road-crash-locations/latest/data.xlsx'
+        'id="url" tabindex="0" role="region" aria-label="Latest file URL">https://publicdata.au/d/qld-road-crash-locations/latest/data.xlsx'
         in ds
     )
     # The register's own questions are the caveats box, above the fold; the generated ones stay.
@@ -152,7 +150,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     assert '<h2 id="places">By council area</h2>' in ds
     place = out / "d" / "qld-road-crash-locations" / "in" / "gold-coast-city" / "index.html"
     ptext = place.read_text(encoding="utf-8")
-    assert "<h1>Crashes in Gold Coast City</h1>" in ptext and "noindex" not in ptext
+    assert "<h1>Crashes in <span data-quoted>Gold Coast City</span></h1>" in ptext
+    assert "noindex" not in ptext
     assert (
         place.with_name("index.md")
         .read_text(encoding="utf-8")
@@ -240,7 +239,8 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     fn = (ROOT / "functions" / "d" / "[[path]].js").read_text(encoding="utf-8")
     assert "max-age=31536000, immutable" in fn
     assert "immutable, no-transform" in fn and "max-age=300, no-transform" in fn
-    assert "content-encoding" not in fn
+    # Only a stored gzipped text file is sent with Content-Encoding, and then as stored.
+    assert fn.count("set('content-encoding'") == 1 and "encodeBody: 'manual'" in fn
     assert "obj.range.suffix !== undefined" in fn
     assert (
         "Download as CSV, Excel, JSON, GeoJSON, Parquet, SQLite, DuckDB, GeoPackage, GeoParquet, NDJSON, or"
@@ -352,6 +352,24 @@ def test_linkify_escapes_and_links_only_the_url():
     assert linkify("Open https://a.example/data.csv, then stop.") == (
         'Open <a href="https://a.example/data.csv">https://a.example/data.csv</a>, then stop.'
     )
+    assert linkify("It writes `NULL` & `<5`, see https://a.example/x.") == (
+        'It writes <code>NULL</code> &amp; <code>&lt;5</code>, see <a href="https://a.example/x">https://a.example/x</a>.'
+    )
+
+
+def test_quoting_marks_the_publishers_value_and_escapes_the_rest():
+    from publicdata.site import _faq_jsonld, quoting
+
+    assert quoting("Rows in A & B - EAST", "A & B - EAST") == (
+        "Rows in <span data-quoted>A &amp; B - EAST</span>"
+    )
+    assert quoting("Rows <here>", "") == "Rows &lt;here&gt;"
+    assert quoting("Sites where direction is not BOTH and kind is span", "BOTH", "span") == (
+        "Sites where direction is not <span data-quoted>BOTH</span> and kind is "
+        "<span data-quoted>span</span>"
+    )
+    q = _faq_jsonld([("What is `CNP`?", "The stream `CNP`.")])["mainEntity"][0]
+    assert q["name"] == "What is CNP?" and q["acceptedAnswer"]["text"] == "The stream CNP."
 
 
 def test_harvard_is_author_date_with_the_version_and_no_access_date():
@@ -400,7 +418,9 @@ def test_dataset_page_carries_a_query_console_and_its_openapi(tmp_path, site_cop
         "group": ["casualty_road_user_type"],
         "metric": "sum.casualty_count",
     }
-    assert "Casualties by road user where severity is Hospitalised: " in page
+    assert (
+        "Casualties by road user where severity is <span data-quoted>Hospitalised</span>: " in page
+    )
     year = next(f for f in c["fields"] if f["name"] == "crash_year")
     region = next(f for f in c["fields"] if f["name"] == "crash_police_region")
     assert region["values"] == sorted(region["values"]) and None not in region["values"]
@@ -868,3 +888,29 @@ def test_the_stable_url_guide_sits_under_the_publishers_page(fixture_site):
         md.startswith("---\ntitle: Publishing a dataset at a stable URL\n")
         and "## A check list" in md
     )
+
+
+def test_a_version_page_shows_the_version_notes(fixture_site):
+    page = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "About this version" in page
+    assert "fixture: first 300 rows of the release" in page
+    md = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.md"
+    ).read_text(encoding="utf-8")
+    assert "## About this version" in md
+    assert "fixture: first 300 rows of the release" in md
+    assert "immutable: true" not in md
+
+
+def test_no_page_promises_a_version_never_changes(fixture_site):
+    """A correction can rebuild a version, so no page or API document may say otherwise."""
+    page = (
+        fixture_site / "d" / "qld-road-crash-locations" / "v" / "2026-04-24" / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "Immutable version" not in page
+    for name in ("openapi.json", "llms.txt", "index.html"):
+        text = (fixture_site / name).read_text(encoding="utf-8")
+        assert "versions never change" not in text.lower(), name
+        assert "immutable files" not in text, name

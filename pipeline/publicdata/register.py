@@ -70,6 +70,11 @@ WIDE_KEYS = {
     "sheet_match",
 }
 STATUSES = ("live", "building", "backlog", "blocked", "assessing")
+# How a source changes. A release is a dated edition. A rolling table is the whole table sent again
+# each time, and a feed is current state only; both keep a change log for every fetch and a dated
+# snapshot only when updates.cut says so.
+UPDATES = ("release", "rolling", "feed")
+GRAINS = ("year", "fiscal", "quarter", "month")
 TYPES = ("string", "integer", "number", "boolean", "date", "datetime")
 JURISDICTIONS = ("Cth", "NSW", "Vic", "Qld", "WA", "SA", "Tas", "ACT", "NT", "Local")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
@@ -200,6 +205,16 @@ class Database:
 
 
 @dataclass(frozen=True)
+class Period:
+    """The date field a table is split on, and the length of each part. Parts in the newest
+    `revision_window` periods are open; older ones are finished and written once."""
+
+    field: str
+    grain: str
+    revision_window: int = 2
+
+
+@dataclass(frozen=True)
 class Source:
     adapter: str
     url: str
@@ -317,6 +332,13 @@ class Dataset:
     database: Database | None = None
     tables: tuple[TableSpec, ...] = ()
     views: tuple[View, ...] = ()
+    # The class decides when a fetch is cut as a snapshot and shapes no version's bytes. The
+    # volatile columns decide which changed parts are revisions, so they stay in the key.
+    update: str = field(default="release", repr=False)
+    volatile: tuple[str, ...] = ()
+    # Recorded in each fetch's manifest when it is stored, and a version is split by the period
+    # its own manifest names, so adding one to an entry never changes the versions before it.
+    period: Period | None = field(default=None, repr=False)
 
     @property
     def publishable(self) -> bool:
@@ -531,6 +553,7 @@ def parse(raw: dict, ctx: str) -> Dataset:
         source_withheld=str(raw.get("source_withheld", "")).strip(),
         kind=kind,
         **(_database(raw, ctx) if kind == "database" else {}),
+        **_update(raw, fields, key, kind, geometry, ctx),
     )
     if kind == "database":
         for k in (
@@ -675,6 +698,62 @@ def _profile(raw: dict, fields: list[Field], kind: str, ctx: str) -> dict:
                 raise RegisterError(f"{ctx}: int32 field '{n}' is not an integer")
         out[name] = names
     return out
+
+
+def _update(raw: dict, fields: list[Field], key: tuple, kind: str, geometry, ctx: str) -> dict:
+    """The update class, its volatile columns and the period a table is split on."""
+    update = str(raw.get("update", "release"))
+    if update not in UPDATES:
+        raise RegisterError(f"{ctx}: update '{update}' not one of {UPDATES}")
+    by = {f.name: f for f in fields}
+    volatile = tuple(str(x) for x in raw.get("volatile") or ())
+    if update != "release":
+        if kind != "table":
+            raise RegisterError(f"{ctx}: a {update} source is one table")
+        # The change log compares fetches row by row, which needs the rows' own key.
+        if not key:
+            raise RegisterError(f"{ctx}: a {update} source needs a key")
+        if (raw.get("source") or {}).get("feed"):
+            raise RegisterError(f"{ctx}: update: feed replaces source.feed; give one")
+    elif volatile:
+        raise RegisterError(f"{ctx}: volatile columns are for a rolling source or a feed")
+    for v in volatile:
+        if v not in by:
+            raise RegisterError(f"{ctx}: volatile '{v}' is not a declared field")
+        if v in key:
+            raise RegisterError(f"{ctx}: volatile '{v}' is part of the key")
+    period = None
+    if raw.get("period"):
+        p = raw["period"]
+        if not isinstance(p, dict) or not set(p) <= {"field", "grain", "revision_window"}:
+            raise RegisterError(f"{ctx}: period takes field, grain and revision_window")
+        period = Period(
+            field=str(_req(p, "field", f"{ctx}.period")),
+            grain=str(_req(p, "grain", f"{ctx}.period")),
+            revision_window=int(p.get("revision_window", 2)),
+        )
+        if kind != "table":
+            raise RegisterError(f"{ctx}: a database is not split into periods")
+        if geometry and geometry.get("kind") != "point":
+            raise RegisterError(f"{ctx}: a {geometry['kind']} layer is not split into periods")
+        if period.grain not in GRAINS:
+            raise RegisterError(f"{ctx}: period.grain '{period.grain}' not one of {GRAINS}")
+        f = by.get(period.field)
+        if f is None:
+            raise RegisterError(f"{ctx}: period.field '{period.field}' is not a declared field")
+        if f.type not in ("date", "datetime") and not (
+            f.type == "integer" and period.grain == "year"
+        ):
+            raise RegisterError(
+                f"{ctx}: period.field is a date or datetime field, or an integer year for grain year"
+            )
+        if period.revision_window < 1:
+            raise RegisterError(
+                f"{ctx}: period.revision_window counts the open periods, at least 1"
+            )
+    if update == "feed" and period is None:
+        raise RegisterError(f"{ctx}: a feed's history grows without end, so it needs a period")
+    return {"update": update, "volatile": volatile, "period": period}
 
 
 def _fields(raw: list, ctx: str) -> list[Field]:
@@ -966,8 +1045,8 @@ def _chart(raw, fields: list[Field], ctx: str) -> dict | None:
         raise RegisterError(f"{ctx} takes where, split, metric, label and year, or is none")
     by = {f.name: f for f in fields}
     year = str(raw.get("year", ""))
-    if year and (year not in by or by[year].type not in ("integer", "date", "datetime")):
-        raise RegisterError(f"{ctx}.year must name an integer or date field")
+    if year and (year not in by or by[year].type not in ("integer", "date", "datetime", "string")):
+        raise RegisterError(f"{ctx}.year must name an integer, date or financial-year field")
     where = _where(raw.get("where") or {}, by, ctx)
     if any(w["value"] == NEWEST for w in where):
         raise RegisterError(f"{ctx}.where cannot use {NEWEST}; the chart draws every year")

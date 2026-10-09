@@ -6,6 +6,10 @@ import pytest
 import yaml
 
 from publicdata import hubs
+from publicdata.cadence import kaggle_frequency
+from publicdata.register import load
+
+from .conftest import ROOT
 
 RECORD = {
     "identifier": "qld-road-crash-factors",
@@ -164,6 +168,18 @@ def test_query_api_is_named_only_when_it_serves_the_dataset():
     quiet = hubs.entry(RECORD, VERSIONS, SCHEMA, MANIFEST, queryable=False)
     for t in text_of(quiet):
         assert "/api/v1/" not in t and "query API" not in t
+
+
+def test_a_version_published_in_parts_is_not_copied_and_fails_no_run():
+    split = {**MANIFEST, "period": {"field": "date", "grain": "year"}, "whole": False}
+    with pytest.raises(hubs.Excluded, match="published in parts"):
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    assert hubs.entry(RECORD, VERSIONS, SCHEMA, {**split, "whole": True}).version
+    with pytest.raises(hubs.Excluded) as e:
+        hubs.entry(RECORD, VERSIONS, SCHEMA, split)
+    lines = []
+    assert hubs.run({"h": FakeHub()}, [("x", e.value)], fake_fetch, None, lines.append) == 0
+    assert lines == [f"h x: not copied, {e.value}"]
 
 
 def test_kaggle_limits():
@@ -755,7 +771,8 @@ def test_cover_image_is_cut_to_two_by_one(tmp_path):
 
 def test_every_catalogue_cadence_maps_to_a_kaggle_choice():
     allowed = {"never", "annually", "quarterly", "monthly", "weekly", "daily", "hourly"}
-    assert set(hubs.KAGGLE_FREQUENCY.values()) <= allowed
+    cadences = {d.source.cadence for d in load(ROOT / "register")}
+    assert {kaggle_frequency(c) for c in cadences} <= allowed
     assert hubs.kaggle_metadata(make(), "o")["expectedUpdateFrequency"] in allowed
 
 
@@ -1400,3 +1417,36 @@ def test_read_site_passes_an_exclusion_through_as_an_exclusion():
 def test_reading_the_site_retries_a_dropped_connection_but_never_an_upload():
     retry = hubs._http().get_adapter("https://publicdata.au/").max_retries
     assert retry.total >= 3 and retry.is_retry("GET", 503) and not retry.is_retry("POST", 503)
+
+
+def test_every_hub_takes_a_rolling_source_at_most_once_a_month(tmp_path):
+    from dataclasses import replace
+
+    e = replace(make(), update="rolling", version="2026-10-20")
+    zen, hf = FakeHub(), FakeHub()
+    lines = []
+    fails = hubs.run(
+        {"zenodo": zen, "huggingface": hf}, [(e.slug, e)], fake_fetch, tmp_path, lines.append
+    )
+    assert fails == 0 and zen.published == hf.published == ["2026-10-20"]
+    for name in ("zenodo", "huggingface", "kaggle"):
+        again = FakeHub(held={"2026-10-01"})
+        hubs.run({name: again}, [(e.slug, e)], fake_fetch, tmp_path, lines.append)
+        assert again.published == [] and "copied once a month" in lines[-1]
+        nov = replace(e, version="2026-11-03")
+        hubs.run({name: again}, [(e.slug, nov)], fake_fetch, tmp_path, lines.append)
+        assert again.published == ["2026-11-03"]
+    # A release is copied whenever it is newer.
+    rel = FakeHub(held={"2026-09-01"})
+    newer = replace(make(), version="2026-09-20")
+    hubs.run({"kaggle": rel}, [(e.slug, newer)], fake_fetch, tmp_path, lines.append)
+    assert rel.published == ["2026-09-20"]
+
+
+def test_a_rolling_source_goes_to_zenodo_as_parquet_and_gzipped_csv():
+    from dataclasses import replace
+
+    e = make()
+    rolling = replace(e, update="feed", files={**e.files, "csv.gz": "u"}, sizes={"csv.gz": 10})
+    assert hubs.zenodo_formats(e) == hubs.ZENODO_FORMATS
+    assert hubs.carried(rolling, hubs.zenodo_formats(rolling)) == ["parquet", "csv.gz"]

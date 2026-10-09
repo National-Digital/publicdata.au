@@ -44,6 +44,20 @@ class Manifest:
     parquet: dict = field(default_factory=dict)
     # CAPS_VERSION when the fetch that wrote this manifest knew the caps, else 0.
     caps: int = 0
+    # A rolling source or a feed keeps every fetch that changed it; only some become snapshots,
+    # the dated versions the site publishes, and `cut` says why.
+    snapshot: bool = True
+    cut: str = ""
+    # A feed's table of every row state it has held, kept beside the source as history.parquet.
+    history: dict | None = None
+    # The register's period when this was fetched; the version is split by it, and a version
+    # fetched before an entry had one keeps its whole-table layout.
+    period: dict | None = None
+    # The register's update class when this was fetched; empty for a release. It decides how the
+    # version flags revisions, so a later change of class leaves the version as it was.
+    update: str = ""
+    # The register's volatile columns when this was fetched, which a part's stable hash leaves out.
+    volatile: list[str] = field(default_factory=list)
 
     @property
     def ext(self) -> str:
@@ -58,6 +72,17 @@ class Manifest:
             del d["parquet"]
         if not d["caps"]:
             del d["caps"]
+        if d["snapshot"]:
+            del d["snapshot"]
+        if not d["cut"]:
+            del d["cut"]
+        for k in ("history", "period"):
+            if d[k] is None:
+                del d[k]
+        if not d["update"]:
+            del d["update"]
+        if not d["volatile"]:
+            del d["volatile"]
         return json.dumps(d, indent=2, ensure_ascii=False) + "\n"
 
     @classmethod
@@ -80,7 +105,8 @@ def version_dir(store: Path, slug: str, version: str) -> Path:
     return store / slug / version
 
 
-def manifests(store: Path, slug: str) -> list[Manifest]:
+def manifests(store: Path, slug: str, fetches: bool = False) -> list[Manifest]:
+    """The dataset's snapshots in date order, or with fetches, every fetch the store keeps."""
     d = store / slug
     if not d.is_dir():
         return []
@@ -88,8 +114,45 @@ def manifests(store: Path, slug: str) -> list[Manifest]:
     for v in sorted(p for p in d.iterdir() if p.is_dir() and VERSION_RE.match(p.name)):
         mp = v / "manifest.json"
         if mp.exists():
-            out.append(Manifest.read(mp))
+            m = Manifest.read(mp)
+            if fetches or m.snapshot:
+                out.append(m)
     return out
+
+
+def history_path(store: Path, m: Manifest) -> Path:
+    return version_dir(store, m.dataset, m.version) / "history.parquet"
+
+
+def read_path(store: Path, slug: str) -> Path:
+    return store / slug / "read.json"
+
+
+def write_read(store: Path, slug: str, day: str, fetch: str) -> None:
+    """A feed's newest read, changed or not, and the fetch whose rows it found."""
+    read_path(store, slug).write_text(
+        json.dumps({"read": day, "fetch": fetch}, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def last_read(store: Path, slug: str) -> dict:
+    p = read_path(store, slug)
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def read_since(store: Path, slug: str, newest: str) -> str:
+    """The day of a feed's newest read that found the newest fetch's rows, or "". The record lives
+    in the raw store, not in git, so it can be missing, or name a fetch this checkout does not hold
+    yet; either way last_seen stops at the newest fetch."""
+    rec = last_read(store, slug)
+    return (
+        rec.get("read", "") if rec.get("fetch") == newest and rec.get("read", "") > newest else ""
+    )
+
+
+def change_log(store: Path, m: Manifest) -> Path:
+    """A rolling source's or a feed's comparison of this fetch with the one before, by key."""
+    return version_dir(store, m.dataset, m.version) / "changes.json"
 
 
 def source_path(store: Path, m: Manifest) -> Path:

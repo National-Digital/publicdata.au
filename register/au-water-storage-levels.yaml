@@ -67,8 +67,8 @@ faq:
     Borumba, Enoggera, Gold Creek, Lake Manchester, Lake Kurwongbah, Lake MacDonald, Ewen Maddock and the
     other south east Queensland storages. WaterNSW reports the Sydney storages, Warragamba (212243), Avon,
     Cataract, Cordeaux, Nepean, Woronora, Prospect Reservoir, Tallowa, Fitzroy Falls, Wingecarribee and the
-    Blue Mountains dams. The Bureau names many stations by the creek and dam wall, such as Nerang R at Hinze
-    Dam HW, and lists some Sydney storages more than once under numbers such as 212243.1, so search by name
+    Blue Mountains dams. The Bureau names many stations by the creek and dam wall, such as `Nerang R at Hinze
+    Dam HW`, and lists some Sydney storages more than once under numbers such as 212243.1, so search by name
     and check the station number in the storages dataset.
 - q: How do I get a percentage full?
   a: Divide the day's volume by the full storage volume in the companion storages dataset, joining on the
@@ -102,6 +102,9 @@ source:
 key:
 - station_no
 - date
+period:
+  field: date
+  grain: year
 partition_by:
 - state
 sort:

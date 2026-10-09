@@ -1,0 +1,85 @@
+name: Storage cost
+
+# Gates only the register entries a pull request adds or edits; a fetch PR changes store
+# manifests alone and always passes. pull_request_target runs this file and the cost code from
+# the base branch, so a pull request cannot change how it is judged. Its tree is checked out as
+# data and never run, and the token is read-only. Every event runs the check rather than skipping
+# it, since a skipped required check counts as passed.
+on:
+  # zizmor: ignore[dangerous-triggers] the head is read as data and never run; only the revoke job writes, and only the label
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/base/pipeline/requirements.txt
+
+permissions: {}
+
+jobs:
+  cost:
+    name: Storage cost
+    runs-on: ubuntu-24.04
+    # Only this job is cancelled by a newer event, so the revoke job always runs to the end.
+    concurrency:
+      group: cost-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: read # the pull request's labels, author and head
+      issues: read # the approval label's events
+      actions: read # this check's runs, which date the head commit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: base/.python-version
+      - run: pip install -e ./base/pipeline
+      # The approval is read from GitHub only when a changed entry is over budget: the label's
+      # last adder must have write access, must not be the author, and must have added it after
+      # the head commit arrived and after any change of base.
+      - working-directory: base/pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          pr="$GITHUB_WORKSPACE/pr"
+          git -C "$pr" cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
+            || git -C "$pr" fetch -q --no-tags origin "$BASE_SHA"
+          python -m publicdata cost --root "$pr" --base "$BASE_SHA" --probe --github-pr "$PR"
+
+  revoke:
+    name: Revoke cost approval on push, reopen or retarget
+    # Side effects run only in the public repo, never in a fork or a private copy.
+    if: >-
+      github.repository == 'National-Digital/publicdata.au'
+      && contains(github.event.pull_request.labels.*.name, 'cost-approved')
+      && (contains(fromJSON('["synchronize", "reopened"]'), github.event.action)
+      || (github.event.action == 'edited' && github.event.changes.base))
+    runs-on: ubuntu-24.04
+    # A revoke is never cancelled, so one that has started always finishes.
+    concurrency:
+      group: cost-revoke-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      pull-requests: write # takes the approval label off
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      # The check does not rely on this: it compares the label's time with the head's and the
+      # base's. Taking it off shows reviewers that the approval lapsed.
+      - run: |
+          gh api -X DELETE "repos/$REPO/issues/$PR/labels/cost-approved" \
+            || ! gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' | grep -qx cost-approved

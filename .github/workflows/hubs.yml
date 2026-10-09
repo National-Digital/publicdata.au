@@ -5,6 +5,7 @@ name: Hubs
 # production deploy and weekly, and each hub is compared first, so a run with nothing new uploads
 # nothing. A hub whose credentials are not set is skipped and named in the summary.
 on:
+  # zizmor: ignore[dangerous-triggers] runs main's own code after a push to main and reads nothing from the run
   workflow_run:
     workflows: [Deploy]
     types: [completed]
@@ -26,13 +27,12 @@ on:
         type: boolean
         default: false
 
-# Writes only to open the pull request that records where the copies are.
 env:
   PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
 
+# The fetch app's token pushes the branch and opens the pull request.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: hubs
@@ -40,6 +40,7 @@ concurrency:
 
 jobs:
   publish:
+    name: publish
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     runs-on: ubuntu-24.04
@@ -92,6 +93,8 @@ jobs:
         if: always() && github.ref == 'refs/heads/main' && hashFiles('hubs.log') != ''
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          HUB: ${{ github.event.inputs.hub || 'huggingface zenodo kaggle' }}
+          ONLY: ${{ github.event.inputs.only }}
         run: |
           # Pushes go as the app too, in place of the checkout's own credential.
           git config --local --replace-all http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
@@ -100,7 +103,7 @@ jobs:
             exit 0
           fi
           DATE=$(date -u +%Y-%m-%d)
-          BRANCH="data/hubs-$DATE-${{ github.run_id }}"
+          BRANCH="data/hubs-$DATE-$GITHUB_RUN_ID"
           git config user.name "publicdata fetch"
           git config user.email "fetch@publicdata.au"
           git checkout -q -b "$BRANCH"
@@ -110,8 +113,17 @@ jobs:
           git fetch -q origin main
           git rebase -q origin/main
           git push -q -u origin HEAD
-          gh pr create --title "data(hubs): where the copies are, $DATE" --body "The Hubs run recorded where each dataset's copies are. Merging lists them on the dataset pages and in their structured data."
+          PR=$(gh pr create --title "data(hubs): where the copies are, $DATE" --body "The Hubs run recorded where each dataset's copies are. Merging lists them on the dataset pages and in their structured data.")
           gh pr merge --auto --squash || echo "::warning::auto-merge was not armed; merge the hubs PR by hand."
+          # A full run reads every location back from the hubs, so its record covers any older hubs
+          # PR still open, such as one from a run queued behind it or one auto-merge never merged.
+          [ -z "$ONLY" ] && [ "$HUB" = "huggingface zenodo kaggle" ] || exit 0
+          gh pr list --state open --author app/publicdata-fetch --json number,headRefName \
+            --jq ".[] | select(.headRefName | startswith(\"data/hubs-\")) | select(.headRefName != \"$BRANCH\") | .number" |
+            while read -r n; do
+              gh pr close "$n" --delete-branch --comment "Superseded by $PR, a later run's record of every hub." ||
+                echo "::warning::hubs PR #$n was not closed; close it by hand."
+            done
       - name: Summarise
         if: always()
         run: |

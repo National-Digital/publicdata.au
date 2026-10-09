@@ -104,3 +104,4 @@ fields:
   label: Camera category
   source: Speed Camera Category
   type: string
+rebuild: 1

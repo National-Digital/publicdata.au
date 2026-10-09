@@ -21,7 +21,7 @@ faq:
 - q: What does each figure mean?
   a: Each figure is the overall percentage change in statutory land values in a local government area at that
     year's annual valuation, compared with its previous valuation. A council area is not valued every year,
-    and the publisher writes NV for a year it was not valued. NV is kept as a null value here.
+    and the publisher writes `NV` for a year it was not valued. `NV` is kept as a null value here.
 - q: Why do the council names differ from today?
   a: The table covers the councils as they were before the 2008 amalgamations. The last column names the council
     each became part of.
@@ -30,7 +30,7 @@ summary: The overall percentage change in statutory land values in each pre-amal
 description: One row per council area as it stood before the 2008 amalgamations, with the overall percentage
   change in statutory land values at its annual valuation for each year from 2002 to 2009 and the council it
   became part of. A year in which the area was not valued is null, including two cells where the publisher's
-  NV carries a stray character. The first row counts the areas valued each year.
+  `NV` carries a stray character. The first row counts the areas valued each year.
 publisher:
   name: Department of Natural Resources and Mines, Manufacturing and Regional and Rural Development
   short: Natural Resources and Mines

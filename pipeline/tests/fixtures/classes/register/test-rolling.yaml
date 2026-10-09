@@ -1,0 +1,28 @@
+slug: test-rolling
+title: Licensed premises register
+status: building
+description: A test register of licensed premises, sent whole by the publisher each week, one row per premises with the date it opened.
+update: rolling
+volatile: [updated_at]
+period:
+  field: opened
+  grain: year
+publisher:
+  name: Test Licensing Office
+  short: Licensing Office
+  jurisdiction: Qld
+  url: https://example.gov.au/
+licence:
+  id: CC-BY-4.0
+  evidence: https://example.gov.au/licence
+  attribution: Test Licensing Office, CC BY 4.0
+source:
+  adapter: none
+  url: https://example.gov.au/premises.csv
+  cadence: weekly
+key: [id]
+fields:
+  - {name: id, source: ID, type: integer}
+  - {name: name, source: Name}
+  - {name: opened, source: Opened, type: date}
+  - {name: updated_at, source: Updated, type: datetime, date_format: "%Y-%m-%dT%H:%M:%S"}

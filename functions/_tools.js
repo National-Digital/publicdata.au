@@ -1,5 +1,7 @@
 import { answer } from './_api.js';
-import { aggregateQuery, rowsQuery } from './_query.js';
+import { QueryError, aggregateQuery, rowsQuery } from './_query.js';
+import { BudgetError, ENGINE, FileError, StaleError, forget, openVersion, parquetAggregate, parquetRows } from './_parquet.js';
+import { rollup } from './_rollup.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 import { onRequestPost as castVote } from './api/v1/votes/[slug].js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
@@ -53,6 +55,104 @@ async function api(ctx, slug, op, version, qs) {
   return b;
 }
 
+const VERSION = /^\d{4}-\d{2}-\d{2}$/;
+
+// The live datasets and their newest versions. An isolate serves one deployment, so it is read once.
+let newestOf;
+async function live(ctx) {
+  return newestOf || (newestOf = await file(ctx, '/latest.json'));
+}
+
+// Whether D1 holds this version, in which case the query API answers it.
+async function held(env, slug, version) {
+  if (!env.DB) return false;
+  try {
+    return !!(await env.DB.prepare('SELECT 1 AS held FROM _versions WHERE slug = ? AND version = ?').bind(slug, version).first());
+  } catch {
+    return false;
+  }
+}
+
+// The versions D1 does not hold are read from their Parquet file: those older than the two it
+// loads, and those it never loads because they are too large or their entry sets query: false.
+// Returns null when the query API should answer instead.
+async function parquet(ctx, slug, version, op, qs) {
+  if (!ctx.env.DIST) return null;
+  if (version !== undefined && !VERSION.test(version)) throw new ToolError('version is a date, YYYY-MM-DD, from get_dataset');
+  let latest;
+  try { latest = await live(ctx); } catch { return null; }
+  // A dataset missing from latest.json is answered by the query API, which says why.
+  const newest = latest[slug];
+  if (!newest) return null;
+  const v = version || newest;
+  if (await held(ctx.env, slug, v)) return null;
+  const path = API + enc(slug) + '/versions/' + v + '/' + op + (qs.length ? '?' + qs.join('&') : '');
+  const url = SITE + '/d/' + enc(slug) + '/v/' + v + '/data.parquet';
+  let out;
+  try {
+    try {
+      out = await fromFile(ctx, slug, v, op, qs, path, url);
+    } catch (e) {
+      // The query copy was written again under this isolate's footer, so it is read afresh once.
+      if (!(e instanceof StaleError)) throw e;
+      forget(slug, v);
+      out = await fromFile(ctx, slug, v, op, qs, path, url);
+    }
+  } catch (e) {
+    if (e instanceof BudgetError) throw new ToolError(e.message);
+    if (e instanceof FileError) throw new ToolError(`version ${v} of ${slug} is not answered here, since ${e.message}; its files are at ${SITE}/d/${slug}/v/${v}/`);
+    if (e instanceof ToolError) throw e;
+    if (e instanceof QueryError) throw e;
+    console.error(`parquet ${slug} ${v}: ${(e && e.stack) || e}`);
+    throw new ToolError(`version ${v} of ${slug} could not be read; its files are at ${SITE}/d/${slug}/v/${v}/`);
+  }
+  if (!out) {
+    if (v === newest) return null;
+    throw new ToolError(`${slug} has no version ${v}; get_dataset lists its versions`);
+  }
+  return out;
+}
+
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+// A version stored as period parts is read part by part, listed with their rows by its manifest.
+// A correction rewrites parts in place under the same keys and rewrites the manifest with its
+// note, so an answer is kept under a digest of the manifest's text and that list.
+async function fromParts(ctx, slug, v, op, qs, path, at) {
+  const manifest = SITE + '/d/' + enc(slug) + '/v/' + v + '/manifest.json';
+  const listed = [at.manifest.sha256, ...at.parts.map((p) => `${p.key} ${p.rows}`)].join('\n');
+  const id = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(listed))).slice(0, 32);
+  const key = new Request(SITE + '/_parquet/' + ENGINE + '/parts-' + id + path);
+  const hit = await caches.default.match(key);
+  if (hit) return hit.json();
+  const r = await (op === 'rows' ? parquetRows : parquetAggregate)(ctx.env, at, new URLSearchParams(qs.join('&')), manifest);
+  // parts names the periods read; the manifest gives each one's file, rows and provenance.
+  const out = { version: v, rows: r.rows, more: r.more, matched: r.matched, query: SITE + path, attribution: at.attribution ?? r.attribution ?? null, parts: r.parts, manifest };
+  ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(out), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=31536000, immutable' } })));
+  return out;
+}
+
+async function fromFile(ctx, slug, v, op, qs, path, url) {
+  const at = await openVersion(ctx.env, slug, v);
+  if (!at) return null;
+  if (!at.files.length) return fromParts(ctx, slug, v, op, qs, path, at);
+  const entry = at.files[0];
+  if (!entry.header) throw new ToolError(`version ${v} of ${slug} carries no provenance in its file, so it is not answered here; its files are at ${SITE}/d/${slug}/v/${v}/`);
+  // The key holds the engine's version, so a fix is not hidden behind a year-long cached answer,
+  // and the ETag of the file read, so an answer from a copy since written again is never served.
+  const key = new Request(SITE + '/_parquet/' + ENGINE + '/' + enc(entry.etag) + path);
+  const hit = await caches.default.match(key);
+  if (hit) return hit.json();
+  const r = await (op === 'rows' ? parquetRows : parquetAggregate)(ctx.env, entry, new URLSearchParams(qs.join('&')), url);
+  // The query API answers this path only while D1 holds the version, so the manifest is linked for
+  // the licence, source, hash and fetch time.
+  const manifest = SITE + '/d/' + enc(slug) + '/v/' + v + '/manifest.json';
+  const out = { version: v, rows: r.rows, more: r.more, matched: r.matched, query: SITE + path, attribution: entry.header.attribution ?? null, file: url, manifest };
+  // The bytes under one ETag never change, so the answer is kept as long as the edge keeps anything.
+  ctx.waitUntil(caches.default.put(key, new Response(JSON.stringify(out), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=31536000, immutable' } })));
+  return out;
+}
+
 async function total(ctx, slug, version, where) {
   const b = await api(ctx, slug, 'aggregate', version, filters(where));
   return b.rows[0] ? b.rows[0].count : 0;
@@ -97,6 +197,8 @@ EXEC.query_rows = async (ctx, input) => {
   const qs = filters(input.where).concat(['limit=' + limit, 'offset=' + offset]);
   if (input.select && input.select.length) qs.push('select=' + input.select.map(enc).join(','));
   if (input.order) qs.push('order=' + enc(input.order));
+  const p = await parquet(ctx, slug, input.version, 'rows', qs);
+  if (p) return text({ version: p.version, rows: p.rows, matched: p.matched, next_offset: p.more ? offset + limit : null, query: p.query, attribution: p.attribution, file: p.file, parts: p.parts, manifest: p.manifest });
   const b = await api(ctx, slug, 'rows', input.version, qs);
   const n = await total(ctx, slug, b.version, input.where);
   return text({ version: b.version, rows: b.rows, matched: n, next_offset: b.next ? offset + limit : null, query: b.url, attribution: b.publicdata && b.publicdata.attribution });
@@ -104,8 +206,14 @@ EXEC.query_rows = async (ctx, input) => {
 EXEC.count_rows = async (ctx, input) => {
   const metric = input.metric || 'count', limit = input.limit || 100, group = input.group_by || [], slug = slugOf(input);
   const alias = metric === 'count' ? 'count' : metric.replace('.', '_');
-  const qs = filters(input.where).concat(['metric=' + enc(metric), 'order=' + enc(alias + '.desc'), 'limit=' + limit]);
+  // Equal totals come in group order, so the top groups are the same from every engine.
+  const order = [alias + '.desc', ...group.map((g) => g + '.asc')].map(enc).join(',');
+  const qs = filters(input.where).concat(['metric=' + enc(metric), 'order=' + order, 'limit=' + limit]);
   if (group.length) qs.push('group=' + group.map(enc).join(','));
+  const r = await rollup(ctx, slug, input.version, 'aggregate', qs);
+  if (r) return text({ version: r.version, group_by: group, metric, groups: r.rows, truncated: r.more, matched: r.matched, query: r.query, attribution: r.attribution });
+  const p = await parquet(ctx, slug, input.version, 'aggregate', qs);
+  if (p) return text({ version: p.version, group_by: group, metric, groups: p.rows, truncated: p.more, matched: p.matched, query: p.query, attribution: p.attribution, file: p.file, parts: p.parts, manifest: p.manifest });
   const b = await api(ctx, slug, 'aggregate', input.version, qs);
   const n = await total(ctx, slug, b.version, input.where);
   return text({ version: b.version, group_by: group, metric, groups: b.rows, truncated: !!b.next, matched: n, query: b.url, attribution: b.publicdata && b.publicdata.attribution });

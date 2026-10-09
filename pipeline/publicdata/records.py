@@ -1,8 +1,9 @@
-"""A version's rows for the build's own queries: DuckDB over its data.parquet, shaped as the
-records table of its data.sqlite. Dates are ISO text, booleans 1 and 0, the suppressed flags
-joined with ";", a float's NaN a null, a layer's shapes left out, and rowid is the row's place in
-the file. The pages' figures, the query console and the D1 load read the Parquet alone, and
-answer as SQLite did, in the Parquet's row order."""
+"""A version's rows for the build's own queries: DuckDB over its data.parquet, or its period parts
+in order, shaped as the records table of its data.sqlite. Dates are ISO text, booleans 1 and 0,
+the suppressed flags joined with ";", a float's NaN a null, a layer's shapes left out, and rowid
+is the row's place in the file, or in the parts one after another. The pages' figures, the query
+console and the D1 load read the Parquet alone, and answer as SQLite did, in the Parquet's row
+order."""
 
 from __future__ import annotations
 
@@ -60,12 +61,15 @@ def _affinity(value, affinity: str):
 
 class Records:
     """A read-only connection whose `records` view holds one version's rows. A parameter compared
-    with a column goes through param, so it compares as it would against data.sqlite."""
+    with a column goes through param, so it compares as it would against data.sqlite. parquet is
+    the version's file, or the list of its parts in order, whose rows follow one another and keep
+    their order within each part."""
 
-    def __init__(self, parquet: Path, names: list[str] | None = None):
+    def __init__(self, parquet: Path | list[Path], names: list[str] | None = None):
         import duckdb
 
-        schema = pq.read_schema(parquet)
+        files = [parquet] if isinstance(parquet, Path) else list(parquet)
+        schema = pq.read_schema(files[0])
         have = [n for n in schema.names if n != "geometry"]
         # The SQLite file lists the register's fields in their order, then the flags.
         order = [n for n in names or () if n in have]
@@ -86,11 +90,16 @@ class Records:
             or pa.types.is_boolean(t)
         }
         cols = ", ".join(_column(n, schema.field(n).type) for n in self.names)
-        path = str(parquet).replace("'", "''")
-        self.con.execute(
-            f"CREATE VIEW records AS SELECT {cols}, file_row_number + 1 AS {ROWID} "
-            f"FROM read_parquet('{path}', file_row_number = true)"
-        )
+        selects, before = [], 0
+        for f in files:
+            path = str(f).replace("'", "''")
+            selects.append(
+                f"SELECT {cols}, file_row_number + {before + 1} AS {ROWID} "
+                f"FROM read_parquet('{path}', file_row_number = true)"
+            )
+            if len(files) > 1:
+                before += pq.read_metadata(f).num_rows
+        self.con.execute(f"CREATE VIEW records AS {' UNION ALL BY NAME '.join(selects)}")
 
     def columns(self) -> list[str]:
         return list(self.names)
@@ -148,5 +157,20 @@ class Records:
         self.close()
 
 
-def connect(parquet: Path, names: list[str] | None = None) -> Records:
+def connect(parquet: Path | list[Path], names: list[str] | None = None) -> Records:
     return Records(parquet, names)
+
+
+def joined(parts: list[Path], dest: Path) -> Path:
+    """A version written as parts alone, its parts' rows in one Parquet file at dest, in the
+    order given, for the queries its pages draw from. One part is read at a time, and a part
+    written before a type narrowed is widened to meet the rest, as the build reads parts back."""
+    if not parts:
+        return dest
+    schema = pa.unify_schemas(
+        [pq.read_schema(p).remove_metadata() for p in parts], promote_options="permissive"
+    )
+    with pq.ParquetWriter(dest, schema, compression="zstd") as w:
+        for p in parts:
+            w.write_table(pq.read_table(p).replace_schema_metadata(None).cast(schema))
+    return dest
