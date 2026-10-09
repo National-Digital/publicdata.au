@@ -119,7 +119,12 @@ def write(
             else:
                 with tempfile.TemporaryDirectory() as tmp:
                     write_csv_gz(part, vdir / rel, Path(tmp))
+                    # The query API loads a version stored as parts while their CSV is as small
+                    # as a whole data.csv it loads (d1.MAX_CSV).
+                    csv = (Path(tmp) / "data.csv").stat().st_size
             files[fmt] = {"path": rel, "bytes": (vdir / rel).stat().st_size}
+            if fmt == "csv.gz":
+                files[fmt]["csv_bytes"] = csv
         out.append(
             {
                 "period": p,

@@ -22,7 +22,7 @@ from . import OPERATOR, SITE, published, store
 from .cache import BuildCache, _link_or_copy, digest, digests, entry_key, shape_layer
 from .diff import diff
 from .normalise import Table, normalise
-from .provenance import OPERATOR_URL
+from .provenance import OPERATOR_URL, attribution
 from .provenance import header as prov_header
 from .register import Dataset
 from .serialise import (
@@ -140,6 +140,14 @@ def tree_url(slug: str, version: str, tree: str = "") -> str:
 def part_dir(slug: str, rec: dict, version: str) -> str:
     """Where a part's file sits in the built tree: latest/'s own, or the version that wrote it."""
     return where(slug, version, LATEST) if rec["tree"] == LATEST else where(slug, rec["tree"])
+
+
+def part_files(out: Path, slug: str, version: str, records: list[dict]) -> list[Path]:
+    """A version's Parquet parts in the manifest's order, each from wherever it was written."""
+    return [
+        published.path(out, f"{part_dir(slug, r, version)}/{r['files']['parquet']['path']}")
+        for r in records
+    ]
 
 
 def _size(p: Path) -> int:
@@ -276,6 +284,10 @@ def build_version(
         man["measured_bytes"] = measured
         man["formats_left_out"] = gone
     man["url"] = base
+    if not whole:
+        # A finished part can be an earlier version's file, whose header names that version's
+        # fetch, so the manifest gives this version's attribution to the MCP server.
+        man["attribution"] = attribution(ds, m)
     (vdir / "manifest.json").write_text(pretty(man), encoding="utf-8")
     return tbl, VersionOut(
         m,
@@ -1101,12 +1113,8 @@ def _built_table(
         # a part written before the column types narrowed is widened to meet the rest.
         t = pa.concat_tables(
             [
-                pq.read_table(
-                    published.path(
-                        out, f"{part_dir(ds.slug, r, m.version)}/{r['files']['parquet']['path']}"
-                    )
-                ).replace_schema_metadata(None)
-                for r in built["parts"]
+                pq.read_table(p).replace_schema_metadata(None)
+                for p in part_files(out, ds.slug, m.version, built["parts"])
             ],
             promote_options="permissive",
         )
