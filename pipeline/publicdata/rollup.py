@@ -41,8 +41,8 @@ if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import HeadObjectOutputTypeDef
 
     from .jsontypes import JSONObject
-    from .records import Row
     from .register import Chart, Dataset, Example
+    from .rows import Row
 
     type Log = Callable[[str], object]
 

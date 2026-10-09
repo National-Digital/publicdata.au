@@ -595,3 +595,9 @@ def test_an_etag_loses_its_quotes_and_keeps_its_weak_mark() -> None:
         etag({"ETag": 'W/"1501050059.0-253909-3591704692"'}) == "W/1501050059.0-253909-3591704692"
     )
     assert etag({}) == ""
+
+
+def test_a_portal_date_with_a_zone_and_no_time_reads_as_utc_midnight() -> None:
+    assert f._normal_iso("2026-01-02Z") == "2026-01-02T00:00:00+00:00"
+    assert f._normal_iso("2026-01-02T03:04:05Z") == "2026-01-02T03:04:05+00:00"
+    assert f._normal_iso("2026-01-02T03:04:05") == "2026-01-02T03:04:05+00:00"

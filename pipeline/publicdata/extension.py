@@ -14,7 +14,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from .records import one_row
+from .rows import one_row
 from .store import sha256_file
 
 PIN = Path(__file__).with_name("spatial-extension.json")

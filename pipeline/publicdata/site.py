@@ -55,8 +55,9 @@ from .provenance import (
     long_date,
 )
 from .publishers import JUR_NAME, JUR_SEGMENT, JURISDICTIONS
-from .records import connect, joined, one_row
+from .records import connect, joined
 from .register import NEWEST, WHERE_OPS, Dataset
+from .rows import one_row
 from .serialise import (
     FORMAT_LABEL,
     FORMATS,

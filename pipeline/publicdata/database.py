@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 import pyarrow.parquet as pq
 
 from .normalise import NormaliseError
-from .records import one_row
+from .rows import one_row
 from .serialise import (
     DUCKDB_TYPES,
     SQL_TYPES,

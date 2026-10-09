@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from pmtiles.tile import Compression, TileType, zxy_to_tileid
 from pmtiles.writer import Writer
 
-from publicdata.records import one_row
+from publicdata.rows import one_row
 from publicdata.serialise import dumps
 from publicdata.serialise.geo import (
     MAXZOOM,

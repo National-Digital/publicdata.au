@@ -19,7 +19,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import xlsxwriter
 
-from publicdata.records import one_row
+from publicdata.rows import one_row
 from publicdata.spine import DATUM, LAYERS, is_spine
 
 if TYPE_CHECKING:

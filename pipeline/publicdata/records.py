@@ -13,7 +13,7 @@ import sqlite3
 from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, Self
+from typing import TYPE_CHECKING, Self
 
 import duckdb
 import pyarrow as pa
@@ -22,14 +22,7 @@ import pyarrow.parquet as pq
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-
-# A row of a query's answer. DuckDB types its rows' values as Any, and each caller knows from its
-# own SQL what a column holds, so a row is named once here.
-type Row = tuple[Any, ...]  # type: ignore[explicit-any]  # duckdb types a fetched row's values as Any
-
-
-class _Cursor(Protocol):
-    def fetchone(self) -> Row | None: ...
+    from .rows import Row
 
 
 # A value as SQLite holds it.
@@ -180,15 +173,6 @@ class Records:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
-
-
-def one_row(cur: _Cursor) -> Row:
-    """The row an aggregate query answers, which it always does."""
-    row = cur.fetchone()
-    if row is None:
-        msg = "an aggregate query answered no row"
-        raise RuntimeError(msg)
-    return row
 
 
 def connect(parquet: Path | list[Path], names: list[str] | None = None) -> Records:

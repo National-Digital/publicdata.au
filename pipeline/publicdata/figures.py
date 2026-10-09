@@ -19,8 +19,9 @@ from PIL import Image
 
 from .explorer import YEAR, split_field
 from .provenance import long_date
-from .records import connect, one_row
+from .records import connect
 from .register import WHERE_OPS
+from .rows import one_row
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
