@@ -184,7 +184,7 @@ def test_full_fixture_build_passes_gate(register_dir, tmp_path, site_copy):
     # The header searches the whole catalogue; the phone header collapses the site links.
     assert 'class="search" action="/backlog/"' in home and 'class="menu"' in home
     assert '<div class="ttile empty">' in home and 'class="vote small"' in home
-    assert re.search(r'class="ticker">\d+ new versions? of \d+ datasets? in the week to \d', home)
+    assert re.search(r'class="ticker">In the week to \d+ \w+ \d{4}, \d+ datasets? (was|were) (added|updated)', home)
     assert "<span>publishers</span>" in home and "rows served" not in home
     assert 'href="/d/qld-road-crash-locations/"' in home
     pub = (out / "qld" / "transport-and-main-roads" / "index.html").read_text(encoding="utf-8")

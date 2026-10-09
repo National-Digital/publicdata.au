@@ -4309,19 +4309,32 @@ def render_site(
                 "search": f"/backlog/?q={urllib.parse.quote(tinfo['search'])}",
             }
         )
-    # The versions added in the seven days to the newest one, dated from the store so two builds
-    # of one snapshot agree.
+    # The datasets added or updated in the seven days to the newest version, dated from the store
+    # so two builds of one snapshot agree.
     dates = [v.manifest.version[:10] for o in live for v in o.versions]
-    newest = None
+    newest = ""
     if dates:
         end = dt.date.fromisoformat(max(dates))
         start = (end - dt.timedelta(days=6)).isoformat()
-        week = [o for o in live if any(v.manifest.version[:10] >= start for v in o.versions)]
-        newest = {
-            "versions": sum(v.manifest.version[:10] >= start for o in week for v in o.versions),
-            "datasets": len(week),
-            "to": long_date(end.isoformat()),
-        }
+        added = sum(o.versions[0].manifest.version[:10] >= start for o in live)
+        updated = sum(
+            any(v.manifest.version[:10] >= start for v in o.versions[1:])
+            and o.versions[0].manifest.version[:10] < start
+            for o in live
+        )
+
+        def were(n: int, what: str) -> str:
+            return f"{n} {'dataset was' if n == 1 else 'datasets were'} {what}"
+
+        parts = [were(added, "added")] if added else []
+        if updated:
+            parts.append(
+                were(updated, "updated")
+                if not parts
+                else f"{updated} {'was' if updated == 1 else 'were'} updated"
+            )
+        if parts:
+            newest = f"In the week to {long_date(end.isoformat())}, {' and '.join(parts)}."
     # The showcase: the largest table under each topic, then the largest left, six in all.
     showcase, used = [], set()
     for tslug in TOPICS:
