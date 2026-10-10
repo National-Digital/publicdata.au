@@ -38,6 +38,14 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
 - Each joined column is marked in `schema.json` as joined by location, with the layer's dataset and
   version, and its description says the publisher did not publish it. The manifest records each
   layer read, and every file's provenance names the layers and carries the ABS attribution.
+- A version's join is fixed when it is fetched. The fetch pins, in the version's committed
+  manifest, the layers the entry's `enrich` names and the newest version of each, and every later
+  build joins to exactly those. A new layer version or an edit to `enrich` reaches only versions
+  fetched after it.
+- A new ABS edition is a new register entry and a new layer with year-named fields. All joined
+  datasets move to it together, in one pull request that edits `enrich`, and the place pages follow
+  the edition their newest versions use. Older versions keep the edition they were fetched with
+  and gain no columns from the new one.
 - The only other columns the site adds to a publisher's rows are a feed's observation dates
   ([0004](0004-update-classes.md)).
 
@@ -49,6 +57,9 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
 - **Derived figures, such as rates per head.** A rate needs a denominator and an edition the
   publisher did not choose, and it would sit beside the publisher's figures looking like one of
   them.
+- **Rebuilding older versions against each new layer.** A dated file is written once, so a rebuild
+  would change a version's pages while its files kept the first join, and changing the files would
+  alter cited content for a reason [0002](0002-versions-are-kept.md) does not allow.
 
 ## Consequences
 
@@ -60,10 +71,10 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
   version are in the joined version's build key ([0013](0013-deterministic-builds.md)).
 - The real-data check pulls a sampled joined dataset's layers beside it, so a change to the join is
   checked whenever a joined dataset is drawn.
-- **Open: a new ABS edition.** The intent is to add a new edition as a new layer beside the old one
-  and to move a dataset by changing `enrich`. A dated file in R2 keeps its first join, but a rebuild
-  caused by a new layer writes a new cache entry, and the pages built from it would describe the new
-  join. No dataset moves to a new edition until a record settles how a published version's pages
-  stay in step with its files.
+- A re-issued layer within an edition reaches older versions only when the ABS withdraws the old
+  file as wrong. That is a correction, made through a `replace` with a note on each version
+  ([0002](0002-versions-are-kept.md)).
+- A version's files and pages describe the same join for good, and every layer a pin names stays
+  available to the build, since the raw store is append-only.
 
-See `docs/ARCHITECTURE.md` ("Rules that decide the code") and `CONTRIBUTING.md` ("Reference").
+See `docs/ARCHITECTURE.md` ("Rules that decide the code", "Archive") and `CONTRIBUTING.md` ("Reference").
