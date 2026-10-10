@@ -44,7 +44,8 @@ can write the cache can change what the site publishes.
 - A `replace` dispatch builds without the cache, so a correction is built from source.
 - The published bucket holds no `source.*` objects, and every version's publisher's file is
   served from the raw store. A check on 10 October 2026 found none under any dated version.
-- The cache entries #48 wrote under `_build/` in the raw store before #90 moved the cache are no
-  longer read. They go only when a maintainer approves a one-off deletion.
+- The cache entries #48 wrote under `_build/` in the raw store before #90 moved the cache were
+  deleted on 10 October 2026, with a short-lived token scoped to that bucket, since the deploy's
+  own credentials cannot delete there.
 
 See `docs/ARCHITECTURE.md` ("Hosting", "Raw store") and `README.md` ("Deploy").
