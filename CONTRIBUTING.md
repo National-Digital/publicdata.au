@@ -351,8 +351,8 @@ deterministic bytes out, with no network, clock or randomness.
 ## Change the build code
 
 A deploy reuses every version it has built before while the version's inputs are the same: its
-source, its register entry with the wording of its licence grant, its manifest, the register
-entries of the spine layers it joins, the JSON and GeoJSON writers, the Python and library
+source, its register entry with the wording of its licence grant, its manifest, the source and
+register entry of each spine layer its manifest pins, the JSON and GeoJSON writers, the Python and library
 versions, and two rebuild numbers. A dataset with geometry or a spine join is also keyed on the
 DuckDB spatial extension, and a database on `database.py`. The rest of the build code under
 `pipeline/publicdata/` is not in that key, so an edit to `normalise.py`, `build.py` or any other
@@ -585,9 +585,15 @@ rule carries `# nolint: <linter>. <reason>`.
   served as GeoParquet, GeoJSON, a GeoPackage and PMTiles vector tiles to `geometry.maxzoom`.
 - The place spine (`spine.py`) is six ABS boundary layers, each its own register entry: SA2, LGA, suburb and
   locality, postal area, and state and federal electorate. A point dataset that lists layers in `enrich` gains
-  the code and name of the area each point falls in, joined by location against each layer's newest version.
-  The columns are marked as joined in `schema.json` with the layer version, the ABS attribution is in every
-  file's header, and the published coordinates are never changed. The joins and tiles need DuckDB's spatial
+  the code and name of the area each point falls in, joined by location. The fetch fixes which version of
+  each layer that is: the manifest's `spine` names the newest version of each layer the store held when it
+  fetched, and every build of that version joins to those, so a new layer version or an `enrich` edit
+  reaches only versions fetched after it. The columns are marked as joined in `schema.json` with the layer
+  version, the ABS attribution is in every file's header, and the published coordinates are never changed.
+  A new ABS edition is a new register entry and a new `spine.LAYERS` key whose fields carry the edition's
+  year, such as `lga_2026_code`; every joined dataset moves to it in one pull request that edits `enrich`,
+  and the move applies to versions fetched after it. Earlier versions keep the edition they were joined to
+  and gain no columns from the new one. A key a pin names stays in `spine.LAYERS` for good. The joins and tiles need DuckDB's spatial
   extension, which `python -m publicdata spine install` fetches once, as pinned in
   `pipeline/publicdata/spatial-extension.json`, so the build stays offline.
 - Workbooks may be `.xlsx`, `.xlsm` or legacy `.xls`, which is converted cell for cell before it is read.
