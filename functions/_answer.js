@@ -154,31 +154,35 @@ async function d1(ctx, slug, v, op, qs) {
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-// A version stored as parts carries the provenance of its newest part's file, with the version's
-// own manifest for what belongs to the version: its date, its source and the hash of its bytes.
-function partsHeader(part, meta, slug, v) {
-  const h = { ...(part || {}) };
-  const m = meta || {};
-  h.version = m.version || v;
-  h.url = `${SITE}/d/${slug}/v/${v}/`;
-  if (m.as_at !== undefined && m.as_at !== null) {
-    h.as_at = m.as_at;
+// A version stored as parts answers with the header D1 loads it with (provenance.header for the
+// version, its rows and its DuckDB file): what is the dataset's comes from its newest part's file,
+// and what is the version's comes from its manifest, since a finished part can be an earlier
+// version's file, with that version's fetch, attribution and citation.
+export function partsHeader(part, at, slug, v) {
+  const m = at.meta || {};
+  const version = m.version || v;
+  const page = `${SITE}/d/${slug}/v/${version}/`;
+  const h = { ...part };
+  delete h.period;
+  h.version = version;
+  // provenance.header writes an empty as_at as null.
+  h.as_at = m.as_at || null;
+  h.url = `${page}data.duckdb`;
+  h.attribution = at.attribution ?? part.attribution ?? null;
+  if ('cite' in h) {
+    const by = (part.operator && part.operator.name) || 'National Digital';
+    h.cite = `${h.attribution} Serialised and versioned by ${by} at publicdata.au, ${page}`;
   }
-  const source = { ...(h.source || {}) };
-  for (const [k, x] of [
-    ['url', m.source && m.source.url],
-    ['filename', m.filename],
-    ['fetched_at', m.fetched_at],
-    ['sha256', m.sha256],
-    ['bytes', m.bytes],
-    ['encoding', m.encoding],
-    ['backfilled', m.backfilled],
-  ]) {
-    if (x !== undefined && x !== null) {
-      source[k] = x;
-    }
-  }
-  h.source = source;
+  h.source = {
+    url: (m.source && m.source.url) ?? null,
+    filename: m.filename ?? null,
+    fetched_at: m.fetched_at ?? null,
+    sha256: m.sha256 ?? null,
+    bytes: m.bytes ?? null,
+    encoding: m.encoding ?? null,
+    backfilled: m.backfilled ?? null,
+  };
+  h.rows = at.rows;
   return h;
 }
 
@@ -203,7 +207,13 @@ async function fromParts(ctx, slug, v, op, qs, path, at) {
     new URLSearchParams(qs.join('&')),
     manifest,
   );
-  const header = partsHeader(r.header, at.meta, slug, v);
+  if (!r.header) {
+    throw new AnswerError(422, {
+      error: `version ${v} of ${slug} carries no provenance in its parts, so it is not answered here; its files are at ${filesUrl(slug, v)}`,
+      files: filesUrl(slug, v),
+    });
+  }
+  const header = partsHeader(r.header, at, slug, v);
   // parts names the periods read; the manifest gives each one's file, rows and provenance.
   const out = {
     version: v,
@@ -212,7 +222,7 @@ async function fromParts(ctx, slug, v, op, qs, path, at) {
     matched: r.matched,
     cols: r.cols,
     header,
-    attribution: at.attribution ?? header.attribution ?? null,
+    attribution: header.attribution,
     parts: r.parts,
     manifest,
   };

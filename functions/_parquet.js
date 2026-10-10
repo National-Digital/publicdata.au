@@ -354,10 +354,18 @@ async function locate(env, slug, version) {
     copy,
     manifest: { sha256: m.sha256, etag: m.etag },
     period: manifest.period || null,
-    rows: Number.isFinite(manifest.rows) ? manifest.rows : parts.reduce((n, p) => n + p.rows, 0),
+    ...partsAt(manifest, version, parts),
+  };
+}
+
+// What a version stored as parts takes from its own manifest for its provenance, since its parts
+// may come from versions before it: its rows, its attribution, and its date, source and hash.
+export function partsAt(manifest, version, parts = manifest.parts || []) {
+  return {
+    rows: Number.isFinite(manifest.rows)
+      ? manifest.rows
+      : parts.reduce((n, p) => n + (p.rows || 0), 0),
     attribution: manifest.attribution ?? null,
-    // What a provenance header takes from the version itself, since its parts may come from
-    // versions before it.
     meta: {
       version: manifest.version ?? version,
       as_at: manifest.as_at ?? null,

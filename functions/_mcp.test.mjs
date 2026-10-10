@@ -562,13 +562,26 @@ test('a D1 answer is kept at the edge, so the same tool call is not sent to D1 a
   };
   keepD1 = true;
   try {
-    const args = { slug: 'crashes', where: { lga: 'Logan' }, select: ['lga'], limit: 2 };
+    const args = { slug: 'crashes', where: { lga: 'Logan' }, select: ['lga', 'year'], limit: 2 };
     const first = await out('query_rows', args);
     const n = asked.length;
     assert.ok(n > 0);
     const again = await out('query_rows', args);
     assert.deepEqual(again, first);
     assert.equal(asked.length, n);
+    // A load of other rows registers them under a table of another name, which the kept answer
+    // is not kept under.
+    sql.exec('CREATE TABLE t_reloaded (lga TEXT, year INTEGER, fatal INTEGER)');
+    sql.prepare('INSERT INTO t_reloaded VALUES (?, ?, ?)').run('Logan', 2030, 0);
+    sql.prepare("UPDATE _versions SET tbl = 't_reloaded' WHERE tbl = 't'").run();
+    try {
+      const fresh = await out('query_rows', args);
+      assert.deepEqual(fresh.rows, [{ lga: 'Logan', year: 2030 }]);
+      assert.notDeepEqual(fresh.rows, first.rows);
+    } finally {
+      sql.prepare("UPDATE _versions SET tbl = 't' WHERE tbl = 't_reloaded'").run();
+      sql.exec('DROP TABLE t_reloaded');
+    }
   } finally {
     DB.prepare = prepare;
     keepD1 = false;

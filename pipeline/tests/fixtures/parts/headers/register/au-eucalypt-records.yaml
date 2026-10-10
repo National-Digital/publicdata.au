@@ -1,0 +1,240 @@
+slug: au-eucalypt-records
+title: Eucalypt records from Australia's herbaria and flora atlases
+status: live
+topics:
+- nature
+chart:
+  split: none
+  metric: count
+  label: Eucalypt records per year
+order: 5
+temporal_start: '1770-01-01'
+search_title: Eucalyptus records Australia
+also_known_as:
+- gum tree records
+- Eucalyptus occurrence records
+- eucalypt specimens
+- Atlas of Living Australia eucalypts
+keywords:
+- eucalyptus
+- gum trees
+- eucalypts
+- herbarium
+- flora atlas
+- biodiversity
+- Atlas of Living Australia
+- plant records
+faq:
+- q: Whose records are these?
+  a: Every row comes from a government herbarium or flora atlas, read through the Atlas of Living
+    Australia, which is the national biodiversity database funded by the Australian Government and
+    hosted by CSIRO. The providers are the state and territory herbaria and atlases, the national
+    herbarium at CSIRO, the Australian National Botanic Gardens and the state botanic gardens. The
+    provider is named in every row. Records from citizen science apps, universities and overseas
+    collections are not included.
+- q: What is a record?
+  a: A specimen held in a herbarium, or an observation logged in a flora atlas, of a plant in the
+    genera Eucalyptus, Corymbia and Angophora, which together are the eucalypts. The basis of record
+    field says which. A specimen row names the collection and its catalogue number.
+- q: Why do some dates look wrong?
+  a: The dates are the providers' own. Some 1,500 rows carry the year 1599 and about one row in fifteen
+    has no year at all, and they are kept as published. The oldest plausible records are from 1770.
+- q: How exact are the coordinates?
+  a: Each row carries the coordinates the provider gave and, where known, the uncertainty in
+    metres. Old specimens are often placed to the nearest ten kilometres. The Atlas also generalises
+    the coordinates of some threatened species at the provider's request.
+- q: What licence applies?
+  a: Only rows the provider released under CC0 or a CC BY licence are included, and the licence is
+    in every row. When you use the data, name the provider in the row as well as the Atlas.
+summary: Every eucalypt record held by Australia's government herbaria and flora atlases, one row
+  per specimen or observation, with its species, date, coordinates, provider and licence, read
+  through the Atlas of Living Australia.
+description: One row per record of a eucalypt (the genera Eucalyptus, Corymbia and Angophora) from
+  a state, territory or Commonwealth herbarium or flora atlas, as the Atlas of Living Australia
+  holds it. Each row carries the record identifier, the species, the date and year, the state, the
+  coordinates and their uncertainty, whether the record is a specimen or an observation, the
+  collection and catalogue number for a specimen, the provider and the licence the provider
+  chose.
+
+  The Atlas of Living Australia aggregates records from many sources. This dataset takes only the
+  government providers named below, under open licences, so a row here is an official record.
+publisher:
+  name: Atlas of Living Australia
+  short: ALA
+  jurisdiction: Cth
+  url: https://www.ala.org.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-09-30'
+  evidence: https://www.ala.org.au/terms-of-use/
+  attribution: Atlas of Living Australia, eucalypt records from Australian government herbaria and
+    flora atlases (the provider is named in each row), https://www.ala.org.au/, accessed {sourced},
+    licensed under CC BY 4.0 and CC0 by their providers.
+source:
+  adapter: ala
+  url: https://api.ala.org.au/occurrences/occurrences/search
+  search: genus:(Eucalyptus OR Corymbia OR Angophora)
+  providers:
+  - dr368   # NSW BioNet Atlas
+  - dr1097  # Victorian Biodiversity Atlas
+  - dr366   # SA Flora
+  - dr15860 # Centre for Australian National Biodiversity Research (CANB), CSIRO
+  - dr710   # Tasmanian Natural Values Atlas
+  - dr15863 # Western Australian Herbarium (PERTH)
+  - dr1132  # WildNet, Queensland
+  - dr362   # Flora Atlas N.T.
+  - dr15865 # State Herbarium of South Australia (AD)
+  - dr376   # National Herbarium of Victoria (MEL)
+  - dr2287  # Queensland Herbarium (BRI)
+  - dr35464 # Dandjoo, Western Australia
+  - dr10574 # Tasmanian Herbarium (HO)
+  - dr15866 # Northern Territory Herbarium (DNA)
+  - dr21991 # Western Australian Seed Centre (Kings Park)
+  - dr22285 # Kings Park Botanical Gardens
+  - dr23110 # Australian PlantBank, Royal Botanic Gardens Sydney
+  - dr726   # PlantBank records, Royal Botanic Gardens Sydney
+  - dr21985 # National Seed Bank, Australian National Botanic Gardens
+  - dr820   # Australian National Botanic Gardens Seedbank
+  - dr725   # WA Threatened Flora Seed Centre
+  - dr791   # WA Seed Technology Centre
+  - dr21986 # Tasmanian Seed Conservation Centre
+  - dr728   # Tasmanian Seed Conservation Centre records
+  - dr35481 # Queen Victoria Museum and Art Gallery, Launceston
+  - dr21992 # Western Australian Seed Centre (Kensington)
+  cadence: monthly
+key:
+- record_id
+period:
+  field: event_date
+  grain: year
+partition_by:
+- state_province
+enrich:
+- sa2
+- lga
+- suburb
+- postcode
+- state_electorate
+- federal_electorate
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:4326
+  crs_note: Latitude and longitude in WGS84 (EPSG:4326), as the Atlas processes every provider's
+    coordinates.
+row_label: Records
+fields:
+- name: record_id
+  label: Record ID
+  source: uuid
+  type: string
+  description: The Atlas of Living Australia's identifier for the record.
+- name: occurrence_id
+  label: Occurrence ID
+  source: occurrenceID
+  type: string
+  description: The provider's own identifier for the record.
+- name: catalogue_number
+  label: Catalogue number
+  source: raw_catalogNumber
+  type: string
+  description: The specimen's number in its collection. Blank for an observation.
+- name: institution_code
+  label: Institution code
+  source: raw_institutionCode
+  type: string
+  description: The herbarium code, such as MEL or PERTH.
+- name: collection_code
+  label: Collection code
+  source: raw_collectionCode
+  type: string
+- name: scientific_name
+  label: Scientific name
+  source: scientificName
+  type: string
+- name: vernacular_name
+  label: Common name
+  source: vernacularName
+  type: string
+- name: taxon_rank
+  label: Taxon rank
+  source: taxonRank
+  type: string
+  description: Species, subspecies, genus or variety.
+- name: species
+  label: Species
+  source: species
+  type: string
+- name: event_date
+  label: Date
+  source: eventDate
+  type: datetime
+  date_format: epoch_ms
+  description: When the plant was collected or observed, as the provider gave it.
+- name: year
+  label: Year
+  source: year
+  type: integer
+- name: month
+  label: Month
+  source: month
+  type: integer
+- name: state_province
+  label: State
+  source: stateProvince
+  type: string
+- name: latitude
+  label: Latitude
+  source: decimalLatitude
+  type: number
+- name: longitude
+  label: Longitude
+  source: decimalLongitude
+  type: number
+- name: coordinate_uncertainty_m
+  label: Coordinate uncertainty (m)
+  source: coordinateUncertaintyInMeters
+  type: number
+  description: The provider's stated uncertainty of the coordinates, in metres.
+- name: basis_of_record
+  label: Basis of record
+  source: basisOfRecord
+  type: string
+  description: PRESERVED_SPECIMEN for a herbarium specimen, HUMAN_OBSERVATION or OBSERVATION for
+    a sighting, as the provider states.
+- name: data_resource_uid
+  label: Provider ID
+  source: dataResourceUid
+  type: string
+  description: The Atlas's identifier for the provider.
+- name: data_resource_name
+  label: Provider
+  source: dataResourceName
+  type: string
+  description: The herbarium or atlas that holds the record.
+- name: licence
+  label: Licence
+  source: license
+  type: string
+  description: The licence the provider chose for the record.
+- name: type_status
+  label: Type status
+  source: typeStatus
+  type: string
+  description: Set when the specimen is a type specimen for a name.
+- name: locality
+  label: Locality
+  source: locality
+  type: string
+  description: The provider's description of the place.
+- name: occurrence_status
+  label: Occurrence status
+  source: occurrenceStatus
+  type: string
+- name: first_loaded
+  label: First loaded
+  source: firstLoadedDate
+  type: datetime
+  date_format: '%Y-%m-%dT%H:%M:%SZ'
+  description: When the Atlas first loaded the record.
+rebuild: 1

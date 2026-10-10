@@ -731,28 +731,29 @@ headers. Dated answers are cached at the edge for good, the newest for five minu
 requests per 10 seconds from one address the zone answers 429 with `Retry-After`,
 `RateLimit-Policy` and a JSON body; every API answer carries the same policy header.
 
-Every version you can download you can query, through the query API and the MCP server alike,
-with the same answers. Both ask one query path (`functions/_answer.js`), so a tool's answer and
-the query URL it cites give the same rows. D1 answers the versions it holds exactly as it always
-has, and the version's Parquet in R2 answers every other version. An aggregate comes from the
-version's rollup first when the rollup holds it exactly; for a version D1 holds, only when the
-query's order leaves no ties, since a rollup breaks them by group where D1 leaves them to SQLite,
-and then under D1's provenance and with D1's shape, so the answer is the one D1 gives. Without a
-version the newest live version answers. When D1 does not hold it and its Parquet refuses the
-query or cannot be read, the newest version D1 holds answers instead, as it did before the files
-answered, and the answer names it. A row query without an order counts its matches from the
-rollup where a cube holds them, through either door, so a page the Parquet budget refuses only for
-counting is still read. JSON carries the provenance header and links the manifest, CSV and NDJSON
-carry it in headers, and `next` pages on the version's own path. An answer from the Parquet engine
-also names the file it read in `file`, or the periods it read in `parts`, and a sorted file's sort
-in `order`. A version stored as parts carries the provenance of its newest part's file, with the
-version's own date, source and source hash from its manifest. A query the Parquet engine cannot
-afford answers 422 with DuckDB SQL that answers it from the published file, and a version with no
-table answers 404. A D1 that fails is logged and leaves the files to answer. Answers are kept at the
-edge under their own URL with a marker added, so `publicdata purge` still clears a version's
-answers by its path and no answer cached before the one query path is served. D1's answers are
-kept as well under the table they were read from, which a load of other rows renames, so the MCP
-tools are not sent to D1 twice for one answer.
+Every version you can download you can query, through the query API and the MCP server alike, with
+the same answers. Both ask one query path (`functions/_answer.js`), so a tool's answer and the query
+URL it cites give the same rows. D1 answers the versions it holds exactly as it always has, and the
+version's Parquet in R2 answers every other version. An aggregate comes from the version's rollup
+first when the rollup holds it exactly; for a version D1 holds, only when the query's order leaves
+no ties, since a rollup breaks them by group where D1 leaves them to SQLite, and then under D1's
+provenance and with D1's shape, so the answer is the one D1 gives. Without a version the newest live
+version answers. When D1 does not hold it and its Parquet refuses the query or cannot be read, the
+newest version D1 holds answers instead, as it did before the files answered, and the answer names
+it. A row query without an order counts its matches from the rollup where a cube holds them, through
+either door, so a page the Parquet budget refuses only for counting is still read. JSON carries the
+provenance header and links the manifest, CSV and NDJSON carry it in headers, and `next` pages on
+the version's own path. An answer from the Parquet engine also names the file it read in `file`, or
+the periods it read in `parts`, and a sorted file's sort in `order`. A version stored as parts
+answers with the header D1 loads it with: what is the dataset's from its newest part's file, and its
+date, rows, source, hash, attribution and citation from its manifest, since a finished part can be
+an earlier version's file. A query the Parquet engine cannot afford answers 422 with DuckDB SQL that
+answers it from the published file, and a version with no table answers 404. A D1 that fails is
+logged and leaves the files to answer. Answers are kept at the edge under their own URL with a
+marker added, so `publicdata purge` still clears a version's answers by its path and no answer
+cached before the one query path is served. D1's answers are kept as well under the table they were
+read from, which a load of other rows renames, so the MCP tools are not sent to D1 twice for one
+answer.
 
 Rows without an order, and ties, come in the order of the file they are read from. D1 holds a
 version in the order of its own data.parquet, which keeps the publisher's order unless the entry
