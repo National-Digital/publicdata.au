@@ -1597,15 +1597,14 @@ def zenodo(ds: Dataset, store_dir: Path, session: requests.Session | None = None
         raise FetchError(msg)
     rec = hits[0]
     meta = rec.get("metadata") or {}
-    stated = str((meta.get("license") or {}).get("id") or "")
-    empty: _ZenodoLicence = {}
-    lic = meta.get("license", empty)
+    lic = meta.get("license") or {}
+    stated = str(lic.get("id") or "")
     licence = _licence(
         ds,
         stated,
         normalise_licence_id(stated),
         stated,
-        lic.get("url", ""),  # type: ignore[union-attr]  # a null license fails here as it always has; fixing it is a change of its own
+        lic.get("url", ""),
         read_from=f"{ds.source.url}?q=conceptrecid:{ds.source.package}",
     )
     rx = re.compile(ds.source.resource_match or ".")

@@ -691,6 +691,35 @@ def test_zenodo_follows_the_concept_record_to_its_newest_version_and_licence(
         )
 
 
+def test_a_zenodo_record_with_a_null_licence_is_held_as_stating_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rec = {**ZENODO["hits"]["hits"][0]}
+    rec["metadata"] = {"publication_date": "2026-09-02", "license": None}
+    routes = {
+        "https://zenodo.org/api/records/22262542/files/": Resp(CSV),
+        "https://zenodo.org/api/records": Resp({"hits": {"hits": [rec]}}),
+    }
+    ds = make_dataset(
+        [Field("a", "a", "integer")],
+        licence=Licence(
+            "CC-BY-4.0", "https://zenodo.org/records/22262542", "Taronga, sourced {sourced}."
+        ),
+        source=Source(
+            adapter="zenodo",
+            url="https://zenodo.org/api/records",
+            package="5612259",
+            resource_match=r"\.xlsx$",
+        ),
+    )
+    monkeypatch.setattr(f, "_session", lambda session: Portal(routes))
+    _data, m, lic = f.ADAPTERS["zenodo"](ds, tmp_path)
+    assert (lic["stated"], lic["id"], lic["url"]) == ("", "", "")
+    assert m.licence == lic
+    with pytest.raises(f.LicenceDrift, match="names no licence version"):
+        f.check_licence(ds, lic)
+
+
 def _stack_book(
     title_rows: int,
     rows: Sequence[Sequence[object]],
