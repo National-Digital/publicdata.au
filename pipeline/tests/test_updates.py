@@ -499,7 +499,7 @@ def test_a_parts_only_version_says_what_it_leaves_out_and_lists_only_its_files(
     assert fields["version"] == "2026-09-15"
     # The query API loads it from its parts, and the page and the field list say where.
     assert fields["rows_url"] == "https://publicdata.au/api/v1/datasets/test-rolling/rows"
-    assert "The query API serves it from its parts" in page
+    assert "The query API answers it from its parts" in page
     api = read_json(out / "openapi.json")
     assert "test-rolling" in json.dumps(api["paths"])
     # The same as the whole table's, which a build with a data.parquet reads.

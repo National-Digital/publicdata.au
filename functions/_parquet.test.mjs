@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { parquetReadObjects } from 'hyparquet';
 import { decompress } from 'fzstd';
 import { answer } from './_api.js';
-import { aggregateQuery, rowsQuery } from './_query.js';
+import { reset } from './_answer.js';
 import {
   BUDGET,
   BudgetError,
@@ -188,11 +188,7 @@ const env = {
 
 async function d1(op, qs, slug = SLUG) {
   const request = new Request(`https://publicdata.au/api/v1/datasets/${slug}/${op}?${qs}`);
-  const r = await answer(
-    { request, env, params: { slug }, waitUntil() {} },
-    op === 'rows' ? rowsQuery : aggregateQuery,
-    op,
-  );
+  const r = await answer({ request, env, params: { slug }, waitUntil() {} }, op);
   const b = await r.json();
   assert.equal(r.status, 200, `${qs}: ${b.error} ${b.detail}`);
   return b;
@@ -474,9 +470,12 @@ test('D1 answers the versions it holds and the file answers the rest, naming the
   });
   assert.equal(newest.version, NEWEST);
   assert.equal(newest.file, undefined);
+  assert.equal(newest.manifest, `https://publicdata.au/d/${SLUG}/v/${NEWEST}/manifest.json`);
+  // Every answer cites the query on the version's own path, which answers whichever engine holds
+  // the version.
   assert.equal(
     newest.query,
-    `https://publicdata.au/api/v1/datasets/${SLUG}/rows?year=eq.2019&limit=3&offset=0&select=lga`,
+    `https://publicdata.au/api/v1/datasets/${SLUG}/versions/${NEWEST}/rows?year=eq.2019&limit=3&offset=0&select=lga`,
   );
   const older = await call('query_rows', {
     slug: SLUG,
@@ -533,6 +532,119 @@ test('D1 answers the versions it holds and the file answers the rest, naming the
     (await call('count_rows', { slug: SLUG, version: OLDER, where: { nope: 1 } })).error,
     /no field nope/,
   );
+});
+
+// The query API's own answer for a version, as a caller gets it.
+async function api(op, qs, version, slug = SLUG) {
+  const path = version ? `${slug}/versions/${version}/${op}` : `${slug}/${op}`;
+  const request = new Request(`https://publicdata.au/api/v1/datasets/${path}${qs ? '?' + qs : ''}`);
+  const r = await answer({ request, env, params: { slug, version }, waitUntil() {} }, op);
+  return { status: r.status, body: await r.json() };
+}
+
+test('the query API answers a version D1 does not hold from its Parquet, in the shape D1 gives', async () => {
+  const held = await api('rows', 'year=eq.2019&select=lga&limit=3');
+  const older = await api('rows', 'year=eq.2019&select=lga&limit=3', OLDER);
+  assert.equal(held.status, 200);
+  assert.equal(older.status, 200, older.body.error);
+  for (const k of Object.keys(held.body)) {
+    assert.ok(k in older.body, k);
+  }
+  assert.deepEqual(older.body.publicdata, entry.header);
+  assert.equal(older.body.file, URL_);
+  assert.equal(
+    older.body.next,
+    `https://publicdata.au/api/v1/datasets/${SLUG}/versions/${OLDER}/rows?year=eq.2019&select=lga&limit=3&offset=3`,
+  );
+  const listed = await call('query_rows', {
+    slug: SLUG,
+    version: OLDER,
+    where: { year: 2019 },
+    select: ['lga'],
+    limit: 3,
+  });
+  assert.deepEqual(older.body.rows, listed.rows);
+  // The query an answer cites answers, with the same rows, routed as Pages routes its path.
+  const cited = new URL(listed.query);
+  const m = cited.pathname.match(/^\/api\/v1\/datasets\/([^/]+)\/(?:versions\/([^/]+)\/)?(rows)$/);
+  const routed = (u) =>
+    answer(
+      { request: new Request(u), env, params: { slug: m[1], version: m[2] }, waitUntil() {} },
+      m[3],
+    );
+  const again = await routed(cited);
+  assert.equal(again.status, 200);
+  assert.deepEqual((await again.json()).rows, listed.rows);
+  const csv = await routed(`${cited}&format=csv`);
+  assert.equal(csv.headers.get('x-publicdata-version'), OLDER);
+  assert.equal((await csv.text()).split('\n')[0], 'lga');
+  assert.equal((await api('rows', '', '2020-01-01')).status, 404);
+});
+
+test('the query API and the MCP tools give the same answer from every engine', async () => {
+  const cases = [
+    ['rows', { where: { year: 2019 } }, 'year=eq.2019&limit=50&offset=0'],
+    [
+      'rows',
+      { where: { lga: 'Logan' }, order: 'year.desc' },
+      'lga=eq.Logan&limit=50&offset=0&order=year.desc',
+    ],
+    [
+      'count',
+      { group_by: ['year'] },
+      'metric=count&order=count.desc,year.asc&limit=100&group=year',
+    ],
+    [
+      'count',
+      { group_by: ['lga'], metric: 'sum.year', where: { fatal: true } },
+      'fatal=eq.true&metric=sum.year&order=sum_year.desc,lga.asc&limit=100&group=lga',
+    ],
+  ];
+  for (const version of [undefined, OLDER]) {
+    for (const [kind, args, qs] of cases) {
+      const tool = kind === 'rows' ? 'query_rows' : 'count_rows';
+      const t = await call(tool, { slug: SLUG, version, ...args });
+      assert.equal(t.error, undefined, t.error);
+      const a = await api(kind === 'rows' ? 'rows' : 'aggregate', qs, version);
+      assert.equal(a.status, 200, a.body.error);
+      assert.deepEqual(a.body.rows, kind === 'rows' ? t.rows : t.groups, `${tool} ${qs}`);
+      assert.equal(t.query, a.body.this_version);
+    }
+  }
+});
+
+test("D1 gives a version's rows in its query copy's order when it loaded them in another", async () => {
+  // D1 holds the newest version in the publisher's order; the copy of the older one, with the same
+  // rows, is sorted. Told the copy's order, D1 gives the rows exactly as the copy does.
+  const order = entry.sortedBy.map((c) => c.name);
+  assert.ok(order.length);
+  // D1 holds ref as REAL, so the one value past 2**53 is left out, as elsewhere.
+  const rowsAt = async (version, qs) => noRef((await api('rows', qs, version)).body.rows);
+  const queries = [
+    'limit=100',
+    'year=gte.2020&limit=7&offset=3',
+    'select=lga,year&limit=100',
+    'order=fatal.desc&limit=100',
+  ];
+  const before = await rowsAt(NEWEST, queries[0]);
+  assert.notDeepEqual(before, await rowsAt(OLDER, queries[0]));
+  sql.exec('CREATE TABLE _orders (slug TEXT, version TEXT, ord TEXT)');
+  sql.prepare('INSERT INTO _orders VALUES (?, ?, ?)').run(SLUG, NEWEST, '');
+  assets[`/d/${SLUG}/fields.json`] = { slug: SLUG, order };
+  reset();
+  try {
+    for (const qs of queries) {
+      assert.deepEqual(await rowsAt(NEWEST, qs), await rowsAt(OLDER, qs), qs);
+    }
+    // Loaded in the copy's own order, the rowid already follows it.
+    sql.prepare('UPDATE _orders SET ord = ?').run(order.join(','));
+    reset();
+    assert.deepEqual(await rowsAt(NEWEST, queries[0]), before);
+  } finally {
+    sql.exec('DROP TABLE _orders');
+    delete assets[`/d/${SLUG}/fields.json`];
+    reset();
+  }
 });
 
 test('the budget error reaches the agent, and a file that cannot be read says where the files are', async () => {

@@ -410,7 +410,7 @@
           },
           "order": {
             "type": "string",
-            "description": "field.asc or field.desc, comma-separated. When absent, and for ties, a version the query API loads keeps the publisher's order, and any other version the order of its Parquet file, which follows the dataset's declared sort where it has one."
+            "description": "field.asc or field.desc, comma-separated. When absent, and for ties, rows come in the order of the version's Parquet file: the dataset's declared sort where it has one, then its key, then the publisher's order."
           },
           "limit": {
             "type": "integer",
@@ -427,7 +427,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. The newest version when absent."
           }
         },
         "required": [
@@ -465,7 +465,7 @@
           },
           "query": {
             "type": "string",
-            "description": "The query API URL for the same query, which answers while the API has the version loaded"
+            "description": "The query API URL for the same query, on the version's own path"
           },
           "file": {
             "type": "string",
@@ -480,7 +480,7 @@
           },
           "manifest": {
             "type": "string",
-            "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"
+            "description": "The version's manifest, with its licence, source, hash and fetch time"
           },
           "attribution": {
             "type": [
@@ -545,7 +545,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. The newest version when absent."
           }
         },
         "required": [
@@ -589,7 +589,7 @@
           },
           "query": {
             "type": "string",
-            "description": "The query API URL for the same query, which answers while the API has the version loaded"
+            "description": "The query API URL for the same query, on the version's own path"
           },
           "file": {
             "type": "string",
@@ -604,7 +604,7 @@
           },
           "manifest": {
             "type": "string",
-            "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"
+            "description": "The version's manifest, with its licence, source, hash and fetch time"
           },
           "attribution": {
             "type": [

@@ -4,7 +4,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import { answer } from './_api.js';
-import { aggregateQuery, rowsQuery } from './_query.js';
 import { onRequestGet, onRequestPost } from './mcp.js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
 import SPEC from './_tools.json' with { type: 'json' };
@@ -198,7 +197,6 @@ const pageFetch = async (u) => {
   }
   return answer(
     { request: new Request(url), env, params: { slug: m[1], version: m[2] }, waitUntil() {} },
-    m[3] === 'rows' ? rowsQuery : aggregateQuery,
     m[3],
   );
 };
@@ -305,7 +303,7 @@ test('tools/list is every tool in api.json with the schema the pages register', 
     tools.map((t) => t.name),
     Object.keys(raw.webmcp.tools),
   );
-  // The server's row tools read Parquet, so api.json gives them their own words on versions.
+  // The server and the pages reach every version through one query path, so they say the same.
   const mcpText = (d) =>
     Object.entries(fill(raw.mcp.tool_text)).reduce((s, [a, b]) => s.replace(a, b), d);
   let overridden = 0;
@@ -327,7 +325,7 @@ test('tools/list is every tool in api.json with the schema the pages register', 
     assert.deepEqual(t.inputSchema, schema, t.name);
     assert.deepEqual(t.annotations ?? null, plain(page[t.name].annotations ?? null), t.name);
   }
-  assert.equal(overridden, 2);
+  assert.equal(overridden, 0);
 });
 
 test('every tool answers exactly as its twin in the page does', async () => {

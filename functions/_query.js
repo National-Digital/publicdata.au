@@ -161,11 +161,6 @@ export function orderSpecs(spec, allowed) {
     });
 }
 
-function orderBy(spec, allowed) {
-  const parts = orderSpecs(spec, allowed).map(({ name, dir }) => `${q(name)} ${dir.toUpperCase()}`);
-  return parts.length ? ` ORDER BY ${parts.join(', ')}` : '';
-}
-
 export function paging(params) {
   const limit = params.has('limit') ? Number(params.get('limit')) : LIMIT_DEFAULT;
   const offset = params.has('offset') ? Number(params.get('offset')) : 0;
@@ -193,13 +188,20 @@ export function selectFields(params, fields, m) {
   return cols;
 }
 
-export function rowsQuery(table, fields, params) {
+// `fileOrder` names the columns the version's Parquet query copy is sorted by when the table was
+// loaded in another order; it is empty when the rowid already follows the copy.
+export function rowsQuery(table, fields, params, fileOrder = []) {
   const m = fieldMap(fields);
   const cols = selectFields(params, fields, m);
   const binds = [];
   const w = where(params, m, binds);
-  // Without an order, rows come in the publisher's order so a page boundary never moves.
-  const o = orderBy(params.get('order'), new Set(m.keys())) || ' ORDER BY rowid';
+  // Without an order, and for ties, rows come in the order of the version's Parquet file, as the
+  // Parquet engine gives them, so a page boundary never moves and both engines agree.
+  const asked = orderSpecs(params.get('order'), new Set(m.keys())).map(
+    ({ name, dir }) => `${q(name)} ${dir.toUpperCase()}`,
+  );
+  const sorted = fileOrder.filter((c) => m.has(c)).map((c) => `${q(c)} ASC NULLS LAST`);
+  const o = ` ORDER BY ${[...asked, ...sorted, 'rowid'].join(', ')}`;
   const { limit, offset } = paging(params);
   // One row more than asked says whether there is a next page without a second count query.
   const sql = `SELECT ${cols.map(q).join(', ')} FROM ${q(table)}${w}${o} LIMIT ${limit + 1} OFFSET ${offset}`;
@@ -249,9 +251,14 @@ export function aggregateQuery(table, fields, params) {
   const binds = [];
   const w = where(params, m, binds);
   const allowed = new Set([...group, ...metrics.map((x) => x.as)]);
-  const o =
-    orderBy(params.get('order'), allowed) ||
-    (group.length ? ` ORDER BY ${group.map(q).join(', ')}` : '');
+  // Ties keep group order, as the rollups and the Parquet engine keep it.
+  const by = [
+    ...orderSpecs(params.get('order'), allowed).map(
+      ({ name, dir }) => `${q(name)} ${dir.toUpperCase()}`,
+    ),
+    ...group.map(q),
+  ];
+  const o = by.length ? ` ORDER BY ${by.join(', ')}` : '';
   const { limit, offset } = paging(params);
   const select = [...group.map(q), ...metrics.map((x) => `${x.sql} AS ${q(x.as)}`)];
   const g = group.length ? ` GROUP BY ${group.map(q).join(', ')}` : '';
