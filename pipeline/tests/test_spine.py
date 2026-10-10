@@ -11,6 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import yaml
+from pmtiles.reader import MemorySource, Reader, all_tiles
 
 from publicdata import serialise, spine, store
 from publicdata.build import build_version, version_key
@@ -327,3 +328,50 @@ def test_a_polygon_whose_repair_leaves_a_stray_line_still_makes_tiles(tmp_path: 
     path = tmp_path / "data.pmtiles"
     write_pmtiles(tbl, make_header(1, "data.pmtiles"), path)
     assert path.stat().st_size > 0
+
+
+def test_a_layer_with_no_shapes_makes_an_empty_archive(tmp_path: Path) -> None:
+    ds = make_dataset(
+        [Field("code", "code")],
+        title="T",
+        geometry={"kind": "polygon", "crs": "EPSG:7844", "maxzoom": 4},
+    )
+    tbl = Table(
+        dataset=ds,
+        manifest=make_manifest(b""),
+        table=pa.table({"code": ["1", "2"]}),
+        geometry=pa.array([None, None], pa.binary()),
+    )
+    paths = [tmp_path / "a.pmtiles", tmp_path / "b.pmtiles"]
+    for path in paths:
+        write_pmtiles(tbl, make_header(2, "data.pmtiles"), path)
+    assert paths[0].read_bytes() == paths[1].read_bytes()
+    reader = Reader(MemorySource(paths[0].read_bytes()))
+    head = reader.header()
+    assert head["tile_entries_count"] == 0
+    assert (head["min_zoom"], head["max_zoom"]) == (0, 4)
+    assert (head["min_lon_e7"], head["max_lon_e7"]) == (-1_800_000_000, 1_800_000_000)
+    assert (head["min_lat_e7"], head["max_lat_e7"]) == (-850_511_287, 850_511_287)
+    assert (head["center_lon_e7"], head["center_lat_e7"]) == (0, 0)
+    assert reader.metadata()["vector_layers"][0]["id"] == ds.slug
+    assert reader.get(0, 0, 0) is None
+    assert list(all_tiles(MemorySource(paths[0].read_bytes()))) == []
+
+
+def test_a_polygon_layer_whose_shapes_make_no_tile_makes_an_empty_archive(tmp_path: Path) -> None:
+    # A line in a polygon layer: the tiles keep only polygons, so no tile is made.
+    row = _connect().execute("SELECT ST_AsWKB(ST_GeomFromText('LINESTRING(150 -30, 151 -29)'))")
+    ds = make_dataset(
+        [Field("code", "code")],
+        title="T",
+        geometry={"kind": "polygon", "crs": "EPSG:7844", "maxzoom": 4},
+    )
+    tbl = Table(
+        dataset=ds,
+        manifest=make_manifest(b""),
+        table=pa.table({"code": ["1"]}),
+        geometry=pa.array([bytes(present(row.fetchone())[0])], pa.binary()),
+    )
+    path = tmp_path / "data.pmtiles"
+    write_pmtiles(tbl, make_header(1, "data.pmtiles"), path)
+    assert Reader(MemorySource(path.read_bytes())).header()["tile_entries_count"] == 0
