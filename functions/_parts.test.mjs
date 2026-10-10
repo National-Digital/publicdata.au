@@ -551,6 +551,53 @@ test('the row tools answer a version stored as parts, naming its manifest, attri
   );
 });
 
+test('the query API answers a version stored as parts with its full provenance', async () => {
+  const api = async (slug) => {
+    const request = new Request(`${SITE}/api/v1/datasets/${slug}/versions/${V}/rows?limit=2`);
+    const r = await answer({ request, env, params: { slug, version: V }, waitUntil() {} }, 'rows');
+    return {
+      status: r.status,
+      sha: r.headers.get('x-publicdata-source-sha256'),
+      body: await r.json(),
+    };
+  };
+  const a = await api(BY_YEAR);
+  assert.equal(a.status, 200, a.body.error);
+  const h = a.body.publicdata;
+  // The fixtures' part footers hold only the keys these tests read; a built part carries the whole
+  // header provenance.header() writes, publisher included, and every key of it is carried here.
+  assert.equal(h.dataset, BY_YEAR);
+  assert.equal(h.licence.id, 'CC-BY-4.0');
+  assert.equal(h.attribution, 'Fixture publisher, licensed under CC BY 4.0.');
+  assert.equal(h.version, V);
+  assert.equal(h.url, `${SITE}/d/${BY_YEAR}/v/${V}/`);
+  // What belongs to the version comes from its own manifest, since its parts may come from the
+  // versions before it.
+  const key = `d/${BY_QUARTER}/v/${V}/manifest.json`;
+  const was = objects.get(key);
+  const m = JSON.parse(was);
+  Object.assign(m, {
+    sha256: 'f'.repeat(64),
+    fetched_at: '2026-04-01T01:02:03+00:00',
+    source: { url: 'https://example.gov.au/crashes.csv' },
+  });
+  objects.set(key, Buffer.from(JSON.stringify(m)));
+  forget(BY_QUARTER, V);
+  try {
+    const b = await api(BY_QUARTER);
+    assert.equal(b.status, 200, b.body.error);
+    assert.equal(b.body.publicdata.source.sha256, 'f'.repeat(64));
+    assert.equal(b.body.publicdata.source.fetched_at, '2026-04-01T01:02:03+00:00');
+    assert.equal(b.body.publicdata.source.url, 'https://example.gov.au/crashes.csv');
+    assert.equal(b.sha, 'f'.repeat(64));
+    assert.equal(b.body.publicdata.licence.id, 'CC-BY-4.0');
+    assert.ok(b.body.publicdata.attribution);
+  } finally {
+    objects.set(key, was);
+    forget(BY_QUARTER, V);
+  }
+});
+
 test('a part written again in place is read afresh, and no answer from its old footer is served', async () => {
   const key = `d/${BY_YEAR}/v/${V}/parts/2022.parquet`;
   const was = objects.get(key);

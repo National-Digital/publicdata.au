@@ -144,13 +144,16 @@ const env = {
     }),
   },
 };
-// Only the rate counter is kept, so every query runs rather than coming from the cache.
+// Only the rate counter is kept, so every query runs rather than coming from the cache, unless a
+// test keeps D1's answers too.
 const kept = new Map();
+let keepD1 = false;
 globalThis.caches = {
   default: {
     match: async (r) => (kept.has(r.url) ? new Response(kept.get(r.url)) : undefined),
     put: async (r, res) => {
-      if (new URL(r.url).pathname.startsWith('/_limit/')) {
+      const path = new URL(r.url).pathname;
+      if (path.startsWith('/_limit/') || (keepD1 && path.startsWith('/_d1/'))) {
         kept.set(r.url, await res.text());
       }
     },
@@ -402,7 +405,7 @@ test('a bad call comes back as a tool error the model can read', async () => {
   );
   assert.match(
     await err('query_rows', { slug: 'crashes', version: '2020-01-01' }),
-    /crashes has no version 2020-01-01; get_dataset lists its versions/,
+    /version 2020-01-01 of crashes has no table to query/,
   );
   assert.match(
     await err('query_rows', { slug: 'crashes', version: 'latest' }),
@@ -546,4 +549,33 @@ test('JSON-RPC edges: notifications, unknown methods, bad bodies and GET', async
   assert.equal(bad.headers.get('link'), '<https://publicdata.au/terms/>; rel="terms-of-service"');
   assert.equal((await bad.json()).error.code, -32700);
   assert.equal(onRequestGet().status, 405);
+});
+
+test('a D1 answer is kept at the edge, so the same tool call is not sent to D1 again', async () => {
+  const asked = [];
+  const prepare = DB.prepare;
+  DB.prepare = (q) => {
+    if (!q.includes('_versions')) {
+      asked.push(q);
+    }
+    return prepare(q);
+  };
+  keepD1 = true;
+  try {
+    const args = { slug: 'crashes', where: { lga: 'Logan' }, select: ['lga'], limit: 2 };
+    const first = await out('query_rows', args);
+    const n = asked.length;
+    assert.ok(n > 0);
+    const again = await out('query_rows', args);
+    assert.deepEqual(again, first);
+    assert.equal(asked.length, n);
+  } finally {
+    DB.prepare = prepare;
+    keepD1 = false;
+    for (const k of [...kept.keys()]) {
+      if (new URL(k).pathname.startsWith('/_d1/')) {
+        kept.delete(k);
+      }
+    }
+  }
 });

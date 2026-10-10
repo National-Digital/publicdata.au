@@ -168,6 +168,19 @@ test('a sum or average of a decimal field falls through, so D1 or the Parquet en
   }
 });
 
+test('a sum past 2**53 falls through, since the rollup holds it as a double and SQLite exactly', () => {
+  const qs = 'metric=sum.casualties,avg.casualties';
+  assert.ok(aggregate(R(), new URLSearchParams(qs)));
+  const r = R();
+  for (const c of r.cubes) {
+    if (c.metrics.casualties) {
+      c.metrics.casualties.sum = c.metrics.casualties.sum.map((x) => x * 2 ** 50);
+    }
+  }
+  assert.equal(aggregate(r, new URLSearchParams(qs)), null);
+  assert.ok(aggregate(r, new URLSearchParams('metric=count')));
+});
+
 // R2 as the function sees it: each rollup carries the identity of the Parquet it was built from.
 function r2(parquets, rollups) {
   const meta = (k) => ({ customMetadata: { parquet: rollups[k] }, etag: 'r' });

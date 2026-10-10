@@ -22,7 +22,7 @@
     "summary": "The query API returns only the rows you ask for, as JSON, NDJSON or CSV, from the same typed rows as the files. It needs no key.",
     "rows": "`/api/v1/datasets/<slug>/rows` filters, selects, orders and pages any dataset.",
     "aggregate": "`/api/v1/datasets/<slug>/aggregate` counts, sums, averages, minimums and maximums by group.",
-    "versions": "Without a version the API answers from the newest version, and that answer changes when the publisher releases again. Put `versions/<date>/` before `rows` or `aggregate` for an answer from that version alone. Every version a dataset has can be queried, and `/api/v1/datasets/<slug>/versions` lists them.",
+    "versions": "Without a version the API answers from the newest version, and that answer changes when the publisher releases again. Put `versions/<date>/` before `rows` or `aggregate` for an answer from that version alone. Every version with a table can be queried, and `/api/v1/datasets/<slug>/versions` lists them. A query on a version the database does not hold is read from its Parquet file, and one that would read too much of it is refused with DuckDB SQL that answers it from the file.",
     "filters": "Each filter is `field=operator.value` in the query string, and every filter must match. A number or date field compares as a number or date, and a text field compares as text. Values are case-sensitive, except that `like` and `ilike` ignore case in the ASCII letters A to Z. Prefix `not.` to negate a filter, as `not.eq.value`.",
     "provenance": "Every JSON answer carries the version, licence and attribution. CSV and NDJSON answers carry them in response headers.",
     "terms_limits": "The query API allows {requests} requests in {window_seconds} seconds from one address. The MCP server counts each row tool call as two requests, against its own limit of {requests} requests in {window_seconds} seconds from one address. Files have no rate limit.",
@@ -43,7 +43,7 @@
   "metrics": ["count", "sum", "avg", "min", "max"],
   "parameters": {
     "select": { "description": "Fields to return, comma-separated. Every field when absent." },
-    "order": { "description": "`field.asc` or `field.desc`, comma-separated. When absent, and for ties, rows come in the order of the version's Parquet file: the dataset's declared sort where it has one, then its key, then the publisher's order." },
+    "order": { "description": "`field.asc` or `field.desc`, comma-separated. When absent, rows come in the order of the file they are read from. For the newest versions that is the version's own data.parquet, which keeps the publisher's order unless the dataset sorted it. Any other version is read from the Parquet file the answer names in `file`, and when that file is sorted the answer names its sort in `order`, which ties follow too." },
     "limit": { "description": "Rows per page, 1 to {limit_max}. {limit_default} when absent." },
     "offset": { "description": "Rows to skip. The `next` URL in each answer sets it for you." },
     "group": { "on": "aggregate", "description": "Fields to group by, comma-separated." },
@@ -55,13 +55,13 @@
   "paths": {
     "rows": { "summary": "Query {title}", "description": "Rows of {title} in {when}, filtered and paged." },
     "aggregate": { "summary": "Counts, sums, averages, minimums and maximums by group", "description": "Groups and totals of any dataset in {when}. Filters work as they do on rows." },
-    "versions": { "summary": "Every version of a dataset, newest first, with the URLs to query each" }
+    "versions": { "summary": "The versions of a dataset with a table to query, newest first, with the URLs to query each" }
   },
   "responses": {
-    "200": "Rows with the version, licence and attribution. `next` is the URL of the following page, or null.",
+    "200": "Rows with the version, licence and attribution. `next` is the URL of the following page, or null. An answer read or counted from a Parquet file names it in `file`, or its period parts in `parts`, and a sorted file's sort in `order`.",
     "200_versions": "Versions with row counts and URLs.",
     "400": "The query names a field the dataset does not have, or a value of the wrong type.",
-    "404": "The dataset or version does not exist here.",
+    "404": "The dataset does not exist here, or the version has no table to query.",
     "422": "The query would read more of the version's file than one answer may, or the file cannot be read in part. The error gives DuckDB SQL that answers it from the published file.",
     "429": "More than {requests} requests in {window_seconds} seconds from one address. Blocked for {block_seconds} seconds. Wait `Retry-After` seconds.",
     "retry_after": "Seconds until the block lifts.",
@@ -127,7 +127,7 @@
           "version": { "api": "version", "type": "string" }
         },
         "required": ["slug"],
-        "output": {"type": "object", "properties": {"version": {"type": ["string", "null"], "description": "The version answered"}, "rows": {"type": "array", "items": {"type": "object"}, "description": "The rows, with the fields in select or every field"}, "matched": {"type": "integer", "description": "Rows in the whole table that match where"}, "next_offset": {"type": ["integer", "null"], "description": "offset for the next page, or null on the last"}, "query": {"type": "string", "description": "The query API URL for the same query, on the version's own path"}, "file": {"type": "string", "description": "The Parquet file the answer was read from, when it came from the file"}, "parts": {"type": "array", "items": {"type": "string"}, "description": "The periods whose parts the answer was read from, when the version is stored as period parts. The manifest gives each part's file"}, "manifest": {"type": "string", "description": "The version's manifest, with its licence, source, hash and fetch time"}, "attribution": {"type": ["string", "null"], "description": "The publisher's attribution string, to show with any answer"}}, "required": ["version", "rows", "matched", "next_offset", "query"]}
+        "output": {"type": "object", "properties": {"version": {"type": ["string", "null"], "description": "The version answered"}, "rows": {"type": "array", "items": {"type": "object"}, "description": "The rows, with the fields in select or every field"}, "matched": {"type": "integer", "description": "Rows in the whole table that match where"}, "next_offset": {"type": ["integer", "null"], "description": "offset for the next page, or null on the last"}, "query": {"type": "string", "description": "The query API URL for the same query, on the version's own path"}, "file": {"type": "string", "description": "The Parquet file the answer was read from, or that its rollup was counted from, when it came from either"}, "order": {"type": "array", "items": {"type": "string"}, "description": "The columns the file read is sorted by, which rows without an order and ties follow, when it came from a sorted file"}, "parts": {"type": "array", "items": {"type": "string"}, "description": "The periods whose parts the answer was read from, when the version is stored as period parts. The manifest gives each part's file"}, "manifest": {"type": "string", "description": "The version's manifest, with its licence, source, hash and fetch time"}, "attribution": {"type": ["string", "null"], "description": "The publisher's attribution string, to show with any answer"}}, "required": ["version", "rows", "matched", "next_offset", "query"]}
       },
       "count_rows": {
         "title": "Count and sum rows",
@@ -143,7 +143,7 @@
           "version": { "api": "version", "type": "string" }
         },
         "required": ["slug"],
-        "output": {"type": "object", "properties": {"version": {"type": ["string", "null"], "description": "The version answered"}, "group_by": {"type": "array", "items": {"type": "string"}}, "metric": {"type": "string"}, "groups": {"type": "array", "items": {"type": "object"}, "description": "One object per group, holding the group_by fields and the metric value, largest first"}, "truncated": {"type": "boolean", "description": "True when more groups exist than limit"}, "matched": {"type": "integer", "description": "Rows in the whole table that match where"}, "query": {"type": "string", "description": "The query API URL for the same query, on the version's own path"}, "file": {"type": "string", "description": "The Parquet file the answer was read from, when it came from the file"}, "parts": {"type": "array", "items": {"type": "string"}, "description": "The periods whose parts the answer was read from, when the version is stored as period parts. The manifest gives each part's file"}, "manifest": {"type": "string", "description": "The version's manifest, with its licence, source, hash and fetch time"}, "attribution": {"type": ["string", "null"], "description": "The publisher's attribution string, to show with any answer"}}, "required": ["version", "group_by", "metric", "groups", "truncated", "matched", "query"]}
+        "output": {"type": "object", "properties": {"version": {"type": ["string", "null"], "description": "The version answered"}, "group_by": {"type": "array", "items": {"type": "string"}}, "metric": {"type": "string"}, "groups": {"type": "array", "items": {"type": "object"}, "description": "One object per group, holding the group_by fields and the metric value, largest first"}, "truncated": {"type": "boolean", "description": "True when more groups exist than limit"}, "matched": {"type": "integer", "description": "Rows in the whole table that match where"}, "query": {"type": "string", "description": "The query API URL for the same query, on the version's own path"}, "file": {"type": "string", "description": "The Parquet file the answer was read from, or that its rollup was counted from, when it came from either"}, "parts": {"type": "array", "items": {"type": "string"}, "description": "The periods whose parts the answer was read from, when the version is stored as period parts. The manifest gives each part's file"}, "manifest": {"type": "string", "description": "The version's manifest, with its licence, source, hash and fetch time"}, "attribution": {"type": ["string", "null"], "description": "The publisher's attribution string, to show with any answer"}}, "required": ["version", "group_by", "metric", "groups", "truncated", "matched", "query"]}
       },
       "diff_versions": {
         "title": "Compare versions",

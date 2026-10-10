@@ -1935,6 +1935,7 @@
               attribution: b.publicdata && b.publicdata.attribution,
               file: b.file,
               parts: b.parts,
+              order: b.order,
               manifest: b.manifest,
             });
           });

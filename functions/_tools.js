@@ -1,5 +1,4 @@
 import { AnswerError, query } from './_answer.js';
-import { rollup } from './_rollup.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 import { onRequestPost as castVote } from './api/v1/votes/[slug].js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
@@ -63,12 +62,12 @@ const VERSION = /^\d{4}-\d{2}-\d{2}$/;
 
 // The query API's own answer, through the same query path (functions/_answer.js), so a tool and
 // the URL it cites give the same rows from whichever engine holds the version.
-async function ask(ctx, slug, version, op, qs, counted) {
+async function ask(ctx, slug, version, op, qs) {
   if (version !== undefined && !VERSION.test(version)) {
     throw new ToolError('version is a date, YYYY-MM-DD, from get_dataset');
   }
   try {
-    return await query(ctx, slug, version, op, qs, counted);
+    return await query(ctx, slug, version, op, qs);
   } catch (e) {
     if (e instanceof AnswerError) {
       throw new ToolError(e.body.error);
@@ -153,19 +152,7 @@ EXEC.query_rows = async (ctx, input) => {
   if (input.order) {
     qs.push('order=' + enc(input.order));
   }
-  const counted = input.order
-    ? null
-    : async (v) => {
-        const c = await rollup(
-          ctx,
-          slug,
-          v,
-          'aggregate',
-          filters(input.where).concat(['metric=count']),
-        );
-        return c ? c.matched : null;
-      };
-  const a = await ask(ctx, slug, input.version, 'rows', qs, counted);
+  const a = await ask(ctx, slug, input.version, 'rows', qs);
   return text({
     version: a.version,
     rows: a.rows,
@@ -175,6 +162,7 @@ EXEC.query_rows = async (ctx, input) => {
     attribution: a.attribution,
     file: a.file,
     parts: a.parts,
+    order: a.order,
     manifest: a.manifest,
   });
 };

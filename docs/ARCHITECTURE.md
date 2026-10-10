@@ -704,7 +704,9 @@ receive it.
 Everything the site answers dynamically is under `/api/v1/`. `/api/v1/datasets/<slug>/rows` and
 `/aggregate` answer for the newest version, the same under
 `/api/v1/datasets/<slug>/versions/<date>/` for a dated version, and `/api/v1/datasets/<slug>/versions`
-lists every version the dataset has, each of which answers; `/api/v1/datasets?q=` searches the datasets served here, votes are `/api/v1/votes`, the catalogue search `/api/v1/catalogue` and requests `/api/v1/requests`. The deploy loads the latest
+lists every version with a table to query; `/api/v1/datasets?q=` searches the datasets served here,
+votes are `/api/v1/votes`, the catalogue search `/api/v1/catalogue` and requests `/api/v1/requests`.
+The deploy loads the latest
 version of each live dataset from that version's own data.parquet, typed as its data.sqlite and
 in the Parquet's row order (`publicdata d1 sql`), one table
 per version with indexes on the key and partition fields, and records it in `_versions` with its
@@ -715,7 +717,8 @@ stays available as files. A version stored as period parts is loaded from its pa
 manifest's order, each part in its own order, with the provenance header its DuckDB file holds,
 while the CSVs of its parts together come to 500 MB or less; each part's manifest record keeps
 its CSV's size (`csv_bytes`) for that. A version whose data.csv is over 500 MB, or a dataset whose entry sets
-`query: false`, is not loaded, so its page offers no query console and no OpenAPI of its own, and the
+`query: false`, is not loaded, so its page offers no query console and no OpenAPI of its own, and
+the
 query API and the row tools answer it from its Parquet;
 `d1.queryable` is the one rule both the build and the loader read. Every other version is for the
 Parquet engine, which reads the version's query copy in `publicdata-dist` first. Up to four versions load at
@@ -729,25 +732,33 @@ requests per 10 seconds from one address the zone answers 429 with `Retry-After`
 `RateLimit-Policy` and a JSON body; every API answer carries the same policy header.
 
 Every version you can download you can query, through the query API and the MCP server alike,
-with the same answers. Both ask one query path (`functions/_answer.js`), so a query gives the same
-rows in the same order whichever engine holds the version, and a tool's answer cites a query URL
-that answers. An aggregate a version's rollup holds exactly comes from the rollup; then D1 answers
-the versions it holds; then the version's Parquet in R2 answers every other version. D1 is there to
-answer the newest versions quickly. Without a version the newest live version answers, and when its
-Parquet cannot be read the newest version D1 holds does. An answer has the same shape from every
-engine: JSON carries the provenance header and links the manifest, CSV and NDJSON carry it in
-headers, `next` pages on the version's own path, and `file` or `parts` name what the Parquet engine
-read when it answered. A query the Parquet engine cannot afford answers 422 with DuckDB SQL that
-answers it from the published file, and a version the dataset does not have answers 404. Answers
-are kept at the edge under their own URL with a marker added, so `publicdata purge` still clears a
-version's answers by its path and no answer cached before the one query path is served.
+with the same answers. Both ask one query path (`functions/_answer.js`), so a tool's answer and
+the query URL it cites give the same rows. D1 answers the versions it holds exactly as it always
+has, and the version's Parquet in R2 answers every other version. An aggregate comes from the
+version's rollup first when the rollup holds it exactly; for a version D1 holds, only when the
+query's order leaves no ties, since a rollup breaks them by group where D1 leaves them to SQLite,
+and then under D1's provenance and with D1's shape, so the answer is the one D1 gives. Without a
+version the newest live version answers. When D1 does not hold it and its Parquet refuses the
+query or cannot be read, the newest version D1 holds answers instead, as it did before the files
+answered, and the answer names it. A row query without an order counts its matches from the
+rollup where a cube holds them, through either door, so a page the Parquet budget refuses only for
+counting is still read. JSON carries the provenance header and links the manifest, CSV and NDJSON
+carry it in headers, and `next` pages on the version's own path. An answer from the Parquet engine
+also names the file it read in `file`, or the periods it read in `parts`, and a sorted file's sort
+in `order`. A version stored as parts carries the provenance of its newest part's file, with the
+version's own date, source and source hash from its manifest. A query the Parquet engine cannot
+afford answers 422 with DuckDB SQL that answers it from the published file, and a version with no
+table answers 404. A D1 that fails is logged and leaves the files to answer. Answers are kept at the
+edge under their own URL with a marker added, so `publicdata purge` still clears a version's
+answers by its path and no answer cached before the one query path is served. D1's answers are
+kept as well under the table they were read from, which a load of other rows renames, so the MCP
+tools are not sent to D1 twice for one answer.
 
-D1's rowid is a row's place in the data.parquet it was loaded from, and a version's query copy
-follows the entry's current `sort` and `key`. When D1 loaded a version in another order than its
-copy, which `_orders` records and `fields.json` gives as `order`, the query path asks D1 to order by
-the copy's columns, nulls last, then rowid. That is the copy's order whenever the data.parquet kept
-the publisher's order or the key is unique. A row query with an order breaks its ties the same way,
-and an aggregate breaks its ties by its groups, as the rollups and the Parquet engine do.
+Rows without an order, and ties, come in the order of the file they are read from. D1 holds a
+version in the order of its own data.parquet, which keeps the publisher's order unless the entry
+sorted it. The Parquet engine reads the query copy, which follows the entry's current `sort`, so an
+older version can come in another order than D1 gave it while D1 held it; its answer says so in
+`order`.
 
 D1 bills rows written, and each index entry is a row, so a load is planned before it runs. Each
 load fills a table named for the version and a digest of its rows, which no `_versions` row
@@ -822,11 +833,12 @@ suppressed flags joined by semicolons, and a 64-bit integer as a number while it
 its digits beyond that. Sums and averages are compensated as SQLite's are, and `like` is matched
 without backtracking. Rows the statistics prove match are counted and paged by arithmetic, never
 one index per row. Without an order, and for ties, an answer from Parquet follows the file's own
-order: the declared sort, then the key, then the source position. D1 gives the same order, as above,
-and the DuckDB SQL rebuilds the file's order from the published file with
+order: the declared sort, then the key, then the source position. D1 keeps the publisher's
+order, and the DuckDB SQL rebuilds the file's order from the published file with
 `file_row_number`. Footers are kept least recently used first. Answers are cached at the edge by
 version, engine version and the ETag of the file read, so a copy written again never answers from
-the cache of the one before. Each answer links the version's manifest. A file with no `publicdata` provenance key is refused.
+the cache of the one before. Each answer links the version's manifest. A file with no
+`publicdata` provenance key is refused.
 
 A page of rows without an order that the budget refuses, because counting every match reads too
 much, takes its count from the version's rollup when a cube holds every filter field and the file
@@ -883,7 +895,8 @@ is left out. Each cube totals up to four numeric fields, the register's example 
 first, as sum, non-null count, minimum and maximum, so counts, sums, averages, minima and maxima all
 come from it. A sum or average of a decimal field is left to D1 or the Parquet engine, since a total
 of per-group sums can differ from theirs in the last digits; counts, minima, maxima and the sums and
-averages of integer and true-or-false fields are exact. The cap holds on the gzipped bytes: a rollup over it drops its last-chosen cubes and
+averages of integer and true-or-false fields are exact while they stay under 2^53. The cap holds
+on the gzipped bytes: a rollup over it drops its last-chosen cubes and
 is built again.
 
 The function picks the smallest cube that holds every field a query filters or groups on and the
@@ -895,7 +908,8 @@ equal totals by its groups, so its top groups are the same from either engine an
 cites. The function reads a rollup only while its stored identity matches the published Parquet's,
 and checks again after a minute. It answers any version it has a current rollup for. A query no cube
 holds and a withheld dataset fall through to the Parquet engine or D1. Answers name the version, its
-`/aggregate` URL, the version's Parquet file and its manifest.
+`/aggregate` URL, the Parquet file the rollup was counted from and the version's manifest; for a
+version D1 holds, the answer has D1's provenance and shape, with no file named.
 
 The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
 measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their

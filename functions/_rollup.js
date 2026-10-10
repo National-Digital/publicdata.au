@@ -367,6 +367,9 @@ function aggregateCube(r, fieldMap, params) {
       m: metrics.map(() => ({ sum: 0, n: 0, min: null, max: null, any: false })),
     });
   }
+  // A sum past 2**53 is not held exactly as a double, while SQLite adds integers exactly, so such
+  // a query falls through.
+  let inexact = false;
   let rows = [...buckets.values()].map((b) => {
     const row = {};
     group.forEach((g, j) => {
@@ -374,6 +377,9 @@ function aggregateCube(r, fieldMap, params) {
     });
     metrics.forEach((m, j) => {
       const a = b.m[j];
+      if ((m.fn === 'sum' || m.fn === 'avg') && a.any && Math.abs(a.sum + a.c) >= 2 ** 53) {
+        inexact = true;
+      }
       row[m.as] =
         m.fn === 'count'
           ? m.name
@@ -393,6 +399,9 @@ function aggregateCube(r, fieldMap, params) {
     });
     return row;
   });
+  if (inexact) {
+    return null;
+  }
   // Ties keep group order, so a page boundary never moves between calls.
   const byGroup = (x, y) => {
     for (const g of group) {
@@ -531,6 +540,7 @@ export async function rollup(ctx, slug, version, op, qs) {
     header,
     query: `${API}/${slug}/versions/${v}/aggregate?${qs.join('&')}`,
     attribution: header.attribution,
+    // The Parquet file the rollup was counted from, which answers the same query.
     file: `${SITE}/d/${slug}/v/${v}/data.parquet`,
     manifest: `${SITE}/d/${slug}/v/${v}/manifest.json`,
   };

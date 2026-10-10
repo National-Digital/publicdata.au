@@ -2998,14 +2998,11 @@ def _fields_resource(o: DatasetOut, hints: Console, *, api: bool) -> dict[str, o
     They are read from the newest version's data.parquet, or its parts, as the query console's
     are. The query API and the server's row tools answer every version from the same query path,
     D1 for the versions it loads and each version's Parquet for the rest, so the API's URLs are
-    given whenever the API is on. `order` names the columns each version's query copy is sorted by
-    before the source position, which the query path asks D1 for when it loaded a version in
-    another order.
+    given whenever the API is on.
     """
     ds, m = o.dataset, _newest(o).manifest
     base = f"{SITE}/api/v1/datasets/{ds.slug}/"
     urls = {"rows_url": base + "rows", "aggregate_url": base + "aggregate"} if api else {}
-    order = profile.sort_columns(ds.sort, ds.key) if ds.sort else []
     return {
         "slug": ds.slug,
         "title": ds.title,
@@ -3019,7 +3016,6 @@ def _fields_resource(o: DatasetOut, hints: Console, *, api: bool) -> dict[str, o
         "where": at.plain(at.spec()["webmcp"]["where"]),
         "key": list(ds.key),
         "partition_by": list(ds.partition_by),
-        "order": order,
         "fields": hints["fields"],
     }
 
@@ -5310,7 +5306,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         + " When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL."
     )
     query_line = (
-        f"Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; every version is listed at {SITE}/api/v1/datasets/<slug>/versions. "
+        f"Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; every version with a table is listed at {SITE}/api/v1/datasets/<slug>/versions. "
         + FILTER_HELP
     )
     llms = [

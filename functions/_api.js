@@ -1,6 +1,6 @@
 import { SLUG, json } from './_lib.js';
 import { LIMIT_DEFAULT, toCSV } from './_query.js';
-import { AnswerError, WITHHELD, live, query } from './_answer.js';
+import { AnswerError, WITHHELD, query, withheld } from './_answer.js';
 
 const SITE = 'https://publicdata.au';
 const API = `${SITE}/api/v1/datasets`;
@@ -33,9 +33,14 @@ const paramsOf = (url) =>
 // answers, the reply has the same shape (functions/_answer.js). A dated answer never changes and
 // is cached for good; the newest is cached for five minutes.
 export async function answer(context, op) {
-  const { request, params } = context;
+  const { request, env, params } = context;
   const url = new URL(request.url);
   const format = url.searchParams.get('format') || 'json';
+  // A withheld dataset is refused before anything cached is served, as its tables and answers
+  // stay until they are dropped.
+  if (SLUG.test(params.slug || '') && (await withheld(env, params.slug))) {
+    return reply(410, { error: WITHHELD });
+  }
   const key = cacheKey(url);
   const cache = caches.default;
   const hit = await cache.match(key);
@@ -102,9 +107,11 @@ export async function answer(context, op) {
         version_page: `${SITE}/d/${slug}/v/${a.version}/`,
         this_version: `${API}/${slug}/versions/${a.version}/${op}${rest}`,
         manifest,
-        // The Parquet file or the period parts the answer was read from, when it came from them.
+        // The Parquet file or the period parts an answer was read from, and the sort of that file
+        // when it is sorted, when the Parquet engine answered.
         ...(a.file ? { file: a.file } : {}),
         ...(a.parts ? { parts: a.parts } : {}),
+        ...(a.order ? { order: a.order } : {}),
         rows,
         next,
       }),
@@ -127,8 +134,7 @@ export async function versions(context) {
   if (!env.DB && !env.DIST) {
     return reply(503, { error: NOT_ENABLED });
   }
-  const latest = await live(env);
-  if (Object.keys(latest).length && !Object.hasOwn(latest, slug)) {
+  if (await withheld(env, slug)) {
     return reply(410, { error: WITHHELD });
   }
   const key = cacheKey(new URL(request.url));
