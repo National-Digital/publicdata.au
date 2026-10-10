@@ -303,7 +303,8 @@ def test_a_changed_pin_is_a_new_cache_entry(tmp_path: Path) -> None:
     ds = crashes()
     cache = BuildCache(tmp_path / "c")
     m = store.manifests(FIXTURES, ds.slug)[-1]
-    moved = [p if p["layer"] != "lga" else {**p, "sha256": "1" * 64} for p in m.spine]
+    moved = [p.copy() for p in m.spine]
+    moved[1]["sha256"] = "1" * 64
     assert version_key(cache, ds, dataclasses.replace(m, spine=moved), FIXTURES) != version_key(
         cache, ds, m, FIXTURES
     )
