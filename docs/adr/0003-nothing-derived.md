@@ -39,13 +39,14 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
   version, and its description says the publisher did not publish it. The manifest records each
   layer read, and every file's provenance names the layers and carries the ABS attribution.
 - A version's join is fixed when it is fetched. The fetch pins, in the version's committed
-  manifest, the layers the entry's `enrich` names and the newest version of each, and every later
-  build joins to exactly those. A new layer version or an edit to `enrich` reaches only versions
-  fetched after it.
+  manifest, the layers the entry's `enrich` names and the newest version of each already on
+  `main`, and every later build joins to exactly those. A version fetched before its entry named
+  `enrich` carries no pin and stays unjoined. A new layer version or an edit to `enrich` reaches
+  only versions fetched after it.
 - A new ABS edition is a new register entry and a new layer with year-named fields. All joined
-  datasets move to it together, in one pull request that edits `enrich`, and the place pages follow
-  the edition their newest versions use. Older versions keep the edition they were fetched with
-  and gain no columns from the new one.
+  datasets move to it together, in one pull request that edits `enrich`. Older versions keep the
+  edition they were fetched with and gain no columns from the new one. `/places.json` lists every
+  layer version a served version is joined to, so a reader can join codes to the same boundaries.
 - The only other columns the site adds to a publisher's rows are a feed's observation dates
   ([0004](0004-update-classes.md)).
 
@@ -72,8 +73,9 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
 - The real-data check pulls a sampled joined dataset's layers beside it, so a change to the join is
   checked whenever a joined dataset is drawn.
 - A re-issued layer within an edition reaches older versions only when the ABS withdraws the old
-  file as wrong. That is a correction, made through a `replace` with a note on each version
-  ([0002](0002-versions-are-kept.md)).
+  file as wrong. That is a correction: the affected pins are moved to the replacing layer version,
+  each manifest is noted and a `replace` rebuilds them ([0002](0002-versions-are-kept.md),
+  `docs/CORRECTIONS.md`).
 - A version's files and pages describe the same join for good, and every layer a pin names stays
   available to the build, since the raw store is append-only.
 
