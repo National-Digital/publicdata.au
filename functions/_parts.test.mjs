@@ -7,7 +7,6 @@ import { test } from 'node:test';
 import { parquetReadObjects } from 'hyparquet';
 import { decompress } from 'fzstd';
 import { answer } from './_api.js';
-import { aggregateQuery, rowsQuery } from './_query.js';
 import {
   BUDGET,
   BudgetError,
@@ -160,11 +159,7 @@ const env = {
 
 async function d1(op, qs, slug) {
   const request = new Request(`${SITE}/api/v1/datasets/${slug}/${op}?${qs}`);
-  const r = await answer(
-    { request, env, params: { slug }, waitUntil() {} },
-    op === 'rows' ? rowsQuery : aggregateQuery,
-    op,
-  );
+  const r = await answer({ request, env, params: { slug }, waitUntil() {} }, op);
   const b = await r.json();
   assert.equal(r.status, 200, `${qs}: ${b.error} ${b.detail}`);
   return b;

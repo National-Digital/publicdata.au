@@ -196,12 +196,10 @@ function metricOf(spec, r) {
   if (!f) {
     return null;
   }
-  if (
-    fn !== 'count' &&
-    fn !== 'min' &&
-    fn !== 'max' &&
-    !['integer', 'number', 'boolean'].includes(f.type)
-  ) {
+  // A rollup adds per-group sums, so a total of a decimal field could differ from the one D1 or
+  // the Parquet engine gives in its last digits. Only a sum or average it holds exactly is
+  // answered here; the rest fall through.
+  if (fn !== 'count' && fn !== 'min' && fn !== 'max' && !['integer', 'boolean'].includes(f.type)) {
     return null;
   }
   return { fn, name, as: `${fn}_${name}` };
@@ -515,11 +513,22 @@ export async function rollup(ctx, slug, version, op, qs) {
     return null;
   }
   const header = r.publicdata || {};
+  const group = (params.get('group') || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const metrics = (params.get('metric') || 'count')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((m) => m.replace('.', '_'));
   return {
     version: v,
     rows: a.rows,
     more: a.more,
     matched: a.matched,
+    cols: [...group, ...metrics],
+    header,
     query: `${API}/${slug}/versions/${v}/aggregate?${qs.join('&')}`,
     attribution: header.attribution,
     file: `${SITE}/d/${slug}/v/${v}/data.parquet`,

@@ -149,6 +149,25 @@ test('a query outside the rollup falls through', () => {
   }
 });
 
+test('a sum or average of a decimal field falls through, so D1 or the Parquet engine gives it', () => {
+  const r = R();
+  for (const qs of ['metric=sum.casualties', 'metric=avg.casualties&group=lga']) {
+    assert.ok(aggregate(R(), new URLSearchParams(qs)), qs);
+  }
+  r.fields.find((f) => f.name === 'casualties').type = 'number';
+  for (const qs of ['metric=sum.casualties', 'metric=avg.casualties&group=lga']) {
+    assert.equal(aggregate(r, new URLSearchParams(qs)), null, qs);
+  }
+  // A minimum, a maximum and a count are exact whatever the type.
+  for (const qs of ['metric=min.casualties', 'metric=max.casualties', 'metric=count.casualties']) {
+    assert.deepEqual(
+      aggregate(r, new URLSearchParams(qs)),
+      aggregate(R(), new URLSearchParams(qs)),
+      qs,
+    );
+  }
+});
+
 // R2 as the function sees it: each rollup carries the identity of the Parquet it was built from.
 function r2(parquets, rollups) {
   const meta = (k) => ({ customMetadata: { parquet: rollups[k] }, etag: 'r' });

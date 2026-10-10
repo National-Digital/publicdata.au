@@ -491,7 +491,7 @@ def mcp_spec() -> McpSpec:
     m = s["mcp"]
     tools: list[Tool] = []
     for name, t in s["webmcp"]["tools"].items():
-        # The server's row tools read Parquet, so what they say about versions differs from the pages'.
+        # Text the server words differently from the pages, if any; both reach every version.
         description = t["description"]
         for old, new in m["tool_text"].items():
             description = description.replace(old, new)

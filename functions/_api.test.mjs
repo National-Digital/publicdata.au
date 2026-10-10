@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { answer, versions } from './_api.js';
-import { rowsQuery } from './_query.js';
 
 // A stand-in for the D1 binding over node:sqlite, and an in-memory edge cache.
 function d1(db) {
@@ -84,7 +83,6 @@ const call = async (qs, env = { DB: d1(db) }, version) => {
       params,
       waitUntil: (p) => waits.push(p),
     },
-    rowsQuery,
     'rows',
   );
   await Promise.all(waits);
@@ -140,7 +138,7 @@ test('bad queries and unknown versions are explained', async () => {
   const v = await call('', undefined, '2020-01-01');
   assert.equal(v.status, 404);
   const vb = await v.json();
-  assert.match(vb.error, /loaded versions are 2026-04-24/);
+  assert.match(vb.error, /has no version 2020-01-01/);
   assert.equal(vb.versions, 'https://publicdata.au/api/v1/datasets/test-data/versions');
   assert.equal((await call('', undefined, 'yesterday')).status, 404);
   assert.equal((await call('?format=xml')).status, 400);
@@ -166,7 +164,7 @@ const listVersions = async (slug, env = { DB: d1(db) }) => {
   return res;
 };
 
-test('versions lists what is loaded with the URLs to query each', async () => {
+test('versions lists what is answered with the URLs to query each', async () => {
   const r = await listVersions('test-data');
   const body = await r.json();
   assert.equal(body.versions[0].version, '2026-04-24');
@@ -174,7 +172,7 @@ test('versions lists what is loaded with the URLs to query each', async () => {
     body.versions[0].rows_url,
     'https://publicdata.au/api/v1/datasets/test-data/versions/2026-04-24/rows',
   );
-  assert.ok(store.has('https://publicdata.au/api/v1/datasets/test-data/versions'));
+  assert.ok(store.has('https://publicdata.au/api/v1/datasets/test-data/versions?_c=2'));
   assert.equal((await listVersions('test-data', {})).status, 503);
   assert.equal((await listVersions('nothing-here')).status, 404);
 });
