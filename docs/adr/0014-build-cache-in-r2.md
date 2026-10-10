@@ -42,8 +42,9 @@ can write the cache can change what the site publishes.
 - The publisher's bytes exist in one place, the append-only raw store, from which the archive can
   be rebuilt.
 - A `replace` dispatch builds without the cache, so a correction is built from source.
-- The `source.*` objects written before #48 are still in the published bucket, and the function
-  serves them first. They go only when a maintainer approves a one-off deletion, and so do the
-  cache entries #48 wrote under `_build/` in the raw store before #90 moved the cache.
+- The published bucket holds no `source.*` objects, and every version's publisher's file is
+  served from the raw store. A check on 10 October 2026 found none under any dated version.
+- The cache entries #48 wrote under `_build/` in the raw store before #90 moved the cache are no
+  longer read. They go only when a maintainer approves a one-off deletion.
 
 See `docs/ARCHITECTURE.md` ("Hosting", "Raw store") and `README.md` ("Deploy").
