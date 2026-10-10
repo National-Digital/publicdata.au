@@ -504,7 +504,7 @@ gzipped; `--dedupe-csv-gz` also deletes an old `data.csv.gz` whose bytes the gzi
 holds. A deployment whose function predates gzip at rest serves these objects wrongly, so once
 they exist a Pages rollback past that deploy, or a preview from a branch without it, is unsafe.
 `publicdata r2 shared-report` counts the bytes that storing identical dated files once would
-save, reading the bucket only; `docs/content-addressed-store.md` records why that waits.
+save, reading the bucket only; ADR 0011 records the measurement and why that waits.
 
 A dataset missing from `latest.json` (the register withheld it)
 answers 410 for every file R2 still holds, `latest/` included, and so does each path in
