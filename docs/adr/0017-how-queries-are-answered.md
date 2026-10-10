@@ -31,14 +31,16 @@ filtered on another. In workerd a cold rollup answered in 6 to 25 ms and a warm 
 - **One path.** Every version a reader can download can be queried, and the query API (`/api/v1`)
   and the MCP tools answer it through the same function, so a query gets the same answer from
   either. The MCP tools wrap that answer as structured content. Without a version, a query answers
-  from the newest live version.
+  from the newest live version, and falls back to the newest version D1 holds when that version's
+  Parquet cannot answer it.
 - **Rollups first, for exact answers.** A rollup holds one version's counts and totals grouped
   several ways ("cubes"), and the path reads it before any other engine. It answers only what it
-  gets exactly right: counts, sums of integers, minima and maxima. A sum or average of a decimal
-  field falls through. A version gets a rollup when its table has at least 5,000 rows, for the
-  versions D1 holds and for every version of an entry with `query: false`. Cubes are chosen by the
-  weight of questions each answers per byte, with the register's own questions (`rollup`,
-  `example` and `chart`) weighing most, until the gzipped rollup reaches 1 MB.
+  gets exactly right: counts, sums of integers below 2^53, minima and maxima. A sum or average of a
+  decimal field falls through, and for a version D1 holds a rollup answers only an order that leaves
+  no ties, so its answer is the one D1 gives. A version gets a rollup when its table has at least
+  5,000 rows, for the versions D1 holds and for every version of an entry with `query: false`. Cubes
+  are chosen by the weight of questions each answers per byte, with the register's own questions
+  (`rollup`, `example` and `chart`) weighing most, until the gzipped rollup reaches 1 MB.
 - A rollup is counted from its version's published `data.parquet` and answers only while it is tied
   to that file's bytes. It follows SQLite's rules for filters, nulls, LIKE and ordering, so its
   answer is the one D1 gives. Rollups are stored under `_rollup/` in the published bucket, outside
@@ -51,10 +53,13 @@ filtered on another. In workerd a cold rollup answered in 6 to 25 ms and a warm 
   Before reading any data the engine prices the query from the footer and the page index against
   a fixed budget per call. A query over the budget is refused with the DuckDB SQL that returns the
   same rows in the same order from the version's public Parquet.
-- **The engine is invisible.** Rows without an explicit order come in the query copy's order (the
-  declared sort, then the key, then the source position) from every engine, and ties under an
-  explicit order are settled the same way. When a page of rows is over the budget only because
-  counting every match reads too much, the count comes from the rollup.
+- **Row order.** Rows without an explicit order come in the order of the file that answers: D1 in
+  the order it loaded the version's `data.parquet`, and Parquet in the order of the file it reads.
+  Where that file is a query copy sorted differently from the version's `data.parquet`, the answer
+  names its sort in `order`. When a page of rows is over the budget only because counting every
+  match reads too much, the count comes from the rollup, on both doors.
+- A D1 error falls through to Parquet, and a withheld dataset answers 410 before any cached answer
+  is read.
 - Every answer names the version, the licence and the attribution, and the query URL it cites
   answers.
 
@@ -62,9 +67,12 @@ filtered on another. In workerd a cold rollup answered in 6 to 25 ms and a warm 
 
 - **D1 alone for the query API, Parquet for the MCP tools only.** The two would answer different
   sets of versions, an MCP answer about an older version would cite an API URL that did not answer,
-  and a version would change engine and row order when it aged out of D1.
+  and a version would stop answering when it aged out of D1.
 - **Load every version into D1.** Each load writes every row and index entry, which D1 bills.
   Parquet answers need no load step.
+- **One row order for every engine,** with D1 sorting by the query copy's order. It would change the
+  order of answers v1 already gives, which `/api/v1` promised to keep, and it costs D1 a sort of
+  the whole table on every page.
 - **Parquet for every version, D1 for none.** D1 answers filters a file's sort cannot serve within
   the budget, and answers the newest versions in one round trip. With one path, dropping it later
   is a change inside that path.
@@ -77,6 +85,9 @@ filtered on another. In workerd a cold rollup answered in 6 to 25 ms and a warm 
 
 ## Consequences
 
+- The answers the query API gave before this path are unchanged, so it added no breaking change to
+  v1. The price is that an older version of an entry with `sort:` can answer rows in a different
+  order from the D1-held version beside it, and says so.
 - On profile files the filtered crash, water and company-number queries took 349, 213 and 299 ms of
   CPU, under the target of 500 ms. A filter on type and year over the company register still took
   13.6 s from Parquet, because its company-number order cannot serve it. Its counts come from a
