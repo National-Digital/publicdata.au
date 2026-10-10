@@ -5,6 +5,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { BUDGET, BudgetError, openVersion, parquetRows } from './_parquet.js';
 import { onRequestPost } from './mcp.js';
+import { answer } from './_api.js';
+import { filters } from './_tools.js';
 
 // A register shaped like ASIC's, with query: false, so D1 holds none of it: the rollup answers
 // counts and the Parquet engine answers rows. Every answer is held to DuckDB's on the published
@@ -175,6 +177,43 @@ test('a page the budget refuses for counting every match takes its count from th
       (await rowsVia({ ...q, where: { ...q.where, acn: { min: '000000001' } } })).error,
       /DuckDB SQL/,
     );
+  } finally {
+    BUDGET.values = was;
+  }
+});
+
+test('the query API takes the same count from the rollup, so it answers what the MCP tool answers', async () => {
+  const q = want.rows[2];
+  const was = BUDGET.values;
+  BUDGET.values = 3_000;
+  try {
+    const tool = await rowsVia(q);
+    assert.equal(tool.error, undefined);
+    const qs = filters(q.where).concat([
+      `limit=${q.limit}`,
+      'offset=0',
+      `select=${q.select.join(',')}`,
+    ]);
+    const r = await answer(
+      {
+        request: new Request(`https://publicdata.au/api/v1/datasets/${SLUG}/rows?${qs.join('&')}`),
+        env,
+        params: { slug: SLUG },
+        waitUntil() {},
+      },
+      'rows',
+    );
+    const b = await r.json();
+    assert.equal(r.status, 200, b.error);
+    assert.deepEqual(b.rows, tool.rows);
+    assert.equal(b.this_version, tool.query);
+    // The query the tool cites answers too.
+    const cited = await answer(
+      { request: new Request(tool.query), env, params: { slug: SLUG, version: V }, waitUntil() {} },
+      'rows',
+    );
+    assert.equal(cited.status, 200);
+    assert.deepEqual((await cited.json()).rows, tool.rows);
   } finally {
     BUDGET.values = was;
   }

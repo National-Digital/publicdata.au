@@ -1,10 +1,11 @@
-// One query, whichever engine answers it. The query API and the MCP row tools both ask here, so a
-// query gives the same rows, in the same order, from every engine and through either door. A
-// version's rollup answers first where it holds the answer exactly, then D1 for the versions it
-// holds, then the version's Parquet in R2 for every other version.
+// One query, whichever engine answers it. The query API and the MCP row tools both ask here, so
+// the same query through either door gets the same answer. A version's rollup answers first where
+// it holds the answer exactly, then D1 for the versions it holds, then the version's Parquet in R2
+// for every other version. D1 answers exactly as it always has; the Parquet engine answers in the
+// order of the file it reads, and says so.
 
 import { SLUG } from './_lib.js';
-import { QueryError, aggregateQuery, rowsQuery } from './_query.js';
+import { QueryError, RESERVED, aggregateQuery, rowsQuery } from './_query.js';
 import {
   BudgetError,
   ENGINE,
@@ -41,8 +42,8 @@ const filesUrl = (slug, v) => `${SITE}/d/${slug}/${v ? `v/${v}/` : ''}`;
 export const queryUrl = (slug, v, op, qs) =>
   `${API}/${slug}/versions/${v}/${op}${qs.length ? '?' + qs.join('&') : ''}`;
 
-// The live datasets and their newest versions, and each dataset's field list. An isolate serves
-// one deployment, so each is read once; an unread list is read again on the next call.
+// The live datasets and their newest versions. An isolate serves one deployment, so the list is
+// read once; an unread list is read again on the next call.
 let liveList;
 export async function live(env) {
   if (liveList || !env.ASSETS) {
@@ -58,75 +59,62 @@ export async function live(env) {
   }
   return liveList || {};
 }
-const orders = new Map();
-// The columns a version's query copy is ordered by before the source position, as fields.json
-// gives them (the entry's sort, then its key), or null when that is not known.
-async function fileOrder(env, slug) {
-  if (orders.has(slug)) {
-    return orders.get(slug);
-  }
-  let out = null;
-  if (env.ASSETS) {
-    try {
-      const r = await env.ASSETS.fetch(new Request(`${SITE}/d/${slug}/fields.json`));
-      if (r.ok) {
-        const f = await r.json();
-        out = Array.isArray(f.order) ? f.order : null;
-      }
-    } catch {
-      out = null;
-    }
-  }
-  orders.set(slug, out);
-  return out;
-}
-// For the tests: the isolate's lists are read again.
+// For the tests: the isolate's list is read again.
 export function reset() {
   liveList = undefined;
-  orders.clear();
+}
+
+// A dataset the register has withheld keeps its loaded tables, files and cached answers until they
+// are dropped, so the live list the site was built with decides, before anything cached is served.
+export async function withheld(env, slug) {
+  const latest = await live(env);
+  return Object.keys(latest).length > 0 && !Object.hasOwn(latest, slug);
 }
 
 const missingTable = (e) => /no such table/i.test(String((e && e.message) || e));
 
-// The D1 registry row for a version, or the newest loaded version without one, with the order its
-// rows were loaded in. Null when D1 does not hold it.
+// The D1 registry row for a version, or for the newest loaded version without one.
 async function held(env, slug, version) {
-  const where = version ? 'v.slug = ? AND v.version = ?' : 'v.slug = ?';
-  const binds = version ? [slug, version] : [slug];
-  const tail = ' ORDER BY v.version DESC LIMIT 1';
-  try {
-    return await env.DB.prepare(
-      `SELECT v.*, o.ord AS ord FROM _versions v LEFT JOIN _orders o ON o.slug = v.slug AND o.version = v.version WHERE ${where}${tail}`,
-    )
-      .bind(...binds)
-      .first();
-  } catch (e) {
-    if (!missingTable(e) || /_versions/.test(String(e.message || e))) {
-      throw e;
-    }
-  }
-  // A database loaded before the order was recorded has no _orders table.
-  return env.DB.prepare(`SELECT v.* FROM _versions v WHERE ${where}${tail}`)
-    .bind(...binds)
-    .first();
+  return version
+    ? env.DB.prepare('SELECT * FROM _versions WHERE slug = ? AND version = ?')
+        .bind(slug, version)
+        .first()
+    : env.DB.prepare('SELECT * FROM _versions WHERE slug = ? ORDER BY version DESC LIMIT 1')
+        .bind(slug)
+        .first();
 }
 
-// D1's rowid is the row's place in the data.parquet it was loaded from. When that file is in
-// another order than the query copy the Parquet engine reads, the copy's order is asked for, so
-// both engines give the same rows in the same order.
-async function d1(ctx, slug, v, op, params) {
-  let tail = [];
-  if (op === 'rows' && v.ord !== undefined && v.ord !== null) {
-    const order = await fileOrder(ctx.env, slug);
-    if (order && v.ord !== order.join(',')) {
-      tail = order;
-    }
+const kept = (ctx, key, out) =>
+  ctx.waitUntil &&
+  ctx.waitUntil(
+    caches.default.put(
+      key,
+      new Response(JSON.stringify(out), {
+        headers: {
+          'content-type': 'application/json',
+          'cache-control': 'public, max-age=31536000, immutable',
+        },
+      }),
+    ),
+  );
+
+// D1's answer, as the query API has always given it: rows in the order the version was loaded in.
+// It is kept at the edge under the table it was read from, which a load of other rows renames, so
+// the MCP tools, which do not pass through the API's own cache, are not sent to D1 again for it.
+async function d1(ctx, slug, v, op, qs) {
+  const key = new Request(
+    `${SITE}/_d1/${enc(slug)}/${v.version}/${enc(v.tbl)}/${op}${qs.length ? '?' + qs.join('&') : ''}`,
+  );
+  const hit = ctx.waitUntil ? await caches.default.match(key) : undefined;
+  if (hit) {
+    return hit.json();
   }
+  const params = new URLSearchParams(qs.join('&'));
   let plan;
   try {
     plan =
       op === 'rows'
-        ? rowsQuery(v.tbl, JSON.parse(v.fields), params, tail)
+        ? rowsQuery(v.tbl, JSON.parse(v.fields), params)
         : aggregateQuery(v.tbl, JSON.parse(v.fields), params);
   } catch (e) {
     if (e instanceof QueryError) {
@@ -150,33 +138,49 @@ async function d1(ctx, slug, v, op, params) {
   }
   const more = rows.length > plan.limit;
   const header = JSON.parse(v.header || '{}');
-  return {
+  const out = {
     version: v.version,
     rows: more ? rows.slice(0, plan.limit) : rows,
     more,
     matched: null,
     cols: plan.cols,
-    offset: plan.offset,
-    limit: plan.limit,
     header,
     attribution: v.attribution ?? header.attribution ?? null,
     manifest: `${SITE}/d/${slug}/v/${v.version}/manifest.json`,
   };
+  kept(ctx, key, out);
+  return out;
 }
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
-const kept = (ctx, key, out) =>
-  ctx.waitUntil(
-    caches.default.put(
-      key,
-      new Response(JSON.stringify(out), {
-        headers: {
-          'content-type': 'application/json',
-          'cache-control': 'public, max-age=31536000, immutable',
-        },
-      }),
-    ),
-  );
+
+// A version stored as parts carries the provenance of its newest part's file, with the version's
+// own manifest for what belongs to the version: its date, its source and the hash of its bytes.
+function partsHeader(part, meta, slug, v) {
+  const h = { ...(part || {}) };
+  const m = meta || {};
+  h.version = m.version || v;
+  h.url = `${SITE}/d/${slug}/v/${v}/`;
+  if (m.as_at !== undefined && m.as_at !== null) {
+    h.as_at = m.as_at;
+  }
+  const source = { ...(h.source || {}) };
+  for (const [k, x] of [
+    ['url', m.source && m.source.url],
+    ['filename', m.filename],
+    ['fetched_at', m.fetched_at],
+    ['sha256', m.sha256],
+    ['bytes', m.bytes],
+    ['encoding', m.encoding],
+    ['backfilled', m.backfilled],
+  ]) {
+    if (x !== undefined && x !== null) {
+      source[k] = x;
+    }
+  }
+  h.source = source;
+  return h;
+}
 
 // A version stored as period parts is read part by part, listed with their rows by its manifest.
 // A correction rewrites parts in place under the same keys and rewrites the manifest with its
@@ -199,6 +203,7 @@ async function fromParts(ctx, slug, v, op, qs, path, at) {
     new URLSearchParams(qs.join('&')),
     manifest,
   );
+  const header = partsHeader(r.header, at.meta, slug, v);
   // parts names the periods read; the manifest gives each one's file, rows and provenance.
   const out = {
     version: v,
@@ -206,8 +211,8 @@ async function fromParts(ctx, slug, v, op, qs, path, at) {
     more: r.more,
     matched: r.matched,
     cols: r.cols,
-    header: r.header || {},
-    attribution: at.attribution ?? r.attribution ?? null,
+    header,
+    attribution: at.attribution ?? header.attribution ?? null,
     parts: r.parts,
     manifest,
   };
@@ -273,12 +278,17 @@ async function fromFile(ctx, slug, v, op, qs, path, url, counted) {
     file: url,
     manifest: `${SITE}/d/${enc(slug)}/v/${v}/manifest.json`,
   };
+  // Rows without an order, and ties, come in the order of the file read. When that file is sorted,
+  // the answer names its sort, so a caller can tell it from the publisher's order.
+  if (op === 'rows' && entry.sortedBy && entry.sortedBy.length) {
+    out.order = entry.sortedBy.map((c) => c.name);
+  }
   // The bytes under one ETag never change, so the answer is kept as long as the edge keeps anything.
   kept(ctx, key, out);
   return out;
 }
 
-// A version's answer from its Parquet in R2, or null when R2 holds no file for it.
+// A version's answer from its Parquet in R2, or null when R2 holds no table for it.
 async function parquet(ctx, slug, v, op, qs, counted) {
   const path = `/api/v1/datasets/${enc(slug)}/versions/${v}/${op}${qs.length ? '?' + qs.join('&') : ''}`;
   const url = `${SITE}/d/${enc(slug)}/v/${v}/data.parquet`;
@@ -318,14 +328,22 @@ async function parquet(ctx, slug, v, op, qs, counted) {
   }
 }
 
+// The rows an unordered row query's filters match, from the version's rollup when a cube holds
+// them, so a page the Parquet budget refuses only for counting every match is read until full.
+function counter(ctx, slug, qs) {
+  const filters = qs.filter((p) => !RESERVED.has(decodeURIComponent(p.split('=')[0])));
+  return async (v) => {
+    const c = await rollup(ctx, slug, v, 'aggregate', filters.concat(['metric=count']));
+    return c ? c.matched : null;
+  };
+}
+
 // Answers one query: rows or aggregate over the version named, else the newest live version.
 // qs is the query's parameters as encoded `name=value` strings, without `format`. Returns
-// { version, rows, more, matched, cols, header, attribution, query, file?, parts?, manifest },
-// where matched is null when the engine did not count it, and file or parts name what the
-// Parquet engine read. Throws AnswerError.
-// `counted(version)` gives the rows a filter matches, for a page the budget refuses only because
-// counting them all reads too much.
-export async function query(ctx, slug, want, op, qs, counted) {
+// { version, rows, more, matched, cols, header, attribution, query, manifest, file?, parts?,
+// order? }, where matched is null when the engine did not count it, file or parts name what the
+// Parquet engine read, and order names the sort of the file it read. Throws AnswerError.
+export async function query(ctx, slug, want, op, qs) {
   const { env } = ctx;
   if (!SLUG.test(slug)) {
     throw new AnswerError(404, { error: 'No such dataset' });
@@ -339,60 +357,113 @@ export async function query(ctx, slug, want, op, qs, counted) {
   if (!env.DB && !env.DIST) {
     throw new AnswerError(503, { error: NOT_ENABLED });
   }
-  // A dataset the register has withheld keeps its loaded tables and files until they are dropped,
-  // so the live list the site was built with decides.
-  const latest = await live(env);
-  if (Object.keys(latest).length && !Object.hasOwn(latest, slug)) {
+  if (await withheld(env, slug)) {
     throw new AnswerError(410, { error: WITHHELD });
   }
-  const v = want || latest[slug];
-  const params = () => new URLSearchParams(qs.join('&'));
+  const v = want || (await live(env))[slug];
   const done = (out) => ({ ...out, query: queryUrl(slug, out.version, op, qs) });
-  if (op === 'aggregate' && v) {
-    const r = await rollup(ctx, slug, v, 'aggregate', qs);
-    if (r) {
-      return done(r);
-    }
-  }
   let row = null;
   if (env.DB) {
     try {
       row = await held(env, slug, v);
     } catch (e) {
-      if (!missingTable(e)) {
-        throw e;
-      }
-      // A bound database that was never loaded holds nothing.
+      // A database never loaded holds nothing, and one that fails leaves the files to answer.
       if (!env.DIST) {
-        throw new AnswerError(503, { error: NOT_ENABLED });
+        throw missingTable(e)
+          ? new AnswerError(503, { error: NOT_ENABLED })
+          : new AnswerError(500, {
+              error: 'The query could not run',
+              detail: String(e.message || e).slice(0, 200),
+            });
       }
-    }
-    if (row && (!v || row.version === v)) {
-      return done(await d1(ctx, slug, row, op, params()));
+      if (!missingTable(e)) {
+        // eslint-disable-next-line no-console -- the Workers log is where an operator sees this.
+        console.error(`d1 ${slug} ${v}: ${(e && e.stack) || e}`);
+      }
     }
   }
+  const inD1 = row && (!v || row.version === v) ? row : null;
+  // A rollup holds the answer D1 gives, but breaks ties in a metric's order by its groups where D1
+  // leaves them to SQLite. So for a version D1 holds it answers only a query whose order leaves no
+  // ties, under the provenance D1 holds, and D1's answer to every query stays what it was.
+  if (op === 'aggregate' && v && (!inD1 || determined(qs))) {
+    const r = await rollup(ctx, slug, v, 'aggregate', qs);
+    if (r) {
+      if (inD1) {
+        const header = JSON.parse(inD1.header || '{}');
+        // It answers as D1 does, so nothing in the answer says which of the two counted it.
+        const same = { ...r, header, attribution: inD1.attribution ?? header.attribution ?? null };
+        delete same.file;
+        return done(same);
+      }
+      return done(r);
+    }
+  }
+  if (inD1) {
+    return done(await d1(ctx, slug, inD1, op, qs));
+  }
+  // A query without a version that the newest version's file cannot answer is answered from the
+  // newest version D1 holds, as it was before the files answered, and names that version.
+  const fallback = async () => {
+    if (want || !env.DB) {
+      return null;
+    }
+    const newest = await held(env, slug).catch(() => null);
+    return newest ? done(await d1(ctx, slug, newest, op, qs)) : null;
+  };
   if (env.DIST && v) {
-    const p = await parquet(ctx, slug, v, op, qs, counted);
+    let p;
+    try {
+      p = await parquet(
+        ctx,
+        slug,
+        v,
+        op,
+        qs,
+        op === 'rows' && !hasOrder(qs) && counter(ctx, slug, qs),
+      );
+    } catch (e) {
+      const f = e instanceof AnswerError && e.status !== 400 ? await fallback() : null;
+      if (f) {
+        return f;
+      }
+      throw e;
+    }
     if (p) {
       return done(p);
     }
   }
-  // The newest version has no file the engine can read, so the newest version D1 holds answers.
-  if (!want && env.DB) {
-    const newest = await held(env, slug).catch(() => null);
-    if (newest) {
-      return done(await d1(ctx, slug, newest, op, params()));
-    }
+  const f = await fallback();
+  if (f) {
+    return f;
   }
-  if (!v && !row) {
+  if (!v) {
     throw new AnswerError(404, {
       error: 'No such dataset in the query API',
       files: filesUrl(slug),
     });
   }
   throw new AnswerError(404, {
-    error: `${slug} has no version ${v}; get_dataset lists its versions, as ${versionsUrl(slug)} does`,
+    error: `version ${v} of ${slug} has no table to query; ${versionsUrl(slug)} lists the versions that do`,
     versions: versionsUrl(slug),
     files: filesUrl(slug),
   });
+}
+
+const hasOrder = (qs) => qs.some((p) => p.split('=')[0] === 'order');
+const param = (qs, k) => {
+  const p = qs.find((x) => x.split('=')[0] === k);
+  return p ? decodeURIComponent(p.slice(k.length + 1)) : '';
+};
+const names = (v) =>
+  v
+    .split(',')
+    .map((x) => x.trim().split('.')[0])
+    .filter(Boolean);
+// Whether an aggregate's order leaves no ties: no order, which D1 gives by group, or one that
+// names every group field.
+function determined(qs) {
+  const order = names(param(qs, 'order'));
+  const group = names(param(qs, 'group'));
+  return !order.length || group.every((g) => order.includes(g));
 }

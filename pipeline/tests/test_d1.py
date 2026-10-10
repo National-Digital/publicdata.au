@@ -397,20 +397,13 @@ def test_a_version_too_large_for_d1_has_no_query_api_and_keeps_its_field_list(
     assert not (big / "openapi.json").exists()
     assert (big / "explore" / "index.html").exists()
     # The query API and the MCP server's row tools answer it from Parquet, so it keeps its field
-    # list, built from its own data.parquet, with the query API's URLs and the order its query
-    # copy is sorted in.
+    # list, built from its own data.parquet, with the query API's URLs.
     assert (big / "fields.json").exists(), "no field list for list_fields"
     small = out / "d" / "qld-road-casualties" / "fields.json"
     fields = json.loads((big / "fields.json").read_text(encoding="utf-8"))
     assert (
         fields["rows_url"] == "https://publicdata.au/api/v1/datasets/qld-road-crash-locations/rows"
     )
-    (crash_entry,) = [d for d in load(ROOT / "register") if d.slug == "qld-road-crash-locations"]
-    assert fields["order"] == [
-        *crash_entry.sort,
-        *(k for k in crash_entry.key if k not in crash_entry.sort),
-    ]
-    assert json.loads(small.read_text("utf-8"))["order"] == []
     assert "The query API answers it from its Parquet file" in page
     assert "aggregate_url" in json.loads(small.read_text("utf-8"))
     names = [f["name"] for f in fields["fields"]]

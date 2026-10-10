@@ -88,24 +88,6 @@ test('aggregates group, count and sum', () => {
   assert.throws(() => aggregateQuery('t', fields, P('metric=median.year')), /metric is one of/);
 });
 
-test('ties keep group order, and rows without an order follow the file a table was loaded from', () => {
-  const plan = aggregateQuery(
-    'v_t_20260424',
-    fields,
-    P('group=year&metric=count&order=count.desc'),
-  );
-  assert.match(plan.sql, / ORDER BY "count" DESC, "year" LIMIT/);
-  assert.match(rowsQuery('t', fields, P('')).sql, / ORDER BY rowid LIMIT/);
-  assert.match(
-    rowsQuery('t', fields, P('order=lga.desc')).sql,
-    / ORDER BY "lga" DESC, rowid LIMIT/,
-  );
-  assert.match(
-    rowsQuery('t', fields, P(''), ['year', 'lga', 'not_a_field']).sql,
-    / ORDER BY "year" ASC NULLS LAST, "lga" ASC NULLS LAST, rowid LIMIT/,
-  );
-});
-
 test('csv quotes only what needs it', () => {
   assert.equal(
     toCSV(

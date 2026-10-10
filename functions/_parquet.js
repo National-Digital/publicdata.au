@@ -356,6 +356,20 @@ async function locate(env, slug, version) {
     period: manifest.period || null,
     rows: Number.isFinite(manifest.rows) ? manifest.rows : parts.reduce((n, p) => n + p.rows, 0),
     attribution: manifest.attribution ?? null,
+    // What a provenance header takes from the version itself, since its parts may come from
+    // versions before it.
+    meta: {
+      version: manifest.version ?? version,
+      as_at: manifest.as_at ?? null,
+      fetched_at: manifest.fetched_at ?? null,
+      sha256: manifest.sha256 ?? null,
+      bytes: manifest.bytes ?? null,
+      filename: manifest.filename ?? null,
+      encoding: manifest.encoding ?? null,
+      source: manifest.source ?? null,
+      licence: manifest.licence ?? null,
+      backfilled: manifest.backfilled ?? null,
+    },
   };
 }
 
@@ -1569,7 +1583,11 @@ export async function parquetRows(env, at, params, url, budget = BUDGET, known) 
   });
   const groups = prune(entry, specs, ix);
   const tail = split
-    ? { parts: src.sel.map((p) => p.period), attribution: head.header && head.header.attribution }
+    ? {
+        parts: src.sel.map((p) => p.period),
+        attribution: head.header && head.header.attribution,
+        header: head.header || null,
+      }
     : {};
   const want = offset + limit + 1;
   if (known !== undefined && !order.length) {
@@ -1826,7 +1844,11 @@ export async function parquetAggregate(env, at, params, url, budget = BUDGET) {
     used: scan.used,
     sql,
     ...(split
-      ? { parts: src.sel.map((p) => p.period), attribution: head.header && head.header.attribution }
+      ? {
+          parts: src.sel.map((p) => p.period),
+          attribution: head.header && head.header.attribution,
+          header: head.header || null,
+        }
       : {}),
   };
 }

@@ -138,7 +138,7 @@ test('bad queries and unknown versions are explained', async () => {
   const v = await call('', undefined, '2020-01-01');
   assert.equal(v.status, 404);
   const vb = await v.json();
-  assert.match(vb.error, /has no version 2020-01-01/);
+  assert.match(vb.error, /version 2020-01-01 of test-data has no table to query/);
   assert.equal(vb.versions, 'https://publicdata.au/api/v1/datasets/test-data/versions');
   assert.equal((await call('', undefined, 'yesterday')).status, 404);
   assert.equal((await call('?format=xml')).status, 400);
@@ -184,6 +184,16 @@ test('an API path nothing answers is a JSON 404 that points to the docs', async 
   const body = await r.json();
   assert.equal(body.docs, 'https://publicdata.au/agents/#query-api');
   assert.equal(body.openapi, 'https://publicdata.au/openapi.json');
+});
+
+test('a cached answer is not served once its dataset is withheld', async () => {
+  const first = await call('?limit=3', undefined, '2026-04-24');
+  assert.equal(first.status, 200);
+  assert.equal((await call('?limit=3', undefined, '2026-04-24')).status, 200);
+  const ASSETS = { fetch: async () => Response.json({ other: '2026-04-24' }) };
+  const r = await call('?limit=3', { DB: d1(db), ASSETS }, '2026-04-24');
+  assert.equal(r.status, 410);
+  assert.match((await r.json()).error, /withheld/);
 });
 
 test('a dataset the site no longer lists as live is refused though its tables are loaded', async () => {

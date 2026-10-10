@@ -410,7 +410,7 @@
           },
           "order": {
             "type": "string",
-            "description": "field.asc or field.desc, comma-separated. When absent, and for ties, rows come in the order of the version's Parquet file: the dataset's declared sort where it has one, then its key, then the publisher's order."
+            "description": "field.asc or field.desc, comma-separated. When absent, rows come in the order of the file they are read from. For the newest versions that is the version's own data.parquet, which keeps the publisher's order unless the dataset sorted it. Any other version is read from the Parquet file the answer names in file, and when that file is sorted the answer names its sort in order, which ties follow too."
           },
           "limit": {
             "type": "integer",
@@ -469,7 +469,14 @@
           },
           "file": {
             "type": "string",
-            "description": "The Parquet file the answer was read from, when it came from the file"
+            "description": "The Parquet file the answer was read from, or that its rollup was counted from, when it came from either"
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The columns the file read is sorted by, which rows without an order and ties follow, when it came from a sorted file"
           },
           "parts": {
             "type": "array",
@@ -593,7 +600,7 @@
           },
           "file": {
             "type": "string",
-            "description": "The Parquet file the answer was read from, when it came from the file"
+            "description": "The Parquet file the answer was read from, or that its rollup was counted from, when it came from either"
           },
           "parts": {
             "type": "array",
