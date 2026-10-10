@@ -2,6 +2,7 @@ import dataclasses
 import io
 import json
 import re
+import shutil
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Never, Self, cast
@@ -13,8 +14,8 @@ import pytest
 import yaml
 from pmtiles.reader import MemorySource, Reader, all_tiles
 
-from publicdata import serialise, spine, store
-from publicdata.build import build_version, version_key
+from publicdata import fetch, serialise, spine, store
+from publicdata.build import as_fetched, build_version, version_key
 from publicdata.cache import BuildCache
 from publicdata.normalise import Table, normalise
 from publicdata.register import LAT_SOURCE, LON_SOURCE, Field, RegisterError, parse
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from typing import Unpack
 
     from publicdata.build import VersionOut
+    from publicdata.fetch import LicenceRead
     from publicdata.register import Dataset, Geometry, RawEntry
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -191,25 +193,97 @@ def test_a_publishers_datum_is_moved_to_gda2020_for_the_join_only(tmp_path: Path
     assert same >= a.rows - 3
 
 
-def test_a_spine_layer_change_is_a_new_cache_entry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def later_layer(st: Path, slug: str = "abs-lga-2025") -> store.Manifest:
+    """A newer version of a layer in the store, as a later fetch of the ABS file would add."""
+    m = dataclasses.replace(
+        store.manifests(FIXTURES, slug)[-1], version="2027-01-01", sha256="1" * 64
+    )
+    d = store.version_dir(st, slug, m.version)
+    d.mkdir(parents=True)
+    (d / "manifest.json").write_text(m.to_json(), encoding="utf-8")
+    return m
+
+
+def spine_copy(tmp: Path) -> Path:
+    """The fixture store, which a test may add layer versions to."""
+    st = tmp / "store"
+    for d in FIXTURES.iterdir():
+        if d.name.startswith("abs-") or d.name == "qld-road-crash-locations":
+            shutil.copytree(d, st / d.name)
+    return st
+
+
+def test_a_new_layer_version_leaves_a_joined_version_as_it_was(tmp_path: Path) -> None:
+    ds = crashes()
+    st = spine_copy(tmp_path)
+    cache = BuildCache(tmp_path / "c")
+    m = store.manifests(st, ds.slug)[-1]
+    before = version_key(cache, ds, m, st)
+    pinned = next(p for p in m.spine if p["layer"] == "lga")
+    later_layer(st)
+    assert version_key(cache, ds, m, st) == before
+    tbl = spine.enrich(normalise(ds, m, store.source_path(st, m).read_bytes()), st, REGISTER)
+    assert next(p for p in tbl.places if p["layer"] == "lga")["version"] == pinned["version"]
+    with pytest.raises(ValueError, match="needs the store"):
+        version_key(cache, ds, m)
+
+
+def test_an_enrich_edit_leaves_a_joined_version_as_it_was(tmp_path: Path) -> None:
     ds = crashes()
     cache = BuildCache(tmp_path / "c")
     m = store.manifests(FIXTURES, ds.slug)[-1]
     before = version_key(cache, ds, m, FIXTURES)
-    real = store.manifests
+    edited = crashes(enrich=["lga"])
+    assert version_key(cache, edited, m, FIXTURES) == before
+    assert as_fetched(edited, m) == ds
+    assert as_fetched(crashes(enrich=[]), m) == ds
 
-    def moved(root: Path, slug: str) -> list[store.Manifest]:
-        ms = real(root, slug)
-        if slug == "abs-lga-2025":
-            ms[-1] = dataclasses.replace(ms[-1], sha256="0" * 64)
-        return ms
 
-    monkeypatch.setattr(store, "manifests", moved)
-    assert version_key(cache, ds, m, FIXTURES) != before
-    with pytest.raises(ValueError, match="needs the store"):
-        version_key(cache, ds, m)
+def test_a_new_fetch_pins_the_newest_version_of_each_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ds = crashes(enrich=["lga", "sa2"])
+    st = spine_copy(tmp_path)
+    shutil.rmtree(st / ds.slug)
+    newer = later_layer(st)
+    held = store.manifests(FIXTURES, ds.slug)[-1]
+    data = store.source_path(FIXTURES, held).read_bytes()
+    m = dataclasses.replace(held, spine=[], version="2027-02-01", sha256="2" * 64)
+    lic: LicenceRead = {"id": ds.licence.id, "read_from": "https://e", "read_at": "2027-02-01"}
+    monkeypatch.setitem(fetch.ADAPTERS, ds.source.adapter, lambda d, s: (data, m, lic))
+    monkeypatch.setattr(fetch, "check_licence", lambda d, lic: None)
+    got = present(fetch.fetch(ds, st))
+    sa2 = store.manifests(st, "abs-sa2-2021")[-1]
+    assert got.spine == [
+        {
+            "layer": "lga",
+            "dataset": "abs-lga-2025",
+            "version": newer.version,
+            "sha256": newer.sha256,
+        },
+        {"layer": "sa2", "dataset": "abs-sa2-2021", "version": sa2.version, "sha256": sa2.sha256},
+    ]
+    assert store.manifests(st, ds.slug)[-1].spine == got.spine
+
+
+def test_a_joined_version_without_a_pin_is_refused(tmp_path: Path) -> None:
+    ds = crashes()
+    m = dataclasses.replace(store.manifests(FIXTURES, ds.slug)[-1], spine=[])
+    with pytest.raises(spine.SpineError, match="pins no place spine layers"):
+        version_key(BuildCache(tmp_path / "c"), ds, m, FIXTURES)
+
+
+def test_every_stored_version_of_a_joined_dataset_pins_its_layers() -> None:
+    from publicdata.register import load  # noqa: PLC0415 - the whole register, read once here
+
+    unpinned = [
+        f"{d.slug} {m.version}"
+        for d in load(REGISTER)
+        if d.enrich
+        for m in store.manifests(ROOT / "store", d.slug, fetches=True)
+        if not m.spine
+    ]
+    assert unpinned == []
 
 
 def test_a_missing_layer_stops_the_build(tmp_path: Path) -> None:
@@ -217,8 +291,20 @@ def test_a_missing_layer_stops_the_build(tmp_path: Path) -> None:
     empty = tmp_path / "store"
     (empty / ds.slug).mkdir(parents=True)
     m = store.manifests(FIXTURES, ds.slug)[-1]
-    with pytest.raises(spine.SpineError, match="has no version"):
+    with pytest.raises(spine.SpineError, match="is not there"):
         spine.enrich(normalise(ds, m, store.source_path(FIXTURES, m).read_bytes()), empty, REGISTER)
+
+
+def test_every_layer_a_pin_names_is_still_a_spine_layer() -> None:
+    named = {
+        (p["layer"], p["dataset"])
+        for d in (ROOT / "store").iterdir()
+        if d.is_dir()
+        for m in store.manifests(ROOT / "store", d.name, fetches=True)
+        for p in m.spine
+    }
+    assert named
+    assert {(k, spine.LAYERS[k].slug) for k, _ in named if k in spine.LAYERS} == named
 
 
 def test_a_polygon_layer_keeps_rows_with_no_shape_and_reads_every_attribute() -> None:

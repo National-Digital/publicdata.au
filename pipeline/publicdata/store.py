@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
@@ -63,6 +63,14 @@ if TYPE_CHECKING:
         field: str
         grain: Grain
         revision_window: NotRequired[int]
+
+    class SpinePin(TypedDict):
+        """One place spine layer version a fetch fixed its join to."""
+
+        layer: str
+        dataset: str
+        version: str
+        sha256: str
 
     class FeedRead(TypedDict, total=False):
         """A feed's newest read and the fetch whose rows it found."""
@@ -174,6 +182,9 @@ class Manifest:
     update: str = ""
     # The register's volatile columns when this was fetched, which a part's stable hash leaves out.
     volatile: list[str] = field(default_factory=list)
+    # The place spine layer versions this fetch's points are joined to, fixed when it was fetched,
+    # so a later layer version or `enrich` edit leaves the version as it was.
+    spine: list[SpinePin] = field(default_factory=list)
 
     @property
     def ext(self) -> str:
@@ -182,24 +193,23 @@ class Manifest:
     def to_json(self) -> str:
         d = asdict(self)
         # Left out when empty, so a manifest written before the field keeps its bytes and cache key.
-        if not d["rows_sha256"]:
-            del d["rows_sha256"]
-        if not d["parquet"]:
-            del d["parquet"]
-        if not d["caps"]:
-            del d["caps"]
+        for k in ("rows_sha256", "parquet", "caps", "cut", "update", "volatile", "spine"):
+            if not d[k]:
+                del d[k]
         if d["snapshot"]:
             del d["snapshot"]
-        if not d["cut"]:
-            del d["cut"]
         for k in ("history", "period"):
             if d[k] is None:
                 del d[k]
-        if not d["update"]:
-            del d["update"]
-        if not d["volatile"]:
-            del d["volatile"]
         return json.dumps(d, indent=2, ensure_ascii=False) + "\n"
+
+    def keyed_json(self) -> str:
+        """The manifest as a version's cache key reads it.
+
+        The spine pin is left out, since the key takes each pinned layer's source and register
+        entry in its own right (spine.spine_versions).
+        """
+        return replace(self, spine=[]).to_json()
 
     @classmethod
     def read(cls, path: Path) -> Manifest:

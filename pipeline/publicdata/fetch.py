@@ -28,7 +28,7 @@ import openpyxl
 import pyarrow.parquet as pq
 import requests
 
-from . import catalogue, normalise, periods, store, updates
+from . import catalogue, normalise, periods, spine, store, updates
 from .normalise import _cell, _distinct, detect_encoding, xls_to_xlsx
 from .register import FILE_SOURCE
 from .serialise import pretty
@@ -2214,6 +2214,7 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
             return None
         m = fed
     m.caps = store.CAPS_VERSION
+    m.spine = spine.pin(ds.enrich, store_dir)
     store.write(store_dir, m, data)
     return m
 
@@ -2345,6 +2346,7 @@ def fetch_rolling(
         volatile=list(ds.volatile),
         parquet=layout(ds),
         caps=store.CAPS_VERSION,
+        spine=spine.pin(ds.enrich, store_dir),
     )
     m.rows_sha256 = updates.digest(tbl)
     tbl = replace(tbl, manifest=m)

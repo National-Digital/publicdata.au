@@ -415,10 +415,14 @@ def test_a_joined_dataset_is_keyed_on_its_layers_register_entry(
     reg = tmp_path / "register"
     reg.mkdir()
     shutil.copy(register_dir / "abs-lga-2025.yaml", reg / "abs-lga-2025.yaml")
-    before = spine_versions(("lga",), tmp_path / "store", reg)
+    m = make_manifest(b"x")
+    m.spine = [
+        {"layer": "lga", "dataset": "abs-lga-2025", "version": "2026-07-20", "sha256": "0" * 64}
+    ]
+    before = spine_versions(m, reg)
     entry = reg / "abs-lga-2025.yaml"
     entry.write_text(entry.read_text(encoding="utf-8") + "rebuild: 1\n", encoding="utf-8")
-    assert spine_versions(("lga",), tmp_path / "store", reg) != before
+    assert spine_versions(m, reg) != before
 
 
 def test_a_changed_register_default_needs_the_global_number(tmp_path: Path) -> None:
