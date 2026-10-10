@@ -1,4 +1,4 @@
 import { versions } from '../../../../_api.js';
 
-// The versions loaded for queries, newest first.
+// Every version the query API answers, newest first.
 export const onRequestGet = (context) => versions(context);

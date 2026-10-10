@@ -7,7 +7,6 @@ import { test } from 'node:test';
 import { parquetReadObjects } from 'hyparquet';
 import { decompress } from 'fzstd';
 import { answer } from './_api.js';
-import { aggregateQuery, rowsQuery } from './_query.js';
 import {
   BUDGET,
   BudgetError,
@@ -16,8 +15,10 @@ import {
   openVersion,
   parquetAggregate,
   parquetRows,
+  partsAt,
   periodStat,
 } from './_parquet.js';
+import { partsHeader, reset } from './_answer.js';
 import { onRequestPost } from './mcp.js';
 
 // Versions stored as period parts, written by the pipeline's part writer under the profile
@@ -160,11 +161,7 @@ const env = {
 
 async function d1(op, qs, slug) {
   const request = new Request(`${SITE}/api/v1/datasets/${slug}/${op}?${qs}`);
-  const r = await answer(
-    { request, env, params: { slug }, waitUntil() {} },
-    op === 'rows' ? rowsQuery : aggregateQuery,
-    op,
-  );
+  const r = await answer({ request, env, params: { slug }, waitUntil() {} }, op);
   const b = await r.json();
   assert.equal(r.status, 200, `${qs}: ${b.error} ${b.detail}`);
   return b;
@@ -554,6 +551,92 @@ test('the row tools answer a version stored as parts, naming its manifest, attri
     (await call('count_rows', { slug: BY_YEAR, version: V, where: { nope: 1 } })).error,
     /no field nope/,
   );
+});
+
+test('the query API answers a version stored as parts with its full provenance', async () => {
+  const api = async (slug) => {
+    const request = new Request(`${SITE}/api/v1/datasets/${slug}/versions/${V}/rows?limit=2`);
+    const r = await answer({ request, env, params: { slug, version: V }, waitUntil() {} }, 'rows');
+    return {
+      status: r.status,
+      sha: r.headers.get('x-publicdata-source-sha256'),
+      body: await r.json(),
+    };
+  };
+  const a = await api(BY_YEAR);
+  assert.equal(a.status, 200, a.body.error);
+  const h = a.body.publicdata;
+  // The fixtures' part footers hold only the keys these tests read; a built part carries the whole
+  // header provenance.header() writes, publisher included, and every key of it is carried here.
+  assert.equal(h.dataset, BY_YEAR);
+  assert.equal(h.licence.id, 'CC-BY-4.0');
+  assert.equal(h.attribution, 'Fixture publisher, licensed under CC BY 4.0.');
+  assert.equal(h.version, V);
+  assert.equal(h.url, `${SITE}/d/${BY_YEAR}/v/${V}/data.duckdb`);
+  // What belongs to the version comes from its own manifest, since its parts may come from the
+  // versions before it.
+  const key = `d/${BY_QUARTER}/v/${V}/manifest.json`;
+  const was = objects.get(key);
+  const m = JSON.parse(was);
+  Object.assign(m, {
+    sha256: 'f'.repeat(64),
+    fetched_at: '2026-04-01T01:02:03+00:00',
+    source: { url: 'https://example.gov.au/crashes.csv' },
+  });
+  objects.set(key, Buffer.from(JSON.stringify(m)));
+  forget(BY_QUARTER, V);
+  try {
+    const b = await api(BY_QUARTER);
+    assert.equal(b.status, 200, b.body.error);
+    assert.equal(b.body.publicdata.source.sha256, 'f'.repeat(64));
+    assert.equal(b.body.publicdata.source.fetched_at, '2026-04-01T01:02:03+00:00');
+    assert.equal(b.body.publicdata.source.url, 'https://example.gov.au/crashes.csv');
+    assert.equal(b.sha, 'f'.repeat(64));
+    assert.equal(b.body.publicdata.licence.id, 'CC-BY-4.0');
+    assert.ok(b.body.publicdata.attribution);
+  } finally {
+    objects.set(key, was);
+    forget(BY_QUARTER, V);
+  }
+});
+
+test("a parts answer carries the header D1 loads the version with, not its newest part's", () => {
+  // A finished part written by the version before, and the version's own manifest, as the
+  // pipeline writes them (pipeline/tests/test_parts_header_fixture.py), against the header
+  // d1.py loads the version with.
+  const h = JSON.parse(readFileSync(new URL('headers.json', ROOT), 'utf8'));
+  const got = partsHeader(h.part, partsAt(h.manifest, h.version), h.slug, h.version);
+  assert.equal(JSON.stringify(got), JSON.stringify(h.d1));
+  assert.equal(got.publisher.name, h.d1.publisher.name);
+  assert.equal(got.period, undefined);
+  assert.notEqual(h.part.attribution, h.d1.attribution);
+});
+
+test('a version whose parts carry no provenance is refused, as a file without it is', async () => {
+  const slug = 'crashes-unmarked';
+  const m = manifestOf(BY_YEAR);
+  const plain = readFileSync(
+    new URL('../pipeline/tests/fixtures/parquet/rows-no-provenance.parquet', import.meta.url),
+  );
+  for (const p of m.parts) {
+    objects.set(`d/${slug}/v/${p.tree}/${p.files.parquet.path}`, plain);
+  }
+  objects.set(
+    `d/${slug}/v/${V}/manifest.json`,
+    Buffer.from(JSON.stringify({ ...m, dataset: slug })),
+  );
+  assets['/latest.json'] = { ...assets['/latest.json'], [slug]: V };
+  reset();
+  try {
+    const request = new Request(`${SITE}/api/v1/datasets/${slug}/versions/${V}/rows?limit=2`);
+    const r = await answer({ request, env, params: { slug, version: V }, waitUntil() {} }, 'rows');
+    const b = await r.json();
+    assert.equal(r.status, 422, JSON.stringify(b));
+    assert.match(b.error, /carries no provenance/);
+  } finally {
+    delete assets['/latest.json'][slug];
+    reset();
+  }
 });
 
 test('a part written again in place is read afresh, and no answer from its old footer is served', async () => {

@@ -1761,7 +1761,6 @@
               throw new Error(b.error || r.status + ' for ' + u);
             }
             b.version = r.headers.get('x-publicdata-version');
-            b.url = location.origin + u;
             return b;
           });
       });
@@ -1932,8 +1931,12 @@
               rows: b.rows,
               matched: n,
               next_offset: b.next ? offset + limit : null,
-              query: b.url,
+              query: b.this_version,
               attribution: b.publicdata && b.publicdata.attribution,
+              file: b.file,
+              parts: b.parts,
+              order: b.order,
+              manifest: b.manifest,
             });
           });
         });
@@ -1974,8 +1977,11 @@
               groups: b.rows,
               truncated: !!b.next,
               matched: n,
-              query: b.url,
+              query: b.this_version,
               attribution: b.publicdata && b.publicdata.attribution,
+              file: b.file,
+              parts: b.parts,
+              manifest: b.manifest,
             });
           });
         });

@@ -4,7 +4,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import { answer } from './_api.js';
-import { aggregateQuery, rowsQuery } from './_query.js';
 import { onRequestGet, onRequestPost } from './mcp.js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
 import SPEC from './_tools.json' with { type: 'json' };
@@ -145,13 +144,16 @@ const env = {
     }),
   },
 };
-// Only the rate counter is kept, so every query runs rather than coming from the cache.
+// Only the rate counter is kept, so every query runs rather than coming from the cache, unless a
+// test keeps D1's answers too.
 const kept = new Map();
+let keepD1 = false;
 globalThis.caches = {
   default: {
     match: async (r) => (kept.has(r.url) ? new Response(kept.get(r.url)) : undefined),
     put: async (r, res) => {
-      if (new URL(r.url).pathname.startsWith('/_limit/')) {
+      const path = new URL(r.url).pathname;
+      if (path.startsWith('/_limit/') || (keepD1 && path.startsWith('/_d1/'))) {
         kept.set(r.url, await res.text());
       }
     },
@@ -198,7 +200,6 @@ const pageFetch = async (u) => {
   }
   return answer(
     { request: new Request(url), env, params: { slug: m[1], version: m[2] }, waitUntil() {} },
-    m[3] === 'rows' ? rowsQuery : aggregateQuery,
     m[3],
   );
 };
@@ -305,7 +306,7 @@ test('tools/list is every tool in api.json with the schema the pages register', 
     tools.map((t) => t.name),
     Object.keys(raw.webmcp.tools),
   );
-  // The server's row tools read Parquet, so api.json gives them their own words on versions.
+  // The server and the pages reach every version through one query path, so they say the same.
   const mcpText = (d) =>
     Object.entries(fill(raw.mcp.tool_text)).reduce((s, [a, b]) => s.replace(a, b), d);
   let overridden = 0;
@@ -327,7 +328,7 @@ test('tools/list is every tool in api.json with the schema the pages register', 
     assert.deepEqual(t.inputSchema, schema, t.name);
     assert.deepEqual(t.annotations ?? null, plain(page[t.name].annotations ?? null), t.name);
   }
-  assert.equal(overridden, 2);
+  assert.equal(overridden, 0);
 });
 
 test('every tool answers exactly as its twin in the page does', async () => {
@@ -404,7 +405,7 @@ test('a bad call comes back as a tool error the model can read', async () => {
   );
   assert.match(
     await err('query_rows', { slug: 'crashes', version: '2020-01-01' }),
-    /crashes has no version 2020-01-01; get_dataset lists its versions/,
+    /version 2020-01-01 of crashes has no table to query/,
   );
   assert.match(
     await err('query_rows', { slug: 'crashes', version: 'latest' }),
@@ -548,4 +549,46 @@ test('JSON-RPC edges: notifications, unknown methods, bad bodies and GET', async
   assert.equal(bad.headers.get('link'), '<https://publicdata.au/terms/>; rel="terms-of-service"');
   assert.equal((await bad.json()).error.code, -32700);
   assert.equal(onRequestGet().status, 405);
+});
+
+test('a D1 answer is kept at the edge, so the same tool call is not sent to D1 again', async () => {
+  const asked = [];
+  const prepare = DB.prepare;
+  DB.prepare = (q) => {
+    if (!q.includes('_versions')) {
+      asked.push(q);
+    }
+    return prepare(q);
+  };
+  keepD1 = true;
+  try {
+    const args = { slug: 'crashes', where: { lga: 'Logan' }, select: ['lga', 'year'], limit: 2 };
+    const first = await out('query_rows', args);
+    const n = asked.length;
+    assert.ok(n > 0);
+    const again = await out('query_rows', args);
+    assert.deepEqual(again, first);
+    assert.equal(asked.length, n);
+    // A load of other rows registers them under a table of another name, which the kept answer
+    // is not kept under.
+    sql.exec('CREATE TABLE t_reloaded (lga TEXT, year INTEGER, fatal INTEGER)');
+    sql.prepare('INSERT INTO t_reloaded VALUES (?, ?, ?)').run('Logan', 2030, 0);
+    sql.prepare("UPDATE _versions SET tbl = 't_reloaded' WHERE tbl = 't'").run();
+    try {
+      const fresh = await out('query_rows', args);
+      assert.deepEqual(fresh.rows, [{ lga: 'Logan', year: 2030 }]);
+      assert.notDeepEqual(fresh.rows, first.rows);
+    } finally {
+      sql.prepare("UPDATE _versions SET tbl = 't' WHERE tbl = 't_reloaded'").run();
+      sql.exec('DROP TABLE t_reloaded');
+    }
+  } finally {
+    DB.prepare = prepare;
+    keepD1 = false;
+    for (const k of [...kept.keys()]) {
+      if (new URL(k).pathname.startsWith('/_d1/')) {
+        kept.delete(k);
+      }
+    }
+  }
 });

@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { parquetReadObjects } from 'hyparquet';
 import { decompress } from 'fzstd';
 import { answer } from './_api.js';
-import { aggregateQuery, rowsQuery } from './_query.js';
+import { reset } from './_answer.js';
 import {
   BUDGET,
   BudgetError,
@@ -188,11 +188,7 @@ const env = {
 
 async function d1(op, qs, slug = SLUG) {
   const request = new Request(`https://publicdata.au/api/v1/datasets/${slug}/${op}?${qs}`);
-  const r = await answer(
-    { request, env, params: { slug }, waitUntil() {} },
-    op === 'rows' ? rowsQuery : aggregateQuery,
-    op,
-  );
+  const r = await answer({ request, env, params: { slug }, waitUntil() {} }, op);
   const b = await r.json();
   assert.equal(r.status, 200, `${qs}: ${b.error} ${b.detail}`);
   return b;
@@ -474,9 +470,12 @@ test('D1 answers the versions it holds and the file answers the rest, naming the
   });
   assert.equal(newest.version, NEWEST);
   assert.equal(newest.file, undefined);
+  assert.equal(newest.manifest, `https://publicdata.au/d/${SLUG}/v/${NEWEST}/manifest.json`);
+  // Every answer cites the query on the version's own path, which answers whichever engine holds
+  // the version.
   assert.equal(
     newest.query,
-    `https://publicdata.au/api/v1/datasets/${SLUG}/rows?year=eq.2019&limit=3&offset=0&select=lga`,
+    `https://publicdata.au/api/v1/datasets/${SLUG}/versions/${NEWEST}/rows?year=eq.2019&limit=3&offset=0&select=lga`,
   );
   const older = await call('query_rows', {
     slug: SLUG,
@@ -527,12 +526,168 @@ test('D1 answers the versions it holds and the file answers the rest, naming the
   );
   assert.match(
     (await call('query_rows', { slug: SLUG, version: '2020-01-01' })).error,
-    /has no version 2020-01-01/,
+    /version 2020-01-01 of crashes has no table to query/,
   );
   assert.match(
     (await call('count_rows', { slug: SLUG, version: OLDER, where: { nope: 1 } })).error,
     /no field nope/,
   );
+});
+
+// The query API's own answer for a version, as a caller gets it.
+async function api(op, qs, version, slug = SLUG) {
+  const path = version ? `${slug}/versions/${version}/${op}` : `${slug}/${op}`;
+  const request = new Request(`https://publicdata.au/api/v1/datasets/${path}${qs ? '?' + qs : ''}`);
+  const r = await answer({ request, env, params: { slug, version }, waitUntil() {} }, op);
+  return { status: r.status, body: await r.json() };
+}
+
+test('the query API answers a version D1 does not hold from its Parquet, in the shape D1 gives', async () => {
+  const held = await api('rows', 'year=eq.2019&select=lga&limit=3');
+  const older = await api('rows', 'year=eq.2019&select=lga&limit=3', OLDER);
+  assert.equal(held.status, 200);
+  assert.equal(older.status, 200, older.body.error);
+  for (const k of Object.keys(held.body)) {
+    assert.ok(k in older.body, k);
+  }
+  assert.deepEqual(older.body.publicdata, entry.header);
+  assert.equal(older.body.file, URL_);
+  assert.equal(
+    older.body.next,
+    `https://publicdata.au/api/v1/datasets/${SLUG}/versions/${OLDER}/rows?year=eq.2019&select=lga&limit=3&offset=3`,
+  );
+  const listed = await call('query_rows', {
+    slug: SLUG,
+    version: OLDER,
+    where: { year: 2019 },
+    select: ['lga'],
+    limit: 3,
+  });
+  assert.deepEqual(older.body.rows, listed.rows);
+  // The query an answer cites answers, with the same rows, routed as Pages routes its path.
+  const cited = new URL(listed.query);
+  const m = cited.pathname.match(/^\/api\/v1\/datasets\/([^/]+)\/(?:versions\/([^/]+)\/)?(rows)$/);
+  const routed = (u) =>
+    answer(
+      { request: new Request(u), env, params: { slug: m[1], version: m[2] }, waitUntil() {} },
+      m[3],
+    );
+  const again = await routed(cited);
+  assert.equal(again.status, 200);
+  assert.deepEqual((await again.json()).rows, listed.rows);
+  const csv = await routed(`${cited}&format=csv`);
+  assert.equal(csv.headers.get('x-publicdata-version'), OLDER);
+  assert.equal((await csv.text()).split('\n')[0], 'lga');
+  assert.equal((await api('rows', '', '2020-01-01')).status, 404);
+});
+
+test('the query API and the MCP tools give the same answer from every engine', async () => {
+  const cases = [
+    ['rows', { where: { year: 2019 } }, 'year=eq.2019&limit=50&offset=0'],
+    [
+      'rows',
+      { where: { lga: 'Logan' }, order: 'year.desc' },
+      'lga=eq.Logan&limit=50&offset=0&order=year.desc',
+    ],
+    [
+      'count',
+      { group_by: ['year'] },
+      'metric=count&order=count.desc,year.asc&limit=100&group=year',
+    ],
+    [
+      'count',
+      { group_by: ['lga'], metric: 'sum.year', where: { fatal: true } },
+      'fatal=eq.true&metric=sum.year&order=sum_year.desc,lga.asc&limit=100&group=lga',
+    ],
+  ];
+  for (const version of [undefined, OLDER]) {
+    for (const [kind, args, qs] of cases) {
+      const tool = kind === 'rows' ? 'query_rows' : 'count_rows';
+      const t = await call(tool, { slug: SLUG, version, ...args });
+      assert.equal(t.error, undefined, t.error);
+      const a = await api(kind === 'rows' ? 'rows' : 'aggregate', qs, version);
+      assert.equal(a.status, 200, a.body.error);
+      assert.deepEqual(a.body.rows, kind === 'rows' ? t.rows : t.groups, `${tool} ${qs}`);
+      assert.equal(t.query, a.body.this_version);
+    }
+  }
+});
+
+test('D1 keeps the order it loaded a version in, and a sorted file names its sort', async () => {
+  // D1 holds the newest version in the publisher's order, as the query API always gave it. The
+  // older version is read from its sorted query copy, and says which order its rows are in.
+  const held = await api('rows', 'limit=100');
+  assert.deepEqual(
+    held.body.rows.map((r) => r.ref),
+    sql
+      .prepare('SELECT ref FROM t ORDER BY rowid LIMIT 100')
+      .all()
+      .map((r) => r.ref),
+  );
+  assert.equal(held.body.order, undefined);
+  const older = await api('rows', 'limit=100', OLDER);
+  assert.deepEqual(
+    older.body.order,
+    entry.sortedBy.map((c) => c.name),
+  );
+  assert.ok(older.body.order.length);
+  const tool = await call('query_rows', { slug: SLUG, version: OLDER, limit: 3 });
+  assert.deepEqual(tool.order, older.body.order);
+  assert.equal((await call('query_rows', { slug: SLUG, limit: 3 })).order, undefined);
+});
+
+test('without a version, a newest version the file cannot answer falls back to the one D1 holds', async () => {
+  // The newest live version is not in D1 and its file is refused; the answer comes from the newest
+  // version D1 holds, as before the files answered, and names it.
+  const NEXT = '2026-09-01';
+  assets['/latest.json'] = { ...assets['/latest.json'], [SLUG]: NEXT };
+  put(NEXT, plain);
+  reset();
+  try {
+    const a = await api('rows', 'year=eq.2019&select=lga&limit=3');
+    assert.equal(a.status, 200, a.body.error);
+    assert.equal(a.body.this_version.includes(`/versions/${NEWEST}/`), true);
+    assert.equal(a.body.publicdata.version ?? NEWEST, NEWEST);
+    const t = await call('query_rows', { slug: SLUG, where: { year: 2019 }, limit: 3 });
+    assert.equal(t.version, NEWEST);
+    // A version asked for by name is refused, with the DuckDB SQL.
+    const named = await api('rows', 'year=eq.2019', NEXT);
+    assert.equal(named.status, 422);
+    assert.match(named.body.error, /DuckDB SQL/);
+  } finally {
+    assets['/latest.json'] = { ...assets['/latest.json'], [SLUG]: NEWEST };
+    objects.delete(`d/${SLUG}/v/${NEXT}/data.parquet`);
+    reset();
+  }
+});
+
+test('a D1 that fails leaves the files to answer, and without them the error is JSON', async () => {
+  const failing = {
+    prepare() {
+      throw new Error('D1_ERROR: overloaded');
+    },
+  };
+  const request = new Request(
+    `https://publicdata.au/api/v1/datasets/${SLUG}/rows?year=eq.2019&select=lga&limit=3`,
+  );
+  const r = await answer(
+    { request, env: { ...env, DB: failing }, params: { slug: SLUG }, waitUntil() {} },
+    'rows',
+  );
+  assert.equal(r.status, 200);
+  const b = await r.json();
+  assert.equal(b.file, `https://publicdata.au/d/${SLUG}/v/${NEWEST}/data.parquet`);
+  const bare = await answer(
+    {
+      request,
+      env: { DB: failing, ASSETS: env.ASSETS },
+      params: { slug: SLUG },
+      waitUntil() {},
+    },
+    'rows',
+  );
+  assert.equal(bare.status, 500);
+  assert.match((await bare.json()).error, /could not run/);
 });
 
 test('the budget error reaches the agent, and a file that cannot be read says where the files are', async () => {
@@ -1004,6 +1159,6 @@ test('a version stored only as period parts is located from its manifest, under 
   // A version with neither a file nor parts still has none.
   assert.match(
     (await call('query_rows', { slug: SLUG, version: '2020-07-31' })).error,
-    /has no version 2020-07-31/,
+    /version 2020-07-31 of crashes has no table to query/,
   );
 });

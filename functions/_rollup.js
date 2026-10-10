@@ -196,12 +196,10 @@ function metricOf(spec, r) {
   if (!f) {
     return null;
   }
-  if (
-    fn !== 'count' &&
-    fn !== 'min' &&
-    fn !== 'max' &&
-    !['integer', 'number', 'boolean'].includes(f.type)
-  ) {
+  // A rollup adds per-group sums, so a total of a decimal field could differ from the one D1 or
+  // the Parquet engine gives in its last digits. Only a sum or average it holds exactly is
+  // answered here; the rest fall through.
+  if (fn !== 'count' && fn !== 'min' && fn !== 'max' && !['integer', 'boolean'].includes(f.type)) {
     return null;
   }
   return { fn, name, as: `${fn}_${name}` };
@@ -369,6 +367,9 @@ function aggregateCube(r, fieldMap, params) {
       m: metrics.map(() => ({ sum: 0, n: 0, min: null, max: null, any: false })),
     });
   }
+  // A sum past 2**53 is not held exactly as a double, while SQLite adds integers exactly, so such
+  // a query falls through.
+  let inexact = false;
   let rows = [...buckets.values()].map((b) => {
     const row = {};
     group.forEach((g, j) => {
@@ -376,6 +377,9 @@ function aggregateCube(r, fieldMap, params) {
     });
     metrics.forEach((m, j) => {
       const a = b.m[j];
+      if ((m.fn === 'sum' || m.fn === 'avg') && a.any && Math.abs(a.sum + a.c) >= 2 ** 53) {
+        inexact = true;
+      }
       row[m.as] =
         m.fn === 'count'
           ? m.name
@@ -395,6 +399,9 @@ function aggregateCube(r, fieldMap, params) {
     });
     return row;
   });
+  if (inexact) {
+    return null;
+  }
   // Ties keep group order, so a page boundary never moves between calls.
   const byGroup = (x, y) => {
     for (const g of group) {
@@ -515,13 +522,25 @@ export async function rollup(ctx, slug, version, op, qs) {
     return null;
   }
   const header = r.publicdata || {};
+  const group = (params.get('group') || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const metrics = (params.get('metric') || 'count')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((m) => m.replace('.', '_'));
   return {
     version: v,
     rows: a.rows,
     more: a.more,
     matched: a.matched,
+    cols: [...group, ...metrics],
+    header,
     query: `${API}/${slug}/versions/${v}/aggregate?${qs.join('&')}`,
     attribution: header.attribution,
+    // The Parquet file the rollup was counted from, which answers the same query.
     file: `${SITE}/d/${slug}/v/${v}/data.parquet`,
     manifest: `${SITE}/d/${slug}/v/${v}/manifest.json`,
   };

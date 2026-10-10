@@ -354,8 +354,30 @@ async function locate(env, slug, version) {
     copy,
     manifest: { sha256: m.sha256, etag: m.etag },
     period: manifest.period || null,
-    rows: Number.isFinite(manifest.rows) ? manifest.rows : parts.reduce((n, p) => n + p.rows, 0),
+    ...partsAt(manifest, version, parts),
+  };
+}
+
+// What a version stored as parts takes from its own manifest for its provenance, since its parts
+// may come from versions before it: its rows, its attribution, and its date, source and hash.
+export function partsAt(manifest, version, parts = manifest.parts || []) {
+  return {
+    rows: Number.isFinite(manifest.rows)
+      ? manifest.rows
+      : parts.reduce((n, p) => n + (p.rows || 0), 0),
     attribution: manifest.attribution ?? null,
+    meta: {
+      version: manifest.version ?? version,
+      as_at: manifest.as_at ?? null,
+      fetched_at: manifest.fetched_at ?? null,
+      sha256: manifest.sha256 ?? null,
+      bytes: manifest.bytes ?? null,
+      filename: manifest.filename ?? null,
+      encoding: manifest.encoding ?? null,
+      source: manifest.source ?? null,
+      licence: manifest.licence ?? null,
+      backfilled: manifest.backfilled ?? null,
+    },
   };
 }
 
@@ -1569,7 +1591,11 @@ export async function parquetRows(env, at, params, url, budget = BUDGET, known) 
   });
   const groups = prune(entry, specs, ix);
   const tail = split
-    ? { parts: src.sel.map((p) => p.period), attribution: head.header && head.header.attribution }
+    ? {
+        parts: src.sel.map((p) => p.period),
+        attribution: head.header && head.header.attribution,
+        header: head.header || null,
+      }
     : {};
   const want = offset + limit + 1;
   if (known !== undefined && !order.length) {
@@ -1826,7 +1852,11 @@ export async function parquetAggregate(env, at, params, url, budget = BUDGET) {
     used: scan.used,
     sql,
     ...(split
-      ? { parts: src.sel.map((p) => p.period), attribution: head.header && head.header.attribution }
+      ? {
+          parts: src.sel.map((p) => p.period),
+          attribution: head.header && head.header.attribution,
+          header: head.header || null,
+        }
       : {}),
   };
 }
