@@ -69,7 +69,7 @@ from .serialise.profile import (
 )
 from .serialise.writers.geo_parquet import write_shape_parquet
 from .serialise.writers.parquet import write_parquet
-from .spine import enrich, is_spine, spine_versions
+from .spine import SpineError, enrich, is_spine, pinned_after, spine_versions
 from .updates import FIRST_SEEN, LAST_SEEN, counts
 
 if TYPE_CHECKING:
@@ -329,13 +329,21 @@ def write_formats(tbl: Table, fmts: list[str], hdr: HeaderFor, vdir: Path) -> No
 def as_fetched(ds: Dataset, m: store.Manifest) -> Dataset:
     """The entry as this version's fetch joined it: the spine layers its manifest pins.
 
-    A version fetched before an `enrich` edit keeps the layers and the fields it was joined with.
+    A version fetched before an `enrich` edit keeps the layers and the fields it was joined with,
+    and one whose manifest pins none was fetched unjoined and stays so.
     """
     keys = tuple(p["layer"] for p in m.spine)
-    if not m.spine or keys == ds.enrich:
+    if keys == ds.enrich:
         return ds
     kept_fields = tuple(f for f in ds.fields if not is_spine(f.source))
-    return replace(ds, enrich=keys, fields=kept_fields + tuple(spine_fields(keys)))
+    added = tuple(spine_fields(keys))
+    clash = {f.name for f in kept_fields} & {f.name for f in added}
+    if clash:
+        msg = (
+            f"{ds.slug} {m.version}: the publisher's fields {sorted(clash)} are the spine's it pins"
+        )
+        raise ValueError(msg)
+    return replace(ds, enrich=keys, fields=kept_fields + added)
 
 
 def build_version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a version's build steps, read in order
@@ -866,10 +874,19 @@ def version_key(
     return cache.key(entry_key(ds), m.keyed_json(), *extra, "version")
 
 
+def check_pins(ds: Dataset, store_dir: Path) -> None:
+    """Refuse a fetch with no pin after one that has a pin, which a fetch that did not pin wrote."""
+    unpinned = pinned_after(store.manifests(store_dir, ds.slug, fetches=True))
+    if unpinned:
+        msg = f"{', '.join(unpinned)}: fetched after a pinned version and pins no spine layers"
+        raise SpineError(msg)
+
+
 def version_keys(
     cache: BuildCache, ds: Dataset, store_dir: Path
 ) -> list[tuple[store.Manifest, str]]:
     """Every snapshot with its key, each key taking the one before it."""
+    check_pins(ds, store_dir)
     out: list[tuple[store.Manifest, str]] = []
     for m in store.manifests(store_dir, ds.slug):
         out.append((m, version_key(cache, ds, m, store_dir, out[-1][1] if out else "")))
@@ -1346,6 +1363,7 @@ def build_dataset(
         return dout
     prev: tuple[store.Manifest, Table | None, str] | None = None
     keys: list[str] = []
+    check_pins(ds, store_dir)
     chain = (
         version_keys(cache, ds, store_dir)
         if cache

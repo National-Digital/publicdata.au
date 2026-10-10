@@ -151,6 +151,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 
     from . import fetch  # noqa: PLC0415 - CLI start-up
     from . import store as st  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
+    from .spine import committed as spine_committed  # noqa: PLC0415 - CLI start-up
 
     store_dir = Path(args.store)
     for pair in args.file:
@@ -166,6 +167,8 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 
         )
     changed = failed = due = 0
     groups: dict[str, list[str]] = {}
+    fetch.SPINE.clear()
+    fetch.SPINE.update(spine_committed(store_dir))
     for d in datasets:
         if args.slug and d.slug not in args.slug:
             continue

@@ -162,6 +162,8 @@ def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, c
     assert lga["slug"] == "abs-lga-2025"
     assert lga["code"] == "lga_2025_code"
     assert lga["gpkg"].endswith(f"/d/abs-lga-2025/v/{lga['version']}/data.gpkg")
+    # Every layer version a served version's join is pinned to, as the crash fixture pins it.
+    assert lga["joined"] == [{"version": lga["version"], "gpkg": lga["gpkg"]}]
     assert rec["distribution"][0]["format"] == "duckdb"
     assert rec["distribution"][1]["title"] == "address_detail"
     assert not (out / "d" / "gnaf" / "explore").exists()
