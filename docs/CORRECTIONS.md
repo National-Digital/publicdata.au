@@ -74,6 +74,15 @@ that point until a maintainer runs the Deploy workflow with `replace` set to the
 dispatch follows the merge straight away. A replace overwrites and adds files and deletes none, so
 the files of a field taken out of `partition_by` stay in R2 under each version.
 
+## A withdrawn boundary layer
+
+A joined version keeps the ABS layer versions its fetch pinned, and a `replace` builds from the
+committed manifest, pin included. When the ABS withdraws a layer version as wrong, the pull
+request edits the `spine` pin in each affected version's manifest in `store/` to the layer
+version that replaces it, which must already be committed, and notes each one as step 2 sets
+out. The new pin moves each version's key, so the deploy builds them again, and the `replace`
+run of step 3 writes them over the published files and purges the edge.
+
 ## What a rebuild does not reach
 
 The Deploy run replaces the files in R2, and `publicdata purge` clears `d/<slug>/v/<date>/` and

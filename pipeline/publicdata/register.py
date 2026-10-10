@@ -634,6 +634,23 @@ def _req(d: Mapping[str, object], key: str, ctx: str) -> object:
     return d[key]
 
 
+def spine_fields(keys: tuple[str, ...]) -> list[Field]:
+    """The code and name fields each place spine layer adds, in the order the layers are named."""
+    out = []
+    for k in keys:
+        layer = LAYERS[k]
+        for name, label in (layer.code, layer.name):
+            out.append(
+                Field(
+                    name=name,
+                    source=f"{SOURCE_PREFIX}{k})",
+                    label=label,
+                    description=f"{'Code' if name == layer.code[0] else 'Name'} of the {layer.title} the point falls in. Joined by location from {layer.slug}, not published by the publisher.",
+                )
+            )
+    return out
+
+
 def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 - one check per register field, in the entry's order
     slug = str(_req(raw, "slug", ctx))
     if not SLUG_RE.match(slug):
@@ -732,21 +749,12 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         if len(set(enrich)) < len(enrich):
             msg = f"{ctx}: enrich names a layer twice"
             raise RegisterError(msg)
-        for k in enrich:
-            layer = LAYERS[k]
-            for name, label in (layer.code, layer.name):
-                if name in seen:
-                    msg = f"{ctx}: field '{name}' is the spine's; rename the publisher's"
-                    raise RegisterError(msg)
-                fields.append(
-                    Field(
-                        name=name,
-                        source=f"{SOURCE_PREFIX}{k})",
-                        label=label,
-                        description=f"{'Code' if name == layer.code[0] else 'Name'} of the {layer.title} the point falls in. Joined by location from {layer.slug}, not published by the publisher.",
-                    )
-                )
-                seen.add(name)
+        for f in spine_fields(enrich):
+            if f.name in seen:
+                msg = f"{ctx}: field '{f.name}' is the spine's; rename the publisher's"
+                raise RegisterError(msg)
+            fields.append(f)
+            seen.add(f.name)
     key = tuple(raw.get("key") or ())
     partition_by = tuple(raw.get("partition_by") or ())
     for k in (*key, *partition_by):

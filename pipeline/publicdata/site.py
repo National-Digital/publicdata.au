@@ -88,7 +88,7 @@ if TYPE_CHECKING:
     from .explorer import Console, ConsoleExample, ConsoleField, ExampleFilter
     from .figures import Cond, Figures, Preview
     from .hubs import HubRecord
-    from .jsontypes import JSON
+    from .jsontypes import JSON, JSONObject
     from .publishers import Publisher
     from .records import Records
     from .register import Condition, Example, Field
@@ -633,6 +633,16 @@ def _version_view(ds: Dataset, v: VersionOut, change: Mapping[str, JSON] | None)
         "source_url": m.source.get("url", ""),
         "portal_licence": (m.licence or {}).get("title") or (m.licence or {}).get("id", ""),
         "cut": CUT_WORDS.get(m.cut, ""),
+    }
+
+
+def _layer_files(o: DatasetOut, version: str) -> JSONObject:
+    """A boundary layer's version and, when that version has one, its GeoPackage."""
+    v = next((x for x in o.versions if x.manifest.version == version), None)
+    gpkg = v is not None and "data.gpkg" in v.files
+    return {
+        "version": version,
+        **({"gpkg": f"{version_url(o.dataset.slug, version)}data.gpkg"} if gpkg else {}),
     }
 
 
@@ -5175,7 +5185,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             }
         ),
     )
-    # The boundary layers rows can be joined to by their code, for the clients' boundary join.
+    # The boundary layers rows can be joined to by their code, for the clients' boundary join:
+    # each layer's newest version, and every version a served version's join is pinned to.
     _write(
         out,
         "places.json",
@@ -5191,14 +5202,21 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                         "code": layer.code[0],
                         "name": layer.name[0],
                         "noun": layer.noun,
-                        "version": _newest(by_slug[layer.slug]).manifest.version,
-                        **(
-                            {
-                                "gpkg": f"{version_url(layer.slug, _newest(by_slug[layer.slug]).manifest.version)}data.gpkg"
-                            }
-                            if "data.gpkg" in _newest(by_slug[layer.slug]).files
-                            else {}
+                        **_layer_files(
+                            by_slug[layer.slug], _newest(by_slug[layer.slug]).manifest.version
                         ),
+                        "joined": [
+                            _layer_files(by_slug[layer.slug], v)
+                            for v in sorted(
+                                {
+                                    p["version"]
+                                    for o in live
+                                    for x in o.versions
+                                    for p in x.manifest.spine
+                                    if p["dataset"] == layer.slug
+                                }
+                            )
+                        ],
                     }
                     for layer in SPINE_LAYERS.values()
                     if layer.slug in by_slug and by_slug[layer.slug].versions

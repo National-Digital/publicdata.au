@@ -1,11 +1,13 @@
 """The place spine: the ABS boundaries every point dataset is joined to by location.
 
 A point dataset that names `enrich` gains, for each layer, the code and name of the area its
-point falls in, from the newest version of that layer's own register entry. Points are moved to
+point falls in. The fetch fixes which version of each layer's own register entry that is (pin),
+and every build of the version joins to those, so a new layer version or an `enrich` edit reaches
+only versions fetched after it. Points are moved to
 GDA2020 (EPSG:7844), the boundaries' datum, for the join only; the published coordinates stay as
 the publisher gave them. A point on a shared boundary takes the area with the lowest code, and a
 point in no area, or with no coordinates, gets nulls. The layer versions used are recorded in the
-version's manifest and schema.
+version's manifest and schema. A layer a pin names stays in LAYERS for good, under its key.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from . import store
 if TYPE_CHECKING:
     from .normalise import ArrowArray, Table
     from .register import Geometry
+    from .store import SpinePin
 
 DATUM = "EPSG:7844"
 MEMORY_LIMIT = "3GB"
@@ -217,16 +220,76 @@ class Shapes:
 _LOADED: dict[tuple[str, str], Shapes] = {}
 
 
-def layer_shapes(layer: Layer, store_dir: Path, register_dir: Path) -> Shapes:
-    """The newest version of the layer's entry in the store, normalised, read once per build."""
+def committed(store_dir: Path) -> dict[str, list[store.Manifest]]:
+    """Each layer's versions in the store, read before a fetch run writes any.
+
+    A run opens one pull request per jurisdiction, so a layer version fetched in the same run may
+    reach main after the versions that would pin it, or never; a pin names only what main held.
+    """
+    return {layer.slug: store.manifests(store_dir, layer.slug) for layer in LAYERS.values()}
+
+
+def pin(
+    keys: tuple[str, ...], store_dir: Path, held: dict[str, list[store.Manifest]] | None = None
+) -> list[SpinePin]:
+    """The newest version of each layer, which a new fetch's join is fixed to.
+
+    `held` is the store as committed() read it when the run began; without it, the store now.
+    """
+    out: list[SpinePin] = []
+    for k in keys:
+        slug = LAYERS[k].slug
+        ms = held[slug] if held is not None else store.manifests(store_dir, slug)
+        if not ms:
+            msg = f"the place spine needs {slug} in the store, and it has no version"
+            raise SpineError(msg)
+        out.append(
+            {"layer": k, "dataset": slug, "version": ms[-1].version, "sha256": ms[-1].sha256}
+        )
+    return out
+
+
+def pinned_after(manifests: list[store.Manifest]) -> list[str]:
+    """The versions fetched with no pin after one that has a pin, which an old fetch wrote.
+
+    A version fetched before its dataset was joined keeps no pin and is built unjoined; once a
+    dataset's versions are pinned, every later fetch pins too.
+    """
+    seen = False
+    out = []
+    for m in manifests:
+        if m.spine:
+            seen = True
+        elif seen:
+            out.append(f"{m.dataset} {m.version}")
+    return out
+
+
+def pins(m: store.Manifest) -> list[SpinePin]:
+    """The layer versions a fetch fixed its join to, refused when it fixed none."""
+    if not m.spine:
+        msg = (
+            f"{m.dataset} {m.version}: the manifest pins no place spine layers; a joined version "
+            "is joined only to the layer versions its fetch recorded"
+        )
+        raise SpineError(msg)
+    for p in m.spine:
+        if p["layer"] not in LAYERS or LAYERS[p["layer"]].slug != p["dataset"]:
+            msg = f"{m.dataset} {m.version}: pinned layer {p['layer']} is not {p['dataset']} in LAYERS"
+            raise SpineError(msg)
+    return m.spine
+
+
+def layer_shapes(p: SpinePin, store_dir: Path, register_dir: Path) -> Shapes:
+    """The pinned version of a layer's entry in the store, normalised, read once per build."""
     from .normalise import normalise  # noqa: PLC0415 - normalise imports this module
     from .register import load  # noqa: PLC0415 - register imports this module
 
-    ms = store.manifests(store_dir, layer.slug)
-    if not ms:
-        msg = f"the place spine needs {layer.slug} in the store, and it has no version"
+    layer = LAYERS[p["layer"]]
+    m = next((x for x in store.manifests(store_dir, layer.slug) if x.version == p["version"]), None)
+    if m is None or m.sha256 != p["sha256"]:
+        msg = f"the place spine needs {layer.slug} {p['version']} in the store, and it is not there"
         raise SpineError(msg)
-    m = ms[-1]
     key = (layer.slug, m.sha256)
     if key not in _LOADED:
         ds = next((d for d in load(register_dir) if d.slug == layer.slug), None)
@@ -266,20 +329,16 @@ def _layer_entry(slug: str, register_dir: Path) -> str:
     return _ENTRIES[(slug, raw)]
 
 
-def spine_versions(keys: tuple[str, ...], store_dir: Path, register_dir: Path) -> str:
+def spine_versions(m: store.Manifest, register_dir: Path) -> str:
     """What the join reads, for the build cache.
 
-    That is each layer's newest source hash and the register entry the layer is normalised with,
-    so a change to either rebuilds the datasets joined to it.
+    That is each pinned layer's source hash and the register entry the layer is normalised with,
+    so a change to that entry rebuilds the versions joined to it, and a new layer version, which
+    no existing pin names, rebuilds none.
     """
-    parts = []
-    for k in keys:
-        slug = LAYERS[k].slug
-        ms = store.manifests(store_dir, slug)
-        parts.append(
-            f"{slug}@{ms[-1].sha256 if ms else 'missing'}@{_layer_entry(slug, register_dir)}"
-        )
-    return "|".join(parts)
+    return "|".join(
+        f"{p['dataset']}@{p['sha256']}@{_layer_entry(p['dataset'], register_dir)}" for p in pins(m)
+    )
 
 
 def enrich(tbl: Table, store_dir: Path, register_dir: Path) -> Table:
@@ -298,11 +357,16 @@ def enrich(tbl: Table, store_dir: Path, register_dir: Path) -> Table:
     con.execute(
         f"CREATE TABLE pts AS SELECT i, {point} AS p FROM pts_in WHERE x IS NOT NULL AND y IS NOT NULL"
     )
+    fixed = pins(tbl.manifest)
+    if tuple(p["layer"] for p in fixed) != ds.enrich:
+        msg = f"{ds.slug}: the fields name the layers {ds.enrich}, and the fetch pinned others"
+        raise SpineError(msg)
     used = []
     cols = {}
-    for key in ds.enrich:
+    for p in fixed:
+        key = p["layer"]
         layer = LAYERS[key]
-        sh = layer_shapes(layer, store_dir, register_dir)
+        sh = layer_shapes(p, store_dir, register_dir)
         con.register("shape_in", pa.table({"code": sh.codes, "name": sh.names, "wkb": sh.wkb}))
         con.execute(
             "CREATE OR REPLACE TABLE shape AS SELECT code, name, ST_MakeValid(ST_GeomFromWKB(wkb)) AS g "

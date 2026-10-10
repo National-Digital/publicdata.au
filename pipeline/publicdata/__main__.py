@@ -151,6 +151,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 
     from . import fetch  # noqa: PLC0415 - CLI start-up
     from . import store as st  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
+    from .spine import committed as spine_committed  # noqa: PLC0415 - CLI start-up
 
     store_dir = Path(args.store)
     for pair in args.file:
@@ -166,6 +167,8 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 
         )
     changed = failed = due = 0
     groups: dict[str, list[str]] = {}
+    fetch.SPINE.clear()
+    fetch.SPINE.update(spine_committed(store_dir))
     for d in datasets:
         if args.slug and d.slug not in args.slug:
             continue
@@ -645,7 +648,7 @@ def cmd_store(args: argparse.Namespace) -> int:
         print(f"store pull: {n} file(s) of the newest fetches")
     elif args.sub == "pull":
         cached = _cached_versions(store_dir, Path(args.cache)) if args.cache else set()
-        n = pull_store(store_dir, only=_with_layers(args.only), skip=cached)
+        n = pull_store(store_dir, only=_with_layers(args.only, store_dir), skip=cached)
         print(f"store pull: {n} file(s), {len(cached)} version(s) already built in the cache")
     else:
         # A run that failed before its PR can leave bytes under a version main never took.
@@ -692,14 +695,18 @@ def _committed_versions(store_dir: Path) -> set[tuple[str, ...]]:
     return {tuple(Path(f).parts[:2]) for f in out.decode().split("\0") if f}
 
 
-def _with_layers(only: list[str]) -> tuple[str, ...]:
-    """The slugs, and the spine layers any of them joins, whose sources a joined build reads."""
-    from .register import load  # noqa: PLC0415 - CLI start-up
-    from .spine import LAYERS  # noqa: PLC0415 - CLI start-up
+def _with_layers(only: list[str], store_dir: Path) -> tuple[str, ...]:
+    """The slugs, and the spine layers any of their fetches pinned, whose sources a build reads."""
+    from . import store  # noqa: PLC0415 - CLI start-up
 
     if not only:
         return ()
-    joins = {LAYERS[k].slug for d in load(REGISTER) if d.slug in only for k in d.enrich}
+    joins = {
+        p["dataset"]
+        for slug in only
+        for m in store.manifests(store_dir, slug, fetches=True)
+        for p in m.spine
+    }
     return tuple(sorted({*only, *joins}))
 
 
@@ -709,7 +716,6 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
     from .build import latest_key, newest_fetch, version_keys  # noqa: PLC0415 - CLI start-up
     from .cache import BuildCache  # noqa: PLC0415 - CLI start-up
     from .register import load  # noqa: PLC0415 - CLI start-up
-    from .spine import LAYERS  # noqa: PLC0415 - CLI start-up
 
     cache = BuildCache(cache_dir)
     datasets = [d for d in load(REGISTER) if d.publishable]
@@ -719,23 +725,21 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
         for m, key in version_keys(cache, d, store_dir)
         if cache.has(key)
     }
-    # A spine-joined version the cache cannot serve reads each layer's newest source.
-    needs = {
-        k
+    # A spine-joined version the cache cannot serve reads the layer versions its fetch pinned.
+    built = [
+        m
         for d in datasets
         for m in store.manifests(store_dir, d.slug)
-        if d.enrich and (d.slug, m.version) not in cached
-        for k in d.enrich
-    }
-    for k in needs:
-        ms = store.manifests(store_dir, LAYERS[k].slug)
-        if ms:
-            cached.discard((LAYERS[k].slug, ms[-1].version))
+        if (d.slug, m.version) not in cached
+    ]
     # latest/ is built from a rolling source's newest fetch, which may also be a snapshot.
     for d in datasets:
         m = newest_fetch(d, store_dir)
         if m and not cache.has(latest_key(cache, d, m, store_dir)):
             cached.discard((d.slug, m.version))
+            built.append(m)
+    for m in built:
+        cached -= {(p["dataset"], p["version"]) for p in m.spine}
     return cached
 
 
