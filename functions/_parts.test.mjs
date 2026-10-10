@@ -15,8 +15,10 @@ import {
   openVersion,
   parquetAggregate,
   parquetRows,
+  partsAt,
   periodStat,
 } from './_parquet.js';
+import { partsHeader, reset } from './_answer.js';
 import { onRequestPost } from './mcp.js';
 
 // Versions stored as period parts, written by the pipeline's part writer under the profile
@@ -570,7 +572,7 @@ test('the query API answers a version stored as parts with its full provenance',
   assert.equal(h.licence.id, 'CC-BY-4.0');
   assert.equal(h.attribution, 'Fixture publisher, licensed under CC BY 4.0.');
   assert.equal(h.version, V);
-  assert.equal(h.url, `${SITE}/d/${BY_YEAR}/v/${V}/`);
+  assert.equal(h.url, `${SITE}/d/${BY_YEAR}/v/${V}/data.duckdb`);
   // What belongs to the version comes from its own manifest, since its parts may come from the
   // versions before it.
   const key = `d/${BY_QUARTER}/v/${V}/manifest.json`;
@@ -595,6 +597,45 @@ test('the query API answers a version stored as parts with its full provenance',
   } finally {
     objects.set(key, was);
     forget(BY_QUARTER, V);
+  }
+});
+
+test("a parts answer carries the header D1 loads the version with, not its newest part's", () => {
+  // A finished part written by the version before, and the version's own manifest, as the
+  // pipeline writes them (pipeline/tests/test_parts_header_fixture.py), against the header
+  // d1.py loads the version with.
+  const h = JSON.parse(readFileSync(new URL('headers.json', ROOT), 'utf8'));
+  const got = partsHeader(h.part, partsAt(h.manifest, h.version), h.slug, h.version);
+  assert.equal(JSON.stringify(got), JSON.stringify(h.d1));
+  assert.equal(got.publisher.name, h.d1.publisher.name);
+  assert.equal(got.period, undefined);
+  assert.notEqual(h.part.attribution, h.d1.attribution);
+});
+
+test('a version whose parts carry no provenance is refused, as a file without it is', async () => {
+  const slug = 'crashes-unmarked';
+  const m = manifestOf(BY_YEAR);
+  const plain = readFileSync(
+    new URL('../pipeline/tests/fixtures/parquet/rows-no-provenance.parquet', import.meta.url),
+  );
+  for (const p of m.parts) {
+    objects.set(`d/${slug}/v/${p.tree}/${p.files.parquet.path}`, plain);
+  }
+  objects.set(
+    `d/${slug}/v/${V}/manifest.json`,
+    Buffer.from(JSON.stringify({ ...m, dataset: slug })),
+  );
+  assets['/latest.json'] = { ...assets['/latest.json'], [slug]: V };
+  reset();
+  try {
+    const request = new Request(`${SITE}/api/v1/datasets/${slug}/versions/${V}/rows?limit=2`);
+    const r = await answer({ request, env, params: { slug, version: V }, waitUntil() {} }, 'rows');
+    const b = await r.json();
+    assert.equal(r.status, 422, JSON.stringify(b));
+    assert.match(b.error, /carries no provenance/);
+  } finally {
+    delete assets['/latest.json'][slug];
+    reset();
   }
 });
 

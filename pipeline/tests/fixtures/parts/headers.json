@@ -1,0 +1,254 @@
+{
+  "slug": "au-eucalypt-records",
+  "version": "2026-09-29",
+  "part": {
+    "site": "https://publicdata.au",
+    "operator": {
+      "name": "National Digital",
+      "url": "https://nationaldigital.com.au/"
+    },
+    "dataset": "au-eucalypt-records",
+    "title": "Eucalypt records from Australia's herbaria and flora atlases",
+    "version": "2026-09-24",
+    "as_at": null,
+    "url": "https://publicdata.au/d/au-eucalypt-records/v/2026-09-24/parts/2019.parquet",
+    "publisher": {
+      "name": "Atlas of Living Australia",
+      "jurisdiction": "Cth",
+      "url": "https://www.ala.org.au/"
+    },
+    "licence": {
+      "id": "CC-BY-4.0",
+      "title": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/"
+    },
+    "attribution": "Atlas of Living Australia, eucalypt records from Australian government herbaria and flora atlases (the provider is named in each row), https://www.ala.org.au/, accessed 30 September 2026, licensed under CC BY 4.0 and CC0 by their providers.",
+    "cite": "Atlas of Living Australia, eucalypt records from Australian government herbaria and flora atlases (the provider is named in each row), https://www.ala.org.au/, accessed 30 September 2026, licensed under CC BY 4.0 and CC0 by their providers. Serialised and versioned by National Digital at publicdata.au, https://publicdata.au/d/au-eucalypt-records/v/2026-09-24/parts/",
+    "cite_request": "The licence requires the publisher's attribution. We ask that you also name publicdata.au and link to the version you used.",
+    "source": {
+      "url": "https://api.ala.org.au/occurrences/occurrences/search",
+      "filename": "au-eucalypt-records.csv",
+      "fetched_at": "2026-09-30T12:10:01+00:00",
+      "sha256": "2541f6f91da954b1e1b2d7176cdb8fdb3d7a800716782a5afd714b300575152b",
+      "bytes": 575556445,
+      "encoding": "utf-8",
+      "backfilled": false
+    },
+    "places": {
+      "datasets": [
+        "abs-sa2-2021",
+        "abs-lga-2025",
+        "abs-suburbs-localities-2021",
+        "abs-postal-areas-2021",
+        "abs-state-electoral-divisions-2025",
+        "abs-federal-electoral-divisions-2025"
+      ],
+      "attribution": "Place columns from Australian Statistical Geography Standard (ASGS) Edition 3 boundaries, Australian Bureau of Statistics, licensed under CC BY 4.0."
+    },
+    "rows": 30,
+    "fields": 36,
+    "not_endorsed": "This is an independent republication. The publisher has not endorsed this site.",
+    "period": {
+      "field": "year",
+      "grain": "year",
+      "value": "2019"
+    }
+  },
+  "manifest": {
+    "dataset": "au-eucalypt-records",
+    "version": "2026-09-29",
+    "as_at": "",
+    "fetched_at": "2026-10-03T02:35:27+00:00",
+    "sha256": "a14b1464632eab0e11342f336a1eb676a6990620e8dfd52b6c2a449a4b2a9824",
+    "bytes": 575972923,
+    "filename": "au-eucalypt-records.csv",
+    "encoding": "utf-8",
+    "source": {
+      "url": "https://api.ala.org.au/occurrences/occurrences/search",
+      "search": "genus:(Eucalyptus OR Corymbia OR Angophora)",
+      "filters": [
+        "country:Australia",
+        "license:(\"CC0\" OR \"CC-BY\" OR \"CC-BY 4.0 (Int)\" OR \"CC-BY 3.0 (Au)\")"
+      ],
+      "providers": {
+        "dr368": {
+          "open": 629085,
+          "all": 629085
+        },
+        "dr1097": {
+          "open": 215569,
+          "all": 215569
+        },
+        "dr366": {
+          "open": 151314,
+          "all": 151314
+        },
+        "dr15860": {
+          "open": 81768,
+          "all": 81768
+        },
+        "dr710": {
+          "open": 63916,
+          "all": 63916
+        },
+        "dr15863": {
+          "open": 43026,
+          "all": 43026
+        },
+        "dr1132": {
+          "open": 54750,
+          "all": 54750
+        },
+        "dr362": {
+          "open": 68545,
+          "all": 68545
+        },
+        "dr15865": {
+          "open": 35307,
+          "all": 35307
+        },
+        "dr376": {
+          "open": 28802,
+          "all": 28802
+        },
+        "dr2287": {
+          "open": 25001,
+          "all": 25001
+        },
+        "dr35464": {
+          "open": 14742,
+          "all": 14742
+        },
+        "dr10574": {
+          "open": 7417,
+          "all": 7417
+        },
+        "dr15866": {
+          "open": 9982,
+          "all": 9982
+        },
+        "dr21991": {
+          "open": 4022,
+          "all": 4022
+        },
+        "dr22285": {
+          "open": 2184,
+          "all": 2184
+        },
+        "dr23110": {
+          "open": 2299,
+          "all": 2299
+        },
+        "dr726": {
+          "open": 2072,
+          "all": 2072
+        },
+        "dr21985": {
+          "open": 1194,
+          "all": 1194
+        },
+        "dr820": {
+          "open": 1153,
+          "all": 1153
+        },
+        "dr725": {
+          "open": 353,
+          "all": 353
+        },
+        "dr791": {
+          "open": 1226,
+          "all": 1226
+        },
+        "dr21986": {
+          "open": 619,
+          "all": 619
+        },
+        "dr728": {
+          "open": 206,
+          "all": 206
+        },
+        "dr35481": {
+          "open": 371,
+          "all": 371
+        },
+        "dr21992": {
+          "open": 524,
+          "all": 524
+        }
+      },
+      "licences": {
+        "CC-BY 4.0 (Int)": 1257486,
+        "CC-BY 3.0 (Au)": 139925,
+        "CC0": 43026,
+        "CC-BY": 5010
+      },
+      "records": 1445447,
+      "newest_load": "2026-09-29T11:35:32+00:00"
+    },
+    "licence": {
+      "id": "CC-BY-4.0",
+      "stated": "CC-BY-4.0",
+      "normalised": "CC-BY-4.0",
+      "title": "CC BY 4.0 and CC0, by provider",
+      "url": "https://www.ala.org.au/terms-of-use/",
+      "read_from": "https://api.ala.org.au/occurrences/occurrences/search/occurrences/search",
+      "read_at": "2026-10-03T02:35:27+00:00"
+    },
+    "backfilled": false,
+    "tombstone": null,
+    "notes": [
+      "The rows are the Atlas's records from the named government providers under CC0 and CC BY licences, read from its search API. The provider and the licence are in every row."
+    ],
+    "rows_sha256": "4ee5e9d697e7d8b852ccc99a0c3e5b3d76c5d8cc4786b63ff728dad5ac2997cc",
+    "rows": 1234,
+    "attribution": "Atlas of Living Australia, eucalypt records from Australian government herbaria and flora atlases (the provider is named in each row), https://www.ala.org.au/, accessed 3 October 2026, licensed under CC BY 4.0 and CC0 by their providers."
+  },
+  "d1": {
+    "site": "https://publicdata.au",
+    "operator": {
+      "name": "National Digital",
+      "url": "https://nationaldigital.com.au/"
+    },
+    "dataset": "au-eucalypt-records",
+    "title": "Eucalypt records from Australia's herbaria and flora atlases",
+    "version": "2026-09-29",
+    "as_at": null,
+    "url": "https://publicdata.au/d/au-eucalypt-records/v/2026-09-29/data.duckdb",
+    "publisher": {
+      "name": "Atlas of Living Australia",
+      "jurisdiction": "Cth",
+      "url": "https://www.ala.org.au/"
+    },
+    "licence": {
+      "id": "CC-BY-4.0",
+      "title": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/"
+    },
+    "attribution": "Atlas of Living Australia, eucalypt records from Australian government herbaria and flora atlases (the provider is named in each row), https://www.ala.org.au/, accessed 3 October 2026, licensed under CC BY 4.0 and CC0 by their providers.",
+    "cite": "Atlas of Living Australia, eucalypt records from Australian government herbaria and flora atlases (the provider is named in each row), https://www.ala.org.au/, accessed 3 October 2026, licensed under CC BY 4.0 and CC0 by their providers. Serialised and versioned by National Digital at publicdata.au, https://publicdata.au/d/au-eucalypt-records/v/2026-09-29/",
+    "cite_request": "The licence requires the publisher's attribution. We ask that you also name publicdata.au and link to the version you used.",
+    "source": {
+      "url": "https://api.ala.org.au/occurrences/occurrences/search",
+      "filename": "au-eucalypt-records.csv",
+      "fetched_at": "2026-10-03T02:35:27+00:00",
+      "sha256": "a14b1464632eab0e11342f336a1eb676a6990620e8dfd52b6c2a449a4b2a9824",
+      "bytes": 575972923,
+      "encoding": "utf-8",
+      "backfilled": false
+    },
+    "places": {
+      "datasets": [
+        "abs-sa2-2021",
+        "abs-lga-2025",
+        "abs-suburbs-localities-2021",
+        "abs-postal-areas-2021",
+        "abs-state-electoral-divisions-2025",
+        "abs-federal-electoral-divisions-2025"
+      ],
+      "attribution": "Place columns from Australian Statistical Geography Standard (ASGS) Edition 3 boundaries, Australian Bureau of Statistics, licensed under CC BY 4.0."
+    },
+    "rows": 1234,
+    "fields": 36,
+    "not_endorsed": "This is an independent republication. The publisher has not endorsed this site."
+  }
+}
