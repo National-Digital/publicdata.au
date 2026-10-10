@@ -41,6 +41,7 @@ from .normalise import Table, normalise
 from .periods import of_manifest
 from .provenance import OPERATOR_URL, attribution
 from .provenance import header as prov_header
+from .register import spine_fields
 from .serialise import (
     CAPS,
     MEASURED,
@@ -68,7 +69,7 @@ from .serialise.profile import (
 )
 from .serialise.writers.geo_parquet import write_shape_parquet
 from .serialise.writers.parquet import write_parquet
-from .spine import enrich, spine_versions
+from .spine import enrich, is_spine, spine_versions
 from .updates import FIRST_SEEN, LAST_SEEN, counts
 
 if TYPE_CHECKING:
@@ -325,6 +326,18 @@ def write_formats(tbl: Table, fmts: list[str], hdr: HeaderFor, vdir: Path) -> No
         WRITERS[fmt](tbl, hdr(tbl.rows, f"data.{fmt}"), vdir / f"data.{fmt}", vdir)
 
 
+def as_fetched(ds: Dataset, m: store.Manifest) -> Dataset:
+    """The entry as this version's fetch joined it: the spine layers its manifest pins.
+
+    A version fetched before an `enrich` edit keeps the layers and the fields it was joined with.
+    """
+    keys = tuple(p["layer"] for p in m.spine)
+    if not m.spine or keys == ds.enrich:
+        return ds
+    kept_fields = tuple(f for f in ds.fields if not is_spine(f.source))
+    return replace(ds, enrich=keys, fields=kept_fields + tuple(spine_fields(keys)))
+
+
 def build_version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a version's build steps, read in order
     ds: Dataset,
     m: store.Manifest,
@@ -343,6 +356,7 @@ def build_version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a version's build 
     unchanged, and `revised` the periods the change logs since then revised. `read` is a feed's
     newest read, which latest/'s history carries its current rows to.
     """
+    ds = as_fetched(ds, m)
     tbl = normalise(ds, m, data)
     if ds.enrich:
         if store_dir is None:
@@ -397,7 +411,7 @@ def build_version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a version's build 
         partitions = {}
     (vdir / "schema.json").write_text(pretty(table_schema(tbl)), encoding="utf-8")
     (vdir / "schema.sql").write_text(schema_sql(tbl, hdr(tbl.rows, "schema.sql")), encoding="utf-8")
-    man = json.loads(m.to_json())
+    man = json.loads(m.keyed_json())
     if ds.source_withheld:
         man["source_withheld"] = ds.source_withheld
     man["rows"] = tbl.rows
@@ -835,6 +849,7 @@ def version_key(
     build code is not in it, so an edit to that code reuses every version until a rebuild number
     is raised.
     """
+    ds = as_fetched(ds, m)
     extra = [f"spatial={cache_mod.spatial_version()}"] if spatial(ds) else []
     extra += [k] if (k := kind_key(ds.kind)) else []
     if m.period:
@@ -846,9 +861,9 @@ def version_key(
         if store_dir is None:
             msg = f"{ds.slug}: a spine-joined version's key needs the store"
             raise ValueError(msg)
-        layers = spine_versions(ds.enrich, store_dir, REGISTER_DIR)
-        return cache.key(entry_key(ds), m.to_json(), layers, *extra, "version")
-    return cache.key(entry_key(ds), m.to_json(), *extra, "version")
+        layers = spine_versions(m, REGISTER_DIR)
+        return cache.key(entry_key(ds), m.keyed_json(), layers, *extra, "version")
+    return cache.key(entry_key(ds), m.keyed_json(), *extra, "version")
 
 
 def version_keys(
@@ -1159,6 +1174,7 @@ def _cached_version(  # noqa: PLR0913 - the options are keyword-only and named a
     A cached version is taken without touching the source bytes, and keeps only the files
     keeper() names.
     """
+    ds = as_fetched(ds, m)
     vdir = out / where(ds.slug, m.version, tree)
     if cache is not None:
         hit = cache.get(key, vdir, CacheMeta)
@@ -1353,7 +1369,10 @@ def build_dataset(
                 if ds.kind == "database":
                     d = diff_database(ds, dout.versions[-2], vout)
                 else:
-                    d = diff(_served_table(ds, pm, ptbl, out), _served_table(ds, m, tbl, out))
+                    d = diff(
+                        _served_table(as_fetched(ds, pm), pm, ptbl, out),
+                        _served_table(as_fetched(ds, m), m, tbl, out),
+                    )
                 if cache:
                     cache.put(dkey, d)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -1365,6 +1384,8 @@ def build_dataset(
         prev = (m, tbl, key)
     if not dout.versions:
         return dout
+    # The dataset's pages describe its newest version, joined as that version's fetch joined it.
+    dout.dataset = as_fetched(ds, dout.versions[-1].manifest)
     ddir = out / "d" / ds.slug
     (ddir / "versions.json").write_text(
         pretty(
@@ -1382,7 +1403,7 @@ def build_dataset(
                         "as_at": v.manifest.as_at or None,
                         "url": version_url(ds.slug, v.manifest.version),
                         "rows": v.rows,
-                        "fields": ds.field_count,
+                        "fields": as_fetched(ds, v.manifest).field_count,
                         **({"tables": v.tables} if ds.kind == "database" else {}),
                         "sha256": v.manifest.sha256,
                         "bytes": v.manifest.bytes,

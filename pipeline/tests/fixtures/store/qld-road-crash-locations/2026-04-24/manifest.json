@@ -59,5 +59,43 @@
       "count_unit_other"
     ]
   },
-  "caps": 1
+  "caps": 1,
+  "spine": [
+    {
+      "layer": "sa2",
+      "dataset": "abs-sa2-2021",
+      "version": "2021-06-24",
+      "sha256": "bc92405c872eb69dcfe7944190e822ccdf1e5713f6821522c85055922b1dc119"
+    },
+    {
+      "layer": "lga",
+      "dataset": "abs-lga-2025",
+      "version": "2026-05-14",
+      "sha256": "d826c1ae0c08d3535fd52786364dbadb2878099879c6b0950fb5afffedee23ee"
+    },
+    {
+      "layer": "suburb",
+      "dataset": "abs-suburbs-localities-2021",
+      "version": "2021-09-13",
+      "sha256": "b7d01c3569d8d8fdc0873370aa8e7130bc66262aa46d6ad613fa58990028ac30"
+    },
+    {
+      "layer": "postcode",
+      "dataset": "abs-postal-areas-2021",
+      "version": "2021-09-13",
+      "sha256": "6c910ac3029d9d72b86317510bd4c97a8fdbafd58b7b65e5358ba76c39bb86d6"
+    },
+    {
+      "layer": "state_electorate",
+      "dataset": "abs-state-electoral-divisions-2025",
+      "version": "2025-06-20",
+      "sha256": "a7c25bcf55afeb806a8598bf4971a23f97e474f042254f3e28adfd8553b32b6f"
+    },
+    {
+      "layer": "federal_electorate",
+      "dataset": "abs-federal-electoral-divisions-2025",
+      "version": "2025-06-20",
+      "sha256": "01f8821cde5ce07fc64a85a77f0e582d71bef7ee63cdd0bd41b2c550fe79edcd"
+    }
+  ]
 }

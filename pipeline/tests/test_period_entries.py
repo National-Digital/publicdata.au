@@ -20,7 +20,7 @@ from publicdata.build import build_dataset, version_key
 from publicdata.cache import BuildCache
 from publicdata.register import Period, load
 from publicdata.site import render_site
-from publicdata.spine import SOURCE_PREFIX
+from publicdata.spine import SOURCE_PREFIX, pin
 
 from .conftest import make_manifest, present
 
@@ -110,6 +110,7 @@ def put(st: Path, ds: Dataset, version: str, body: str, *, period: bool = True) 
     )
     if period:
         m.period = periods.recorded(ds.period)
+    m.spine = pin(ds.enrich, st)
     store.write(st, m, data)
     return m
 
