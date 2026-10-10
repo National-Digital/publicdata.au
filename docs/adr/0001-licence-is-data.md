@@ -1,10 +1,7 @@
-# 0020: A dataset is published only under a licence a person has checked, and the gate enforces it
+# 0001: A dataset is published only under a licence a person has checked
 
-- Status: **Accepted** (the initial public release; publishers' answers to a request for permission
-  recorded on their entries: #136)
-- Date: 2026-10-04 (recorded 2026-10-10)
-- Deciders: National Digital
-- Relates to: [0002](0002-versions-are-kept.md), [0022](0022-copies-on-the-hubs.md)
+- Status: Accepted
+- Date: 2026-10-10
 
 ## Context
 
@@ -28,7 +25,7 @@ publishers to distrust it.
 - No-derivatives, non-commercial and restricted licences are never published. Such an entry stays
   in the register as `blocked`, with the reason shown on the backlog.
 - Where we ask a publisher for permission directly, the entry records when we asked, when the
-  publisher answered and what it said (#136). A permission granted becomes a grant in
+  publisher answered and what it said. A permission granted becomes a grant in
   `register/licences/`.
 - A version stays up under the licence it was published under.
 
@@ -43,8 +40,8 @@ publishers to distrust it.
 - A licence change stops a dataset until a person has read the new licence and updated the entry.
 - Datasets people ask for can stay blocked for good, and the backlog says why.
 - A dataset with a condition of use is never copied to the hubs, since no hub can state the
-  condition ([0022](0022-copies-on-the-hubs.md)).
-- The data's licences are separate from the code's licence and from the CC BY 4.0 of the register
+  condition ([0018](0018-copies-on-the-hubs.md)).
+- The data's licences are separate from the code's AGPL and from the CC BY 4.0 of the register
   text, and stay that way.
 
 See `docs/ARCHITECTURE.md` ("Rules that decide the code", "Licence gate") and `CONTRIBUTING.md`

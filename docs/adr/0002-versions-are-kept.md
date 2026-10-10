@@ -1,10 +1,7 @@
 # 0002: A dated version is kept for good and keeps its content
 
-- Status: **Accepted** (the rule predates the public release; its wording on corrections and
-  removals: #46; the raw store kept append-only: #105; checksums: #73; `partition_by` edits as
-  corrections: #110)
-- Date: 2026-10-04
-- Deciders: National Digital
+- Status: Accepted
+- Date: 2026-10-10
 
 ## Context
 
@@ -21,7 +18,7 @@ for good under our name. A rule that lets files change freely would make a citat
 - A change to a source makes a version, and an unchanged source makes none. For a release, a
   version needs a new source hash and rows that hash differently (`rows_sha256`). Rolling sources
   and feeds make a dated version only when a fetch becomes a snapshot
-  ([0005](0005-update-classes.md)).
+  ([0004](0004-update-classes.md)).
 - Every version is kept indefinitely, including after the publisher withdraws or replaces the
   source. Its source bytes never change.
 - A version's content is every file under its dated path, its `by/<field>/` files and its
@@ -35,7 +32,7 @@ for good under our name. A rule that lets files change freely would make a citat
 - Withholding a dataset stops serving it without removing it. A dataset taken out of `live`, or a
   file listed in `withheld.json`, answers 410 while R2 keeps the bytes.
 - How a file is stored may change when the bytes a client receives do not
-  ([0011](0011-text-stored-compressed.md), [0014](0014-build-cache-in-r2.md)).
+  ([0011](0011-files-stored-at-their-url-paths.md), [0014](0014-build-cache-in-r2.md)).
 
 Files outside a dated path, such as diffs, `changes.json`, `history.tar.zst` and `latest/`, are
 views over the versions. They are rebuilt whenever their inputs change and cached for five minutes.
@@ -50,17 +47,17 @@ views over the versions. They are rebuilt whenever their inputs change and cache
 
 ## Consequences
 
-- Storage grows with every version and is never reclaimed. [0005](0005-update-classes.md),
+- Storage grows with every version and is never reclaimed. [0004](0004-update-classes.md),
   [0007](0007-formats-each-version-carries.md) and [0012](0012-storage-budget.md) keep that growth
   in proportion to what changes.
-- R2 keeps no earlier copy of an object, so the raw store is append-only because the push refuses
-  to overwrite an object a committed version holds (#105).
+- R2 keeps no earlier copy of an object, so the push refuses to overwrite an object a committed
+  version holds, which keeps the raw store append-only.
 - An edit to an entry's `partition_by` changes the `by/` files of every published version, so it is
-  a correction and reaches those versions only through a `replace` with a note in each manifest.
-  The deploy fails such an edit until the notes are there (#110).
+  a correction. It reaches those versions only through a `replace` with a note in each manifest,
+  and the deploy fails the edit until the notes are there.
 - A correction rebuilds and purges every affected version, and the hubs' copies are refreshed
-  where the hub allows it. `docs/CORRECTIONS.md` keeps the log; its first entry, the ABS attribution
-  links of 6 October 2026, records a rebuild still to run.
+  where the hub allows it ([0018](0018-copies-on-the-hubs.md)). `docs/CORRECTIONS.md` keeps the
+  log.
 - The terms page ("Versions and changes") states the same rule for readers.
 
 See `docs/ARCHITECTURE.md` ("Rules that decide the code", "Archive") and `docs/CORRECTIONS.md`.

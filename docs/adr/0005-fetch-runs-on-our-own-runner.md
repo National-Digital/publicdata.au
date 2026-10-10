@@ -1,8 +1,7 @@
-# 0003: The fetch and the catalogue harvest run on our own runner in Australia
+# 0005: The fetch and the catalogue harvest run on our own runner in Australia
 
-- Status: **Accepted** (the initial public release)
-- Date: 2026-10-04
-- Deciders: National Digital
+- Status: Accepted
+- Date: 2026-10-10
 
 ## Context
 

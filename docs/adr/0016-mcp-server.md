@@ -1,11 +1,7 @@
-# 0015: Agents reach the site through one remote MCP server and the tools it shares with the pages
+# 0016: Agents reach the site through one remote MCP server, described by one spec
 
-- Status: **Accepted** (server, spec and tools: the initial public release; tool lint: #72; every
-  version reachable: #52, #108; discovery files, dataset bundles and the Agent Skill: #100)
-- Date: 2026-10-08
-- Deciders: National Digital
-- Relates to: [0009](0009-queries-read-parquet.md), [0010](0010-mcp-answer-layer.md),
-  [0019](0019-contract-only-grows.md)
+- Status: Accepted
+- Date: 2026-10-10
 
 ## Context
 
@@ -50,13 +46,14 @@ its server card and its MCP Registry entry. Each copy written by hand drifts fro
   it the rows the server read, and the URL keeps working because a version keeps its content.
 - The server keeps no record of what is asked. The per-address rate limit holds a count in the edge
   cache for ten seconds, a vote stores a salted hash of the voter for that day, and a failed call
-  goes to the Workers log with the dataset and version. A rate-limited call gets a tool error with
-  the seconds to wait.
+  goes to the Workers log with the dataset and version. A log of what is asked would need a record
+  of its own.
 - Each tool has a fixed cost against the per-address limit, set in the spec. The server keeps that
-  limit itself (`functions/_limit.js`), since the zone's rule covers `/api/v1/datasets/*` only.
-- The tools are part of the public contract ([0019](0019-contract-only-grows.md)). Renaming a tool
+  limit itself (`functions/_limit.js`), since the zone's rule covers `/api/v1/datasets/*` only. A
+  rate-limited call gets a tool error with the seconds to wait.
+- The tools are part of the public contract ([0015](0015-contract-only-grows.md)). Renaming a tool
   or a parameter breaks callers.
-- Which engine answers, and in what order, is set by [0009](0009-queries-read-parquet.md) and
-  [0010](0010-mcp-answer-layer.md).
+- Which engine answers, and in what order, is set by
+  [0017](0017-how-queries-are-answered.md).
 
 See `CONTRIBUTING.md` ("Change the API or the MCP tools") and the agents page (`/agents/`).
