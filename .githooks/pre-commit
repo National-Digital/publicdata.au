@@ -6,7 +6,7 @@
 # Workflow lint: actionlint with shellcheck, and zizmor at CI's persona, over a copy of the staged
 # files the Workflow lint job reads. zizmor runs offline, so the hook needs no network or token. A
 # failure here still lets the Python check below run, and the EXIT trap then fails the commit.
-wf_paths=".github/workflows .github/actions .github/actionlint.yaml .github/dependabot.yml"
+wf_paths=".github/workflows .github/actions .github/actionlint.yaml"
 # shellcheck disable=SC2086 # wf_paths is a list of paths without spaces
 if [ -n "$(git diff --cached --name-only -- $wf_paths)" ]; then
   wf_ci=$(git show :.github/workflows/ci.yml 2>/dev/null)
@@ -81,6 +81,58 @@ if [ -n "$js" ]; then
       echo "pre-commit: ESLint or Prettier found problems; fix them or commit with --no-verify"
       trap 'exit 1' EXIT
     fi
+  fi
+fi
+
+# lintr and styler, at the versions clients.yml pins, over a copy of the staged R client, run as
+# the R client job runs them. A missing R or package fails the commit because CI always runs both.
+# A failure lets the Python check below run, and the EXIT trap then fails the commit.
+r_files=$(git diff --cached --name-only -- 'clients/r/*.R' 'clients/r/*.Rmd' clients/r/.lintr \
+  clients/r/DESCRIPTION)
+if [ -n "$r_files" ]; then
+  r_pins=$(git show :.github/workflows/clients.yml 2>/dev/null |
+    grep -oE '(lintr|cyclocomp|styler)@[0-9.]+')
+  r_failed=0
+  if ! command -v Rscript >/dev/null 2>&1; then
+    r_list=$(printf '%s\n' "$r_pins" | sed 's/.*/"&"/' | paste -sd, - | sed 's/,/, /g')
+    echo "pre-commit: Rscript not found; install R from https://cloud.r-project.org, then the packages at the versions clients.yml pins: Rscript -e 'pak::pak(c($r_list))'"
+    r_failed=1
+  else
+    r_have=$(Rscript -e 'for (p in c("lintr", "cyclocomp", "styler")) cat(p, tryCatch(format(packageVersion(p)), error = function(e) "missing"), "\n")' 2>/dev/null)
+    for r_pkg in lintr cyclocomp styler; do
+      r_pin=$(printf '%s\n' "$r_pins" | grep -oE "$r_pkg@[0-9.]+" | head -n 1)
+      r_ver=$(printf '%s\n' "$r_have" | sed -n "s/^$r_pkg \([^ ]*\).*/\1/p")
+      if [ -z "$r_pin" ]; then
+        echo "pre-commit: clients.yml pins no version of $r_pkg; add it where the R client job installs its packages"
+        r_failed=1
+      elif [ -z "$r_ver" ] || [ "$r_ver" = missing ]; then
+        echo "pre-commit: R package $r_pkg not found; install $r_pin, the version clients.yml pins: Rscript -e 'pak::pak(\"$r_pin\")'"
+        r_failed=1
+      elif [ "$r_pkg@$r_ver" != "$r_pin" ]; then
+        echo "pre-commit: warning: $r_pkg is $r_ver here and ${r_pin#*@} in CI"
+      fi
+    done
+  fi
+  if [ "$r_failed" -eq 0 ]; then
+    if r_tree=$(mktemp -d); then
+      trap 'rm -rf "$r_tree"; exit 1' INT TERM HUP
+      if git ls-files -z -- clients/r | git checkout-index -z --stdin --prefix="$r_tree/"; then
+        (cd "$r_tree/clients/r" &&
+          Rscript -e 'lints <- lintr::lint_package(); print(lints); if (length(lints)) quit(status = 1L)') ||
+          r_failed=1
+        (cd "$r_tree/clients/r" && Rscript -e 'styler::style_pkg(dry = "fail")') || r_failed=1
+      else
+        r_failed=1
+      fi
+      rm -rf "$r_tree"
+      trap - INT TERM HUP
+    else
+      r_failed=1
+    fi
+  fi
+  if [ "$r_failed" -ne 0 ]; then
+    echo "pre-commit: lintr or styler found problems in clients/r; fix them or commit with --no-verify"
+    trap 'exit 1' EXIT
   fi
 fi
 

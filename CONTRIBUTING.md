@@ -74,29 +74,42 @@ machine what CI would fail a few minutes later.
   commit with no staged Python file in either directory runs no check. It takes well under a
   second.
 - `pre-commit` also checks the files the Workflow lint job reads, when a commit stages one of
-  them: `.github/workflows/`, `.github/actions/`, `.github/actionlint.yaml` and
-  `.github/dependabot.yml`. A change to a template, `CODEOWNERS` or the lint fixture runs no
-  check. It writes those staged files to a temporary directory, so an unstaged edit cannot hide a
-  fault, and runs actionlint with shellcheck and
-  `zizmor --offline --persona auditor --strict-collection` over that copy, so a workflow zizmor
-  cannot parse fails too. It names each file and rule that fails and stops the commit once the
-  Python check has run. Offline, zizmor leaves out the audits that ask GitHub: `impostor-commit`,
-  `ref-confusion`, `known-vulnerable-actions`, `stale-action-refs` and `ref-version-mismatch`.
-  The Workflow lint job in CI runs those too, so a commit the hook passes can still fail there.
-  Each tool should be the version `.github/workflows/ci.yml` pins; the hook warns, naming both
-  versions, when one differs, and runs it anyway.
+  them: `.github/workflows/`, `.github/actions/` and `.github/actionlint.yaml`. A change to a
+  template, `CODEOWNERS`, `renovate.json` or the lint fixture runs no check. It writes those
+  staged files to a temporary directory, so an unstaged edit cannot hide a fault, and runs
+  actionlint with shellcheck and `zizmor --offline --persona auditor --strict-collection` over
+  that copy, so a workflow zizmor cannot parse fails too. It names each file and rule that fails
+  and stops the commit once the Python check has run. Offline, zizmor leaves out the audits that
+  ask GitHub: `impostor-commit`, `ref-confusion`, `known-vulnerable-actions`, `stale-action-refs`
+  and `ref-version-mismatch`. The Workflow lint job in CI runs those too, so a commit the hook
+  passes can still fail there. Each tool should be the version `.github/workflows/ci.yml` pins;
+  the hook warns, naming both versions, when one differs, and runs it anyway.
 - `pre-commit` also runs ESLint with `--max-warnings 0` and `prettier --check` on the staged
   content of each staged JavaScript file the two configs cover and of `.prettierrc.json`, using
   the versions in `node_modules`. It names each file and rule that fails and stops the commit once
   the other checks have run. A commit with no such file runs neither tool. Each file takes about a
   second.
+- `pre-commit` also runs lintr and styler on the R client when a commit stages an `.R` or `.Rmd`
+  file under `clients/r/`, or its `.lintr` or `DESCRIPTION`. It writes the staged client to a
+  temporary directory and runs there the two commands the R client job in
+  `.github/workflows/clients.yml` runs, `lintr::lint_package()` and
+  `styler::style_pkg(dry = "fail")`. It prints each lint and stops the commit once the Python
+  check has run. lintr, cyclocomp and styler should be the versions `clients.yml` pins; the hook
+  warns, naming both versions, when one differs. CI installs the client before lintr runs,
+  because lintr reads the installed package to resolve the client's internal functions. Install
+  it locally with `R CMD INSTALL clients/r` to match.
 - `pre-push` checks what the push changes, comparing each branch with what the remote holds, or
   a new branch with where it leaves the remote's main. When the push changes `pipeline/`, it runs
   `mypy` there, then the fast tests in the working tree, `pytest -m "not slow" -n auto`. When it
   changes `clients/python/`, it runs the client's two mypy runs, `mypy` and
-  `mypy --python-version 3.14`. It runs `node --test functions/*.test.mjs scripts/*.test.mjs` on
-  every push. mypy keeps its cache between runs, so a later push checks only what changed. The
-  hook stops the push when a check fails, and should take under a minute on a laptop.
+  `mypy --python-version 3.14`. When it changes `register/`, it runs
+  `python -m publicdata register validate`, as the Register validates job does, and then
+  `pytest tests/test_register.py` in `pipeline/`, slow tests included, since they load the real
+  register. The rest of the suite runs only when `pipeline/` changes too. Validation lists every
+  entry, so the hook prints its output only when it fails. It runs
+  `node --test functions/*.test.mjs scripts/*.test.mjs` on every push. mypy keeps its cache
+  between runs, so a later push checks only what changed. The hook stops the push when a check
+  fails, and should take under a minute on a laptop.
 
 The fast tests are every test that is not marked `slow`. `pipeline/tests/conftest.py` decides
 which tests are slow: those that use the fixture store or a fixture site build (`SLOW_FIXTURES`)
@@ -107,12 +120,15 @@ environment stops the commit or push with one line saying what to install. A com
 `.github/` fails in the same way when actionlint, shellcheck or zizmor is missing, with a line
 naming the version CI pins and where to get it. A commit that stages JavaScript fails when
 `node_modules` is missing, with a line asking you to run `npm ci --ignore-scripts`, because CI
-always runs ESLint and Prettier. A missing `node` skips the JavaScript tests with a line saying
+always runs ESLint and Prettier. A commit that stages R client code fails when `Rscript`,
+lintr, cyclocomp or styler is missing, with a line naming the versions `clients.yml` pins and a
+`pak::pak()` call that installs them. A missing `node` skips the JavaScript tests with a line saying
 so. To skip the hooks once, pass `--no-verify` to `git commit` or `git push`.
 
 CI's pipeline job puts the same pinned actionlint, shellcheck and zizmor on its PATH, so the
 hook's tests in `pipeline/tests/test_hooks.py` run there, and its `npm ci` gives the JavaScript
-check's tests their `node_modules`. Locally they skip when a tool is not installed.
+check's tests their `node_modules`. Locally they skip when a tool is not installed. The R
+check's tests put a stand-in `Rscript` on the path, so they run without R.
 
 CI runs every check again, every test included, whatever the hooks did. The hooks catch a failure
 before the push, and they replace none of CI's checks.
