@@ -290,6 +290,15 @@ def test_a_version_fetched_before_its_dataset_was_joined_is_built_unjoined(tmp_p
         spine.spine_versions(m, REGISTER)
 
 
+def test_a_pinned_layer_whose_field_the_publisher_now_uses_fails_loudly() -> None:
+    raw = crashes_raw(enrich=["sa2"])
+    raw["fields"] = [*raw["fields"], {"name": "lga_2025_code", "source": "Crash_Ref_Number"}]
+    ds = parse(raw, "qld")
+    m = store.manifests(FIXTURES, ds.slug)[-1]
+    with pytest.raises(ValueError, match=r"\['lga_2025_code'\] are the spine's it pins"):
+        as_fetched(ds, m)
+
+
 def test_a_changed_pin_is_a_new_cache_entry(tmp_path: Path) -> None:
     ds = crashes()
     cache = BuildCache(tmp_path / "c")
