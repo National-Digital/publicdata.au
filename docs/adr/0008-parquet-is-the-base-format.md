@@ -1,25 +1,21 @@
 # 0008: Parquet is the format everything reads
 
-- Status: **Accepted** (#56, merged into #48's branch and landed with it; query copies read by the
-  MCP tools: #52; a layout edit rewrites them: #94)
-- Date: 2026-10-06
-- Deciders: National Digital
-- Relates to: [0007](0007-formats-each-version-carries.md), [0009](0009-queries-read-parquet.md),
-  [0010](0010-mcp-answer-layer.md)
+- Status: Accepted
+- Date: 2026-10-10
 
 ## Context
 
-The site's own readers used different files. The figures, the query console and the D1 loader read
-each version's SQLite file, the explorer and the hubs read Parquet, and DuckDB attached its own
-file. The build cache had to keep both Parquet and SQLite for every version: 1.7 GB of Parquet and
-6.7 GB of SQLite across the live versions.
+The site's figures, query console, D1 loader, explorer, hubs and query tools all read version
+files. Each format they read is one more place to get types and provenance right, and one more set
+of files the build cache has to keep. In October 2026 the live versions held 1.7 GB of Parquet and
+6.7 GB of SQLite.
 
 The MCP server is the consumer this design is built for: an AI agent querying through it. It needs
 to answer from any version, past or present, and a Worker can only do that by reading part of a
 file.
 
 A benchmark on a deployed Worker in October 2026 (hyparquet with zstd, CPU time from the Worker's
-own logs, the median of three runs) measured what makes a partial read cheap (#56):
+own logs, the median of three runs) measured what makes a partial read cheap:
 
 - Sort order mattered most. A filter on type and registration year over the company register took
   15.3 s of CPU and 20.4 s of wall time on the file as published, and 727 ms once sorted by
@@ -47,8 +43,8 @@ say so in the footer key `publicdata.profile` beside the provenance key `publicd
   publisher's file keep the source order, because people compare our CSV with the source line by
   line.
 - **Lookups.** An entry may declare `lookup:` fields, which get bloom filters, so an equality lookup
-  stays cheap when the sort serves another filter. No reader in this repository uses them yet. They
-  serve external readers such as DuckDB.
+  stays cheap when the sort serves another filter. They serve external readers such as DuckDB, and
+  no reader in this repository uses them yet.
 - **Types.** An integer field is written as INT32 when the entry declares it under `int32:`, in
   every version, so a field keeps one type across versions and parts.
 - **Encoding and sizes.** zstd, dictionary encoding and column statistics on every file, and a page
@@ -56,12 +52,11 @@ say so in the footer key `publicdata.profile` beside the provenance key `publicd
   1,000,000-row groups overflowed the reader's stack, and 10,000-row pages used 10 to 30% less CPU
   on point lookups than 20,000-row pages.
 
-A version's own files keep the layout its fetch recorded in its manifest, under
-[0002](0002-versions-are-kept.md). So that the versions published before the profile, and those
-published under an older layout, can still be read in part, every table version also has a query
-copy under the current profile and the entry's current layout, at `_q/<slug>/<version>.parquet` in
-the published bucket. No route serves it and nothing links it. Answers and DuckDB SQL name the
-public `data.parquet`.
+A version's own files keep the layout its fetch recorded in its manifest
+([0002](0002-versions-are-kept.md)). So that every version can be read in part, whatever layout it
+was published under, every table version also has a query copy under the current profile and the
+entry's current layout, at `_q/<slug>/<version>.parquet` in the published bucket. No route serves
+it and nothing links it. Answers and DuckDB SQL name the public `data.parquet`.
 
 ## Alternatives considered
 
@@ -69,19 +64,19 @@ public `data.parquet`.
   another, and many publishers' files are already grouped on the filter that matters. Sorting only
   where an entry asks avoids that.
 - **A page index on every file.** On an unsorted file it saves no work and multiplies the reads.
-- **Rewriting each published `data.parquet` under the profile.** That would change the bytes of
+- **Rewriting each published `data.parquet` under a new profile.** That would change the bytes of
   cited files outside the reasons [0002](0002-versions-are-kept.md) allows. A query copy gives the
   same reach without touching them.
 
 ## Consequences
 
-- One read format means one place to get provenance right. The build cache keeps no Parquet and
-  reads it back from the published bucket ([0014](0014-build-cache-in-r2.md)).
+- One read format means one place to get provenance right. The build cache keeps no copy of a
+  version's `data.parquet` and reads it back from the published bucket
+  ([0014](0014-build-cache-in-r2.md)).
 - Query copies add about the size of the Parquet set, 1.7 GB in October 2026. A copy is rewritten
   in place when an entry's `sort`, `lookup` or `int32` changes, so a reader keys its caches on the
   object's ETag. A new profile writes its copies beside the old ones.
 - A re-sort never makes a new version, because `rows_sha256` hashes each row and sorts the hashes.
-- Versions stored as parts alone get no query copy ([0006](0006-period-partitions.md)).
-- In October 2026 three entries declare `sort:` and none declares `lookup:`.
+- Versions stored as parts alone get no query copy ([0009](0009-period-partitions.md)).
 
 See `docs/ARCHITECTURE.md` ("Parquet profile", "Hosting").

@@ -1,10 +1,7 @@
-# 0006: Large dated tables are split into period parts
+# 0009: Large dated tables are split into period parts
 
-- Status: **Accepted** (#53; parts read by the MCP tools and D1: #108; the first two entries split:
-  #127)
-- Date: 2026-10-06
-- Deciders: National Digital
-- Relates to: [0005](0005-update-classes.md), [0008](0008-parquet-is-the-base-format.md)
+- Status: Accepted
+- Date: 2026-10-10
 
 ## Context
 
@@ -14,7 +11,7 @@ would be too large for the explorer and for a Worker to query, and every format 
 stored again with each version.
 
 Most of such a table is finished. Rows for 1950 do not change in 2026, except when a publisher
-reprocesses its history, which is the event an archive most needs to record.
+reprocesses its history, and an archive has to record that.
 
 ## Decision
 
@@ -41,27 +38,26 @@ reprocesses its history, which is the event an archive most needs to record.
 
 - **One file per version.** Each snapshot of a long series would store the whole series again in
   every format.
-- **Storing identical files once by content** ([0011](0011-text-stored-compressed.md)). Every writer
-  but two embeds the version's provenance in the file, so an unchanged year still differs by its
-  header. Reusing a finished part is decided on its rows instead, and needs no lookup when a file is
-  read.
+- **Storing identical files once by content** ([0011](0011-files-stored-at-their-url-paths.md)).
+  Every writer but two embeds the version's provenance in the file, so an unchanged year still
+  differs by its header. Reusing a finished part is decided on its rows instead, and needs no
+  lookup when a file is read.
 
 ## Consequences
 
 - A version stored as parts alone has no query console and no pages by place, since each reads one
-  whole file. The explorer stays on the newest whole version, and the hubs keep the newest whole
-  version, since they take one table ([0022](0022-copies-on-the-hubs.md)). Its dataset page says
-  so. The figures and sample rows read the parts joined outside the published tree.
+  whole file. The explorer stays on the newest whole version, and so do the hubs, since they take
+  one table ([0018](0018-copies-on-the-hubs.md)). Its dataset page says so. The figures and sample
+  rows read the parts joined outside the published tree.
 - Such a version is still queryable. The MCP row tools read it as the list of its parts, and D1
-  loads it from its parts while their CSVs total 500 MB or less
-  ([0009](0009-queries-read-parquet.md)). It gets no rollup ([0010](0010-mcp-answer-layer.md)),
-  since a rollup is counted from a whole `data.parquet`.
+  loads it from its parts while their CSVs total 500 MB or less. It gets no rollup, since a rollup
+  is counted from a whole `data.parquet` ([0017](0017-how-queries-are-answered.md)).
 - Parts keep the Parquet layout their fetch recorded and get no query copy, so a later change to an
   entry's `sort`, `lookup` or `int32` reaches only versions fetched after it.
 - A diff between snapshots reads the parts back and compares whole tables. Skipping parts with the
   same hash is not built.
 - Shards split the build by dataset, so one large dataset's parts are built in one shard.
 - In October 2026 two entries are split, the eucalypt records and the water storage levels, both
-  by year, and the gate's list of large tables waiting to be split is empty.
+  by year, and no large table is waiting to be split.
 
 See `docs/ARCHITECTURE.md` ("Periods", "URL contract", "Archive").

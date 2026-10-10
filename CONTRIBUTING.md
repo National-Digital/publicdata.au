@@ -17,6 +17,8 @@ The build enforces the project's rules, so a change that breaks one fails its ch
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#rules-that-decide-the-code) states them and explains
 the code they shape, and its [Archive](docs/ARCHITECTURE.md#archive) section says what may change
 once a version is published.
+The decisions behind the rules are in [`docs/adr/`](docs/adr/README.md), and a change that
+reverses or narrows one adds a record that supersedes it.
 
 ## Set up
 

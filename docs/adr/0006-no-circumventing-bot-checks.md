@@ -1,8 +1,7 @@
-# 0001: Publishers' bot checks are respected, and blocked files are fetched by hand
+# 0006: Publishers' bot checks are respected, and blocked files are fetched by hand
 
-- Status: **Accepted** (the initial public release)
-- Date: 2026-10-04
-- Deciders: National Digital
+- Status: Accepted
+- Date: 2026-10-10
 
 ## Context
 
@@ -23,14 +22,14 @@ A source whose file host turns automated clients away sets `manual: true` in its
 The weekly fetch reads its portal record, and when the record shows a new file it lists the dataset
 in the open issue **Manual downloads due**. A maintainer downloads the file in an ordinary browser
 and hands it to the fetch, which reads the portal record and the licence as usual and takes the
-bytes from that file. When a publisher allows the fetch's address, its entries drop `manual: true`
-and go back to the weekly run.
+bytes from that file. When a publisher allows the fetch, its entries drop `manual: true` and go
+back to the weekly run.
 
 ## Alternatives considered
 
-- **A headless browser.** It would keep these sources current unattended.
-  It was rejected because it overrides a choice the publisher made about its own host, and a site
-  that depends on publishers' goodwill cannot do that.
+- **A headless browser.** It would keep these sources current unattended, but it overrides a choice
+  the publisher made about its own host, and a site that depends on publishers' goodwill cannot do
+  that.
 
 ## Consequences
 
@@ -40,8 +39,5 @@ and go back to the weekly run.
 - Each manual download needs a person with store credentials to push the raw bytes.
 - An empty body or an HTML page in place of a data file is refused (`expect_page`), so a blocked
   download cannot become a version by accident.
-- The list shrinks only when a publisher allows the fetch's address. Requests to allow it are not
-  recorded in the repository. Requests for permission to publish are recorded on the dataset's
-  register entry ([0020](0020-licence-is-data.md)).
 
 See `CONTRIBUTING.md` ("Manual sources") and `docs/ARCHITECTURE.md` ("Raw store").

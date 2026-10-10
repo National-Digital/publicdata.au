@@ -1,11 +1,7 @@
-# 0018: Two builds of one snapshot are byte-identical, and every tool is pinned
+# 0013: Two builds of one snapshot are byte-identical, and every tool is pinned
 
-- Status: **Accepted** (the determinism job: the initial public release; the build key and the
-  real-data check: #77; exact pins: #87; the spatial extension from a pinned copy: #91; Renovate:
-  #95; DuckDB file sizes left unstated: #112)
-- Date: 2026-10-08
-- Deciders: National Digital
-- Relates to: [0002](0002-versions-are-kept.md), [0014](0014-build-cache-in-r2.md)
+- Status: Accepted
+- Date: 2026-10-10
 
 ## Context
 
