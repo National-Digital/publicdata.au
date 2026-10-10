@@ -49,7 +49,7 @@ reprocesses its history, and an archive has to record that.
   whole file. The explorer stays on the newest whole version, and so do the hubs, since they take
   one table ([0018](0018-copies-on-the-hubs.md)). Its dataset page says so. The figures and sample
   rows read the parts joined outside the published tree.
-- Such a version is still queryable. The MCP row tools read it as the list of its parts, and D1
+- Such a version is still queryable. The query path reads it as the list of its parts, and D1
   loads it from its parts while their CSVs total 500 MB or less. It gets no rollup, since a rollup
   is counted from a whole `data.parquet` ([0017](0017-how-queries-are-answered.md)).
 - Parts keep the Parquet layout their fetch recorded and get no query copy, so a later change to an

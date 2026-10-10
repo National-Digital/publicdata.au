@@ -77,4 +77,5 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
 - A version's files and pages describe the same join for good, and every layer a pin names stays
   available to the build, since the raw store is append-only.
 
-See `docs/ARCHITECTURE.md` ("Rules that decide the code", "Archive") and `CONTRIBUTING.md` ("Reference").
+See `docs/ARCHITECTURE.md` ("Rules that decide the code", "Archive") and `CONTRIBUTING.md`
+("Reference").

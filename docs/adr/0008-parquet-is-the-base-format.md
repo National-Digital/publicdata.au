@@ -31,7 +31,7 @@ own logs, the median of three runs) measured what makes a partial read cheap:
 
 Parquet is the one format the site reads, and every other read path is built from it. The figures,
 the query console, the D1 loader, the explorer, the hubs and the rollups read a version's Parquet,
-and the MCP tools read it for every version D1 does not hold. SQLite remains a download format.
+and the query path reads it for every version D1 does not hold. SQLite remains a download format.
 
 Every table's `data.parquet`, a layer's GeoParquet and a database's tables follow one profile, and
 say so in the footer key `publicdata.profile` beside the provenance key `publicdata`.
