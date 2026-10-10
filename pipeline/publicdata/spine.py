@@ -220,18 +220,48 @@ class Shapes:
 _LOADED: dict[tuple[str, str], Shapes] = {}
 
 
-def pin(keys: tuple[str, ...], store_dir: Path) -> list[SpinePin]:
-    """The newest version of each layer in the store, which a new fetch's join is fixed to."""
+def committed(store_dir: Path) -> dict[str, list[store.Manifest]]:
+    """Each layer's versions in the store, read before a fetch run writes any.
+
+    A run opens one pull request per jurisdiction, so a layer version fetched in the same run may
+    reach main after the versions that would pin it, or never; a pin names only what main held.
+    """
+    return {layer.slug: store.manifests(store_dir, layer.slug) for layer in LAYERS.values()}
+
+
+def pin(
+    keys: tuple[str, ...], store_dir: Path, held: dict[str, list[store.Manifest]] | None = None
+) -> list[SpinePin]:
+    """The newest version of each layer, which a new fetch's join is fixed to.
+
+    `held` is the store as committed() read it when the run began; without it, the store now.
+    """
     out: list[SpinePin] = []
     for k in keys:
         slug = LAYERS[k].slug
-        ms = store.manifests(store_dir, slug)
+        ms = held[slug] if held is not None else store.manifests(store_dir, slug)
         if not ms:
             msg = f"the place spine needs {slug} in the store, and it has no version"
             raise SpineError(msg)
         out.append(
             {"layer": k, "dataset": slug, "version": ms[-1].version, "sha256": ms[-1].sha256}
         )
+    return out
+
+
+def pinned_after(manifests: list[store.Manifest]) -> list[str]:
+    """The versions fetched with no pin after one that has a pin, which an old fetch wrote.
+
+    A version fetched before its dataset was joined keeps no pin and is built unjoined; once a
+    dataset's versions are pinned, every later fetch pins too.
+    """
+    seen = False
+    out = []
+    for m in manifests:
+        if m.spine:
+            seen = True
+        elif seen:
+            out.append(f"{m.dataset} {m.version}")
     return out
 
 

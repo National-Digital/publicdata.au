@@ -491,6 +491,9 @@ class Fetched:
 
 # Files a person downloaded for manual sources, by slug; the fetch command fills it from --file.
 MANUAL: dict[str, Path] = {}
+# The place spine's layer versions as the store held them when the run began (spine.committed),
+# which every pin in the run names; empty outside a run, when the store is read as it stands.
+SPINE: dict[str, list[store.Manifest]] = {}
 
 
 class ManualDue(RuntimeError):  # noqa: N818 - a signal that a person must fetch
@@ -2214,7 +2217,7 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
             return None
         m = fed
     m.caps = store.CAPS_VERSION
-    m.spine = spine.pin(ds.enrich, store_dir)
+    m.spine = spine.pin(ds.enrich, store_dir, SPINE or None)
     store.write(store_dir, m, data)
     return m
 
@@ -2346,7 +2349,7 @@ def fetch_rolling(
         volatile=list(ds.volatile),
         parquet=layout(ds),
         caps=store.CAPS_VERSION,
-        spine=spine.pin(ds.enrich, store_dir),
+        spine=spine.pin(ds.enrich, store_dir, SPINE or None),
     )
     m.rows_sha256 = updates.digest(tbl)
     tbl = replace(tbl, manifest=m)

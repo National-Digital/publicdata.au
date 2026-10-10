@@ -428,13 +428,19 @@ This site is the version history the portals do not keep. The archive role has i
   `publicdata store push` skips any object that already exists under a version whose manifest
   is committed, and it takes no option to replace one.
 - A joined version keeps the boundaries it was joined to. Each fetch of a dataset with `enrich`
-  records in its manifest (`spine`) the version of each ABS layer it joins, the newest the store
-  held at the time, and every later build joins it to exactly those. A new version of a layer, a
-  new ABS edition or an edit to `enrich` reaches only versions fetched after it, and the dataset's
-  pages follow its newest version. A re-issued layer within an edition reaches earlier versions
-  only when the ABS withdraws the old file as wrong, as a correction through a `replace`
-  ([CORRECTIONS.md](CORRECTIONS.md)). Place pages follow the edition the joined datasets' newest
-  versions use, so every joined dataset moves to a new edition in one pull request.
+  records in its manifest (`spine`) the version of each ABS layer it joins: the newest that `main`
+  held when the fetch run began, never one fetched in the same run, since each jurisdiction's
+  pull request merges on its own. Every later build joins the version to exactly those. A version
+  whose manifest pins nothing was fetched unjoined and is built unjoined, and once a dataset has
+  a pinned version, a later fetch with no pin fails the build and the store test.
+- A new version of a layer, a new ABS edition or an edit to `enrich` reaches only versions
+  fetched after it. The dataset's pages and `schema.json` follow its newest version. Every joined
+  dataset moves to a new edition in one pull request, so their newest versions share one
+  edition's codes. A re-issued layer within an edition reaches earlier versions only when the ABS
+  withdraws the old file as wrong ([CORRECTIONS.md](CORRECTIONS.md#a-withdrawn-boundary-layer)).
+- `/places.json`, which the clients' boundary join reads, names each layer's newest version and
+  its GeoPackage, and under `joined` every layer version a served version is pinned to. The
+  clients join to the newest; a version's own pin is in its manifest.
 - Any two versions can be compared: `/d/<slug>/diff/<a>..<b>.json` lists added, removed and
   changed rows by the declared key, and field-level schema differences. `changes.json` is
   the same for consecutive pairs.
@@ -563,8 +569,9 @@ the sorted one, and a float total can differ from data.sqlite's in its last digi
 the register entry as `cache.entry_key` reads it, which is the fields in its repr that differ from
 their defaults, so a field added to the register changes no key; the manifest; for a joined
 dataset, the source its manifest pins for each spine layer and that layer's register entry, its
-rebuild number among it, while the pin itself is left out of the manifest part (`keyed_json`); for a dataset with geometry or a spine join, the installed DuckDB spatial
-extension, which the deploy's plan records and every later job checks it also has
+rebuild number among it, while the pin itself is left out of the manifest part (`keyed_json`);
+for a dataset with geometry or a spine join, the installed DuckDB spatial extension, which the
+deploy's plan records and every later job checks it also has
 (`PUBLICDATA_SPATIAL`); for a database, `database.py`, which only G-NAF runs and which no sample
 can afford to build (`cache.KIND_MODULES`); and `cache.environment_key`, which holds the global
 rebuild number `cache.REBUILD`, the JSON and GeoJSON writers that also make the partition files,
@@ -658,8 +665,8 @@ is over 60 MB is added by the same seed, so the largest are checked in turn. Eve
 `rebuild` the change raises is added too: two changes that raise the same number merge without a
 conflict, and the later one is then compared with the entries the earlier one built. The plan
 prints the strata no sampled dataset covers. The spine layer versions a joined dataset pins are
-pulled beside it and not counted, so the join is checked whenever a joined dataset is drawn. A verify job
-builds those versions of each from its source with the new code
+pulled beside it and not counted, so the join is checked whenever a joined dataset is drawn. A
+verify job builds those versions of each from its source with the new code
 and compares it with the cache entry a deploy would reuse, file by file through the SHA-256 the
 entry records, its query copy among them and data.duckdb through a digest of its tables, rows in
 their stored order, constraints, comments, block size and storage version, and compares the diffs
