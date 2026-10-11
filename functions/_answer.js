@@ -36,6 +36,13 @@ export class AnswerError extends Error {
     this.body = body;
   }
 }
+// A failure of D1 is logged with its own text, which the answer leaves out.
+const FAILED = 'The query could not run';
+function d1Error(slug, version, e) {
+  // eslint-disable-next-line no-console -- the Workers log is where an operator sees this.
+  console.error(`d1 ${slug} ${version}: ${(e && e.stack) || e}`);
+  return new AnswerError(500, { error: FAILED });
+}
 
 const versionsUrl = (slug) => `${API}/${slug}/versions`;
 const filesUrl = (slug, v) => `${SITE}/d/${slug}/${v ? `v/${v}/` : ''}`;
@@ -132,10 +139,7 @@ async function d1(ctx, slug, v, op, qs) {
           .all()
       ).results || [];
   } catch (e) {
-    throw new AnswerError(500, {
-      error: 'The query could not run',
-      detail: String(e.message || e).slice(0, 200),
-    });
+    throw d1Error(slug, v.version, e);
   }
   const more = rows.length > plan.limit;
   const header = JSON.parse(v.header || '{}');
@@ -464,12 +468,7 @@ export async function query(ctx, slug, want, op, qs) {
     } catch (e) {
       // A database never loaded holds nothing, and one that fails leaves the files to answer.
       if (!env.DIST) {
-        throw missingTable(e)
-          ? new AnswerError(503, { error: NOT_ENABLED })
-          : new AnswerError(500, {
-              error: 'The query could not run',
-              detail: String(e.message || e).slice(0, 200),
-            });
+        throw missingTable(e) ? new AnswerError(503, { error: NOT_ENABLED }) : d1Error(slug, v, e);
       }
       if (!missingTable(e)) {
         // eslint-disable-next-line no-console -- the Workers log is where an operator sees this.
@@ -504,8 +503,6 @@ export async function query(ctx, slug, want, op, qs) {
       if (!(e instanceof AnswerError) || e.status !== 500 || !env.DIST || !v) {
         throw e;
       }
-      // eslint-disable-next-line no-console -- the Workers log is where an operator sees this.
-      console.error(`d1 ${slug} ${inD1.version}: ${e.body.detail || e.message}`);
       failed = e;
     }
   }

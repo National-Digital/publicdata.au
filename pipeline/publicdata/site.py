@@ -3050,7 +3050,9 @@ def _fields_resource(o: DatasetOut, hints: Console, *, api: bool) -> dict[str, o
         "key": list(ds.key),
         "partition_by": list(ds.partition_by),
         "fields": hints["fields"],
-        "provenance": dataset_header(ds, m, {"rows": _newest(o).rows}),
+        "provenance": dataset_header(
+            ds, m, {"rows": _newest(o).rows}, joined=any(v.manifest.spine for v in o.versions)
+        ),
     }
 
 

@@ -137,5 +137,18 @@ def test_a_pinned_version_publishes_the_manifest_it_did_before_the_pin(fixture_s
     )
 
 
+def test_only_a_joined_dataset_names_the_place_attribution(fixture_site: Path) -> None:
+    def provenance(slug: str) -> dict[str, object]:
+        body = json.loads((fixture_site / "d" / slug / "fields.json").read_text(encoding="utf-8"))
+        out = body["provenance"]
+        assert isinstance(out, dict)
+        return out
+
+    assert "places_attribution" in provenance("qld-road-crash-locations")
+    unjoined = provenance("qld-road-casualties")
+    assert "places_attribution" not in unjoined
+    assert unjoined["title"]
+
+
 if __name__ == "__main__":
     FIXTURE.write_text(text(), encoding="utf-8")

@@ -687,7 +687,9 @@ test('a D1 that fails leaves the files to answer, and without them the error is 
     'rows',
   );
   assert.equal(bare.status, 500);
-  assert.match((await bare.json()).error, /could not run/);
+  const bareBody = await bare.json();
+  assert.match(bareBody.error, /could not run/);
+  assert.doesNotMatch(JSON.stringify(bareBody), /timed out|overloaded|D1_ERROR/);
 });
 
 test('a query D1 fails to run is answered from the files, and without them the error is JSON', async () => {
@@ -723,7 +725,9 @@ test('a query D1 fails to run is answered from the files, and without them the e
     'rows',
   );
   assert.equal(bare.status, 500);
-  assert.match((await bare.json()).error, /could not run/);
+  const bareBody = await bare.json();
+  assert.match(bareBody.error, /could not run/);
+  assert.doesNotMatch(JSON.stringify(bareBody), /timed out|overloaded|D1_ERROR/);
 });
 
 test('a D1 failure the files cannot answer is the answer, naming both', async () => {
@@ -752,7 +756,8 @@ test('a D1 failure the files cannot answer is the answer, naming both', async ()
   try {
     const a = await ask('group=lga&metric=count');
     assert.equal(a.status, 500, JSON.stringify(a.body));
-    assert.match(a.body.detail, /query timed out/);
+    assert.equal(a.body.detail, undefined);
+    assert.doesNotMatch(JSON.stringify(a.body), /timed out|D1_ERROR/);
     assert.match(a.body.files_error, /DuckDB SQL/);
   } finally {
     BUDGET.groups = was;
@@ -765,7 +770,8 @@ test('a D1 failure the files cannot answer is the answer, naming both', async ()
   try {
     const b = await ask('group=lga&metric=count');
     assert.equal(b.status, 500, JSON.stringify(b.body));
-    assert.match(b.body.detail, /query timed out/);
+    assert.equal(b.body.detail, undefined);
+    assert.doesNotMatch(JSON.stringify(b.body), /timed out|D1_ERROR/);
     assert.match(b.body.files_error, /no file/);
   } finally {
     objects.set(key, bytesWere);

@@ -597,16 +597,20 @@ def parts_header(ds: Dataset, m: Manifest, built: Mapping[str, object]) -> Heade
     return header(joined, m, rows, version_url(ds.slug, m.version) + "data.duckdb")
 
 
-def dataset_header(ds: Dataset, m: Manifest, built: Mapping[str, object]) -> dict[str, object]:
+def dataset_header(
+    ds: Dataset, m: Manifest, built: Mapping[str, object], *, joined: bool = False
+) -> dict[str, object]:
     """The dataset's part of the header D1 loads a version with, for the dataset's fields.json.
 
-    `places_attribution` is the attribution a header's places carry, for a version joined to layers
-    the newest version is not.
+    `joined` says some served version of the dataset was joined to the place spine. Only then does
+    it carry `places_attribution`, the attribution a header's places carry, for a version joined
+    to layers the newest version is not.
     """
     out: dict[str, object] = {
         k: v for k, v in parts_header(ds, m, built).items() if k in DATASET_KEYS
     }
-    out["places_attribution"] = SPINE_ATTRIBUTION
+    if joined or ds.enrich:
+        out["places_attribution"] = SPINE_ATTRIBUTION
     return out
 
 

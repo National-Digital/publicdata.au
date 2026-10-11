@@ -297,7 +297,7 @@ def build_database_version(
         return prov_header(ds, m, rows, base + rel)
 
     db = build_database(ds, m, src, vdir, hdr)
-    man = json.loads(m.to_json())
+    man = json.loads(m.keyed_json())
     man["kind"] = "database"
     man["rows"] = db.rows
     man["fields"] = ds.field_count
