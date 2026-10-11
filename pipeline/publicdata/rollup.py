@@ -35,6 +35,8 @@ import duckdb
 import pyarrow.parquet as pq
 
 from .r2 import _etags, _sha256
+from .register import spine_fields
+from .spine import LAYERS
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
@@ -431,6 +433,24 @@ def parquet_run(path: Path) -> tuple[Run, duckdb.DuckDBPyConnection]:
     return (lambda sql: con.execute(sql).fetchall()), con
 
 
+def joined_fields(
+    stated: Iterable[FieldRow | _Named], header: JSONObject
+) -> list[FieldRow | _Named]:
+    """The stated fields and the spine fields of the layers the version's own header names.
+
+    A version fetched before an `enrich` edit keeps the place columns it was joined with, which the
+    register may no longer state.
+    """
+    out = list(stated)
+    names = {f["name"] if isinstance(f, dict) else f.name for f in out}
+    places = header.get("places")
+    slugs = places.get("datasets", []) if isinstance(places, dict) else []
+    keys = tuple(
+        k for k, layer in LAYERS.items() if layer.slug in (slugs if isinstance(slugs, list) else [])
+    )
+    return out + [f for f in spine_fields(keys) if f.name not in names]
+
+
 def parquet_header(path: Path) -> JSONObject:
     meta = pq.read_schema(path).metadata or {}
     header: JSONObject = json.loads(meta.get(b"publicdata", b"{}"))
@@ -667,9 +687,11 @@ def _one(  # noqa: PLR0913, PLR0917 - write passes them in place
             store.fetch(ds.slug, version, src)
         run, con = parquet_run(src)
         try:
-            vds = _as_version(ds, version_fields(stated, parquet_columns(run)))
-            n = int(run("SELECT COUNT(*) FROM records")[0][0])
             header = parquet_header(src)
+            vds = _as_version(
+                ds, version_fields(joined_fields(stated, header), parquet_columns(run))
+            )
+            n = int(run("SELECT COUNT(*) FROM records")[0][0])
             p, body = make(vds, run, n, header, ds.slug, version)
             # A version no cube fits still gets a rollup, so the next deploy does not read its
             # Parquet again; the function finds no cube and asks D1.

@@ -14,7 +14,7 @@ import pytest
 from publicdata import d1, site
 from publicdata.__main__ import main
 from publicdata.gate import check
-from publicdata.register import Field, load
+from publicdata.register import Field, load, parse
 
 from .conftest import ROOT, make_dataset
 
@@ -995,3 +995,24 @@ def test_a_deploy_with_nothing_to_load_still_sweeps(tmp_path: Path) -> None:
     assert d1.load(tmp_path / "empty", fake, log=lambda *_: None) == 0
     assert orphan not in _tables(fake)
     assert _served(fake, "x") == ("2026-01-01", 2, 2)
+
+
+def test_a_version_fetched_before_an_enrich_edit_loads_with_its_own_fields(
+    tmp_path: Path, site_copy: Path
+) -> None:
+    import yaml  # noqa: PLC0415 - one entry, edited as a later pull request would
+
+    raw = yaml.safe_load((ROOT / "register" / "qld-road-crash-locations.yaml").read_text())
+    raw["enrich"] = ["lga"]
+    edited = parse(raw, "qld-road-crash-locations.yaml")
+    assert "sal_2021_code" not in {f.name for f in edited.fields}
+    parts = d1.write_loads([site_copy], [edited], {}, tmp_path / "load")
+    sql = "\n".join(p.read_text(encoding="utf-8") for p in parts)
+    db = sqlite3.connect(":memory:")
+    for p in parts:
+        db.executescript(p.read_text(encoding="utf-8"))
+    (fields,) = db.execute("SELECT fields FROM _versions").fetchone()
+    names = [f["name"] for f in json.loads(fields)]
+    assert "sal_2021_code" in names
+    assert "lga_2025_code" in names
+    assert '"sal_2021_code"' in sql

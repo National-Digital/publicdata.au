@@ -33,6 +33,7 @@ from . import ard as ardspec
 from .build import (
     DatasetOut,
     VersionOut,
+    as_fetched,
     dataset_url,
     part_dir,
     part_files,
@@ -3996,11 +3997,13 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     ) -> None:
         """One page per dated version: its files, its change from the version before and its figure."""
         for v, view in zip(o.versions, views, strict=True):
+            # An older version is described as its fetch joined it.
+            ds_v = as_fetched(ds, v.manifest)
             if v is latest:
                 vfig = fig
             else:
-                rows = rows_of(ds, v)
-                vfig = figures.dataset_figures(ds, v.manifest, hints, rows, out)
+                rows = rows_of(ds_v, v)
+                vfig = figures.dataset_figures(ds_v, v.manifest, hints, rows, out)
                 # An older version's joined parts are read once, so they do not stay on disk.
                 if not v.whole:
                     rows.unlink(missing_ok=True)
@@ -4008,8 +4011,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 {
                     "name": k,
                     "size": fmt_size(v.size(k)),
-                    "url": f"{version_url(ds.slug, v.manifest.version)}{k}",
-                    "download": download_name(ds.slug, v.manifest.version, k),
+                    "url": f"{version_url(ds_v.slug, v.manifest.version)}{k}",
+                    "download": download_name(ds_v.slug, v.manifest.version, k),
                 }
                 for k in v.files
                 if "/" not in k
@@ -4017,16 +4020,16 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             md = "\n".join(
                 [
                     "---",
-                    f"title: {ds.title}, version {v.manifest.version}",
-                    f"resource: {version_url(ds.slug, v.manifest.version)}",
+                    f"title: {ds_v.title}, version {v.manifest.version}",
+                    f"resource: {version_url(ds_v.slug, v.manifest.version)}",
                     f"dataset: {base}",
                     f"rows: {v.rows}",
                     f"source_sha256: {v.manifest.sha256}",
                     "---",
                     "",
-                    f"# {ds.title}, version {v.manifest.version}",
+                    f"# {ds_v.title}, version {v.manifest.version}",
                     "",
-                    f"{v.rows} rows, {ds.field_count} fields, fetched {view['fetched_long']}. This version keeps its content. Its files change only for the reasons the terms give ({SITE}/terms/), and each change is recorded in its notes.",
+                    f"{v.rows} rows, {ds_v.field_count} fields, fetched {view['fetched_long']}. This version keeps its content. Its files change only for the reasons the terms give ({SITE}/terms/), and each change is recorded in its notes.",
                     "",
                     *(
                         ["## About this version", "", *v.manifest.notes, ""]
@@ -4034,8 +4037,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                         else []
                     ),
                     *(
-                        [f"Condition of use: {ds.licence.condition}", ""]
-                        if ds.licence.condition
+                        [f"Condition of use: {ds_v.licence.condition}", ""]
+                        if ds_v.licence.condition
                         else []
                     ),
                     *[
@@ -4043,37 +4046,39 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                         for f in files
                     ],
                     "",
-                    *[f"{why}\n" for why in _left_out(ds, v)],
-                    f"SHA-256 of every file, under the names they download as: {version_url(ds.slug, v.manifest.version)}SHA256SUMS",
+                    *[f"{why}\n" for why in _left_out(ds_v, v)],
+                    f"SHA-256 of every file, under the names they download as: {version_url(ds_v.slug, v.manifest.version)}SHA256SUMS",
                     "",
                     "## Attribution",
                     "",
-                    attribution(ds, v.manifest),
+                    attribution(ds_v, v.manifest),
                     "",
                 ]
             )
             page(
-                f"d/{ds.slug}/v/{v.manifest.version}/index.html",
+                f"d/{ds_v.slug}/v/{v.manifest.version}/index.html",
                 "version.html",
                 md,
-                title=f"{ds.title} {v.manifest.version} | {HOST}",
-                description=f"Dated version {v.manifest.version} of {ds.title}.",
+                title=f"{ds_v.title} {v.manifest.version} | {HOST}",
+                description=f"Dated version {v.manifest.version} of {ds_v.title}.",
                 nav="datasets",
                 noindex=True,
                 og=card
                 if v is latest
-                else _dataset_card(out, ds, v, f"og/d/{ds.slug}/v/{v.manifest.version}.png", cache),
-                ds=ds,
+                else _dataset_card(
+                    out, ds, v, f"og/d/{ds_v.slug}/v/{v.manifest.version}.png", cache
+                ),
+                ds=ds_v,
                 base=base,
                 v=view,
                 is_latest=v is latest,
                 files=files,
-                left_out=_left_out(ds, v),
+                left_out=_left_out(ds_v, v),
                 partition_dirs=list(v.partitions.keys()),
                 change=view["change"],
                 fig=vfig,
                 others=[x["version"] for x in views if x["version"] != v.manifest.version],
-                attribution=attribution(ds, v.manifest),
+                attribution=attribution(ds_v, v.manifest),
                 portal_host=(v.manifest.source.get("url") or "").split("/")[2]
                 if v.manifest.source.get("url")
                 else "",

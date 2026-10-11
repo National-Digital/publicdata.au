@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, cast
 
 import pyarrow.parquet as pq
 
-from .build import part_dir, version_url
+from .build import as_fetched, part_dir, version_url
 from .provenance import header
 from .records import connect
 from .serialise import SQLITE_TYPES, dumps
@@ -518,6 +518,21 @@ def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:
     return None
 
 
+def as_built(roots: list[Path], ds: Dataset, version: str) -> Dataset:
+    """The entry as a built version was joined: the spine layers its manifest names as places.
+
+    A version fetched before an `enrich` edit keeps its own fields, which its load and header
+    describe; the built manifest publishes the fetch's pin as `places`.
+    """
+    rel = Path("d") / ds.slug / "v" / version / "manifest.json"
+    path = next((r / rel for r in roots if (r / rel).exists()), None)
+    if path is None:
+        return ds
+    m = Manifest.read(path)
+    m.spine = json.loads(path.read_text(encoding="utf-8")).get("places") or []
+    return as_fetched(ds, m)
+
+
 def _parts(
     roots: list[Path], ds: Dataset, version: str
 ) -> tuple[list[Path], int | None, Header] | None:
@@ -619,10 +634,11 @@ def write_loads(  # noqa: PLR0913 - the options are keyword-only and named at ea
     written: list[Path] = []
     latest_json = next((r / "latest.json" for r in roots if (r / "latest.json").exists()), None)
     latest = json.loads(latest_json.read_text(encoding="utf-8")) if latest_json else {}
-    for ds in datasets:
-        version = latest.get(ds.slug)
+    for entry in datasets:
+        version = latest.get(entry.slug)
         if not version:
             continue
+        ds = as_built(roots, entry, version)
         rel = Path("d") / ds.slug / "v" / version / "data.parquet"
         src = next((r / rel for r in roots if (r / rel).exists()), None)
         files: list[Path] = [src] if src else []

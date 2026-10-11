@@ -596,7 +596,8 @@ rule carries `# nolint: <linter>. <reason>`.
   edition is a new register entry and a new `spine.LAYERS` key whose fields carry the edition's
   year, such as `lga_2026_code`; every joined dataset moves to it in one pull request that edits
   `enrich`, and the move applies to versions fetched after it. Earlier versions keep the edition
-  they were joined to and gain no columns from the new one. A key a pin names stays in
+  they were joined to and gain no columns from the new one, and a re-issued layer, even one the ABS
+  withdraws as wrong, reaches only versions fetched after it. A key a pin names stays in
   `spine.LAYERS` for good. The joins and tiles need DuckDB's spatial extension, which `python -m
   publicdata spine install` fetches once, as pinned in `pipeline/publicdata/spatial-extension.json`,
   so the build stays offline.

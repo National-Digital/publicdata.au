@@ -20,10 +20,11 @@ from publicdata.build import as_fetched, build_dataset, build_version, version_k
 from publicdata.cache import BuildCache
 from publicdata.normalise import Table, normalise
 from publicdata.register import LAT_SOURCE, LON_SOURCE, Field, RegisterError, parse
+from publicdata.rollup import joined_fields
 from publicdata.serialise import formats_for
 from publicdata.serialise.geo import _connect
 from publicdata.serialise.writers.pmtiles import write_pmtiles
-from publicdata.site import _faq
+from publicdata.site import _faq, render_site
 
 from .conftest import make_dataset, make_header, make_manifest, present
 
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
 
     from publicdata.build import VersionOut
     from publicdata.fetch import LicenceRead
+    from publicdata.jsontypes import JSONObject
     from publicdata.register import Dataset, Geometry, RawEntry
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -382,6 +384,17 @@ def test_each_version_is_built_with_the_layers_its_fetch_pinned(tmp_path: Path) 
     assert "sa2_2021_code" in newest
     assert "sal_2021_code" not in newest
     assert vout.rows > 0
+    render_site([dout], out)
+    page = (out / "d" / ds.slug / "v" / old.version / "index.md").read_text(encoding="utf-8")
+    assert f"rows, {base + 12} fields" in page
+
+
+def test_a_rollup_keeps_the_place_columns_its_version_was_joined_with() -> None:
+    stated = [Field("Crash_Ref_Number", "Crash_Ref_Number")]
+    header: JSONObject = {"places": {"datasets": ["abs-suburbs-localities-2021"]}}
+    names = [f.name for f in cast("list[Field]", joined_fields(stated, header))]
+    assert names == ["Crash_Ref_Number", "sal_2021_code", "sal_2021_name"]
+    assert joined_fields(stated, {}) == stated
 
 
 def vout_schema(out: Path, m: store.Manifest) -> dict[str, list[dict[str, str]]]:
