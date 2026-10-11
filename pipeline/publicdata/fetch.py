@@ -2217,7 +2217,7 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
             return None
         m = fed
     m.caps = store.CAPS_VERSION
-    m.spine = spine.pin(ds.enrich, store_dir, SPINE or None)
+    m.spine = spine.recorded(ds.enrich, ds.slug, store_dir, SPINE or None)
     store.write(store_dir, m, data)
     return m
 
@@ -2349,7 +2349,7 @@ def fetch_rolling(
         volatile=list(ds.volatile),
         parquet=layout(ds),
         caps=store.CAPS_VERSION,
-        spine=spine.pin(ds.enrich, store_dir, SPINE or None),
+        spine=spine.recorded(ds.enrich, ds.slug, store_dir, SPINE or None),
     )
     m.rows_sha256 = updates.digest(tbl)
     tbl = replace(tbl, manifest=m)

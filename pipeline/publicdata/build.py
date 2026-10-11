@@ -332,7 +332,7 @@ def as_fetched(ds: Dataset, m: store.Manifest) -> Dataset:
     A version fetched before an `enrich` edit keeps the layers and the fields it was joined with,
     and one whose manifest pins none was fetched unjoined and stays so.
     """
-    keys = tuple(p["layer"] for p in m.spine)
+    keys = tuple(p["layer"] for p in m.spine or [])
     if keys == ds.enrich:
         return ds
     kept_fields = tuple(f for f in ds.fields if not is_spine(f.source))

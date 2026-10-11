@@ -589,7 +589,8 @@ rule carries `# nolint: <linter>. <reason>`.
   The fetch fixes which version of each layer that is: the manifest's `spine` names the newest
   version of each layer `main` held when the run began, and every build of that version joins to
   those, so a new layer version or an `enrich` edit reaches only versions fetched after it. A
-  version with no pin was fetched unjoined. A manifest written by hand, such as a backfilled
+  version with no pin was fetched unjoined. Removing `enrich` also reaches only versions fetched
+  after it, whose manifests record `spine: []`. A manifest written by hand, such as a backfilled
   release, is joined only if it carries a pin, written as `spine.pin` writes it against the layers
   on `main`. The columns are marked as joined in `schema.json` with the layer version, the ABS
   attribution is in every file's header, and the published coordinates are never changed. A new ABS

@@ -4066,7 +4066,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 og=card
                 if v is latest
                 else _dataset_card(
-                    out, ds, v, f"og/d/{ds_v.slug}/v/{v.manifest.version}.png", cache
+                    out, ds_v, v, f"og/d/{ds_v.slug}/v/{v.manifest.version}.png", cache
                 ),
                 ds=ds_v,
                 base=base,
@@ -4100,7 +4100,10 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         latest = _newest(o)
         m = latest.manifest
         changes_by_to = {c["to"]: c for c in o.changes}
-        views = [_version_view(ds, v, changes_by_to.get(v.manifest.version)) for v in o.versions]
+        views = [
+            _version_view(as_fetched(ds, v.manifest), v, changes_by_to.get(v.manifest.version))
+            for v in o.versions
+        ]
         siblings = [
             d
             for d in datasets
@@ -5217,7 +5220,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                                     p["version"]
                                     for o in live
                                     for x in o.versions
-                                    for p in x.manifest.spine
+                                    for p in x.manifest.spine or []
                                     if p["dataset"] == layer.slug
                                 }
                             )

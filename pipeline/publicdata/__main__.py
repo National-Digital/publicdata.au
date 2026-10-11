@@ -705,7 +705,7 @@ def _with_layers(only: list[str], store_dir: Path) -> tuple[str, ...]:
         p["dataset"]
         for slug in only
         for m in store.manifests(store_dir, slug, fetches=True)
-        for p in m.spine
+        for p in m.spine or []
     }
     return tuple(sorted({*only, *joins}))
 
@@ -739,7 +739,7 @@ def _cached_versions(store_dir: Path, cache_dir: Path) -> set[tuple[str, str]]:
             cached.discard((d.slug, m.version))
             built.append(m)
     for m in built:
-        cached -= {(p["dataset"], p["version"]) for p in m.spine}
+        cached -= {(p["dataset"], p["version"]) for p in m.spine or []}
     return cached
 
 

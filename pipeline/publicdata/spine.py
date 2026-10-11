@@ -250,19 +250,38 @@ def pin(
 
 
 def pinned_after(manifests: list[store.Manifest]) -> list[str]:
-    """The versions fetched with no pin after one that has a pin, which an old fetch wrote.
+    """The fetches that recorded no `spine` at all after one that pinned, which an old fetch wrote.
 
-    A version fetched before its dataset was joined keeps no pin and is built unjoined; once a
-    dataset's versions are pinned, every later fetch pins too.
+    A version fetched before its dataset was joined records none and is built unjoined. Once a
+    dataset has a pinned version, every later fetch records `spine`: its pin, or [] when the entry
+    no longer joins.
     """
     seen = False
     out = []
     for m in manifests:
         if m.spine:
             seen = True
-        elif seen:
+        elif seen and m.spine is None:
             out.append(f"{m.dataset} {m.version}")
     return out
+
+
+def recorded(
+    keys: tuple[str, ...],
+    slug: str,
+    store_dir: Path,
+    held: dict[str, list[store.Manifest]] | None = None,
+) -> list[SpinePin] | None:
+    """What a new fetch records as `spine`.
+
+    That is its pin, or [] once a dataset with pinned versions stops joining, so removing `enrich`
+    reaches only versions fetched after it; None for a dataset that never joined.
+    """
+    if keys:
+        return pin(keys, store_dir, held)
+    if any(m.spine for m in store.manifests(store_dir, slug, fetches=True)):
+        return []
+    return None
 
 
 def pins(m: store.Manifest) -> list[SpinePin]:

@@ -431,14 +431,18 @@ This site is the version history the portals do not keep. The archive role has i
   records in its manifest (`spine`) the version of each ABS layer it joins: the newest that `main`
   held when the fetch run began, never one fetched in the same run, since each jurisdiction's
   pull request merges on its own. Every later build joins the version to exactly those. A version
-  whose manifest pins nothing was fetched unjoined and is built unjoined, and once a dataset has
-  a pinned version, a later fetch with no pin fails the build and the store test.
+  whose manifest records no `spine` was fetched before its dataset was joined and is built
+  unjoined. Once a dataset has a pinned version, every later fetch records `spine`: its pin, or
+  `[]` when the entry no longer has `enrich`, so removing `enrich` also reaches only versions
+  fetched after it. A later fetch that records no `spine` at all, as a fetch on older code would,
+  fails the build and the store test.
 - A new or re-issued version of a layer, a new ABS edition or an edit to `enrich` reaches only
   versions fetched after it, even when the ABS withdraws a layer version as wrong: that is the
   publisher's error, like any revised source, so earlier versions keep the join they were built
   with and their pin says which layer version that was. The legal and removal grounds above apply
-  to them as to any version. The dataset's pages and `schema.json` follow its newest version. Every joined dataset moves to a new edition in one pull request, so
-  their newest versions share one edition's codes.
+  to them as to any version. The dataset's pages and `schema.json` follow its newest version.
+  Every joined dataset moves to a new edition in one pull request, so their newest versions share
+  one edition's codes.
 - `/places.json`, which the clients' boundary join reads, names each layer's newest version and
   its GeoPackage, and under `joined` every layer version a served version is pinned to. The
   clients join to the newest; a version's own pin is in its manifest.

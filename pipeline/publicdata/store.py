@@ -183,8 +183,9 @@ class Manifest:
     # The register's volatile columns when this was fetched, which a part's stable hash leaves out.
     volatile: list[str] = field(default_factory=list)
     # The place spine layer versions this fetch's points are joined to, fixed when it was fetched,
-    # so a later layer version or `enrich` edit leaves the version as it was.
-    spine: list[SpinePin] = field(default_factory=list)
+    # so a later layer version or `enrich` edit leaves the version as it was. [] is a fetch made
+    # unjoined on purpose after its dataset was joined; None, a fetch that recorded nothing.
+    spine: list[SpinePin] | None = None
 
     @property
     def ext(self) -> str:
@@ -193,12 +194,12 @@ class Manifest:
     def to_json(self) -> str:
         d = asdict(self)
         # Left out when empty, so a manifest written before the field keeps its bytes and cache key.
-        for k in ("rows_sha256", "parquet", "caps", "cut", "update", "volatile", "spine"):
+        for k in ("rows_sha256", "parquet", "caps", "cut", "update", "volatile"):
             if not d[k]:
                 del d[k]
         if d["snapshot"]:
             del d["snapshot"]
-        for k in ("history", "period"):
+        for k in ("history", "period", "spine"):
             if d[k] is None:
                 del d[k]
         return json.dumps(d, indent=2, ensure_ascii=False) + "\n"
@@ -209,7 +210,7 @@ class Manifest:
         The spine pin is left out, since the key takes each pinned layer's source and register
         entry in its own right (spine.spine_versions).
         """
-        return replace(self, spine=[]).to_json()
+        return replace(self, spine=None).to_json()
 
     @classmethod
     def read(cls, path: Path) -> Manifest:

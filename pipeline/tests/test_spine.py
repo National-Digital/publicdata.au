@@ -1,5 +1,6 @@
 import dataclasses
 import datetime as dt
+import gzip
 import io
 import json
 import re
@@ -15,7 +16,7 @@ import pytest
 import yaml
 from pmtiles.reader import MemorySource, Reader, all_tiles
 
-from publicdata import fetch, serialise, spine, store
+from publicdata import brand, fetch, rollup, serialise, spine, store
 from publicdata.build import as_fetched, build_dataset, build_version, version_key, version_keys
 from publicdata.cache import BuildCache
 from publicdata.normalise import Table, normalise
@@ -222,7 +223,7 @@ def test_a_new_layer_version_leaves_a_joined_version_as_it_was(tmp_path: Path) -
     cache = BuildCache(tmp_path / "c")
     m = store.manifests(st, ds.slug)[-1]
     before = version_key(cache, ds, m, st)
-    pinned = next(p for p in m.spine if p["layer"] == "lga")
+    pinned = next(p for p in present(m.spine) if p["layer"] == "lga")
     later_layer(st)
     assert version_key(cache, ds, m, st) == before
     tbl = spine.enrich(normalise(ds, m, store.source_path(st, m).read_bytes()), st, REGISTER)
@@ -273,12 +274,36 @@ def test_a_fetch_with_no_pin_after_a_pinned_one_is_refused(tmp_path: Path) -> No
     ds = crashes()
     st = spine_copy(tmp_path)
     m = store.manifests(st, ds.slug)[-1]
-    later = dataclasses.replace(m, version="2026-05-01", spine=[])
+    later = dataclasses.replace(m, version="2026-05-01", spine=None)
     store.write(st, later, store.source_path(st, m).read_bytes())
     with pytest.raises(spine.SpineError, match="2026-05-01: fetched after a pinned version"):
         version_keys(BuildCache(tmp_path / "c"), ds, st)
     with pytest.raises(spine.SpineError, match="fetched after a pinned version"):
         build_dataset(ds, st, tmp_path / "out")
+
+
+def test_a_fetch_after_enrich_is_removed_records_the_unjoin_and_builds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ds = crashes(enrich=[])
+    st = spine_copy(tmp_path)
+    src = store.manifests(st, ds.slug)[-1]
+    data = store.source_path(st, src).read_bytes()
+    m = dataclasses.replace(src, spine=None, version="2026-05-01", rows_sha256="")
+    lic: LicenceRead = {"id": ds.licence.id, "read_from": "https://e", "read_at": "2026-05-01"}
+    monkeypatch.setitem(fetch.ADAPTERS, ds.source.adapter, lambda d, s: (data, m, lic))
+    monkeypatch.setattr(fetch, "check_licence", lambda d, lic: None)
+    got = present(fetch.fetch(ds, st))
+    assert got.spine == []
+    assert (
+        '"spine": []' in (store.version_dir(st, ds.slug, got.version) / "manifest.json").read_text()
+    )
+    assert got.keyed_json() == dataclasses.replace(got, spine=None).to_json()
+    dout = build_dataset(ds, st, tmp_path / "out")
+    assert dout.dataset.enrich == ()
+    assert [v.manifest.version for v in dout.versions] == [src.version, "2026-05-01"]
+    # A dataset that never joined records nothing, as before.
+    assert spine.recorded((), "au-births-by-state", st) is None
 
 
 def test_a_version_fetched_before_its_dataset_was_joined_is_built_unjoined(tmp_path: Path) -> None:
@@ -305,7 +330,7 @@ def test_a_changed_pin_is_a_new_cache_entry(tmp_path: Path) -> None:
     ds = crashes()
     cache = BuildCache(tmp_path / "c")
     m = store.manifests(FIXTURES, ds.slug)[-1]
-    moved = [p.copy() for p in m.spine]
+    moved = [p.copy() for p in present(m.spine)]
     moved[1]["sha256"] = "1" * 64
     assert version_key(cache, ds, dataclasses.replace(m, spine=moved), FIXTURES) != version_key(
         cache, ds, m, FIXTURES
@@ -313,7 +338,7 @@ def test_a_changed_pin_is_a_new_cache_entry(tmp_path: Path) -> None:
 
 
 def test_a_pin_whose_hash_differs_from_the_stored_layer_is_refused() -> None:
-    p = next(p for p in store.manifests(FIXTURES, "qld-road-crash-locations")[-1].spine)
+    p = next(p for p in store.manifests(FIXTURES, "qld-road-crash-locations")[-1].spine or [])
     with pytest.raises(spine.SpineError, match="is not there"):
         spine.layer_shapes({**p, "sha256": "1" * 64}, FIXTURES, REGISTER)
 
@@ -342,7 +367,7 @@ def test_a_fetch_run_pins_only_the_layer_versions_main_held_when_it_began(
     monkeypatch.setitem(fetch.ADAPTERS, ds.source.adapter, lambda d, s: (data, m, lic))
     monkeypatch.setattr(fetch, "check_licence", lambda d, lic: None)
     got = present(fetch.fetch(ds, st))
-    assert [p["version"] for p in got.spine] == [held.version]
+    assert [p["version"] for p in present(got.spine)] == [held.version]
 
 
 def test_a_rolling_fetch_pins_its_layers(tmp_path: Path) -> None:
@@ -355,14 +380,16 @@ def test_a_rolling_fetch_pins_its_layers(tmp_path: Path) -> None:
     lic: LicenceRead = {"id": ds.licence.id, "read_from": "https://e", "read_at": "2027-02-01"}
     m = dataclasses.replace(src, spine=[])
     got = present(fetch.fetch_rolling(ds, st, data, m, lic, dt.date(2027, 2, 1)))
-    assert [(p["layer"], p["version"]) for p in got.spine] == [("lga", newer.version)]
+    assert [(p["layer"], p["version"]) for p in present(got.spine)] == [("lga", newer.version)]
 
 
-def test_each_version_is_built_with_the_layers_its_fetch_pinned(tmp_path: Path) -> None:
+def test_each_version_is_built_with_the_layers_its_fetch_pinned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     st = spine_copy(tmp_path)
     old = store.manifests(st, "qld-road-crash-locations")[-1]
     data = store.source_path(st, old).read_bytes()
-    two = [p for p in old.spine if p["layer"] in ("lga", "sa2")]
+    two = [p for p in present(old.spine) if p["layer"] in ("lga", "sa2")]
     new = dataclasses.replace(old, version="2026-05-01", spine=two)
     store.write(st, new, data)
     ds = crashes(enrich=["lga"])
@@ -384,9 +411,41 @@ def test_each_version_is_built_with_the_layers_its_fetch_pinned(tmp_path: Path) 
     assert "sa2_2021_code" in newest
     assert "sal_2021_code" not in newest
     assert vout.rows > 0
+    cards: dict[str, list[str]] = {}
+    real_card = brand.dataset_card
+
+    def card(out: Path, rel: str, title: str, sub: str, lines: list[str], **kw: object) -> object:
+        cards[rel] = lines
+        return real_card(out, rel, title, sub, lines, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(brand, "dataset_card", card)
     render_site([dout], out)
-    page = (out / "d" / ds.slug / "v" / old.version / "index.md").read_text(encoding="utf-8")
-    assert f"rows, {base + 12} fields" in page
+    vdir = out / "d" / ds.slug / "v" / old.version
+    assert f"rows, {base + 12} fields" in (vdir / "index.md").read_text(encoding="utf-8")
+    assert f"Fields <b>{base + 12}</b>" in (vdir / "index.html").read_text(encoding="utf-8")
+    rail = (ddir / "index.html").read_text(encoding="utf-8")
+    assert f"<span>{base + 12} fields</span>" in rail
+    assert f"<span>{base + 4} fields</span>" in rail
+    assert f"{base + 12} fields" in cards[f"og/d/{ds.slug}/v/{old.version}.png"]
+    # The older version's rollup keeps the place columns the register no longer states.
+    monkeypatch.setattr(rollup, "MIN_ROWS", 0)
+    parquet = vdir / "data.parquet"
+
+    class Local:
+        def parquet(self, slug: str, version: str) -> str | None:
+            return rollup.file_identity(parquet)
+
+        def stamp(self, k: str) -> str | None:
+            return None
+
+        def fetch(self, slug: str, version: str, dest: Path) -> None:
+            raise AssertionError(dest)
+
+    written, _keep = rollup.write(
+        [ds], {ds.slug: {old.version: vout.rows}}, Local(), tmp_path / "r", roots=[out], log=str
+    )
+    body = json.loads(gzip.decompress(written[0].path.read_bytes()))
+    assert "sal_2021_code" in [f["name"] for f in body["fields"]]
 
 
 def test_a_rollup_keeps_the_place_columns_its_version_was_joined_with() -> None:
@@ -444,7 +503,7 @@ def test_every_pin_names_a_committed_layer_version_with_its_hash() -> None:
         for d in (ROOT / "store").iterdir()
         if d.is_dir()
         for m in store.manifests(ROOT / "store", d.name, fetches=True)
-        for p in m.spine
+        for p in m.spine or []
         if held.get((p["dataset"], p["version"])) != p["sha256"]
     ]
     assert wrong == []
@@ -477,7 +536,7 @@ def test_every_layer_a_pin_names_is_still_a_spine_layer() -> None:
         for d in (ROOT / "store").iterdir()
         if d.is_dir()
         for m in store.manifests(ROOT / "store", d.name, fetches=True)
-        for p in m.spine
+        for p in m.spine or []
     }
     assert named
     assert {(k, spine.LAYERS[k].slug) for k, _ in named if k in spine.LAYERS} == named
