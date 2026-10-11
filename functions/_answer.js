@@ -62,6 +62,7 @@ export async function live(env) {
 // For the tests: the isolate's list is read again.
 export function reset() {
   liveList = undefined;
+  provenances.clear();
 }
 
 // A dataset the register has withheld keeps its loaded tables, files and cached answers until they
@@ -154,36 +155,105 @@ async function d1(ctx, slug, v, op, qs) {
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-// A version stored as parts answers with the header D1 loads it with (provenance.header for the
-// version, its rows and its DuckDB file): what is the dataset's comes from its newest part's file,
-// and what is the version's comes from its manifest, since a finished part can be an earlier
-// version's file, with that version's fetch, attribution and citation.
-export function partsHeader(part, at, slug, v) {
+// A header's keys in the order provenance.header writes them, and those that are the dataset's
+// rather than the version's (d1.DATASET_KEYS).
+const HEADER_KEYS = [
+  'site',
+  'operator',
+  'dataset',
+  'title',
+  'version',
+  'as_at',
+  'url',
+  'publisher',
+  'licence',
+  'attribution',
+  'cite',
+  'cite_request',
+  'source',
+  'places',
+  'rows',
+  'fields',
+  'kind',
+  'tables',
+  'not_endorsed',
+];
+const DATASET_KEYS = new Set([
+  'site',
+  'operator',
+  'dataset',
+  'title',
+  'publisher',
+  'licence',
+  'cite_request',
+  'places',
+  'fields',
+  'kind',
+  'tables',
+  'not_endorsed',
+]);
+
+// A version stored as parts answers with the header D1 loads it with (d1.parts_header). What is
+// the version's comes from its manifest, and what is the dataset's from `dataset`, the part of that
+// header fields.json gives from the register this deployment was built with. A finished part can
+// be an earlier version's file, written under the register as it was then, so the newest part's
+// own header stands in for the dataset's part only when fields.json gives none.
+export function partsHeader(part, at, slug, v, dataset = null) {
   const m = at.meta || {};
   const version = m.version || v;
   const page = `${SITE}/d/${slug}/v/${version}/`;
-  const h = { ...part };
-  delete h.period;
-  h.version = version;
-  // provenance.header writes an empty as_at as null.
-  h.as_at = m.as_at || null;
-  h.url = `${page}data.duckdb`;
-  h.attribution = at.attribution ?? part.attribution ?? null;
-  if ('cite' in h) {
-    const by = (part.operator && part.operator.name) || 'National Digital';
-    h.cite = `${h.attribution} Serialised and versioned by ${by} at publicdata.au, ${page}`;
-  }
-  h.source = {
-    url: (m.source && m.source.url) ?? null,
-    filename: m.filename ?? null,
-    fetched_at: m.fetched_at ?? null,
-    sha256: m.sha256 ?? null,
-    bytes: m.bytes ?? null,
-    encoding: m.encoding ?? null,
-    backfilled: m.backfilled ?? null,
+  const from = dataset || part || {};
+  const attribution = at.attribution ?? (part && part.attribution) ?? null;
+  const own = {
+    version,
+    // provenance.header writes an empty as_at as null.
+    as_at: m.as_at || null,
+    url: `${page}data.duckdb`,
+    attribution,
+    source: {
+      url: (m.source && m.source.url) ?? null,
+      filename: m.filename ?? null,
+      fetched_at: m.fetched_at ?? null,
+      sha256: m.sha256 ?? null,
+      bytes: m.bytes ?? null,
+      encoding: m.encoding ?? null,
+      backfilled: m.backfilled ?? null,
+    },
+    rows: at.rows,
   };
-  h.rows = at.rows;
+  if (attribution !== null) {
+    const by = (from.operator && from.operator.name) || 'National Digital';
+    own.cite = `${attribution} Serialised and versioned by ${by} at publicdata.au, ${page}`;
+  }
+  const h = {};
+  for (const k of HEADER_KEYS) {
+    if (Object.hasOwn(own, k)) {
+      h[k] = own[k];
+    } else if (DATASET_KEYS.has(k) && Object.hasOwn(from, k)) {
+      h[k] = from[k];
+    }
+  }
   return h;
+}
+
+// The dataset's part of a version's header, from its fields.json, read once per isolate.
+const provenances = new Map();
+async function datasetHeader(env, slug) {
+  if (provenances.has(slug)) {
+    return provenances.get(slug);
+  }
+  let out = null;
+  try {
+    const r = env.ASSETS && (await env.ASSETS.fetch(new Request(`${SITE}/d/${slug}/fields.json`)));
+    if (r && r.ok) {
+      const f = await r.json();
+      out = f.provenance && typeof f.provenance === 'object' ? f.provenance : null;
+    }
+  } catch {
+    out = null;
+  }
+  provenances.set(slug, out);
+  return out;
 }
 
 // A version stored as period parts is read part by part, listed with their rows by its manifest.
@@ -213,7 +283,7 @@ async function fromParts(ctx, slug, v, op, qs, path, at) {
       files: filesUrl(slug, v),
     });
   }
-  const header = partsHeader(r.header, at, slug, v);
+  const header = partsHeader(r.header, at, slug, v, await datasetHeader(ctx.env, slug));
   // parts names the periods read; the manifest gives each one's file, rows and provenance.
   const out = {
     version: v,
@@ -410,7 +480,16 @@ export async function query(ctx, slug, want, op, qs) {
     }
   }
   if (inD1) {
-    return done(await d1(ctx, slug, inD1, op, qs));
+    try {
+      return done(await d1(ctx, slug, inD1, op, qs));
+    } catch (e) {
+      // A query D1 fails to run is answered from the files when R2 is there to read them.
+      if (!(e instanceof AnswerError) || e.status !== 500 || !env.DIST || !v) {
+        throw e;
+      }
+      // eslint-disable-next-line no-console -- the Workers log is where an operator sees this.
+      console.error(`d1 ${slug} ${inD1.version}: ${e.body.detail || e.message}`);
+    }
   }
   // A query without a version that the newest version's file cannot answer is answered from the
   // newest version D1 holds, as it was before the files answered, and names that version.

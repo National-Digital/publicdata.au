@@ -765,15 +765,19 @@ either door, so a page the Parquet budget refuses only for counting is still rea
 provenance header and links the manifest, CSV and NDJSON carry it in headers, and `next` pages on
 the version's own path. An answer from the Parquet engine also names the file it read in `file`, or
 the periods it read in `parts`, and a sorted file's sort in `order`. A version stored as parts
-answers with the header D1 loads it with: what is the dataset's from its newest part's file, and its
-date, rows, source, hash, attribution and citation from its manifest, since a finished part can be
-an earlier version's file. A query the Parquet engine cannot afford answers 422 with DuckDB SQL that
-answers it from the published file, and a version with no table answers 404. A D1 that fails is
-logged and leaves the files to answer. Answers are kept at the edge under their own URL with a
-marker added, so `publicdata purge` still clears a version's answers by its path and no answer
-cached before the one query path is served. D1's answers are kept as well under the table they were
-read from, which a load of other rows renames, so the MCP tools are not sent to D1 twice for one
-answer.
+answers with the header D1 loads it with (`d1.parts_header`): its date, rows, source, hash,
+attribution and citation from its manifest, and the dataset's fields (title, publisher, licence,
+places and the rest of `d1.DATASET_KEYS`) from the dataset's `fields.json`, which gives them from
+the register the deployment was built with. A finished part can be an earlier version's file written
+under an older entry, so its own header stands in only when `fields.json` gives none. The two still
+differ after an edit to the entry that changes no field, until D1 loads the version again, since D1
+keeps the header it loaded with. A query the Parquet engine cannot afford answers 422 with DuckDB
+SQL that answers it from the published file, and a version with no table answers 404. When D1 fails,
+to find the version or to run the query on it, the failure is logged and the files answer if R2 is
+bound; without R2 it is a JSON 500. Answers are kept at the edge under their own URL with a marker
+added, so `publicdata purge` still clears a version's answers by its path and no answer cached
+before the one query path is served. D1's answers are kept as well under the table they were read
+from, which a load of other rows renames, so the MCP tools are not sent to D1 twice for one answer.
 
 Rows without an order, and ties, come in the order of the file they are read from. D1 holds a
 version in the order of its own data.parquet, which keeps the publisher's order unless the entry
@@ -927,10 +931,12 @@ field its metric totals. Filters, nulls, LIKE and ordering follow SQLite, so the
 decided once per distinct value, and LIKE patterns match without backtracking. `count_rows` orders
 equal totals by its groups, so its top groups are the same from either engine and from the query it
 cites. The function reads a rollup only while its stored identity matches the published Parquet's,
-and checks again after a minute. It answers any version it has a current rollup for. A query no cube
-holds and a withheld dataset fall through to the Parquet engine or D1. Answers name the version, its
-`/aggregate` URL, the Parquet file the rollup was counted from and the version's manifest; for a
-version D1 holds, the answer has D1's provenance and shape, with no file named.
+and checks again after a minute. A withheld dataset is refused with 410 before any rollup is read. A
+version with a current rollup is answered from it, except that for a version D1 holds the rollup
+answers only a query whose order leaves no ties, and a query no cube holds falls through to D1 or
+the Parquet engine. Answers name the version, its `/aggregate` URL, the Parquet file the rollup was
+counted from and the version's manifest; for a version D1 holds, the answer has D1's provenance and
+shape, with no file named.
 
 The settings come from a measurement over every live dataset in October 2026. At 1 MB and four
 measures, the 126 tables over 5,000 rows have rollups of 31.4 MB in all (5.3% of their

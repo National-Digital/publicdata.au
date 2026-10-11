@@ -41,7 +41,15 @@ from .build import (
     version_url,
 )
 from .cost import fleet_from_build
-from .d1 import KEEP, MAX_CSV, catalogue_sqlite, parts_csv, queryable, served_table
+from .d1 import (
+    KEEP,
+    MAX_CSV,
+    catalogue_sqlite,
+    dataset_header,
+    parts_csv,
+    queryable,
+    served_table,
+)
 from .fetch import TZ
 from .parts import FORMATS as PART_FORMATS
 from .parts import url as part_url
@@ -3021,7 +3029,9 @@ def _fields_resource(o: DatasetOut, hints: Console, *, api: bool) -> dict[str, o
     They are read from the newest version's data.parquet, or its parts, as the query console's
     are. The query API and the server's row tools answer every version from the same query path,
     D1 for the versions it loads and each version's Parquet for the rest, so the API's URLs are
-    given whenever the API is on.
+    given whenever the API is on. `provenance` is the dataset's part of the header D1 loads a
+    version with, from the register as this build reads it, which the query path gives a version
+    stored as parts in place of what its newest part's file says.
     """
     ds, m = o.dataset, _newest(o).manifest
     base = f"{SITE}/api/v1/datasets/{ds.slug}/"
@@ -3040,6 +3050,7 @@ def _fields_resource(o: DatasetOut, hints: Console, *, api: bool) -> dict[str, o
         "key": list(ds.key),
         "partition_by": list(ds.partition_by),
         "fields": hints["fields"],
+        "provenance": dataset_header(ds, m, {"rows": _newest(o).rows}),
     }
 
 

@@ -690,6 +690,42 @@ test('a D1 that fails leaves the files to answer, and without them the error is 
   assert.match((await bare.json()).error, /could not run/);
 });
 
+test('a query D1 fails to run is answered from the files, and without them the error is JSON', async () => {
+  // D1 finds the version, then fails the query itself.
+  const breaking = {
+    prepare(q) {
+      const st = DB.prepare(q);
+      if (q.includes('FROM "t"')) {
+        st.all = async () => {
+          throw new Error('D1_ERROR: query timed out');
+        };
+      }
+      return st;
+    },
+  };
+  const request = new Request(
+    `https://publicdata.au/api/v1/datasets/${SLUG}/rows?year=eq.2019&select=lga&limit=3`,
+  );
+  const r = await answer(
+    { request, env: { ...env, DB: breaking }, params: { slug: SLUG }, waitUntil() {} },
+    'rows',
+  );
+  const b = await r.json();
+  assert.equal(r.status, 200, b.error);
+  assert.equal(b.file, `https://publicdata.au/d/${SLUG}/v/${NEWEST}/data.parquet`);
+  const bare = await answer(
+    {
+      request,
+      env: { DB: breaking, ASSETS: env.ASSETS },
+      params: { slug: SLUG },
+      waitUntil() {},
+    },
+    'rows',
+  );
+  assert.equal(bare.status, 500);
+  assert.match((await bare.json()).error, /could not run/);
+});
+
 test('the budget error reaches the agent, and a file that cannot be read says where the files are', async () => {
   const was = BUDGET.groups;
   BUDGET.groups = 1;

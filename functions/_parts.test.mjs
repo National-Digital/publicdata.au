@@ -573,6 +573,25 @@ test('the query API answers a version stored as parts with its full provenance',
   assert.equal(h.attribution, 'Fixture publisher, licensed under CC BY 4.0.');
   assert.equal(h.version, V);
   assert.equal(h.url, `${SITE}/d/${BY_YEAR}/v/${V}/data.duckdb`);
+  // The dataset's fields come from fields.json, which the deployment writes from the register,
+  // over what the newest part's file says.
+  assets[`/d/${BY_YEAR}/fields.json`] = {
+    provenance: {
+      dataset: BY_YEAR,
+      title: 'Crashes by year, as registered',
+      licence: { id: 'CC0-1.0' },
+    },
+  };
+  reset();
+  try {
+    const listed = await api(BY_YEAR);
+    assert.equal(listed.body.publicdata.title, 'Crashes by year, as registered');
+    assert.equal(listed.body.publicdata.licence.id, 'CC0-1.0');
+    assert.equal(listed.body.publicdata.attribution, h.attribution);
+  } finally {
+    delete assets[`/d/${BY_YEAR}/fields.json`];
+    reset();
+  }
   // What belongs to the version comes from its own manifest, since its parts may come from the
   // versions before it.
   const key = `d/${BY_QUARTER}/v/${V}/manifest.json`;
@@ -601,15 +620,68 @@ test('the query API answers a version stored as parts with its full provenance',
 });
 
 test("a parts answer carries the header D1 loads the version with, not its newest part's", () => {
-  // A finished part written by the version before, and the version's own manifest, as the
-  // pipeline writes them (pipeline/tests/test_parts_header_fixture.py), against the header
-  // d1.py loads the version with.
+  // A finished part the version before wrote under an older register entry, the version's own
+  // manifest and the dataset's part of the header from fields.json, as the pipeline writes them,
+  // against the header d1.parts_header loads the version with
+  // (pipeline/tests/test_parts_header_fixture.py).
   const h = JSON.parse(readFileSync(new URL('headers.json', ROOT), 'utf8'));
-  const got = partsHeader(h.part, partsAt(h.manifest, h.version), h.slug, h.version);
+  const own = partsAt(h.manifest, h.version);
+  const got = partsHeader(h.part, own, h.slug, h.version, h.dataset);
   assert.equal(JSON.stringify(got), JSON.stringify(h.d1));
   assert.equal(got.publisher.name, h.d1.publisher.name);
-  assert.equal(got.period, undefined);
-  assert.notEqual(h.part.attribution, h.d1.attribution);
+  // Without fields.json the newest part's file stands in for the dataset, older register and all.
+  const bare = partsHeader(h.part, own, h.slug, h.version);
+  assert.equal(bare.title, h.part.title);
+  assert.notEqual(bare.title, h.d1.title);
+  assert.equal(bare.as_at, h.d1.as_at);
+  assert.equal(bare.cite, h.d1.cite);
+  assert.equal(bare.period, undefined);
+  assert.equal(bare.rows, h.d1.rows);
+  // A version with no attribution of its own gives no citation built on nothing.
+  const none = partsHeader(
+    { ...h.part, attribution: null },
+    { ...own, attribution: null },
+    h.slug,
+    h.version,
+    h.dataset,
+  );
+  assert.equal(none.cite, undefined);
+});
+
+test('a version whose newest part carries no provenance is refused even when no read touches it', async () => {
+  // The rows come from parts with provenance, and the newest part, whose footer gives the fields,
+  // has none, so only the parts guard can refuse it.
+  const slug = 'crashes-newest-unmarked';
+  const m = manifestOf(BY_YEAR);
+  const plain = readFileSync(
+    new URL('../pipeline/tests/fixtures/parquet/rows-no-provenance.parquet', import.meta.url),
+  );
+  const last = m.parts.at(-1);
+  for (const p of m.parts) {
+    objects.set(
+      `d/${slug}/v/${p.tree}/${p.files.parquet.path}`,
+      p === last ? plain : objects.get(partKey(BY_YEAR, p)),
+    );
+  }
+  objects.set(
+    `d/${slug}/v/${V}/manifest.json`,
+    Buffer.from(JSON.stringify({ ...m, dataset: slug })),
+  );
+  assets['/latest.json'] = { ...assets['/latest.json'], [slug]: V };
+  reset();
+  try {
+    const other = m.parts.find((p) => p.period !== last.period).period;
+    const request = new Request(
+      `${SITE}/api/v1/datasets/${slug}/versions/${V}/rows?year=eq.${other}&limit=2`,
+    );
+    const r = await answer({ request, env, params: { slug, version: V }, waitUntil() {} }, 'rows');
+    const b = await r.json();
+    assert.equal(r.status, 422, JSON.stringify(b));
+    assert.match(b.error, /carries no provenance in its parts/);
+  } finally {
+    delete assets['/latest.json'][slug];
+    reset();
+  }
 });
 
 test('a version whose parts carry no provenance is refused, as a file without it is', async () => {

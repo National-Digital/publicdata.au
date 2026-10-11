@@ -346,7 +346,47 @@ def as_fetched(ds: Dataset, m: store.Manifest) -> Dataset:
     return replace(ds, enrich=keys, fields=kept_fields + added)
 
 
-def build_version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a version's build steps, read in order
+def version_manifest(  # noqa: PLR0913 - the parts of one version's manifest, named at the call
+    ds: Dataset,
+    m: store.Manifest,
+    tbl: Table,
+    split: _Split,
+    base: str,
+    *,
+    gone: dict[str, str] | None = None,
+    measured: dict[str, int] | None = None,
+) -> dict[str, object]:
+    """The manifest.json a version's build writes beside its files."""
+    ds = as_fetched(ds, m)
+    whole = split.get("whole", True)
+    # keyed_json leaves out the spine pin, the fetch's record of the layers it joins, so it never
+    # enters what is published.
+    man: dict[str, object] = json.loads(m.keyed_json())
+    if ds.source_withheld:
+        man["source_withheld"] = ds.source_withheld
+    man["rows"] = tbl.rows
+    man["fields"] = len(ds.fields)
+    man["unknown_upstream_columns"] = tbl.unknown_columns
+    man["suppressed_cells"] = tbl.suppressed_cells
+    if tbl.short_rows:
+        man["short_rows_padded"] = tbl.short_rows
+    if tbl.omitted_columns:
+        man["omitted_upstream_columns"] = {c: ds.omit[c] for c in tbl.omitted_columns}
+    if tbl.places:
+        man["places"] = tbl.places
+    man.update(split)
+    if gone is not None:
+        man["measured_bytes"] = measured
+        man["formats_left_out"] = gone
+    man["url"] = base
+    if not whole:
+        # A finished part can be an earlier version's file, whose header names that version's
+        # fetch, so the manifest gives this version's attribution to the MCP server.
+        man["attribution"] = attribution(ds, m)
+    return man
+
+
+def build_version(  # noqa: PLR0913 - a version's build steps, read in order
     ds: Dataset,
     m: store.Manifest,
     data: bytes,
@@ -419,28 +459,7 @@ def build_version(  # noqa: C901, PLR0912, PLR0913, PLR0915 - a version's build 
         partitions = {}
     (vdir / "schema.json").write_text(pretty(table_schema(tbl)), encoding="utf-8")
     (vdir / "schema.sql").write_text(schema_sql(tbl, hdr(tbl.rows, "schema.sql")), encoding="utf-8")
-    man = json.loads(m.keyed_json())
-    if ds.source_withheld:
-        man["source_withheld"] = ds.source_withheld
-    man["rows"] = tbl.rows
-    man["fields"] = len(ds.fields)
-    man["unknown_upstream_columns"] = tbl.unknown_columns
-    man["suppressed_cells"] = tbl.suppressed_cells
-    if tbl.short_rows:
-        man["short_rows_padded"] = tbl.short_rows
-    if tbl.omitted_columns:
-        man["omitted_upstream_columns"] = {c: ds.omit[c] for c in tbl.omitted_columns}
-    if tbl.places:
-        man["places"] = tbl.places
-    man.update(split)
-    if gone is not None:
-        man["measured_bytes"] = measured
-        man["formats_left_out"] = gone
-    man["url"] = base
-    if not whole:
-        # A finished part can be an earlier version's file, whose header names that version's
-        # fetch, so the manifest gives this version's attribution to the MCP server.
-        man["attribution"] = attribution(ds, m)
+    man = version_manifest(ds, m, tbl, split, base, gone=gone, measured=measured)
     (vdir / "manifest.json").write_text(pretty(man), encoding="utf-8")
     return tbl, VersionOut(
         m,

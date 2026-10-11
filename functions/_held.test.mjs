@@ -56,8 +56,13 @@ sql
     header.attribution,
     JSON.stringify(header),
   );
+// Queries D1 runs on a version's table, so a test can tell the answers the rollup gave.
+let tableQueries = 0;
 const DB = {
   prepare(q) {
+    if (!q.includes('_versions')) {
+      tableQueries++;
+    }
     let binds = [];
     const st = {
       bind(...b) {
@@ -149,16 +154,20 @@ const filter = () => {
 };
 
 test('every answer for a version D1 holds is the one its SQL gives, under the header D1 holds', async () => {
+  let fromRollup = 0;
   for (let i = 0; i < 400; i++) {
-    const where = Array.from({ length: rand(3) }, filter);
     let op, qs;
-    if (rand(2)) {
-      const group = [
-        ...new Set(
-          Array.from({ length: rand(3) }, () => pick(['lga', 'year', 'severity', 'fatal'])),
-        ),
-      ];
+    if (rand(3)) {
+      // Mostly what a cube holds: equality filters and groups on its fields, with an order that
+      // leaves no ties or none at all, so the rollup answers often enough to be held to D1.
+      const dims = ['lga', 'severity', 'year'];
+      const where = Array.from({ length: rand(3) }, () => {
+        const f = pick(dims);
+        return rand(5) ? `${f}=eq.${encodeURIComponent(pick(vals[f]))}` : filter();
+      });
+      const group = [...new Set(Array.from({ length: rand(3) }, () => pick(dims)))];
       const metric = pick([
+        'count',
         'count',
         'sum.casualties',
         'avg.casualties',
@@ -169,8 +178,9 @@ test('every answer for a version D1 holds is the one its SQL gives, under the he
       const alias = metric === 'count' ? 'count' : metric.replace('.', '_');
       const order = pick([
         [],
+        [],
         [`${alias}.desc`],
-        [`${alias}.asc`, ...group.map((g) => `${g}.asc`)],
+        [`${alias}.desc`, ...group.map((g) => `${g}.asc`)],
         group.map((g) => `${g}.desc`),
       ]);
       op = 'aggregate';
@@ -184,12 +194,16 @@ test('every answer for a version D1 holds is the one its SQL gives, under the he
     } else {
       op = 'rows';
       qs = [
-        ...where,
+        ...Array.from({ length: rand(3) }, filter),
         ...(rand(2) ? [`order=${pick(['lga', 'year', 'speed'])}.${pick(['asc', 'desc'])}`] : []),
         `limit=${1 + rand(20)}`,
       ].join('&');
     }
+    const before = tableQueries;
     const a = await api(op, qs);
+    if (tableQueries === before) {
+      fromRollup++;
+    }
     assert.equal(a.status, 200, `${qs}: ${a.body.error}`);
     assert.deepEqual(a.body.rows, viaD1(op, qs), `${op} ${qs}`);
     assert.deepEqual(a.body.publicdata, header, qs);
@@ -197,6 +211,8 @@ test('every answer for a version D1 holds is the one its SQL gives, under the he
     assert.equal(a.body.file, undefined, qs);
     assert.equal(a.body.order, undefined, qs);
   }
+  // Enough of them come from the rollup that its answers are held to D1's, not only D1's to itself.
+  assert.ok(fromRollup >= 100, `only ${fromRollup} of 400 answers came from the rollup`);
 });
 
 test("the rollup answers ahead of D1 only an order that leaves no ties, under D1's header", async () => {

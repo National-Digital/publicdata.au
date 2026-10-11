@@ -558,9 +558,43 @@ def _parts(
             return None
         files.append(found)
     csv = parts_csv(built["parts"])
-    m = Manifest.read(path)
-    head = header(ds, m, built["rows"], version_url(ds.slug, version) + "data.duckdb")
-    return files, csv, head
+    return files, csv, parts_header(ds, Manifest.read(path), built)
+
+
+# The keys of a header that are the dataset's rather than the version's. The query path takes them
+# from the dataset's fields.json for a version stored as parts, since a finished part can be an
+# older tree's file, written under the register as it was then.
+DATASET_KEYS = (
+    "site",
+    "operator",
+    "dataset",
+    "title",
+    "publisher",
+    "licence",
+    "cite_request",
+    "places",
+    "fields",
+    "kind",
+    "tables",
+    "not_endorsed",
+)
+
+
+def parts_header(ds: Dataset, m: Manifest, built: Mapping[str, object]) -> Header:
+    """The header D1 loads a version stored as parts with: the version's own, for every row.
+
+    `built` is the version's built manifest; its rows count the whole version.
+    """
+    rows = built["rows"]
+    if not isinstance(rows, int):
+        msg = f"{ds.slug}@{m.version}: the built manifest gives no row count"
+        raise TypeError(msg)
+    return header(ds, m, rows, version_url(ds.slug, m.version) + "data.duckdb")
+
+
+def dataset_header(ds: Dataset, m: Manifest, built: Mapping[str, object]) -> dict[str, object]:
+    """The dataset's part of the header D1 loads a version with, for the dataset's fields.json."""
+    return {k: v for k, v in parts_header(ds, m, built).items() if k in DATASET_KEYS}
 
 
 def _order(files: list[Path]) -> str:

@@ -8,9 +8,9 @@
       "url": "https://nationaldigital.com.au/"
     },
     "dataset": "au-eucalypt-records",
-    "title": "Eucalypt records from Australia's herbaria and flora atlases",
+    "title": "Eucalypt records from Australia's herbaria and flora atlases (as first registered)",
     "version": "2026-09-24",
-    "as_at": null,
+    "as_at": "2026-06-30",
     "url": "https://publicdata.au/d/au-eucalypt-records/v/2026-09-24/parts/2019.parquet",
     "publisher": {
       "name": "Atlas of Living Australia",
@@ -201,7 +201,50 @@
     ],
     "rows_sha256": "4ee5e9d697e7d8b852ccc99a0c3e5b3d76c5d8cc4786b63ff728dad5ac2997cc",
     "rows": 1234,
+    "fields": 36,
+    "unknown_upstream_columns": [],
+    "suppressed_cells": 0,
+    "period": {
+      "field": "year",
+      "grain": "year"
+    },
+    "whole": false,
+    "parts": [],
+    "url": "https://publicdata.au/d/au-eucalypt-records/v/2026-09-29/",
     "attribution": "Atlas of Living Australia, eucalypt records from Australian government herbaria and flora atlases (the provider is named in each row), https://www.ala.org.au/, accessed 3 October 2026, licensed under CC BY 4.0 and CC0 by their providers."
+  },
+  "dataset": {
+    "site": "https://publicdata.au",
+    "operator": {
+      "name": "National Digital",
+      "url": "https://nationaldigital.com.au/"
+    },
+    "dataset": "au-eucalypt-records",
+    "title": "Eucalypt records from Australia's herbaria and flora atlases",
+    "publisher": {
+      "name": "Atlas of Living Australia",
+      "jurisdiction": "Cth",
+      "url": "https://www.ala.org.au/"
+    },
+    "licence": {
+      "id": "CC-BY-4.0",
+      "title": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/"
+    },
+    "cite_request": "The licence requires the publisher's attribution. We ask that you also name publicdata.au and link to the version you used.",
+    "places": {
+      "datasets": [
+        "abs-sa2-2021",
+        "abs-lga-2025",
+        "abs-suburbs-localities-2021",
+        "abs-postal-areas-2021",
+        "abs-state-electoral-divisions-2025",
+        "abs-federal-electoral-divisions-2025"
+      ],
+      "attribution": "Place columns from Australian Statistical Geography Standard (ASGS) Edition 3 boundaries, Australian Bureau of Statistics, licensed under CC BY 4.0."
+    },
+    "fields": 36,
+    "not_endorsed": "This is an independent republication. The publisher has not endorsed this site."
   },
   "d1": {
     "site": "https://publicdata.au",
