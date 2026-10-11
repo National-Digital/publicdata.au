@@ -50,7 +50,7 @@ was built on. The measurements in them are dated and stay as they were.
 - [0016](0016-mcp-server.md) Agents reach the site through one remote MCP server, described by one
   spec
 - [0017](0017-how-queries-are-answered.md) The query API and the MCP tools share one query path, and
-  every version can be queried
+  every version of a table can be queried
 - [0018](0018-copies-on-the-hubs.md) The newest version of each dataset is copied to Hugging Face,
   Zenodo and Kaggle
 

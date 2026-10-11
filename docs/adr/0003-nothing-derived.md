@@ -39,8 +39,9 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
   version, and its description says the publisher did not publish it. The manifest records each
   layer read, and every file's provenance names the layers and carries the ABS attribution.
 - A version's join is fixed when it is fetched. The fetch pins, in the version's committed
-  manifest, the layers the entry's `enrich` names and the newest version of each already on
-  `main`, and every later build joins to exactly those. A version fetched before its entry named
+  manifest, the layers the entry's `enrich` names and the newest version of each that `main` held
+  when the fetch run began, never one fetched in the same run, and every later build joins to
+  exactly those. A version fetched before its entry named
   `enrich` carries no pin and stays unjoined. A new layer version or an edit to `enrich` reaches
   only versions fetched after it.
 - A new ABS edition is a new register entry and a new layer with year-named fields. All joined
@@ -72,12 +73,13 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
   version are in the joined version's build key ([0013](0013-deterministic-builds.md)).
 - The real-data check pulls a sampled joined dataset's layers beside it, so a change to the join is
   checked whenever a joined dataset is drawn.
-- A re-issued layer within an edition reaches older versions only when the ABS withdraws the old
-  file as wrong. That is a correction: the affected pins are moved to the replacing layer version,
-  each manifest is noted and a `replace` rebuilds them ([0002](0002-versions-are-kept.md),
-  `docs/CORRECTIONS.md`).
-- A version's files and pages describe the same join for good, and every layer a pin names stays
-  available to the build, since the raw store is append-only.
+- A re-issued layer, even one the ABS withdraws as wrong, reaches only versions fetched after it.
+  An error in the ABS's boundaries is the publisher's, as an error in any source is, and each
+  older version's pin says which layer version it was joined to
+  ([0002](0002-versions-are-kept.md)).
+- A version's files and pages describe the same join for good. Every layer a pin names stays
+  buildable, since the raw store is append-only and a layer key a pin names is never removed from
+  `spine.py`.
 
 See `docs/ARCHITECTURE.md` ("Rules that decide the code", "Archive") and `CONTRIBUTING.md`
 ("Reference").
