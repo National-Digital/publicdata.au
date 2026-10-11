@@ -28,6 +28,7 @@ from publicdata.fetch import (
     resource_filename,
 )
 from publicdata.register import Field, Source
+from publicdata.spine import LAYERS
 
 from .conftest import ROOT, make_dataset
 
@@ -131,7 +132,10 @@ def test_an_empty_or_html_answer_is_refused_not_stored() -> None:
 def test_one_failing_dataset_does_not_stop_the_others(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def fake(ds: Dataset, store_dir: Path) -> None:
+    snapshots: list[object] = []
+
+    def fake(ds: Dataset, store_dir: Path, held: object = None) -> None:
+        snapshots.append(held)
         if ds.slug == "qld-road-casualties":
             msg = "qld-road-casualties: returned no bytes"
             raise f.FetchError(msg)
@@ -142,6 +146,10 @@ def test_one_failing_dataset_does_not_stop_the_others(
     assert "qld-road-casualties: FAILED" in out
     assert "qld-road-crash-factors: unchanged" in out
     assert "0 new version(s), 1 failed" in out
+    # Every fetch in the run pins against one snapshot of the place spine, taken before it began.
+    assert len(snapshots) == 2
+    assert snapshots[0] is snapshots[1]
+    assert set(cast("dict[str, object]", snapshots[0])) == {x.slug for x in LAYERS.values()}
 
 
 def test_every_workflow_file_parses() -> None:
@@ -163,7 +171,7 @@ def test_a_second_file_on_a_taken_day_gets_the_next_free_day_and_says_why() -> N
 def test_new_versions_are_grouped_by_government_for_their_own_pull_requests(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    def fake(ds: Dataset, store_dir: Path) -> object:
+    def fake(ds: Dataset, store_dir: Path, held: object = None) -> object:
         if ds.slug == "qld-road-crash-factors":
             msg = "qld-road-crash-factors: returned no bytes"
             raise f.FetchError(msg)

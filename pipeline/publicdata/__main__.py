@@ -167,8 +167,8 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 
         )
     changed = failed = due = 0
     groups: dict[str, list[str]] = {}
-    fetch.SPINE.clear()
-    fetch.SPINE.update(spine_committed(store_dir))
+    # Every pin in the run names a layer version main held when it began.
+    held = spine_committed(store_dir)
     for d in datasets:
         if args.slug and d.slug not in args.slug:
             continue
@@ -184,7 +184,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 
         read_before = st.last_read(store_dir, d.slug)
         # One dataset that cannot be fetched is reported and the rest go ahead.
         try:
-            m = fetch.fetch(d, store_dir)
+            m = fetch.fetch(d, store_dir, held)
         except fetch.ManualDue as e:
             due += 1
             print(f"{d.slug}: MANUAL {e}")

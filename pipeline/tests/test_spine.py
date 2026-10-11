@@ -351,14 +351,15 @@ def test_the_key_reads_a_pinned_manifest_as_it_was_before_the_pin() -> None:
     assert m.keyed_json() == json.dumps(before, indent=2, ensure_ascii=False) + "\n"
 
 
+@pytest.mark.parametrize("update", ["release", "rolling"])
 def test_a_fetch_run_pins_only_the_layer_versions_main_held_when_it_began(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, update: str
 ) -> None:
-    ds = crashes(enrich=["lga"])
+    ds = crashes(enrich=["lga"], update=update)
     st = spine_copy(tmp_path)
     shutil.rmtree(st / ds.slug)
     held = store.manifests(st, "abs-lga-2025")[-1]
-    monkeypatch.setattr(fetch, "SPINE", spine.committed(st))
+    held_layers = spine.committed(st)
     later_layer(st)
     src = store.manifests(FIXTURES, ds.slug)[-1]
     m = dataclasses.replace(src, spine=[], version="2027-02-01", sha256="2" * 64)
@@ -366,7 +367,7 @@ def test_a_fetch_run_pins_only_the_layer_versions_main_held_when_it_began(
     data = store.source_path(FIXTURES, src).read_bytes()
     monkeypatch.setitem(fetch.ADAPTERS, ds.source.adapter, lambda d, s: (data, m, lic))
     monkeypatch.setattr(fetch, "check_licence", lambda d, lic: None)
-    got = present(fetch.fetch(ds, st))
+    got = present(fetch.fetch(ds, st, held_layers))
     assert [p["version"] for p in present(got.spine)] == [held.version]
 
 

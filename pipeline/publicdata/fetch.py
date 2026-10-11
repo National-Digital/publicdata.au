@@ -491,9 +491,6 @@ class Fetched:
 
 # Files a person downloaded for manual sources, by slug; the fetch command fills it from --file.
 MANUAL: dict[str, Path] = {}
-# The place spine's layer versions as the store held them when the run began (spine.committed),
-# which every pin in the run names; empty outside a run, when the store is read as it stands.
-SPINE: dict[str, list[store.Manifest]] = {}
 
 
 class ManualDue(RuntimeError):  # noqa: N818 - a signal that a person must fetch
@@ -2181,8 +2178,14 @@ def check_licence(ds: Dataset, licence: LicenceRead) -> None:
         raise LicenceDrift(msg)
 
 
-def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
-    """Fetch one dataset into the store. Returns the new manifest, or None if unchanged."""
+def fetch(
+    ds: Dataset, store_dir: Path, held: dict[str, list[store.Manifest]] | None = None
+) -> store.Manifest | None:
+    """Fetch one dataset into the store. Returns the new manifest, or None if unchanged.
+
+    `held` is the place spine as the store held it when the run began (spine.committed), which
+    every pin in the run names; without it, the store is read as it stands.
+    """
     if ds.source.adapter not in ADAPTERS:
         msg = f"{ds.slug}: no adapter '{ds.source.adapter}'"
         raise RuntimeError(msg)
@@ -2194,7 +2197,9 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
             raise FetchError(msg)
     check_licence(ds, licence)
     if ds.update != "release":
-        return fetch_rolling(ds, store_dir, data, m, licence, dt.datetime.now(TZ).date())
+        return fetch_rolling(
+            ds, store_dir, data, m, licence, dt.datetime.now(TZ).date(), layers=held
+        )
     if data is None:
         return None
     m.rows_sha256, n, misfit = _rows(ds, m, data)
@@ -2217,7 +2222,7 @@ def fetch(ds: Dataset, store_dir: Path) -> store.Manifest | None:
             return None
         m = fed
     m.caps = store.CAPS_VERSION
-    m.spine = spine.recorded(ds.enrich, ds.slug, store_dir, SPINE or None)
+    m.spine = spine.recorded(ds.enrich, ds.slug, store_dir, held)
     store.write(store_dir, m, data)
     return m
 
@@ -2303,13 +2308,15 @@ def _held(store_dir: Path, m: store.Manifest) -> bytes:
     return store.source_path(store_dir, m).read_bytes()
 
 
-def fetch_rolling(
+def fetch_rolling(  # noqa: PLR0913 - fetch passes the run's spine snapshot by keyword
     ds: Dataset,
     store_dir: Path,
     data: bytes | None,
     m: store.Manifest,
     _licence: LicenceRead,
     today: dt.date,
+    *,
+    layers: dict[str, list[store.Manifest]] | None = None,
 ) -> store.Manifest | None:
     """A rolling source or a feed.
 
@@ -2349,7 +2356,7 @@ def fetch_rolling(
         volatile=list(ds.volatile),
         parquet=layout(ds),
         caps=store.CAPS_VERSION,
-        spine=spine.recorded(ds.enrich, ds.slug, store_dir, SPINE or None),
+        spine=spine.recorded(ds.enrich, ds.slug, store_dir, layers),
     )
     m.rows_sha256 = updates.digest(tbl)
     tbl = replace(tbl, manifest=m)
