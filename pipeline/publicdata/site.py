@@ -335,7 +335,8 @@ GITHUB_ORG = REPO.rsplit("/", 1)[0]
 BEACON = "b3b3d9ce88104e7e965284919b4d556e"
 # The query API over D1 is documented only once it answers; flip with the D1 binding.
 QUERY_API = True
-# Chrome origin-trial token for WebMCP on https://publicdata.au, expires 17 Nov 2026.
+# Chrome origin-trial token for WebMCP on https://publicdata.au. tests/test_origin_trial.py reads
+# its expiry and fails from 14 days before.
 ORIGIN_TRIAL = "AjNME/wcGH0gN0bKPlUW/RnNBsnvgDJqUAJBSXr/NmNtgDFPw2YA2JMAr4bemG54zRprx27PTtKf7HWYxD79Ag4AAABNeyJvcmlnaW4iOiJodHRwczovL3B1YmxpY2RhdGEuYXU6NDQzIiwiZmVhdHVyZSI6IldlYk1DUCIsImV4cGlyeSI6MTc5NDg3MzYwMH0="
 JUR_LONG = {
     "Cth": "Commonwealth",
