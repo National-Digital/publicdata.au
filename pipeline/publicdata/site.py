@@ -2525,7 +2525,7 @@ PROSE = {
 <h2>In the browser</h2>
 {webmcp}
 <h2>Robots</h2>
-<p><a href="/robots.txt"><code>/robots.txt</code></a> allows every crawler, including AI crawlers, everywhere except <code>/api/</code>. <a href="/sitemap.xml"><code>/sitemap.xml</code></a> is a sitemap index with one sitemap per government and one for the other pages.</p>
+<p><a href="/robots.txt"><code>/robots.txt</code></a> allows every crawler, including AI crawlers, everywhere except <code>/api/</code>. Its <code>Content-Signal</code> line, written to the <a href="https://contentsignals.org/">contentsignals.org</a> syntax, says yes to search indexing, to AI answers that read the site and to AI training. Each dataset's licence still governs what you may do with its data. <a href="/sitemap.xml"><code>/sitemap.xml</code></a> is a sitemap index with one sitemap per government and one for the other pages.</p>
 """,
     ),
     "about": (
@@ -5596,7 +5596,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     _write(
         out,
         "robots.txt",
-        f"User-Agent: *\nAllow: /\nDisallow: /api/\n\nHost: {SITE}\nSitemap: {SITE}/sitemap.xml\n",
+        f"# Agents: {SITE}/agents/\n# MCP server: {SITE}/mcp\n# Datasets: {SITE}/llms.txt\n\n"
+        "User-Agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\n"
+        f"Allow: /\nDisallow: /api/\n\nHost: {SITE}\nSitemap: {SITE}/sitemap.xml\n",
     )
     urls = [
         SITE + "/",

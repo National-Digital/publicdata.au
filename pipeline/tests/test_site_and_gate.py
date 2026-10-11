@@ -962,6 +962,22 @@ def test_pages_invite_contributions_and_link_the_repository(fixture_site: Path) 
     assert "https://publicdata.au/contribute/" in (out / "sitemaps" / "site.xml").read_text("utf-8")
 
 
+def test_robots_txt_states_content_signals_for_every_crawler(fixture_site: Path) -> None:
+    text = (fixture_site / "robots.txt").read_text(encoding="utf-8")
+    comments = [ln for ln in text.splitlines() if ln.startswith("#")]
+    for url in (
+        "https://publicdata.au/agents/",
+        "https://publicdata.au/mcp",
+        "https://publicdata.au/llms.txt",
+    ):
+        assert any(ln.endswith(url) for ln in comments), url
+    # A group runs from its User-Agent line to the next blank line; the signal must sit inside it.
+    groups = [g.splitlines() for g in text.split("\n\n")]
+    star = next(g for g in groups if g[0] == "User-Agent: *")
+    assert "Content-Signal: search=yes, ai-input=yes, ai-train=yes" in star
+    assert "Disallow: /api/" in star
+
+
 def test_the_entry_link_keeps_the_folder_an_entry_sits_in() -> None:
     ds = make_dataset([], slug="x")
     assert register_path(ds) == "register/x.yaml"
