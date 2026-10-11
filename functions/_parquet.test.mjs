@@ -726,6 +726,53 @@ test('a query D1 fails to run is answered from the files, and without them the e
   assert.match((await bare.json()).error, /could not run/);
 });
 
+test('a D1 failure the files cannot answer is the answer, naming both', async () => {
+  const breaking = {
+    prepare(q) {
+      const st = DB.prepare(q);
+      if (q.includes('FROM "t"')) {
+        st.all = async () => {
+          throw new Error('D1_ERROR: query timed out');
+        };
+      }
+      return st;
+    },
+  };
+  const ask = async (qs) => {
+    const request = new Request(`https://publicdata.au/api/v1/datasets/${SLUG}/aggregate?${qs}`);
+    const r = await answer(
+      { request, env: { ...env, DB: breaking }, params: { slug: SLUG }, waitUntil() {} },
+      'aggregate',
+    );
+    return { status: r.status, body: await r.json() };
+  };
+  // The file refuses the query for its budget.
+  const was = BUDGET.groups;
+  BUDGET.groups = 1;
+  try {
+    const a = await ask('group=lga&metric=count');
+    assert.equal(a.status, 500, JSON.stringify(a.body));
+    assert.match(a.body.detail, /query timed out/);
+    assert.match(a.body.files_error, /DuckDB SQL/);
+  } finally {
+    BUDGET.groups = was;
+  }
+  // The version has no file at all.
+  const key = `d/${SLUG}/v/${NEWEST}/data.parquet`;
+  const bytesWere = objects.get(key);
+  objects.delete(key);
+  engine.forget(SLUG, NEWEST);
+  try {
+    const b = await ask('group=lga&metric=count');
+    assert.equal(b.status, 500, JSON.stringify(b.body));
+    assert.match(b.body.detail, /query timed out/);
+    assert.match(b.body.files_error, /no file/);
+  } finally {
+    objects.set(key, bytesWere);
+    engine.forget(SLUG, NEWEST);
+  }
+});
+
 test('the budget error reaches the agent, and a file that cannot be read says where the files are', async () => {
   const was = BUDGET.groups;
   BUDGET.groups = 1;

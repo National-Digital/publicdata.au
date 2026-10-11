@@ -359,7 +359,8 @@ async function locate(env, slug, version) {
 }
 
 // What a version stored as parts takes from its own manifest for its provenance, since its parts
-// may come from versions before it: its rows, its attribution, and its date, source and hash.
+// may come from versions before it: its rows, its attribution, its date, source and hash, and the
+// layers it was joined to.
 export function partsAt(manifest, version, parts = manifest.parts || []) {
   return {
     rows: Number.isFinite(manifest.rows)
@@ -377,6 +378,9 @@ export function partsAt(manifest, version, parts = manifest.parts || []) {
       source: manifest.source ?? null,
       licence: manifest.licence ?? null,
       backfilled: manifest.backfilled ?? null,
+      // The layers the version was joined to and its field count, which are the version's own.
+      places: Array.isArray(manifest.places) ? manifest.places : [],
+      fields: Number.isFinite(manifest.fields) ? manifest.fields : null,
     },
   };
 }

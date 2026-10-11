@@ -766,18 +766,20 @@ provenance header and links the manifest, CSV and NDJSON carry it in headers, an
 the version's own path. An answer from the Parquet engine also names the file it read in `file`, or
 the periods it read in `parts`, and a sorted file's sort in `order`. A version stored as parts
 answers with the header D1 loads it with (`d1.parts_header`): its date, rows, source, hash,
-attribution and citation from its manifest, and the dataset's fields (title, publisher, licence,
-places and the rest of `d1.DATASET_KEYS`) from the dataset's `fields.json`, which gives them from
-the register the deployment was built with. A finished part can be an earlier version's file written
-under an older entry, so its own header stands in only when `fields.json` gives none. The two still
-differ after an edit to the entry that changes no field, until D1 loads the version again, since D1
-keeps the header it loaded with. A query the Parquet engine cannot afford answers 422 with DuckDB
-SQL that answers it from the published file, and a version with no table answers 404. When D1 fails,
-to find the version or to run the query on it, the failure is logged and the files answer if R2 is
-bound; without R2 it is a JSON 500. Answers are kept at the edge under their own URL with a marker
-added, so `publicdata purge` still clears a version's answers by its path and no answer cached
-before the one query path is served. D1's answers are kept as well under the table they were read
-from, which a load of other rows renames, so the MCP tools are not sent to D1 twice for one answer.
+attribution, citation, places and field count from its built manifest, as `d1.as_built` reads them,
+and the dataset's fields (title, publisher, licence and the rest of `d1.DATASET_KEYS`) from the
+dataset's `fields.json`, which gives them from the register the deployment was built with. A
+finished part can be an earlier version's file written under an older entry, so its own header
+stands in only when `fields.json` gives none. The two still differ after an edit to the entry that
+changes no field, until D1 loads the version again, since D1 keeps the header it loaded with. A
+query the Parquet engine cannot afford answers 422 with DuckDB SQL that answers it from the
+published file, and a version with no table answers 404. When D1 fails, to find the version or to
+run the query on it, the failure is logged and the files answer if R2 is bound. When the files
+cannot answer it either, or there is no R2, the answer is D1's JSON 500, naming the files' reason
+too. Answers are kept at the edge under their own URL with a marker added, so `publicdata purge`
+still clears a version's answers by its path and no answer cached before the one query path is
+served. D1's answers are kept as well under the table they were read from, which a load of other
+rows renames, so the MCP tools are not sent to D1 twice for one answer.
 
 Rows without an order, and ties, come in the order of the file they are read from. D1 holds a
 version in the order of its own data.parquet, which keeps the publisher's order unless the entry

@@ -36,6 +36,7 @@ from .provenance import header
 from .records import connect
 from .serialise import SQLITE_TYPES, dumps
 from .serialise.profile import sha256, signature
+from .spine import ATTRIBUTION as SPINE_ATTRIBUTION
 from .store import Manifest
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 
     from .provenance import Header
     from .register import Dataset
+    from .store import SpinePin
 
     type Kind = Literal["create", "insert", "update", "index", "fts", "register"]
     type Stmt = tuple[Kind, str, int]
@@ -563,7 +565,8 @@ def _parts(
 
 # The keys of a header that are the dataset's rather than the version's. The query path takes them
 # from the dataset's fields.json for a version stored as parts, since a finished part can be an
-# older tree's file, written under the register as it was then.
+# older tree's file, written under the register as it was then. A version's places and field count
+# are its own (as_built), so the query path takes those from the version's built manifest.
 DATASET_KEYS = (
     "site",
     "operator",
@@ -572,8 +575,6 @@ DATASET_KEYS = (
     "publisher",
     "licence",
     "cite_request",
-    "places",
-    "fields",
     "kind",
     "tables",
     "not_endorsed",
@@ -583,18 +584,30 @@ DATASET_KEYS = (
 def parts_header(ds: Dataset, m: Manifest, built: Mapping[str, object]) -> Header:
     """The header D1 loads a version stored as parts with: the version's own, for every row.
 
-    `built` is the version's built manifest; its rows count the whole version.
+    `built` is the version's built manifest; its rows count the whole version, and its places name
+    the layers the version was joined to, which give the header its places and fields, as
+    as_built reads them.
     """
     rows = built["rows"]
     if not isinstance(rows, int):
         msg = f"{ds.slug}@{m.version}: the built manifest gives no row count"
         raise TypeError(msg)
-    return header(ds, m, rows, version_url(ds.slug, m.version) + "data.duckdb")
+    pins = cast("list[SpinePin]", built.get("places") or [])
+    joined = as_fetched(ds, dataclasses.replace(m, spine=pins))
+    return header(joined, m, rows, version_url(ds.slug, m.version) + "data.duckdb")
 
 
 def dataset_header(ds: Dataset, m: Manifest, built: Mapping[str, object]) -> dict[str, object]:
-    """The dataset's part of the header D1 loads a version with, for the dataset's fields.json."""
-    return {k: v for k, v in parts_header(ds, m, built).items() if k in DATASET_KEYS}
+    """The dataset's part of the header D1 loads a version with, for the dataset's fields.json.
+
+    `places_attribution` is the attribution a header's places carry, for a version joined to layers
+    the newest version is not.
+    """
+    out: dict[str, object] = {
+        k: v for k, v in parts_header(ds, m, built).items() if k in DATASET_KEYS
+    }
+    out["places_attribution"] = SPINE_ATTRIBUTION
+    return out
 
 
 def _order(files: list[Path]) -> str:

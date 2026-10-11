@@ -18,7 +18,7 @@ import {
   partsAt,
   periodStat,
 } from './_parquet.js';
-import { partsHeader, reset } from './_answer.js';
+import { RETRY, partsHeader, reset } from './_answer.js';
 import { onRequestPost } from './mcp.js';
 
 // Versions stored as period parts, written by the pipeline's part writer under the profile
@@ -707,6 +707,31 @@ test('a version whose parts carry no provenance is refused, as a file without it
     assert.match(b.error, /carries no provenance/);
   } finally {
     delete assets['/latest.json'][slug];
+    reset();
+  }
+});
+
+test('a field list that could not be read is tried again after a while, not kept', async () => {
+  reset();
+  const api = async () => {
+    const request = new Request(`${SITE}/api/v1/datasets/${BY_YEAR}/versions/${V}/rows?limit=1`);
+    const r = await answer(
+      { request, env, params: { slug: BY_YEAR, version: V }, waitUntil() {} },
+      'rows',
+    );
+    return (await r.json()).publicdata;
+  };
+  const was = RETRY.ms;
+  try {
+    RETRY.ms = 60_000;
+    const first = await api();
+    assets[`/d/${BY_YEAR}/fields.json`] = { provenance: { title: 'Read on the second try' } };
+    assert.equal((await api()).title, first.title);
+    RETRY.ms = 0;
+    assert.equal((await api()).title, 'Read on the second try');
+  } finally {
+    RETRY.ms = was;
+    delete assets[`/d/${BY_YEAR}/fields.json`];
     reset();
   }
 });

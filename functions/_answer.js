@@ -156,7 +156,7 @@ async function d1(ctx, slug, v, op, qs) {
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 
 // A header's keys in the order provenance.header writes them, and those that are the dataset's
-// rather than the version's (d1.DATASET_KEYS).
+// rather than the version's (d1.DATASET_KEYS). Places and the field count are the version's.
 const HEADER_KEYS = [
   'site',
   'operator',
@@ -186,8 +186,6 @@ const DATASET_KEYS = new Set([
   'publisher',
   'licence',
   'cite_request',
-  'places',
-  'fields',
   'kind',
   'tables',
   'not_endorsed',
@@ -221,6 +219,20 @@ export function partsHeader(part, at, slug, v, dataset = null) {
     },
     rows: at.rows,
   };
+  // A version's places and field count are its own, as d1.as_built reads them from its manifest.
+  const pins = m.places || [];
+  if (pins.length) {
+    own.places = {
+      datasets: pins.map((p) => p.dataset),
+      attribution:
+        (dataset && dataset.places_attribution) || (from.places && from.places.attribution) || null,
+    };
+  }
+  if (m.fields !== null && m.fields !== undefined) {
+    own.fields = m.fields;
+  } else if (Object.hasOwn(from, 'fields')) {
+    own.fields = from.fields;
+  }
   if (attribution !== null) {
     const by = (from.operator && from.operator.name) || 'National Digital';
     own.cite = `${attribution} Serialised and versioned by ${by} at publicdata.au, ${page}`;
@@ -237,10 +249,13 @@ export function partsHeader(part, at, slug, v, dataset = null) {
 }
 
 // The dataset's part of a version's header, from its fields.json, read once per isolate.
+// A field list that could not be read is tried again after a minute, not kept for the isolate.
 const provenances = new Map();
+export const RETRY = { ms: 60_000 };
 async function datasetHeader(env, slug) {
-  if (provenances.has(slug)) {
-    return provenances.get(slug);
+  const hit = provenances.get(slug);
+  if (hit && (hit.value || Date.now() - hit.at < RETRY.ms)) {
+    return hit.value;
   }
   let out = null;
   try {
@@ -252,7 +267,7 @@ async function datasetHeader(env, slug) {
   } catch {
     out = null;
   }
-  provenances.set(slug, out);
+  provenances.set(slug, { value: out, at: Date.now() });
   return out;
 }
 
@@ -479,6 +494,8 @@ export async function query(ctx, slug, want, op, qs) {
       return done(r);
     }
   }
+  // A failure of D1 on the version it holds, kept so that the files never hide it.
+  let failed = null;
   if (inD1) {
     try {
       return done(await d1(ctx, slug, inD1, op, qs));
@@ -489,12 +506,23 @@ export async function query(ctx, slug, want, op, qs) {
       }
       // eslint-disable-next-line no-console -- the Workers log is where an operator sees this.
       console.error(`d1 ${slug} ${inD1.version}: ${e.body.detail || e.message}`);
+      failed = e;
     }
   }
+  // When the files cannot answer what D1 failed, the answer is D1's failure, naming both.
+  const d1Failed = (why) => {
+    if (!failed) {
+      return null;
+    }
+    return new AnswerError(500, {
+      ...failed.body,
+      files_error: why || `version ${v} of ${slug} has no file to answer it from`,
+    });
+  };
   // A query without a version that the newest version's file cannot answer is answered from the
   // newest version D1 holds, as it was before the files answered, and names that version.
   const fallback = async () => {
-    if (want || !env.DB) {
+    if (want || !env.DB || failed) {
       return null;
     }
     const newest = await held(env, slug).catch(() => null);
@@ -516,11 +544,14 @@ export async function query(ctx, slug, want, op, qs) {
       if (f) {
         return f;
       }
-      throw e;
+      throw (e instanceof AnswerError && e.status !== 400 && d1Failed(e.body.error)) || e;
     }
     if (p) {
       return done(p);
     }
+  }
+  if (failed) {
+    throw d1Failed();
   }
   const f = await fallback();
   if (f) {
