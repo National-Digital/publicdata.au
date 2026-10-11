@@ -4,6 +4,7 @@ import { onRequestGet as dFile } from './d/[[path]].js';
 import { SLUG } from './_lib.js';
 import { QueryError } from './_query.js';
 import { spend } from './_limit.js';
+import { usage } from './_usage.js';
 
 // A remote MCP server over Streamable HTTP. It keeps no session, so each POST is one JSON-RPC
 // message answered with one JSON body, and there is no event stream to GET.
@@ -266,46 +267,48 @@ async function handle(ctx, msg) {
 }
 
 export async function onRequestPost(context) {
-  const v = context.request.headers.get('mcp-protocol-version');
+  const { request } = context;
+  const answer = (res, calls, batch) => {
+    usage(request, calls, res.status, batch);
+    return res;
+  };
+  const v = request.headers.get('mcp-protocol-version');
   if (v && !VERSIONS.includes(v)) {
-    return send(
-      fail(
-        null,
-        -32600,
-        `unsupported MCP-Protocol-Version ${v}; supported are ${VERSIONS.join(', ')}`,
-      ),
-      400,
+    const out = fail(
+      null,
+      -32600,
+      `unsupported MCP-Protocol-Version ${v}; supported are ${VERSIONS.join(', ')}`,
     );
+    return answer(send(out, 400), [[undefined, out]]);
   }
   let msg;
   try {
-    msg = await context.request.json();
+    msg = await request.json();
   } catch {
-    return send(fail(null, -32700, 'the body is not JSON'), 400);
+    const out = fail(null, -32700, 'the body is not JSON');
+    return answer(send(out, 400), [[undefined, out]]);
   }
   const ctx = {
     env: context.env,
-    request: context.request,
+    request,
     waitUntil: (p) => context.waitUntil(p),
   };
   if (Array.isArray(msg)) {
     // One at a time, so a batch cannot race its own rate count.
-    const out = [];
+    const calls = [];
     for (const m of msg) {
-      const r = await handle(ctx, m);
-      if (r) {
-        out.push(r);
-      }
+      calls.push([m, await handle(ctx, m)]);
     }
-    return out.length ? send(out) : send(null, 202);
+    const out = calls.map(([, r]) => r).filter(Boolean);
+    return answer(out.length ? send(out) : send(null, 202), calls, msg.length);
   }
   const out = await handle(ctx, msg);
-  return out ? send(out) : send(null, 202);
+  return answer(out ? send(out) : send(null, 202), [[msg, out]]);
 }
 
 export const onRequestOptions = () => new Response(null, { status: 204, headers: HEADERS });
 
-export const onRequestGet = () =>
+const notPost = () =>
   new Response(
     JSON.stringify({
       error:
@@ -321,3 +324,15 @@ export const onRequestGet = () =>
       },
     },
   );
+
+export function onRequestGet({ request } = {}) {
+  const res = notPost();
+  usage(request, [], res.status);
+  return res;
+}
+
+export function onRequestHead({ request } = {}) {
+  const res = notPost();
+  usage(request, [], res.status);
+  return new Response(null, { status: res.status, headers: res.headers });
+}
