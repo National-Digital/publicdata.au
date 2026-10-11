@@ -36,12 +36,19 @@ export class AnswerError extends Error {
     this.body = body;
   }
 }
-// A failure of D1 is logged with its own text, which the answer leaves out.
+// A failure of D1 is logged with its own text. A query D1 fails to run with no files to fall back
+// on is answered as the query API always answered it, with the start of that text as `detail`;
+// every other failure, which the API did not answer before, leaves the text out.
 const FAILED = 'The query could not run';
-function d1Error(slug, version, e) {
+function d1Error(slug, version, e, detail = false) {
   // eslint-disable-next-line no-console -- the Workers log is where an operator sees this.
   console.error(`d1 ${slug} ${version}: ${(e && e.stack) || e}`);
-  return new AnswerError(500, { error: FAILED });
+  return new AnswerError(
+    500,
+    detail
+      ? { error: FAILED, detail: String((e && e.message) || e).slice(0, 200) }
+      : { error: FAILED },
+  );
 }
 
 const versionsUrl = (slug) => `${API}/${slug}/versions`;
@@ -139,7 +146,7 @@ async function d1(ctx, slug, v, op, qs) {
           .all()
       ).results || [];
   } catch (e) {
-    throw d1Error(slug, v.version, e);
+    throw d1Error(slug, v.version, e, !ctx.env.DIST);
   }
   const more = rows.length > plan.limit;
   const header = JSON.parse(v.header || '{}');

@@ -725,9 +725,12 @@ test('a query D1 fails to run is answered from the files, and without them the e
     'rows',
   );
   assert.equal(bare.status, 500);
+  // Without the files the answer is the one the query API always gave, its detail included.
   const bareBody = await bare.json();
-  assert.match(bareBody.error, /could not run/);
-  assert.doesNotMatch(JSON.stringify(bareBody), /timed out|overloaded|D1_ERROR/);
+  assert.deepEqual(bareBody, {
+    error: 'The query could not run',
+    detail: 'D1_ERROR: query timed out',
+  });
 });
 
 test('a D1 failure the files cannot answer is the answer, naming both', async () => {
