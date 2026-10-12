@@ -1,94 +1,109 @@
 // Counts the MCP server's usage lines (functions/_usage.js) by class, method, tool and client.
-// It reads the JSON that `wrangler pages deployment tail --format json` prints, one Logpush file
-// of Workers trace events, or the lines alone, from the files named or from stdin. Usage:
-//   npx wrangler pages deployment tail --project-name publicdata-au --format json > tail.json
-//   node scripts/mcp-usage.mjs tail.json
-// A handshake (initialize, tools/list) with no tools/call after it is what a registry checker
-// sends, so tools/call by client is the number to read as use.
+// Pipe a live tail straight in and stop it with Ctrl-C to print the counts:
+//   npx wrangler pages deployment tail --project-name publicdata-au --format json | node scripts/mcp-usage.mjs
+// Do not save a raw tail to a file: every event in it holds the request's headers and
+// Cloudflare's location fields for the caller. A Logpush file of Workers trace events can be
+// named as an argument instead. Only the console lines of each event are read.
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-// The JSON values in a text, whether one per line or pretty-printed back to back.
-export function* values(text) {
-  let depth = 0;
-  let start = -1;
-  let inString = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inString) {
-      if (c === '\\') {
-        i++;
-      } else if (c === '"') {
-        inString = false;
-      }
-    } else if (c === '"') {
-      inString = true;
-    } else if (c === '{' || c === '[') {
-      if (depth++ === 0) {
-        start = i;
-      }
-    } else if ((c === '}' || c === ']') && depth > 0 && --depth === 0) {
+// The JSON values in a text: one per line, or pretty-printed with each value's first line
+// unindented, as wrangler prints them. A value cut off by Ctrl-C is skipped and counted.
+export function values(text) {
+  const out = [];
+  let cur = null;
+  let skipped = 0;
+  const close = () => {
+    if (cur) {
       try {
-        yield JSON.parse(text.slice(start, i + 1));
+        out.push(JSON.parse(cur.join('\n')));
       } catch {
-        // A cut-off event at the end of a tail.
+        skipped++;
       }
+      cur = null;
     }
-  }
-}
-
-// Every usage line inside a value, as an object or as the string console.log wrote.
-export function* lines(v) {
-  if (typeof v === 'string') {
-    if (v.startsWith('{"event":"mcp"')) {
-      try {
-        yield JSON.parse(v);
-      } catch {
-        // Not one of ours.
-      }
-    }
-  } else if (Array.isArray(v)) {
-    for (const x of v) {
-      yield* lines(x);
-    }
-  } else if (v && typeof v === 'object') {
-    if (v.event === 'mcp' && typeof v.class === 'string') {
-      yield v;
-      return;
-    }
-    for (const x of Object.values(v)) {
-      yield* lines(x);
-    }
-  }
-}
-
-export function count(text) {
-  const out = {};
-  const add = (cls, what, key) => {
-    out[cls] ||= {};
-    out[cls][what] ||= {};
-    out[cls][what][key] = (out[cls][what][key] || 0) + 1;
   };
-  for (const v of values(text)) {
-    for (const l of lines(v)) {
-      const who = l.client ? `${l.client} ${l.client_version || ''}`.trim() : l.ua || '(none)';
-      add(l.class, 'method', l.rpc || `${l.http} ${l.status}`);
-      if (l.tool) {
-        add(l.class, 'tool', l.tool);
-        add(l.class, 'tool call by agent', l.ua || '(none)');
+  for (const l of text.split(/\r?\n/)) {
+    if (/^[{[]/.test(l)) {
+      close();
+      try {
+        out.push(JSON.parse(l));
+      } catch {
+        cur = [l];
       }
-      if (l.rpc === 'initialize') {
-        add(l.class, 'initialize by client', who);
+    } else if (cur && /^[\s}\]]/.test(l)) {
+      cur.push(l);
+    } else if (l.trim()) {
+      close();
+      skipped++;
+    }
+  }
+  close();
+  return { values: out, skipped };
+}
+
+const isLine = (v) => v && typeof v === 'object' && v.event === 'mcp' && v.methods;
+
+// The usage lines an event's console output holds, or the value itself when it is one.
+export function lines(v) {
+  if (isLine(v)) {
+    return [v];
+  }
+  const logs = (v && (v.logs || v.Logs)) || [];
+  const out = [];
+  for (const l of Array.isArray(logs) ? logs : []) {
+    const msg = l && (l.message || l.Message);
+    for (const m of Array.isArray(msg) ? msg : []) {
+      let x = m;
+      if (typeof m === 'string') {
+        try {
+          x = JSON.parse(m);
+        } catch {
+          continue;
+        }
+      }
+      if (isLine(x)) {
+        out.push(x);
       }
     }
   }
   return out;
 }
 
-export function report(counts) {
+export function count(text) {
+  const { values: vs, skipped } = values(text);
+  const out = {};
+  const add = (cls, what, key, n = 1) => {
+    out[cls] ||= {};
+    out[cls][what] ||= {};
+    out[cls][what][key] = (out[cls][what][key] || 0) + n;
+  };
+  for (const v of vs) {
+    for (const l of lines(v)) {
+      const cls = l.class === 'probe' ? 'probe' : 'client';
+      add(cls, 'request', `${l.http} ${l.status}`);
+      for (const [m, n] of Object.entries(l.methods)) {
+        add(cls, 'method', m, n);
+      }
+      for (const [t, n] of Object.entries(l.tools || {})) {
+        add(cls, 'tool', t, n);
+        add(cls, 'tool call by agent', l.ua || '(none)', n);
+      }
+      if (l.client) {
+        add(cls, 'initialize by client', `${l.client} ${l.client_version || ''}`.trim());
+      }
+      for (const [e, n] of Object.entries(l.errors || {})) {
+        add(cls, 'error', e, n);
+      }
+    }
+  }
+  return { counts: out, skipped };
+}
+
+export function report({ counts, skipped }) {
   const rows = [];
   for (const cls of ['client', 'probe']) {
-    rows.push(`${cls}`);
+    rows.push(cls);
     for (const [what, t] of Object.entries(counts[cls] || {})) {
       rows.push(`  ${what}`);
       for (const [k, n] of Object.entries(t).sort(
@@ -98,13 +113,23 @@ export function report(counts) {
       }
     }
   }
+  rows.push(`skipped ${skipped} input${skipped === 1 ? '' : 's'} that were not whole JSON`);
   return rows.join('\n');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const files = process.argv.slice(2);
-  const text = files.length
-    ? files.map((f) => readFileSync(f, 'utf8')).join('\n')
-    : readFileSync(0, 'utf8');
-  process.stdout.write(report(count(text)) + '\n');
+  const print = (text) => process.stdout.write(report(count(text)) + '\n');
+  if (files.length) {
+    print(files.map((f) => readFileSync(f, 'utf8')).join('\n'));
+  } else {
+    const chunks = [];
+    const done = () => {
+      print(Buffer.concat(chunks).toString('utf8'));
+      process.exit(0);
+    };
+    process.stdin.on('data', (c) => chunks.push(c));
+    process.stdin.on('end', done);
+    process.on('SIGINT', done);
+  }
 }
