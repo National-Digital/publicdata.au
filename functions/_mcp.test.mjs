@@ -469,11 +469,11 @@ test('search and fetch answer in the shapes ChatGPT reads, from the tools they w
   assert.equal(doc.title, 'Crashes');
   assert.equal(doc.url, 'https://publicdata.au/d/crashes/v/2026-04-24/');
   const { datapackage } = await out('get_dataset', { slug: 'crashes' });
-  // Every sentence in api.json is here but the licence condition, which CC BY lacks, and the two
-  // that only a withdrawn or backfilled version carries.
+  // Every sentence in api.json is here but the licence condition, which CC BY lacks, and the one
+  // that only a backfilled version carries.
   const lines = doc.text.split('\n');
-  assert.equal(lines.length, SPEC.fetch.text.length - 3);
-  assert.doesNotMatch(doc.text, /condition|withdrawn|backfilled/);
+  assert.equal(lines.length, SPEC.fetch.text.length - 2);
+  assert.doesNotMatch(doc.text, /condition|backfilled/);
   assert.doesNotMatch(doc.text, /\{\w+\}|null|undefined/);
   assert.equal(lines[0], 'Crashes');
   assert.ok(
@@ -509,7 +509,6 @@ test('search and fetch answer in the shapes ChatGPT reads, from the tools they w
     fetched_at: '2026-04-24T01:02:03+00:00',
     sha256: 'bc9d',
     backfilled: false,
-    withdrawn: false,
     not_endorsed: SPEC.not_endorsed,
   });
 });
@@ -587,17 +586,23 @@ test('fetch refuses a record that lacks a required fact, naming it', async () =>
   }
 });
 
-test('fetch says when the newest version was withdrawn or backfilled', async () => {
+test('fetch says when the newest version was backfilled', async () => {
   const r = await fetchWith(({ v }) => {
-    v.tombstone = { reason: 'removed' };
     v.backfilled = true;
   });
   const doc = r.structuredContent;
   for (const s of SPEC.fetch.text.filter((x) => x.when)) {
     assert.ok(doc.text.split('\n').includes(s.text), s.when);
   }
-  assert.equal(doc.metadata.withdrawn, true);
   assert.equal(doc.metadata.backfilled, true);
+});
+
+test('fetch refuses a newest version that was removed, which has no files to cite', async () => {
+  const r = await fetchWith(({ v }) => {
+    v.tombstone = { date: '2026-05-01', reason: 'removed at the publisher request' };
+  });
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /was removed and has no files to cite/);
 });
 
 test('fetch reads a publicdata.au dataset or version URL as its slug', async () => {

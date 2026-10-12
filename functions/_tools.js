@@ -298,6 +298,11 @@ EXEC.fetch = async (ctx, input) => {
     throw e instanceof ToolError ? new ToolError(missing) : e;
   }
   const v = (history.versions || []).find((x) => x.version === dp.version) || {};
+  if (v.tombstone) {
+    throw new ToolError(
+      `the newest version of ${id} was removed and has no files to cite; its page is ${SITE}/d/${id}/`,
+    );
+  }
   const lic = (dp.licenses || [])[0] || {};
   const publisher = (dp.contributors || []).find((c) => c.role === 'publisher');
   const facts = {
@@ -317,7 +322,6 @@ EXEC.fetch = async (ctx, input) => {
     source: dp.sources && dp.sources[0] ? dp.sources[0].path : null,
     fetched_at: v.fetched_at,
     sha256: v.sha256,
-    withdrawn: !!v.tombstone,
     backfilled: v.backfilled === true,
   };
   // A record without its provenance is refused, so an answer never cites data it cannot attribute.
@@ -348,7 +352,6 @@ EXEC.fetch = async (ctx, input) => {
     fetched_at: facts.fetched_at,
     sha256: facts.sha256,
     backfilled: facts.backfilled,
-    withdrawn: facts.withdrawn,
     not_endorsed: SPEC.not_endorsed,
   };
   return text({ id, title: dp.title, text: lines.join('\n'), url: facts.url, metadata });

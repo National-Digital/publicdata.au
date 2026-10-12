@@ -1214,10 +1214,6 @@
         "text": "publicdata.au fetched the publisher's file from {source} at {fetched_at}, and its SHA-256 is {sha256}."
       },
       {
-        "text": "The publisher has since withdrawn that file, and this version keeps it as it was fetched.",
-        "when": "withdrawn"
-      },
-      {
         "text": "This version was backfilled from the portal's history of earlier releases.",
         "when": "backfilled"
       },
