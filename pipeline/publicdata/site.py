@@ -1719,8 +1719,9 @@ SITE_HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Permissions-Policy": "interest-cohort=()",
 }
-# Only these paths run a function. A dataset page, its Markdown twin and its JSON are Pages files
-# and are served without one. The count stays the same whatever the number of datasets.
+# Only these paths run a function. A dataset page and its JSON are Pages files and are served
+# without one. The count stays the same whatever the number of datasets. functions/_middleware.js
+# holds the same list, and passes these paths straight on.
 ROUTES = (
     "/api/*",
     "/mcp",
@@ -1731,6 +1732,7 @@ ROUTES = (
     "/d/*/history.tar.zst",
     "/d/*/changes/*",
 )
+MD_ROUTE = "/*.md"
 
 
 SKILL_PATH = f"skills/{at.spec()['skill']['name']}/SKILL.md"
@@ -5743,5 +5745,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
     )
     # The function that reads R2 serves pages moved there too, and needs the same headers.
     _write(out, "static/page-headers.json", pretty(SITE_HEADERS))
-    _write(out, "_routes.json", pretty({"version": 1, "include": list(ROUTES), "exclude": []}))
+    # A .md path runs the middleware, which sends a guessed spelling of a twin to the twin.
+    _write(
+        out, "_routes.json", pretty({"version": 1, "include": [*ROUTES, MD_ROUTE], "exclude": []})
+    )
     rows_tmp.cleanup()

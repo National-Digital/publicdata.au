@@ -303,3 +303,21 @@ def test_no_route_reaches_the_internal_query_copies() -> None:
     # The build's profile copies live in R2 at _q/, which only the MCP server reads.
     assert all(r.startswith(("/api/", "/mcp", "/d/")) for r in site_module.ROUTES)
     assert not any(r.startswith("/_q") or r in ("/*", "/") for r in site_module.ROUTES)
+
+
+def test_the_middleware_passes_every_function_route_on() -> None:
+    # Any other path the middleware hands to Pages, so a route missing there never runs its function.
+    js = (FUNCTIONS / "_middleware.js").read_text(encoding="utf-8")
+    listed = _search(r"FUNCTION_ROUTES = \[(.*?)\];", re.sub(r"\s+", " ", js))
+    assert re.findall(r"'([^']+)'", listed[1]) == list(site_module.ROUTES)
+
+
+def test_md_paths_run_the_middleware_and_nothing_else_new_does(site: Path) -> None:
+    routes = json.loads((site / "_routes.json").read_text(encoding="utf-8"))
+    assert routes == {"version": 1, "include": [*site_module.ROUTES, "/*.md"], "exclude": []}
+    # Pages refuses a rule that a folder's /* already covers.
+    folders = [r[:-1] for r in routes["include"] if r.endswith("/*")]
+    assert not [
+        (f, r) for f in folders for r in routes["include"] if r.startswith(f) and r != f + "*"
+    ]
+
