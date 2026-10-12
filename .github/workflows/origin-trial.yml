@@ -1,0 +1,82 @@
+name: Origin trial
+
+# The WebMCP origin-trial token lapses without an error, and CI checks it only on a pull request or
+# a push to main. This checks it weekly. A failure opens an issue labelled origin-trial, or comments
+# on the open one; a later pass closes it.
+on:
+  schedule:
+    - cron: "23 20 * * 0" # Monday 06:23 in Brisbane
+  workflow_dispatch:
+
+env:
+  PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+  # CI fails 14 days before expiry; 28 here opens the issue at least two weekly runs earlier.
+  ORIGIN_TRIAL_NOTICE_DAYS: 28
+
+permissions:
+  contents: read
+
+concurrency:
+  group: origin-trial
+  cancel-in-progress: false
+
+jobs:
+  token:
+    name: Origin-trial token
+    if: ${{ github.repository == 'National-Digital/publicdata.au' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write # opens, comments on and closes the origin-trial issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - run: pip install -e './pipeline[dev]'
+      - name: Check the token
+        id: check
+        working-directory: pipeline
+        run: |
+          set +e
+          # -vv keeps a failed self-test's values whole in the report the issue quotes.
+          pytest -vv -p no:cacheprovider --junitxml="$RUNNER_TEMP/junit.xml" tests/test_origin_trial.py
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # Anything but a test failure, such as a broken install, fails the run without an issue.
+          [ "$code" -le 1 ] || exit "$code"
+      - name: Open or update the issue
+        if: steps.check.outputs.code == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create origin-trial --description "The WebMCP origin-trial token needs renewing" --color d93f0b 2>/dev/null || true
+          python - "$RUNNER_TEMP/junit.xml" > body.md <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          for case in ET.parse(sys.argv[1]).iter("testcase"):
+              for failure in [*case.iter("failure"), *case.iter("error")]:
+                  reason = failure.get("message", "").removeprefix("Failed: ")
+                  print(f"- `{case.get('name')}`: {reason}")
+          PY
+          { echo; echo "Run: $RUN"; } >> body.md
+          n=$(gh issue list --label origin-trial --state open --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file body.md
+          else
+            gh issue create --title "WebMCP origin-trial token: renew it" --label origin-trial --body-file body.md
+          fi
+          exit 1
+      - name: Close the issue on a pass
+        if: steps.check.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for n in $(gh issue list --label origin-trial --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "The token passed its check in $RUN."
+          done

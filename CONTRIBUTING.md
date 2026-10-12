@@ -458,6 +458,12 @@ there and run `python -m publicdata.api_text`, so the pages, the OpenAPI descrip
 server stay in step; the gate fails when they drift. A change a v1 caller would notice is a
 breaking change (see Versioning). The MCP tools are held to a quality bar, described in Reference.
 
+The site's WebMCP tools register in Chrome only while the origin-trial token in `ORIGIN_TRIAL`
+(`pipeline/publicdata/site.py`) is current. A weekly run opens an issue labelled `origin-trial`
+28 days before the token expires, and CI fails from 14 days before. A maintainer renews it in the
+[Chrome origin trials console](https://developer.chrome.com/origintrials/) and replaces the
+value.
+
 ## Release the clients
 
 1. Raise the version in `clients/python/pyproject.toml` and `clients/r/DESCRIPTION`, and add the
