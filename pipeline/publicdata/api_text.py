@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 from . import OPERATOR, REPO, SITE
-from .provenance import OPERATOR_URL
+from .provenance import CITE_REQUEST, NOT_ENDORSED, OPERATOR_URL
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -169,6 +169,8 @@ if TYPE_CHECKING:
         prompts_note: str
         prompts: dict[str, PromptText]
         tool_text: dict[str, str]
+        tools: dict[str, ToolText]
+        fetch_text: list[str]
         parameters: dict[str, str]
         privacy: str
         instructions: str
@@ -267,6 +269,8 @@ if TYPE_CHECKING:
         resource_template: ResourceTemplate
         prompts: list[Prompt]
         tools: list[Tool]
+        fetch_text: list[str]
+        not_endorsed: str
         listing: NotRequired[RegistryListing]
 
     ServerCard = TypedDict(
@@ -401,6 +405,16 @@ def tool_names() -> list[str]:
     return list(spec()["webmcp"]["tools"])
 
 
+def server_tools() -> dict[str, ToolText]:
+    """The MCP server's tools: every page tool, then those it alone serves."""
+    s = spec()
+    return {**s["webmcp"]["tools"], **s["mcp"]["tools"]}
+
+
+def server_tool_names() -> list[str]:
+    return list(server_tools())
+
+
 def _label(o: Operator) -> OperatorLabel:
     label: OperatorLabel = {"label": o["label"]}
     if "not_label" in o:
@@ -490,7 +504,7 @@ def mcp_spec() -> McpSpec:
     s = spec()
     m = s["mcp"]
     tools: list[Tool] = []
-    for name, t in s["webmcp"]["tools"].items():
+    for name, t in server_tools().items():
         # Text the server words differently from the pages, if any; both reach every version.
         description = t["description"]
         for old, new in m["tool_text"].items():
@@ -532,6 +546,10 @@ def mcp_spec() -> McpSpec:
         },
         "prompts": [_prompt(name, pr) for name, pr in m["prompts"].items()],
         "tools": tools,
+        "fetch_text": fill(
+            m["fetch_text"], {"cite_request": CITE_REQUEST, "not_endorsed": NOT_ENDORSED}
+        ),
+        "not_endorsed": NOT_ENDORSED,
     }
     return plain(out)
 
@@ -626,6 +644,8 @@ def directory_listing() -> DirectoryListing:
     s = spec()
     m = s["mcp"]
     # The form caps the description, so each tool gets its first sentence; tools/list has the rest.
+    # search and fetch repeat search_datasets and get_dataset in ChatGPT's shapes, so they are left
+    # out of it.
     tools = "\n".join(
         f"- {t['title']}: {t['description'].split('. ', 1)[0].rstrip('.')}."
         for t in s["webmcp"]["tools"].values()
@@ -656,7 +676,7 @@ def directory_listing() -> DirectoryListing:
         "prerequisites": m["listing"]["prerequisites"],
         # The form checks this against the tool annotations, so it is read from them.
         "read_write": "Read and write"
-        if any(not t["annotations"]["readOnlyHint"] for t in s["webmcp"]["tools"].values())
+        if any(not t["annotations"]["readOnlyHint"] for t in server_tools().values())
         else "Read only",
     }
     return plain(out)

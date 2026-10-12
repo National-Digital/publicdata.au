@@ -1,4 +1,6 @@
+import SPEC from './_tools.json' with { type: 'json' };
 import { AnswerError, query } from './_answer.js';
+import { SLUG } from './_lib.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 import { onRequestPost as castVote } from './api/v1/votes/[slug].js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
@@ -261,4 +263,78 @@ EXEC.upvote_dataset = async (ctx, input) => {
     throw new ToolError(b.error || String(r.status));
   }
   return text(b);
+};
+
+// search and fetch take the names and shapes ChatGPT's deep research and company knowledge call.
+EXEC.search = async (ctx, input) => {
+  const b = JSON.parse(await EXEC.search_datasets(ctx, input));
+  return text({
+    results: b.results.map((r) => ({
+      id: r.slug,
+      title: r.title,
+      url: r.page || SITE + '/d/' + enc(r.slug) + '/',
+    })),
+  });
+};
+EXEC.fetch = async (ctx, input) => {
+  const id = String(input.id);
+  const missing = 'no served dataset with id ' + id + '; search finds them';
+  if (!SLUG.test(id)) {
+    throw new ToolError(missing);
+  }
+  let dp, history;
+  try {
+    [dp, history] = await Promise.all([
+      file(ctx, '/d/' + id + '/datapackage.json'),
+      file(ctx, '/d/' + id + '/versions.json'),
+    ]);
+  } catch (e) {
+    throw e instanceof ToolError ? new ToolError(missing) : e;
+  }
+  const v = history.versions.find((x) => x.version === dp.version) || {};
+  const lic = (dp.licenses || [])[0] || {};
+  const publisher = (dp.contributors || []).find((c) => c.role === 'publisher');
+  const facts = {
+    id,
+    title: dp.title,
+    summary: dp.description,
+    publisher: publisher ? publisher.title : null,
+    licence: lic.title || lic.name,
+    licence_url: lic.path,
+    condition: lic['publicdata:condition'],
+    attribution: dp['publicdata:attribution'],
+    version: dp.version,
+    url: v.url || SITE + '/d/' + id + '/v/' + dp.version + '/',
+    as_at: v.as_at,
+    rows: v.rows,
+    source: dp.sources && dp.sources[0] ? dp.sources[0].path : null,
+    fetched_at: v.fetched_at,
+    sha256: v.sha256,
+  };
+  // A sentence is left out when a fact it names is missing, so none reads "null".
+  const lines = SPEC.fetch_text.flatMap((line) => {
+    const keys = [...line.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+    if (keys.some((k) => facts[k] === undefined || facts[k] === null || facts[k] === '')) {
+      return [];
+    }
+    return [line.replace(/\{(\w+)\}/g, (...g) => String(facts[g[1]]))];
+  });
+  const metadata = {
+    publisher: facts.publisher,
+    licence: lic.name ?? null,
+    licence_url: facts.licence_url ?? null,
+    condition: facts.condition ?? null,
+    attribution: facts.attribution ?? null,
+    cite: dp['publicdata:cite'] ?? null,
+    version: facts.version,
+    as_at: facts.as_at ?? null,
+    rows: facts.rows ?? null,
+    source: facts.source,
+    fetched_at: facts.fetched_at ?? null,
+    sha256: facts.sha256 ?? null,
+    backfilled: v.backfilled ?? null,
+    withdrawn: !!v.tombstone,
+    not_endorsed: SPEC.not_endorsed,
+  };
+  return text({ id, title: dp.title, text: lines.join('\n'), url: facts.url, metadata });
 };

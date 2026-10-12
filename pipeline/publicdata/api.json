@@ -1,5 +1,5 @@
 {
-  "_comment": "Every sentence the site says about the query API and the agent tools. The tools under webmcp serve both the pages and the MCP server at /mcp. The build writes them into openapi.json, the agents page, llms.txt, each dataset page and its Markdown twin, site.js and functions/_tools.json. {name} is filled from limits; `code` becomes code in HTML. The gate checks limits, operators, metrics and parameters against functions/_query.js and functions/_api.js.",
+  "_comment": "Every sentence the site says about the query API and the agent tools. The tools under webmcp serve both the pages and the MCP server at /mcp, and those under mcp.tools serve the MCP server alone. The build writes them into openapi.json, the agents page, llms.txt, each dataset page and its Markdown twin, site.js and functions/_tools.json. {name} is filled from limits; `code` becomes code in HTML. The gate checks limits, operators, metrics and parameters against functions/_query.js and functions/_api.js.",
   "site": {
     "summary": "Australian government open data republished as CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON and GeoPackage at URLs that never change. Every release is a dated version that keeps its content, with schema, provenance and a diff. Run by National Digital. No government agency has endorsed it.",
     "suppressed": "A cell the publisher suppressed, such as \"<5\", is null, and the row's `suppressed` field names each field suppressed in that row. Report such a value as withheld by the publisher.",
@@ -205,7 +205,7 @@
       {"label": "Any MCP client", "kind": "command", "value": "https://publicdata.au/mcp", "note": "Streamable HTTP. Cursor, VS Code or any client that connects to a remote MCP server."},
       {"label": "Paste a prompt", "kind": "prompt", "value": "Using https://publicdata.au/llms.txt, how many people died on Queensland roads in 2025, by month?", "note": "For an assistant that reads the web and has no connector."}
     ],
-    "intro": "`https://publicdata.au/mcp` is a remote MCP server over Streamable HTTP with the same tools, defined in the same place, so a tool added to the pages is added here too. It needs no key and no account. Its row tools and the query API answer every version through one query path, so a tool's answer and the query URL it cites give the same rows. A query that would read too much of a file is refused with DuckDB SQL that answers it from the file. The row tools are held to the query API's limit of {requests} queries in {window_seconds} seconds from one address, and each call is two queries because it also counts the matching rows. Add it to Claude Code with `claude mcp add --transport http publicdata https://publicdata.au/mcp`, add the URL in Claude as a custom connector, or give it to any client that connects to remote MCP servers. Each dataset with a table is also a resource at `https://publicdata.au/d/<slug>/fields.json`, which lists its fields with their types, the publisher's descriptions, their ranges and the values they hold, so an agent can read a dataset's shape before it writes a query.",
+    "intro": "`https://publicdata.au/mcp` is a remote MCP server over Streamable HTTP with the same tools, defined in the same place, so a tool added to the pages is added here too. It needs no key and no account. Its row tools and the query API answer every version through one query path, so a tool's answer and the query URL it cites give the same rows. A query that would read too much of a file is refused with DuckDB SQL that answers it from the file. It also has `search` and `fetch`, the two tools ChatGPT's deep research and company knowledge call by name, which run search_datasets and read a dataset's record in the shapes those features expect. The row tools are held to the query API's limit of {requests} queries in {window_seconds} seconds from one address, and each call is two queries because it also counts the matching rows. Add it to Claude Code with `claude mcp add --transport http publicdata https://publicdata.au/mcp`, add the URL in Claude as a custom connector, or give it to any client that connects to remote MCP servers. Each dataset with a table is also a resource at `https://publicdata.au/d/<slug>/fields.json`, which lists its fields with their types, the publisher's descriptions, their ranges and the values they hold, so an agent can read a dataset's shape before it writes a query.",
     "resource": "The fields of {title}, from {publisher}: each field's type and the publisher's description, the range of numbers and dates, and the values a field holds when it has few. Use them to write where filters for query_rows and count_rows.",
     "resource_template": "The fields of one dataset by slug: types, the publisher's descriptions, ranges and the values each field holds. Find slugs with search_datasets or resources/list.",
     "listing": {
@@ -247,6 +247,42 @@
       }
     },
     "tool_text": {},
+    "tools": {
+      "search": {
+        "title": "Find datasets to fetch",
+        "description": "Find served datasets by keyword and return each one's id, title and citation URL, in the shape ChatGPT deep research and company knowledge call search with.\nIt runs the same search as search_datasets, so every word in query must match. Pass an id to fetch for the dataset's licence, attribution and newest version, or as slug to list_fields, query_rows or count_rows.\nUp to 50 matches come back in one answer, with no paging.\nEach call costs one of the {requests} queries each address may make in {window_seconds} seconds.",
+        "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "input": {
+          "query": { "type": "string", "description": "Words from a title, publisher or field name" }
+        },
+        "required": ["query"],
+        "output": {"type": "object", "properties": {"results": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "description": "The dataset's slug, which fetch takes as id"}, "title": {"type": "string"}, "url": {"type": "string", "description": "The dataset page on publicdata.au, to cite"}}, "required": ["id", "title", "url"]}, "description": "Matches, best first when the search index is loaded"}}, "required": ["results"]}
+      },
+      "fetch": {
+        "title": "Fetch a dataset record",
+        "description": "Read one served dataset's record as text to quote and cite: its summary, publisher, licence, attribution string, newest version and the URL of that version. It is the fetch that ChatGPT deep research and company knowledge call, with an id from search.\nIt carries no rows. To answer from the data use query_rows or count_rows, and for every version and file use get_dataset.\nOne answer holds the text, with the same facts under metadata. An id that is not served returns an error. The call costs nothing against the rate limit.",
+        "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        "input": {
+          "id": { "type": "string", "description": "A dataset id from search, which is its slug" }
+        },
+        "required": ["id"],
+        "output": {"type": "object", "properties": {"id": {"type": "string"}, "title": {"type": "string"}, "text": {"type": "string", "description": "The record, with the attribution string and the statement that the publisher has not endorsed publicdata.au"}, "url": {"type": "string", "description": "The newest version's page, to cite"}, "metadata": {"type": "object", "description": "Publisher, licence, attribution, version, source URL, fetch time and source hash"}}, "required": ["id", "title", "text", "url", "metadata"]}
+      }
+    },
+    "fetch_text": [
+      "{title}",
+      "{summary}",
+      "It is published by {publisher} and licensed under {licence}, {licence_url}.",
+      "The licence carries this condition: {condition}",
+      "Show this attribution wherever the data is used: {attribution}",
+      "{cite_request}",
+      "This record describes version {version}, the newest, at {url}.",
+      "Its data is as at {as_at}.",
+      "It holds {rows} rows.",
+      "publicdata.au fetched the publisher's file from {source} at {fetched_at}, and its SHA-256 is {sha256}.",
+      "{not_endorsed}",
+      "To answer from its rows, read its fields with list_fields, then call query_rows or count_rows with slug {id}."
+    ],
     "parameters": {},
     "privacy": "The MCP server logs the methods, tools and client software of each request, and leaves out the address and the arguments' values. To keep the rate limit, it counts row tool calls per address in Cloudflare's cache for {window_seconds} seconds.",
     "instructions": "Australian government open data, republished at URLs that never change. Find a dataset with search_datasets, read its fields with list_fields, then answer from the whole table with query_rows or count_rows. A dataset that is not served yet can be found with search_catalogue and voted for with upvote_dataset. Every answer names the version it came from and the publisher's attribution string. When you show the data to a person, use the attribution string, say it came from publicdata.au and link to the version the answer came from, https://publicdata.au/d/<slug>/v/<version>/. Use of this server is under https://publicdata.au/terms/."

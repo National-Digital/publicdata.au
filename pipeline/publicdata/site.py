@@ -2812,7 +2812,7 @@ def _agents_mcp() -> str:
 
 def _agents_tools() -> str:
     """Each tool's name, title and first line, with an anchor the home page's tool names link to."""
-    tools = at.spec()["webmcp"]["tools"]
+    tools = at.server_tools()
     items = "".join(
         f'<dt id="tool-{n}"><code>{n}</code> {html.escape(t["title"])}</dt>'
         f"<dd>{at.as_html(t['description'].splitlines()[0])}</dd>"
@@ -4004,8 +4004,8 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "theme": {"light": brand.PAGE_LIGHT, "dark": brand.PAGE_DARK},
         "mcp_add": at.spec()["mcp"]["add_command"],
         "connect": at.spec()["mcp"]["connect"],
-        "tool_names": at.tool_names(),
-        "tool_titles": {n: t["title"] for n, t in at.spec()["webmcp"]["tools"].items()},
+        "tool_names": at.server_tool_names(),
+        "tool_titles": {n: t["title"] for n, t in at.server_tools().items()},
     }
 
     def page(rel: str, template: str, md: str, **ctx: object) -> None:
@@ -4985,7 +4985,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         keeps=keeps,
         preview=preview,
         jur_rows=dirx.jur_rows,
-        tool_count=len(at.tool_names()),
+        tool_count=len(at.server_tool_names()),
         catalogue_total=fmt_int(dirx.listed) if dirx.listed else "",
         topics=topic_rows,
         newest=newest,
@@ -5478,7 +5478,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "displayName": "MCP server",
         "type": "application/mcp-server-card+json",
         "tags": ["mcp", "open-data"],
-        "capabilities": at.tool_names(),
+        "capabilities": at.server_tool_names(),
         "description": at.plain(at.spec()["mcp"]["intro"]),
         "url": f"{SITE}/mcp/server-card",
         "representativeQueries": [

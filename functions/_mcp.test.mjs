@@ -78,8 +78,47 @@ const assets = {
     ],
   },
   '/latest.json': { crashes: '2026-04-24' },
-  '/d/crashes/datapackage.json': { name: 'x' },
-  '/d/crashes/versions.json': [{ version: '2026-04-24' }],
+  '/d/crashes/datapackage.json': {
+    name: 'crashes',
+    title: 'Crashes',
+    description: 'Crashes on roads.',
+    version: '2026-04-24',
+    licenses: [
+      {
+        name: 'CC-BY-4.0',
+        path: 'https://creativecommons.org/licenses/by/4.0/',
+        title: 'CC BY 4.0',
+      },
+    ],
+    sources: [{ title: 'TMR', path: 'https://data.example/crashes.csv' }],
+    contributors: [{ title: 'TMR', role: 'publisher' }],
+    'publicdata:attribution': 'TMR, Crashes, sourced 24 April 2026, licensed under CC BY 4.0.',
+    'publicdata:notEndorsed': true,
+  },
+  '/d/crashes/versions.json': {
+    dataset: 'crashes',
+    latest: '2026-04-24',
+    versions: [
+      {
+        version: '2026-01-01',
+        url: 'https://publicdata.au/d/crashes/v/2026-01-01/',
+        rows: 3,
+        sha256: 'aa',
+        fetched_at: '2026-01-01T00:00:00+00:00',
+        tombstone: null,
+      },
+      {
+        version: '2026-04-24',
+        as_at: '2026-03-31',
+        url: 'https://publicdata.au/d/crashes/v/2026-04-24/',
+        rows: 4,
+        sha256: 'bc9d',
+        fetched_at: '2026-04-24T01:02:03+00:00',
+        backfilled: false,
+        tombstone: null,
+      },
+    ],
+  },
   '/d/crashes/v/2026-04-24/by/lga/index.json': {
     field: 'lga',
     partitions: [{ value: 'Logan', rows: 1, json: 'by/lga/Logan.json' }],
@@ -302,11 +341,12 @@ test('initialize names the server and settles the protocol version', async () =>
 });
 
 test('tools/list is every tool in api.json with the schema the pages register', async () => {
-  const { tools } = (await rpc('tools/list')).body.result;
+  const { tools: all } = (await rpc('tools/list')).body.result;
   assert.deepEqual(
-    tools.map((t) => t.name),
-    Object.keys(raw.webmcp.tools),
+    all.map((t) => t.name),
+    [...Object.keys(raw.webmcp.tools), ...Object.keys(raw.mcp.tools)],
   );
+  const tools = all.filter((t) => t.name in raw.webmcp.tools);
   // The server and the pages reach every version through one query path, so they say the same.
   const mcpText = (d) =>
     Object.entries(fill(raw.mcp.tool_text)).reduce((s, [a, b]) => s.replace(a, b), d);
@@ -382,6 +422,115 @@ test('every tool answers exactly as its twin in the page does', async () => {
   assert.equal((await out('query_rows', { slug: 'crashes', limit: 3 })).next_offset, 3);
 });
 
+test('search and fetch answer in the shapes ChatGPT reads, from the tools they wrap', async () => {
+  const { tools } = (await rpc('tools/list')).body.result;
+  for (const name of ['search', 'fetch']) {
+    const t = tools.find((x) => x.name === name);
+    const want = raw.mcp.tools[name];
+    assert.equal(t.title, want.title);
+    assert.equal(t.description, fill(want.description));
+    assert.deepEqual(t.annotations, { title: want.title, ...want.annotations });
+    assert.equal(t.annotations.readOnlyHint, true);
+    assert.equal(t.annotations.destructiveHint, false);
+    assert.deepEqual(t.inputSchema.required, [name === 'search' ? 'query' : 'id']);
+  }
+
+  const s = await tool('search', { query: 'crash' });
+  assert.ok(!s.isError, s.content[0].text);
+  assert.equal(s.content.length, 1);
+  assert.equal(s.content[0].type, 'text');
+  assert.deepEqual(s.structuredContent, JSON.parse(s.content[0].text));
+  assert.equal(
+    conforms(SPEC.tools.find((x) => x.name === 'search').outputSchema, s.structuredContent),
+    null,
+  );
+  const datasets = await out('search_datasets', { query: 'crash' });
+  assert.deepEqual(
+    s.structuredContent.results,
+    datasets.results.map((r) => ({ id: r.slug, title: r.title, url: r.page })),
+  );
+  assert.deepEqual(s.structuredContent.results, [
+    { id: 'crashes', title: 'Crashes', url: 'https://publicdata.au/d/crashes/' },
+  ]);
+  for (const r of s.structuredContent.results) {
+    assert.deepEqual(Object.keys(r), ['id', 'title', 'url']);
+  }
+
+  const f = await tool('fetch', { id: s.structuredContent.results[0].id });
+  assert.ok(!f.isError, f.content[0].text);
+  assert.equal(f.content.length, 1);
+  assert.deepEqual(f.structuredContent, JSON.parse(f.content[0].text));
+  assert.equal(
+    conforms(SPEC.tools.find((x) => x.name === 'fetch').outputSchema, f.structuredContent),
+    null,
+  );
+  const doc = f.structuredContent;
+  assert.equal(doc.id, 'crashes');
+  assert.equal(doc.title, 'Crashes');
+  assert.equal(doc.url, 'https://publicdata.au/d/crashes/v/2026-04-24/');
+  const { datapackage } = await out('get_dataset', { slug: 'crashes' });
+  // Every sentence in api.json has its facts here but the licence condition, which CC BY lacks.
+  const lines = doc.text.split('\n');
+  assert.equal(lines.length, SPEC.fetch_text.length - 1);
+  assert.doesNotMatch(doc.text, /condition/);
+  assert.doesNotMatch(doc.text, /\{\w+\}|null|undefined/);
+  assert.equal(lines[0], 'Crashes');
+  assert.ok(
+    lines.includes(
+      `Show this attribution wherever the data is used: ${datapackage['publicdata:attribution']}`,
+    ),
+  );
+  assert.ok(lines.includes(SPEC.not_endorsed));
+  assert.match(SPEC.not_endorsed, /has not endorsed/);
+  assert.match(
+    doc.text,
+    /licensed under CC BY 4\.0, https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/\./,
+  );
+  assert.match(
+    doc.text,
+    /version 2026-04-24, the newest, at https:\/\/publicdata\.au\/d\/crashes\/v\/2026-04-24\/\./,
+  );
+  assert.match(
+    doc.text,
+    /from https:\/\/data\.example\/crashes\.csv at 2026-04-24T01:02:03\+00:00, and its SHA-256 is bc9d\./,
+  );
+  assert.deepEqual(doc.metadata, {
+    publisher: 'TMR',
+    licence: 'CC-BY-4.0',
+    licence_url: 'https://creativecommons.org/licenses/by/4.0/',
+    condition: null,
+    attribution: datapackage['publicdata:attribution'],
+    cite: null,
+    version: '2026-04-24',
+    as_at: '2026-03-31',
+    rows: 4,
+    source: 'https://data.example/crashes.csv',
+    fetched_at: '2026-04-24T01:02:03+00:00',
+    sha256: 'bc9d',
+    backfilled: false,
+    withdrawn: false,
+    not_endorsed: SPEC.not_endorsed,
+  });
+});
+
+test('fetch leaves out a sentence whose fact the record lacks', async () => {
+  const saved = assets['/d/crashes/datapackage.json'];
+  assets['/d/crashes/datapackage.json'] = {
+    ...saved,
+    description: undefined,
+    licenses: [{ ...saved.licenses[0], 'publicdata:condition': 'Not for resale.' }],
+  };
+  try {
+    const doc = await out('fetch', { id: 'crashes' });
+    assert.doesNotMatch(doc.text, /null|undefined/);
+    assert.equal(doc.text.split('\n').length, SPEC.fetch_text.length - 1);
+    assert.match(doc.text, /The licence carries this condition: Not for resale\./);
+    assert.equal(doc.metadata.condition, 'Not for resale.');
+  } finally {
+    assets['/d/crashes/datapackage.json'] = saved;
+  }
+});
+
 test('a bad call comes back as a tool error the model can read', async () => {
   const err = async (name, args) => {
     const r = await tool(name, args);
@@ -396,6 +545,13 @@ test('a bad call comes back as a tool error the model can read', async () => {
   assert.match(await err('query_rows', { slug: 'crashes', where: { nope: 1 } }), /no field nope/);
   assert.match(await err('count_rows', { slug: 'crashes', colour: 'red' }), /not colour/);
   assert.match(await err('get_dataset', { slug: 'missing' }), /404/);
+  assert.match(
+    await err('fetch', { id: 'missing' }),
+    /no served dataset with id missing; search finds/,
+  );
+  assert.match(await err('fetch', { id: '../etc' }), /no served dataset with id \.\.\/etc/);
+  assert.match(await err('fetch', {}), /id is required/);
+  assert.match(await err('search', {}), /query is required/);
   assert.match(
     await err('list_fields', { slug: 'missing' }),
     /no queryable dataset with slug missing/,

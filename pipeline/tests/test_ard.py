@@ -53,7 +53,7 @@ def test_the_manifest_lists_only_discovery_types_and_every_catalogue_it_links_pa
     }
     assert set(bundles) == set(live)
     mcp = next(e for e in doc["entries"] if e["type"] == "application/mcp-server-card+json")
-    assert mcp["capabilities"] == at.tool_names()
+    assert mcp["capabilities"] == at.server_tool_names()
     for slug, e in bundles.items():
         assert e["type"] == CATALOGUE
         assert e["url"] == f"{SITE}/d/{slug}/ai-catalog.json"

@@ -115,7 +115,7 @@ def test_the_mcp_server_has_every_tool_from_api_json(site: Path) -> None:
     for d in at.mcp_spec()["tools"]:
         assert d["annotations"]["title"] == d["title"], d["name"]
     js = (FUNCTIONS / "_tools.js").read_text(encoding="utf-8")
-    assert set(re.findall(r"^EXEC\.(\w+) = async", js, re.MULTILINE)) == set(at.tool_names())
+    assert set(re.findall(r"^EXEC\.(\w+) = async", js, re.MULTILINE)) == set(at.server_tool_names())
     assert "/mcp" in json.loads((site / "_routes.json").read_text(encoding="utf-8"))["include"]
     ard = json.loads((site / ".well-known" / "ard.json").read_text(encoding="utf-8"))
     assert any(e["url"] == "https://publicdata.au/mcp/server-card" for e in ard["entries"])
@@ -176,7 +176,7 @@ def test_each_sentence_reaches_every_output(site: Path) -> None:
     md = (site / "d" / "qld-road-casualties" / "index.md").read_text(encoding="utf-8")
     assert at.filter_help() in md
     assert rate in md
-    for n in at.tool_names():
+    for n in at.server_tool_names():
         assert f"<code>{n}</code>" in (site / "agents" / "index.html").read_text("utf-8")
 
 
