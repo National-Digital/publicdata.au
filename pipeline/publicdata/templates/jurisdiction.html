@@ -8,7 +8,8 @@
 {% for n in notes or [] %}<p class="notice" style="margin-top:10px">{{ n }}</p>{% endfor %}
 {% if live %}
 <div class="sec-head"><h2>Served here</h2><a href="/">All datasets</a></div>
-<div class="cards" data-conformance="aa">{% for d in live %}{% include "card.html" %}{% endfor %}</div>
+{# Text extractors start a page's text at its first <article>, which dropped this page's heading. #}
+{% set card_tag = 'div' %}<div class="cards" data-conformance="aa">{% for d in live %}{% include "card.html" %}{% endfor %}</div>
 {% endif %}
 {% for group in groups %}
 <div class="sec-head"><h2>{{ group.title }}</h2><span class="muted small">{{ group.publishers|length }} publisher{{ '' if group.publishers|length == 1 else 's' }}{% if catalogue %}, by datasets listed{% endif %}</span></div>
