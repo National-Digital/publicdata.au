@@ -1039,24 +1039,51 @@ def test_the_privacy_page_says_how_long_each_record_is_kept(fixture_site: Path) 
     w = at.spec()["limits"]["window_seconds"]
     kept = {
         "Page views": ["for 7 days"],
-        "Votes and dataset requests": ["kept indefinitely", f"for {w} seconds"],
-        "Saved dashboards": ["kept indefinitely"],
+        "Votes and dataset requests": ["kept indefinitely", "is deleted"],
+        "Saved dashboards": ["kept indefinitely", "to be removed"],
+        "Maps": ["how long it is kept"],
         "The query API and the MCP server": [f"for {w} seconds"],
-        "Hosting": ["for 31 days", "does not store it"],
+        "Hosting": ["for 31 days", "keeps no copy"],
     }
     assert set(sections) == {*kept, "Contact"}, "a new section needs its retention listed here"
     for heading, phrases in kept.items():
         for p in phrases:
             assert p in sections[heading], (heading, p)
-    # A function that starts storing something else must be added to the privacy page first.
-    writers = {
-        f.relative_to(ROOT / "functions").as_posix()
-        for f in (ROOT / "functions").rglob("*.js")
-        if re.search(r"env\.[A-Z_]+\.put\(", f.read_text(encoding="utf-8"))
-    }
-    assert writers == {
-        "_lib.js",
-        "api/v1/votes.js",
-        "api/v1/votes/[slug].js",
-        "api/v1/views.js",
-    }
+
+
+# Every call in functions/ that stores, deletes, caches, queries or logs, counted per file.
+PRIVACY_CALLS = {
+    "put": r"\.\s*put\s*\(",
+    "delete": r"\.\s*delete\s*\(",
+    "cache_put": r"\bcaches\s*\.\s*default\s*\.\s*put\s*\(",
+    "prepare": r"\.\s*prepare\s*\(",
+    "console": r"\bconsole\s*\.",
+}
+PRIVACY_COUNTS = {
+    "_api.js": {"put": 2, "prepare": 4},
+    "_catalogue.js": {"prepare": 3},
+    "_lib.js": {"put": 1},
+    "_limit.js": {"put": 1, "cache_put": 1},
+    "_parquet.js": {"delete": 11, "console": 2},
+    "_rollup.js": {"delete": 2},
+    "_served.js": {"prepare": 3},
+    "_tools.js": {"put": 2, "cache_put": 2, "prepare": 1, "console": 2},
+    "api/v1/catalogue.js": {"prepare": 3},
+    "api/v1/views.js": {"put": 2},
+    "api/v1/votes/[slug].js": {"put": 1, "delete": 1},
+    "api/v1/votes.js": {"put": 1},
+    "d/[[path]].js": {"delete": 1, "console": 1},
+}
+
+
+def test_what_the_functions_store_or_log_matches_the_privacy_page() -> None:
+    found = {}
+    for f in sorted((ROOT / "functions").rglob("*.js")):
+        text = f.read_text(encoding="utf-8")
+        c = {k: n for k, p in PRIVACY_CALLS.items() if (n := len(re.findall(p, text)))}
+        if c:
+            found[f.relative_to(ROOT / "functions").as_posix()] = c
+    assert found == PRIVACY_COUNTS, (
+        "A function now stores, deletes, caches, queries or logs differently. Check that "
+        "/privacy/ still says what is kept and for how long, then update PRIVACY_COUNTS."
+    )
