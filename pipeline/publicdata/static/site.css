@@ -338,14 +338,16 @@ tr.closed td a{color:var(--muted)}
 .tile b{font-size:1.0625rem;font-weight:500}
 .tile p{margin:0;font-size:0.875rem;color:var(--muted);max-width:none}
 .tile p.mono{overflow-wrap:anywhere;color:var(--primary-text);font-size:0.875rem}
-.pubbars{display:grid;gap:6px;margin-top:14px}
-.pubbar{display:grid;grid-template-columns:minmax(160px,300px) minmax(0,1fr) 60px 80px;gap:12px;align-items:center;min-height:2.75rem;font-size:0.875rem;color:var(--ink);text-decoration:none}
-.pubbar:hover .pname{text-decoration:underline}
-.pubbar .pbar{height:10px;background:var(--code-bg);border-radius:3px;overflow:hidden}
-.pubbar .pbar i{display:block;height:100%;background:var(--primary)}
-.pubbar .pn{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
-.pubbar .pn.live{color:var(--live);text-align:left;font-size:0.875rem}
-@media (max-width:600px){.pubbar{grid-template-columns:minmax(0,1fr) 60px}.pubbar .pbar,.pubbar .pn.live{display:none}}
+.publist{display:grid;gap:6px;margin-top:14px}
+.pubrow{position:relative;display:grid;grid-template-columns:minmax(160px,300px) minmax(0,1fr) 60px 80px;gap:12px;align-items:center;min-height:2.75rem;margin:0;max-width:none;font-size:0.875rem;color:var(--ink)}
+.pubrow a{align-self:stretch;display:flex;align-items:center;color:var(--ink);text-decoration:none}
+.pubrow a::after{content:"";position:absolute;inset:0}
+.pubrow a:hover{text-decoration:underline}
+.pubrow .pscale{height:10px;background:var(--code-bg);border-radius:3px;overflow:hidden}
+.pubrow .pscale i{display:block;height:100%;background:var(--primary)}
+.pubrow .pn{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.pubrow .pn.live{color:var(--live);text-align:left;font-size:0.875rem}
+@media (max-width:600px){.pubrow{grid-template-columns:minmax(0,1fr) 60px}.pubrow .pscale,.pubrow .pn.live{display:none}}
 .band.hero{position:relative;padding-block:52px 0;overflow:hidden;background:radial-gradient(900px 420px at 78% 40%,rgba(242,99,36,.14),transparent 70%),radial-gradient(rgba(158,160,224,.16) 1px,transparent 1px) 0 0/22px 22px,var(--band)}
 .band.hero .hero-grid{grid-template-columns:minmax(0,1fr) minmax(320px,.95fr);gap:48px;padding-bottom:36px}
 @media (max-width:880px){.band.hero .hero-grid{grid-template-columns:minmax(0,1fr);gap:28px}}
