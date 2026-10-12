@@ -142,6 +142,18 @@ test('bad queries and unknown versions are explained', async () => {
   assert.equal(vb.versions, 'https://publicdata.au/api/v1/datasets/test-data/versions');
   assert.equal((await call('', undefined, 'yesterday')).status, 404);
   assert.equal((await call('?format=xml')).status, 400);
+  const bad = await answer(
+    {
+      request: new Request(
+        'https://publicdata.au/api/v1/datasets/test-data/versions/2026-04-24/aggregate?group=lga&order=%',
+      ),
+      env: { DB: d1(db) },
+      params: { slug: 'test-data', version: '2026-04-24' },
+      waitUntil: () => {},
+    },
+    'aggregate',
+  );
+  assert.equal(bad.status, 400);
 });
 
 test('a named version is cached for good and served from the cache', async () => {

@@ -4,9 +4,8 @@ import { AnswerError, WITHHELD, query, withheld } from './_answer.js';
 
 const SITE = 'https://publicdata.au';
 const API = `${SITE}/api/v1/datasets`;
-// Answers are kept at the edge under their own URL with this marker added, so `publicdata purge`
-// still clears a version's answers by its path, and none cached before one query path answered
-// every version is served again. Raised when what a cached answer holds changes for the same URL.
+// Answers are kept at the edge under their own URL with this marker added, so none cached before
+// one query path answered every version is served again. Raised when what a cached answer holds changes for the same URL.
 const CACHE = '2';
 const cacheKey = (url) =>
   new Request(`${url.origin}${url.pathname}${url.search ? url.search + '&' : '?'}_c=${CACHE}`);
