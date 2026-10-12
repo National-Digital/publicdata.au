@@ -341,6 +341,53 @@ def test_the_chart_draws_the_register_measure_and_an_average_as_one_series(tmp_p
     assert fig["series"]["values"] == {2023: {"": 3}, 2024: {"": 2}}
 
 
+def test_a_label_that_names_its_period_is_given_the_period_once(tmp_path: Path) -> None:
+    db = _counts(tmp_path)
+    m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")
+    for label in ("Deaths per year", "Deaths Per Year", "Deaths per financial year", "Deaths"):
+        chart: Chart = {"where": (), "split": "", "metric": "", "label": label, "year": ""}
+        fig = figures.dataset_figures(_counts_ds(chart=chart), m, None, db, tmp_path)
+        assert fig["what"] == "Deaths"
+        assert fig["chart_caption"].startswith("Deaths per year, 2023 to 2024.")
+        assert fig["spark_caption"].startswith("deaths per year, 2023 to 2024.")
+        assert 'aria-label="Deaths per year, 2023 to 2024' in fig["chart"]
+    chart = {"where": (), "split": "", "metric": "", "label": "Deaths each year", "year": ""}
+    fig = figures.dataset_figures(_counts_ds(chart=chart), m, None, db, tmp_path)
+    assert fig["chart_caption"].startswith("Deaths per year, 2023 to 2024.")
+    # An example label is shown whole where nothing adds a period to it.
+    assert figures.measure(_counts_ds(), "count", "Road deaths per year") == "Road deaths per year"
+
+
+def test_a_label_that_names_its_period_on_a_financial_year_chart_reads_it_once(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "data.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE records (financial_year TEXT, amount REAL)")
+    con.executemany("INSERT INTO records VALUES (?, ?)", [("2017-18", 4.0), ("2018-19", 5.0)])
+    con.commit()
+    con.close()
+    db = as_parquet(db)
+    ds = make_dataset(
+        [
+            Field("financial_year", "financial_year", "string", label="Financial year"),
+            Field("amount", "amount", "number", label="Amount"),
+        ],
+        chart={
+            "where": (),
+            "split": "",
+            "metric": "sum.amount",
+            "label": "Amount per year",
+            "year": "financial_year",
+        },
+    )
+    m = make_manifest(b"", as_at="2026-03-31", fetched_at="2026-04-01T00:00:00+00:00")
+    fig = figures.dataset_figures(ds, m, None, db, tmp_path)
+    assert fig["chart_caption"].startswith("Amount per financial year, 2017-18 to 2018-19.")
+    assert fig["spark_caption"].startswith("amount per financial year, 2017-18 to 2018-19.")
+    assert fig["chart_caption"].count(" year") == 1
+
+
 def test_a_version_without_a_column_the_chart_names_draws_no_chart(tmp_path: Path) -> None:
     db = _counts(tmp_path)
     m = make_manifest(b"", as_at="2024-12-31", fetched_at="2025-01-01T00:00:00+00:00")

@@ -318,6 +318,9 @@ AGG_WORDS = {"avg": "Average", "min": "Lowest", "max": "Highest"}
 # A register label that already says how its figure is split or kept reads as a whole phrase,
 # so nothing is added to it and a chart does not borrow it.
 PHRASE = re.compile(r"\b(by|each|per|newest|first)\b")
+# The yearly chart and its sparkline add their own period to the measure, so a chart label that
+# ends with one would say it twice.
+PERIOD = re.compile(r"\s+(?:per|each)\s+(?:financial\s+)?year$", re.IGNORECASE)
 
 
 def measure(ds: Dataset, metric: str, label: str = "") -> str:
@@ -772,7 +775,7 @@ def dataset_figures(  # noqa: PLR0913 - the options are keyword-only and named a
     ex: _ExampleView = console["example"] if console else {}
     kept = all(f["field"] == (yf[0] if yf else "") for f in ex.get("filters", ()))
     kept = kept and not PHRASE.search(ex.get("label", ""))
-    label = chart.get("label") or (
+    label = PERIOD.sub("", chart.get("label", "")) or (
         ex.get("label", "") if console and not chart.get("metric") and kept else ""
     )
     what = measure(ds, metric, label)
