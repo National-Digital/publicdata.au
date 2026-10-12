@@ -410,7 +410,7 @@
           },
           "order": {
             "type": "string",
-            "description": "field.asc or field.desc, comma-separated. When absent, and for ties, a version the query API loads keeps the publisher's order, and any other version the order of its Parquet file, which follows the dataset's declared sort where it has one."
+            "description": "field.asc or field.desc, comma-separated. When absent, rows come in the order of the file they are read from. For the newest versions that is the version's own data.parquet, which keeps the publisher's order unless the dataset sorted it. Any other version is read from the Parquet file the answer names in file, and when that file is sorted the answer names its sort in order, which ties follow too."
           },
           "limit": {
             "type": "integer",
@@ -427,7 +427,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. The newest version when absent."
           }
         },
         "required": [
@@ -465,11 +465,18 @@
           },
           "query": {
             "type": "string",
-            "description": "The query API URL for the same query, which answers while the API has the version loaded"
+            "description": "The query API URL for the same query, on the version's own path"
           },
           "file": {
             "type": "string",
-            "description": "The Parquet file the answer was read from, when it came from the file"
+            "description": "The Parquet file the answer was read from, or that its rollup was counted from, when it came from either"
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The columns the file read is sorted by, which rows without an order and ties follow, when it came from a sorted file"
           },
           "parts": {
             "type": "array",
@@ -480,7 +487,7 @@
           },
           "manifest": {
             "type": "string",
-            "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"
+            "description": "The version's manifest, with its licence, source, hash and fetch time"
           },
           "attribution": {
             "type": [
@@ -545,7 +552,7 @@
           },
           "version": {
             "type": "string",
-            "description": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent."
+            "description": "A version date, YYYY-MM-DD, from get_dataset. The newest version when absent."
           }
         },
         "required": [
@@ -589,11 +596,11 @@
           },
           "query": {
             "type": "string",
-            "description": "The query API URL for the same query, which answers while the API has the version loaded"
+            "description": "The query API URL for the same query, on the version's own path"
           },
           "file": {
             "type": "string",
-            "description": "The Parquet file the answer was read from, when it came from the file"
+            "description": "The Parquet file the answer was read from, or that its rollup was counted from, when it came from either"
           },
           "parts": {
             "type": "array",
@@ -604,7 +611,7 @@
           },
           "manifest": {
             "type": "string",
-            "description": "The version's manifest, with its licence, source, hash and fetch time, when the answer came from the file"
+            "description": "The version's manifest, with its licence, source, hash and fetch time"
           },
           "attribution": {
             "type": [

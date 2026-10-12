@@ -1105,12 +1105,12 @@ PRIVACY_CALLS = {
     "assets_fetch": r"\bASSETS\s*\.\s*fetch\s*\(",
 }
 PRIVACY_COUNTS = {
-    "_api.js": {"put": 2, "query": 4},
+    "_answer.js": {"put": 1, "cache_put": 1, "query": 3, "console": 4},
+    "_api.js": {"put": 2, "query": 1},
     "_catalogue.js": {"query": 3},
     "_limit.js": {"put": 1, "cache_put": 1},
     "_parquet.js": {"query": 1, "console": 2},
     "_served.js": {"query": 3},
-    "_tools.js": {"put": 2, "cache_put": 2, "query": 1, "console": 2},
     "_usage.js": {"query": 2, "console": 1},
     "api/v1/catalogue.js": {"query": 3},
     "api/v1/views.js": {"put": 2},

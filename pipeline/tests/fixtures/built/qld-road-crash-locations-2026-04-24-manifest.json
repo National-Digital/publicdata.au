@@ -1,0 +1,112 @@
+{
+  "dataset": "qld-road-crash-locations",
+  "version": "2026-04-24",
+  "as_at": "2025-06-30",
+  "fetched_at": "2026-09-24T14:15:48+00:00",
+  "sha256": "cd24ede2c8b01015bf64fb7bac88a47d7fedebd7e5181fb39f9fbd8d4f3c0bb9",
+  "bytes": 155376,
+  "filename": "_1_crash_locations.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/f3e0ca94-2d7b-44ee-abef-d6b06e9b0729/resource/e88943c0-5968-4972-a15f-38e120d72ec0/download/_1_crash_locations.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "crash-data-from-queensland-roads",
+    "package_id": "f3e0ca94-2d7b-44ee-abef-d6b06e9b0729",
+    "resource": "e88943c0-5968-4972-a15f-38e120d72ec0",
+    "resource_name": "Road crash locations",
+    "resource_last_modified": "2026-04-24T02:56:42.272452",
+    "package_modified": "2026-04-24T03:16:39.760744",
+    "package_version": "rqC45037- June 2025",
+    "etag": "19a17cdddde8f70e7121e677fcd0cba9",
+    "http_last_modified": "Fri, 24 Apr 2026 02:56:44 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_at": "2026-09-24T14:15:47+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "fixture: first 300 rows of the release"
+  ],
+  "parquet": {
+    "profile": "1",
+    "sort": [
+      "crash_year",
+      "loc_local_government_area"
+    ],
+    "key": [
+      "crash_ref_number"
+    ],
+    "lookup": [],
+    "int32": [
+      "crash_ref_number",
+      "crash_year",
+      "crash_hour",
+      "count_casualty_fatality",
+      "count_casualty_hospitalised",
+      "count_casualty_medically_treated",
+      "count_casualty_minor_injury",
+      "count_casualty_total",
+      "count_unit_car",
+      "count_unit_motorcycle_moped",
+      "count_unit_truck",
+      "count_unit_bus",
+      "count_unit_bicycle",
+      "count_unit_pedestrian",
+      "count_unit_other"
+    ]
+  },
+  "caps": 1,
+  "rows": 300,
+  "fields": 64,
+  "unknown_upstream_columns": [],
+  "suppressed_cells": 0,
+  "places": [
+    {
+      "layer": "sa2",
+      "dataset": "abs-sa2-2021",
+      "version": "2021-06-24",
+      "sha256": "bc92405c872eb69dcfe7944190e822ccdf1e5713f6821522c85055922b1dc119"
+    },
+    {
+      "layer": "lga",
+      "dataset": "abs-lga-2025",
+      "version": "2026-05-14",
+      "sha256": "d826c1ae0c08d3535fd52786364dbadb2878099879c6b0950fb5afffedee23ee"
+    },
+    {
+      "layer": "suburb",
+      "dataset": "abs-suburbs-localities-2021",
+      "version": "2021-09-13",
+      "sha256": "b7d01c3569d8d8fdc0873370aa8e7130bc66262aa46d6ad613fa58990028ac30"
+    },
+    {
+      "layer": "postcode",
+      "dataset": "abs-postal-areas-2021",
+      "version": "2021-09-13",
+      "sha256": "6c910ac3029d9d72b86317510bd4c97a8fdbafd58b7b65e5358ba76c39bb86d6"
+    },
+    {
+      "layer": "state_electorate",
+      "dataset": "abs-state-electoral-divisions-2025",
+      "version": "2025-06-20",
+      "sha256": "a7c25bcf55afeb806a8598bf4971a23f97e474f042254f3e28adfd8553b32b6f"
+    },
+    {
+      "layer": "federal_electorate",
+      "dataset": "abs-federal-electoral-divisions-2025",
+      "version": "2025-06-20",
+      "sha256": "01f8821cde5ce07fc64a85a77f0e582d71bef7ee63cdd0bd41b2c550fe79edcd"
+    }
+  ],
+  "measured_bytes": {
+    "data.ndjson": 622436,
+    "data.csv": 207912,
+    "data.geojson": 656091
+  },
+  "formats_left_out": {},
+  "url": "https://publicdata.au/d/qld-road-crash-locations/v/2026-04-24/"
+}

@@ -41,7 +41,15 @@ from .build import (
     version_url,
 )
 from .cost import fleet_from_build
-from .d1 import KEEP, MAX_CSV, catalogue_sqlite, parts_csv, queryable, served_table
+from .d1 import (
+    KEEP,
+    MAX_CSV,
+    catalogue_sqlite,
+    dataset_header,
+    parts_csv,
+    queryable,
+    served_table,
+)
 from .fetch import TZ
 from .parts import FORMATS as PART_FORMATS
 from .parts import url as part_url
@@ -534,32 +542,37 @@ def checks_words(ds: Dataset, what: str = "file") -> str:
 
 
 def _no_query(ds: Dataset, v: VersionOut) -> str:
-    """Why the query API does not serve a dataset.
+    """Why a dataset's page offers no query console.
 
-    Its page says so, so it never drops out unexplained.
+    The console reads the versions D1 loads. The query API and the MCP server answer every other
+    version from its Parquet, so the page says where, and the console never drops out unexplained.
     """
+    rows = f"{SITE}/api/v1/datasets/{ds.slug}/rows"
     if not v.whole:
         grain = _grain_words(_period_grain(v.manifest))
-        if QUERY_API and queryable(ds, parts_csv(v.parts)):
-            return (
-                f"This version is split by {grain} and is too large to be one file. The query "
-                f"API serves it from its parts at {SITE}/api/v1/datasets/{ds.slug}/rows. The "
-                "console, the explorer and the pages by place each read one whole file, so they "
-                "are not offered for it. Its DuckDB file reads every part."
-            )
+        served = f"The query API answers it from its parts at {rows}. " if QUERY_API else ""
         return (
-            f"This version is split by {grain} and is too large to be one file. The query API, "
-            "the explorer and the pages by place each read one whole file, so they are not "
-            "offered for it. Its DuckDB file reads every part."
+            f"This version is split by {grain} and is too large to be one file. {served}The "
+            "console, the explorer and the pages by place each read one whole file, so they are "
+            "not offered for it. Its DuckDB file reads every part."
         )
+    if not QUERY_API:
+        return "The query API is not on yet. Every file is still served."
+    answered = f"The query API answers it from its Parquet file at {rows}."
     if not ds.query:
-        return "The register keeps this dataset out of the query API. Every file is still served."
+        return (
+            "The register keeps this dataset out of the database the query console reads, so "
+            f"the console is not offered. {answered}"
+        )
     if (v.files.get("data.csv") or 0) > MAX_CSV:
         return (
-            f"Its CSV file is over {MAX_CSV // 1_000_000} MB, more than the query API "
-            "loads, so the files serve it."
+            f"Its CSV file is over {MAX_CSV // 1_000_000} MB, more than the database the query "
+            f"console reads loads, so the console is not offered. {answered}"
         )
-    return "The query API is not loaded for this version. Every file is still served."
+    return (
+        "The database the query console reads has not loaded this version, so the console is "
+        f"not offered. {answered}"
+    )
 
 
 def _grain_words(grain: str) -> str:
@@ -2875,6 +2888,7 @@ def _query_paths(
         "200": {"description": responses["200"]},
         "400": {"description": responses["400"]},
         "404": {"description": responses["404"]},
+        "422": {"description": responses["422"]},
         "429": {
             "description": responses["429"],
             "headers": {
@@ -3017,8 +3031,11 @@ def _fields_resource(o: DatasetOut, hints: Console, *, api: bool) -> dict[str, o
     """A dataset's fields as the MCP server's resource.
 
     They are read from the newest version's data.parquet, or its parts, as the query console's
-    are. The query API's URLs are given only when it loads the dataset; the server's row tools
-    answer either way, from the version's Parquet.
+    are. The query API and the server's row tools answer every version from the same query path,
+    D1 for the versions it loads and each version's Parquet for the rest, so the API's URLs are
+    given whenever the API is on. `provenance` is the dataset's part of the header D1 loads a
+    version with, from the register as this build reads it, which the query path gives a version
+    stored as parts in place of what its newest part's file says.
     """
     ds, m = o.dataset, _newest(o).manifest
     base = f"{SITE}/api/v1/datasets/{ds.slug}/"
@@ -3037,6 +3054,9 @@ def _fields_resource(o: DatasetOut, hints: Console, *, api: bool) -> dict[str, o
         "key": list(ds.key),
         "partition_by": list(ds.partition_by),
         "fields": hints["fields"],
+        "provenance": dataset_header(
+            ds, m, {"rows": _newest(o).rows}, joined=any(v.manifest.spine for v in o.versions)
+        ),
     }
 
 
@@ -4218,10 +4238,10 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             console["api"] = f"/api/v1/datasets/{ds.slug}/"
             console["site"] = SITE
             console["versions"] = [v["version"] for v in reversed(views)][:KEEP]
-        # The MCP server's row tools answer from Parquet what D1 does not load, so every table
-        # with a data.parquet or parts gets its field list, whether or not the query API serves it.
+        # The query API and the MCP server's row tools answer from Parquet what D1 does not load,
+        # so every table with a data.parquet or parts gets its field list.
         if listed:
-            fields_body = pretty(_fields_resource(o, listed, api=served))
+            fields_body = pretty(_fields_resource(o, listed, api=QUERY_API))
             _write(out, f"d/{ds.slug}/fields.json", fields_body)
             resources.append(
                 {
@@ -5349,7 +5369,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         + " When you show the data to a person, use the attribution string, say the file came from publicdata.au and link to the version URL."
     )
     query_line = (
-        f"Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; loaded versions at {SITE}/api/v1/datasets/<slug>/versions. "
+        f"Query API: {SITE}/api/v1/datasets/<slug>/rows?field=eq.value&select=a,b&order=a.desc&limit=100, {SITE}/api/v1/datasets/<slug>/aggregate?group=field&metric=count,sum.field, and the same under /versions/<date>/ for an answer from that dated version alone; every version with a table is listed at {SITE}/api/v1/datasets/<slug>/versions. "
         + FILTER_HELP
     )
     llms = [

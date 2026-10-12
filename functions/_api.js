@@ -1,9 +1,15 @@
 import { SLUG, json } from './_lib.js';
-import { QueryError, toCSV } from './_query.js';
+import { LIMIT_DEFAULT, toCSV } from './_query.js';
+import { AnswerError, WITHHELD, query, withheld } from './_answer.js';
 
 const SITE = 'https://publicdata.au';
 const API = `${SITE}/api/v1/datasets`;
-const VERSION = /^\d{4}-\d{2}-\d{2}$/;
+// Answers are kept at the edge under their own URL with this marker added, so `publicdata purge`
+// still clears a version's answers by its path, and none cached before one query path answered
+// every version is served again. Raised when what a cached answer holds changes for the same URL.
+const CACHE = '2';
+const cacheKey = (url) =>
+  new Request(`${url.origin}${url.pathname}${url.search ? url.search + '&' : '?'}_c=${CACHE}`);
 // The fair-use limit the zone enforces on /api/v1/datasets/*, published on every answer.
 const POLICY = {
   'ratelimit-policy': '"fair-use";q=60;w=10',
@@ -16,145 +22,66 @@ const reply = (status, body) => json(body, status, { ...POLICY, link: TERMS });
 const NOT_ENABLED =
   'The query API is not enabled yet. Every dataset is available as files under /d/.';
 
-async function newest(env, slug) {
-  return env.DB.prepare('SELECT * FROM _versions WHERE slug = ? ORDER BY version DESC LIMIT 1')
-    .bind(slug)
-    .first();
-}
+// The query's own parameters, as the engines take them: format only shapes the reply.
+const paramsOf = (url) =>
+  url.search
+    .slice(1)
+    .split('&')
+    .filter((p) => p && p.split('=')[0] !== 'format');
 
-async function loadedVersions(env, slug) {
-  const r = await env.DB.prepare(
-    'SELECT version, rows FROM _versions WHERE slug = ? ORDER BY version DESC',
-  )
-    .bind(slug)
-    .all();
-  return r.results || [];
-}
-
-// A dataset the register has withheld keeps its loaded tables until a load drops them, so the
-// live list the site was built with decides. An unread list withholds nothing.
-let live;
-async function withheld(env, url, slug) {
-  if (!env.ASSETS) {
-    return false;
-  }
-  if (!live) {
-    const r = await env.ASSETS.fetch(new URL('/latest.json', url));
-    if (!r.ok) {
-      return false;
-    }
-    live = await r.json();
-  }
-  return Object.keys(live).length > 0 && !(slug in live);
-}
-const WITHHELD =
-  'This dataset is withheld while its licence is reviewed. See https://publicdata.au/backlog/';
-
-function notLoaded(e) {
-  // A database that has never been loaded has no registry yet.
-  return /no such table/i.test(String((e && e.message) || e));
-}
-
-// Answers one query against a loaded version: the one in the path, else the newest. A dated
-// answer never changes and is cached for good; the newest is cached for five minutes.
-export async function answer(context, build, op) {
+// Answers one query against a version: the one in the path, else the newest. Whichever engine
+// answers, the reply has the same shape (functions/_answer.js). A dated answer never changes and
+// is cached for good; the newest is cached for five minutes.
+export async function answer(context, op) {
   const { request, env, params } = context;
-  if (!env.DB) {
-    return reply(503, { error: NOT_ENABLED });
-  }
-  const slug = params.slug;
-  if (!SLUG.test(slug)) {
-    return reply(404, { error: 'No such dataset' });
-  }
   const url = new URL(request.url);
-  if (await withheld(env, url, slug)) {
+  const format = url.searchParams.get('format') || 'json';
+  // A withheld dataset is refused before anything cached is served, as its tables and answers
+  // stay until they are dropped.
+  if (SLUG.test(params.slug || '') && (await withheld(env, params.slug))) {
     return reply(410, { error: WITHHELD });
   }
-  const qs = url.searchParams;
+  const key = cacheKey(url);
   const cache = caches.default;
-  const hit = await cache.match(request);
+  const hit = await cache.match(key);
   if (hit) {
     return hit;
   }
-  const format = qs.get('format') || 'json';
   if (!['json', 'ndjson', 'csv'].includes(format)) {
     return reply(400, { error: 'format is json, ndjson or csv' });
   }
+  const slug = params.slug;
   const want = params.version;
-  if (want && !VERSION.test(want)) {
-    return reply(404, {
-      error: 'A version is a date, YYYY-MM-DD',
-      versions: `${API}/${slug}/versions`,
-    });
-  }
-  let v;
+  let a;
   try {
-    v = want
-      ? await env.DB.prepare('SELECT * FROM _versions WHERE slug = ? AND version = ?')
-          .bind(slug, want)
-          .first()
-      : await newest(env, slug);
+    a = await query(context, slug, want, op, paramsOf(url));
   } catch (e) {
-    if (notLoaded(e)) {
-      return reply(503, { error: NOT_ENABLED });
+    if (e instanceof AnswerError) {
+      return reply(e.status, e.body);
     }
     throw e;
   }
-  if (!v) {
-    const list = (await loadedVersions(env, slug)).map((r) => r.version);
-    return reply(404, {
-      error: list.length
-        ? `version ${want} is not loaded for queries; loaded versions are ${list.join(', ')}`
-        : 'No such dataset in the query API',
-      versions: `${API}/${slug}/versions`,
-      files: `${SITE}/d/${slug}/`,
-    });
-  }
-  let plan;
-  try {
-    plan = build(v.tbl, JSON.parse(v.fields), qs);
-  } catch (e) {
-    if (e instanceof QueryError) {
-      return reply(400, { error: e.message });
-    }
-    throw e;
-  }
-  let rows;
-  try {
-    rows =
-      (
-        await env.DB.prepare(plan.sql)
-          .bind(...plan.binds)
-          .all()
-      ).results || [];
-  } catch (e) {
-    return reply(500, {
-      error: 'The query could not run',
-      detail: String(e.message || e).slice(0, 200),
-    });
-  }
-  const more = rows.length > plan.limit;
-  if (more) {
-    rows = rows.slice(0, plan.limit);
-  }
+  const rest = url.search;
   let next = null;
-  if (more) {
+  if (a.more) {
     // The next page is pinned to this version's own path, so a release mid-way cannot shift it.
-    const n = new URL(`${API}/${slug}/versions/${v.version}/${op}${url.search}`);
-    n.searchParams.set('offset', String(plan.offset + plan.limit));
+    const n = new URL(`${API}/${slug}/versions/${a.version}/${op}${rest}`);
+    const offset = Number(url.searchParams.get('offset') || 0);
+    const limit = Number(url.searchParams.get('limit') || LIMIT_DEFAULT);
+    n.searchParams.set('offset', String(offset + limit));
     next = n.toString();
   }
   const cacheControl = want ? 'public, max-age=31536000, immutable' : 'public, max-age=300';
-  const header = JSON.parse(v.header || '{}');
-  const manifest = `${SITE}/d/${slug}/v/${v.version}/manifest.json`;
+  const header = a.header || {};
+  const manifest = `${SITE}/d/${slug}/v/${a.version}/manifest.json`;
   // CSV and NDJSON have nowhere to put the provenance header, so it travels in headers and the
   // version's manifest is linked; JSON carries it whole.
   const common = {
     ...POLICY,
     'access-control-allow-origin': '*',
     'cache-control': cacheControl,
-    'x-publicdata-version': v.version,
-    'x-publicdata-attribution': encodeURIComponent(v.attribution),
+    'x-publicdata-version': a.version,
+    'x-publicdata-attribution': encodeURIComponent(a.attribution || header.attribution || ''),
     'x-publicdata-source-sha256': (header.source && header.source.sha256) || '',
     link: [
       `<${manifest}>; rel="describedby"`,
@@ -162,9 +89,10 @@ export async function answer(context, build, op) {
       TERMS,
     ].join(', '),
   };
+  const rows = a.rows;
   let res;
   if (format === 'csv') {
-    res = new Response(toCSV(plan.cols, rows), {
+    res = new Response(toCSV(a.cols, rows), {
       headers: { ...common, 'content-type': 'text/csv; charset=utf-8' },
     });
   } else if (format === 'ndjson') {
@@ -176,47 +104,59 @@ export async function answer(context, build, op) {
       JSON.stringify({
         publicdata: header,
         dataset_page: `${SITE}/d/${slug}/`,
-        version_page: `${SITE}/d/${slug}/v/${v.version}/`,
-        this_version: `${API}/${slug}/versions/${v.version}/${op}${url.search}`,
+        version_page: `${SITE}/d/${slug}/v/${a.version}/`,
+        this_version: `${API}/${slug}/versions/${a.version}/${op}${rest}`,
         manifest,
+        // The Parquet file or the period parts an answer was read from, and the sort of that file
+        // when it is sorted, when the Parquet engine answered.
+        ...(a.file ? { file: a.file } : {}),
+        ...(a.parts ? { parts: a.parts } : {}),
+        ...(a.order ? { order: a.order } : {}),
         rows,
         next,
       }),
       { headers: { ...common, 'content-type': 'application/json; charset=utf-8' } },
     );
   }
-  context.waitUntil(cache.put(request, res.clone()));
+  context.waitUntil(cache.put(key, res.clone()));
   return res;
 }
 
-// The versions of one dataset loaded for queries, newest first, with the URLs to query each.
+// Every version of one dataset the query API answers, newest first, with the URLs to query each:
+// each version in the dataset's versions.json, since the Parquet engine answers those D1 does not
+// hold. A tombstoned version has no files left to answer from.
 export async function versions(context) {
   const { request, env, params } = context;
-  if (!env.DB) {
-    return reply(503, { error: NOT_ENABLED });
-  }
   const slug = params.slug;
   if (!SLUG.test(slug)) {
     return reply(404, { error: 'No such dataset' });
   }
-  if (await withheld(env, new URL(request.url), slug)) {
+  if (!env.DB && !env.DIST) {
+    return reply(503, { error: NOT_ENABLED });
+  }
+  if (await withheld(env, slug)) {
     return reply(410, { error: WITHHELD });
   }
+  const key = cacheKey(new URL(request.url));
   const cache = caches.default;
-  const hit = await cache.match(request);
+  const hit = await cache.match(key);
   if (hit) {
     return hit;
   }
-  let list;
-  try {
-    list = await loadedVersions(env, slug);
-  } catch (e) {
-    if (notLoaded(e)) {
-      return reply(503, { error: NOT_ENABLED });
+  let list = await published(env, slug);
+  if (!list && env.DB) {
+    try {
+      list = await loadedVersions(env, slug);
+    } catch (e) {
+      if (!/no such table/i.test(String((e && e.message) || e))) {
+        throw e;
+      }
+      if (!env.DIST) {
+        return reply(503, { error: NOT_ENABLED });
+      }
     }
-    throw e;
   }
-  if (!list.length) {
+  if (!list || !list.length) {
     return reply(404, { error: 'No such dataset in the query API', files: `${SITE}/d/${slug}/` });
   }
   const res = new Response(
@@ -241,6 +181,33 @@ export async function versions(context) {
       },
     },
   );
-  context.waitUntil(cache.put(request, res.clone()));
+  context.waitUntil(cache.put(key, res.clone()));
   return res;
+}
+
+async function loadedVersions(env, slug) {
+  const r = await env.DB.prepare(
+    'SELECT version, rows FROM _versions WHERE slug = ? ORDER BY version DESC',
+  )
+    .bind(slug)
+    .all();
+  return r.results || [];
+}
+
+// The versions of a dataset with a table the engines read, from the files the site was built
+// with, or null when the deployment has no field list for it.
+async function published(env, slug) {
+  if (!env.ASSETS) {
+    return null;
+  }
+  const at = (p) => env.ASSETS.fetch(new Request(`${SITE}/d/${slug}/${p}`));
+  const [fields, vs] = await Promise.all([at('fields.json'), at('versions.json')]);
+  if (!fields.ok || !vs.ok) {
+    return null;
+  }
+  const body = await vs.json();
+  return (body.versions || [])
+    .filter((v) => !v.tombstone)
+    .map((v) => ({ version: v.version, rows: v.rows }))
+    .sort((a, b) => (a.version < b.version ? 1 : -1));
 }
