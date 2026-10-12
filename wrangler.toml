@@ -13,7 +13,8 @@ bucket_name = "publicdata-dist"
 binding = "RAW"
 bucket_name = "publicdata-raw"
 
-# Votes: one object per browser per day per dataset, and a rollup of the counts.
+# Votes: one object per browser per day per dataset, and a rollup of the counts. Their hash is keyed
+# by the Pages secret VOTE_SALT, set outside this file (docs/ARCHITECTURE.md "Votes and requests").
 [[r2_buckets]]
 binding = "VOTES"
 bucket_name = "publicdata-votes"

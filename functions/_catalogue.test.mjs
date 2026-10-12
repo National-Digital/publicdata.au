@@ -170,6 +170,7 @@ db.prepare('INSERT INTO _versions VALUES (?, ?, ?, ?, ?, ?, ?)').run(
 
 const votes = new Map();
 const env = {
+  VOTE_SALT: 'not-a-real-vote-salt-'.repeat(2),
   DB: d1(db),
   VOTES: {
     get: async (k) => (votes.has(k) ? { text: async () => votes.get(k) } : null),

@@ -1,4 +1,4 @@
-import { SLUG, json, today, voter } from '../../_lib.js';
+import { SLUG, json, salted, today, voter } from '../../_lib.js';
 import { MAX_BYTES, PER_DAY, canonical, problem, viewId } from '../../_views.js';
 
 // The versions the explorer can open, as the build wrote them: a dataset without an explorer
@@ -17,6 +17,15 @@ async function versionsOf(env, request, slug) {
 
 // Save an explorer dashboard and get its short id.
 export async function onRequestPost({ request, env }) {
+  if (!salted(env)) {
+    return json(
+      {
+        error:
+          'Dashboards cannot be saved at the moment. The link in the address bar works without saving.',
+      },
+      503,
+    );
+  }
   const text = await request.text();
   if (new TextEncoder().encode(text).length > MAX_BYTES) {
     return json({ error: `A dashboard is at most ${MAX_BYTES} bytes` }, 413);

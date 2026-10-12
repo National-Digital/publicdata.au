@@ -125,6 +125,7 @@ const assets = {
 };
 const votes = new Map();
 const env = {
+  VOTE_SALT: 'not-a-real-vote-salt-'.repeat(2),
   DB,
   ASSETS: {
     fetch: async (r) => {

@@ -47,6 +47,9 @@ test('the id is a hash of the content, so a resave returns the same link', async
   assert.notEqual(a, await viewId(canonical({ ...good, version: '2026-05-01' })));
 });
 
+// Built at runtime and plainly not a secret.
+const FAKE_SALT = 'not-a-real-vote-salt-'.repeat(2);
+
 function bucket() {
   const m = new Map();
   const obj = (k) => ({ key: k, body: new Response(m.get(k)).body, text: async () => m.get(k) });
@@ -75,6 +78,7 @@ test('POST stores a dashboard once and GET returns it', async () => {
   const { onRequestGet } = await import('./api/v1/views/[id].js');
   const env = {
     VOTES: bucket(),
+    VOTE_SALT: FAKE_SALT,
     ASSETS: {
       fetch: async (u) =>
         String(u).endsWith('/d/test-data/explore/versions.json')
@@ -104,4 +108,32 @@ test('POST stores a dashboard once and GET returns it', async () => {
   assert.deepEqual(await got.json(), JSON.parse(canonical(good)));
   assert.equal((await onRequestGet({ env, params: { id: '0000000000000000' } })).status, 404);
   assert.equal((await onRequestGet({ env, params: { id: '../x' } })).status, 404);
+});
+
+test('without the salt secret a save is refused and saved dashboards still open', async () => {
+  const { onRequestPost } = await import('./api/v1/views.js');
+  const { onRequestGet } = await import('./api/v1/views/[id].js');
+  const env = {
+    VOTES: bucket(),
+    VOTE_SALT: FAKE_SALT,
+    ASSETS: { fetch: async () => Response.json({ versions: ['2026-04-24'] }) },
+  };
+  const post = () =>
+    onRequestPost({
+      request: new Request('https://publicdata.au/api/v1/views', {
+        method: 'POST',
+        body: JSON.stringify(good),
+      }),
+      env,
+    });
+  const { id } = await (await post()).json();
+  for (const salt of [undefined, '', FAKE_SALT.slice(0, 31)]) {
+    env.VOTE_SALT = salt;
+    const before = [...env.VOTES.m.keys()];
+    const r = await post();
+    assert.equal(r.status, 503);
+    assert.match((await r.json()).error, /cannot be saved/);
+    assert.deepEqual([...env.VOTES.m.keys()], before);
+    assert.equal((await onRequestGet({ env, params: { id } })).status, 200);
+  }
 });
