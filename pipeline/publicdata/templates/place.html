@@ -51,11 +51,11 @@
   <ul class="places" data-conformance="aa">{% for p in others %}<li><a href="{{ p.href }}">{{ p.value }}</a><span>{{ p.rows_fmt }}</span></li>{% endfor %}</ul>
 </div>
 
-<aside class="side">
+<div class="side">
   <div class="card" id="cite">
     <div class="k">Attribution and citation</div>
     <p class="small" style="color:var(--ink)">{{ cite_request }}</p>
-    <div class="attr">{{ citation.harvard }}<button class="copy abs" type="button" data-copy-target="cite-src">Copy</button></div>
+    <p class="attr">{{ citation.harvard }}<button class="copy abs" type="button" data-copy-target="cite-src">Copy</button></p>
     <textarea id="cite-src" hidden>{{ citation.harvard }}</textarea>
     <p class="small">Author-date form. The dataset page has the same citation as text, HTML, Markdown and BibTeX.</p>
   </div>
@@ -64,7 +64,7 @@
     <p class="small" style="color:var(--ink)">{{ ds.publisher.name }} publishes the whole table on <a href="{{ ds.source.url }}">{{ portal_host }}</a>. This site cuts these rows from it without changing them. Questions about the content go to the publisher.</p>
     <p class="small">Fetched {{ latest.fetched_long }}. Source SHA-256 <span class="mono">{{ latest.sha256[:16] }}…</span></p>
   </div>
-</aside>
+</div>
 </div>
 </div>
 {% endblock %}

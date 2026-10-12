@@ -20,9 +20,9 @@
 <div>
   <div class="notice"><p><b>What this site did to the data.</b> Cells were typed, headers were renamed and the encoding was made UTF-8. Rows were left alone. The publisher's file sits beside every version so the change can be checked.</p></div>
 </div>
-<aside class="side">
-  <div class="card"><div class="k">Attribution and citation</div><p class="small" style="color:var(--ink)">{{ cite_request }}</p><div class="attr">{{ attribution }}<button class="copy abs" type="button" data-copy-target="attr-src">Copy</button></div><textarea id="attr-src" hidden>{{ attribution }}</textarea><p class="small">Each table's page has the sentence as text, HTML, Markdown and BibTeX.</p></div>
+<div class="side">
+  <div class="card"><div class="k">Attribution and citation</div><p class="small" style="color:var(--ink)">{{ cite_request }}</p><p class="attr">{{ attribution }}<button class="copy abs" type="button" data-copy-target="attr-src">Copy</button></p><textarea id="attr-src" hidden>{{ attribution }}</textarea><p class="small">Each table's page has the sentence as text, HTML, Markdown and BibTeX.</p></div>
   <div class="card"><div class="k">Source</div><p class="small" style="color:var(--ink)">{{ publisher.name }} publishes this dataset at <a href="{{ landing }}">{{ portal_host }}</a>. Questions about the content go to the publisher.</p></div>
-</aside>
+</div>
 </div>
 {% endblock %}

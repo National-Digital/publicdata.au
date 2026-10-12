@@ -1,4 +1,4 @@
-<article class="dcard{% if not d.live %} building{% endif %}{% if d.more %} more{% endif %}" data-card{% if d.more %} hidden{% endif %}>
+{% set tag = card_tag|default('article') %}<{{ tag }} class="dcard{% if not d.live %} building{% endif %}{% if d.more %} more{% endif %}" data-card{% if d.more %} hidden{% endif %}>
   <div class="dc-top"><span class="pub">{{ d.publisher }} <span class="chip jur">{{ d.jur }}</span></span><span class="chip {{ d.status }}">{{ d.status }}</span></div>
   <h3>{% if d.live %}<a href="/d/{{ d.slug }}/">{{ d.title }}</a>{% else %}{{ d.title }}{% endif %}</h3>
   <p class="sub">{{ d.summary }}</p>
@@ -6,4 +6,4 @@
   {% if d.live %}<dl class="facts"><div><dt>Rows</dt><dd>{{ d.rows }}</dd></div><div><dt>Fields</dt><dd>{{ d.fields }}</dd></div><div><dt>Version</dt><dd class="mono">{{ d.latest }}</dd></div></dl>
   <div class="quick">{% for f in d.quick %}<a href="{{ f.url }}" aria-label="{{ f.name }}, {{ d.title }}">{{ f.name }}</a>{% endfor %}<a href="/d/{{ d.slug }}/" aria-label="All formats, {{ d.title }}">all formats</a></div>
   {% else %}<p class="muted small">{{ d.status_label|capitalize }}. {{ d.planned }}</p>{% endif %}
-</article>
+</{{ tag }}>

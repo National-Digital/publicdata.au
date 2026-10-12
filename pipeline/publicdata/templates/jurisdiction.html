@@ -8,11 +8,12 @@
 {% for n in notes or [] %}<p class="notice" style="margin-top:10px">{{ n }}</p>{% endfor %}
 {% if live %}
 <div class="sec-head"><h2>Served here</h2><a href="/">All datasets</a></div>
-<div class="cards" data-conformance="aa">{% for d in live %}{% include "card.html" %}{% endfor %}</div>
+{# Text extractors start a page's text at its first <article>, which dropped this page's heading. #}
+{% set card_tag = 'div' %}<div class="cards" data-conformance="aa">{% for d in live %}{% include "card.html" %}{% endfor %}</div>
 {% endif %}
 {% for group in groups %}
 <div class="sec-head"><h2>{{ group.title }}</h2><span class="muted small">{{ group.publishers|length }} publisher{{ '' if group.publishers|length == 1 else 's' }}{% if catalogue %}, by datasets listed{% endif %}</span></div>
-<div class="pubbars">{% for p in group.publishers %}<a class="pubbar" href="{{ p.path }}"><span class="pname">{{ p.name }}</span>{% if catalogue %}<span class="pbar"><i style="width:{{ p.bar }}%"></i></span><span class="pn">{{ p.listed_fmt }}</span>{% else %}<span class="pbar"></span><span class="pn"></span>{% endif %}<span class="pn live">{% if p.live %}{{ p.live }} served{% endif %}</span></a>{% endfor %}</div>
+<div class="publist">{% for p in group.publishers %}<p class="pubrow"><a class="pname" href="{{ p.path }}">{{ p.name }}</a> {% if catalogue %}<span class="pscale"><i style="width:{{ p.bar }}%"></i></span><span class="pn">{{ p.listed_fmt }}</span>{% else %}<span class="pscale"></span><span class="pn"></span>{% endif %}<span class="pn live">{% if p.live %}{{ p.live }} served{% endif %}</span></p>{% endfor %}</div>
 {% endfor %}
 <p class="muted small" style="margin-top:24px">{% if catalogue %}Counts come from the portals' own catalogues, read {{ as_at_long }}. {% endif %}The list is also available as <a href="/catalogue/publishers.json" class="mono">/catalogue/publishers.json</a>.</p>
 {% endblock %}

@@ -188,14 +188,14 @@
   <div class="notice"><p><b>What this site did to the data.</b> Cells were typed, headers were renamed and the encoding was made UTF-8. Rows were left alone. {% if ds.source_withheld %}{{ ds.source_withheld }}{% else %}The publisher's file sits beside every version as <span class="mono">source.{{ latest.ext }}</span> so the change can be checked.{% endif %}</p>{% if publisher_note %}<p>{{ publisher_note }}</p>{% endif %}</div>
 </div>
 
-<aside class="side">
+<div class="side">
   <div class="card" id="cite">
     <div class="k">Attribution and citation</div>
     <p class="small" style="color:var(--ink)">{{ cite_request }}</p>
     <div class="tools cite-tabs" role="tablist" aria-label="Citation format">
       <button type="button" role="tab" aria-selected="true" data-cite="text">Text</button><button type="button" role="tab" aria-selected="false" data-cite="harvard">Harvard</button><button type="button" role="tab" aria-selected="false" data-cite="html">HTML</button><button type="button" role="tab" aria-selected="false" data-cite="markdown">Markdown</button><button type="button" role="tab" aria-selected="false" data-cite="bibtex">BibTeX</button>
     </div>
-    <div class="attr" id="attr"><span id="cite-text">{{ citation.text }}</span><button class="copy abs" type="button" data-copy-target="cite-src">Copy</button></div>
+    <p class="attr" id="attr"><span id="cite-text">{{ citation.text }}</span><button class="copy abs" type="button" data-copy-target="cite-src">Copy</button></p>
     <textarea id="cite-src" hidden>{{ citation.text }}</textarea>
     <script type="application/json" id="cite-data">{{ citation|tojson }}</script>
     <p class="small">The attribution alone is inside every file. Harvard is the author-date form a report or a brief asks for. Paste the HTML on a web page so the links carry.</p>
@@ -242,7 +242,7 @@
     <p class="small" style="color:var(--ink)">This page is built from <a class="mono" href="{{ repo }}/blob/main/{{ entry_path }}">{{ entry_path }}</a> on GitHub. Anyone can propose a fix to it, such as a clearer description or a field the publisher renamed, as a pull request.</p>
     <p class="small"><a href="{{ problem_url }}">Report a file that differs from the publisher's</a> · <a href="/contribute/">How to contribute</a></p>
   </div>
-</aside>
+</div>
 </div>
 </div>
 {% endblock %}

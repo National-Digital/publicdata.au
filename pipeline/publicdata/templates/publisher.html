@@ -16,14 +16,13 @@
 {% endif %}
 {% if rows %}
 <div class="sec-head"><h2>On the portal{% if portals|length > 1 %}s{% endif %}</h2><span class="muted small">{{ stats.listed }} dataset{{ '' if stats.listed_n == 1 else 's' }}{% if stats.shown < stats.listed_n %}, newest {{ stats.shown }} shown{% endif %}</span></div>
-<p class="muted" style="margin-top:0">These are the datasets {{ pub.name }} lists on {{ portals|join(' and ') }}. A vote asks us to serialise one. Only the licence can stop us, so a dataset without an open licence cannot take a vote.</p>
 <form class="filter" role="search" aria-label="Filter this list"><label for="pf" class="vh">Filter this list</label><input id="pf" type="search" placeholder="Filter by title or format" data-filter="#catalogue"></form>
-<!--portal-text--><div class="tbl" tabindex="0" role="region" aria-label="Datasets on the portal" data-conformance="aa"><table class="ledger" id="catalogue">
+<div class="tbl" tabindex="0" role="region" aria-label="Datasets on the portal"><p class="muted">These are the datasets {{ pub.name }} lists on {{ portals|join(' and ') }}. A vote asks us to serialise one. Only the licence can stop us, so a dataset without an open licence cannot take a vote.</p><!--portal-text--><table class="ledger" id="catalogue" data-conformance="aa">
 <thead><tr><th>Dataset</th><th>Formats</th><th>Licence</th><th>Updated</th><th>Votes</th></tr></thead>
 <tbody>
 {% for r in rows %}<tr><td class="t"><a href="{{ r.url }}" rel="nofollow noopener">{{ r.title }}</a><span class="sub">{{ r.summary }}</span>{% if r.task %}<span class="sub">Open as a contributor task: <a href="{{ r.task }}" rel="noopener">GitHub issue {{ r.task.rsplit('/', 1)[1] }}</a></span>{% endif %}</td><td class="mono small">{{ r.formats }}</td><td>{{ r.licence }}</td><td class="mono">{{ r.modified }}</td><td>{% if r.served %}<a class="chip live" href="{{ r.served }}">served</a>{% elif r.candidate %}<button class="vote" type="button" data-vote="{{ r.vote }}"><b>0</b><span>vote</span></button>{% else %}<span class="muted small">{{ r.reason }}</span>{% endif %}</td></tr>
 {% endfor %}
-</tbody></table></div><!--/portal-text-->
+</tbody></table><!--/portal-text--></div>
 {% if stats.shown < stats.listed_n %}<p class="muted small">The full list of {{ stats.listed }} is in <a href="{{ pub.path }}catalogue.json" class="mono">catalogue.json</a>.</p>{% endif %}
 {% endif %}
 {% if other_kinds %}<p class="muted small">{{ other_kinds }}</p>{% endif %}

@@ -35,10 +35,10 @@
   {% else %}<p>{{ '{:,}'.format(change.rows_from) }} rows in {{ change.from }} and {{ '{:,}'.format(change.rows_to) }} in this version. {{ change.note }} The comparison is in <a href="{{ change.url }}" class="mono">diff/{{ change.from }}..{{ change.to }}.json</a>.</p>{% endif %}
   {% endif %}
 </div>
-<aside class="side">
-  <div class="card"><div class="k">Attribution the licence asks for</div><div class="attr">{{ attribution }}<button class="copy abs" type="button" data-copy-target="attr-src">Copy</button></div><textarea id="attr-src" hidden>{{ attribution }}</textarea></div>
+<div class="side">
+  <div class="card"><div class="k">Attribution the licence asks for</div><p class="attr">{{ attribution }}<button class="copy abs" type="button" data-copy-target="attr-src">Copy</button></p><textarea id="attr-src" hidden>{{ attribution }}</textarea></div>
   <div class="card"><div class="k">Provenance</div><p class="small" style="color:var(--ink)">Fetched from <a href="{{ v.source_url }}">{{ portal_host }}</a> on {{ v.fetched_long }}. The portal listed the licence as {{ v.portal_licence }} at that moment. <a href="{{ base }}v/{{ v.version }}/manifest.json" class="mono">manifest.json</a> has every detail.</p></div>
-</aside>
+</div>
 </div>
 </div>
 {% endblock %}
