@@ -21,6 +21,7 @@ from publicdata.gate import check, examples
 from publicdata.provenance import cite
 from publicdata.register import Field, RegisterError, load, parse
 from publicdata.site import (
+    ORIGIN_TRIAL,
     _change_words,
     _console,
     _faq_jsonld,
@@ -56,7 +57,7 @@ def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, c
     assert "static.cloudflareinsights.com/beacon.min.js" in home
     assert "googletagmanager" not in home
     assert '"token": "b3b3d9ce88104e7e965284919b4d556e"' in home  # the site token, not the site tag
-    assert '<meta http-equiv="origin-trial" content="AjNME/' in home
+    assert f'<meta http-equiv="origin-trial" content="{ORIGIN_TRIAL}">' in home
     assert home.index("origin-trial") < home.index("<script")
     assert "<style>" in home
     assert 'rel="stylesheet"' not in home
