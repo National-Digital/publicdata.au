@@ -1,8 +1,8 @@
 name: Origin trial
 
-# The WebMCP origin-trial token lapses without an error, and CI checks it only when a pull request
-# runs. This checks it weekly. A failure opens an issue labelled origin-trial, or comments on the
-# open one; a later pass closes it.
+# The WebMCP origin-trial token lapses without an error, and CI checks it only on a pull request or
+# a push to main. This checks it weekly. A failure opens an issue labelled origin-trial, or comments
+# on the open one; a later pass closes it.
 on:
   schedule:
     - cron: "23 20 * * 0" # Monday 06:23 in Brisbane
@@ -10,6 +10,8 @@ on:
 
 env:
   PIP_CONSTRAINT: ${{ github.workspace }}/pipeline/requirements.txt
+  # CI fails 14 days before expiry; 28 here opens the issue at least two weekly runs earlier.
+  ORIGIN_TRIAL_NOTICE_DAYS: 28
 
 permissions:
   contents: read
@@ -39,8 +41,8 @@ jobs:
         working-directory: pipeline
         run: |
           set +e
-          set -o pipefail
-          pytest -p no:cacheprovider tests/test_origin_trial.py 2>&1 | tee "$RUNNER_TEMP/pytest.log"
+          # -vv keeps a failed self-test's values whole in the report the issue quotes.
+          pytest -vv -p no:cacheprovider --junitxml="$RUNNER_TEMP/junit.xml" tests/test_origin_trial.py
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           # Anything but a test failure, such as a broken install, fails the run without an issue.
@@ -52,7 +54,16 @@ jobs:
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh label create origin-trial --description "The WebMCP origin-trial token needs renewing" --color d93f0b 2>/dev/null || true
-          { grep -E '^E +AssertionError' "$RUNNER_TEMP/pytest.log" | sed -E 's/^E +AssertionError: //'; echo; echo "Run: $RUN"; } > body.md
+          python - "$RUNNER_TEMP/junit.xml" > body.md <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          for case in ET.parse(sys.argv[1]).iter("testcase"):
+              for failure in [*case.iter("failure"), *case.iter("error")]:
+                  reason = failure.get("message", "").removeprefix("Failed: ")
+                  print(f"- `{case.get('name')}`: {reason}")
+          PY
+          { echo; echo "Run: $RUN"; } >> body.md
           n=$(gh issue list --label origin-trial --state open --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
             gh issue comment "$n" --body-file body.md
