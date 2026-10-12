@@ -321,3 +321,13 @@ def test_md_paths_run_the_middleware_and_nothing_else_new_does(site: Path) -> No
         (f, r) for f in folders for r in routes["include"] if r.startswith(f) and r != f + "*"
     ]
 
+
+def test_the_zone_rules_in_the_docs_leave_out_every_function_route() -> None:
+    doc = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    rules = re.findall(
+        r"```\n(\(.*?\))\n```", doc[doc.index("### Markdown at a page's URL") :], re.DOTALL
+    )
+    rewrite, vary = rules[0], rules[1]
+    want = [r if r.endswith("/*") else r + "/" for r in site_module.ROUTES if "." not in r]
+    for rule, field in ((rewrite, "http.request.uri.path"), (vary, "raw.http.request.uri.path")):
+        assert re.findall(rf'{re.escape(field)} wildcard "([^"]+)"', rule) == want

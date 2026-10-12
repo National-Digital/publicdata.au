@@ -537,6 +537,66 @@ with the site's security headers from `/static/page-headers.json` and a five-min
 because it says whether it is the newest. Pull-request previews skip
 `--versioned`, because they never write to R2.
 
+### Markdown at a page's URL
+
+Every page has a Markdown twin at `index.md` beside it. `_routes.json` also runs
+`functions/_middleware.js` on any `.md` path. It serves a file Pages has as it is, and sends a
+guess such as `/x.md` or `/x/index.html.md` to `/x/index.md` with a 308 when that twin exists. It
+passes the function routes straight on. It never builds a redirect from a path that could name
+another host, such as `//host/x.md`, and the redirect's `Location` is a path on this site.
+
+A request for a page that names `text/markdown` in its `Accept` header gets the twin at the page's
+URL. Zone rules do this before the request reaches Pages, and a maintainer applies them by hand in
+the dashboard under Rules, Transform Rules. A rule's `wildcard` operator matches the whole path,
+and its `*` crosses slashes, so each function route is excluded as it is written in `ROUTES` in
+`site.py`. A route that names a file has no page and is left out. A test holds these rules to
+`ROUTES`.
+
+A URL Rewrite Rule, with the path rewritten dynamically to `concat(http.request.uri.path,
+"index.md")`, when the incoming request matches:
+
+```
+(http.request.method in {"GET" "HEAD"}
+ and any(lower(http.request.headers["accept"][*])[*] contains "text/markdown")
+ and ends_with(http.request.uri.path, "/")
+ and not (http.request.uri.path wildcard "/api/*"
+   or http.request.uri.path wildcard "/mcp/"
+   or http.request.uri.path wildcard "/d/*/latest/*"
+   or http.request.uri.path wildcard "/d/*/fetch/*"
+   or http.request.uri.path wildcard "/d/*/v/*"
+   or http.request.uri.path wildcard "/d/*/diff/*"
+   or http.request.uri.path wildcard "/d/*/changes/*"))
+```
+
+A Response Header Transform Rule that adds `Vary: Accept` when the response matches:
+
+```
+(ends_with(raw.http.request.uri.path, "/")
+ and not (raw.http.request.uri.path wildcard "/api/*"
+   or raw.http.request.uri.path wildcard "/mcp/"
+   or raw.http.request.uri.path wildcard "/d/*/latest/*"
+   or raw.http.request.uri.path wildcard "/d/*/fetch/*"
+   or raw.http.request.uri.path wildcard "/d/*/v/*"
+   or raw.http.request.uri.path wildcard "/d/*/diff/*"
+   or raw.http.request.uri.path wildcard "/d/*/changes/*"))
+```
+
+A second Response Header Transform Rule that sets `Content-Signal: search=yes, ai-input=yes,
+ai-train=no` when the response matches:
+
+```
+(ends_with(raw.http.request.uri.path, "/")
+ and http.response.content_type.media_type eq "text/markdown")
+```
+
+The rules read no quality values, so any `Accept` that names `text/markdown` gets Markdown, even
+`text/html;q=1, text/markdown;q=0.1` or `text/markdown;q=0`. A wildcard such as `*/*` names no type,
+so a browser always gets HTML. A dated version's page is excluded and answers in HTML, since a
+zone Cache Rule caches that tree. The rules belong to the zone, so a `pages.dev` preview has no
+negotiation. The twin keeps its own `ETag` and the `Content-Type` from `_headers`, and a rewritten
+request is one Functions invocation, since `/*.md` runs the middleware. The three rules count
+against the zone's Transform Rules allowance, which is 10 on the Free plan.
+
 A version built once is not built again while its inputs are unchanged: its source, its register
 entry, its manifest and the rebuild numbers. The build code is not among them. The deploy keeps
 a build cache in the R2 bucket `publicdata-build-cache` (`publicdata cache pull|push`), apart from

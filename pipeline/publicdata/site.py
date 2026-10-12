@@ -2505,7 +2505,7 @@ PROSE = {
 <li><a href="/backlog.json"><code>/backlog.json</code></a> is every register entry with its status, licence and the reason if it is blocked. <code>/api/v1/votes</code> has the current vote counts.</li>
 </ul>
 <h2>Every page has a Markdown twin</h2>
-<p>Add <code>index.md</code> to any page URL, or follow the <code>rel="alternate" type="text/markdown"</code> link in its head. The twin has the same facts as the page in plain Markdown with front matter.</p>
+<p>Add <code>index.md</code> to any page URL, or follow the <code>rel="alternate" type="text/markdown"</code> link in its head. The twin has the same facts as the page in plain Markdown with front matter. A page URL asked for with <code>Accept: text/markdown</code> answers with its twin, except a dated version's page, which always answers in HTML. A path such as <code>/about.md</code> or <code>/about/index.html.md</code> is redirected to the twin.</p>
 <h2>Per dataset</h2>
 <ul>
 <li><code>/d/&lt;slug&gt;/datapackage.json</code> is a Frictionless data package pointing at the latest version.</li>
