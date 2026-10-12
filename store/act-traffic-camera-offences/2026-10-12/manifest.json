@@ -1,0 +1,40 @@
+{
+  "dataset": "act-traffic-camera-offences",
+  "version": "2026-10-12",
+  "as_at": "",
+  "fetched_at": "2026-10-12T21:02:13+00:00",
+  "sha256": "3e99a46b7a14cd4ef23b927ecfbd8bb564b9011216a96907527ee6950a96c683",
+  "bytes": 19324593,
+  "filename": "vr9h-djj8.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/vr9h-djj8/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "vr9h-djj8",
+    "resource_name": "Traffic and Camera Offences and Fines",
+    "rows_updated_at": 1791754535,
+    "etag": "aW5kaWEuOTI4OTRfNF8zNTFmakpmVGFWY3ZsUExlZDVtQ1BpcTFkRjhOYlU---gziqgcxSy03QpsuPFhuBPAHmyOSp1Ng--gzip--gzip",
+    "http_last_modified": "Sun, 11 Oct 2026 21:35:23 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/vr9h-djj8.json",
+    "read_at": "2026-10-12T21:01:40+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "e4fa3caea1ccc34e2352ce4e359b61e2d25aea09744621cca1339894e97868bd",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
