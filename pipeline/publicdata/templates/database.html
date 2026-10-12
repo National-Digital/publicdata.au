@@ -107,14 +107,14 @@
   <div class="notice"><p><b>What this site did to the data.</b> Each table's cells were typed, its columns were named in lower case and the tables were put in one database with the publisher's keys, references and views. Rows were left alone. The publisher's archive sits beside every version as <span class="mono">source.{{ latest.ext }}</span> so the change can be checked.</p></div>
 </div>
 
-<aside class="side">
+<div class="side">
   <div class="card" id="cite">
     <div class="k">Attribution and citation</div>
     <p class="small" style="color:var(--ink)">{{ cite_request }}</p>
     <div class="tools cite-tabs" role="tablist" aria-label="Citation format">
       <button type="button" role="tab" aria-selected="true" data-cite="text">Text</button><button type="button" role="tab" aria-selected="false" data-cite="harvard">Harvard</button><button type="button" role="tab" aria-selected="false" data-cite="html">HTML</button><button type="button" role="tab" aria-selected="false" data-cite="markdown">Markdown</button><button type="button" role="tab" aria-selected="false" data-cite="bibtex">BibTeX</button>
     </div>
-    <div class="attr" id="attr"><span id="cite-text">{{ citation.text }}</span><button class="copy abs" type="button" data-copy-target="cite-src">Copy</button></div>
+    <p class="attr" id="attr"><span id="cite-text">{{ citation.text }}</span><button class="copy abs" type="button" data-copy-target="cite-src">Copy</button></p>
     <textarea id="cite-src" hidden>{{ citation.text }}</textarea>
     <script type="application/json" id="cite-data">{{ citation|tojson }}</script>
     <p class="small">The attribution alone is inside every file. Harvard is the author-date form a report or a brief asks for. Paste the HTML on a web page so the links carry.</p>
@@ -152,7 +152,7 @@
     <p class="small" style="color:var(--ink)">{{ ds.publisher.name }} publishes this release on <a href="{{ ds.source.url }}">{{ portal_host }}</a>. Questions about the content go to the publisher. Questions about the files here go to <a href="/about/#corrections">corrections</a>.</p>
     <p class="small">Fetched {{ latest.fetched_long }}. Source SHA-256 <span class="mono">{{ latest.sha256[:16] }}…</span></p>
   </div>
-</aside>
+</div>
 </div>
 </div>
 {% endblock %}
