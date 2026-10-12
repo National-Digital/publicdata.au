@@ -113,7 +113,11 @@ export function report({ counts, skipped }) {
       }
     }
   }
-  rows.push(`skipped ${skipped} input${skipped === 1 ? '' : 's'} that were not whole JSON`);
+  rows.push(
+    skipped === 1
+      ? 'skipped 1 input that was not whole JSON'
+      : `skipped ${skipped} inputs that were not whole JSON`,
+  );
   return rows.join('\n');
 }
 

@@ -35,7 +35,8 @@ const CLIENTS = new Set([
 ]);
 // mcp-remote passes the client's own name on with this suffix.
 const VIA = /^(.*) \(via mcp-remote [^()]*\)$/s;
-const VERSION = /^v?(\d{1,4}\.\d{1,4}\.\d{1,4})(?:[-+][0-9A-Za-z.-]*)?$/;
+const VERSION =
+  /^v?((?:0|[1-9]\d{0,3})\.(?:0|[1-9]\d{0,3})\.(?:0|[1-9]\d{0,3}))(?:[-+][0-9A-Za-z.-]*)?$/;
 
 // The product names written from a User-Agent; Mozilla only when the agent names nothing else.
 const AGENTS = new Map(
@@ -159,12 +160,15 @@ export function line(request, calls, status, error, batch) {
     }
     if (m === 'initialize') {
       const c = clientOf(params.clientInfo);
-      r.client = c.known;
-      if (c.version) {
-        r.client_version = c.version;
-      }
-      if (c.proxy) {
-        r.proxy = c.proxy;
+      // The first initialize names the client, so its name, version and proxy stay together.
+      if (!('client' in r)) {
+        r.client = c.known;
+        if (c.version) {
+          r.client_version = c.version;
+        }
+        if (c.proxy) {
+          r.proxy = c.proxy;
+        }
       }
       probe ||= !c.raw || PROBE.test(c.raw);
     }

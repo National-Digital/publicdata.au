@@ -70,4 +70,5 @@ test('counts usage lines from a tail and a Logpush file, split client and probe'
   const r = report({ counts: c, skipped });
   assert.match(r, /^client\n {2}request\n {4} {5}3 {2}POST 200\n/);
   assert.match(r, /skipped 2 inputs that were not whole JSON$/);
+  assert.match(report(count('{')), /skipped 1 input that was not whole JSON$/);
 });

@@ -101,6 +101,25 @@ test('a client name, version and agent are kept only from the lists', () => {
   );
   assert.equal(c('claude-code', 'v2.1.0-beta.3').client_version, '2.1.0');
   assert.equal(c('claude-code', '2.1').client_version, undefined);
+  assert.equal(c('claude-code', '0412.3456.0078').client_version, undefined);
+  assert.equal(c('claude-code', '10.0.1000').client_version, '10.0.1000');
+  const twice = line(
+    req('node'),
+    [
+      [
+        rpc(1, 'initialize', {
+          clientInfo: { name: 'claude-code (via mcp-remote 0.1.29)', version: '2.1.0' },
+        }),
+        null,
+      ],
+      [rpc(2, 'initialize', { clientInfo: { name: 'mcp-inspector', version: '0.17.2' } }), null],
+    ],
+    200,
+  );
+  assert.deepEqual(
+    [twice.client, twice.client_version, twice.proxy],
+    ['claude-code', '2.1.0', 'mcp-remote'],
+  );
   const via = c('claude-code (via mcp-remote 0.1.29)', '2.1.0');
   assert.deepEqual([via.client, via.proxy], ['claude-code', 'mcp-remote']);
   assert.equal(c('Jane (via mcp-remote 0.1.29)', '1.0.0').client, 'other');
