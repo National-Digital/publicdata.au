@@ -250,7 +250,7 @@
     "tools": {
       "search": {
         "title": "Find datasets to fetch",
-        "description": "Find served datasets by keyword and return each one's id, title and citation URL, in the shape ChatGPT deep research and company knowledge call search with.\nIt runs the same search as search_datasets, so every word in query must match. Pass an id to fetch for the dataset's licence, attribution and newest version, or as slug to list_fields, query_rows or count_rows.\nUp to 50 matches come back in one answer, with no paging.\nEach call costs one of the {requests} queries each address may make in {window_seconds} seconds.",
+        "description": "Find served datasets by keyword and return each one's id, title and citation URL, in the shape ChatGPT deep research and company knowledge call search with.\nIt runs the same search as search_datasets, so every word in query must match. Pass an id to fetch to read the dataset's licence, attribution and newest version. The same id is the slug that list_fields, query_rows and count_rows take.\nUp to 50 matches come back in one answer, with no paging.\nEach call costs one of the {requests} queries each address may make in {window_seconds} seconds.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
           "query": { "type": "string", "description": "Words from a title, publisher or field name" }
@@ -263,26 +263,32 @@
         "description": "Read one served dataset's record as text to quote and cite: its summary, publisher, licence, attribution string, newest version and the URL of that version. It is the fetch that ChatGPT deep research and company knowledge call, with an id from search.\nIt carries no rows. To answer from the data use query_rows or count_rows, and for every version and file use get_dataset.\nOne answer holds the text, with the same facts under metadata. An id that is not served returns an error. The call costs nothing against the rate limit.",
         "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
         "input": {
-          "id": { "type": "string", "description": "A dataset id from search, which is its slug" }
+          "id": { "type": "string", "description": "A dataset id from search, which is its slug. A publicdata.au dataset or version URL is read as its slug." }
         },
         "required": ["id"],
         "output": {"type": "object", "properties": {"id": {"type": "string"}, "title": {"type": "string"}, "text": {"type": "string", "description": "The record, with the attribution string and the statement that the publisher has not endorsed publicdata.au"}, "url": {"type": "string", "description": "The newest version's page, to cite"}, "metadata": {"type": "object", "description": "Publisher, licence, attribution, version, source URL, fetch time and source hash"}}, "required": ["id", "title", "text", "url", "metadata"]}
       }
     },
-    "fetch_text": [
-      "{title}",
-      "{summary}",
-      "It is published by {publisher} and licensed under {licence}, {licence_url}.",
-      "The licence carries this condition: {condition}",
-      "Show this attribution wherever the data is used: {attribution}",
-      "{cite_request}",
-      "This record describes version {version}, the newest, at {url}.",
-      "Its data is as at {as_at}.",
-      "It holds {rows} rows.",
-      "publicdata.au fetched the publisher's file from {source} at {fetched_at}, and its SHA-256 is {sha256}.",
-      "{not_endorsed}",
-      "To answer from its rows, read its fields with list_fields, then call query_rows or count_rows with slug {id}."
-    ],
+    "fetch": {
+      "required": ["title", "publisher", "licence", "attribution", "version", "url", "source", "fetched_at", "sha256"],
+      "text": [
+        { "text": "{title}" },
+        { "text": "{summary}" },
+        { "text": "It is published by {publisher} and licensed under {licence}." },
+        { "text": "The licence is at {licence_url}." },
+        { "text": "The licence carries this condition: {condition}." },
+        { "text": "Show this attribution wherever the data is used: {attribution}" },
+        { "text": "{cite_request}" },
+        { "text": "This record describes version {version}, the newest, at {url}." },
+        { "text": "Its data is as at {as_at}." },
+        { "text": "It holds {rows} rows." },
+        { "text": "publicdata.au fetched the publisher's file from {source} at {fetched_at}, and its SHA-256 is {sha256}." },
+        { "text": "The publisher has since withdrawn that file, and this version keeps it as it was fetched.", "when": "withdrawn" },
+        { "text": "This version was backfilled from the portal's history of earlier releases.", "when": "backfilled" },
+        { "text": "{not_endorsed}" },
+        { "text": "To answer from its rows, read its fields with list_fields, then call query_rows or count_rows with slug {id}." }
+      ]
+    },
     "parameters": {},
     "privacy": "The MCP server logs the methods, tools and client software of each request, and leaves out the address and the arguments' values. To keep the rate limit, it counts row tool calls per address in Cloudflare's cache for {window_seconds} seconds.",
     "instructions": "Australian government open data, republished at URLs that never change. Find a dataset with search_datasets, read its fields with list_fields, then answer from the whole table with query_rows or count_rows. A dataset that is not served yet can be found with search_catalogue and voted for with upvote_dataset. Every answer names the version it came from and the publisher's attribution string. When you show the data to a person, use the attribution string, say it came from publicdata.au and link to the version the answer came from, https://publicdata.au/d/<slug>/v/<version>/. Use of this server is under https://publicdata.au/terms/."

@@ -469,10 +469,11 @@ test('search and fetch answer in the shapes ChatGPT reads, from the tools they w
   assert.equal(doc.title, 'Crashes');
   assert.equal(doc.url, 'https://publicdata.au/d/crashes/v/2026-04-24/');
   const { datapackage } = await out('get_dataset', { slug: 'crashes' });
-  // Every sentence in api.json has its facts here but the licence condition, which CC BY lacks.
+  // Every sentence in api.json is here but the licence condition, which CC BY lacks, and the two
+  // that only a withdrawn or backfilled version carries.
   const lines = doc.text.split('\n');
-  assert.equal(lines.length, SPEC.fetch_text.length - 1);
-  assert.doesNotMatch(doc.text, /condition/);
+  assert.equal(lines.length, SPEC.fetch.text.length - 3);
+  assert.doesNotMatch(doc.text, /condition|withdrawn|backfilled/);
   assert.doesNotMatch(doc.text, /\{\w+\}|null|undefined/);
   assert.equal(lines[0], 'Crashes');
   assert.ok(
@@ -484,7 +485,7 @@ test('search and fetch answer in the shapes ChatGPT reads, from the tools they w
   assert.match(SPEC.not_endorsed, /has not endorsed/);
   assert.match(
     doc.text,
-    /licensed under CC BY 4\.0, https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/\./,
+    /published by TMR and licensed under CC BY 4\.0\.\nThe licence is at https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/\./,
   );
   assert.match(
     doc.text,
@@ -513,21 +514,109 @@ test('search and fetch answer in the shapes ChatGPT reads, from the tools they w
   });
 });
 
-test('fetch leaves out a sentence whose fact the record lacks', async () => {
-  const saved = assets['/d/crashes/datapackage.json'];
-  assets['/d/crashes/datapackage.json'] = {
-    ...saved,
-    description: undefined,
-    licenses: [{ ...saved.licenses[0], 'publicdata:condition': 'Not for resale.' }],
+// Each case changes the fixture's data package or version history and puts it back.
+async function fetchWith(change, args = { id: 'crashes' }) {
+  const saved = {
+    dp: assets['/d/crashes/datapackage.json'],
+    vs: assets['/d/crashes/versions.json'],
   };
+  const dp = structuredClone(saved.dp);
+  const vs = structuredClone(saved.vs);
+  change({ dp, v: vs.versions[1], vs });
+  assets['/d/crashes/datapackage.json'] = dp;
+  assets['/d/crashes/versions.json'] = vs;
   try {
-    const doc = await out('fetch', { id: 'crashes' });
-    assert.doesNotMatch(doc.text, /null|undefined/);
-    assert.equal(doc.text.split('\n').length, SPEC.fetch_text.length - 1);
-    assert.match(doc.text, /The licence carries this condition: Not for resale\./);
-    assert.equal(doc.metadata.condition, 'Not for resale.');
+    return await tool('fetch', args);
   } finally {
-    assets['/d/crashes/datapackage.json'] = saved;
+    assets['/d/crashes/datapackage.json'] = saved.dp;
+    assets['/d/crashes/versions.json'] = saved.vs;
+  }
+}
+
+test('no fetch sentence mixes a required fact with an optional one', () => {
+  for (const s of SPEC.fetch.text) {
+    const keys = [...s.text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+    const required = keys.filter((k) => SPEC.fetch.required.includes(k));
+    assert.ok(required.length === 0 || required.length === keys.length, s.text);
+  }
+  const all = SPEC.fetch.text.map((s) => s.text).join('\n');
+  assert.ok(all.includes(SPEC.not_endorsed));
+  for (const k of SPEC.fetch.required) {
+    assert.ok(all.includes(`{${k}}`), k);
+  }
+});
+
+test('fetch leaves out an optional fact it lacks and keeps the provenance', async () => {
+  const r = await fetchWith(({ dp, v }) => {
+    delete dp.description;
+    delete dp.licenses[0].path;
+    dp.licenses[0]['publicdata:condition'] = 'Not for resale.';
+    delete v.as_at;
+    delete v.rows;
+  });
+  assert.ok(!r.isError, r.content[0].text);
+  const doc = r.structuredContent;
+  assert.doesNotMatch(doc.text, /null|undefined|\{\w+\}|The licence is at|as at|rows\./);
+  assert.match(doc.text, /It is published by TMR and licensed under CC BY 4\.0\./);
+  assert.match(doc.text, /The licence carries this condition: Not for resale\.\n/);
+  assert.match(doc.text, /Show this attribution wherever the data is used: TMR, Crashes/);
+  assert.match(doc.text, /from https:\/\/data\.example\/crashes\.csv at .*SHA-256 is bc9d\./);
+  assert.ok(doc.text.split('\n').includes(SPEC.not_endorsed));
+  assert.equal(doc.metadata.condition, 'Not for resale.');
+  assert.equal(doc.metadata.licence_url, null);
+});
+
+test('fetch refuses a record that lacks a required fact, naming it', async () => {
+  const cases = [
+    [({ dp }) => delete dp.contributors, 'publisher'],
+    [({ dp }) => delete dp.licenses, 'licence'],
+    [({ dp }) => delete dp['publicdata:attribution'], 'attribution'],
+    [({ dp }) => delete dp.sources, 'source'],
+    [({ v }) => delete v.sha256, 'sha256'],
+    [({ v }) => delete v.fetched_at, 'fetched_at'],
+    [({ v }) => delete v.url, 'url'],
+    [({ vs }) => vs.versions.pop(), 'url, fetched_at, sha256'],
+  ];
+  for (const [change, named] of cases) {
+    const r = await fetchWith(change);
+    assert.equal(r.isError, true, named);
+    assert.equal(
+      r.content[0].text,
+      `the record of crashes lacks ${named}, so it is not given here; its page is https://publicdata.au/d/crashes/`,
+    );
+  }
+});
+
+test('fetch says when the newest version was withdrawn or backfilled', async () => {
+  const r = await fetchWith(({ v }) => {
+    v.tombstone = { reason: 'removed' };
+    v.backfilled = true;
+  });
+  const doc = r.structuredContent;
+  for (const s of SPEC.fetch.text.filter((x) => x.when)) {
+    assert.ok(doc.text.split('\n').includes(s.text), s.when);
+  }
+  assert.equal(doc.metadata.withdrawn, true);
+  assert.equal(doc.metadata.backfilled, true);
+});
+
+test('fetch reads a publicdata.au dataset or version URL as its slug', async () => {
+  for (const given of [
+    'https://publicdata.au/d/crashes/',
+    'https://publicdata.au/d/crashes',
+    'https://publicdata.au/d/crashes/v/2026-01-01/',
+    'https://publicdata.au/d/crashes/?tab=files',
+  ]) {
+    const doc = await out('fetch', { id: given });
+    assert.equal(doc.id, 'crashes', given);
+    assert.equal(doc.url, 'https://publicdata.au/d/crashes/v/2026-04-24/', given);
+  }
+  for (const given of [
+    'https://example.com/d/crashes/',
+    'https://publicdata.au/d/crashes/v/2026-01-01/data.csv',
+    'https://publicdata.au/d/../etc/',
+  ]) {
+    assert.equal((await tool('fetch', { id: given })).isError, true, given);
   }
 });
 
@@ -549,7 +638,14 @@ test('a bad call comes back as a tool error the model can read', async () => {
     await err('fetch', { id: 'missing' }),
     /no served dataset with id missing; search finds/,
   );
-  assert.match(await err('fetch', { id: '../etc' }), /no served dataset with id \.\.\/etc/);
+  assert.equal(
+    await err('fetch', { id: '../etc' }),
+    'no served dataset has that id; search finds them',
+  );
+  assert.equal(
+    await err('fetch', { id: 'x'.repeat(10000) }),
+    'no served dataset has that id; search finds them',
+  );
   assert.match(await err('fetch', {}), /id is required/);
   assert.match(await err('search', {}), /query is required/);
   assert.match(

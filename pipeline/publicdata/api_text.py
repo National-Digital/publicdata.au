@@ -154,6 +154,18 @@ if TYPE_CHECKING:
         text: str
         question: NotRequired[str]
 
+    class FetchSentence(TypedDict):
+        """A sentence of fetch's text, left out when a fact it names is missing or when is false."""
+
+        text: str
+        when: NotRequired[str]
+
+    class FetchText(TypedDict):
+        """fetch's sentences, and the facts without which it answers with an error."""
+
+        required: list[str]
+        text: list[FetchSentence]
+
     class McpText(TypedDict):
         name: str
         registry_name: str
@@ -170,7 +182,7 @@ if TYPE_CHECKING:
         prompts: dict[str, PromptText]
         tool_text: dict[str, str]
         tools: dict[str, ToolText]
-        fetch_text: list[str]
+        fetch: FetchText
         parameters: dict[str, str]
         privacy: str
         instructions: str
@@ -269,7 +281,7 @@ if TYPE_CHECKING:
         resource_template: ResourceTemplate
         prompts: list[Prompt]
         tools: list[Tool]
-        fetch_text: list[str]
+        fetch: FetchText
         not_endorsed: str
         listing: NotRequired[RegistryListing]
 
@@ -546,9 +558,7 @@ def mcp_spec() -> McpSpec:
         },
         "prompts": [_prompt(name, pr) for name, pr in m["prompts"].items()],
         "tools": tools,
-        "fetch_text": fill(
-            m["fetch_text"], {"cite_request": CITE_REQUEST, "not_endorsed": NOT_ENDORSED}
-        ),
+        "fetch": fill(m["fetch"], {"cite_request": CITE_REQUEST, "not_endorsed": NOT_ENDORSED}),
         "not_endorsed": NOT_ENDORSED,
     }
     return plain(out)
@@ -644,8 +654,8 @@ def directory_listing() -> DirectoryListing:
     s = spec()
     m = s["mcp"]
     # The form caps the description, so each tool gets its first sentence; tools/list has the rest.
-    # search and fetch repeat search_datasets and get_dataset in ChatGPT's shapes, so they are left
-    # out of it.
+    # search and fetch answer from the same files as search_datasets and get_dataset, in the shapes
+    # ChatGPT calls, so they are left out of it.
     tools = "\n".join(
         f"- {t['title']}: {t['description'].split('. ', 1)[0].rstrip('.')}."
         for t in s["webmcp"]["tools"].values()

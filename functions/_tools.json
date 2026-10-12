@@ -1054,7 +1054,7 @@
     {
       "name": "search",
       "title": "Find datasets to fetch",
-      "description": "Find served datasets by keyword and return each one's id, title and citation URL, in the shape ChatGPT deep research and company knowledge call search with.\nIt runs the same search as search_datasets, so every word in query must match. Pass an id to fetch for the dataset's licence, attribution and newest version, or as slug to list_fields, query_rows or count_rows.\nUp to 50 matches come back in one answer, with no paging.\nEach call costs one of the 60 queries each address may make in 10 seconds.",
+      "description": "Find served datasets by keyword and return each one's id, title and citation URL, in the shape ChatGPT deep research and company knowledge call search with.\nIt runs the same search as search_datasets, so every word in query must match. Pass an id to fetch to read the dataset's licence, attribution and newest version. The same id is the slug that list_fields, query_rows and count_rows take.\nUp to 50 matches come back in one answer, with no paging.\nEach call costs one of the 60 queries each address may make in 10 seconds.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1119,7 +1119,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "A dataset id from search, which is its slug"
+            "description": "A dataset id from search, which is its slug. A publicdata.au dataset or version URL is read as its slug."
           }
         },
         "required": [
@@ -1167,19 +1167,67 @@
       "queries": 0
     }
   ],
-  "fetch_text": [
-    "{title}",
-    "{summary}",
-    "It is published by {publisher} and licensed under {licence}, {licence_url}.",
-    "The licence carries this condition: {condition}",
-    "Show this attribution wherever the data is used: {attribution}",
-    "The licence requires the publisher's attribution. We ask that you also name publicdata.au and link to the version you used.",
-    "This record describes version {version}, the newest, at {url}.",
-    "Its data is as at {as_at}.",
-    "It holds {rows} rows.",
-    "publicdata.au fetched the publisher's file from {source} at {fetched_at}, and its SHA-256 is {sha256}.",
-    "This is an independent republication. The publisher has not endorsed this site.",
-    "To answer from its rows, read its fields with list_fields, then call query_rows or count_rows with slug {id}."
-  ],
+  "fetch": {
+    "required": [
+      "title",
+      "publisher",
+      "licence",
+      "attribution",
+      "version",
+      "url",
+      "source",
+      "fetched_at",
+      "sha256"
+    ],
+    "text": [
+      {
+        "text": "{title}"
+      },
+      {
+        "text": "{summary}"
+      },
+      {
+        "text": "It is published by {publisher} and licensed under {licence}."
+      },
+      {
+        "text": "The licence is at {licence_url}."
+      },
+      {
+        "text": "The licence carries this condition: {condition}."
+      },
+      {
+        "text": "Show this attribution wherever the data is used: {attribution}"
+      },
+      {
+        "text": "The licence requires the publisher's attribution. We ask that you also name publicdata.au and link to the version you used."
+      },
+      {
+        "text": "This record describes version {version}, the newest, at {url}."
+      },
+      {
+        "text": "Its data is as at {as_at}."
+      },
+      {
+        "text": "It holds {rows} rows."
+      },
+      {
+        "text": "publicdata.au fetched the publisher's file from {source} at {fetched_at}, and its SHA-256 is {sha256}."
+      },
+      {
+        "text": "The publisher has since withdrawn that file, and this version keeps it as it was fetched.",
+        "when": "withdrawn"
+      },
+      {
+        "text": "This version was backfilled from the portal's history of earlier releases.",
+        "when": "backfilled"
+      },
+      {
+        "text": "This is an independent republication. The publisher has not endorsed this site."
+      },
+      {
+        "text": "To answer from its rows, read its fields with list_fields, then call query_rows or count_rows with slug {id}."
+      }
+    ]
+  },
   "not_endorsed": "This is an independent republication. The publisher has not endorsed this site."
 }
