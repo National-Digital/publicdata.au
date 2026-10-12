@@ -6,8 +6,8 @@ described in `docs/ARCHITECTURE.md`, `CONTRIBUTING.md` and `docs/CORRECTIONS.md`
 names the section to read. Where a record and those documents disagree on detail, the documents
 and the code are right and the record is corrected.
 
-Records 0001 to 0020 were written together on 10 October 2026 to set down the decisions the site
-was built on. The measurements in them are dated and stay as they were.
+Records 0001 to 0021 were written together between 10 and 13 October 2026 to set down the
+decisions the site was built on. The measurements in them are dated and stay as they were.
 
 ## What is published
 
@@ -53,6 +53,8 @@ was built on. The measurements in them are dated and stay as they were.
   every version of a table can be queried
 - [0018](0018-copies-on-the-hubs.md) The newest version of each dataset is copied to Hugging Face,
   Zenodo and Kaggle
+- [0021](0021-markdown-twins-and-content-signals.md) Pages have Markdown twins, and the site
+  signals no to AI training
 
 ## The site
 
