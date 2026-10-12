@@ -1,0 +1,42 @@
+{
+  "dataset": "asic-business-names",
+  "version": "2026-10-07",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:37:16+00:00",
+  "sha256": "9f4410cd0e29c092f40c1e6292fe932d1721d823d70fa439115ba03bc12052fa",
+  "bytes": 71672915,
+  "filename": "business_names_202610.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.gov.au/data/dataset/bc515135-4bb6-4d50-957a-3713709a76d3/resource/45eddcf9-07c1-4c5c-a1aa-ff109a033977/download/business_names_202610.zip",
+    "portal": "https://data.gov.au/data",
+    "package": "asic-business-names",
+    "package_id": "bc515135-4bb6-4d50-957a-3713709a76d3",
+    "resource": "45eddcf9-07c1-4c5c-a1aa-ff109a033977",
+    "resource_name": "Business Names Dataset - Current",
+    "resource_last_modified": "2026-10-06T19:36:49.300105",
+    "package_modified": "2026-10-06T19:52:25.943490",
+    "package_version": null,
+    "etag": "1791315409.794-71672915-3800371247",
+    "http_last_modified": "Tue, 06 Oct 2026 19:36:49 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 3.0 Australia",
+    "url": "http://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=asic-business-names",
+    "read_at": "2026-10-12T20:37:13+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "ffcc010ec4ca5cbf4a6a821d60eea8f57f462016ee535d584ae7ee33b8a1fadd",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
