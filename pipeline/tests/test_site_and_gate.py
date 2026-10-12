@@ -1074,6 +1074,7 @@ PRIVACY_COUNTS = {
     "_parquet.js": {"query": 1, "console": 2},
     "_served.js": {"query": 3},
     "_tools.js": {"put": 2, "cache_put": 2, "query": 1, "console": 2},
+    "_usage.js": {"query": 2, "console": 1},
     "api/v1/catalogue.js": {"query": 3},
     "api/v1/views.js": {"put": 2},
     "api/v1/votes/[slug].js": {"put": 1, "delete": 1},
