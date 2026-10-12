@@ -21,6 +21,10 @@ its server card and its MCP Registry entry. Each copy written by hand drifts fro
 - One spec, `pipeline/publicdata/api.json`, holds every sentence about the query API and the tools.
   The server's tool list, the WebMCP tools, the OpenAPI description, the server card and the
   Registry entry are all written from it, and a test fails when a written copy drifts.
+- The server also lists `search` and `fetch`, which take the names and shapes that ChatGPT's deep
+  research and company knowledge call. `search` runs the dataset search, and `fetch` reads a
+  dataset's record with its licence, attribution and newest version. A record that lacks its
+  provenance is refused, as is a dataset whose newest version was removed.
 - Every tool is read-only except `upvote_dataset`, which casts an anonymous vote for a dataset to be
   built. Every tool declares an output schema and returns structured content beside its text.
 - A row answer names the version it came from and the publisher's attribution. The server asks the
