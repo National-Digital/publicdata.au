@@ -268,42 +268,54 @@ async function handle(ctx, msg) {
 
 export async function onRequestPost(context) {
   const { request } = context;
-  const answer = (res, calls, batch) => {
-    usage(request, calls, res.status, batch);
+  const calls = [];
+  let batch = false;
+  const answer = (res, error) => {
+    usage(request, calls, res.status, error, batch);
     return res;
   };
   const v = request.headers.get('mcp-protocol-version');
   if (v && !VERSIONS.includes(v)) {
-    const out = fail(
-      null,
-      -32600,
-      `unsupported MCP-Protocol-Version ${v}; supported are ${VERSIONS.join(', ')}`,
+    return answer(
+      send(
+        fail(
+          null,
+          -32600,
+          `unsupported MCP-Protocol-Version ${v}; supported are ${VERSIONS.join(', ')}`,
+        ),
+        400,
+      ),
+      'protocol',
     );
-    return answer(send(out, 400), [[undefined, out]]);
   }
   let msg;
   try {
     msg = await request.json();
   } catch {
-    const out = fail(null, -32700, 'the body is not JSON');
-    return answer(send(out, 400), [[undefined, out]]);
+    return answer(send(fail(null, -32700, 'the body is not JSON'), 400), 'json');
   }
   const ctx = {
     env: context.env,
     request,
     waitUntil: (p) => context.waitUntil(p),
   };
-  if (Array.isArray(msg)) {
+  batch = Array.isArray(msg);
+  try {
     // One at a time, so a batch cannot race its own rate count.
-    const calls = [];
-    for (const m of msg) {
-      calls.push([m, await handle(ctx, m)]);
+    for (const m of batch ? msg : [msg]) {
+      const pair = [m, null];
+      calls.push(pair);
+      pair[1] = await handle(ctx, m);
     }
-    const out = calls.map(([, r]) => r).filter(Boolean);
-    return answer(out.length ? send(out) : send(null, 202), calls, msg.length);
+  } catch (e) {
+    usage(request, calls, 500, 'internal', batch);
+    throw e;
   }
-  const out = await handle(ctx, msg);
-  return answer(out ? send(out) : send(null, 202), [[msg, out]]);
+  const out = calls.map(([, r]) => r).filter(Boolean);
+  if (!out.length) {
+    return answer(send(null, 202));
+  }
+  return answer(send(batch ? out : out[0]));
 }
 
 export const onRequestOptions = () => new Response(null, { status: 204, headers: HEADERS });
