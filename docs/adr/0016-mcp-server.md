@@ -44,10 +44,12 @@ its server card and its MCP Registry entry. Each copy written by hand drifts fro
 
 - An agent with code execution can carry on from any answer itself. The dated URL and the SQL give
   it the rows the server read, and the URL keeps working because a version keeps its content.
-- The server keeps no record of what is asked. The per-address rate limit holds a count in the edge
-  cache for ten seconds, a vote stores a salted hash of the voter for that day, and a failed call
-  goes to the Workers log with the dataset and version. A log of what is asked would need a record
-  of its own.
+- The server keeps no record of what is asked. Each request writes one line to the functions log,
+  which Cloudflare shows live and does not store, naming the methods, the tools, the arguments'
+  names and a known client's software, and never the address or an argument's value. A failed call
+  writes the dataset and version to the same log. The per-address rate limit holds a count in the
+  edge cache for ten seconds, and a vote stores a salted hash of the voter for that day. A log of
+  what is asked would need a record of its own.
 - Each tool has a fixed cost against the per-address limit, set in the spec. The server keeps that
   limit itself (`functions/_limit.js`), since the zone's rule covers `/api/v1/datasets/*` only. A
   rate-limited call gets a tool error with the seconds to wait.
