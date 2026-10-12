@@ -1,0 +1,44 @@
+{
+  "dataset": "nsw-traffic-volume-yearly",
+  "version": "2026-10-11",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:57:18+00:00",
+  "sha256": "52016d8b9f1b7ebebcb96192ecaa9ad5165986c518f7301933450a5acbe3861e",
+  "bytes": 49512499,
+  "filename": "road_traffic_counts_yearly_summary.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://opendata.transport.nsw.gov.au/data/dataset/ef2b0bd2-db1e-48f3-9ea1-2bb9e6bc6504/resource/cba9a012-c305-414e-b848-f0e3aad18d97/download/road_traffic_counts_yearly_summary.csv",
+    "portal": "https://data.nsw.gov.au/data",
+    "package": "2-nsw-roads-traffic-volume-counts-api",
+    "package_id": "5facd2f4-0f5c-4637-ab17-36cdc1c0747b",
+    "resource": "f9e3216d-6f91-406e-935e-e3fd9423b9e3",
+    "resource_name": "Road Traffic Counts Yearly Summary (API Generated CSV)",
+    "resource_last_modified": null,
+    "package_modified": "2025-07-15T22:24:49.898038",
+    "package_version": null,
+    "etag": "1791697542.61-49512499-2125009625",
+    "http_last_modified": "Sun, 11 Oct 2026 05:45:42 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://data.nsw.gov.au/data/api/3/action/package_show?id=2-nsw-roads-traffic-volume-counts-api",
+    "read_at": "2026-10-12T20:57:17+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "1e3a22cc70d078bbf9ff6751e0aa9050a93e897b449ca5564eb70e6c28b5123a",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "cartodb_id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
