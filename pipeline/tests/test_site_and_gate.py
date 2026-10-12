@@ -1027,3 +1027,76 @@ def test_no_page_promises_a_version_never_changes(fixture_site: Path) -> None:
         text = (fixture_site / name).read_text(encoding="utf-8")
         assert "versions never change" not in text.lower(), name
         assert "immutable files" not in text, name
+
+
+def test_the_privacy_page_says_how_long_each_record_is_kept(fixture_site: Path) -> None:
+    """A privacy policy states retention for every kind of record it lists."""
+    page = (fixture_site / "privacy" / "index.html").read_text(encoding="utf-8")
+    sections = {
+        re.sub(r"<[^>]+>", "", h).strip(): body
+        for h, body in re.findall(r"<h2[^>]*>(.*?)</h2>(.*?)(?=<h2|</main>)", page, re.DOTALL)
+    }
+    w = at.spec()["limits"]["window_seconds"]
+    kept = {
+        "Page views": ["for 7 days"],
+        "Votes and dataset requests": ["kept indefinitely", "is deleted"],
+        "Saved dashboards": ["kept indefinitely", "to be removed"],
+        "Maps": ["states no period"],
+        "The query API and the MCP server": [f"for {w} seconds"],
+        "Hosting": ["for 31 days", "keeps no copy"],
+    }
+    assert set(sections) == {*kept, "Contact"}, "a new section needs its retention listed here"
+    for heading, phrases in kept.items():
+        for p in phrases:
+            assert p in sections[heading], (heading, p)
+
+
+# Call sites in functions/ that store, delete, cache, query, log or fetch elsewhere, per file.
+# A count catches a new or removed call site; a change to what an existing call holds does not.
+BINDINGS = "|".join(
+    re.findall(r'^binding = "(\w+)"', (ROOT / "wrangler.toml").read_text("utf-8"), re.MULTILINE)
+)
+PRIVACY_CALLS = {
+    "put": r"\.\s*put\s*\(|\[\s*['\"]put['\"]\s*\]",
+    "delete": rf"\b(?:{BINDINGS})\s*\.\s*delete\s*\(|\b(?:{BINDINGS})['\"]\s*\]\s*\.\s*delete\s*\(|\[\s*['\"]delete['\"]\s*\]",
+    "cache_put": r"\bcaches\s*\.\s*default\s*\.\s*put\s*\(",
+    "query": r"\.\s*(?:prepare|exec|batch)\s*\(",
+    "multipart": r"\bcreateMultipartUpload\b",
+    "console": r"\bconsole\s*\.",
+    "fetch": r"\bfetch\s*\(",
+    "assets_fetch": r"\bASSETS\s*\.\s*fetch\s*\(",
+}
+PRIVACY_COUNTS = {
+    "_api.js": {"put": 2, "query": 4},
+    "_catalogue.js": {"query": 3},
+    "_lib.js": {"put": 1},
+    "_limit.js": {"put": 1, "cache_put": 1},
+    "_parquet.js": {"query": 1, "console": 2},
+    "_served.js": {"query": 3},
+    "_tools.js": {"put": 2, "cache_put": 2, "query": 1, "console": 2},
+    "api/v1/catalogue.js": {"query": 3},
+    "api/v1/views.js": {"put": 2},
+    "api/v1/votes/[slug].js": {"put": 1, "delete": 1},
+    "api/v1/votes.js": {"put": 1},
+    "d/[[path]].js": {"console": 1},
+}
+
+
+def test_functions_calls_that_store_or_log_are_counted() -> None:
+    found = {}
+    for f in sorted((ROOT / "functions").rglob("*")):
+        if f.suffix not in {".js", ".mjs", ".ts"} or ".test." in f.name:
+            continue
+        text = f.read_text(encoding="utf-8")
+        c = {k: n for k, p in PRIVACY_CALLS.items() if (n := len(re.findall(p, text)))}
+        if "fetch" in c:
+            c["fetch"] -= c.pop("assets_fetch", 0)
+            if not c["fetch"]:
+                del c["fetch"]
+        if c:
+            found[f.relative_to(ROOT / "functions").as_posix()] = c
+    assert found == PRIVACY_COUNTS, (
+        "A call site in functions/ that stores, deletes, caches, queries, logs or fetches was "
+        "added or removed. Check that /privacy/ still says what is kept, for how long and who "
+        "receives it, then update PRIVACY_COUNTS."
+    )
