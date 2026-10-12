@@ -116,6 +116,14 @@ RETURN_SENTENCES = {
         ),
     ],
     "upvote_dataset": ["The answer gives the dataset's vote total after this call."],
+    "search": [
+        (
+            "Find served datasets by keyword and return each one's id, title and citation URL, in "
+            "the shape ChatGPT deep research and company knowledge call search with."
+        ),
+        "Up to 50 matches come back in one answer, with no paging.",
+    ],
+    "fetch": ["One answer holds the text, with the same facts under metadata."],
 }
 
 

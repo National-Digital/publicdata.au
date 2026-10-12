@@ -1111,6 +1111,7 @@ PRIVACY_COUNTS = {
     "_limit.js": {"put": 1, "cache_put": 1},
     "_parquet.js": {"query": 1, "console": 2},
     "_served.js": {"query": 3},
+    "_tools.js": {"query": 1},
     "_usage.js": {"query": 2, "console": 1},
     "api/v1/catalogue.js": {"query": 3},
     "api/v1/views.js": {"put": 2},

@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from .api_text import Tool
 
 NAME = re.compile(r"^[a-z]+(?:_[a-z]+)+$")
+# ChatGPT's deep research and company knowledge call these two by name.
+FIXED_NAMES = {"search", "fetch"}
 HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
 MIN_DESCRIPTION, MAX_DESCRIPTION = 200, 1000
 MAX_SENTENCE_WORDS = 35
@@ -196,7 +198,7 @@ def _length(t: Tool) -> list[str]:
 
 
 def _naming(t: Tool) -> list[str]:
-    if not NAME.match(t.get("name") or ""):
+    if t.get("name") not in FIXED_NAMES and not NAME.match(t.get("name") or ""):
         return [
             (
                 f"name {t.get('name')!r} should be lowercase verb_object snake case, "

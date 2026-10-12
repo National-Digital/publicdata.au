@@ -1050,6 +1050,180 @@
         "openWorldHint": false
       },
       "queries": 0
+    },
+    {
+      "name": "search",
+      "title": "Find datasets to fetch",
+      "description": "Find served datasets by keyword and return each one's id, title and citation URL, in the shape ChatGPT deep research and company knowledge call search with.\nIt runs the same search as search_datasets, so every word in query must match. Pass an id to fetch to read the dataset's licence, attribution and newest version. The same id is the slug that list_fields, query_rows and count_rows take.\nUp to 50 matches come back in one answer, with no paging.\nEach call costs one of the 60 queries each address may make in 10 seconds.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Words from a title, publisher or field name"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The dataset's slug, which fetch takes as id"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "The dataset page on publicdata.au, to cite"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "url"
+              ]
+            },
+            "description": "Matches, best first when the search index is loaded"
+          }
+        },
+        "required": [
+          "results"
+        ]
+      },
+      "annotations": {
+        "title": "Find datasets to fetch",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "queries": 0
+    },
+    {
+      "name": "fetch",
+      "title": "Fetch a dataset record",
+      "description": "Read one served dataset's record as text to quote and cite: its summary, publisher, licence, attribution string, newest version and the URL of that version. It is the fetch that ChatGPT deep research and company knowledge call, with an id from search.\nIt carries no rows. To answer from the data use query_rows or count_rows, and for every version and file use get_dataset.\nOne answer holds the text, with the same facts under metadata. An id that is not served returns an error. The call costs nothing against the rate limit.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A dataset id from search, which is its slug. A publicdata.au dataset or version URL is read as its slug."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "description": "The record, with the attribution string and the statement that the publisher has not endorsed publicdata.au"
+          },
+          "url": {
+            "type": "string",
+            "description": "The newest version's page, to cite"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Publisher, licence, attribution, version, source URL, fetch time and source hash"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "text",
+          "url",
+          "metadata"
+        ]
+      },
+      "annotations": {
+        "title": "Fetch a dataset record",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "queries": 0
     }
-  ]
+  ],
+  "fetch": {
+    "required": [
+      "title",
+      "publisher",
+      "licence",
+      "attribution",
+      "version",
+      "url",
+      "source",
+      "fetched_at",
+      "sha256"
+    ],
+    "text": [
+      {
+        "text": "{title}"
+      },
+      {
+        "text": "{summary}"
+      },
+      {
+        "text": "It is published by {publisher} and licensed under {licence}."
+      },
+      {
+        "text": "The licence is at {licence_url}."
+      },
+      {
+        "text": "The licence carries this condition: {condition}."
+      },
+      {
+        "text": "Show this attribution wherever the data is used: {attribution}"
+      },
+      {
+        "text": "The licence requires the publisher's attribution. We ask that you also name publicdata.au and link to the version you used."
+      },
+      {
+        "text": "This record describes version {version}, the newest, at {url}."
+      },
+      {
+        "text": "Its data is as at {as_at}."
+      },
+      {
+        "text": "It holds {rows} rows."
+      },
+      {
+        "text": "publicdata.au fetched the publisher's file from {source} at {fetched_at}, and its SHA-256 is {sha256}."
+      },
+      {
+        "text": "This version was backfilled from the portal's history of earlier releases.",
+        "when": "backfilled"
+      },
+      {
+        "text": "This is an independent republication. The publisher has not endorsed this site."
+      },
+      {
+        "text": "To answer from its rows, read its fields with list_fields, then call query_rows or count_rows with slug {id}."
+      }
+    ]
+  },
+  "not_endorsed": "This is an independent republication. The publisher has not endorsed this site."
 }

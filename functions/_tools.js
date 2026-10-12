@@ -1,4 +1,6 @@
+import SPEC from './_tools.json' with { type: 'json' };
 import { AnswerError, query } from './_answer.js';
+import { SLUG } from './_lib.js';
 import { onRequestGet as dFile } from './d/[[path]].js';
 import { onRequestPost as castVote } from './api/v1/votes/[slug].js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
@@ -261,4 +263,96 @@ EXEC.upvote_dataset = async (ctx, input) => {
     throw new ToolError(b.error || String(r.status));
   }
   return text(b);
+};
+
+// search and fetch take the names and shapes ChatGPT's deep research and company knowledge call.
+EXEC.search = async (ctx, input) => {
+  const b = JSON.parse(await EXEC.search_datasets(ctx, input));
+  return text({
+    results: b.results.map((r) => ({
+      id: r.slug,
+      title: r.title,
+      url: r.page || SITE + '/d/' + enc(r.slug) + '/',
+    })),
+  });
+};
+// A model used to fetching URLs may pass a dataset's page or one of its versions.
+const PAGE = /^https:\/\/publicdata\.au\/d\/([^/?#]+)(?:\/(?:v\/[^/?#]+\/?)?)?(?:[?#].*)?$/;
+const present = (v) => v !== undefined && v !== null && v !== '';
+
+EXEC.fetch = async (ctx, input) => {
+  const given = String(input.id);
+  const page = PAGE.exec(given);
+  const id = page ? page[1] : given;
+  if (!SLUG.test(id)) {
+    throw new ToolError('no served dataset has that id; search finds them');
+  }
+  const missing = 'no served dataset with id ' + id + '; search finds them';
+  let dp, history;
+  try {
+    [dp, history] = await Promise.all([
+      file(ctx, '/d/' + id + '/datapackage.json'),
+      file(ctx, '/d/' + id + '/versions.json'),
+    ]);
+  } catch (e) {
+    throw e instanceof ToolError ? new ToolError(missing) : e;
+  }
+  const v = (history.versions || []).find((x) => x.version === dp.version) || {};
+  if (v.tombstone) {
+    throw new ToolError(
+      `the newest version of ${id} was removed and has no files to cite; its page is ${SITE}/d/${id}/`,
+    );
+  }
+  const lic = (dp.licenses || [])[0] || {};
+  const publisher = (dp.contributors || []).find((c) => c.role === 'publisher');
+  const facts = {
+    id,
+    title: dp.title,
+    summary: dp.description,
+    publisher: publisher ? publisher.title : null,
+    licence: lic.title || lic.name,
+    licence_url: lic.path,
+    // The sentence ends with its own full stop.
+    condition: lic['publicdata:condition'] && lic['publicdata:condition'].replace(/\.$/, ''),
+    attribution: dp['publicdata:attribution'],
+    version: dp.version,
+    url: v.url,
+    as_at: v.as_at,
+    rows: v.rows,
+    source: dp.sources && dp.sources[0] ? dp.sources[0].path : null,
+    fetched_at: v.fetched_at,
+    sha256: v.sha256,
+    backfilled: v.backfilled === true,
+  };
+  // A record without its provenance is refused, so an answer never cites data it cannot attribute.
+  const lacking = SPEC.fetch.required.filter((k) => !present(facts[k]));
+  if (lacking.length) {
+    throw new ToolError(
+      `the record of ${id} lacks ${lacking.join(', ')}, so it is not given here; its page is ${SITE}/d/${id}/`,
+    );
+  }
+  const lines = SPEC.fetch.text.flatMap((s) => {
+    const keys = [...s.text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+    if ((s.when && !facts[s.when]) || !keys.every((k) => present(facts[k]))) {
+      return [];
+    }
+    return [s.text.replace(/\{(\w+)\}/g, (...g) => String(facts[g[1]]))];
+  });
+  const metadata = {
+    publisher: facts.publisher,
+    licence: lic.name ?? null,
+    licence_url: facts.licence_url ?? null,
+    condition: lic['publicdata:condition'] ?? null,
+    attribution: facts.attribution,
+    cite: dp['publicdata:cite'] ?? null,
+    version: facts.version,
+    as_at: facts.as_at ?? null,
+    rows: facts.rows ?? null,
+    source: facts.source,
+    fetched_at: facts.fetched_at,
+    sha256: facts.sha256,
+    backfilled: facts.backfilled,
+    not_endorsed: SPEC.not_endorsed,
+  };
+  return text({ id, title: dp.title, text: lines.join('\n'), url: facts.url, metadata });
 };
