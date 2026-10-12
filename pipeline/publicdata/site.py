@@ -1733,6 +1733,8 @@ ROUTES = (
     "/d/*/changes/*",
 )
 MD_ROUTE = "/*.md"
+# Sent with every Markdown twin Pages serves, a page URL answered in Markdown included.
+CONTENT_SIGNAL = "search=yes, ai-input=yes, ai-train=no"
 
 
 SKILL_PATH = f"skills/{at.spec()['skill']['name']}/SKILL.md"
@@ -2504,8 +2506,8 @@ PROSE = {
 <li><a href="/openapi.json"><code>/openapi.json</code></a> is an OpenAPI 3.1 document for every public path, with the dataset slugs as an enum. Load it into any client generator or an agent's tool list.</li>
 <li><a href="/backlog.json"><code>/backlog.json</code></a> is every register entry with its status, licence and the reason if it is blocked. <code>/api/v1/votes</code> has the current vote counts.</li>
 </ul>
-<h2>Every page has a Markdown twin</h2>
-<p>Add <code>index.md</code> to any page URL, or follow the <code>rel="alternate" type="text/markdown"</code> link in its head. The twin has the same facts as the page in plain Markdown with front matter. A page URL asked for with <code>Accept: text/markdown</code> answers with its twin, except a dated version's page, which always answers in HTML. A path such as <code>/about.md</code> or <code>/about/index.html.md</code> is redirected to the twin.</p>
+<h2>Pages have Markdown twins</h2>
+<p>Every page but an embed has a twin. Add <code>index.md</code> to any page URL, or follow the <code>rel="alternate" type="text/markdown"</code> link in its head. The twin has the same facts as the page in plain Markdown with front matter. A page URL asked for with <code>Accept: text/markdown</code> answers with its twin, except a dated version's page and an embed, which always answer in HTML. A path such as <code>/about.md</code> or <code>/about/index.html.md</code> is redirected to the twin.</p>
 <h2>Per dataset</h2>
 <ul>
 <li><code>/d/&lt;slug&gt;/datapackage.json</code> is a Frictionless data package pointing at the latest version.</li>
@@ -5716,6 +5718,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 "",
                 "/*.md",
                 "  Content-Type: text/markdown; charset=utf-8",
+                f"  Content-Signal: {CONTENT_SIGNAL}",
                 "",
                 "/*.ndjson",
                 "  Content-Type: application/x-ndjson",

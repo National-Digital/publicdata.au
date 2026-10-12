@@ -322,12 +322,45 @@ def test_md_paths_run_the_middleware_and_nothing_else_new_does(site: Path) -> No
     ]
 
 
-def test_the_zone_rules_in_the_docs_leave_out_every_function_route() -> None:
+def test_the_zone_rules_leave_out_every_function_route_and_every_page_without_a_twin(
+    site: Path,
+) -> None:
     doc = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
     rules = re.findall(
         r"```\n(\(.*?\))\n```", doc[doc.index("### Markdown at a page's URL") :], re.DOTALL
     )
-    rewrite, vary = rules[0], rules[1]
-    want = [r if r.endswith("/*") else r + "/" for r in site_module.ROUTES if "." not in r]
-    for rule, field in ((rewrite, "http.request.uri.path"), (vary, "raw.http.request.uri.path")):
-        assert re.findall(rf'{re.escape(field)} wildcard "([^"]+)"', rule) == want
+    rewrite, vary = (
+        re.findall(rf'{re.escape(field)} wildcard "([^"]+)"', rule)
+        for rule, field in zip(
+            rules, ("http.request.uri.path", "raw.http.request.uri.path"), strict=True
+        )
+    )
+    assert rewrite == vary
+    routes = [r if r.endswith("/*") else r + "/" for r in site_module.ROUTES if "." not in r]
+    assert rewrite[: len(routes)] == routes
+    # As the zone reads wildcard: the whole path, any case, and * crosses slashes.
+    left_out = [re.compile(re.escape(w).replace(r"\*", ".*"), re.IGNORECASE) for w in rewrite]
+    # As Pages reads a route: * crosses slashes, and a route also matches its folder.
+    function = [
+        re.compile(
+            "^"
+            + re.escape(r.removesuffix("/*")).replace(r"\*", ".*")
+            + ("(/.*)?$" if r.endswith("/*") else "/?$")
+        )
+        for r in site_module.ROUTES
+    ]
+    used = set()
+    for page in site.rglob("index.html"):
+        rel = page.parent.relative_to(site).as_posix()
+        url = "/" if rel == "." else f"/{rel}/"
+        hits = {w for w, r in zip(rewrite, left_out, strict=True) if r.fullmatch(url)}
+        if not (page.parent / "index.md").exists():
+            assert hits, f"{url} has no twin, so the rewrite would answer it with a 404"
+            used |= hits
+        elif not any(r.match(url) for r in function):
+            assert not hits, f"{url} has a twin but the rewrite leaves it out"
+    assert set(rewrite[len(routes) :]) <= used, "an exclusion no page needs"
+    headers = (site / "_headers").read_text(encoding="utf-8")
+    md = headers[headers.index("/*.md\n") :].split("\n\n")[0]
+    assert f"  Content-Signal: {site_module.CONTENT_SIGNAL}" in md.splitlines()
+    assert site_module.CONTENT_SIGNAL.endswith("ai-train=no")
