@@ -252,7 +252,7 @@
       "version": "A version date, YYYY-MM-DD, from get_dataset. A version the query API does not load is read from its Parquet file. The newest version when absent.",
       "order": "field.asc or field.desc, comma-separated. When absent, and for ties, a version the query API loads keeps the publisher's order, and any other version the order of its Parquet file, which follows the dataset's declared sort where it has one."
     },
-    "privacy": "The MCP server records nothing about who calls it or what they ask. To keep the rate limit, it counts row tool calls per address in Cloudflare's cache for {window_seconds} seconds.",
+    "privacy": "The MCP server logs the methods, tools and client software of each request, and leaves out the address and the arguments' values. To keep the rate limit, it counts row tool calls per address in Cloudflare's cache for {window_seconds} seconds.",
     "instructions": "Australian government open data, republished at URLs that never change. Find a dataset with search_datasets, read its fields with list_fields, then answer from the whole table with query_rows or count_rows. A dataset that is not served yet can be found with search_catalogue and voted for with upvote_dataset. Every answer names the version it came from and the publisher's attribution string. When you show the data to a person, use the attribution string, say it came from publicdata.au and link to the version the answer came from, https://publicdata.au/d/<slug>/v/<version>/. Use of this server is under https://publicdata.au/terms/."
   }
 }
