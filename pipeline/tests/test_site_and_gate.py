@@ -1027,3 +1027,36 @@ def test_no_page_promises_a_version_never_changes(fixture_site: Path) -> None:
         text = (fixture_site / name).read_text(encoding="utf-8")
         assert "versions never change" not in text.lower(), name
         assert "immutable files" not in text, name
+
+
+def test_the_privacy_page_says_how_long_each_record_is_kept(fixture_site: Path) -> None:
+    """A privacy policy states retention for every kind of record it lists."""
+    page = (fixture_site / "privacy" / "index.html").read_text(encoding="utf-8")
+    sections = {
+        re.sub(r"<[^>]+>", "", h).strip(): body
+        for h, body in re.findall(r"<h2[^>]*>(.*?)</h2>(.*?)(?=<h2|</main>)", page, re.DOTALL)
+    }
+    w = at.spec()["limits"]["window_seconds"]
+    kept = {
+        "Page views": ["for 7 days"],
+        "Votes and dataset requests": ["kept indefinitely", f"for {w} seconds"],
+        "Saved dashboards": ["kept indefinitely"],
+        "The query API and the MCP server": [f"for {w} seconds"],
+        "Hosting": ["for 31 days", "does not store it"],
+    }
+    assert set(sections) == {*kept, "Contact"}, "a new section needs its retention listed here"
+    for heading, phrases in kept.items():
+        for p in phrases:
+            assert p in sections[heading], (heading, p)
+    # A function that starts storing something else must be added to the privacy page first.
+    writers = {
+        f.relative_to(ROOT / "functions").as_posix()
+        for f in (ROOT / "functions").rglob("*.js")
+        if re.search(r"env\.[A-Z_]+\.put\(", f.read_text(encoding="utf-8"))
+    }
+    assert writers == {
+        "_lib.js",
+        "api/v1/votes.js",
+        "api/v1/votes/[slug].js",
+        "api/v1/views.js",
+    }

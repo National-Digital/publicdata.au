@@ -2591,13 +2591,18 @@ PROSE = {
 <p>publicdata.au has no accounts and sets no cookies. Nobody is asked who they are, on the pages, in the query API or through the MCP server. The site is run by <a href="https://nationaldigital.com.au/">National Digital</a>.</p>
 <h2>Page views</h2>
 <p>Cloudflare Web Analytics counts page views. It is served from this site's own provider, stores nothing in the browser and does not follow anyone across sites. There is no other tracking.</p>
+<p>Cloudflare keeps the full record of each page view for 7 days. After that it keeps a sample of about one in ten as counts, and the site can read those counts for six months.</p>
 <h2>Votes and dataset requests</h2>
 <p>A vote is stored under a salted hash of the date, the dataset, the address and the browser's user agent, so each browser counts once a day. The salt stays in a private store and is never published, and the date is part of the hash, so the published counts cannot be used to link votes on different days. Only the total for each dataset is published.</p>
-<p>A link pasted into the backlog is looked up in the catalogue and is not stored. When it names a dataset there, it counts as a vote for that dataset in the same way. When it does not, the page suggests sending it to National Digital, which is up to you.</p>
+<p>Votes are anonymous and are kept indefinitely. Each one is stored as the dataset, the date and the hash, with nothing else beside it, and the salt is kept for as long as the votes are.</p>
+<p>A link pasted into the backlog is looked up in the catalogue and is not stored. When it names a dataset there, it counts as a vote for that dataset in the same way. When it does not, the page suggests sending it to National Digital, which is up to you. To keep the rate limit, the lookup counts requests per address in Cloudflare's cache for {window_seconds} seconds.</p>
+<h2>Saved dashboards</h2>
+<p>Saving a dashboard in the explorer stores the dataset, the version, the dashboard's layout and the time it was saved. A saved dashboard is kept indefinitely, so its link keeps working. To limit how many dashboards one browser can save in a day, each save also leaves a note under a salted hash of the date, the address and the user agent, made the same way as a vote's hash. These notes are anonymous and are kept indefinitely too.</p>
 <h2>The query API and the MCP server</h2>
 <p>The query API answers from the data and records nothing about who asked. {mcp_privacy}</p>
 <h2>Hosting</h2>
-<p>Cloudflare hosts the site and handles every request, including the address it came from, to deliver it and to block abuse. The <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare privacy policy</a> covers that handling.</p>
+<p>Cloudflare hosts the site and handles every request, including the address it came from, to deliver it and to block abuse. The <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare privacy policy</a> covers that handling. It says Cloudflare keeps personal information for as long as its business purposes need and then deletes it.</p>
+<p>The traffic and security records Cloudflare keeps for the site can include a request's address, and they are kept for 31 days. The site's functions run on Cloudflare Pages, which shows their log output only to someone watching it live and does not store it. The site does not copy Cloudflare's logs anywhere else.</p>
 <h2>Contact</h2>
 <p>Questions about privacy go to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. Security reports go to the address in <a href="/.well-known/security.txt"><code>/.well-known/security.txt</code></a>.</p>
 """,
@@ -5070,6 +5075,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
             .replace("{mcp}", _agents_mcp())
             .replace("{mcp_privacy}", at.as_html(at.spec()["mcp"]["privacy"]))
             .replace("{terms_limits}", at.as_html(at.spec()["api"]["terms_limits"]))
+            .replace("{window_seconds}", str(at.spec()["limits"]["window_seconds"]))
             .replace("{terms_changed}", TERMS_CHANGED[0])
             .replace("{skill_path}", SKILL_PATH)
             .replace("{repo}", REPO)
