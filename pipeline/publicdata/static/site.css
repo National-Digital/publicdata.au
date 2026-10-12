@@ -79,6 +79,7 @@ pre .c{color:var(--muted)}
 .copy{font-size:0.875rem;padding:0 .75rem;border:1px solid var(--rule);border-radius:4px;background:var(--panel);color:var(--muted);cursor:pointer}
 .copy.abs{position:absolute;top:8px;right:8px}
 .tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--panel);margin-top:14px}
+.tbl>p{margin:0;padding:12px 12px 2px}
 .ledger{width:100%;border-collapse:collapse;font-size:0.9375rem;font-variant-numeric:tabular-nums}
 .ledger th{text-align:left;font-size:0.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:10px 12px;border-bottom:1px solid var(--rule);white-space:nowrap}
 .ledger td{padding:14px 12px;border-bottom:1px solid var(--rule-soft);vertical-align:top}.ledger td>a,.ledger td>b>a{display:inline-flex;align-items:center;min-height:1.5rem}
