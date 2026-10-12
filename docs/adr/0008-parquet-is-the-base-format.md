@@ -46,7 +46,8 @@ say so in the footer key `publicdata.profile` beside the provenance key `publicd
   stays cheap when the sort serves another filter. They serve external readers such as DuckDB, and
   no reader in this repository uses them yet.
 - **Types.** An integer field is written as INT32 when the entry declares it under `int32:`, in
-  every version, so a field keeps one type across versions and parts.
+  every version, so a field keeps one type across versions and parts. That holds because the fetch
+  holds back a new version whose values do not fit, naming the field.
 - **Encoding and sizes.** zstd, dictionary encoding and column statistics on every file, and a page
   index on sorted files only. Row groups of 500,000 rows and pages of at most 10,000 rows or 8 MiB:
   1,000,000-row groups overflowed the reader's stack, and 10,000-row pages used 10 to 30% less CPU
