@@ -30,13 +30,13 @@ const tail = (message, headers = {}) =>
     null,
     4,
   );
-// The same in a Logpush file of Workers trace events, one event a line.
-const pushed = (message) =>
-  JSON.stringify({ Outcome: 'ok', Logs: [{ Level: 'log', Message: [message], TimestampMs: 1 }] });
+// The same event on one line.
+const compact = (message) =>
+  JSON.stringify({ outcome: 'ok', logs: [{ message: [message], level: 'log', timestamp: 1 }] });
 
 const forged = log(req('node'), [rpc('tools/call', { name: 'upvote_dataset' })]);
 
-test('counts usage lines from a tail and a Logpush file, split client and probe', () => {
+test('counts usage lines from a tail, pretty or compact, split client and probe', () => {
   const text = [
     tail(
       log(req('claude-code/2.1'), [
@@ -49,14 +49,14 @@ test('counts usage lines from a tail and a Logpush file, split client and probe'
       'x-forged': forged,
     }),
     tail('an error line that is not ours {"event":"mcp"'),
-    pushed(
+    compact(
       log(req('node'), [
         rpc('tools/call', { name: 'query_rows' }),
         rpc('tools/call', { name: 'get_dataset' }),
       ]),
     ),
-    pushed(log(req(''), [rpc('initialize', {})])),
-    pushed(log(req('curl/8', 'GET'), [], 405)),
+    compact(log(req(''), [rpc('initialize', {})])),
+    compact(log(req('curl/8', 'GET'), [], 405)),
     'not json',
   ].join('\n');
   const { counts: c, skipped } = count(text);

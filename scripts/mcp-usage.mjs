@@ -2,9 +2,7 @@
 // Pipe a live tail straight in and stop it with Ctrl-C to print the counts:
 //   npx wrangler pages deployment tail --project-name publicdata-au --format json | node scripts/mcp-usage.mjs
 // Do not save a raw tail to a file: every event in it holds the request's headers and
-// Cloudflare's location fields for the caller. A Logpush file of Workers trace events can be
-// named as an argument instead. Only the console lines of each event are read.
-import { readFileSync } from 'node:fs';
+// Cloudflare's location fields for the caller. Only the console lines of each event are read.
 import { pathToFileURL } from 'node:url';
 
 // The JSON values in a text: one per line, or pretty-printed with each value's first line
@@ -49,10 +47,10 @@ export function lines(v) {
   if (isLine(v)) {
     return [v];
   }
-  const logs = (v && (v.logs || v.Logs)) || [];
+  const logs = (v && v.logs) || [];
   const out = [];
   for (const l of Array.isArray(logs) ? logs : []) {
-    const msg = l && (l.message || l.Message);
+    const msg = l && l.message;
     for (const m of Array.isArray(msg) ? msg : []) {
       let x = m;
       if (typeof m === 'string') {
@@ -122,18 +120,12 @@ export function report({ counts, skipped }) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const files = process.argv.slice(2);
-  const print = (text) => process.stdout.write(report(count(text)) + '\n');
-  if (files.length) {
-    print(files.map((f) => readFileSync(f, 'utf8')).join('\n'));
-  } else {
-    const chunks = [];
-    const done = () => {
-      print(Buffer.concat(chunks).toString('utf8'));
-      process.exit(0);
-    };
-    process.stdin.on('data', (c) => chunks.push(c));
-    process.stdin.on('end', done);
-    process.on('SIGINT', done);
-  }
+  const chunks = [];
+  const done = () => {
+    process.stdout.write(report(count(Buffer.concat(chunks).toString('utf8'))) + '\n');
+    process.exit(0);
+  };
+  process.stdin.on('data', (c) => chunks.push(c));
+  process.stdin.on('end', done);
+  process.on('SIGINT', done);
 }
