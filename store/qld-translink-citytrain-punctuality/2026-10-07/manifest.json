@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-translink-citytrain-punctuality",
+  "version": "2026-10-07",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:56:46+00:00",
+  "sha256": "5d7e4257809537399c290bdefa48535394d71facc3f8941e5989d6b8ad7172c4",
+  "bytes": 873,
+  "filename": "citytrain-punctuality-and-rel.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b33b4ed9-0db4-4c1b-8f85-664ca0d42a54/resource/d6b9ce31-dd07-4ea2-ac1a-848fa638cd90/download/citytrain-punctuality-and-rel.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "translink-monthly-performance-data",
+    "package_id": "b33b4ed9-0db4-4c1b-8f85-664ca0d42a54",
+    "resource": "d6b9ce31-dd07-4ea2-ac1a-848fa638cd90",
+    "resource_name": "Punctuality and reliability - Citytrain",
+    "resource_last_modified": "2026-10-06T22:59:14.536377",
+    "package_modified": "2026-10-06T23:04:11.303565",
+    "package_version": "1",
+    "etag": "f6aaae824baafd8b292e090acd60b893",
+    "http_last_modified": "Tue, 06 Oct 2026 22:59:16 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=translink-monthly-performance-data",
+    "read_at": "2026-10-12T20:56:46+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "61f48d30c199df9d53f71f1ee3e48d1a8291bceeaf860f6a1aff9c9fd6b9ce09",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

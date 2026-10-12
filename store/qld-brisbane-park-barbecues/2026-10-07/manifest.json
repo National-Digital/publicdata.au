@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-brisbane-park-barbecues",
+  "version": "2026-10-07",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:56:54+00:00",
+  "sha256": "67fcd2fc3c12cd73e27da712ff272ef5dd5fbf17e328e122b46a1fc7d1effd83",
+  "bytes": 211387,
+  "filename": "park-barbeque-locations.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.brisbane.qld.gov.au/api/explore/v2.1/catalog/datasets/park-barbeque-locations/exports/csv?delimiter=%2C&with_bom=false",
+    "portal": "https://data.brisbane.qld.gov.au",
+    "package": "park-barbeque-locations",
+    "resource_name": "Park — Barbeque locations",
+    "data_processed": "2026-10-06T21:04:33+00:00",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC BY 4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://data.brisbane.qld.gov.au/api/explore/v2.1/catalog/datasets/park-barbeque-locations",
+    "read_at": "2026-10-12T20:56:54+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "6e75ea56fc72fa2795bcc6d88b604ccac23cc571921174bef973a33f6ae064b7",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "objectid"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

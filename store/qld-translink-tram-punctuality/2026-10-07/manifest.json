@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-translink-tram-punctuality",
+  "version": "2026-10-07",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:56:50+00:00",
+  "sha256": "6e82314e1f75eac96f579109d8090c213ff76ea73ddb7def557d992ece5dc206",
+  "bytes": 792,
+  "filename": "seq-tram-punctuality-and-reli.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b33b4ed9-0db4-4c1b-8f85-664ca0d42a54/resource/549c7dde-ab85-45ba-8b56-ead8f2f31129/download/seq-tram-punctuality-and-reli.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "translink-monthly-performance-data",
+    "package_id": "b33b4ed9-0db4-4c1b-8f85-664ca0d42a54",
+    "resource": "549c7dde-ab85-45ba-8b56-ead8f2f31129",
+    "resource_name": "Punctuality and reliability - SEQ Tram",
+    "resource_last_modified": "2026-10-06T22:59:37.310962",
+    "package_modified": "2026-10-06T23:04:11.303565",
+    "package_version": "1",
+    "etag": "b28845b7744fb7102c3902b273bb0d85",
+    "http_last_modified": "Tue, 06 Oct 2026 22:59:38 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=translink-monthly-performance-data",
+    "read_at": "2026-10-12T20:56:50+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "e445f89c2cf8701e6213ba740b2fbf9cb525e7c6afa8ba72d4502e349d84989a",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

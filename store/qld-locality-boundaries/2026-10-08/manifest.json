@@ -1,0 +1,48 @@
+{
+  "dataset": "qld-locality-boundaries",
+  "version": "2026-10-08",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:55:59+00:00",
+  "sha256": "08877bcf05566d4d8ed29706fac939196e569219ceae2ad6acd136cb10ec834a",
+  "bytes": 58017186,
+  "filename": "qld-locality-boundaries.geojson",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdministrativeBoundaries/MapServer/2",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "locality-boundaries-queensland",
+    "package_id": "141c82e4-c1f7-4b5d-a528-e3202ae6ebaa",
+    "package_modified": "2026-10-07T15:19:56.296164",
+    "layer_name": "Locality",
+    "object_id_field": "objectid",
+    "last_edit_date": null,
+    "newest_record": null,
+    "features": 3359,
+    "date_fields": []
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC-BY-4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=locality-boundaries-queensland",
+    "read_at": "2026-10-12T20:54:54+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The layer states no edit date or dated records, so this version is dated by the portal record.",
+    "The publisher offers no file. These bytes are every feature of the layer as the service returned them in WGS84, ordered by its object id, so the same layer gives the same bytes."
+  ],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "loc_code"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

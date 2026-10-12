@@ -1,0 +1,45 @@
+{
+  "dataset": "qld-translink-patronage-regional",
+  "version": "2026-10-07",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:56:48+00:00",
+  "sha256": "83566a7d42799a9d29d39469787136c17a6afa25c774b83bc128da273b89e94e",
+  "bytes": 4936,
+  "filename": "patronage-rest-of-queensland.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b33b4ed9-0db4-4c1b-8f85-664ca0d42a54/resource/ab30c308-7bea-4f47-8813-d6536532db93/download/patronage-rest-of-queensland.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "translink-monthly-performance-data",
+    "package_id": "b33b4ed9-0db4-4c1b-8f85-664ca0d42a54",
+    "resource": "ab30c308-7bea-4f47-8813-d6536532db93",
+    "resource_name": "Patronage - Rest of Queensland",
+    "resource_last_modified": "2026-10-06T22:54:23.194997",
+    "package_modified": "2026-10-06T23:04:11.303565",
+    "package_version": "1",
+    "etag": "f6eacba0b77c2accf657e528d97ae04a",
+    "http_last_modified": "Tue, 06 Oct 2026 22:54:25 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=translink-monthly-performance-data",
+    "read_at": "2026-10-12T20:56:48+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "51f1272a8c39c1c4e8ba523a1322fc8d406cb9c69ce1437831236bae57dc2f12",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month",
+      "mode"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

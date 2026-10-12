@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-translink-seq-bus-punctuality",
+  "version": "2026-10-07",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:56:49+00:00",
+  "sha256": "8d6889614726105e93b8269a8ddf4535380f77e5fb19129c78c1c00f2321696b",
+  "bytes": 588,
+  "filename": "seq-bus-punctuality.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b33b4ed9-0db4-4c1b-8f85-664ca0d42a54/resource/e12aa967-e3ca-491f-9b70-60bbea3f296e/download/seq-bus-punctuality.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "translink-monthly-performance-data",
+    "package_id": "b33b4ed9-0db4-4c1b-8f85-664ca0d42a54",
+    "resource": "e12aa967-e3ca-491f-9b70-60bbea3f296e",
+    "resource_name": "Punctuality - SEQ Bus",
+    "resource_last_modified": "2026-10-06T23:02:03.207423",
+    "package_modified": "2026-10-06T23:04:11.303565",
+    "package_version": "1",
+    "etag": "3c6ced24a925ebaa02ddaadd95b09e5c",
+    "http_last_modified": "Tue, 06 Oct 2026 23:02:05 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=translink-monthly-performance-data",
+    "read_at": "2026-10-12T20:56:49+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "24b21f67057f14f561afd00874d60eddcba1cac6885c991feeff5013012b3b5d",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

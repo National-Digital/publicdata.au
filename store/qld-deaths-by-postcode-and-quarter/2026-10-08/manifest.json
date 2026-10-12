@@ -1,0 +1,45 @@
+{
+  "dataset": "qld-deaths-by-postcode-and-quarter",
+  "version": "2026-10-08",
+  "as_at": "",
+  "fetched_at": "2026-10-12T20:53:45+00:00",
+  "sha256": "db5fb0ee1c825ebec576902b9b2231fd02f29b38c3187a2de9091402cad5ee55",
+  "bytes": 12025,
+  "filename": "2026-deaths-by-residential-postcode-and-quarter.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/70b1fdcd-e432-4106-8aae-ba26bd4c9f26/resource/46e3982c-be7b-4a9c-acf7-8f370fc8c6ba/download/2026-deaths-by-residential-postcode-and-quarter.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "deaths-by-residential-postcode-and-quarter",
+    "package_id": "70b1fdcd-e432-4106-8aae-ba26bd4c9f26",
+    "resource": "46e3982c-be7b-4a9c-acf7-8f370fc8c6ba",
+    "resource_name": "2026 Deaths by Residential Postcode and Quarter",
+    "resource_last_modified": "2026-10-08T02:39:04.477354",
+    "package_modified": "2026-10-08T02:39:10.466864",
+    "package_version": "1.0",
+    "etag": "36655a523e4e86328314e5fcefa4fe7a",
+    "http_last_modified": "Thu, 08 Oct 2026 02:39:06 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=deaths-by-residential-postcode-and-quarter",
+    "read_at": "2026-10-12T20:53:44+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "eb7ab61f40e351a31e49c1fdaade5d3584083cfaf31f4bd104c4c1d97d69a882",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "quarter",
+      "postcode"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
