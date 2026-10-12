@@ -2525,7 +2525,7 @@ PROSE = {
 <h2>In the browser</h2>
 {webmcp}
 <h2>Robots</h2>
-<p><a href="/robots.txt"><code>/robots.txt</code></a> allows every crawler, including AI crawlers, everywhere except <code>/api/</code>. Its <code>Content-Signal</code> line, in the <a href="https://contentsignals.org/">contentsignals.org</a> syntax, says yes to search indexing, to AI answers that read the site and to AI training. Each dataset's licence still governs what you may do with its data. <a href="/sitemap.xml"><code>/sitemap.xml</code></a> is a sitemap index with one sitemap per government and one for the other pages.</p>
+<p><a href="/robots.txt"><code>/robots.txt</code></a> allows every crawler, including AI crawlers, everywhere except <code>/api/</code>. Its <code>Content-Signal</code> line, in the <a href="https://contentsignals.org/">contentsignals.org</a> syntax, says yes to search indexing and to AI answers that read the site and no to AI training. That preference leaves each dataset's licence as it is, and the licence governs what you may do with the data. <a href="/sitemap.xml"><code>/sitemap.xml</code></a> is a sitemap index with one sitemap per government and one for the other pages.</p>
 """,
     ),
     "about": (
@@ -5598,7 +5598,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "robots.txt",
         f"# Agents: {SITE}/agents/\n# MCP server: {SITE}/mcp\n"
         f"# Every dataset with its download URLs: {SITE}/llms.txt\n\n"
-        "User-Agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\n"
+        "User-Agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=no\n"
         f"# Each dataset's licence governs reuse of its data: {SITE}/terms/\n"
         f"Allow: /\nDisallow: /api/\n\nHost: {SITE}\nSitemap: {SITE}/sitemap.xml\n",
     )

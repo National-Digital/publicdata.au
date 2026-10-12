@@ -975,7 +975,7 @@ def test_robots_txt_states_content_signals_for_every_crawler(fixture_site: Path)
     # This file keeps the signal in the block that opens with `User-Agent: *`.
     groups = [g.splitlines() for g in text.split("\n\n")]
     star = next(g for g in groups if g[0] == "User-Agent: *")
-    assert "Content-Signal: search=yes, ai-input=yes, ai-train=yes" in star
+    assert "Content-Signal: search=yes, ai-input=yes, ai-train=no" in star
     assert "Disallow: /api/" in star
 
 
