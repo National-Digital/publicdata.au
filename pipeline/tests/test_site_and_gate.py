@@ -969,9 +969,10 @@ def test_robots_txt_states_content_signals_for_every_crawler(fixture_site: Path)
         "https://publicdata.au/agents/",
         "https://publicdata.au/mcp",
         "https://publicdata.au/llms.txt",
+        "https://publicdata.au/terms/",
     ):
         assert any(ln.endswith(url) for ln in comments), url
-    # A group runs from its User-Agent line to the next blank line; the signal must sit inside it.
+    # This file keeps the signal in the block that opens with `User-Agent: *`.
     groups = [g.splitlines() for g in text.split("\n\n")]
     star = next(g for g in groups if g[0] == "User-Agent: *")
     assert "Content-Signal: search=yes, ai-input=yes, ai-train=yes" in star
