@@ -24,34 +24,29 @@ export const storedText = (obj) => (gzipped(obj) ? gunzip(obj.body).text() : obj
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
-// The salt lives only in the private votes bucket and is created on first use, so a missing
-// secret cannot degrade the hash to something precomputable. No bucket, no vote.
-async function salt(env) {
-  if (!env.VOTES) {
-    throw new Error('VOTES bucket is not bound');
-  }
-  const o = await env.VOTES.get('_salt');
-  if (o) {
-    return o.text();
-  }
-  const s = crypto.randomUUID() + crypto.randomUUID();
-  // Create only if still absent, then read back so two first requests settle on one value.
-  try {
-    await env.VOTES.put('_salt', s, { onlyIf: { etagDoesNotMatch: '*' } });
-  } catch {
-    // Another request created it first; the read below takes that value.
-  }
-  const stored = await env.VOTES.get('_salt');
-  return stored ? stored.text() : s;
-}
+// The hash is keyed by the Pages secret VOTE_SALT, held outside the votes bucket, so reading the
+// bucket alone cannot test an address. Without the secret nothing is hashed at all.
+export const SALT_MIN = 32;
+export const salted = (env) =>
+  typeof env.VOTE_SALT === 'string' && env.VOTE_SALT.length >= SALT_MIN;
 
-// One vote per browser per day: a salted hash of address and user agent that is never exposed.
+// One vote per browser per day: a keyed hash of address and user agent that is never exposed.
 export async function voter(request, env, slug) {
+  if (!salted(env)) {
+    throw new Error('VOTE_SALT is not set');
+  }
   const ip = request.headers.get('cf-connecting-ip') || '0.0.0.0';
   const ua = request.headers.get('user-agent') || '';
-  const data = new TextEncoder().encode(`${await salt(env)}|${today()}|${slug}|${ip}|${ua}`);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)]
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(env.VOTE_SALT),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const mac = await crypto.subtle.sign('HMAC', key, enc.encode(`${today()}|${slug}|${ip}|${ua}`));
+  return [...new Uint8Array(mac)]
     .slice(0, 12)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');

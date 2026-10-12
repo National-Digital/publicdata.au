@@ -1,4 +1,4 @@
-import { SLUG, aliases, count, json, others, today, voter } from '../../../_lib.js';
+import { SLUG, aliases, count, json, others, salted, today, voter } from '../../../_lib.js';
 
 // A register entry still waiting to be built, or a catalogue record with an open licence and a
 // download that is not served yet. Catalogue ids are checked against one small shard file.
@@ -33,9 +33,15 @@ async function target(env, raw) {
 const keyFor = async (request, env, slug) =>
   `v/${slug}/${today()}/${await voter(request, env, slug)}`;
 
+const unkeyed = () =>
+  json({ error: 'Votes cannot be counted at the moment. Try again later.' }, 503);
+
 export async function onRequestPost({ request, env, params }) {
   if (!SLUG.test(params.slug)) {
     return json({ error: 'Unknown dataset' }, 400);
+  }
+  if (!salted(env)) {
+    return unkeyed();
   }
   const { al, slug } = await target(env, params.slug);
   if (!(await allowed(env, slug))) {
@@ -53,6 +59,9 @@ export async function onRequestPost({ request, env, params }) {
 export async function onRequestDelete({ request, env, params }) {
   if (!SLUG.test(params.slug)) {
     return json({ error: 'Unknown dataset' }, 400);
+  }
+  if (!salted(env)) {
+    return unkeyed();
   }
   const { al, slug } = await target(env, params.slug);
   const keys = await Promise.all([slug, ...others(al, slug)].map((s) => keyFor(request, env, s)));

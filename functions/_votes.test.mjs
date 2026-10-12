@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { voter } from './_lib.js';
 import { FRESH_MS, ROLLUP, onRequestGet as all } from './api/v1/votes.js';
 import {
   onRequestDelete as unvote,
@@ -7,11 +8,18 @@ import {
   onRequestPost as vote,
 } from './api/v1/votes/[slug].js';
 
+// Built at runtime and plainly not a secret.
+const FAKE_SALT = 'not-a-real-vote-salt-'.repeat(2);
 const store = new Map();
 let listings = 0;
+const gets = [];
 const env = {
+  VOTE_SALT: FAKE_SALT,
   VOTES: {
-    get: async (k) => (store.has(k) ? { text: async () => store.get(k) } : null),
+    get: async (k) => {
+      gets.push(k);
+      return store.has(k) ? { text: async () => store.get(k) } : null;
+    },
     put: async (k, v) => {
       store.set(k, v);
     },
@@ -48,10 +56,10 @@ const env = {
     },
   },
 };
-const req = (ip) =>
+const req = (ip, ua = '') =>
   new Request('https://publicdata.au/api/v1/votes/x', {
     method: 'POST',
-    headers: { 'cf-connecting-ip': ip },
+    headers: { 'cf-connecting-ip': ip, 'user-agent': ua },
   });
 const call = async (fn, slug, ip = '203.0.113.1') =>
   (await fn({ request: req(ip), env, params: { slug } })).json();
@@ -85,4 +93,44 @@ test('the list of counts is one object, folded by alias and recounted once stale
   assert.equal((await read((p) => later.push(p)))['act-3u5a-ve4j'], 1);
   await Promise.all(later);
   assert.equal((await read())['act-3u5a-ve4j'], 2);
+});
+
+test('the hash is keyed by the secret, and the bucket holds and gives up no salt', async () => {
+  await call(vote, 'abn-bulk-extract', '203.0.113.9');
+  assert.deepEqual(
+    gets.filter((k) => k !== ROLLUP),
+    [],
+  );
+  assert.deepEqual(
+    [...store.keys()].filter((k) => !k.startsWith('v/') && k !== ROLLUP),
+    [],
+  );
+  const r = req('203.0.113.9', 'Mozilla/5.0');
+  const a = await voter(r, env, 'crashes');
+  assert.match(a, /^[0-9a-f]{24}$/);
+  assert.equal(await voter(r, env, 'crashes'), a);
+  assert.notEqual(await voter(r, { ...env, VOTE_SALT: FAKE_SALT + 'x' }, 'crashes'), a);
+  assert.notEqual(await voter(r, env, 'abn-bulk-extract'), a);
+});
+
+test('without the salt secret votes are refused and counts still read', async () => {
+  for (const salt of [undefined, '', FAKE_SALT.slice(0, 31)]) {
+    const e = { ...env, VOTE_SALT: salt };
+    const before = [...store.entries()];
+    for (const fn of [vote, unvote]) {
+      const r = await fn({
+        request: req('203.0.113.7'),
+        env: e,
+        params: { slug: 'abn-bulk-extract' },
+      });
+      assert.equal(r.status, 503);
+      assert.match((await r.json()).error, /cannot be counted/);
+    }
+    assert.deepEqual([...store.entries()], before);
+    const one1 = await one({ request: req('203.0.113.7'), env: e, params: { slug: 'gov-1111' } });
+    assert.equal(one1.status, 200);
+    assert.equal((await one1.json()).slug, 'abn-bulk-extract');
+    assert.equal((await all({ env: e })).status, 200);
+    await assert.rejects(voter(req('203.0.113.7'), e, 'crashes'), /VOTE_SALT/);
+  }
 });

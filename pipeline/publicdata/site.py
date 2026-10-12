@@ -2595,11 +2595,11 @@ PROSE = {
 <p>Cloudflare keeps every page view's beacon data for 7 days, then about one in ten of them, and the site can read those for six months.</p>
 <h2>Votes and dataset requests</h2>
 <p>A vote is stored under a salted hash of the date, the dataset, the address and the browser's user agent, so each browser counts once a day for each dataset. Because the date and the dataset are in the hash, the stored votes cannot show, without the salt, that two votes on different days or for different datasets came from the same browser. Only the total for each dataset is published.</p>
-<p>A vote holds the dataset, the date and the hash, and the store records the time it was written. It does not hold the address or the user agent, and without the salt the hash cannot be turned back into them. The salt is kept in the same private store as the votes, for as long as the votes are kept, and votes are kept indefinitely. Someone with access to that store could check whether a browser whose address and user agent they knew voted for a dataset on a given day. They could also find the address behind a vote by trying every IPv4 address with common user agents. A vote withdrawn on the day it was cast is deleted.</p>
+<p>A vote holds the dataset, the date and the hash, and the store records the time it was written. It does not hold the address or the user agent, and without the salt the hash cannot be turned back into them. Votes are kept indefinitely. The salt is a secret held in the site's hosting settings, outside the store that holds the votes, so someone with the store alone cannot test an address or a user agent against a vote. Someone with both the salt and the store could check whether a browser whose address and user agent they knew voted for a dataset on a given day. They could also find the address behind a vote by trying every IPv4 address with common user agents. Votes cast before the salt moved out of the store were hashed with an earlier salt kept in the store, and anyone with the store could test those votes in the same way while that earlier salt remains. The earlier salt is deleted when the site moves to the new one. If the salt is ever missing, the site records no votes and saves no dashboards. A vote withdrawn on the day it was cast is deleted. On the day the salt is set or changed, a vote cast earlier that day cannot be withdrawn, and the same browser can vote again that day.</p>
 <p>A link pasted into the backlog is looked up in the catalogue and is not stored. When it names a dataset there, it counts as a vote for that dataset in the same way. When it does not, the page suggests sending it to National Digital, which is up to you.</p>
 <h2>Saved dashboards</h2>
 <p>Saving a dashboard in the explorer stores the dataset, the version and the dashboard's layout, including any titles or filter values typed into it, with the time it was saved. Anyone with its link can open it. A saved dashboard is kept indefinitely so that its link keeps working. To ask for one to be removed, send its link to National Digital through its <a href="https://nationaldigital.com.au/contact/">contact page</a>. A browser that opened it before it was removed may keep its own copy for up to a year.</p>
-<p>To limit how many dashboards one browser can save in a day, each save also leaves a note that holds the date, the dashboard's id and a salted hash of the date, the address and the user agent, made like a vote's hash with no dataset, and the store records when it was written. The note therefore links that day's hash to the dashboards saved under it. Like a vote, it does not hold the address or the user agent, and without the salt the hash cannot be turned back into them. Someone with access to the store could check which dashboards a browser whose address and user agent they knew saved that day, or find the address behind a note by trying every IPv4 address with common user agents. The notes are kept indefinitely.</p>
+<p>To limit how many dashboards one browser can save in a day, each save also leaves a note that holds the date, the dashboard's id and a salted hash of the date, the address and the user agent, made like a vote's hash with no dataset, and the store records when it was written. The note therefore links that day's hash to the dashboards saved under it. Like a vote, it does not hold the address or the user agent, and without the salt the hash cannot be turned back into them. The salt is the same secret, held outside the store. Someone with both the salt and the store could check which dashboards a browser whose address and user agent they knew saved that day, or find the address behind a note by trying every IPv4 address with common user agents. Someone with the store alone could do neither, except for notes saved before the salt moved out of the store, which can be tested in the same way while the earlier salt remains. The notes are kept indefinitely.</p>
 <h2>Maps</h2>
 <p>A map panel in the explorer or in an embedded dashboard draws its background from OpenStreetMap's tile servers at tile.openstreetmap.org. While one is on screen, the browser asks those servers for tiles, so OpenStreetMap receives the browser's address and user agent and can tell the request came from publicdata.au. The <a href="https://osmfoundation.org/wiki/Privacy_Policy">OpenStreetMap Foundation privacy policy</a> covers what it receives and states no period for keeping tile requests. Apart from these tiles and Cloudflare, no page loads anything from another party.</p>
 <h2>The query API and the MCP server</h2>
@@ -3601,6 +3601,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                             },
                         ),
                         "404": {"description": "Not open for votes: live, building or unknown"},
+                        "503": {"description": "Votes are not being counted at the moment"},
                     },
                 },
                 "delete": {
@@ -3608,7 +3609,10 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                     "summary": "Remove today's vote from this browser",
                     "operationId": "unvote",
                     "parameters": [slug_p | {"schema": {"type": "string"}}],
-                    "responses": {"200": j("New count")},
+                    "responses": {
+                        "200": j("New count"),
+                        "503": {"description": "Votes are not being counted at the moment"},
+                    },
                 },
             },
             "/api/v1/datasets": {
@@ -3734,7 +3738,9 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                         "429": {
                             "description": "Over the fair-use limit for one address. Wait Retry-After seconds."
                         },
-                        "503": {"description": "The catalogue index is not loaded yet"},
+                        "503": {
+                            "description": "The catalogue index is not loaded yet, or votes are not being counted at the moment"
+                        },
                     },
                 }
             },
@@ -3787,6 +3793,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                         },
                         "413": {"description": "Over 32,768 bytes"},
                         "429": {"description": "100 new dashboards a day per browser"},
+                        "503": {"description": "Dashboards cannot be saved at the moment"},
                     },
                 }
             },

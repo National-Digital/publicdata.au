@@ -966,7 +966,7 @@ table with an FTS5 index over title, summary and publisher, once per harvest.
 it. A record the register has already planned votes under the register slug, so its votes and
 the entry's are one count. Votes are one object per browser per day per dataset in the private
 R2 bucket `publicdata-votes`, keyed by a salted hash of address and user agent, and a count is a
-prefix listing. `/api/v1/votes` reads one rollup object, `_counts.json` in the same bucket, which is recounted from the vote objects once it is a minute old. `/catalogue/aliases.json` maps each record id a register entry has claimed to the entry's slug, so votes cast under the id before the entry existed count for it, and a new vote under the id is stored under the slug. The salt is created on first use and never leaves the bucket. "Have a link?"
+prefix listing. `/api/v1/votes` reads one rollup object, `_counts.json` in the same bucket, which is recounted from the vote objects once it is a minute old. `/catalogue/aliases.json` maps each record id a register entry has claimed to the entry's slug, so votes cast under the id before the entry existed count for it, and a new vote under the id is stored under the slug. "Have a link?"
 resolves a pasted portal URL against the catalogue (`locate()` in directory.py and
 functions/_catalogue.js, held together by tests) and casts a vote for the record it names. A URL
 it does not hold is not stored; the answer points to National Digital's contact form. Both endpoints keep the query API's fair-use limit per address in the edge cache
@@ -978,6 +978,33 @@ CONTRIBUTING.md "Pick up a dataset task"). A daily workflow reads the votes and 
 records they name from the public API and writes issues from those records and the register
 alone, so text from a vote never reaches one. The deploy reads the open issues before the build
 (`contribute issues`, `build --tasks`) and the backlog and publisher pages link each one.
+
+A vote's key ends in the first 12 bytes of an HMAC-SHA-256 of the date, the dataset, the address
+and the user agent, keyed by the Pages secret `VOTE_SALT` (`voter()` in `functions/_lib.js`). The
+note behind the daily limit on dashboard saves uses the same hash with `_dash`, which no dataset
+slug can match, in place of the dataset. The secret is held in the Pages project's settings, outside the votes bucket, so someone
+who can read the bucket alone cannot test an address against a vote. Someone with the secret as
+well could, by trying every IPv4 address with common user agents. The hash is one HMAC because a
+slow hash would cost CPU on every vote and buys nothing while the secret stays secret.
+
+Without the secret, or with one under 32 characters, a vote, its withdrawal and a dashboard save
+answer 503 and store nothing. Counts and saved dashboards still load. Preview deployments get the
+secret only if it is set for the preview environment as well, and without it they refuse votes
+and dashboard saves. A new secret starts every browser's day again, so a browser can vote a
+second time on the day the secret changes, and cannot withdraw a vote it cast before the change.
+
+Votes made before the secret existed were keyed by a salt stored in the bucket as `_salt`. To set
+the secret, or to move from that salt to it:
+
+1. Set the secret for production from a fresh random value. Wrangler prompts for it, or reads it
+   from a pipe, so the value never appears on a command line or in the shell history:
+   `openssl rand -base64 32 | npx wrangler pages secret put VOTE_SALT --project-name publicdata-au`.
+   Nobody needs to see or keep the value, because replacing it costs only that day's dedupe.
+2. Merge the change that reads it, or redeploy. A Pages secret reaches only deployments made
+   after it is set.
+3. Confirm that a vote on `/backlog/` counts and that the explorer saves a dashboard.
+4. Delete the old salt, so the votes made with it can no longer be tested either:
+   `npx wrangler r2 object delete publicdata-votes/_salt --remote`.
 
 ## Site-wide files
 

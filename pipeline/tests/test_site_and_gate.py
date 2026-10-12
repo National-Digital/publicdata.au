@@ -1052,6 +1052,24 @@ def test_the_privacy_page_says_how_long_each_record_is_kept(fixture_site: Path) 
             assert p in sections[heading], (heading, p)
 
 
+def test_the_privacy_page_says_the_salt_is_held_outside_the_store(fixture_site: Path) -> None:
+    """The vote salt is the Pages secret VOTE_SALT, so the page may not place it in the store."""
+    page = (fixture_site / "privacy" / "index.html").read_text(encoding="utf-8")
+    sections = dict(re.findall(r"<h2[^>]*>(.*?)</h2>(.*?)(?=<h2|</main>)", page, re.DOTALL))
+    for heading in ("Votes and dataset requests", "Saved dashboards"):
+        assert "outside the store" in sections[heading], heading
+        assert "the store alone" in sections[heading], heading
+        assert "both the salt and the store" in sections[heading], heading
+    assert "same private store as the votes" not in page
+    assert "records no votes and saves no dashboards" in sections["Votes and dataset requests"]
+    for heading in ("Votes and dataset requests", "Saved dashboards"):
+        assert "earlier salt remains" in sections[heading], heading
+    assert "cannot be withdrawn" in sections["Votes and dataset requests"]
+    lib = (ROOT / "functions" / "_lib.js").read_text(encoding="utf-8")
+    assert "env.VOTE_SALT" in lib
+    assert "_salt" not in lib
+
+
 # Call sites in functions/ that store, delete, cache, query, log or fetch elsewhere, per file.
 # A count catches a new or removed call site; a change to what an existing call holds does not.
 BINDINGS = "|".join(
@@ -1070,7 +1088,6 @@ PRIVACY_CALLS = {
 PRIVACY_COUNTS = {
     "_api.js": {"put": 2, "query": 4},
     "_catalogue.js": {"query": 3},
-    "_lib.js": {"put": 1},
     "_limit.js": {"put": 1, "cache_put": 1},
     "_parquet.js": {"query": 1, "console": 2},
     "_served.js": {"query": 3},
