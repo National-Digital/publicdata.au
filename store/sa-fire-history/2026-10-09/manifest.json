@@ -1,0 +1,41 @@
+{
+  "dataset": "sa-fire-history",
+  "version": "2026-10-09",
+  "as_at": "",
+  "fetched_at": "2026-10-12T21:00:51+00:00",
+  "sha256": "c645f5489f38dab59bffd2d573f0dc923c534c9b19a57f2b39751a84f2968e2f",
+  "bytes": 98345992,
+  "filename": "FIREMGT_FireHistory_shp.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://www.waterconnect.sa.gov.au/Content/Downloads/DEWNR/FIREMGT_FireHistory_shp.zip",
+    "portal": "https://data.sa.gov.au/data",
+    "package": "fire-history",
+    "package_id": "e5434c77-9815-48e6-8ea7-fb35c78f6786",
+    "resource": "0f1d159a-6302-4e51-b0c3-6f6beb43ee9a",
+    "resource_name": "Fire History (ShapeFile)",
+    "resource_last_modified": null,
+    "package_modified": "2020-02-24T02:29:41.059487",
+    "package_version": null,
+    "etag": "80fcbb72e657dd1:0",
+    "http_last_modified": "Fri, 09 Oct 2026 12:05:17 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.sa.gov.au/data/api/3/action/package_show?id=fire-history",
+    "read_at": "2026-10-12T21:00:45+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
