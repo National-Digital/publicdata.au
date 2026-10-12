@@ -47,7 +47,8 @@ export async function onRequestPost({ request, env }) {
   const id = await viewId(record);
   const key = `dash/${id}.json`;
   if (!(await env.VOTES.head(key))) {
-    const who = await voter(request, env, 'dash');
+    // No dataset slug can match _dash, so this hash never equals a vote's.
+    const who = await voter(request, env, '_dash');
     const mine = await env.VOTES.list({ prefix: `dq/${today()}/${who}/`, limit: PER_DAY + 1 });
     if (mine.objects.length >= PER_DAY) {
       return json(

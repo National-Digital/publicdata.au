@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { SLUG, voter } from './_lib.js';
 import { canonical, problem, viewId } from './_views.js';
 
 const good = {
@@ -136,4 +137,23 @@ test('without the salt secret a save is refused and saved dashboards still open'
     assert.deepEqual([...env.VOTES.m.keys()], before);
     assert.equal((await onRequestGet({ env, params: { id } })).status, 200);
   }
+});
+
+test("the save limit's hash is keyed by a name no dataset slug can take", async () => {
+  const { onRequestPost } = await import('./api/v1/views.js');
+  const env = {
+    VOTES: bucket(),
+    VOTE_SALT: FAKE_SALT,
+    ASSETS: { fetch: async () => Response.json({ versions: ['2026-04-24'] }) },
+  };
+  const request = () =>
+    new Request('https://publicdata.au/api/v1/views', {
+      method: 'POST',
+      headers: { 'cf-connecting-ip': '203.0.113.5' },
+      body: JSON.stringify(good),
+    });
+  await onRequestPost({ request: request(), env });
+  const note = [...env.VOTES.m.keys()].find((k) => k.startsWith('dq/'));
+  assert.equal(note.split('/')[2], await voter(request(), env, '_dash'));
+  assert.equal(SLUG.test('_dash'), false);
 });

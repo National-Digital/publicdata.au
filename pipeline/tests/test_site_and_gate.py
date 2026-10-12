@@ -1061,6 +1061,9 @@ def test_the_privacy_page_says_the_salt_is_held_outside_the_store(fixture_site: 
         assert "both the salt and the store" in sections[heading], heading
     assert "same private store as the votes" not in page
     assert "records no votes and saves no dashboards" in sections["Votes and dataset requests"]
+    for heading in ("Votes and dataset requests", "Saved dashboards"):
+        assert "earlier salt remains" in sections[heading], heading
+    assert "cannot be withdrawn" in sections["Votes and dataset requests"]
     lib = (ROOT / "functions" / "_lib.js").read_text(encoding="utf-8")
     assert "env.VOTE_SALT" in lib
     assert "_salt" not in lib

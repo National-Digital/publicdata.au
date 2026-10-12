@@ -981,8 +981,8 @@ alone, so text from a vote never reaches one. The deploy reads the open issues b
 
 A vote's key ends in the first 12 bytes of an HMAC-SHA-256 of the date, the dataset, the address
 and the user agent, keyed by the Pages secret `VOTE_SALT` (`voter()` in `functions/_lib.js`). The
-note behind the daily limit on dashboard saves uses the same hash with `dash` in place of the
-dataset. The secret is held in the Pages project's settings, outside the votes bucket, so someone
+note behind the daily limit on dashboard saves uses the same hash with `_dash`, which no dataset
+slug can match, in place of the dataset. The secret is held in the Pages project's settings, outside the votes bucket, so someone
 who can read the bucket alone cannot test an address against a vote. Someone with the secret as
 well could, by trying every IPv4 address with common user agents. The hash is one HMAC because a
 slow hash would cost CPU on every vote and buys nothing while the secret stays secret.
