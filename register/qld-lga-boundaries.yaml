@@ -1,6 +1,6 @@
 slug: qld-lga-boundaries
 title: Local government area boundaries, Queensland
-status: building
+status: live
 topics:
 - places
 order: 273
@@ -22,7 +22,7 @@ faq:
   a: These are the Queensland Government's own boundaries, kept up to date as council areas change. The
     ABS layer is a statistical approximation of them, built from Mesh Blocks for one edition of the
     Australian Statistical Geography Standard.
-summary: The boundary, name and code of every local government area in Queensland, from the Queensland
+summary: The boundary, name and code of each of the 78 local government areas in Queensland, from the Queensland
   Government's administrative boundaries.
 description: The spatial representation of the local government areas of Queensland. Each feature carries
   the area's name, its abbreviated name, its local government area code and its area in square kilometres.
@@ -48,7 +48,7 @@ source:
   portal: https://www.data.qld.gov.au
   package: local-government-area-boundaries-queensland
   url: https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdministrativeBoundaries/MapServer/1
-  cadence: as council areas change
+  cadence: as council areas change, about once a year
 key:
 - lga_code
 geometry:
