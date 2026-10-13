@@ -1,8 +1,13 @@
 slug: tas-libraries-locations
 title: Libraries Tasmania locations
-status: building
+status: live
 topics:
 - community
+example:
+  group: wheelchair
+  metric: count
+  label: Libraries Tasmania locations by wheelchair access
+chart: none
 search_title: Tasmanian public library locations with addresses (Libraries Tasmania)
 also_known_as:
 - Libraries Tasmania branches
@@ -15,7 +20,7 @@ keywords:
 - Tasmania
 faq:
 - q: What is in each row?
-  a: One Libraries Tasmania location, with its name, street address, phone number, the path of its page
+  a: One Libraries Tasmania location, with its name, street address, phone number, email address, whether it has wheelchair access, the path of its page
     on the Libraries Tasmania site, and its longitude and latitude.
 - q: Does it give opening hours?
   a: No. Each location's opening hours are on its page on the Libraries Tasmania site.
@@ -24,9 +29,9 @@ faq:
     then are not reflected. This site checks the record for a new file and adds a dated version when it
     changes.
 summary: The locations of Libraries Tasmania's public libraries, one row per location, with address, phone
-  number and coordinates.
+  number, email address and coordinates.
 description: Libraries Tasmania's own list of its locations, published as GeoJSON on data.gov.au. Each row
-  carries the location's name, street address, phone number, the path of its page on the Libraries
+  carries the location's name, street address, phone number, email address, wheelchair access, the path of its page on the Libraries
   Tasmania site, and the point's longitude and latitude.
 publisher:
   name: Libraries Tasmania
@@ -74,6 +79,15 @@ fields:
   type: string
   description: The path of the location's page on the Libraries Tasmania site, as published, relative to
     https://libraries.tas.gov.au/.
+- name: email
+  label: Email
+  source: email
+  type: string
+- name: wheelchair
+  label: Wheelchair access
+  source: wheelchair
+  type: string
+  description: The publisher's yes or no for wheelchair access, as published.
 - name: longitude
   label: Longitude
   source: (longitude)
@@ -82,3 +96,6 @@ fields:
   label: Latitude
   source: (latitude)
   type: number
+omit:
+  floors: A list nested inside the Hobart location that gives the three services on its floors, each with
+    its own address and phone number, which a table row cannot hold as one value.
