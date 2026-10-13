@@ -1,0 +1,84 @@
+slug: tas-libraries-locations
+title: Libraries Tasmania locations
+status: building
+topics:
+- community
+search_title: Tasmanian public library locations with addresses (Libraries Tasmania)
+also_known_as:
+- Libraries Tasmania branches
+- Public libraries in Tasmania
+- Tasmanian library addresses and phone numbers
+keywords:
+- public libraries
+- library locations
+- Libraries Tasmania
+- Tasmania
+faq:
+- q: What is in each row?
+  a: One Libraries Tasmania location, with its name, street address, phone number, the path of its page
+    on the Libraries Tasmania site, and its longitude and latitude.
+- q: Does it give opening hours?
+  a: No. Each location's opening hours are on its page on the Libraries Tasmania site.
+- q: How current is it?
+  a: The file on data.gov.au was last replaced in April 2020. Locations that opened, moved or closed since
+    then are not reflected. This site checks the record for a new file and adds a dated version when it
+    changes.
+summary: The locations of Libraries Tasmania's public libraries, one row per location, with address, phone
+  number and coordinates.
+description: Libraries Tasmania's own list of its locations, published as GeoJSON on data.gov.au. Each row
+  carries the location's name, street address, phone number, the path of its page on the Libraries
+  Tasmania site, and the point's longitude and latitude.
+publisher:
+  name: Libraries Tasmania
+  short: Libraries Tasmania
+  jurisdiction: Tas
+  url: https://libraries.tas.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-13'
+  evidence: https://data.gov.au/data/dataset/libraries-tasmania-locations
+  attribution: Libraries Tasmania, Tasmanian Government, Libraries Tasmania locations, sourced {sourced},
+    https://data.gov.au/data/dataset/libraries-tasmania-locations, licensed under CC BY 4.0.
+source:
+  adapter: ckan-resource
+  portal: https://data.gov.au/data
+  package: libraries-tasmania-locations
+  resource: 599333a0-00c5-4682-9192-b78b253240bc
+  url: https://data.gov.au/data/dataset/libraries-tasmania-locations
+  cadence: irregular
+key:
+- title
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:4326
+  crs_note: Point coordinates from a GeoJSON file, which by the GeoJSON standard are WGS84 longitude and
+    latitude. They are published as given.
+row_label: Libraries
+fields:
+- name: title
+  label: Library
+  source: title
+  type: string
+- name: address
+  label: Address
+  source: address
+  type: string
+- name: phone
+  label: Phone
+  source: phone
+  type: string
+- name: url
+  label: Page on the Libraries Tasmania site
+  source: url
+  type: string
+  description: The path of the location's page on the Libraries Tasmania site, as published, relative to
+    https://libraries.tas.gov.au/.
+- name: longitude
+  label: Longitude
+  source: (longitude)
+  type: number
+- name: latitude
+  label: Latitude
+  source: (latitude)
+  type: number
