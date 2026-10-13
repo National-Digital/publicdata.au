@@ -1,0 +1,160 @@
+slug: au-population-by-lga-2025
+title: Estimated resident population by Local Government Area, age and sex, 2001 to 2025, Australia
+status: building
+topics:
+- people
+example:
+  where: {year: newest, sex_code: '3', age_code: TOT}
+  group: lga_name
+  metric: sum.population
+  label: Estimated resident population of each council area at 30 June of the newest year
+chart:
+  where: {sex_code: '3', age_code: TOT}
+  split: none
+  metric: sum.population
+  label: Estimated resident population
+sample:
+  where: {year: newest, sex_code: '3', age_code: TOT}
+  order: [population.desc]
+  spread: none
+  label: The ten council areas with the most residents at 30 June of the newest year, most first.
+order: 526
+publisher:
+  name: Australian Bureau of Statistics
+  short: ABS
+  jurisdiction: Cth
+  url: https://www.abs.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-13'
+  evidence: https://www.abs.gov.au/website-privacy-copyright-and-disclaimer
+  statement: All material presented on this website is provided under a Creative Commons Attribution 4.0
+    International licence
+  attribution: Australian Bureau of Statistics, ERP by LGA (2025), Age and Sex, 2001 to 2025 (ABS_ANNUAL_ERP_LGA2025),
+    ABS Data Explorer, sourced {sourced}, https://dataexplorer.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=ABS_ANNUAL_ERP_LGA2025&df[ag]=ABS&df[vs]=1.0.0,
+    licensed under CC BY 4.0.
+temporal_start: '2001-06-30'
+search_title: Population of every council area by age and sex each year since 2001, Australia (ABS)
+also_known_as:
+- Estimated resident population by LGA
+- Council area population Australia
+- Population by Local Government Area ABS
+- Regional population by age and sex, LGA
+keywords:
+- population
+- estimated resident population
+- council area
+- LGA
+- age and sex
+- regional population
+- ABS
+faq:
+- q: What is in each row?
+  a: The ABS's estimate of the people usually resident in one council area at 30 June of one year from 2001,
+    for one sex and one five-year age group. The ABS's rows for both sexes together and for all ages are kept,
+    so a council's total population is the row with sex code `3` and age code `TOT`.
+- q: Which council boundaries are used?
+  a: The Local Government Areas of the ABS's 2025 edition, the same edition as the council boundaries dataset
+    here. The ABS has re-estimated every year from 2001 on those boundaries, so a council's figures for earlier
+    years describe the area it covers in 2025. A table on another edition's boundaries is a separate dataset,
+    because the ABS changes some codes between editions.
+- q: Are the figures final?
+  a: The ABS revises recent years when later census and migration data arrive. Each yearly release replaces the
+    figures for the years it revises, and this site keeps every release as a dated version.
+- q: What do the codes beginning with the state digit and ending in 99 mean?
+  a: The ABS gives each state rows for its unincorporated area, for people with no usual address, and for
+    people offshore or on ships. They are kept as the ABS publishes them and are not council areas.
+summary: The estimated resident population of every Australian council area at 30 June each year since 2001, by
+  sex and five-year age group, on the ABS's 2025 council boundaries. Updated yearly.
+description: The ABS Data Explorer table ABS_ANNUAL_ERP_LGA2025, estimated resident population by Local Government
+  Area (LGA 2025), age and sex, 2001 to 2025, read for Local Government Areas only. Each row is one year, council
+  area, sex and age group, with the estimated number of residents at 30 June and the ABS observation status. The
+  ABS codes are kept beside the names it gives them.
+source:
+  adapter: file
+  url: https://data.api.abs.gov.au/rest/data/ABS,ABS_ANNUAL_ERP_LGA2025,1.0.0/ERP...LGA2025.A?format=csvfilewithlabels
+  format: csv
+  cadence: yearly
+key:
+- lga_code
+- year
+- sex_code
+- age_code
+partition_by:
+- sex
+row_label: Council area population by age and sex
+fields:
+- name: lga_code
+  label: Council area code (LGA 2025)
+  source: LGA_2025
+  type: string
+- name: lga_name
+  label: Council area (LGA 2025)
+  source: Region
+  type: string
+- name: year
+  label: Year
+  source: TIME_PERIOD
+  type: integer
+  description: The year whose 30 June the estimate is for.
+- name: sex_code
+  label: Sex code
+  source: SEX_ABS
+  type: string
+- name: sex
+  label: Sex
+  source: Sex
+  type: string
+- name: age_code
+  label: Age code
+  source: AGE
+  type: string
+- name: age
+  label: Age group
+  source: Age
+  type: string
+- name: population
+  label: Estimated resident population
+  source: OBS_VALUE
+  type: integer
+- name: obs_status
+  label: Observation status
+  source: OBS_STATUS
+  type: string
+- name: obs_status_meaning
+  label: Observation status meaning
+  source: Observation Status
+  type: string
+omit:
+  STRUCTURE: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label or
+    code beside a kept column.
+  STRUCTURE_ID: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label
+    or code beside a kept column.
+  STRUCTURE_NAME: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label
+    or code beside a kept column.
+  ACTION: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label or code
+    beside a kept column.
+  MEASURE: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label or code
+    beside a kept column.
+  Measure: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label or code
+    beside a kept column.
+  REGION_TYPE: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label
+    or code beside a kept column.
+  Region Type: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label
+    or code beside a kept column.
+  FREQUENCY: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label or
+    code beside a kept column.
+  Frequency: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label or
+    code beside a kept column.
+  Time Period: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label
+    or code beside a kept column.
+  Observation Value: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the
+    label or code beside a kept column.
+  UNIT_MEASURE: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label
+    or code beside a kept column.
+  Unit of Measure: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label
+    or code beside a kept column.
+  OBS_COMMENT: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the label
+    or code beside a kept column.
+  Observation Comment: An SDMX column the ABS adds to every export, which is the same on every row, blank, or the
+    label or code beside a kept column.
