@@ -1,20 +1,20 @@
 slug: au-population-by-lga-2025
 title: Estimated resident population by Local Government Area, age and sex, 2001 to 2025, Australia
-status: building
+status: live
 topics:
 - people
 example:
-  where: {year: newest, sex_code: '3', age_code: TOT}
+  where: {year: newest, sex: Persons, age: Total}
   group: lga_name
   metric: sum.population
   label: Estimated resident population of each council area at 30 June of the newest year
 chart:
-  where: {sex_code: '3', age_code: TOT}
+  where: {sex: Persons, age: Total}
   split: none
   metric: sum.population
   label: Estimated resident population
 sample:
-  where: {year: newest, sex_code: '3', age_code: TOT}
+  where: {year: newest, sex: Persons, age: Total}
   order: [population.desc]
   spread: none
   label: The ten council areas with the most residents at 30 June of the newest year, most first.
@@ -72,7 +72,7 @@ description: The ABS Data Explorer table ABS_ANNUAL_ERP_LGA2025, estimated resid
   ABS codes are kept beside the names it gives them.
 source:
   adapter: file
-  url: https://data.api.abs.gov.au/rest/data/ABS,ABS_ANNUAL_ERP_LGA2025,1.0.0/ERP...LGA2025.A?format=csvfilewithlabels
+  url: https://data.api.abs.gov.au/rest/data/ABS,ABS_ANNUAL_ERP_LGA2025,1.0.0/ERP....LGA2025.A?format=csvfilewithlabels
   format: csv
   cadence: yearly
 key:
