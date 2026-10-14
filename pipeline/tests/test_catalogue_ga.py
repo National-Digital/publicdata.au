@@ -1,3 +1,4 @@
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -84,18 +85,145 @@ def test_ecat_parties_all_place_under_the_curated_geoscience_australia() -> None
         assert (pub.jurisdiction, pub.level) == ("Cth", "federal")
 
 
-def test_ecat_licences_are_held_for_review_until_the_citation_form_is_read() -> None:
+def test_ecat_licences_come_from_the_licence_each_record_cites() -> None:
     by = by_title()
-    # GA cites its licence by title, alternate title "CC-BY" and edition "4.0", beside a
-    # copyright line; the words beside the title hold the record for review.
+    # GA cites its licence by title with "CC-BY", "4.0", an addressee and a copyright line, and
+    # marks the resource unclassified in a security constraint beside it.
     geoid = by["AUSGeoid98 v.1.0 data fi"]
-    assert geoid["licence"] == catalogue.ASSESSING
-    assert "Creative Commons Attribution 4.0 International Licence" in geoid["licence_title"]
-    assert geoid["open"] is False
+    assert geoid["licence"] == "CC-BY-4.0"
+    assert geoid["open"] is True
+    assert geoid["licence_title"].startswith(
+        "Creative Commons Attribution 4.0 International Licence"
+    )
     # A record with GA's licence id and no citation names no licence in its own words.
     quake = by["Vanuatu Earthquake 17 De"]
     assert quake["licence"] == catalogue.ASSESSING
     assert "Commonwealth of Australia (Geoscience Australia)" in quake["licence_title"]
+
+
+SYSTEM = "Australian Government Security Classification System"
+CITED = {
+    "alternate": "CC-BY",
+    "edition": "4.0",
+    "addressee": "Any",
+    "release": "",
+    "dissemination": "",
+    "use": '<gmd:MD_RestrictionCode codeListValue="license"/>',
+    "access": '<gmd:MD_RestrictionCode codeListValue="license">license</gmd:MD_RestrictionCode>',
+    "other": "© Commonwealth of Australia (Geoscience Australia) 2025",
+    "security": "unclassified",
+    "security_text": "",
+    "security_title": SYSTEM,
+    "system": "Australian Government Security ClassificationSystem",
+    "note": "",
+}
+
+
+def cs(t: str) -> str:
+    return f"<gco:CharacterString>{t}</gco:CharacterString>"
+
+
+def cited(**kw: str) -> ET.Element:
+    """GA's licence and security constraints as eCat writes them, with fields replaced by kw."""
+    f = CITED | kw
+    dissemination = (
+        f'<gmd:disseminationConstraints><gmd:MD_RestrictionCode codeListValue="{f["dissemination"]}"/>'
+        "</gmd:disseminationConstraints>"
+        if f["dissemination"]
+        else ""
+    )
+    note = f"<gmd:userNote>{cs(f['note'])}</gmd:userNote>" if f["note"] else ""
+    return ET.fromstring(  # noqa: S314 - the test's own literal
+        '<gmd:MD_Metadata xmlns:gmd="http://www.isotc211.org/2005/gmd" '
+        'xmlns:gco="http://www.isotc211.org/2005/gco"><gmd:identificationInfo>'
+        "<gmd:MD_DataIdentification><gmd:resourceConstraints>"
+        '<gmd:MD_LegalConstraints uuid="urn:ga-licences:232"><gmd:useLimitation/><gmd:reference>'
+        "<gmd:CI_Citation>"
+        f"<gmd:title>{cs('Creative Commons Attribution 4.0 International Licence')}</gmd:title>"
+        f"<gmd:alternateTitle>{cs(f['alternate'])}</gmd:alternateTitle>"
+        f'<gmd:date gco:nilReason="missing"/><gmd:edition>{cs(f["edition"])}</gmd:edition>'
+        "</gmd:CI_Citation></gmd:reference><gmd:releasability><gmd:MD_Releasability>"
+        "<gmd:addressee><gmd:CI_ResponsibleParty>"
+        f"<gmd:individualName>{cs(f['addressee'])}</gmd:individualName>"
+        f"<gmd:positionName>{cs(f['addressee'])}</gmd:positionName><gmd:role><gmd:CI_RoleCode "
+        'codeListValue="user">user</gmd:CI_RoleCode></gmd:role></gmd:CI_ResponsibleParty>'
+        f"</gmd:addressee><gmd:statement>{cs(f['release'])}</gmd:statement>{dissemination}"
+        "</gmd:MD_Releasability></gmd:releasability>"
+        f"<gmd:useConstraints>{f['use']}</gmd:useConstraints>"
+        f"<gmd:accessConstraints>{f['access']}</gmd:accessConstraints>"
+        f"<gmd:otherConstraints>{cs(f['other'])}</gmd:otherConstraints>"
+        "</gmd:MD_LegalConstraints></gmd:resourceConstraints><gmd:resourceConstraints>"
+        "<gmd:MD_SecurityConstraints><gmd:reference><gmd:CI_Citation>"
+        f"<gmd:title>{cs(f['security_title'])}</gmd:title></gmd:CI_Citation></gmd:reference>"
+        "<gmd:classification><gmd:MD_ClassificationCode "
+        f'codeListValue="{f["security"]}">{f["security_text"]}</gmd:MD_ClassificationCode>'
+        f"</gmd:classification>{note}"
+        f"<gmd:classificationSystem>{cs(f['system'])}</gmd:classificationSystem>"
+        "</gmd:MD_SecurityConstraints></gmd:resourceConstraints></gmd:MD_DataIdentification>"
+        "</gmd:identificationInfo></gmd:MD_Metadata>"
+    )
+
+
+def lic(**kw: str) -> str:
+    return catalogue.csw_licence(cited(**kw))[0]
+
+
+def test_a_cited_licence_is_read_in_ecat_s_shape() -> None:
+    assert lic() == "CC-BY-4.0"
+    assert lic(alternate="CC BY", other="(c) State of New South Wales 2020") == "CC-BY-4.0"
+    assert lic(other="Copyright Geoscience Australia 2019", addressee="Any user") == "CC-BY-4.0"
+    assert lic(system=SYSTEM, security_text="unclassified") == "CC-BY-4.0"
+
+
+def test_a_cited_licence_with_other_terms_beside_it_is_held_or_closed() -> None:
+    # An edition that is not the licence's version, or a short form of another licence.
+    assert lic(edition="3.0") == catalogue.ASSESSING
+    assert lic(alternate="CC BY-NC") == catalogue.ASSESSING
+    # A copyright line names a holder and a year, and nothing more.
+    assert lic(other="© Commonwealth, non-commercial use 2025") == catalogue.ASSESSING
+    assert lic(other="© Commonwealth of Australia 2025. All rights reserved") == catalogue.ASSESSING
+    assert lic(other="© Commonwealth, third party material excepted 2025") == catalogue.ASSESSING
+    assert lic(other="Not to be used for navigation") == catalogue.ASSESSING
+    # Use and access constraints hold one code that adds no terms.
+    assert lic(access=cs("Non-commercial only")) == catalogue.ASSESSING
+    assert lic(use=f'<gmd:MD_RestrictionCode codeListValue="license"/>{cs("NC")}') == (
+        catalogue.ASSESSING
+    )
+    assert lic(use='<gmd:MD_RestrictionCode codeListValue="trademark"/>') == catalogue.ASSESSING
+    assert lic(use='<gmd:MD_RestrictionCode codeListValue="restricted"/>') == "restricted"
+    # Releasability names everyone, and no statement or dissemination constraint.
+    assert lic(addressee="Australian Government agencies") == catalogue.ASSESSING
+    assert lic(release="Australian Government use only") == catalogue.ASSESSING
+    assert lic(dissemination="unrestricted") == catalogue.ASSESSING
+
+
+def test_a_restriction_code_no_list_names_holds_a_stated_licence() -> None:
+    def stated(code: str) -> str:
+        m = ET.fromstring(  # noqa: S314 - the test's own literal
+            '<gmd:MD_Metadata xmlns:gmd="http://www.isotc211.org/2005/gmd" '
+            'xmlns:gco="http://www.isotc211.org/2005/gco"><gmd:identificationInfo>'
+            "<gmd:MD_DataIdentification><gmd:resourceConstraints><gmd:MD_LegalConstraints>"
+            f'<gmd:useConstraints><gmd:MD_RestrictionCode codeListValue="{code}"/>'
+            f"</gmd:useConstraints><gmd:otherConstraints>{cs('CC BY 4.0')}</gmd:otherConstraints>"
+            "</gmd:MD_LegalConstraints></gmd:resourceConstraints></gmd:MD_DataIdentification>"
+            "</gmd:identificationInfo></gmd:MD_Metadata>"
+        )
+        return catalogue.csw_licence(m)[0]
+
+    assert stated("unrestricted") == "CC-BY-4.0"
+    assert stated("licenceUnrestricted") == "CC-BY-4.0"
+    assert stated("trademark") == catalogue.ASSESSING
+    assert stated("private") == "private"
+
+
+def test_only_an_unclassified_marking_under_the_government_system_states_no_terms() -> None:
+    assert lic(security="confidential") == "confidential"
+    assert lic(security="sensitive") == catalogue.ASSESSING
+    assert lic(security_text="OFFICIAL: Sensitive") == catalogue.ASSESSING
+    assert lic(security_text="Sensitive: Cabinet") == catalogue.ASSESSING
+    assert lic(system="Protective Security Policy Framework") == catalogue.ASSESSING
+    assert lic(security_title="Handling instructions") == catalogue.ASSESSING
+    assert lic(note="Release to government agencies only") == catalogue.ASSESSING
 
 
 def gov(i: int, title: str, org: str = "geoscience-australia-data") -> Record:

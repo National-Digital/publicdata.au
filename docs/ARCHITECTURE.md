@@ -1092,8 +1092,9 @@ licence in the metadata constraints, which are read only when a record has no re
 constraints. Any other statement holds the record as `assessing`, which is not open.
 Other Tasmanian agencies publish on data.gov.au. Geoscience Australia's eCat is read the same way
 as theLIST. Its records name the agency or one of its units as custodian, and those names are
-curated as one publisher. eCat cites a licence by name with an alternate title, an edition and a
-copyright line beside it, so its records are held as `assessing`. data.gov.au's copies of theLIST
+curated as one publisher. eCat cites a licence by a known wording, with its short form, its
+version, an addressee and a copyright line beside it, and such a citation is read as one
+statement. A security marking that says only "unclassified" states no terms. data.gov.au's copies of theLIST
 and eCat are replaced by title, since its search index drops their harvest source. A copy whose
 title the source does not list is kept. Each record is
 re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as an

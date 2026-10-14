@@ -126,7 +126,23 @@
             </gmd:MD_LegalConstraints>
           </gmd:resourceConstraints>
           <gmd:resourceConstraints>
-            </gmd:resourceConstraints>
+            <gmd:MD_SecurityConstraints>
+              <gmd:reference>
+                <gmd:CI_Citation>
+                  <gmd:title>
+                    <gco:CharacterString>Australian Government Security ClassificationSystem</gco:CharacterString>
+                  </gmd:title>
+                  <gmd:date gco:nilReason="missing" />
+                  <gmd:editionDate>
+                    <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+                  </gmd:editionDate>
+                </gmd:CI_Citation>
+              </gmd:reference>
+              <gmd:classification>
+                <gmd:MD_ClassificationCode codeList="codeListLocation#MD_ClassificationCode" codeListValue="unclassified" />
+              </gmd:classification>
+            </gmd:MD_SecurityConstraints>
+          </gmd:resourceConstraints>
         </gmd:MD_DataIdentification>
       </gmd:identificationInfo>
       <gmd:distributionInfo>
@@ -332,7 +348,23 @@
         </gmd:MD_Distribution>
       </gmd:distributionInfo>
       <gmd:metadataConstraints>
-        </gmd:metadataConstraints>
+        <gmd:MD_SecurityConstraints>
+          <gmd:reference>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>Australian Government Security Classification System</gco:CharacterString>
+              </gmd:title>
+              <gmd:date gco:nilReason="missing" />
+              <gmd:editionDate>
+                <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+              </gmd:editionDate>
+            </gmd:CI_Citation>
+          </gmd:reference>
+          <gmd:classification>
+            <gmd:MD_ClassificationCode codeList="codeListLocation#MD_ClassificationCode" codeListValue="unclassified" />
+          </gmd:classification>
+        </gmd:MD_SecurityConstraints>
+      </gmd:metadataConstraints>
     </gmd:MD_Metadata>
     <gmd:MD_Metadata>
       <gmd:fileIdentifier>
@@ -477,6 +509,12 @@ A Global Navigation Satell</gco:CharacterString>
                 <gmd:MD_Releasability>
                   <gmd:addressee>
                     <gmd:CI_ResponsibleParty>
+                      <gmd:individualName>
+                        <gco:CharacterString>Any</gco:CharacterString>
+                      </gmd:individualName>
+                      <gmd:positionName>
+                        <gco:CharacterString>Any</gco:CharacterString>
+                      </gmd:positionName>
                       <gmd:role>
                         <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="user">user</gmd:CI_RoleCode>
                       </gmd:role>
@@ -499,7 +537,26 @@ A Global Navigation Satell</gco:CharacterString>
             </gmd:MD_LegalConstraints>
           </gmd:resourceConstraints>
           <gmd:resourceConstraints>
-            </gmd:resourceConstraints>
+            <gmd:MD_SecurityConstraints>
+              <gmd:reference>
+                <gmd:CI_Citation>
+                  <gmd:title>
+                    <gco:CharacterString>Australian Government Security Classification System</gco:CharacterString>
+                  </gmd:title>
+                  <gmd:date gco:nilReason="missing" />
+                  <gmd:editionDate>
+                    <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+                  </gmd:editionDate>
+                </gmd:CI_Citation>
+              </gmd:reference>
+              <gmd:classification>
+                <gmd:MD_ClassificationCode codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#MD_ClassificationCode" codeListValue="unclassified" />
+              </gmd:classification>
+              <gmd:classificationSystem>
+                <gco:CharacterString>Australian Government Security Classification System</gco:CharacterString>
+              </gmd:classificationSystem>
+            </gmd:MD_SecurityConstraints>
+          </gmd:resourceConstraints>
         </gmd:MD_DataIdentification>
       </gmd:identificationInfo>
       <gmd:distributionInfo>
@@ -538,7 +595,23 @@ A Global Navigation Satell</gco:CharacterString>
         </gmd:MD_Distribution>
       </gmd:distributionInfo>
       <gmd:metadataConstraints>
-        </gmd:metadataConstraints>
+        <gmd:MD_SecurityConstraints>
+          <gmd:reference>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>Australian Government Security Classification System</gco:CharacterString>
+              </gmd:title>
+              <gmd:date gco:nilReason="missing" />
+              <gmd:editionDate>
+                <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+              </gmd:editionDate>
+            </gmd:CI_Citation>
+          </gmd:reference>
+          <gmd:classification>
+            <gmd:MD_ClassificationCode codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#MD_ClassificationCode" codeListValue="unclassified" />
+          </gmd:classification>
+        </gmd:MD_SecurityConstraints>
+      </gmd:metadataConstraints>
     </gmd:MD_Metadata>
     <gmd:MD_Metadata>
       <gmd:fileIdentifier>
@@ -657,7 +730,23 @@ A Global Navigation Satell</gco:CharacterString>
             </gmd:MD_LegalConstraints>
           </gmd:resourceConstraints>
           <gmd:resourceConstraints>
-            </gmd:resourceConstraints>
+            <gmd:MD_SecurityConstraints>
+              <gmd:reference>
+                <gmd:CI_Citation>
+                  <gmd:title>
+                    <gco:CharacterString>Australian Government Security ClassificationSystem</gco:CharacterString>
+                  </gmd:title>
+                  <gmd:date gco:nilReason="missing" />
+                  <gmd:editionDate>
+                    <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+                  </gmd:editionDate>
+                </gmd:CI_Citation>
+              </gmd:reference>
+              <gmd:classification>
+                <gmd:MD_ClassificationCode codeList="codeListLocation#MD_ClassificationCode" codeListValue="unclassified" />
+              </gmd:classification>
+            </gmd:MD_SecurityConstraints>
+          </gmd:resourceConstraints>
         </gmd:MD_DataIdentification>
       </gmd:identificationInfo>
       <gmd:distributionInfo>
@@ -726,7 +815,23 @@ A Global Navigation Satell</gco:CharacterString>
         </gmd:MD_Distribution>
       </gmd:distributionInfo>
       <gmd:metadataConstraints>
-        </gmd:metadataConstraints>
+        <gmd:MD_SecurityConstraints>
+          <gmd:reference>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>Australian Government Security ClassificationSystem</gco:CharacterString>
+              </gmd:title>
+              <gmd:date gco:nilReason="missing" />
+              <gmd:editionDate>
+                <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+              </gmd:editionDate>
+            </gmd:CI_Citation>
+          </gmd:reference>
+          <gmd:classification>
+            <gmd:MD_ClassificationCode codeList="codeListLocation#MD_ClassificationCode" codeListValue="unclassified" />
+          </gmd:classification>
+        </gmd:MD_SecurityConstraints>
+      </gmd:metadataConstraints>
     </gmd:MD_Metadata>
   </csw:SearchResults>
 </csw:GetRecordsResponse>

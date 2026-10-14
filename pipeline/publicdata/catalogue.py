@@ -1207,6 +1207,8 @@ CSW_OPEN_CODES = {
     },
     "MD_ClassificationCode": {"unclassified"},
 }  # fmt: skip
+# The security classification system an unclassified marking may name, folded.
+CSW_SECURITY_SYSTEM = "australian government security classification system"
 # Labels a catalogue writes beside a licence that add no terms, once folded like a wording.
 CSW_LABELS = {"other", "licence", "other licence", "other restrictions", "otherrestrictions"}
 # Online resource protocols, by prefix, onto the format vocabulary.
@@ -1571,14 +1573,139 @@ def _csw_licence_wording(text: str) -> str:
     return CSW_LICENCES.get(re.sub(r"\s+licence$", "", t), "")
 
 
-def _csw_constraints(blocks: Iterable[ET.Element]) -> tuple[list[str], dict[str, str], str, bool]:
+def _csw_local(el: ET.Element) -> str:
+    return el.tag.rsplit("}", 1)[-1]
+
+
+def _csw_copyright(text: str) -> bool:
+    """Whether a statement only names who holds copyright, such as "© State of X 2025"."""
+    t = _csw_fold(text)
+    m = re.fullmatch(r"(?:©|\(c\)|copyright)\s*([a-z ()&,-]{2,120})\s(?:19|20)\d\d", t)
+    return bool(m) and not re.search(
+        r"\b(reserved|licen[cs]e[ds]?|permission|not|may|must|only|commercial|nc|nd|derivative"
+        r"|third|party|except|restrict\w*|prohibit\w*|cannot|use|internal|terms|conditions"
+        r"|subject|redistribut\w*)\b",
+        t,
+    )
+
+
+def _csw_codes_only(c: ET.Element) -> bool:
+    """Whether an access or use constraint holds nothing but one restriction code that adds no terms."""
+    kids = list(c)
+    if len(kids) != 1 or _csw_local(kids[0]) != "MD_RestrictionCode" or list(kids[0]):
+        return False
+    code = kids[0].get("codeListValue") or _csw_text(kids[0])
+    return _csw_text(kids[0]) in ("", code) and code in CSW_OPEN_CODES["MD_RestrictionCode"]
+
+
+def _csw_anyone(addressee: ET.Element) -> bool:
+    """Whether a releasability addressee names everyone: "Any", "Any user" and a user role."""
+    names = [
+        _csw_fold(_csw_text(n))
+        for n in addressee.iterfind(".//gmd:CI_ResponsibleParty/*", CSW_NS)
+        if _csw_local(n) != "role" and _csw_text(n)
+    ]
+    return bool(names) and all(n in ("any", "any user") for n in names)
+
+
+def _csw_cited(lc: ET.Element) -> str:
+    """The licence an MD_LegalConstraints cites by title, when nothing beside it adds terms.
+
+    Beside the title may stand the licence's short form as alternate title, its version as
+    edition, an addressee and a copyright line.
+    """
+    cite = lc.find("gmd:reference/gmd:CI_Citation", CSW_NS)
+    title = _csw_text(cite, "gmd:title") if cite is not None else ""
+    lid = "" if re.match(r"https?://", title) else _csw_licence_wording(title)
+    if cite is None or not lid or any(el.get(XLINK_HREF) for el in lc.iter()):
+        return ""
+    version = re.search(r"\d\.\d", lid)
+    fits: dict[str, Callable[[str], bool]] = {
+        "title": lambda _: True,
+        "alternateTitle": lambda t: lid.startswith("CC-BY-") and _csw_fold(t) == "cc by",
+        "edition": lambda t: version is not None and t == version[0],
+    }
+    for c in cite:
+        tag, text = _csw_local(c), _csw_text(c)
+        if text and not (tag in fits and fits[tag](text)):
+            return ""
+    for c in lc:
+        tag, text = _csw_local(c), _csw_text(c)
+        if tag == "releasability":
+            ok = all(
+                (_csw_local(r) == "addressee" and _csw_anyone(r))
+                or (_csw_local(r) == "statement" and not _csw_text(r))
+                for r in c.iterfind("gmd:MD_Releasability/*", CSW_NS)
+            )
+        elif tag == "otherConstraints":
+            ok = _csw_copyright(text)
+        elif tag in ("useConstraints", "accessConstraints"):
+            ok = _csw_codes_only(c)
+        else:
+            ok = tag == "reference" or not text
+        if not ok:
+            return ""
+    return lid
+
+
+def _csw_unclassified(sc: ET.Element) -> bool:
+    """Whether a security constraint only says the resource is unclassified, under which system."""
+    code = sc.find("gmd:classification/gmd:MD_ClassificationCode", CSW_NS)
+    if code is None or code.get("codeListValue") != "unclassified":
+        return False
+    if _csw_text(code) not in ("", "unclassified"):
+        return False
+    names = [
+        n
+        for n in (
+            _csw_text(sc, "gmd:reference/gmd:CI_Citation/gmd:title"),
+            _csw_text(sc, "gmd:classificationSystem"),
+        )
+        if n
+    ]
+    # eCat writes "ClassificationSystem" as one word in some records.
+    systems = {
+        re.sub(r"classificationsystem$", "classification system", _csw_fold(n)) for n in names
+    }
+    said = [
+        el
+        for el in sc.iter()
+        if _csw_local(el) in ("CharacterString", "Anchor", "LocalisedCharacterString")
+        and _csw_text(el)
+    ]
+    return systems == {CSW_SECURITY_SYSTEM} and len(said) == len(names)
+
+
+def _csw_whole(blocks: list[ET.Element]) -> tuple[set[ET.Element], dict[str, str], list[str]]:
+    """The constraint elements read whole: licences cited by title and unclassified markings.
+
+    Returns those elements and their descendants, the licences cited and their statements.
+    """
+    quiet: set[ET.Element] = set()
+    found: dict[str, str] = {}
+    texts: list[str] = []
+    for block in blocks:
+        for lc in block.iterfind(".//gmd:MD_LegalConstraints", CSW_NS):
+            if lid := _csw_cited(lc):
+                quiet.update(lc.iter())
+                title = _csw_text(lc, "gmd:reference/gmd:CI_Citation/gmd:title")
+                found.setdefault(lid, title)
+                copyright_ = [_csw_text(o) for o in lc.iterfind("gmd:otherConstraints", CSW_NS)]
+                texts += [t for t in (title, *copyright_) if t and t not in texts]
+        for sc in block.iterfind(".//gmd:MD_SecurityConstraints", CSW_NS):
+            if _csw_unclassified(sc):
+                quiet.update(sc.iter())
+    return quiet, found, texts
+
+
+def _csw_constraints(blocks: list[ET.Element]) -> tuple[list[str], dict[str, str], str, bool]:
     """What constraint blocks state.
 
     That is every statement, the licences they name, any closing code, and whether any
-    statement is neither a licence nor a label.
+    statement is neither a licence nor a label. A licence cited by title is one statement, and
+    an unclassified security marking states no terms.
     """
-    texts: list[str] = []
-    found: dict[str, str] = {}
+    quiet, found, texts = _csw_whole(blocks)
     closed, other = "", False
     for el in (el for block in blocks for el in block.iter()):
         tag = el.tag.rsplit("}", 1)[-1]
@@ -1587,6 +1714,8 @@ def _csw_constraints(blocks: Iterable[ET.Element]) -> tuple[list[str], dict[str,
             closed = code if code in CSW_CLOSED else closed
             # A code no list names may carry terms of its own.
             other = other or bool(code and code not in CSW_CLOSED | CSW_OPEN_CODES[tag])
+        if el in quiet:
+            continue
         said = (
             [_csw_text(el)]
             if tag in ("CharacterString", "Anchor", "LocalisedCharacterString")
@@ -1608,9 +1737,9 @@ def csw_licence(m: ET.Element) -> tuple[str, str]:
 
     The resource's constraints are read. The metadata's are read only when the record has no
     resource constraints at all, since some catalogues write the data licence there. A record
-    whose statements are one wording in CSW_LICENCES or one Creative Commons deed URL, with
-    nothing beside them but labels in CSW_LABELS, has that licence. Anything else is held as
-    `assessing`.
+    whose statements are one wording in CSW_LICENCES, one Creative Commons deed URL or one
+    licence cited by such a wording as `_csw_cited` reads it, with nothing beside them but labels
+    in CSW_LABELS, has that licence. Anything else is held as `assessing`.
     """
     own = m.findall("gmd:identificationInfo/*/gmd:resourceConstraints", CSW_NS)
     texts, found, closed, other = _csw_constraints(
