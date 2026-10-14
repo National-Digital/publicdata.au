@@ -295,24 +295,34 @@ def _council_base(name: str) -> str:
 
 
 def suggest(  # noqa: C901, PLR0912, PLR0915 - one rule per way an organisation is matched
-    records: Iterable[CatalogueRecord], curated: list[Publisher], lgas: dict[str, str]
+    records: Iterable[CatalogueRecord],
+    curated: list[Publisher],
+    lgas: dict[str, str],
+    portal_jur: Mapping[str, str],
+    hubs: Iterable[str] = (),
 ) -> list[Suggestion]:
     """Proposed curation for the organisations that the portal cannot place.
 
-    These are the organisations data.gov.au and the Infrastructure catalogue list. The proposal
-    gives the jurisdiction, the level, a cleaned name and a merge with the same body on a state
-    portal. `lgas` maps a council area's name to its jurisdiction. Output is for review, never
-    applied automatically.
+    These are the organisations data.gov.au and the Infrastructure catalogue list, and those of
+    each portal in `hubs`, a hub of many bodies. The proposal gives the jurisdiction, the level,
+    a cleaned name and a merge with the same body on a state portal. `portal_jur` maps a portal
+    code to its jurisdiction's URL segment, as `resolve` takes it. `lgas` maps a council area's
+    name to its jurisdiction. Output is for review, never applied automatically.
     """
+
+    def jur_of(portal: str) -> str:
+        return PORTAL_JUR[portal_jur[portal]]
+
     claimed = {o for p in curated for o in p.orgs}
+    home = {"gov": "Cth", "infra": "Cth"} | {c: jur_of(c) for c in hubs}
     titles: dict[str, str] = {}
     for r in records:
         if r["kind"] in LISTED_KINDS:
-            titles.setdefault(org_key(r), r.get("org_title") or r["org"])
-    state_orgs: dict[str, str] = {}
+            titles.setdefault(org_key(r), r.get("org_title") or r.get("org") or "Unknown")
+    state_orgs: dict[str, list[str]] = {}
     for key, t in titles.items():
         if key.split(":")[0] not in ("gov", "infra", "abs"):
-            state_orgs.setdefault(re.sub(r"[^a-z]", "", clean_title(t).lower()), key)
+            state_orgs.setdefault(re.sub(r"[^a-z]", "", clean_title(t).lower()), []).append(key)
     lga_by_base: dict[str, set[str]] = {}
     for n, jur in lgas.items():
         base = re.sub(r"\s*\((nsw|vic\.|qld|sa|wa|tas\.|nt|act)\)$", "", n.lower())
@@ -320,9 +330,10 @@ def suggest(  # noqa: C901, PLR0912, PLR0915 - one rule per way an organisation 
     out: list[Suggestion] = []
     for key, raw in sorted(titles.items()):
         portal = key.split(":")[0]
-        if portal not in ("gov", "infra") or key in claimed:
+        if portal not in home or key in claimed:
             continue
-        name, jur, level, why = clean_title(raw), "Cth", "federal", []
+        jur = home[portal]
+        name, level, why = clean_title(raw), "federal" if jur == "Cth" else "state", []
         m = PREFIX_RE.match(name)
         if m:
             name = m["name"] or m["cth"] or m["name2"]
@@ -353,8 +364,9 @@ def suggest(  # noqa: C901, PLR0912, PLR0915 - one rule per way an organisation 
             level = "state"
         # A shared name only merges within one government: "Department of Human Services" is a
         # federal and a state department.
-        merge = state_orgs.get(re.sub(r"[^a-z]", "", name.lower()))
-        if merge and PORTAL_JUR[merge.split(":")[0]] != jur:
+        same = state_orgs.get(re.sub(r"[^a-z]", "", name.lower()), [])
+        merge = next((k for k in same if k.split(":")[0] != portal), None)
+        if merge and jur_of(merge.split(":")[0]) != jur:
             why.append(f"same name as {merge}, not merged")
             merge = None
         elif merge:

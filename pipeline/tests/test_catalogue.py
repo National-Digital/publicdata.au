@@ -539,7 +539,7 @@ def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally
     assert len({p.code for p in catalogue.PORTALS}) == len(catalogue.PORTALS)
     replaced = [o for p in catalogue.PORTALS for o in p.replaces]
     assert len(set(replaced)) == len(replaced), "two portals replace the same organisation"
-    councils = [p for p in catalogue.PORTALS if p.kind in ("ods", "hub")]
+    councils = [p for p in catalogue.PORTALS if p.kind in ("ods", "hub") and p.publisher]
     recs: list[CatalogueRecord] = [
         {"portal": p.code, "org": p.code, "org_title": p.publisher} for p in councils
     ]

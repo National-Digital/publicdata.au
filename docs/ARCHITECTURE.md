@@ -1101,6 +1101,11 @@ dropped when the council portal lists the same title or the record's source URL 
 portal. Anything else such an organisation holds is kept, because data.gov.au often harvests a
 council's map services as well.
 
+An ArcGIS Hub site that hosts many bodies names no publisher in that list. Each of its items is
+filed under the body its Source field names, and an item with no Source is filed as unknown. The
+item's owner is an account name and is never used. `publicdata catalogue publishers` proposes
+curation for these bodies as it does for data.gov.au's organisations.
+
 Record ids are the portal code plus the portal's own stable id (CKAN package UUID, Socrata
 four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id), so they survive renames and serve as vote keys. The snapshot is
 one gzipped NDJSON file sorted by id and stored like a source at `store/catalogue/<date>/`; the
