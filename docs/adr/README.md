@@ -2,9 +2,10 @@
 
 Each record states one decision that shapes publicdata.au: the problem it answers, what was chosen,
 what was weighed against it and what it costs. The rules and the code that carries them out are
-described in `docs/ARCHITECTURE.md`, `CONTRIBUTING.md` and `docs/CORRECTIONS.md`, and each record
-names the section to read. Where a record and those documents disagree on detail, the documents
-and the code are right and the record is corrected.
+described in `docs/ARCHITECTURE.md`, `CONTRIBUTING.md`, `docs/CORRECTIONS.md` and the other
+documents in the repository, and each record names the document and section to read. Where a record
+and those documents disagree on detail, the documents and the code are right and the record is
+corrected.
 
 Records 0001 to 0021 were written together between 10 and 13 October 2026 to set down the
 decisions the site was built on. The measurements in them are dated and stay as they were.
@@ -53,8 +54,6 @@ decisions the site was built on. The measurements in them are dated and stay as 
   every version of a table can be queried
 - [0018](0018-copies-on-the-hubs.md) The newest version of each dataset is copied to Hugging Face,
   Zenodo and Kaggle
-- [0021](0021-markdown-twins-and-content-signals.md) Pages have Markdown twins, and the site
-  signals no to AI training
 
 ## The site
 
@@ -62,6 +61,8 @@ decisions the site was built on. The measurements in them are dated and stay as 
   Lighthouse targets
 - [0020](0020-free-typeface-is-in-the-repository.md) The typeface's free styles are in the
   repository under their own licence
+- [0021](0021-markdown-twins-and-content-signals.md) Pages have Markdown twins, and the site
+  signals no to AI training
 
 ## Changing a decision
 

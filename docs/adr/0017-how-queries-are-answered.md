@@ -12,7 +12,9 @@ version ages out of a store, cannot trust either.
 
 D1 answers from an index in one round trip, but it bills every row and index entry written. The
 deploy loads at most the two newest versions of each dataset into D1, none over 500 MB of CSV and
-none whose entry sets `query: false`, and plans at most 10 million rows written a deploy.
+none whose entry sets `query: false`, and plans at most 10 million rows written a deploy. That
+cap bounds one deploy across every dataset. The budget of 10 million rows a year in
+[0012](0012-storage-budget.md) bounds one entry over a year.
 
 A Worker can instead read part of a version's Parquet in R2
 ([0008](0008-parquet-is-the-base-format.md)). On files written under the profile, the October 2026
@@ -57,8 +59,8 @@ filtered on another. In workerd a cold rollup answered in 6 to 25 ms and a warm 
 - **Row order.** Rows without an explicit order come in the order the answering engine holds them:
   D1 in the order it loaded the version, and Parquet in the order of the file or parts it reads.
   An answer read from a sorted file names the sort in `order`. For a row query with no order on a
-  whole-file version that has a rollup, the count of matches comes from the rollup, on both doors,
-  so a page is not refused only because counting every match reads too much.
+  whole-file version that has a rollup, the count of matches comes from the rollup, for the API and
+  the MCP tools alike, so a page is not refused only because counting every match reads too much.
 - A D1 that cannot answer leaves the query to Parquet, and a withheld dataset answers 410 before any
   cached answer is read.
 - Every answer names the version, the licence and the attribution, and the query URL it cites
@@ -92,8 +94,9 @@ filtered on another. In workerd a cold rollup answered in 6 to 25 ms and a warm 
   version beside it, and its answer names the sort.
 - On profile files the filtered crash, water and company-number queries took 349, 213 and 299 ms of
   CPU, under the target of 500 ms. A filter on type and year over the company register still took
-  13.6 s from Parquet, because its company-number order cannot serve it. Its counts come from a
-  rollup, and D1 answers its newest versions.
+  13.6 s from the profile file, against 15.3 s on the file as first published
+  ([0008](0008-parquet-is-the-base-format.md)), because its company-number order cannot serve it.
+  Its counts come from a rollup, and D1 answers its newest versions.
 - An unauthenticated caller can make the API read any version's Parquet. The per-call budget and the
   per-address rate limit bound what one call and one address can cost.
 - The build never imports the rollup module, so rollups shape no version's files.

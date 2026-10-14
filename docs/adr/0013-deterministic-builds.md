@@ -14,8 +14,8 @@ version could differ from the one a fresh build would make.
 ## Decision
 
 - Serialisers are pure functions of the normalised model, and two builds of one snapshot are
-  byte-identical. CI's Determinism job proves it on the fixtures: twice from scratch, through a cold
-  cache and a warm one, and with a subset of formats then every format.
+  byte-identical. CI's Determinism job proves it on the fixtures. It builds them twice from
+  scratch, through a cold cache and a warm one, and with a subset of formats and then every format.
 - A DuckDB file is the one exception. Its storage lays out and packs its blocks differently on each
   write, so CI compares every `data.duckdb` by what it holds, and nothing the site publishes states
   its size.
@@ -26,7 +26,8 @@ version could differ from the one a fresh build would make.
 - A change to that code is checked against real versions instead. The plan draws a seeded sample of
   datasets covering the features that change how a version is built, builds them with the new code
   and compares them with the cache entries a deploy would reuse. A difference fails the deploy, and
-  the fix is to raise a rebuild number.
+  the fix is to raise a rebuild number. A raised number reaches versions already published only
+  through a `replace` dispatch ([0002](0002-versions-are-kept.md)).
 - Every tool and library is pinned to an exact version, each in one file the workflows read.
   DuckDB's spatial extension, which DuckDB can replace within a release, is installed from a copy
   in R2 checked against a pinned hash. Renovate raises the pins once a month, and the few tools
@@ -50,5 +51,5 @@ version could differ from the one a fresh build would make.
 - A sample cannot cover every dataset, so the plan prints the strata no sampled dataset covers.
   Outside a `replace` dispatch, a dated file already in R2 keeps the bytes of its first build.
 
-See `docs/ARCHITECTURE.md` ("Rules that decide the code", "Hosting") and `CONTRIBUTING.md`
+See `docs/ARCHITECTURE.md` ("Rules that decide the code", "Build and deploy") and `CONTRIBUTING.md`
 ("Change the build code", "Toolchain versions").

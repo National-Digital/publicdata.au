@@ -48,7 +48,8 @@ Arrow and the old row limits included.
 
 - The manifest records the byte counts the caps were measured on and each format left out, and the
   gate refuses a version whose files disagree with them.
-- The Python and R clients read Parquet and fall back to CSV (gzip), which every version has.
+- The Python and R clients read Parquet and fall back to CSV (gzip). Every version has it, as one
+  file or as one file per period part ([0009](0009-period-partitions.md)).
 - A table's page shows which formats exist for each version, so a missing format is never a broken
   link.
 - No page states the size of a DuckDB file, because its bytes differ from one write to the next

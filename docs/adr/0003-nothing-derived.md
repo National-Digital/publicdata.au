@@ -41,9 +41,8 @@ holds six of those layers as datasets of their own: SA2 (2021), LGA (2025), subu
 - A version's join is fixed when it is fetched. The fetch pins, in the version's committed
   manifest, the layers the entry's `enrich` names and the newest version of each that `main` held
   when the fetch run began, never one fetched in the same run, and every later build joins to
-  exactly those. A version fetched before its entry named
-  `enrich` carries no pin and stays unjoined. A new layer version or an edit to `enrich` reaches
-  only versions fetched after it.
+  exactly those. A version fetched before its entry named `enrich` carries no pin and stays
+  unjoined. A new layer version or an edit to `enrich` reaches only versions fetched after it.
 - A new ABS edition is a new register entry and a new layer with year-named fields. All joined
   datasets move to it together, in one pull request that edits `enrich`. Older versions keep the
   edition they were fetched with and gain no columns from the new one. `/places.json` lists every

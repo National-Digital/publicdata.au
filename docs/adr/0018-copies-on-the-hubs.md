@@ -17,8 +17,9 @@ A dataset that lives on one site also lives on one host, under one account
 - Every copy carries `publicdata.json`, with the version, the licence, the attribution and the hash
   of the publisher's file, and text that links the version URL, so the link back survives a
   re-upload. Zenodo gives each version a DOI under one concept DOI per dataset.
-- A dataset is not copied when no hub can carry its licence or its condition of use
-  ([0001](0001-licence-is-data.md)), or when it is a database, since the hubs take one table. When
+- A dataset is not copied when no hub can carry its licence, when its licence carries a condition
+  of use, since no hub can state one ([0001](0001-licence-is-data.md)), or when it is a database,
+  since the hubs take one table. When
   its newest version is stored as parts alone, each hub keeps the newest whole version.
 - A rolling source or a feed goes to each hub at most once a month, from a snapshot, and Zenodo
   takes only its Parquet and gzipped CSV.

@@ -22,8 +22,9 @@ The site runs on Cloudflare.
   `_headers` sets the security headers and `_routes.json` names the paths that run a function.
 - **Pages Functions** in `functions/` serve the dynamic paths.
 - **R2** holds what Pages does not, read and written by the pipeline over the S3 API.
-  `publicdata-dist` holds every dated version file, version pages included, and any file over
-  Pages' per-file limit, at keys equal to their URL paths, with the query copies and rollups beside
+  `publicdata-dist` holds every dated version file but the publisher's own
+  ([0014](0014-build-cache-in-r2.md)), version pages included, and any file over Pages' per-file
+  limit, at keys equal to their URL paths, with the query copies and rollups beside
   them outside the published tree. `publicdata-raw` holds the publishers' bytes and is append-only,
   `publicdata-votes` holds votes and saved dashboards, and `publicdata-build-cache` holds the build
   cache.
@@ -34,10 +35,8 @@ The site runs on Cloudflare.
   Content-Security-Policy.
 
 A Pages deployment may hold only so many files, and the account's plan sets how many. The deploy
-reads the cap from the `max_file_count_allowed` claim in the project's upload token, as wrangler
-does, and takes 20,000 when the token states none. It puts the count of files left for Pages beside
-the cap in its summary, warns from 80% of the cap, and above the cap fails before anything is
-published. When the cap cannot be read, it warns and goes ahead with the count alone.
+reads the cap from the project's upload token, warns from 80% of it and fails before anything is
+published when the files left for Pages exceed it.
 
 ## Alternatives considered
 
@@ -58,7 +57,7 @@ Leaving Cloudflare would cost the dynamic layer and keep the data.
 - **Portable.** The published tree is plain files at keys equal to their URL paths, and the raw
   store is plain objects whose manifests are committed in `store/`. Both copy to any static host or
   S3-compatible store as they are. The archive can be rebuilt from the raw store and this
-  repository, and the newest versions are also copied to the hubs
+  repository, and the newest version of each dataset a hub can take is also copied there
   ([0018](0018-copies-on-the-hubs.md)).
 - **Cloudflare-specific.** The functions use Pages' routing, its R2, D1 and asset bindings and the
   Workers cache API. D1's tables would move to another SQLite host, and the query builder is already

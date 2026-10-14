@@ -43,4 +43,4 @@ published bucket would have held 7.41 GB in October 2026.
   be rebuilt.
 - A `replace` dispatch builds without the cache, so a correction is built from source.
 
-See `docs/ARCHITECTURE.md` ("Hosting", "Raw store") and `README.md` ("Deploy").
+See `docs/ARCHITECTURE.md` ("Build and deploy", "Raw store") and `README.md` ("Deploy").

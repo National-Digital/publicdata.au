@@ -9,7 +9,7 @@ The URL contract (`/d/<slug>/v/<date>/data.<ext>`) is cited and must keep workin
 ([0015](0015-contract-only-grows.md)). How a file is stored behind its URL is free to change, so
 long as the bytes a client receives do not ([0002](0002-versions-are-kept.md)).
 
-Of 71.6 GB of live version files in October 2026, NDJSON, JSON, GeoJSON and CSV held 42.6 GB, and
+Of 71.6 GB of live version files on 6 October 2026, NDJSON, JSON, GeoJSON and CSV held 42.6 GB, and
 those formats compressed 8 to 19 times at gzip level 6.
 
 ## Decision
@@ -21,8 +21,8 @@ those formats compressed 8 to 19 times at gzip level 6.
   them with `Content-Encoding: gzip` to a client that accepts gzip and decodes them for one that
   does not, so every client receives the same bytes.
 - Formats that readers fetch by byte range stay as written: Parquet, DuckDB, SQLite, Excel,
-  GeoPackage, PMTiles, `data.csv.gz` and the publisher's file. So do pages and the query copies
-  under `_q/`.
+  GeoPackage, PMTiles, `data.csv.gz` and the publisher's file. So do HTML pages and the query copies
+  under `_q/`. A page's Markdown twin is text and is stored gzipped.
 - A version's `data.csv.gz` is served from its gzipped CSV, so no second copy is stored.
 
 ## Alternatives considered

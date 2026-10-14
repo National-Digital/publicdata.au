@@ -41,7 +41,7 @@ change the archive.
 - A run can wait for the runner while `main` moves, so the workflows cut their data branches from
   the current `main` before pushing.
 - Contributors cannot run the scheduled fetch. They fetch locally, which needs no credentials.
-- `expect_page` refuses an empty body or an HTML page where a data file should be, so a refused
-  request fails the fetch and never becomes a version.
+- A request a portal refuses fails the fetch and never becomes a version
+  ([0006](0006-no-circumventing-bot-checks.md)).
 
 See `README.md` ("Deploy") and the two workflow files.

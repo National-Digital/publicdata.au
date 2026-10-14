@@ -39,7 +39,9 @@ deciding whether the data changed. A rolling source or a feed must be one table 
 publisher's rows ([0003](0003-nothing-derived.md)). A feed keeps no history of its own, so the
 dates of our reads are the only record of when a state held. They describe our observation and
 change no value the publisher sent. The schema marks them as computed by publicdata.au
-(`publicdata:derived`), and the dataset page says how they are observed.
+(`publicdata:derived`), and the dataset page says how they are observed. That key marks a column
+the site adds, as it marks a joined one. It does not mean a value worked out from the publisher's
+figures, which [0003](0003-nothing-derived.md) rules out.
 
 ## Alternatives considered
 

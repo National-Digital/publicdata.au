@@ -22,7 +22,7 @@ path that stops answering breaks them without notice.
   file to stay the same uses the dated URL. Each version's `SHA256SUMS` lets a reader check what
   they downloaded.
 - A file the site may no longer serve answers 410, and its version's manifest stays on record in
-  `store/` ([`docs/CORRECTIONS.md`](../CORRECTIONS.md)).
+  `store/` ([0002](0002-versions-are-kept.md)).
 - The query API is versioned in its path, `/api/v1/`. A change that would break a v1 caller goes
   into `/api/v2/`, and v1 keeps answering for at least twelve months after v2 ships.
 - A change that a caller of the published paths, the query API or the MCP tools would notice is

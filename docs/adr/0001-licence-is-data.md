@@ -32,8 +32,8 @@ publishers to distrust it.
 ## Alternatives considered
 
 - **Trust the portal's licence field.** It is too often blank, generic or at odds with the
-  publisher's own statement. A blank field holds an entry as `blocked` and a generic one as
-  `assessing` until a person records the publisher's own words.
+  publisher's own statement. A blank or generic field holds an entry as `assessing` until a
+  person records the publisher's own words.
 
 ## Consequences
 

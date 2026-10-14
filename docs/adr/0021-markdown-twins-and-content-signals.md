@@ -23,8 +23,10 @@ syntax, though the statement binds no crawler.
   `/x.md` to the twin.
 - `robots.txt` allows every crawler everywhere but `/api/`. Its line
   `Content-Signal: search=yes, ai-input=yes, ai-train=no` says yes to search and to answers that
-  read the site, and no to training. Every `.md` file is served with the same header. Each dataset's
-  licence still governs what may be done with its data, and `robots.txt` and the agents page say so.
+  read the site, and no to training. Every `.md` file Pages serves carries the same signal in a
+  `Content-Signal` header. A dated version's twin is served from R2 by the function and does not.
+  Each dataset's licence still governs what may be done with its data, and `robots.txt` and the
+  agents page say so.
 
 ## Alternatives considered
 
@@ -40,8 +42,8 @@ syntax, though the statement binds no crawler.
 - The rules belong to the zone, so a maintainer applies them by hand in the dashboard and a
   `pages.dev` preview has no negotiation. They count against the zone's Transform Rules allowance.
 - The rules read no quality values, so any `Accept` that names `text/markdown` gets Markdown and a
-  browser's `*/*` gets HTML. A dated version's page always answers in HTML, since a zone Cache Rule
-  caches that tree.
+  browser's `*/*` gets HTML. Pages under a dated version, `latest/`, `fetch/`, `diff/`, `changes/`
+  and the embeds always answer in HTML, and a zone Cache Rule caches the dated tree.
 - A rewritten request runs the middleware once, since every `.md` path does.
 - The signal is a preference. It binds no crawler and narrows no dataset's licence.
 

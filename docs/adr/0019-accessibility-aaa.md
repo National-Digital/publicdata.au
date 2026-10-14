@@ -5,7 +5,8 @@
 
 ## Context
 
-A public archive is read by anyone, on any screen and with any assistive technology. Readers said
+A public archive is read on every size of screen, and some of its readers use assistive
+technology. Readers said
 the type was too small on large screens. An audit of the live site against AAA in October 2026
 found 88 nodes under 7:1 contrast, paragraphs of 95 to 198 characters a line, hundreds of targets
 under 44px, links named only "csv" or "download", no expanded abbreviations, skipped heading

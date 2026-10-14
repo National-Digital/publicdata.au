@@ -18,9 +18,9 @@ A benchmark on a deployed Worker in October 2026 (hyparquet with zstd, CPU time 
 own logs, the median of three runs) measured what makes a partial read cheap:
 
 - Sort order mattered most. A filter on type and registration year over the company register took
-  15.3 s of CPU and 20.4 s of wall time on the file as published, and 727 ms once sorted by
-  registration date. A place and year filter over crash rows fell from 1,522 ms to 349 ms of CPU
-  under the profile.
+  15.3 s of CPU and 20.4 s of wall time on the file as published, in company-number order, and
+  727 ms once sorted by registration date. A place and year filter over crash rows fell from
+  1,522 ms to 349 ms of CPU under the profile.
 - A sort that suits one filter can hurt another. Sorting the company register by registration date
   made a lookup by company number rise from 299 ms to 2,563 ms.
 - Wall time was mostly R2 reads made one after another. With 65,536-row groups a single count over
@@ -48,10 +48,10 @@ say so in the footer key `publicdata.profile` beside the provenance key `publicd
 - **Types.** An integer field is written as INT32 when the entry declares it under `int32:`, in
   every version, so a field keeps one type across versions and parts. That holds because the fetch
   holds back a new version whose values do not fit, naming the field.
-- **Encoding and sizes.** zstd, dictionary encoding and column statistics on every file, and a page
-  index on sorted files only. Row groups of 500,000 rows and pages of at most 10,000 rows or 8 MiB:
-  1,000,000-row groups overflowed the reader's stack, and 10,000-row pages used 10 to 30% less CPU
-  on point lookups than 20,000-row pages.
+- **Encoding and sizes.** Every file uses zstd, dictionary encoding and column statistics, and only
+  a sorted file carries a page index. Row groups of 500,000 rows and pages of at most 10,000 rows or
+  8 MiB: 1,000,000-row groups overflowed the reader's stack, and 10,000-row pages used 10 to 30%
+  less CPU on point lookups than 20,000-row pages.
 
 A version's own files keep the layout its fetch recorded in its manifest
 ([0002](0002-versions-are-kept.md)). So that every version can be read in part, whatever layout it

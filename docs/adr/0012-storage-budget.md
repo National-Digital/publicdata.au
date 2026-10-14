@@ -12,8 +12,9 @@ cannot see that.
 
 Cloudflare R2 bills storage by the GB-month and charges nothing for egress
 ([0010](0010-hosting-on-cloudflare.md)). Versions are kept for good
-([0002](0002-versions-are-kept.md)), so the cost that compounds is what is stored. The query layer's
-loader also writes every row of a new version to D1, which bills rows written.
+([0002](0002-versions-are-kept.md)), so the cost that compounds is what is stored. The deploy also
+loads the newest versions into D1, which bills rows written
+([0017](0017-how-queries-are-answered.md)).
 
 ## Decision
 
@@ -26,7 +27,7 @@ loader also writes every row of a new version to D1, which bills rows written.
 - A pull request's check summary shows the projection for each entry it prices and the fleet
   totals.
 - `/health.json` publishes the build's projection and, beside it, Cloudflare's own measurement of
-  what the two buckets hold. Neither is given as a price.
+  what `publicdata-dist` and `publicdata-raw` hold. Neither is given as a price.
 
 ## Alternatives considered
 
