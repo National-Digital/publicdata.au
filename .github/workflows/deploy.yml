@@ -275,11 +275,15 @@ jobs:
           (cd "$BUILD_CACHE" && find . -mindepth 2 -maxdepth 2 -name meta.json -newer "$RUNNER_TEMP/start" -printf '%h\n') > entries.txt
           tar -C "$BUILD_CACHE" -I 'zstd -T0' -cf /mnt/work/shard/cache.tar.zst -T entries.txt
           : > built.txt
+          : > built-large.txt
+          mkdir -p "$DIST_LARGE/d"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             (cd "$DIST" && find d -path '*/v/*' -type f ! -name 'index.*' ! -name manifest.json ! -name schema.json ! -name schema.sql) > built.txt
+            # The split moved files over the Pages limit here, and the deploy draws figures from their Parquet.
+            (cd "$DIST_LARGE" && find d -path '*/v/*' -type f ! -name 'index.*' ! -name manifest.json ! -name schema.json ! -name schema.sql) > built-large.txt
           fi
-          tar -C "$DIST" -I 'zstd -T0' -cf /mnt/work/shard/built.tar.zst -T built.txt
-          echo "Shard $JOB_INDEX: $(wc -l < entries.txt) cache entries, $(wc -l < built.txt) preview files, $SLUGS" >> "$GITHUB_STEP_SUMMARY"
+          tar -I 'zstd -T0' -cf /mnt/work/shard/built.tar.zst -C "$DIST" -T built.txt -C "$DIST_LARGE" -T built-large.txt
+          echo "Shard $JOB_INDEX: $(wc -l < entries.txt) cache entries, $(cat built.txt built-large.txt | wc -l) preview files, $SLUGS" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: shard-${{ strategy.job-index }}
