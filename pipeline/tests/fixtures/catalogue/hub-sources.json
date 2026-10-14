@@ -1,0 +1,126 @@
+{
+  "atlas": {
+    "aggregations": {
+      "aggregations": [
+        {
+          "field": "source",
+          "aggregations": [
+            {
+              "label": "Australian Bureau of Statistics",
+              "value": 193
+            },
+            {
+              "label": "Geoscience Australia",
+              "value": 160
+            },
+            {
+              "label": "Australian Bureau of Agricultural and Resource Economics and Sciences",
+              "value": 26
+            },
+            {
+              "label": "Bureau of Meteorology",
+              "value": 26
+            },
+            {
+              "label": "Department of Climate Change, Energy, the Environment and Water",
+              "value": 20
+            },
+            {
+              "label": "Australian Taxation Office",
+              "value": 13
+            },
+            {
+              "label": "Digital Earth Australia",
+              "value": 8
+            },
+            {
+              "label": "Bureau of Infrastructure and Transport Research Economics",
+              "value": 6
+            },
+            {
+              "label": "Department of Industry, Science and Resources",
+              "value": 6
+            },
+            {
+              "label": "Department of Health, Disability and Ageing",
+              "value": 5
+            },
+            {
+              "label": "Department of Social Services",
+              "value": 4
+            },
+            {
+              "label": "Geoscape Australia",
+              "value": 3
+            },
+            {
+              "label": "Australian Communications and Media Authority",
+              "value": 1
+            },
+            {
+              "label": "Australian Electoral Commission",
+              "value": 1
+            },
+            {
+              "label": "Department of Infrastructure, Transport, Regional Development, Communications, Sport and the Arts",
+              "value": 1
+            },
+            {
+              "label": "Digital Atlas of Australia",
+              "value": 1
+            },
+            {
+              "label": "National Indigenous Australians Agency",
+              "value": 1
+            },
+            {
+              "label": "National Native Title Tribunal",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    "timestamp": "2026-10-14T07:42:40.045Z",
+    "links": [
+      {
+        "rel": "self",
+        "type": "application/json",
+        "title": "This document as JSON",
+        "href": "https://digital.atlas.gov.au/api/search/v1/collections/dataset/aggregations?aggregations=terms(fields=(source,license,owner))"
+      }
+    ]
+  },
+  "actmapi": {
+    "aggregations": {
+      "aggregations": [
+        {
+          "field": "source",
+          "aggregations": [
+            {
+              "label": "Australian Capital Territory Government",
+              "value": 126
+            },
+            {
+              "label": "City and Environment Directorate | ACT Government",
+              "value": 46
+            },
+            {
+              "label": "City and Environment Directorate",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    "timestamp": "2026-10-14T07:42:31.631Z",
+    "links": [
+      {
+        "rel": "self",
+        "type": "application/json",
+        "title": "This document as JSON",
+        "href": "https://actmapi-actgov.opendata.arcgis.com/api/search/v1/collections/dataset/aggregations?aggregations=terms(fields=(source,license,owner))"
+      }
+    ]
+  }
+}

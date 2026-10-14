@@ -1,0 +1,98 @@
+{
+  "success": true,
+  "result": {
+    "count": 4,
+    "facets": {},
+    "results": [
+      {
+        "id": "c00aaa8c-b12c-4dca-95d0-38007d35d378",
+        "name": "2015-lidar",
+        "title": "2015 LiDAR",
+        "notes": "\n LiDAR data can be downloaded from Elvis - Elevation and Depth\n\n\n \n   The data set covers the ACT and Queanbeyan with a density of 8 points per metre square in city centres and 4 points per square me",
+        "license_id": "other",
+        "metadata_created": "2025-12-20T19:27:18.923Z",
+        "metadata_modified": "2026-10-01T00:53:22.224Z",
+        "organization": "act-government-geospatial-data-catalogue",
+        "res_format": [
+          "HTML",
+          "ArcGIS GeoServices REST API",
+          "CSV",
+          "ZIP",
+          "GeoJSON",
+          "KML",
+          "ZIP",
+          "TXT",
+          "XLSX",
+          "GPKG",
+          "GDB"
+        ],
+        "dataset_type": "dataset"
+      },
+      {
+        "id": "4d39be76-3d37-4111-938b-92037f0b1a51",
+        "name": "actgov-public-toilet-assets",
+        "title": "ACTGOV Public Toilet Assets",
+        "notes": "\n\n\nThis point dataset shows the locations of Public Toilets in the Australian Capital Territory. \n\nThese assets are either owned or managed by City Services, City and Environment Directorate (CED) and",
+        "license_id": "other",
+        "metadata_created": "2025-12-20T19:02:45.425Z",
+        "metadata_modified": "2026-10-01T00:35:45.417Z",
+        "organization": "act-government-geospatial-data-catalogue",
+        "res_format": [
+          "HTML",
+          "ArcGIS GeoServices REST API"
+        ],
+        "dataset_type": "dataset"
+      },
+      {
+        "id": "1671a502-f4fb-4c88-aa61-818f30c1fabb",
+        "name": "actgov-public-toilet-assets1",
+        "title": "ACTGOV Public Toilet Assets",
+        "notes": "\n\n\nThis point dataset shows the locations of Public Toilets in the Australian Capital Territory. \n\nThese assets are either owned or managed by City Services, City and Environment Directorate (CED) and",
+        "license_id": "other",
+        "metadata_created": "2025-12-20T19:02:47.644Z",
+        "metadata_modified": "2026-10-01T00:35:40.728Z",
+        "organization": "act-government-geospatial-data-catalogue",
+        "res_format": [
+          "HTML",
+          "ArcGIS GeoServices REST API",
+          "CSV",
+          "ZIP",
+          "GeoJSON",
+          "KML",
+          "ZIP",
+          "TXT",
+          "XLSX",
+          "GPKG",
+          "GDB"
+        ],
+        "dataset_type": "dataset"
+      },
+      {
+        "id": "6d1a2d8c-c796-4c89-b0b1-1e8ed0bf6f01",
+        "name": "act-canopy-cover-2020-1m-belconnen",
+        "title": "ACT Canopy Cover 2020 1m BELCONNEN",
+        "notes": "\nThis map contains district-based ACT canopy cover polygons at 1m resolution (vegetation cover above 3m) as at April/May 2020, detected with Light Detection and Ranging (LiDAR). The full ACT vector da",
+        "license_id": "other",
+        "metadata_created": "2025-12-20T19:16:59.224Z",
+        "metadata_modified": "2026-10-01T00:48:21.351Z",
+        "organization": "act-government-geospatial-data-catalogue",
+        "res_format": [
+          "HTML",
+          "ArcGIS GeoServices REST API",
+          "CSV",
+          "ZIP",
+          "GeoJSON",
+          "KML",
+          "ZIP",
+          "TXT",
+          "XLSX",
+          "GPKG",
+          "GDB"
+        ],
+        "dataset_type": "dataset"
+      }
+    ],
+    "sort": "extras_harvest_portal asc, score desc, metadata_modified desc",
+    "search_facets": {}
+  }
+}

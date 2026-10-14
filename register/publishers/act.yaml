@@ -7,6 +7,7 @@
   orgs:
   - gov:data-act
   - act:act-government
+  - actmapi:australian-capital-territory-government
 - slug: act-government-geospatial-data-catalogue-actmapi
   name: ACT Government Geospatial Data Catalogue (ACTmapi)
   jurisdiction: ACT
@@ -20,6 +21,14 @@
   orgs:
   - gov:government-of-the-act-chief-minister-treasury-and-economic-development-directorate-australian-urban-
   - act:chief-minister-treasury-and-economic-development-directorate
+- slug: city-and-environment
+  name: City and Environment Directorate
+  jurisdiction: ACT
+  level: state
+  orgs:
+  - act:city-and-environment
+  - actmapi:city-and-environment-directorate-act-government
+  - actmapi:city-and-environment-directorate
 - slug: department-of-education-and-training
   name: Department of Education and Training
   jurisdiction: ACT

@@ -53,6 +53,15 @@
   level: federal
   orgs:
   - gov:government-of-the-commonwealth-of-australia-australian-financial-security-authority-australian-urban
+- slug: australian-government-department-of-climate-change-energy-the-environment-and
+  name: Department of Climate Change, Energy, the Environment and Water
+  short: DCCEEW
+  jurisdiction: Cth
+  level: federal
+  url: https://www.dcceew.gov.au/
+  orgs:
+  - gov:dcceew
+  - atlas:department-of-climate-change-energy-the-environment-and-water
 - slug: australian-institute-of-health-and-welfare
   name: Australian Institute of Health and Welfare
   short: AIHW
@@ -94,6 +103,7 @@
   level: federal
   url: https://www.bitre.gov.au/
   orgs:
+  - atlas:bureau-of-infrastructure-and-transport-research-economics
   - gov:bureauofinfrastructuretransportandregionaleconomics
   - infra:road-safety
 - slug: bureau-of-meteorology
@@ -259,6 +269,15 @@
   level: federal
   orgs:
   - gov:government-of-the-commonwealth-of-australia-department-of-industry-innovation-and-science-australian
+- slug: department-of-industry-science-and-resources-disr
+  name: Department of Industry, Science and Resources
+  short: DISR
+  jurisdiction: Cth
+  level: federal
+  url: https://www.industry.gov.au/
+  orgs:
+  - gov:department-of-industry
+  - atlas:department-of-industry-science-and-resources
 - slug: department-of-infrastructure
   name: Department of Infrastructure, Transport, Regional Development, Communications, Sport and the Arts
   short: Department of Infrastructure
@@ -266,6 +285,7 @@
   level: federal
   url: https://www.infrastructure.gov.au/
   orgs:
+  - atlas:department-of-infrastructure-transport-regional-development-communications-sport-and-the-arts
   - gov:department-of-communications
   - gov:government-of-the-commonwealth-of-australia-department-of-infrastructure-transport-regional-developm
   - infra:national-freight-data
@@ -319,12 +339,22 @@
   level: federal
   orgs:
   - gov:food-standards-australia-new-zealand-fsanz
+- slug: geoscape
+  name: Geoscape Australia
+  jurisdiction: Cth
+  level: other
+  url: https://geoscape.com.au/
+  orgs:
+  - gov:geoscape-australian-urban-research-infrastructure-network
+  - atlas:geoscape-australia
 - slug: geoscience-australia
   name: Geoscience Australia
   jurisdiction: Cth
   level: federal
   orgs:
   - gov:government-of-the-commonwealth-of-australia-geoscience-australia-australian-urban-research-infrastru
+  - atlas:digital-atlas-of-australia
+  - atlas:digital-earth-australia
 - slug: gisail-geospatial-informatics-and-intelligence-group-rmit-university
   name: GISail (Geospatial Informatics and Intelligence) Group, RMIT University
   jurisdiction: Cth

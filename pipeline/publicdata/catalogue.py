@@ -127,6 +127,7 @@ class _CkanPackage(TypedDict, total=False):
     url: str | None
     notes: str | None
     harvest_url: str | None
+    res_url: list[str] | None
 
 
 class _CkanResult(TypedDict):
@@ -233,6 +234,7 @@ class _HubPage(TypedDict, total=False):
     features: list[_HubFeature] | None
     numberMatched: int
     links: list[_HubLink] | None
+    exceededTransferLimit: bool
 
 
 class _DapId(TypedDict, total=False):
@@ -329,6 +331,8 @@ class Portal:
     # A CSW portal's record page, with {id} for the file identifier. GeoNetwork 2 serves no
     # catalog.search, which later versions do.
     record_page: str = ""
+    # Organisations elsewhere holding only copies of this one, such as a harvester's own.
+    copied_by: tuple[str, ...] = ()
 
     def landing(self, name: str) -> str:
         if self.kind == "ods":
@@ -399,6 +403,16 @@ PORTALS = (
     # GeoNetwork catalogues over CSW. data.gov.au's search index drops their harvest source, so
     # its copies are replaced by organisation.
     Portal("thelist", "data.thelist.tas.gov.au", "https://data.thelist.tas.gov.au/datagn/srv/eng/csw", "tas", "csw", "Department of Natural Resources and Environment Tasmania", ("gov:tas-government-the-list",), record_page="https://data.thelist.tas.gov.au/datagn/srv/eng/metadata.show?uuid={id}"),
+    # ArcGIS Hub sites of many bodies, each item filed under the body its metadata names.
+    Portal(
+        "actmapi",
+        "actmapi-actgov.opendata.arcgis.com",
+        "https://actmapi-actgov.opendata.arcgis.com",
+        "act",
+        "hub",
+        copied_by=("gov:act-government-geospatial-data-catalogue",),
+    ),
+    Portal("atlas", "digital.atlas.gov.au", "https://digital.atlas.gov.au", "cth", "hub"),
     # Councils with a portal of their own. One that data.gov.au or its state portal already lists
     # in full is left to that copy.
     _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", replaces=["qld:brisbane-city-council"]),
@@ -597,7 +611,7 @@ def licence_id(title: str) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch 
 
 def cc_url(url: str) -> str:
     """The licence a creativecommons.org deed URL names, such as CC-BY-3.0-AU."""
-    m = re.search(r"creativecommons\.org/licenses/([a-z-]+)/(\d\.\d)(/au)?", url.lower())
+    m = re.search(r"creativecommons\.org(?::\d+)?/licenses/([a-z-]+)/(\d\.\d)(/au)?", url.lower())
     if not m:
         return ""
     au = "-AU" if m[3] and m[2] in ("2.5", "3.0") else ""
@@ -965,11 +979,36 @@ def _epoch_day(ms: object) -> str:
         return ""
 
 
-def hub_licence(x: HubItem) -> tuple[str, str]:
-    """The licence an ArcGIS Hub dataset states.
+# Terms that grant a licence for only some owners' or providers' data.
+HEDGED_TERMS = re.compile(
+    r"\b(?:most|some) data (?:owners|providers)\b|\bnot covered by creative commons\b"
+    r"|\b(?:some|certain|selected) (?:of the )?(?:layers|datasets|items)\b",
+    re.IGNORECASE,
+)
+# Custom terms that withhold or limit a grant, so no licence named in them is read as given.
+HUB_WITHHELD = re.compile(
+    r"\bnot (?:be )?licen[cs]ed\b|\bnot (?:in|part of) the public domain\b"
+    r"|\ball rights reserved\b|\bpermission\b",
+    re.IGNORECASE,
+)
+_HUB_CC = (
+    r"(?:creative commons(?: by)? attribution|cc[- ]by)"
+    r"(?:[- ](?:non[- ]?commercial|nc|no[- ]?derivatives?|nd|share[- ]?alike|sa))*"
+)
+_HUB_CC_VERSION = r"[- ]v?\d\.\d(?: (?:australia|international|au))?"
+# A CC licence named with its version anywhere in custom terms.
+HUB_CC_VERSIONED = re.compile(rf"\b{_HUB_CC}{_HUB_CC_VERSION}\b", re.IGNORECASE)
+# Custom terms that are a CC licence's name and nothing else.
+HUB_CC_WHOLE = re.compile(rf"{_HUB_CC}(?:{_HUB_CC_VERSION})?(?: licen[cs]e)?\.?", re.IGNORECASE)
+
+
+def _hub_stated_licence(x: HubItem) -> tuple[str, str]:
+    """The licence an ArcGIS Hub dataset states, and its terms as a summary for display.
 
     Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
-    Commons deed, written out in licenseInfo.
+    Commons deed, written out in licenseInfo. Custom terms name a licence through a deed link,
+    by being a CC licence's name alone, or by a versioned CC name, and never when they withhold
+    the grant.
     """
     lic = (x.get("license") or "").strip()
     raw = x.get("licenseInfo") or ""
@@ -979,8 +1018,22 @@ def hub_licence(x: HubItem) -> tuple[str, str]:
     found = cc_url(raw)
     if found or lic.lower() in ("", "none"):
         return found, text
-    named = licence_id(text)
-    return (named if named != text else "custom"), text
+    full = plain_text(raw)
+    if HUB_WITHHELD.search(full):
+        return "custom", text
+    if HUB_CC_WHOLE.fullmatch(full):
+        return licence_id(full), text
+    # Only a versioned CC name counts in longer terms, where "zero" or "public domain" may be prose.
+    m = HUB_CC_VERSIONED.search(full)
+    return (licence_id(m[0]) if m else "custom"), text
+
+
+def hub_licence(x: HubItem) -> tuple[str, str]:
+    """The stated licence, held as custom when the terms grant it for only some of the data."""
+    lid, text = _hub_stated_licence(x)
+    if is_open(lid) and HEDGED_TERMS.search(plain_text(x.get("licenseInfo") or "")):
+        return "custom", text
+    return lid, text
 
 
 def hub_org(portal: Portal, x: HubItem) -> tuple[str, str] | None:
@@ -1003,6 +1056,9 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
     params: Params | None = {"limit": 100}
     while True:
         res = get_json_as(_HubPage, s, url, params)
+        if res.get("exceededTransferLimit"):
+            msg = f"{portal.host}: the search answered a partial page"
+            raise PortalError(msg)
         feats = res.get("features") or []
         for f in feats:
             x = f.get("properties") or {}
@@ -1030,7 +1086,40 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
         if not feats or not nxt:
             break
         url, params = nxt, None
+    total = res.get("numberMatched")
+    # A search that stops early would read as items withdrawn.
+    if isinstance(total, int) and n < total:
+        msg = f"{portal.host}: read {n} of the {total} items the search matched"
+        raise PortalError(msg)
     return out, 0
+
+
+HUB_ITEM_RE = re.compile(r"/api/download/v1/items/([0-9a-f]{32})/")
+
+
+def copied_items(portal: Portal, s: requests.Session, log: Log = print) -> dict[str, str]:
+    """Each copy in the portal's `copied_by` organisations mapped to the record it copies.
+
+    A Hub copy's download links name the Hub item, which the reader's fields leave out.
+    """
+    out: dict[str, str] = {}
+    for o in portal.copied_by:
+        code, org = o.split(":", 1)
+        res = get_json_as(
+            _CkanSearch,
+            s,
+            f"{BY_CODE[code].api}/package_search",
+            {"fq": f'organization:"{org}"', "fl": "id,res_url", "rows": 1000},
+        )["result"]
+        if res["count"] > len(res["results"]):
+            log(
+                f"catalogue {portal.code}: {len(res['results'])} of {res['count']} copies in {o} read"
+            )
+        for p in res["results"]:
+            ids = [m[1] for u in p.get("res_url") or [] if (m := HUB_ITEM_RE.search(u))]
+            if ids:
+                out[record_id(code, p["id"])] = record_id(portal.code, ids[0])
+    return out
 
 
 # The Data Access Portal answers a search with at most this many collections, and pages of 100.
@@ -1748,8 +1837,22 @@ def harvest(
         records += recs
         stats[p.code] = {"records": len(recs), "dropped_duplicates": dropped}
     copies = _keep_unmatched(records, copies, stats)
+    items: dict[str, str] = {}
+    have = {r["portal"] for r in records}
+    for p in portals:
+        # The copies sit on another portal, so they are read only when that portal was too.
+        if (
+            not p.copied_by
+            or p.code not in have
+            or not {o.split(":")[0] for o in p.copied_by} <= have
+        ):
+            continue
+        try:
+            items |= copied_items(p, s, log)
+        except (requests.RequestException, PortalError, KeyError, ValueError, TypeError) as e:
+            log(f"catalogue {p.code}: copies matched on title only: {e}")
     moved: dict[str, str] = {}
-    kept = _drop_copies(records, portals, stats, moved)
+    kept = _drop_copies(records, portals, stats, moved, items)
     pages = {r["id"]: r["url"] for r in records + copies if r.get("url")}
     records = kept
     seen: set[str] = set()
@@ -1771,11 +1874,12 @@ def named_copy(p: Portal, name: str) -> str:
     return record_id(p.code, m[1]) if m else ""
 
 
-def _drop_copies(
+def _drop_copies(  # noqa: C901 - one rule per way a portal names its copies
     records: list[Record],
     portals: Iterable[Portal],
     stats: dict[str, PortalStats],
     moved: dict[str, str] | None = None,
+    items: Mapping[str, str] | None = None,
 ) -> list[Record]:
     """Drop the copies of records that a portal read directly now lists itself.
 
@@ -1785,10 +1889,15 @@ def _drop_copies(
     Anything else that organisation holds is kept, since it may come from somewhere the portal
     does not. A dropped copy goes into `moved`, mapped to the record its name carries or else to
     the one record on the portal with its title.
+    A record in an organisation that a portal is `copied_by` is dropped when `items` maps it to
+    a record on the portal, or else when its title names one; one that matches nothing is kept
+    and counted as unmatched.
     """
     ids = {r["id"] for r in records}
     have = {r["portal"] for r in records}
-    scope = {o: p for p in portals if p.code in have for o in p.replaces}
+    live = [p for p in portals if p.code in have]
+    scope = {o: p for p in live for o in (*p.replaces, *p.copied_by)}
+    whole = {o for p in live for o in p.copied_by}
     if not scope:
         return records
     titles: dict[str, dict[str, list[str]]] = {}
@@ -1799,7 +1908,21 @@ def _drop_copies(
             )
     kept: list[Record] = []
     for r in records:
-        p = scope.get(f"{r['portal']}:{r['org'] or 'unknown'}")
+        org = f"{r['portal']}:{r['org'] or 'unknown'}"
+        p = scope.get(org)
+        if org in whole and p:
+            st = stats.setdefault(r["portal"], {})
+            same = titles.get(p.code, {}).get(_title_key(r["title"]), [])
+            to = (items or {}).get(r["id"], "")
+            to = to if to in ids else same[0] if len(same) == 1 else ""
+            if not to:
+                st["unmatched_copies"] = st.get("unmatched_copies", 0) + 1
+                kept.append(r)
+                continue
+            st["dropped_duplicates"] = st.get("dropped_duplicates", 0) + 1
+            if moved is not None:
+                moved[r["id"]] = to
+            continue
         named = named_copy(p, r["name"]) if p else ""
         same = [] if named or not p else titles.get(p.code, {}).get(_title_key(r["title"]), [])
         if named and named not in ids:
