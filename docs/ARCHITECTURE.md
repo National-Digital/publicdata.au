@@ -1073,31 +1073,36 @@ The settings come from a measurement over every live dataset in October 2026, wh
 ## Catalogue
 
 `publicdata catalogue fetch` reads the dataset list of every government open-data portal:
-data.gov.au, the NSW, Victorian, Queensland, SA, WA and NT portals and the Department of
-Infrastructure's catalogue over CKAN, the ACT portal over the Socrata catalogue API, the ABS
-dataflows over SDMX, and CSIRO's Data Access Portal over its web service. The Data Access Portal
-search returns at most 10,000 collections, so it is read in windows of publication date that are
-halved until each fits. A collection is downloadable when its full record offers the public at
-least one file. The full record is read once for each version of an open, unrestricted data
-collection, and again once an embargo it states has ended, at most 2,000 in one harvest. A
-collection whose full record has never been read is not downloadable. One due a reread past that
-cap, or whose full record cannot be read, keeps its earlier answer until it is read.
-Tasmania has no portal; its agencies publish on data.gov.au. Each record is
-re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as
-an SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
-nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so the
-original is the only copy; records it harvested from elsewhere, such as the ocean and geoscience
-catalogues, are kept and name their origin. The original lists the dropped copy's id under
-`copies`, matched on the page the copy names or on the package id CKAN's harvester keeps, so
-votes and contributor issues under the copy's id follow the original. A council portal's record
-lists a copy it replaces when the copy's title names that one record. A copy with no match is
-dropped and listed nowhere. The original also keeps each copy's page under `copy_pages`, so a
-register entry served from or planned on a copy that is later dropped finds the original. A
-record keeps the copies it listed in earlier snapshots, so a portal that cannot be read for a week
-loses none of them. The carry is never pruned. Each copy ever seen is written twice, as an id under
-`copies` and as the key of its page under `copy_pages`. The 34,481 copies dropped in the 2026-10-12
-snapshot come to about 6 MB of the uncompressed snapshot and about 1.2 MB gzipped. A snapshot from
-before the fields existed reads as records with no copies.
+data.gov.au, the NSW, Victorian, Queensland, SA, WA and NT portals, the Department of
+Infrastructure's catalogue and NSW's Sharing and Enabling Environmental Data portal (SEED) over
+CKAN, the ACT portal over the Socrata catalogue API, the ABS dataflows over SDMX, and CSIRO's Data
+Access Portal over its web service. The Data Access Portal search returns at most 10,000
+collections, so it is read in windows of publication date that are halved until each fits. A
+collection is downloadable when its full record offers the public at least one file. The full record
+is read once for each version of an open, unrestricted data collection, and again once an embargo it
+states has ended, at most 2,000 in one harvest. A collection whose full record has never been read
+is not downloadable. One due a reread past that cap, or whose full record cannot be read, keeps its
+earlier answer until it is read. Tasmania has no portal; its agencies publish on data.gov.au. Each
+record is re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it
+and as an SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary)
+and nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so
+the original is the only copy; records it harvested from elsewhere, such as the ocean and geoscience
+catalogues, are kept and name their origin. data.nsw.gov.au names the page it copied a record from
+in `harvest_url`. A record it copied from SEED or another CKAN portal read here is dropped in the
+same way when that portal still lists the original, and kept as data.nsw's own when it does not. Its
+copies of a council's site are left to the council portal's rule below. The original lists the
+dropped copy's id under `copies`, matched on the page the copy names or on the package id CKAN's
+harvester keeps, so votes and contributor issues under the copy's id follow the original. A council
+portal's record lists a copy it replaces when the copy's title names that one record. A data.gov.au
+copy with no match is dropped and listed nowhere. The original also keeps each copy's page under
+`copy_pages`, so a register entry served from or planned on a copy that is later dropped finds the
+original. A record keeps the copies it listed in earlier snapshots, so a portal that cannot be read
+for a week loses none of them. The carry is never pruned. Each copy ever seen is written twice, as
+an id under `copies` and as the key of its page under `copy_pages`. The 34,481 copies dropped in the
+2026-10-12 snapshot come to about 6 MB of the uncompressed snapshot and about 1.2 MB gzipped. A
+snapshot from before the fields existed reads as records with no copies. SEED's own licence ids are
+read as its license_list and deeds define them. Its third-party licence allows personal,
+non-commercial use only, so a record under it is not open.
 
 data.gov.au's search does not name the origin of its copies of the Data Access Portal, so the
 portal replaces that organisation as a council portal replaces its copies below. data.gov.au puts

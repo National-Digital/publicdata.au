@@ -32,6 +32,7 @@
   - gov:australianbureauofstatistics-geography
   - gov:government-of-the-commonwealth-of-australia-australian-bureau-of-statistics-australian-urban-researc
   - nsw:australian-bureau-of-statistics
+  - seed:australian-bureau-of-statistics
   - act:australian-bureau-of-statistics
   - act:source-australian-bureau-of-statistics
 - slug: australian-early-development-census
@@ -105,6 +106,7 @@
   - gov:bureau-of-meteorology-bom
   - gov:bureauofmeteorology
   - nsw:bureau-of-meteorology
+  - seed:bureau-of-meteorology
 - slug: centre-for-fish-and-fisheries-research-cffr-murdoch-university
   name: Centre for Fish and Fisheries Research (CFFR), Murdoch University
   jurisdiction: Cth
