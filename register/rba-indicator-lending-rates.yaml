@@ -85,7 +85,7 @@ fields:
   label: Date
   source: Series ID
   type: date
-  date_format: '%d/%m/%Y'
+  date_format: '%d-%b-%Y|%d/%m/%Y'
   description: The date of the observation.
 - name: small_business_variable_term
   label: Small business, variable term loan
