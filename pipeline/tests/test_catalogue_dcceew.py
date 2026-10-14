@@ -28,7 +28,7 @@ class Resp:
 
 
 class HubSession:
-    """Serves six DCCEEW Hub items recorded on 14 Oct 2026, descriptions shortened."""
+    """Serves seven DCCEEW Hub items recorded on 14 and 15 Oct 2026, descriptions shortened."""
 
     def __init__(self) -> None:
         self.headers: dict[str, str] = {}
@@ -52,7 +52,7 @@ def test_the_dcceew_hub_is_read_with_the_department_as_publisher() -> None:
     assert s.calls == ["https://fed.dcceew.gov.au/api/search/v1/collections/dataset/items"]
     assert dropped == 0
     by = {r["title"]: r for r in recs}
-    assert len(by) == 6
+    assert len(by) == 7
     zones = by["Underwater Cultural Heritage Protection Zones"]
     assert zones["url"] == "https://fed.dcceew.gov.au/datasets/9eb26ad044b24c8cac589e92241ee9a0"
     assert zones["org"] == "dcceew"
@@ -82,6 +82,22 @@ def test_the_dcceew_hub_is_read_with_the_department_as_publisher() -> None:
     ]
     assert snes["licence"] == "custom"
     assert snes["open"] is False
+    # A stated open licence whose terms say "Not for commercial use" is held closed.
+    review = next(r for t, r in by.items() if t.startswith("Commonwealth Marine Reserves Review"))
+    assert review["licence"] == "custom"
+    assert review["open"] is False
+
+
+def test_a_stated_open_licence_whose_terms_link_a_restricted_deed_is_held_closed() -> None:
+    nc = "<a href='https://creativecommons.org/licenses/by-nc/3.0/au/deed.en'>CC BY-NC 3.0 AU</a>"
+    nd = "<a href='https://creativecommons.org/licenses/by-nd/4.0/'>CC BY-ND 4.0</a>"
+    assert catalogue.hub_licence({"license": "CC-BY-3.0", "licenseInfo": nc})[0] == "custom"
+    assert catalogue.hub_licence({"license": "CC-BY-4.0", "licenseInfo": nd})[0] == "custom"
+    port = "<a href='https://creativecommons.org:443/licenses/by-nc/4.0/'>Terms</a>"
+    assert catalogue.hub_licence({"license": "CC-BY-4.0", "licenseInfo": port})[0] == "custom"
+    assert catalogue.hub_licence({"license": "custom", "licenseInfo": nc})[0] == "CC-BY-NC-3.0-AU"
+    by = "<a href='https://creativecommons.org/licenses/by/3.0/au/'>CC BY 3.0 AU</a>"
+    assert catalogue.hub_licence({"license": "CC-BY-3.0", "licenseInfo": by})[0] == "CC-BY-3.0-AU"
 
 
 def test_the_hub_replaces_nothing_and_its_records_join_the_department_s_publisher() -> None:

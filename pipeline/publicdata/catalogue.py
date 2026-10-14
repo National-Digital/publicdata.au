@@ -810,12 +810,28 @@ def _epoch_day(ms: object) -> str:
         return ""
 
 
+# Terms that withhold commercial use or changes, whatever licence id is stated beside them.
+HUB_RESTRICTED_TERMS = re.compile(
+    r"creativecommons\.org(?::\d+)?/licenses/[a-z-]*\b(nc|nd)\b|not for commercial use"
+    r"|non-?commercial|no[ -]?derivative",
+    re.IGNORECASE,
+)
+
+
 def hub_licence(x: HubItem) -> tuple[str, str]:
     """The licence an ArcGIS Hub dataset states.
 
     Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
-    Commons deed, written out in licenseInfo.
+    Commons deed, written out in licenseInfo. An open id whose terms restrict it is held as
+    custom.
     """
+    lid, text = _hub_stated_licence(x)
+    if is_open(lid) and HUB_RESTRICTED_TERMS.search(x.get("licenseInfo") or ""):
+        return "custom", text
+    return lid, text
+
+
+def _hub_stated_licence(x: HubItem) -> tuple[str, str]:
     lic = (x.get("license") or "").strip()
     raw = x.get("licenseInfo") or ""
     text = summary(raw)

@@ -102,10 +102,27 @@
     "source": "Australian Department of Climate Change, Energy, the Environment and Water",
     "url": null
    }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "7742f71f42674405bc4b0ca9afef9be6",
+    "type": "Feature Service",
+    "title": "Commonwealth Marine Reserves Review – Recommended zoning for Australia's network of Commonwealth marine reserves",
+    "license": "CC-BY-3.0",
+    "licenseInfo": "<p><b>Licence:</b></p><p></p><ul><li>Attribution 3.0 Australia (CC BY 3.0 AU)</li><li>This data has been licensed under the Creative Commons Attribution 3.0 Australia Licence. More information can be found at: <a href='https://creativecommons.org/licenses/by/3.0/au/deed.en' target='_blank' rel='nofollow ugc noopener noreferrer'>https://creativecommons.org/licenses/by/3.0/au/deed.en</a></li><li>This dataset is available under the CC BY data licensing model and users are required to acknowledge the Australian Government as the source of the data in any of their uses.</li></ul><p></p><p><b>Copyright:</b><br /></p><p></p><ul><li>Commonwealth Marine Reserves Review – Recommended zoning for Australia's network of Commonwealth marine reserves. Australian Government Department of Climate Change, Energy, the Environment and Water, 2016<br /></li></ul><p></p><p><b>Data Citation:</b></p><p></p><ul><li>Commonwealth Marine Reserves Review – Recommended zoning for Australia's network of Commonwealth marine reserves. Australian Government Department of Climate Change, Energy, the Environment and Water, 2016<br /></li></ul><p></p><p><b>Use Constraints:</b></p><p></p><ul><li>Not for commercial use</li></ul><p></p><p><b>Disclaimer:</b></p><p></p><ul><li>The user waives and releases the Commonwealth of Australia to the full extent permitted by law from all liability for loss or damage arising from the use of, or reliance on, material or information made available through the system, whether caused by negligence on the part of the Commonwealth of Australia or its agents. In no event shall the Commonwealth of Australia be liable for any incidental or consequential damages resulting from the use of or reliance on the material.</li><li>Information provided in publications by the Australian Government are considered to be true and correct at the time of publication. Changes in circumstances after time of publication may impact on the accuracy of this information and the Australian Government gives no assurance as to the accuracy of any information or advice contained.</li></ul><p></p><div><br /></div>",
+    "created": 1679612617000,
+    "modified": 1693784536000,
+    "description": "<p>This dataset was created for the independent Commonwealth Marine Reserves Review and does not reflect government policy. In November 2012, the Australian Government established 44 new Commonwealth marine reserves (CMRs) in the South-west, North-west, North, Temperate East and Coral Sea marine</p>",
+    "snippet": "This dataset was created for the independent Commonwealth Marine Reserves Review and does not reflect government policy.",
+    "owner": "DCCEEW_Geospatial",
+    "source": "Australian Government Department of Climate Change, Energy, the Environment and Water",
+    "url": "https://services1.arcgis.com/gtRkYQyUQLMTM1uS/arcgis/rest/services/CommonwealthMarineReservesReview/FeatureServer"
+   }
   }
  ],
- "numberMatched": 101,
- "numberReturned": 6,
+ "numberMatched": 7,
+ "numberReturned": 7,
  "links": [
   {
    "rel": "self",
