@@ -1,0 +1,123 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "9eb26ad044b24c8cac589e92241ee9a0",
+    "type": "File Geodatabase",
+    "title": "Underwater Cultural Heritage Protection Zones",
+    "license": "CC-BY-3.0",
+    "licenseInfo": "<p><b>Licence:</b><br /></p><ul><li>Attribution 3.0 Australia (CC BY 3.0 AU)</li><li>This data has been licensed under the Creative Commons Attribution 3.0 Australia Licence. More information can be found at: <a href='https://creativecommons.org/licenses/by/3.0/au/deed.en' target='_blank' rel='nofollow ugc noopener noreferrer'>https://creativecommons.org/licenses/by/3.0/au/deed.en</a></li><li>This dataset is available under the CC BY data licensing model and users are required to acknowledge the Australian Government as the source of the data in any of their uses.</li></ul><p></p><p></p><p></p><p><b>Copyright:</b></p><p></p><ul><li>© Commonwealth of Australia (Department of Climate Change, Energy, the Environment and Water) 2024</li></ul><p></p><p></p><p><b>Data Citation:</b></p><p></p><ul><li><a href='https://www.environment.gov.au/shipwreck/public/wreck/search.do' target='_blank' rel='nofollow ugc noopener noreferrer'>https://www.environment.gov.au/shipwreck/public/wreck/search.do</a><br /></li></ul><p></p><p><b>Use Constraints:</b></p><p></p><ul><li>None specified</li></ul><p></p><p></p><p></p><p><b>Disclaimer:</b></p><ul><li><p>The user waives and releases the Commonwealth of Australia to the full extent permitted by law from all liability for loss or damage arising from the use of, or reliance on, material or information made available through the system, whether caused by negligence on the part of the Commonwealth of Australia or its agents. In no event shall the Commonwealth of Australia be liable for any incidental or consequential damages resulting from the use of or reliance on the material.</p></li><li><p>Information provided in publications by the Australian Government are considered to be true and correct at the time of publication. Changes in circumstances after time of publication may impact on the accuracy of this information and the Australian Government gives no assurance as to the accuracy of any information or advice contained.</p></li></ul>",
+    "created": 1713245196000,
+    "modified": 1713245964000,
+    "description": "<p>The Underwater Cultural Heritage Act 2018 (the Act) commenced on 1 July 2019 replacing the Historic Shipwrecks Act 1976. Underwater Cultural Heritage Act 2018 automatically protects all shipwrecks and associated artefacts that have been in Australian waters for 75 years or more, regardless of</p>",
+    "snippet": "Underwater Cultural Heritage protected zones declared under the Underwater Cultural Heritage Act 2018 as per the (Protected Zones) Declaration Instrument 2019",
+    "owner": "DCCEEW_Geospatial",
+    "source": "Dept of Climate Change, Energy, the Environment & Water",
+    "url": null
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "be9930d6de354ace93fd1aa5d34a71de",
+    "type": "File Geodatabase",
+    "title": "National Vegetation Information System (NVIS) Version 7.0 - Extant Vectors Download ",
+    "license": "CC-BY-4.0",
+    "licenseInfo": "<h4><strong>Licence:</strong></h4><div><p></p><ul><li>Attribution 4.0 International (CC BY 4.0)</li><li>This data has been licensed under the Creative Commons Attribution 4.0InternationalLicence. More information can be found at:<a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://creativecommons.org/licenses/by/4.0/\">https://creativecommons.org/licenses/by/4.0/</a></li><li>This dataset is available under the CC BY data licensing model and users are required to acknowledge the Australian Government as the source of the data in any of their uses.</li><li>The data is supplied to the Department for compilation by States and Territories of Australia and custodianship rests with the source agencies. A list of the agencies is available in the acknowledgements section of the metadata entry.</li></ul><p></p><p></p><p><strong>Copyright:</strong><br></p><p></p><ul><li>© Commonwealth of Australia (Department of Climate Change, Energy, the Environment and Water) 2024.<br></li></ul><p></p><p><strong>Data Citation:</strong></p><p></p><ul><li>Australia - National Vegetation Information System 2024<br></li></ul><p></p><p><strong>Use Constraints:</strong></p><p></p><ul><li>You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.</li></ul><p></p><p></p><p></p><p><strong>Disclaimer:</strong></p><ul><li><p>The user waives and releases the Commonwealth of Australia to the full extent permitted by law from all liability for loss or damage arising from the use of, or reliance on, material or information made available through the system, whether caused by negligence on the part of the Commonwealth of Australia or its agents. In no event shall the Commonwealth of Australia be liable for any incidental or consequential damages resulting from the use of or reliance on the material.</p></li><li><p>Information provided in publications by the Australian Government are considered to be true and correct at the time of publication. Changes in circumstances after time of publication may impact on the accuracy of this information and the Australian Government gives no assurance as to the accuracy of any information or advice contained.</p></li></ul></div>",
+    "created": 1732252930000,
+    "modified": 1757045575000,
+    "description": "<p>The NVIS vegetation attributes contain information on vegetation structure (growth form, height and cover) and floristics (genus and species) as documented in the Australian Vegetation Attribute Manual Version 7.0 (NVIS Technical Working Group, 2017). The NVIS detailed Level 1-6 vegetation</p>",
+    "snippet": "This download package contains a geodatabase of vector layers delineating the extant ('present') native vegetation types across Australia made available for release under CC BY.",
+    "owner": "DCCEEW_Geospatial",
+    "source": "Dept of Climate Change, Energy, the Environment & Water",
+    "url": null
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "b01253650e5f4ff28bc373e7d0a278dd",
+    "type": "CSV",
+    "title": "IUCN Categories",
+    "license": "none",
+    "licenseInfo": null,
+    "created": 1679458915000,
+    "modified": 1697501413000,
+    "description": null,
+    "snippet": "A list of IUCN Protected Areas categories.  Source: Dudley, N. (Editor) (2008). Guidelines for Applying Protected Area Management Categories. Gland, Switzerland: \r\nIUCN. x + 86pp. WITH Stolton, S.,",
+    "owner": "DCCEEW_Geospatial",
+    "source": "Dept of Climate Change, Energy, the Environment & Water",
+    "url": null
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "55296c917f0d4054ae588d34cd5eb076",
+    "type": "Feature Service",
+    "title": "Commonwealth Marine Reserves 2014 - (not current)",
+    "license": "CC-BY-NC-3.0",
+    "licenseInfo": "<b>Licence:</b><div><ul><li>Attribution-NonCommercial 3.0 Australia (CC BY-NC 3.0 AU)</li><li>This data has been licensed under the Creative Commons Attribution-NonCommercial 3.0 Australia Licence. More information can be found at: <a href='https://creativecommons.org/licenses/by-nc/3.0/au/deed.en' target='_blank' rel='nofollow ugc noopener noreferrer'>https://creativecommons.org/licenses/by-nc/3.0/au/deed.en</a></li><li>This dataset is available under the CC BY data licensing model and users are required to acknowledge the Australian Government as the source of the data in any of their uses.</li><li>Not for commercial use</li></ul></div><b>Copyright:</b><div><ul><li>Australia's network of Commonwealth Marine Reserves. © Commonwealth of Australia, Australian Government Department of Climate Change, Energy, the Environment and Water, 2014<br /></li></ul></div><b>Data Citation:</b><div><ul><li>Department of Climate Change, Energy, the Environment and Water (2018). Carp Distribution (100m Grid). Commonwealth of Australia, Canberra.</li></ul></div><b>Use Constraints:</b><div><ul><li>Not for commercial use</li></ul></div><b>Disclaimer:</b><div><ul><li><p>The user waives and releases the Commonwealth of Australia to the full extent permitted by law from all liability for loss or damage arising from the use of, or reliance on, material or information made available through the system, whether caused by negligence on the part of the Commonwealth of Australia or its agents. In no event shall the Commonwealth of Australia be liable for any incidental or consequential damages resulting from the use of or reliance on the material.</p></li><li><p>Information provided in publications by the Australian Government are considered to be true and correct at the time of publication. Changes in circumstances after time of publication may impact on the accuracy of this information and the Australian Government gives no assurance as to the accuracy of any information or advice contained.</p></li></ul></div>",
+    "created": 1686797449000,
+    "modified": 1697511797000,
+    "description": "<p>This dataset represents Australia's network of Commonwealth Marine Reserves that came into effect in 2014, and has since been superseded. For current Marine Protected Areas in Commonwealth waters refer to the Australian Marine Parks dataset. Consistent with the Australian Government's commitment to</p>",
+    "snippet": "Australia's network of Commonwealth Marine Reserves that came into effect in 2014. This dataset does not represent the current network of Commonwealth Marine Protected areas.",
+    "owner": "DCCEEW_Geospatial",
+    "source": "Dept of Climate Change, Energy, the Environment & Water",
+    "url": "https://gis.environment.gov.au/gispubmap/rest/services/ogc_services/Commonwealth_Marine_Reserves/MapServer/0"
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "0b6e7b6c48a64a3a82c225fa48aee13d",
+    "type": "Feature Service",
+    "title": "Collaborative Australian Protected Areas Database (CAPAD) 2024 - Marine",
+    "license": "custom",
+    "licenseInfo": "<div><div><div><div><p><span>This dataset is available under the CC-BY data licencing model and users are required to acknowledge the Australian Government, Department of Climate Change, Energy, the Environment and Water as the source of the data in any of their uses. When citing the data please use 'Collaborative Australian Protected Areas Database (CAPAD) 202</span><span>4</span><span>, Commonwealth of Australia 202</span><span>5</span><span>'.</span></p><p><span /></p><p><span><span>The data is supplied to the Commonwealth for compilation by States and Territories of Australia and custodianship rests with the source agencies. A list of the agencies is available in the acknowledgements section of the metadata entry.</span></span></p><p><span /><span /></p><p><span>This CAPAD data has been supplied to the Commonwealth for compilation over several months following 30 June 202</span><span>4</span><span> and has taken several months to reach publication stage. Please note that the information supplied is not up-to-date at the time of publication and release by the Commonwealth.</span></p><p><span /></p><p><span>It is the responsibility of the person using the CAPAD dataset to always check the metadata for the currency date and if required seek advice from the individual agencies on details of more recent gazettals of protected areas.</span></p></div><p><span /></p></div></div></div>",
+    "created": 1743561807000,
+    "modified": 1781053256000,
+    "description": "<p>The Collaborative Australian Protected Areas Database (CAPAD) provides both spatial and textual information about government, Indigenous and privately protected areas for Australia, in both the marine and terrestrial environments. State, Territory and the large NGO conservation agencies supplied</p>",
+    "snippet": "Collaborative Australian Protected Areas Database (CAPAD)",
+    "owner": "DCCEEW_Geospatial",
+    "source": "Australian Government Department of Climate Change, Energy, the Environment and Water",
+    "url": "https://gis.environment.gov.au/gispubmap/rest/services/ogc_services/CAPAD/FeatureServer/1"
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "9d313bb078b9421ebebc835b3a69c470",
+    "type": "File Geodatabase",
+    "title": "Species of National Environmental Significance and selected marine and cetacean species - GDB",
+    "license": "custom",
+    "licenseInfo": "<DIV><DIV><DIV><UL><LI><P><SPAN>The species distribution models (SDM) support regional to national scale analysis. </SPAN></P></LI><LI><P><SPAN>The species distribution models represent potential habitat. They do not confirm presence or absence of a species at a site. </SPAN></P></LI><LI><P><SPAN>Local habitat condition, recent disturbance and fine‑scale features (such as tree hollows) are not necessarily captured in the models. </SPAN></P></LI><LI><P><SPAN>For migratory bird species, distributions represent areas of potential habitat use. Unless otherwise specified, they do not represent flight paths, overfly areas or migratory movement corridors and should not be relied on as the sole basis for assessing potential impacts from offshore developments, including renewable energy projects. </SPAN></P></LI><LI><P><SPAN>SDMs reflect the best available information at the time of modelling and are not suitable for measuring change over time.  </SPAN></P></LI><LI><P><SPAN>SDMs are reviewed and updated on a priority basis. </SPAN></P></LI><LI><P><SPAN>Area calculations should be used with care. They represent modelled area, not definitive habitat </SPAN></P><UL><LI><P><SPAN>Calculations based on public data will include any generalisations applied to protect the location of sensitive species. </SPAN></P></LI><LI><P><SPAN>Area calculations undertaken by the department are based on internal data and will differ from values calculated using the public data. </SPAN></P></LI></UL></LI></UL></DIV></DIV></DIV>",
+    "created": 1709251702000,
+    "modified": 1788337650000,
+    "description": "<p>This dataset is developed and maintained by Environment Information Australia and is updated when new listings take effect and as distributions are reviewed and updated. This vector product contains distribution models for Species of National Environmental Significance (those listed as threatened</p>",
+    "snippet": "The Species of National Environmental of Significance (SNES) dataset contains species distribution models (SDMs) for threatened, migratory, marine and cetacean species listed under the EPBC Act. SDMs",
+    "owner": "DCCEEW_Geospatial",
+    "source": "Australian Department of Climate Change, Energy, the Environment and Water",
+    "url": null
+   }
+  }
+ ],
+ "numberMatched": 101,
+ "numberReturned": 6,
+ "links": [
+  {
+   "rel": "self",
+   "type": "application/geo+json",
+   "title": "This document as GeoJSON",
+   "href": "https://fed.dcceew.gov.au/api/search/v1/collections/dataset/items"
+  },
+  {
+   "rel": "collection",
+   "type": "application/json",
+   "title": "Data",
+   "href": "https://fed.dcceew.gov.au/api/search/v1/collections/dataset"
+  }
+ ]
+}

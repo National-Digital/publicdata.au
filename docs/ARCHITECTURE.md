@@ -1075,7 +1075,9 @@ The settings come from a measurement over every live dataset in October 2026, wh
 `publicdata catalogue fetch` reads the dataset list of every government open-data portal:
 data.gov.au, the NSW, Victorian, Queensland, SA, WA and NT portals and the Department of
 Infrastructure's catalogue over CKAN, the ACT portal over the Socrata catalogue API, and the ABS
-dataflows over SDMX. Tasmania has no portal; its agencies publish on data.gov.au. Each record is
+dataflows over SDMX. Tasmania has no portal; its agencies publish on data.gov.au. The
+Department of Climate Change, Energy, the Environment and Water's ArcGIS Hub is read like a
+council's Hub site, and every record on it is that department's. Each record is
 re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as
 an SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
 nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so the

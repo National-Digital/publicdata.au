@@ -278,6 +278,14 @@ PORTALS = (
         "act", "www.data.act.gov.au", "https://api.us.socrata.com/api/catalog/v1", "act", "socrata"
     ),
     Portal("abs", "data.api.abs.gov.au", "https://data.api.abs.gov.au/rest", "cth", "sdmx"),
+    Portal(
+        "dcceew",
+        "fed.dcceew.gov.au",
+        "https://fed.dcceew.gov.au",
+        "cth",
+        "hub",
+        "Department of Climate Change, Energy, the Environment and Water",
+    ),
     # Councils with a portal of their own. One that data.gov.au or its state portal already lists
     # in full is left to that copy.
     _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", replaces=["qld:brisbane-city-council"]),
