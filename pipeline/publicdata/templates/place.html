@@ -48,7 +48,7 @@
   </div>{% endif %}
 
   <h2>Other {{ place_plural|lower }}</h2>
-  <ul class="places" data-conformance="aa">{% for p in others %}<li><a href="{{ p.href }}">{{ p.value }}</a><span>{{ p.rows_fmt }}</span></li>{% endfor %}</ul>
+  <ul class="places" data-conformance="aa">{% for p in others %}<li><a href="{{ p.href }}">{{ p.value }}</a> <span>{{ p.rows_fmt }} {{ (ds.row_label or "rows")|lower }}</span></li>{% endfor %}</ul>
 </div>
 
 <div class="side">
@@ -57,6 +57,7 @@
     <p class="small" style="color:var(--ink)">{{ cite_request }}</p>
     <p class="attr">{{ citation.harvard }}<button class="copy abs" type="button" data-copy-target="cite-src">Copy</button></p>
     <textarea id="cite-src" hidden>{{ citation.harvard }}</textarea>
+    {% if fig.outlines %}<p class="small">{{ fig.outlines }}</p>{% endif %}
     <p class="small">Author-date form. The dataset page has the same citation as text, HTML, Markdown and BibTeX.</p>
   </div>
   <div class="card">

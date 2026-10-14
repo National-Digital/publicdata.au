@@ -171,8 +171,8 @@
     {% for v in versions|reverse %}
     <li{% if loop.first %} class="latest"{% endif %}><span class="vd"><a href="{{ base }}v/{{ v.version }}/">{{ v.version }}</a></span>{% if v.as_at %}<span class="asat">as at {{ v.as_at_long }}</span>{% endif %}
       <div class="row2"><span>{{ v.rows_fmt }} rows</span>{% if v.change.added is defined %}<span class="delta"><span class="add">+{{ v.change.added }} added</span> <span class="rem">−{{ v.change.removed }} removed</span> <span class="chg">{{ v.change.changed }} changed</span></span>{% endif %}<span>{{ v.fields }} fields</span><span>{{ v.encoding }}</span><span class="mono">{{ v.sha256[:12] }}</span></div>
-      {% if v.backfilled %}<div class="note">Backfilled from the portal's own release history.</div>{% endif %}
-      {% if v.cut %}<div class="note">Kept as a dated version because {{ v.cut }}.</div>{% endif %}{% for n in v.notes %}<div class="note">{{ n }}</div>{% endfor %}</li>
+      {% if v.backfilled %}<p class="note">Backfilled from the portal's own release history.</p>{% endif %}
+      {% if v.cut %}<p class="note">Kept as a dated version because {{ v.cut }}.</p>{% endif %}{% for n in v.notes %}<p class="note">{{ n }}</p>{% endfor %}</li>
     {% endfor %}
   </ul>
   <p class="muted small"><a href="{{ base }}versions.json" class="mono">versions.json</a> · <a href="{{ base }}changes.json" class="mono">changes.json</a> · <a href="{{ base }}history.tar.zst" download="{{ download_name(ds.slug, latest.version, 'history.tar.zst') }}" class="mono">history.tar.zst</a> ({{ history_size }}, every version's Parquet and manifest)</p>
@@ -198,6 +198,7 @@
     <p class="attr" id="attr"><span id="cite-text">{{ citation.text }}</span><button class="copy abs" type="button" data-copy-target="cite-src">Copy</button></p>
     <textarea id="cite-src" hidden>{{ citation.text }}</textarea>
     <script type="application/json" id="cite-data">{{ citation|tojson }}</script>
+    {% if fig.outlines %}<p class="small">{{ fig.outlines }}</p>{% endif %}
     <p class="small">The attribution alone is inside every file. Harvard is the author-date form a report or a brief asks for. Paste the HTML on a web page so the links carry.</p>
   </div>
   <div class="card" id="licence-record">

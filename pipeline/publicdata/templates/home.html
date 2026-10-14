@@ -29,19 +29,19 @@
 <div class="site">
 <div class="sec-head" id="topics"><h2>Find a dataset by topic</h2><a href="/browse/">Or by government</a></div>
 <p class="muted" style="margin-top:0">Every dataset served here sits under a topic. Each one comes with every format, a query API, a browser explorer and an agent that can answer from it.</p>
-<div class="ttiles">
-  {% for t in topics %}{% if t.count %}<a class="ttile" href="{{ t.href }}">
-    <span class="tname">{{ t.name }}</span>
-    <span class="tblurb">{{ t.blurb }}</span>
-    <span class="tn"><b>{{ t.count }}</b> dataset{{ '' if t.count == 1 else 's' }} · <b>{{ t.rows }}</b> rows</span><span class="tlist">{{ t.titles|join(' · ') }}</span>
-  </a>{% else %}<div class="ttile empty">
+<ul class="ttiles">
+  {% for t in topics %}{% if t.count %}<li class="ttile">
     <a class="tname" href="{{ t.href }}">{{ t.name }}</a>
-    <span class="tblurb">{{ t.blurb }}</span>
+    <p class="tblurb">{{ t.blurb }}</p>
+    <span class="tn"><b>{{ t.count }}</b> dataset{{ '' if t.count == 1 else 's' }} · <b>{{ t.rows }}</b> rows</span> <span class="tlist">{{ t.titles|join(' · ') }}</span>
+  </li>{% else %}<li class="ttile empty">
+    <a class="tname" href="{{ t.href }}">{{ t.name }}</a>
+    <p class="tblurb">{{ t.blurb }}</p>
     {% if t.coming %}<span class="tn">Next to build, in vote order</span>
     <ul class="tcoming" data-conformance="aa">{% for c in t.coming %}<li><span>{{ c.title }}</span><button class="vote small" type="button" data-vote="{{ c.slug }}"><b>0</b><span>vote</span></button></li>{% endfor %}</ul>
     {% else %}<span class="tn">Nothing chosen yet. <a href="{{ t.search }}">Search the portals for {{ t.name|lower }}</a> and vote for one.</span>{% endif %}
-  </div>{% endif %}{% endfor %}
-</div>
+  </li>{% endif %}{% endfor %}
+</ul>
 
 <section class="feat" id="agent">
   <div class="feat-text">
@@ -69,14 +69,14 @@
 <div class="sec-head"><h2>A few of the datasets served here</h2><a href="/browse/">All {{ stats.live }}, by government</a></div>
 <p class="muted" style="margin-top:0">One from each topic. Each has every format, a query API, a browser explorer and a version history. The small chart is drawn from the newest version, and the line under it says what it shows.</p>
 <div id="ledger">
-<div class="cards single" data-conformance="aa">{% for d in showcase %}{% include "card.html" %}{% endfor %}{% for d in more_rows %}{% include "card.html" %}{% endfor %}</div>
+{% set card_tag = 'li' %}<ul class="cards single" data-conformance="aa">{% for d in showcase %}{% include "card.html" %}{% endfor %}{% for d in more_rows %}{% include "card.html" %}{% endfor %}</ul>
 </div>
 <p class="muted small" id="ledger-none" hidden>No dataset served here matches. <a href="/backlog/">Search every dataset on the portals</a> and vote for it.</p>
 <p class="small" style="margin-top:12px"><button class="copy" type="button" id="ledger-more">Show all {{ stats.live }} datasets</button></p>
 
 {% if jur_rows %}<div class="sec-head"><h2>Every dataset, by government</h2><a href="/browse/">Browse all {{ catalogue_total }}</a></div>
 <p class="muted" style="margin-top:0">This is what Australian governments list on their open-data portals, read from the portals' own catalogues. A dataset with an open licence and a download can be voted for. Only the licence can block one.</p>
-<div class="jtiles">{% for j in jur_rows %}<a class="jtile" href="{{ j.path }}"><span class="jname">{{ j.name }}</span><span class="jbar"><i style="width:{{ j.bar }}%"></i></span><span class="jn"><b>{{ j.listed }}</b> listed</span><span class="jn"><b>{{ j.candidates }}</b> open with a download</span><span class="jn"><b>{{ j.live }}</b> served here</span><span class="jportal">{{ j.portals|join(', ') }}</span></a>{% endfor %}</div>{% endif %}
+<div class="jtiles">{% for j in jur_rows %}<p class="jtile"><a class="jname" href="{{ j.path }}">{{ j.name }}</a> <span class="jbar"><i style="width:{{ j.bar }}%"></i></span> <span class="jn"><b>{{ j.listed }}</b> listed</span> <span class="jn"><b>{{ j.candidates }}</b> open with a download</span> <span class="jn"><b>{{ j.live }}</b> served here</span> <span class="jportal">The counts come from {{ j.portals|join(' and ') }}.</span></p>{% endfor %}</div>{% endif %}
 </div>
 
 <div class="band soft">
@@ -124,7 +124,7 @@
       <li><span class="path">/d/&lt;slug&gt;/history.tar.zst</span><span>every version's Parquet and manifest</span></li>
     </ul>
     <ul class="rail" style="margin-top:18px">
-      <li class="latest"><span class="vd"><a href="/d/{{ keeps.slug }}/v/{{ keeps.view.version }}/">{{ keeps.view.version }}</a></span>{% if keeps.view.as_at %}<span class="asat">as at {{ keeps.view.as_at_long }}</span>{% endif %}<div class="row2"><span>{{ keeps.view.rows_fmt }} rows</span>{% if keeps.view.change.added is defined %}<span class="delta"><span class="add">+{{ keeps.view.change.added }} added</span> <span class="rem">−{{ keeps.view.change.removed }} removed</span> <span class="chg">{{ keeps.view.change.changed }} changed</span></span>{% endif %}<span>{{ keeps.view.fields }} fields</span><span class="mono">{{ keeps.view.sha256[:12] }}</span><span class="chip live">latest</span></div><div class="note"><a href="/d/{{ keeps.slug }}/">{{ keeps.title }}</a>, {{ keeps.count }} version{{ '' if keeps.count == 1 else 's' }} kept. When {{ keeps.publisher }} releases again, the release becomes a new dated version here with its diff against this one{% if keeps.key %}, by <span class="mono">{{ keeps.key }}</span>{% endif %}.</div></li>
+      <li class="latest"><span class="vd"><a href="/d/{{ keeps.slug }}/v/{{ keeps.view.version }}/">{{ keeps.view.version }}</a></span>{% if keeps.view.as_at %}<span class="asat">as at {{ keeps.view.as_at_long }}</span>{% endif %}<div class="row2"><span>{{ keeps.view.rows_fmt }} rows</span>{% if keeps.view.change.added is defined %}<span class="delta"><span class="add">+{{ keeps.view.change.added }} added</span> <span class="rem">−{{ keeps.view.change.removed }} removed</span> <span class="chg">{{ keeps.view.change.changed }} changed</span></span>{% endif %}<span>{{ keeps.view.fields }} fields</span><span class="mono">{{ keeps.view.sha256[:12] }}</span><span class="chip live">latest</span></div><p class="note"><a href="/d/{{ keeps.slug }}/">{{ keeps.title }}</a>, {{ keeps.count }} version{{ '' if keeps.count == 1 else 's' }} kept. When {{ keeps.publisher }} releases again, the release becomes a new dated version here with its diff against this one{% if keeps.key %}, by <span class="mono">{{ keeps.key }}</span>{% endif %}.</p></li>
     </ul>
   </div>
 </section>
@@ -140,10 +140,10 @@
         <div class="ctas"><a class="btn" href="/publishers/">How it works for publishers</a><a class="btn ghost" href="/government/">Using it in government work</a><a class="btn ghost" href="/backlog/">Ask for a dataset</a></div>
       </div>
       <div class="pubfacts">
-        <div class="pubfact"><b>0</b><span><i>changes to your rows.</i> Cells are typed and headers renamed. Nothing is added, ranked or derived.</span></div>
-        <div class="pubfact"><b>{{ stats.formats }}</b><span><i>formats from one file.</i> CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON, GeoPackage and more.</span></div>
-        <div class="pubfact"><b>1</b><span><i>URL per version, kept.</i> A citation to it resolves to the same data in ten years.</span></div>
-        <div class="pubfact"><b>$0</b><span><i>to the publisher and to the reader.</i> No keys, no accounts, no download limit.</span></div>
+        <p class="pubfact"><b>0</b> <span><i>changes to your rows.</i> Cells are typed and headers renamed. Nothing is added, ranked or derived.</span></p>
+        <p class="pubfact"><b>{{ stats.formats }}</b> <span><i>formats from one file.</i> CSV, Excel, JSON, Parquet, SQLite, DuckDB, GeoJSON, GeoPackage and more.</span></p>
+        <p class="pubfact"><b>1</b> <span><i>URL per version, kept.</i> A citation to it resolves to the same data in ten years.</span></p>
+        <p class="pubfact"><b>$0</b> <span><i>to the publisher and to the reader.</i> No keys, no accounts, no download limit.</span></p>
       </div>
     </div>
   </div>
@@ -211,14 +211,14 @@
     <p>The site describes itself in the formats agents and search engines already look for, so nothing here needs a scraper.</p>
   </div>
   <div class="ends">
-    <a class="end" href="/llms.txt"><span class="path">/llms.txt</span><span>the site, for language models</span></a>
-    <a class="end" href="/mcp/server-card"><span class="path">/mcp</span><span>remote MCP server, {{ tool_count }} tools, no key</span></a>
-    <a class="end" href="/openapi.json"><span class="path">/openapi.json</span><span>OpenAPI 3.1 for the query API</span></a>
-    <a class="end" href="/d/{{ becomes.slug }}/index.md"><span class="path">/d/&lt;slug&gt;/index.md</span><span>a Markdown twin of every page</span></a>
-    <a class="end" href="/d/{{ becomes.slug }}/fields.json"><span class="path">/d/&lt;slug&gt;/fields.json</span><span>fields, types, ranges and values</span></a>
-    <a class="end" href="/d/{{ becomes.slug }}/"><span class="path">schema.org Dataset</span><span>on every dataset page, for Dataset Search</span></a>
-    <a class="end" href="/catalog.json"><span class="path">/catalog.json</span><span>a DCAT catalogue of every dataset</span></a>
-    <a class="end" href="/.well-known/ard.json"><span class="path">/.well-known/ard.json</span><span>the site's tools, for agent directories</span></a>
+    <p class="end"><a class="path" href="/llms.txt">/llms.txt</a> <span>Lists all {{ stats.live }} datasets with their latest download URLs.</span></p>
+    <p class="end"><a class="path" href="/mcp/server-card">/mcp</a> <span>A remote MCP server with {{ tool_count }} tools. It needs no key.</span></p>
+    <p class="end"><a class="path" href="/openapi.json">/openapi.json</a> <span>Describes the query API in OpenAPI 3.1. The API needs no key.</span></p>
+    <p class="end"><a class="path" href="/d/{{ becomes.slug }}/index.md">/d/&lt;slug&gt;/index.md</a> <span>Every page except an embed has a Markdown twin with the same facts.</span></p>
+    <p class="end"><a class="path" href="/d/{{ becomes.slug }}/fields.json">/d/&lt;slug&gt;/fields.json</a> <span>Gives each field's type, range and values for every dataset.</span></p>
+    <p class="end"><a class="path" href="/d/{{ becomes.slug }}/">schema.org Dataset</a> <span>Every dataset page carries a schema.org Dataset record for Dataset Search.</span></p>
+    <p class="end"><a class="path" href="/catalog.json">/catalog.json</a> <span>Lists all {{ stats.live }} datasets as a DCAT catalogue.</span></p>
+    <p class="end"><a class="path" href="/.well-known/ard.json">/.well-known/ard.json</a> <span>Lists the site's tools for agent directories.</span></p>
   </div>
 </div>
 

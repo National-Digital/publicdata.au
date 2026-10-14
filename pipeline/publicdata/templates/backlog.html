@@ -32,11 +32,11 @@
 <section id="top-voted">
 <div class="sec-head"><h2>Most wanted</h2>{% if catalogue_total %}<a href="/browse/">Browse by government</a>{% endif %}</div>
 <p class="muted" style="margin-top:0">The datasets with the most votes, which we build in this order.</p>
-<div class="tbl" tabindex="0" role="region" aria-label="Most wanted datasets" data-conformance="aa"><table class="ledger catlist" id="most-wanted" data-limit="25"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody>
+<table class="ledger catlist framed" id="most-wanted" data-limit="25" aria-label="Most wanted datasets" data-conformance="aa"><thead><tr><th>Dataset</th><th>Publisher</th><th>Licence and formats</th><th>Votes</th></tr></thead><tbody>
 {% for d in rows if d.status not in ('live', 'building') %}
 <tr><td class="t">{{ d.title }}<span class="sub">{{ d.summary }}</span></td><td>{{ d.publisher }} <span class="chip jur">{{ d.jur }}</span></td><td>{{ d.licence }}</td><td><button class="vote" type="button" data-vote="{{ d.slug }}"><b>0</b><span>vote</span></button></td></tr>
 {% endfor %}
-</tbody></table></div>
+</tbody></table>
 </section>
 
 <div class="sec-head"><h2>Chosen for building</h2></div>
