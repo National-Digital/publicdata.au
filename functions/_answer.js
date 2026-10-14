@@ -437,7 +437,7 @@ async function parquet(ctx, slug, v, op, qs, counted) {
 // The rows an unordered row query's filters match, from the version's rollup when a cube holds
 // them, so a page the Parquet budget refuses only for counting every match is read until full.
 function counter(ctx, slug, qs) {
-  const filters = qs.filter((p) => !RESERVED.has(decodeURIComponent(p.split('=')[0])));
+  const filters = qs.filter((p) => !RESERVED.has(new URLSearchParams(p).keys().next().value));
   return async (v) => {
     const c = await rollup(ctx, slug, v, 'aggregate', filters.concat(['metric=count']));
     return c ? c.matched : null;
@@ -575,10 +575,8 @@ export async function query(ctx, slug, want, op, qs) {
 }
 
 const hasOrder = (qs) => qs.some((p) => p.split('=')[0] === 'order');
-const param = (qs, k) => {
-  const p = qs.find((x) => x.split('=')[0] === k);
-  return p ? decodeURIComponent(p.slice(k.length + 1)) : '';
-};
+// URLSearchParams decodes as the engines do, leaving a malformed escape for them to refuse.
+const param = (qs, k) => new URLSearchParams(qs.join('&')).get(k) ?? '';
 const names = (v) =>
   v
     .split(',')
