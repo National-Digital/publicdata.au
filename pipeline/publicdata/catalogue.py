@@ -403,6 +403,7 @@ PORTALS = (
     # GeoNetwork catalogues over CSW. data.gov.au's search index drops their harvest source, so
     # its copies are replaced by organisation.
     Portal("thelist", "data.thelist.tas.gov.au", "https://data.thelist.tas.gov.au/datagn/srv/eng/csw", "tas", "csw", "Department of Natural Resources and Environment Tasmania", ("gov:tas-government-the-list",), record_page="https://data.thelist.tas.gov.au/datagn/srv/eng/metadata.show?uuid={id}"),
+    Portal("ga", "ecat.ga.gov.au", "https://ecat.ga.gov.au/geonetwork/srv/eng/csw", "cth", "csw", "Geoscience Australia", ("gov:geoscience-australia-data",)),
     # ArcGIS Hub sites of many bodies, each item filed under the body its metadata names.
     Portal(
         "actmapi",

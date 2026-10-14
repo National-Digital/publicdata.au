@@ -355,6 +355,9 @@
   - gov:government-of-the-commonwealth-of-australia-geoscience-australia-australian-urban-research-infrastru
   - atlas:digital-atlas-of-australia
   - atlas:digital-earth-australia
+  - ga:commonwealth-of-australia-geoscience-australia
+  - ga:geoscience-australia
+  - ga:mnhd
 - slug: gisail-geospatial-informatics-and-intelligence-group-rmit-university
   name: GISail (Geospatial Informatics and Intelligence) Group, RMIT University
   jurisdiction: Cth
