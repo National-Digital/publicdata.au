@@ -1119,8 +1119,24 @@ filed under the body its Source field names, and an item with no Source is filed
 item's owner is an account name and is never used. `publicdata catalogue publishers` proposes
 curation for these bodies as it does for data.gov.au's organisations.
 
+The Australian Institute of Health and Welfare's data downloads are read from the list its site
+fetches for every data page (`/api/search/all-downloadable-resources`). Each report is one
+record at the report's address, with the formats of the files it lists and the files' addresses,
+and a file that names no report is a record of its own. A report with no file in a readable
+format, such as a PDF publication, is left out. The id is the report's last path segment, with
+its parent segments added while that segment is a generic one such as `data`, so one report
+listed under two topics is one record. Ids that differ only in case or punctuation are one record,
+and a record at an address on another site has that site's host in its id.
+A file on the Institute's own site carries CC BY 4.0, which
+its copyright page states for its material, and a file hosted elsewhere states no licence. A
+report takes the least open of its files' terms, so it is not marked open when any file names a
+licence that is not open or mentions third-party material, copyright or terms of use. The
+Institute replaces data.gov.au's `aihw` organisation under the same rule as a council portal. A
+live register entry that fetches one of a report's files, or its data page, marks the report's
+record served, and a planned entry that fetches one claims the record for its votes.
+
 Record ids are the portal code plus the portal's own stable id (CKAN package UUID, Socrata
-four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id, Data Access Portal collection PID), so they survive renames and serve as vote keys. The snapshot is
+four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id, Data Access Portal collection PID, AIHW report path or media id), so they survive renames and serve as vote keys. The snapshot is
 one gzipped NDJSON file sorted by id and stored like a source at `store/catalogue/<date>/`; the
 weekly harvest, a workflow of its own so a slow portal never holds up a dataset, writes a new version only when the bytes change, and builds pull only the newest. A portal that cannot be read keeps
 its records from the latest snapshot and the snapshot's stats name it and the date the records

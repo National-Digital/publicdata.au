@@ -1445,7 +1445,7 @@ def _kiwis_batches(series: list[dict[str, str]]) -> list[list[str]]:
     return batches
 
 
-AIHW_LISTING = "https://www.aihw.gov.au/api/search/all-downloadable-resources"
+AIHW_LISTING = catalogue.AIHW_LISTING
 AIHW_ATTRS = re.compile(r'<div[^>]*class="s-downloadable-resources[^"]*"(.*?)>', re.DOTALL)
 
 

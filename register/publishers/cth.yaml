@@ -59,6 +59,7 @@
   level: federal
   url: https://www.aihw.gov.au/
   orgs:
+  - aihw:aihw
   - gov:aihw
   - gov:government-of-the-commonwealth-of-australia-australian-institute-of-health-and-welfare-australian-ur
 - slug: australian-national-university
