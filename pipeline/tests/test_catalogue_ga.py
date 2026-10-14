@@ -70,19 +70,19 @@ def test_ecat_records_are_read_onto_the_catalogue_shape() -> None:
     assert "ecat.ga.gov.au" in catalogue.DIRECT_HOSTS
 
 
-def test_ecat_parties_all_place_under_the_curated_geoscience_australia() -> None:
+def test_ecat_files_every_record_under_geoscience_australia() -> None:
     recs = harvest()
+    assert GA.one_body
     # The AUSGeoid98 record names an internal unit, MNHD, as custodian ahead of the agency.
-    assert {r["org"] for r in recs} <= {
-        "commonwealth-of-australia-geoscience-australia", "geoscience-australia", "mnhd"
-    }  # fmt: skip
+    assert {r["org"] for r in recs} == {"geoscience-australia"}
+    assert {r["org_title"] for r in recs} == {"Geoscience Australia"}
     curated = load_curated(Path(__file__).parents[2] / "register" / "publishers")
     _pubs, by_org = resolve(recs, curated, {p.code: p.jurisdiction for p in catalogue.PORTALS})
-    for r in recs:
-        pub = by_org[f"ga:{r['org']}"]
-        assert pub.slug == "geoscience-australia"
-        assert pub.curated
-        assert (pub.jurisdiction, pub.level) == ("Cth", "federal")
+    ga = by_org["ga:geoscience-australia"]
+    # The name finds the curated publisher, so its page gains eCat's records.
+    assert ga.slug == "geoscience-australia"
+    assert ga.curated
+    assert (ga.jurisdiction, ga.level) == ("Cth", "federal")
 
 
 def test_ecat_licences_come_from_the_licence_each_record_cites() -> None:

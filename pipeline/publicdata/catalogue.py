@@ -333,6 +333,9 @@ class Portal:
     record_page: str = ""
     # Organisations elsewhere holding only copies of this one, such as a harvester's own.
     copied_by: tuple[str, ...] = ()
+    # A CSW catalogue of one body's own holdings files every record under its publisher, since
+    # its records name the body's units and partners as custodians.
+    one_body: bool = False
 
     def landing(self, name: str) -> str:
         if self.kind == "ods":
@@ -403,7 +406,7 @@ PORTALS = (
     # GeoNetwork catalogues over CSW. data.gov.au's search index drops their harvest source, so
     # its copies are replaced by organisation.
     Portal("thelist", "data.thelist.tas.gov.au", "https://data.thelist.tas.gov.au/datagn/srv/eng/csw", "tas", "csw", "Department of Natural Resources and Environment Tasmania", ("gov:tas-government-the-list",), record_page="https://data.thelist.tas.gov.au/datagn/srv/eng/metadata.show?uuid={id}"),
-    Portal("ga", "ecat.ga.gov.au", "https://ecat.ga.gov.au/geonetwork/srv/eng/csw", "cth", "csw", "Geoscience Australia", ("gov:geoscience-australia-data",)),
+    Portal("ga", "ecat.ga.gov.au", "https://ecat.ga.gov.au/geonetwork/srv/eng/csw", "cth", "csw", "Geoscience Australia", ("gov:geoscience-australia-data",), one_body=True),
     # ArcGIS Hub sites of many bodies, each item filed under the body its metadata names.
     Portal(
         "actmapi",
@@ -1831,7 +1834,7 @@ def _csw_record(portal: Portal, m: ET.Element) -> Record | None:
     if not uid:
         return None
     ident = "gmd:identificationInfo/*/"
-    org = _csw_party(m, portal.publisher)
+    org = portal.publisher if portal.one_body else _csw_party(m, portal.publisher)
     lic, lic_title = csw_licence(m)
     dates = _csw_dates(m)
     scope = m.find("gmd:hierarchyLevel/gmd:MD_ScopeCode", CSW_NS)
