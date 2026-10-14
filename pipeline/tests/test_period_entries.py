@@ -138,6 +138,10 @@ def test_both_entries_split_by_year_and_neither_waits_on_the_pending_list() -> N
     assert WATER not in gate.PERIOD_PENDING
 
 
+# The versions published before either entry had a period.
+PUBLISHED = {EUC: ["2026-09-24", "2026-09-29"], WATER: ["2026-10-01"]}
+
+
 def test_the_versions_already_published_keep_their_cache_keys(tmp_path: Path) -> None:
     """A period is recorded by the fetch, and these versions were fetched without one.
 
@@ -145,9 +149,10 @@ def test_the_versions_already_published_keep_their_cache_keys(tmp_path: Path) ->
     """
     cache = BuildCache(tmp_path / "cache")
     for slug, ds in entries().items():
-        # Versions fetched since the period carry it, and are keyed with it.
-        ms_ = [m for m in store.manifests(REPO / "store", slug) if m.period is None]
-        assert ms_
+        # Named, since versions fetched later carry the period and a filter would pass a changed one.
+        ms_ = [m for m in store.manifests(REPO / "store", slug) if m.version in PUBLISHED[slug]]
+        assert sorted(m.version for m in ms_) == PUBLISHED[slug]
+        assert all(m.period is None for m in ms_)
         bare = replace(ds, period=None)
         for m in ms_:
             assert version_key(cache, ds, m, REPO / "store") == version_key(
@@ -222,6 +227,24 @@ def test_a_finished_dam_levels_year_is_reused_by_the_next_fetch(tmp_path: Path) 
     assert "1905 (unchanged since 1 October 2026)" in page
     assert "2025 (unchanged since" not in page
     assert "2026 (unchanged since" not in page
+
+
+def test_the_first_fetch_with_the_period_writes_every_part_after_a_whole_version(
+    tmp_path: Path,
+) -> None:
+    st = tmp_path / "store"
+    ds = entries()[WATER]
+    put(st, ds, "2026-10-01", water_rows([]), period=False)
+    put(st, ds, "2026-10-08", water_rows(["143036A,Wivenhoe,QLD,2026-10-07,1101000.0,90"]))
+    out = tmp_path / "dist"
+    o = build_dataset(ds, st, out, BuildCache(tmp_path / "cache"))
+    first, second = (built_manifest(out, WATER, v) for v in ("2026-10-01", "2026-10-08"))
+    assert not first.get("parts")
+    assert {p["period"]: p["tree"] for p in second["parts"]} == dict.fromkeys(
+        ("1905", "2024", "2025", "2026"), "2026-10-08"
+    )
+    assert sum(p["rows"] for p in second["parts"]) == second["rows"] == 5
+    assert present(o.latest).manifest.version == "2026-10-08"
 
 
 def test_the_gate_passes_both_entries_over_the_threshold(tmp_path: Path) -> None:
