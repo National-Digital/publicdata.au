@@ -81,6 +81,12 @@ class Record(_Fields):
     copy_pages: NotRequired[dict[str, str]]
     # On a copy only, until harvest drops it: the page of the original it was harvested from.
     copy_of: NotRequired[str]
+    # On a DAP collection: its version and publication stamp, the files its full record offers the
+    # public when that version was read, and the day a stated embargo on them ends, so a later
+    # harvest reads the full record again only on a change or once the embargo is over.
+    source_version: NotRequired[str]
+    file_count: NotRequired[int]
+    public_from: NotRequired[str]
 
 
 # The parts of each portal's API answers that the harvesters read.
@@ -226,6 +232,45 @@ class _HubPage(TypedDict, total=False):
     links: list[_HubLink] | None
 
 
+class _DapId(TypedDict, total=False):
+    identifier: str
+
+
+class _DapLink(TypedDict, total=False):
+    href: str
+
+
+class _DapCollection(TypedDict, total=False):
+    id: _DapId
+    dataCollectionId: int
+    landingPage: _DapLink | None
+    title: str | None
+    description: str | None
+    licence: str | None
+    published: str | None
+    collectionType: str | None
+    dataRestricted: str | None
+    dataVersionNumber: str | None
+
+
+class _DapPage(TypedDict, total=False):
+    totalResults: str
+    next: _DapLink | None
+    dataCollections: list[_DapCollection] | None
+    errors: object
+
+
+class _Checked(TypedDict):
+    file_count: int
+    public_from: NotRequired[str]
+
+
+class _DapDetail(TypedDict, total=False):
+    fileCount: int | None
+    accessLevel: str | None
+    access: str | None
+
+
 class _Headers(TypedDict, total=False):
     headers: dict[str, str]
 
@@ -252,6 +297,8 @@ class Portal:
     # Organisations on other portals, as portal:org, that copy this one. Their records are
     # dropped whenever this portal has records of its own in the snapshot.
     replaces: tuple[str, ...] = ()
+    # A copy whose name matches this, on a portal it replaces, holds this portal's own id in group 1.
+    copy_name: str = ""
 
     def landing(self, name: str) -> str:
         if self.kind == "ods":
@@ -287,6 +334,16 @@ PORTALS = (
         "act", "www.data.act.gov.au", "https://api.us.socrata.com/api/catalog/v1", "act", "socrata"
     ),
     Portal("abs", "data.api.abs.gov.au", "https://data.api.abs.gov.au/rest", "cth", "sdmx"),
+    Portal(
+        "csiro",
+        "data.csiro.au",
+        "https://data.csiro.au/dap/ws/v2",
+        "cth",
+        "dap",
+        "CSIRO",
+        ("gov:csiro-data-access-portal",),
+        r"fedora-pid_csiro-(.+)",
+    ),
     # Councils with a portal of their own. One that data.gov.au or its state portal already lists
     # in full is left to that copy.
     _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", replaces=["qld:brisbane-city-council"]),
@@ -454,7 +511,7 @@ def licence_id(title: str) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch 
         return "PDM"
     if re.search(r"creative commons|\bcc\b|^cc-", t):
         parts = ["CC-BY"]
-        if re.search(r"non-?commercial|\bnc\b", t):
+        if re.search(r"non[- ]?commercial|\bnc\b", t):
             parts.append("NC")
         if re.search(r"no[ -]?deriv|\bnd\b", t):
             parts.append("ND")
@@ -891,7 +948,210 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
     return out, 0
 
 
-HARVESTERS = {"ckan": ckan, "socrata": socrata, "sdmx": sdmx, "ods": ods, "hub": hub}
+# The Data Access Portal answers a search with at most this many collections, and pages of 100.
+DAP_LIMIT = 10_000
+DAP_PAGE = 100
+DAP_FIRST = dt.date(1990, 1, 1)
+DAP_TIMEOUT = 60
+# Publication dates are compared in one fixed offset so day windows meet without a gap.
+DAP_TZ = "+10:00"
+# Full records read per harvest; the rest wait for a later week and are not downloadable yet.
+DAP_DETAILS = 2_000
+
+
+def _dap_record(portal: Portal, x: _DapCollection, detail: _Checked | None) -> Record:
+    pid = x["id"]["identifier"]
+    kind = (x.get("collectionType") or "").strip().lower()
+    lic = (x.get("licence") or "").strip()
+    rec = _record(
+        portal,
+        source_id=pid.removeprefix("csiro:"),
+        name=pid,
+        title=re.sub(r"\s+", " ", x.get("title") or pid).strip(),
+        org=portal.code,
+        org_title=portal.publisher,
+        kind="dataset" if kind == "data" else kind,
+        licence=licence_id(lic),
+        licence_title=lic,
+        # Unrestricted files can be fetched through the web service without a request.
+        formats=["API"] if detail and detail["file_count"] else [],
+        created="",
+        modified=_day(x.get("published")),
+        url=(x.get("landingPage") or {}).get("href") or "",
+        summary=summary(x.get("description") or ""),
+        harvested_from="",
+    )
+    rec["source_version"] = f"{x.get('dataVersionNumber') or ''}@{x.get('published') or ''}"
+    if detail:
+        rec["file_count"] = detail["file_count"]
+        if detail.get("public_from"):
+            rec["public_from"] = detail["public_from"]
+    return rec
+
+
+MONTHS = {
+    m: i
+    for i, m in enumerate(
+        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1
+    )
+}
+
+
+def _embargo_end(access: str) -> str:
+    """The day a DAP access statement such as "restricted until 30 Sept 2027" ends, or ''."""
+    m = re.search(r"until (\d{1,2}) ([A-Za-z]{3})[a-z]* (\d{4})", access)
+    month = MONTHS.get(m[2].lower(), 0) if m else 0
+    if not m or not month:
+        return ""
+    try:
+        return dt.date(int(m[3]), month, int(m[1])).isoformat()
+    except ValueError:
+        return ""
+
+
+def _dap_checked(got: _DapDetail) -> _Checked | None:
+    n = got.get("fileCount")
+    if not isinstance(n, int):
+        return None
+    if got.get("accessLevel") == "Public":
+        return {"file_count": n}
+    return {"file_count": 0, "public_from": _embargo_end(got.get("access") or "")}
+
+
+def _dap_page(
+    portal: Portal, s: requests.Session, first: dt.date, last: dt.date, page: int
+) -> _DapPage:
+    params: Params = {
+        "rpp": DAP_PAGE,
+        "p": page,
+        "sb": "RECENT",
+        "psd": f"{first}T00:00:00{DAP_TZ}",
+        "ped": f"{last}T23:59:59.999{DAP_TZ}",
+    }
+    res = get_json_as(
+        _DapPage,
+        s,
+        f"{portal.api}/collections",
+        params,
+        timeout=DAP_TIMEOUT,
+        headers={"Accept": "application/json"},
+    )
+    if res.get("errors") or "totalResults" not in res or "dataCollections" not in res:
+        msg = f"{portal.host}: page {page} of {first} to {last} is not a search answer: {str(res)[:200]}"
+        raise PortalError(msg)
+    return res
+
+
+def _dap_listing(portal: Portal, s: requests.Session, log: Log) -> list[_DapCollection]:
+    """Every collection, by publication date in windows halved until the search pages each in full."""
+    out: list[_DapCollection] = []
+    windows = [(DAP_FIRST, dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1))]
+    while windows:
+        first, last = windows.pop()
+        page = 1
+        while True:
+            res = _dap_page(portal, s, first, last, page)
+            total = str(res.get("totalResults") or "0")
+            if page == 1 and (not total.isdigit() or int(total) >= DAP_LIMIT):
+                if first == last:
+                    msg = f"{portal.host}: {total} collections published on {first}"
+                    raise PortalError(msg)
+                mid = first + (last - first) // 2
+                windows += [(first, mid), (mid + dt.timedelta(days=1), last)]
+                break
+            batch = res.get("dataCollections") or []
+            if not batch and int(total) > (page - 1) * DAP_PAGE:
+                msg = f"{portal.host}: page {page} of {first} to {last} is empty of {total}"
+                raise PortalError(msg)
+            out += batch
+            log(f"catalogue {portal.code}: {first} to {last}, page {page}, {len(out)} so far")
+            if not batch or not res.get("next") or page * DAP_PAGE >= DAP_LIMIT:
+                break
+            page += 1
+    return out
+
+
+def _dap_details(
+    portal: Portal, s: requests.Session, log: Log, todo: list[tuple[str, _DapCollection]]
+) -> tuple[dict[str, _Checked], int]:
+    """The answers of the full records read, by record id, and how many could not be read."""
+    done: dict[str, _Checked] = {}
+    failed = 0
+    for rid, x in todo:
+        try:
+            got = get_json_as(
+                _DapDetail,
+                s,
+                f"{portal.api}/collections/{x['dataCollectionId']}",
+                timeout=DAP_TIMEOUT,
+                headers={"Accept": "application/json"},
+            )
+        except (requests.RequestException, ValueError, PortalError) as e:
+            # One collection's record failing every week must not stop the whole portal.
+            failed += 1
+            log(f"catalogue {portal.code}: the full record of {rid} could not be read: {e}")
+            continue
+        if c := _dap_checked(got):
+            done[rid] = c
+    return done, failed
+
+
+def dap(
+    portal: Portal, s: requests.Session, log: Log = print, previous: Iterable[Record] = ()
+) -> tuple[list[Record], int]:
+    """CSIRO's Data Access Portal.
+
+    A collection is downloadable when its full record offers the public at least one file. The
+    full record is read only for an open, unrestricted data collection whose version the previous
+    snapshot did not read, or whose stated embargo has ended, and at most DAP_DETAILS of them in
+    one harvest. A collection never read is not downloadable. One due a reread that is past the
+    cap, or whose full record cannot be read, keeps its earlier answer and the version that answer
+    was read at, so the next harvest reads it again.
+    """
+    found = _dap_listing(portal, s, log)
+    if not found:
+        msg = f"{portal.host}: the search listed no collections"
+        raise PortalError(msg)
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    before = {r["id"]: r for r in previous if "file_count" in r}
+    listed = [_dap_record(portal, x, None) for x in found]
+    done: dict[str, _Checked] = {}
+    todo: list[tuple[str, _DapCollection]] = []
+    for x, r in zip(found, listed, strict=True):
+        if x.get("dataRestricted") != "FALSE" or r["kind"] != "dataset" or not r["open"]:
+            continue
+        b = before.get(r["id"])
+        ends = b.get("public_from", "") if b else ""
+        if b and b.get("source_version") == r["source_version"] and not (ends and ends <= today):
+            done[r["id"]] = {"file_count": b["file_count"]}
+            if ends:
+                done[r["id"]]["public_from"] = ends
+        else:
+            todo.append((r["id"], x))
+    todo.sort(key=lambda t: t[0])
+    read, failed = _dap_details(portal, s, log, todo[:DAP_DETAILS])
+    done |= read
+    # A collection not read this time keeps the answer it had, under the version it was read at.
+    stale = {rid: before[rid] for rid, _ in todo if rid not in done and rid in before}
+    for rid, b in stale.items():
+        done[rid] = {"file_count": b["file_count"]}
+        if b.get("public_from"):
+            done[rid]["public_from"] = b["public_from"]
+    log(
+        f"catalogue {portal.code}: {min(len(todo), DAP_DETAILS) - failed} of {len(todo)} full "
+        f"records read, {failed} failed"
+    )
+    out = [
+        _dap_record(portal, x, done[r["id"]]) if r["id"] in done else r
+        for x, r in zip(found, listed, strict=True)
+    ]
+    for r in out:
+        if r["id"] in stale:
+            r["source_version"] = stale[r["id"]]["source_version"]
+    return out, 0
+
+
+HARVESTERS = {"ckan": ckan, "socrata": socrata, "sdmx": sdmx, "ods": ods, "hub": hub, "dap": dap}
 
 
 def harvest(
@@ -920,7 +1180,11 @@ def harvest(
     stats: dict[str, PortalStats] = {}
     for p in portals:
         try:
-            recs, dropped = HARVESTERS[p.kind](p, s, log)
+            # Only the DAP reader reuses earlier answers, so only it is given the last records.
+            if p.kind == "dap":
+                recs, dropped = dap(p, s, log, [r for r in previous or [] if r["portal"] == p.code])
+            else:
+                recs, dropped = HARVESTERS[p.kind](p, s, log)
         except (requests.RequestException, PortalError, KeyError, ValueError, TypeError) as e:
             kept = [r for r in previous or [] if r["portal"] == p.code]
             records += kept
@@ -954,20 +1218,28 @@ def _title_key(title: str) -> str:
     return re.sub(r"[^a-z0-9]", "", title.lower())
 
 
+def named_copy(p: Portal, name: str) -> str:
+    """The id of the record on p that a copy named `name` reproduces, when its name says, or ''."""
+    m = re.fullmatch(p.copy_name, name) if p.copy_name else None
+    return record_id(p.code, m[1]) if m else ""
+
+
 def _drop_copies(
     records: list[Record],
     portals: Iterable[Portal],
     stats: dict[str, PortalStats],
     moved: dict[str, str] | None = None,
 ) -> list[Record]:
-    """Drop the copies of records that a council portal now lists itself.
+    """Drop the copies of records that a portal read directly now lists itself.
 
-    A record in an organisation a council portal replaces is dropped when the council portal
-    lists the same title or the record's source is on the council portal. Anything else that
-    organisation holds is kept, since it may come from somewhere the council portal does not.
-    A dropped copy whose title names one record on the council portal goes into `moved`, mapped
-    to that record's id.
+    A record in an organisation a portal replaces is a copy. When its name carries the id of a
+    record on that portal, it is dropped if that record is listed and kept if not. Otherwise it
+    is dropped when the portal lists the same title or the record's source is on the portal.
+    Anything else that organisation holds is kept, since it may come from somewhere the portal
+    does not. A dropped copy goes into `moved`, mapped to the record its name carries or else to
+    the one record on the portal with its title.
     """
+    ids = {r["id"] for r in records}
     have = {r["portal"] for r in records}
     scope = {o: p for p in portals if p.code in have for o in p.replaces}
     if not scope:
@@ -981,12 +1253,16 @@ def _drop_copies(
     kept: list[Record] = []
     for r in records:
         p = scope.get(f"{r['portal']}:{r['org'] or 'unknown'}")
-        same = titles.get(p.code, {}).get(_title_key(r["title"]), []) if p else []
-        if p and (same or r.get("source_host") == p.host.removeprefix("www.")):
+        named = named_copy(p, r["name"]) if p else ""
+        same = [] if named or not p else titles.get(p.code, {}).get(_title_key(r["title"]), [])
+        if named and named not in ids:
+            kept.append(r)
+            continue
+        if p and (named or same or r.get("source_host") == p.host.removeprefix("www.")):
             st = stats.setdefault(r["portal"], {})
             st["dropped_duplicates"] = st.get("dropped_duplicates", 0) + 1
-            if moved is not None and len(same) == 1:
-                moved[r["id"]] = same[0]
+            if moved is not None and (named or len(same) == 1):
+                moved[r["id"]] = named or same[0]
             continue
         kept.append(r)
     return kept
