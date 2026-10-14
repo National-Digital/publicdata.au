@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Protocol
 from urllib.parse import parse_qs, urlparse
 
 from . import REPO, SITE
-from .catalogue import BY_CODE, record_id
+from .catalogue import ASSESSING, BY_CODE, record_id
 from .catalogue import bare_url as _bare
 from .provenance import OPERATOR_ORG
 from .publishers import (
@@ -350,6 +350,10 @@ def locate(url: str) -> tuple[str, str, str] | None:  # noqa: PLR0911 - one retu
     df = parse_qs(u.query).get("df[id]")
     if df:
         return host, "source", df[0]
+    # A GeoNetwork record page names the record by its uuid or a #/metadata/<id> route.
+    gn = parse_qs(u.query).get("uuid") or re.findall(r"^/metadata/([^/?#]+)", u.fragment)
+    if gn:
+        return host, "source", gn[0]
     m = re.search(r"/data/[^/,]+,([^/,]+),", u.path)
     if m:
         return host, "source", m.group(1)
@@ -431,6 +435,7 @@ LICENCE_NAMES = {
     "ODBL-1.0": "ODbL",
     "other-open": "Open, on the portal's own terms",
     "other-at": "Open with attribution, on the portal's own terms",
+    "assessing": "under review",
 }
 
 
@@ -447,6 +452,8 @@ def licence_name(lic: str | None) -> str:
 
 
 def _reason(r: Record) -> str:
+    if r["licence"] == ASSESSING:
+        return "licence under review"
     if r["open"] is None:
         return "no licence stated"
     if not r["open"]:
