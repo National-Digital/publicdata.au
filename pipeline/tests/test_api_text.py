@@ -24,6 +24,7 @@ if TYPE_CHECKING:
             "url": str,
             "sameAs": list[str],
             "includedInDataCatalog": "LinkedNode",
+            "publisher": "LinkedNode",
         },
         total=False,
     )
@@ -272,6 +273,9 @@ def test_the_mcp_server_is_an_entity_the_directories_identify(site: Path) -> Non
         == catalog["@id"]
         == "https://publicdata.au/#catalog"
     )
+    website = next(n for n in nodes("index.html") if n.get("@type") == "WebSite")
+    assert website["@id"] == "https://publicdata.au/#website"
+    assert website["publisher"]["@id"] == "https://nationaldigital.com.au/#organization"
 
 
 def test_the_terms_page_is_linked_everywhere_a_directory_looks(site: Path) -> None:
