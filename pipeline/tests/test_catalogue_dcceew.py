@@ -59,14 +59,15 @@ def test_the_dcceew_hub_is_read_with_the_department_as_publisher() -> None:
     assert zones["org_title"] == "Department of Climate Change, Energy, the Environment and Water"
     assert zones["formats"] == ["FGDB"]
     assert zones["downloadable"]
-    assert zones["licence"] == "CC-BY-3.0"
+    # Hub's licence list has no Australian ports; the deed in the terms names the one meant.
+    assert zones["licence"] == "CC-BY-3.0-AU"
     assert zones["open"] is True
     vectors = by[
         "National Vegetation Information System (NVIS) Version 7.0 - Extant Vectors Download"
     ]
     assert vectors["licence"] == "CC-BY-4.0"
     reserves = by["Commonwealth Marine Reserves 2014 - (not current)"]
-    assert reserves["licence"] == "CC-BY-NC-3.0"
+    assert reserves["licence"] == "CC-BY-NC-3.0-AU"
     assert reserves["open"] is False
     assert {"API", "GEOJSON"} <= set(reserves["formats"])
     # "none" with no terms states no licence.

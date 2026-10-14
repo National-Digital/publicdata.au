@@ -819,9 +819,11 @@ def hub_licence(x: HubItem) -> tuple[str, str]:
     lic = (x.get("license") or "").strip()
     raw = x.get("licenseInfo") or ""
     text = summary(raw)
-    if lic.lower() not in ("", "none", "custom"):
-        return licence_id(lic), text or lic
     found = cc_url(raw)
+    if lic.lower() not in ("", "none", "custom"):
+        named = licence_id(lic)
+        # Hub's licence list has no Australian ports, so the deed in the terms says which is meant.
+        return (found if found == f"{named}-AU" else named), text or lic
     if found or lic.lower() in ("", "none"):
         return found, text
     named = licence_id(text)
