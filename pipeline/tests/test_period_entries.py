@@ -145,9 +145,9 @@ def test_the_versions_already_published_keep_their_cache_keys(tmp_path: Path) ->
     """
     cache = BuildCache(tmp_path / "cache")
     for slug, ds in entries().items():
-        ms_ = store.manifests(REPO / "store", slug)
+        # Versions fetched since the period carry it, and are keyed with it.
+        ms_ = [m for m in store.manifests(REPO / "store", slug) if m.period is None]
         assert ms_
-        assert all(m.period is None for m in ms_)
         bare = replace(ds, period=None)
         for m in ms_:
             assert version_key(cache, ds, m, REPO / "store") == version_key(
