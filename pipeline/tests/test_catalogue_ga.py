@@ -226,6 +226,33 @@ def test_only_an_unclassified_marking_under_the_government_system_states_no_term
     assert lic(note="Release to government agencies only") == catalogue.ASSESSING
 
 
+def test_ecat_format_names_that_are_protocols_read_as_protocols() -> None:
+    by = by_title()
+    # The grid names WWW:LINK, OGC:WMS and OGC:WCS as formats; only the services are formats.
+    assert by["GSNSW Exploration NSW Ar"]["formats"] == ["API", "NCSS", "WMS"]
+    assert by["GSNSW Exploration NSW Ar"]["downloadable"]
+    m = ET.fromstring(  # noqa: S314 - the test's own literal
+        '<gmd:MD_Metadata xmlns:gmd="http://www.isotc211.org/2005/gmd" '
+        'xmlns:gco="http://www.isotc211.org/2005/gco"><gmd:distributionInfo><gmd:MD_Distribution>'
+        + "".join(
+            f"<gmd:distributionFormat><gmd:MD_Format><gmd:name><gco:CharacterString>{n}"
+            "</gco:CharacterString></gmd:name></gmd:MD_Format></gmd:distributionFormat>"
+            for n in (
+                "OGC:WFS",
+                "WWW:DOWNLOAD-1.0-http--download",
+                "ESRI Shapefile",
+                "ESRI:Shapefile",
+            )
+        )
+        + "<gmd:transferOptions><gmd:MD_DigitalTransferOptions><gmd:onLine><gmd:CI_OnlineResource>"
+        "<gmd:linkage><gmd:URL>https://example.gov.au/data</gmd:URL></gmd:linkage>"
+        "</gmd:CI_OnlineResource></gmd:onLine></gmd:MD_DigitalTransferOptions></gmd:transferOptions>"
+        "</gmd:MD_Distribution></gmd:distributionInfo></gmd:MD_Metadata>"
+    )
+    # A name with a colon that is no known protocol and no WWW link is kept as named.
+    assert catalogue.csw_formats(m) == ["API", "ESRI:SHAPEFILE", "SHP"]
+
+
 def gov(i: int, title: str, org: str = "geoscience-australia-data") -> Record:
     return catalogue._record(catalogue.BY_CODE["gov"], source_id=f"c{i}", name=f"c{i}", title=title,
                              org=org, org_title="Geoscience Australia Data", kind="dataset",

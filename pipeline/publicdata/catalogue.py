@@ -1756,6 +1756,10 @@ def csw_licence(m: ET.Element) -> tuple[str, str]:
     return ASSESSING, title
 
 
+def _csw_protocol(proto: str) -> list[str]:
+    return [f for p, f in CSW_PROTOCOLS if proto.upper().startswith(p)]
+
+
 def csw_formats(m: ET.Element) -> list[str]:
     """The formats a record names, its online resources' protocols and the files it links."""
     raw: list[str] = []
@@ -1765,8 +1769,7 @@ def csw_formats(m: ET.Element) -> list[str]:
         if not url:
             continue
         linked = True
-        proto = _csw_text(ol, "gmd:protocol").upper()
-        raw += [f for p, f in CSW_PROTOCOLS if proto.startswith(p)]
+        raw += _csw_protocol(_csw_text(ol, "gmd:protocol"))
         path = urlparse(url).path
         if "/rest/services/" in path.lower():
             raw.append("ESRI REST")
@@ -1775,10 +1778,11 @@ def csw_formats(m: ET.Element) -> list[str]:
             raw.append(ext)
     # A format named with no link to fetch it from is no download.
     if linked:
-        raw += [
-            _csw_text(f, "gmd:name")
-            for f in m.iterfind(".//gmd:distributionInfo//gmd:MD_Format", CSW_NS)
-        ]
+        for f in m.iterfind(".//gmd:distributionInfo//gmd:MD_Format", CSW_NS):
+            name = _csw_text(f, "gmd:name")
+            # A protocol named as a format, such as OGC:WMS or WWW:LINK-1.0-http--link.
+            named = _csw_protocol(name) or name.upper().startswith("WWW:")
+            raw += _csw_protocol(name) if ":" in name and named else [name]
     return [f for f in formats(r for r in raw if r) if f != "OTHER"]
 
 
