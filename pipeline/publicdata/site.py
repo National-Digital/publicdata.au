@@ -339,6 +339,16 @@ SOURCE_JSONLD = {
     "author": OPERATOR_ORG,
     "maintainer": OPERATOR_ORG,
 }
+# The site as a whole, which nationaldigital.com.au lists under its Organization's owns.
+WEBSITE_ID = f"{SITE}/#website"
+WEBSITE_JSONLD = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "@id": WEBSITE_ID,
+    "name": HOST,
+    "url": SITE + "/",
+    "publisher": OPERATOR_ORG,
+}
 GITHUB_ORG = REPO.rsplit("/", 1)[0]
 # Cloudflare Web Analytics: first-party, no cookies, no other tracking.
 BEACON = "b3b3d9ce88104e7e965284919b4d556e"
@@ -1624,7 +1634,7 @@ def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at e
             "description": description,
             # A bare reference: the dataset page carries the full Dataset node under this @id.
             "about": {"@id": base},
-            "isPartOf": {"@type": "WebSite", "name": HOST, "url": SITE + "/"},
+            "isPartOf": {"@type": "WebSite", "@id": WEBSITE_ID, "name": HOST, "url": SITE + "/"},
             "license": ds.licence.url,
             "provider": OPERATOR_ORG,
         }
@@ -4995,7 +5005,11 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         more_rows=[{**r, "more": True} for r in rows if r["slug"] not in used],
         becomes=becomes,
         jsonld=json.dumps(home_jsonld, ensure_ascii=False),
-        extra_jsonld=[mcp_jsonld, json.dumps(SOURCE_JSONLD, ensure_ascii=False)],
+        extra_jsonld=[
+            mcp_jsonld,
+            json.dumps(SOURCE_JSONLD, ensure_ascii=False),
+            json.dumps(WEBSITE_JSONLD, ensure_ascii=False),
+        ],
     )
 
     # Topic pages: what is served under each topic, and what is coming.
