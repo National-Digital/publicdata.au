@@ -3688,7 +3688,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                 "get": {
                     "tags": ["backlog"],
                     "summary": "Search every dataset listed on Australia's government open-data portals",
-                    "description": "Words in q are matched against title, description and publisher, with plurals and other endings matched to their stem. Records that can take a vote come first. With ids, returns those records by id or vote key; with url, returns the record a portal URL names, or null. Each row's state is votable, chosen (planned in the register; its vote key is the register slug), served (it has a page here) or closed (no open licence or no file to read, with the reason).",
+                    "description": "Words in q are matched against title, description and publisher, with plurals and other endings matched to their stem. Records that can take a vote come first. With ids, returns those records by id or vote key, and answers the id of a copy the catalogue dropped with the record that replaced it, naming each such pair in moved; with url, returns the record a portal URL names, or null. Each row's state is votable, chosen (planned in the register; its vote key is the register slug), served (it has a page here) or closed (no open licence or no file to read, with the reason).",
                     "operationId": "searchCatalogue",
                     "parameters": [
                         {"name": "q", "in": "query", "schema": {"type": "string"}},
@@ -3756,7 +3756,9 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                         "429": {
                             "description": "Over the fair-use limit for one address. Wait Retry-After seconds."
                         },
-                        "503": {"description": "The catalogue index is not loaded yet"},
+                        "503": {
+                            "description": "The catalogue index is not loaded yet, or the list of dropped copies could not be read"
+                        },
                     },
                 }
             },

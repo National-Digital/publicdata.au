@@ -84,23 +84,92 @@ export async function aliases(env) {
 
 export const others = (al, slug) => Object.keys(al).filter((id) => al[id] === slug);
 
-export async function count(env, slug, al = {}) {
-  const n = await Promise.all([slug, ...others(al, slug)].map((s) => listed(env, `v/${s}/`)));
+// The small file a catalogue id is looked up in, named by portal and first character.
+export const shardOf = (id) => {
+  const m = id.match(/^([a-z]+)-([a-z0-9])/);
+  return m ? `${m[1]}-${m[2]}` : null;
+};
+
+// A shard of the copies list that could not be read. It is not the same as "not a copy", which
+// would count a copy's votes apart and let the contributor sync close its issue.
+export class CopiesUnreadable extends Error {}
+
+// One shard of a catalogue list keyed by record id. Each is read once, since the files change
+// only with a deploy; an absent one holds none.
+const shards = new Map();
+async function shardFile(env, dir, key) {
+  const name = `catalogue/${dir}/${key}.json`;
+  if (!shards.has(name)) {
+    let r;
+    try {
+      r = await env.ASSETS.fetch(new URL(`/${name}`, 'https://publicdata.au'));
+      shards.set(name, r.ok ? await r.json() : r.status === 404 ? {} : null);
+    } catch {
+      shards.delete(name);
+      throw new CopiesUnreadable(`${name} could not be read`);
+    }
+    if (shards.get(name) === null) {
+      shards.delete(name);
+      throw new CopiesUnreadable(`${name} answered ${r.status}`);
+    }
+  }
+  return shards.get(name);
+}
+
+const own = (o, id) => Object.prototype.hasOwnProperty.call(o, id);
+
+// A record id the catalogue dropped as a copy, mapped to the record that replaced it, or null.
+export async function replacedBy(env, id) {
+  const key = shardOf(id);
+  if (!key) {
+    return null;
+  }
+  const got = await shardFile(env, 'copies', key);
+  return own(got, id) ? got[id] : null;
+}
+
+// The copies a record that takes no votes replaced. A votable record lists them in its entry.
+export async function copiesOf(env, id) {
+  const key = shardOf(id);
+  if (!key) {
+    return [];
+  }
+  const got = await shardFile(env, 'copied', key);
+  return own(got, id) ? got[id] : [];
+}
+
+// The key a vote under this id counts for: a claimed record's register slug, or the record a
+// dropped copy was replaced by.
+export async function follow(env, al, raw) {
+  if (al[raw]) {
+    return al[raw];
+  }
+  const to = await replacedBy(env, raw);
+  return to ? al[to] || to : raw;
+}
+
+export async function count(env, slugs) {
+  const n = await Promise.all(slugs.map((s) => listed(env, `v/${s}/`)));
   return n.reduce((a, b) => a + b, 0);
 }
 
-// Every slug with votes, with aliases folded into their register slug.
+// Every slug with votes, with aliases and dropped copies folded into the key they count for.
 export async function tally(env, al = {}) {
-  const counts = {};
+  const raw = {};
   let cursor;
   do {
     const page = await env.VOTES.list({ prefix: 'v/', cursor, limit: 1000 });
     for (const o of page.objects) {
-      const raw = o.key.split('/')[1];
-      const slug = al[raw] || raw;
-      counts[slug] = (counts[slug] || 0) + 1;
+      const k = o.key.split('/')[1];
+      raw[k] = (raw[k] || 0) + 1;
     }
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
+  const keys = Object.keys(raw);
+  const to = await Promise.all(keys.map((k) => follow(env, al, k)));
+  const counts = {};
+  keys.forEach((k, i) => {
+    counts[to[i]] = (counts[to[i]] || 0) + raw[k];
+  });
   return counts;
 }
