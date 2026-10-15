@@ -187,6 +187,32 @@ def test_a_report_takes_its_least_open_term_whatever_order_its_files_come_in() -
         assert (by["hosted"]["licence"], by["hosted"]["open"]) == ("", None)
 
 
+def test_a_stated_term_that_is_not_open_wins_over_no_licence() -> None:
+    rows = [
+        res("https://example.org/a.csv", "/reports/x/both", "CSV"),
+        res(
+            "https://www.aihw.gov.au/getmedia/e/third.xlsx",
+            "/reports/x/both",
+            schemaLicenseUrl="https://example.org/terms",
+        ),
+    ]
+    for order in (rows, rows[::-1]):
+        both = harvest(AihwSession(order, fixture=False))["both"]
+        assert both["licence"] not in ("", catalogue.AIHW_LICENCE[0])
+        assert both["open"] is False
+
+
+def test_a_resource_with_no_file_address_is_skipped() -> None:
+    rows = [
+        res("/getmedia/f/kept.xlsx", "/reports/x/kept"),
+        cast("AihwResource", {**res("", "/reports/x/kept"), "resultUrl": None}),
+        cast("AihwResource", {**res(""), "resultUrl": None}),
+    ]
+    by = harvest(AihwSession(rows, fixture=False))
+    assert list(by) == ["kept"]
+    assert by["kept"]["files"] == ["https://www.aihw.gov.au/getmedia/f/kept.xlsx"]
+
+
 def test_a_generic_slug_takes_its_parent_and_an_alias_merges_into_one_record() -> None:
     rows = [
         res("/getmedia/1/h.xlsx", "/reports/hospitals/data"),
@@ -373,3 +399,18 @@ def test_a_served_data_gov_au_aihw_record_dropped_by_title_stays_served_on_the_a
     assert recs[0]["copy_pages"] == {copy["id"]: copy["url"]}
     d = plan([youth], recs, load_curated(CURATED), "2026-10-15")
     assert d.served == {own["id"]: f"/d/{youth.slug}/"}
+
+
+def test_a_report_s_own_page_wins_over_a_report_that_lists_it_as_a_file() -> None:
+    reg = {d.slug: d for d in load(cli.REGISTER)}
+    shs = dataclasses.replace(reg["au-homelessness-services-monthly"], status="backlog")
+    path = shs.source.url.removeprefix("https://www.aihw.gov.au").removesuffix("/data")
+    rows = [
+        res("/getmedia/9/shs.xlsx", path),
+        res(path, "/reports/x/zz-linking-report"),
+        res("/getmedia/7/a.xlsx", "/reports/x/zz-linking-report"),
+    ]
+    for order in (rows, rows[::-1]):
+        recs = list(harvest(AihwSession(order, fixture=False)).values())
+        d = plan([shs], recs, load_curated(CURATED), "2026-10-14")
+        assert d.chosen == {"aihw-specialist-homelessness-services-monthly-data": shs.slug}

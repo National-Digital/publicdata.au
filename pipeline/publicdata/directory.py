@@ -287,7 +287,9 @@ def plan(
     # A copy's page leads to the record that replaced it, so an entry that named the copy keeps it.
     by_copy = {_bare(u): r for r in records for u in r.get("copy_pages", {}).values()}
     # A record that lists its files, with its own address, which a data page sits under.
-    by_file = {_bare(u): r for r in records if "files" in r for u in [r["url"], *r["files"]]}
+    # A report's own page wins over another report that lists the page as a file.
+    by_file = {_bare(u): r for r in records if "files" in r for u in r["files"]}
+    by_file |= {_bare(r["url"]): r for r in records if "files" in r}
     for ds in datasets:
         d.ds_pub[ds.slug] = for_dataset(ds, pubs, by_org, by_name, portal_by_host)
         host = (ds.source.portal or "").split("://")[-1].removeprefix("www.").split("/")[0]

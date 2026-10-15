@@ -276,7 +276,7 @@ class AihwResource(TypedDict, total=False):
     """One file or link in the AIHW's list of downloadable resources."""
 
     resultTitle: str | None
-    resultUrl: str
+    resultUrl: str  # null on a few live rows, which aihw() skips
     resultDateTimeFormatted: str | None
     resultDescription: str | None
     resultFileType: str | None
@@ -1235,9 +1235,12 @@ def _aihw_url(path: str) -> str:
     return "https://www.aihw.gov.au" + path if path.startswith("/") else path
 
 
-def _aihw_rank(term: tuple[str, str]) -> tuple[bool, bool]:
-    """Orders a report's terms so the least open comes first and the default last."""
-    return is_open(term[0]) is True, term == AIHW_LICENCE
+def _aihw_rank(term: tuple[str, str]) -> tuple[bool, bool, bool]:
+    """Orders a report's terms so the least open comes first and the default last.
+
+    A stated licence that is not open comes before no licence at all.
+    """
+    return is_open(term[0]) is True, not term[0], term == AIHW_LICENCE
 
 
 def _aihw_id(url: str) -> str:
@@ -1287,6 +1290,9 @@ def aihw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
             msg = f"{portal.host}: page {page} is empty at {n} of {res['totalResults']} resources"
             raise PortalError(msg)
         for x in batch:
+            # A resource with no file address is a link to nothing we can download.
+            if not x.get("resultUrl"):
+                continue
             url = _aihw_url(x.get("relatedReportUrl") or x["resultUrl"])
             # Paging by number can repeat a file when the list changes between pages.
             key = _aihw_id(url)
