@@ -1090,12 +1090,20 @@ constraints. A record has a licence when its statements are one known wording or
 Commons deed URL, with nothing beside them but a label such as "Other". theLIST writes the data
 licence in the metadata constraints, which are read only when a record has no resource
 constraints. Any other statement holds the record as `assessing`, which is not open.
-data.gov.au's copies of theLIST are replaced by title, since its search index drops their harvest
-source. Other Tasmanian agencies publish on data.gov.au. Each record is
+Other Tasmanian agencies publish on data.gov.au. Geoscience Australia's eCat is read the same way as
+theLIST. Its records name the agency's units and partners as custodians, so the portal is marked as
+one body's catalogue and every record, a partner's included, is filed under Geoscience Australia.
+eCat cites a licence by a known wording. Beside it may stand the licence's short form and version, a
+release to any user, one restriction code that adds no terms and a copyright line that names only a
+holder and a year, and such a citation is read as one statement. A restriction or classification
+code outside a short list of codes that add no terms holds a record for review. A security marking
+that says only "unclassified" under the Australian Government Security Classification System states
+no terms. data.gov.au's copies of theLIST and eCat are replaced by title, since its search index
+drops their harvest source. A copy whose title the source does not list is kept. Each record is
 re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as an
 SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
 nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so the
-original is the only copy; records it harvested from elsewhere, such as the ocean and geoscience
+original is the only copy; records it harvested from elsewhere, such as the ocean
 catalogues, are kept and name their origin. data.nsw.gov.au names the page it copied a record from
 in `harvest_url`. A record it copied from SEED or another CKAN portal read here is dropped in the
 same way when that portal still lists the original, and kept as data.nsw's own when it does not. Its
