@@ -125,6 +125,7 @@ class _CkanPackage(TypedDict, total=False):
     metadata_modified: str | None
     url: str | None
     notes: str | None
+    harvest_url: str | None
 
 
 class _CkanResult(TypedDict):
@@ -321,6 +322,8 @@ class Portal:
     replaces: tuple[str, ...] = ()
     # A copy whose name matches this, on a portal it replaces, holds this portal's own id in group 1.
     copy_name: str = ""
+    # The portal answers organization_list only to a POST.
+    post: bool = False
 
     def landing(self, name: str) -> str:
         if self.kind == "ods":
@@ -351,6 +354,13 @@ PORTALS = (
         "catalogue.data.infrastructure.gov.au",
         "https://catalogue.data.infrastructure.gov.au/api/3/action",
         "cth",
+    ),
+    Portal(
+        "seed",
+        "datasets.seed.nsw.gov.au",
+        "https://datasets.seed.nsw.gov.au/api/3/action",
+        "nsw",
+        post=True,
     ),
     Portal(
         "act", "www.data.act.gov.au", "https://api.us.socrata.com/api/catalog/v1", "act", "socrata"
@@ -396,7 +406,7 @@ PORTALS = (
     _council("bayside", "nsw-bayside.opendatasoft.com", "nsw", "ods", "Bayside Council"),
     _council("wollondilly", "data.wollondilly.nsw.gov.au", "nsw", "ods", "Wollondilly Shire Council"),
     _council("darwin", "darwin.opendatasoft.com", "nt", "ods", "City of Darwin", replaces=["nt:darwin-city-council"]),
-    _council("sydney", "data.cityofsydney.nsw.gov.au", "nsw", "hub", "City of Sydney"),
+    _council("sydney", "data.cityofsydney.nsw.gov.au", "nsw", "hub", "City of Sydney", replaces=["nsw:city-of-sydney"]),
     _council("goldcoast", "data-goldcoast.opendata.arcgis.com", "qld", "hub", "City of Gold Coast", replaces=["gov:city-of-gold-coast"]),
     _council("sunshine", "data.sunshinecoast.qld.gov.au", "qld", "hub", "Sunshine Coast Council"),
     _council("townsville", "data-tsvcitycouncil.opendata.arcgis.com", "qld", "hub", "Townsville City Council", replaces=["gov:townsville-city-council"]),
@@ -420,15 +430,16 @@ DOWNLOADABLE = {
 FORMAT_ALIASES = {
     "EXCEL": "XLSX", "MS EXCEL": "XLSX", "EXCEL (.XLSX)": "XLSX", "XLSM": "XLSX",
     "ESRI SHAPEFILE": "SHP", "SHAPEFILE": "SHP", "SHZ": "SHP", "GEO JSON": "GEOJSON",
-    "ESRI REST": "API", "REST": "API", "ARCGIS REST": "API", "WFS": "API", "ESRI FILE GEODATABASE": "FGDB",
+    "ESRI REST": "API", "REST": "API", "ARCGIS REST": "API", "ARCGIS_REST": "API", "WFS": "API", "ESRI FILE GEODATABASE": "FGDB",
 }  # fmt: skip
 
 # Requested by their Solr names: the harvest origin must be asked for as
-# extras_original_harvest_source and comes back keyed original_harvest_source; the type is
-# dataset_type. CKAN drops unknown names without an error, so the harvest test pins these.
+# extras_original_harvest_source and comes back keyed original_harvest_source, and likewise
+# extras_harvest_url; the type is dataset_type. CKAN drops unknown names without an error, so
+# the harvest test pins these.
 CKAN_FIELDS = (
     "id,name,title,organization,license_id,metadata_created,metadata_modified,"
-    "res_format,dataset_type,notes,extras_original_harvest_source,url"
+    "res_format,dataset_type,notes,extras_original_harvest_source,extras_harvest_url,url"
 )
 SUMMARY_CHARS = 280
 
@@ -525,6 +536,8 @@ KNOWN_LICENCES = {
     "notspecified": "",
 }
 OPEN_IDS = {"CC0-1.0", "PDM", "PDDL-1.0", "ODC-BY-1.0", "ODBL-1.0", "other-open", "other-at"}
+# A portal's own licence ids whose license_list title names less than the terms do, by portal.
+PORTAL_LICENCES = {"seed": {"cc-at-3": "CC-BY-3.0-AU"}}
 
 
 def licence_id(title: str) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch per licence wording a portal uses
@@ -653,24 +666,47 @@ def _record(
     return cast("Record", dict(sorted(rec.items())))
 
 
+def _ckan_orgs(portal: Portal, s: requests.Session) -> dict[str, str]:
+    orgs: dict[str, str] = {}
+    url, off = f"{portal.api}/organization_list", 0
+    while True:
+        page = (
+            get_json_as(_NamedList, s, url, body={"all_fields": True, "limit": 25, "offset": off})
+            if portal.post
+            else get_json_as(_NamedList, s, url, {"all_fields": "true", "limit": 25, "offset": off})
+        )["result"]
+        new = [o for o in page if o["name"] not in orgs]
+        if not new:
+            return orgs
+        orgs.update({o["name"]: (o.get("title") or o["name"]).strip() for o in new})
+        off += len(page)
+
+
+def _copy_of(portal: Portal, p: _CkanPackage, harvest: _Harvest) -> str | None:
+    """The original's page when a record copies one on another portal read here, else None.
+
+    The page is "" for a copy that names none.
+    """
+    others = DIRECT_HOSTS - {portal.host.removeprefix("www.")}
+    # data.gov.au names itself as the origin of records it holds first hand.
+    origin = (urlparse(harvest.get("site_url") or "").hostname or "").removeprefix("www.")
+    if portal.code == "gov" and origin in others:
+        return harvest.get("href") or ""
+    # data.nsw names the page it copied a record from in harvest_url. Copies of council sites
+    # are left to the council portal's replaces rule.
+    page = p.get("harvest_url") or ""
+    code = PORTAL_BY_HOST.get((urlparse(page).hostname or "").removeprefix("www."), "")
+    if portal.code == "nsw" and code not in ("", "nsw") and BY_CODE[code].kind == "ckan":
+        return page
+    return None
+
+
 def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """A CKAN portal. A copy of a portal read here directly carries copy_of, for harvest to drop."""
     licences = get_json_as(_NamedList, s, f"{portal.api}/license_list")
     lic_titles = {x["id"]: x.get("title") or x["id"] for x in licences["result"]}
-    orgs: dict[str, str] = {}
-    off = 0
-    while True:
-        page = get_json_as(
-            _NamedList,
-            s,
-            f"{portal.api}/organization_list",
-            {"all_fields": "true", "limit": 25, "offset": off},
-        )["result"]
-        new = [o for o in page if o["name"] not in orgs]
-        if not new:
-            break
-        orgs.update({o["name"]: (o.get("title") or o["name"]).strip() for o in new})
-        off += len(page)
+    own_licences = PORTAL_LICENCES.get(portal.code, {})
+    orgs = _ckan_orgs(portal, s)
     out: list[Record] = []
     dropped, start, rows = 0, 0, 1000
     while True:
@@ -695,7 +731,6 @@ def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
                 except ValueError:
                     harvest = {"site_url": harvest}
             origin = urlparse((harvest or {}).get("site_url") or "").hostname or ""
-            host = origin.removeprefix("www.")
             lic_raw = p.get("license_id") or ""
             org = p.get("organization") or ""
             if isinstance(org, dict):
@@ -708,7 +743,7 @@ def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
                 org=org,
                 org_title=orgs.get(org, org),
                 kind=p.get("dataset_type") or p.get("type") or "dataset",
-                licence=licence_id(lic_titles.get(lic_raw, lic_raw)),
+                licence=own_licences.get(lic_raw) or licence_id(lic_titles.get(lic_raw, lic_raw)),
                 licence_title=lic_titles.get(lic_raw, lic_raw),
                 formats=formats(p.get("res_format")),
                 created=_day(p.get("metadata_created")),
@@ -718,14 +753,10 @@ def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
                 harvested_from=origin if origin and origin != portal.host else "",
                 source_host=(urlparse(p.get("url") or "").hostname or "").removeprefix("www."),
             )
-            # data.gov.au names itself as the origin of records it holds first hand.
-            if (
-                portal.code == "gov"
-                and host in DIRECT_HOSTS
-                and host != portal.host.removeprefix("www.")
-            ):
+            copy_of = _copy_of(portal, p, harvest or {})
+            if copy_of is not None:
                 dropped += 1
-                rec["copy_of"] = (harvest or {}).get("href") or ""
+                rec["copy_of"] = copy_of
             out.append(rec)
         start += len(batch)
         log(f"catalogue {portal.code}: {start}/{res['count']}")
@@ -1397,6 +1428,7 @@ def harvest(
         recs = [r for r in recs if "copy_of" not in r]
         records += recs
         stats[p.code] = {"records": len(recs), "dropped_duplicates": dropped}
+    copies = _keep_unmatched(records, copies, stats)
     moved: dict[str, str] = {}
     kept = _drop_copies(records, portals, stats, moved)
     pages = {r["id"]: r["url"] for r in records + copies if r.get("url")}
@@ -1485,6 +1517,28 @@ def _original(dup: Record, by_url: Mapping[str, str], live: Container[str]) -> s
         return ""
     same = record_id(code, dup["id"].split("-", 1)[1])
     return same if same in live else ""
+
+
+def _keep_unmatched(
+    records: list[Record], copies: list[Record], stats: dict[str, PortalStats]
+) -> list[Record]:
+    """Return data.nsw's copies whose original is no longer listed to its records; the rest go on.
+
+    Such a copy is the only listing left. data.gov.au's copies with no match are still dropped.
+    """
+    live = {r["id"] for r in records}
+    by_url = {bare_url(r["url"]): r["id"] for r in records if r.get("url")}
+    rest: list[Record] = []
+    for c in copies:
+        if c["portal"] == "gov" or _original(c, by_url, live):
+            rest.append(c)
+            continue
+        del c["copy_of"]
+        records.append(c)
+        st = stats.setdefault(c["portal"], {})
+        st["records"] = st.get("records", 0) + 1
+        st["dropped_duplicates"] = st.get("dropped_duplicates", 0) - 1
+    return rest
 
 
 def _carry(

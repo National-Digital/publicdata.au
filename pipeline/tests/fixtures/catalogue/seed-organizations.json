@@ -1,0 +1,106 @@
+{
+ "help": "https://datasets.seed.nsw.gov.au/api/3/action/help_show?name=organization_list",
+ "success": true,
+ "result": [
+  {
+   "name": "3d-ecology-mapping",
+   "title": "3D Ecology Mapping"
+  },
+  {
+   "name": "albury-city-council",
+   "title": "Albury City Council"
+  },
+  {
+   "name": "armidale-regional-council",
+   "title": "Armidale Regional Council"
+  },
+  {
+   "name": "atlas-of-living-australia",
+   "title": "Atlas of Living Australia"
+  },
+  {
+   "name": "australian-bureau-of-statistics",
+   "title": "Australian Bureau of Statistics"
+  },
+  {
+   "name": "australian-government-department-of-the-environment-and-water-resources",
+   "title": "Australian Government Department of the Environment and Water Resources"
+  },
+  {
+   "name": "australian-museum",
+   "title": "Australian Museum"
+  },
+  {
+   "name": "ballina-shire-council",
+   "title": "Ballina Shire Council"
+  },
+  {
+   "name": "balranald-shire-council",
+   "title": "Balranald Shire Council"
+  },
+  {
+   "name": "bathurst-regional-council",
+   "title": "Bathurst Regional Council"
+  },
+  {
+   "name": "bayside-council",
+   "title": "Bayside Council"
+  },
+  {
+   "name": "bega-valley-shire-council",
+   "title": "Bega Valley Shire Council"
+  },
+  {
+   "name": "bellingen-shire-council",
+   "title": "Bellingen Shire Council"
+  },
+  {
+   "name": "berrigan-shire-council",
+   "title": "Berrigan Shire Council"
+  },
+  {
+   "name": "biodiversity-conservation-trust",
+   "title": "Biodiversity Conservation Trust"
+  },
+  {
+   "name": "blacktown-city-council",
+   "title": "Blacktown City Council"
+  },
+  {
+   "name": "bland-shire-council",
+   "title": "Bland Shire Council"
+  },
+  {
+   "name": "blayney-shire-council",
+   "title": "Blayney Shire Council"
+  },
+  {
+   "name": "blue-mountains-city-council",
+   "title": "Blue Mountains City Council"
+  },
+  {
+   "name": "bogan-shire-council",
+   "title": "Bogan Shire Council"
+  },
+  {
+   "name": "bourke-shire-council",
+   "title": "Bourke Shire Council"
+  },
+  {
+   "name": "brewarrina-shire-council",
+   "title": "Brewarrina Shire Council"
+  },
+  {
+   "name": "broken-hill-city-council",
+   "title": "Broken Hill City Council"
+  },
+  {
+   "name": "bureau-of-meteorology",
+   "title": "Bureau of Meteorology"
+  },
+  {
+   "name": "burwood-council",
+   "title": "Burwood Council"
+  }
+ ]
+}
