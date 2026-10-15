@@ -1658,7 +1658,7 @@ def _csw_page(s: requests.Session, url: str, start: int) -> ET.Element:
 def csw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """A GeoNetwork catalogue, paged through CSW 2.0.2 GetRecords in ISO 19139."""
     out: list[Record] = []
-    start = 1
+    start, read, first = 1, 0, 0
     while True:
         res = _csw_page(s, portal.api, start).find("csw:SearchResults", CSW_NS)
         if res is None:
@@ -1666,6 +1666,8 @@ def csw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
             raise PortalError(msg)
         total = int(res.get("numberOfRecordsMatched") or 0)
         batch = res.findall("gmd:MD_Metadata", CSW_NS)
+        first = first or total
+        read += len(batch)
         if not batch and start - 1 < total:
             msg = f"{portal.api}: the page at {start} is empty of {total} records"
             raise PortalError(msg)
@@ -1678,6 +1680,11 @@ def csw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
             msg = f"{portal.api}: nextRecord {nxt} does not move past {start}"
             raise PortalError(msg)
         start = nxt
+    # A short or empty read would list the records it missed as withdrawn. Records removed while
+    # a long harvest runs are allowed for, up to 1 in 100.
+    if not read or read < first * 0.99:
+        msg = f"{portal.api}: read {read} of the {first} records the search matched"
+        raise PortalError(msg)
     return out, 0
 
 

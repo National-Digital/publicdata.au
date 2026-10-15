@@ -397,3 +397,18 @@ def test_the_resource_s_own_party_names_the_publisher_before_the_metadata_contac
     alone = metadata(after=f"<gmd:contact>{party('Metadata Office', 'publisher')}</gmd:contact>")
     assert catalogue._csw_party(alone, "fallback") == "Metadata Office"
     assert catalogue._csw_party(metadata(), "fallback") == "fallback"
+
+
+def test_csw_fails_on_a_read_that_ends_short_of_the_count_or_matches_nothing() -> None:
+    # A first page that gives no next record ends the read with one page of the four.
+    page = (FIX / "csw-thelist-1.xml").read_bytes().replace(b'nextRecord="4"', b'nextRecord="0"')
+    with pytest.raises(catalogue.PortalError, match="read 3 of the 4"):
+        harvest(CswSession({1: page}))
+    # A catalogue that matches nothing while its index rebuilds keeps its last records.
+    none = (
+        b'<csw:GetRecordsResponse xmlns:csw="http://www.opengis.net/cat/csw/2.0.2">'
+        b'<csw:SearchResults numberOfRecordsMatched="0" numberOfRecordsReturned="0" nextRecord="0"/>'
+        b"</csw:GetRecordsResponse>"
+    )
+    with pytest.raises(catalogue.PortalError, match="read 0 of the 0"):
+        harvest(CswSession({1: none}))
