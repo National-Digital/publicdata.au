@@ -889,7 +889,7 @@ def render(  # noqa: C901, PLR0912, PLR0915 - the directory's pages in the order
             ]
         ),
         title=(
-            f"Australian government open data: {total['listed']} datasets by government and publisher | {HOST}"
+            f"{heading}: {total['listed']} datasets from {fmt(len(pub_index))} publishers | {HOST}"
             if have
             else f"Australian government open data by government | {HOST}"
         ),
