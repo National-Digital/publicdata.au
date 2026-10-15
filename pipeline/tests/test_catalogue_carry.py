@@ -167,6 +167,22 @@ def test_copies_pass_along_a_chain_and_a_listed_record_is_never_a_copy() -> None
     assert "copies" not in by_id["nsw-c"]
 
 
+def test_a_data_gov_au_copy_of_a_record_a_council_replaced_follows_it_to_the_council() -> None:
+    u = "0d0b3f0e-1111-4222-8333-944455556666"
+    melb = cast("Record", {"id": "melb-trees", "portal": "melb", "url": "https://melb/trees"})
+    gov = cast(
+        "Record",
+        {
+            "id": f"gov-{u}",
+            "portal": "gov",
+            "url": "",
+            "copy_of": f"https://discover.data.vic.gov.au/dataset/{u}",
+        },
+    )
+    out = catalogue._carry([melb], [gov], {f"vic-{u}": "melb-trees"}, [])
+    assert out[0]["copies"] == [f"gov-{u}", f"vic-{u}"]
+
+
 def test_a_snapshot_written_before_copies_were_kept_still_loads_and_builds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

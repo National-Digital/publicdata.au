@@ -96,3 +96,28 @@ test('a record that takes no votes counts the votes under its copies as the tall
   assert.equal((await call(vote, 'qld-cccc')).error, 'That dataset is not open for votes');
   assert.equal((await tally(env))['qld-cccc'], 1);
 });
+
+test('lookups that start together share one read of a shard', async () => {
+  const { replacedBy } = await import('./_lib.js');
+  // A shard no earlier test has read.
+  files['/catalogue/copies/gov-d.json'] = { 'gov-dddd': 'qld-dddd' };
+  let reads = 0;
+  const counted = {
+    ASSETS: {
+      fetch: async (u) => {
+        reads += 1;
+        return env.ASSETS.fetch(u);
+      },
+    },
+  };
+  const got = await Promise.all(Array.from({ length: 20 }, () => replacedBy(counted, 'gov-dddd')));
+  assert.deepEqual(new Set(got), new Set(['qld-dddd']));
+  assert.equal(reads, 1);
+});
+
+test('a votable shard that cannot be read pauses votes', async () => {
+  files['/catalogue/votable/nsw-b.json'] = 503;
+  const res = await one({ request: req('203.0.113.9'), env, params: { slug: 'nsw-bbbb' } });
+  assert.equal(res.status, 503);
+  delete files['/catalogue/votable/nsw-b.json'];
+});

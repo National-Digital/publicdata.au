@@ -22,8 +22,13 @@ async function votable(env, id) {
   const shard = await env.ASSETS.fetch(
     new URL(`/catalogue/votable/${key}.json`, 'https://publicdata.au'),
   );
-  if (!shard.ok) {
+  if (shard.status === 404) {
     return null;
+  }
+  // A shard that cannot be read is not "not votable", which would count the copies from
+  // copied/ and leave out the copies a votable record carries.
+  if (!shard.ok) {
+    throw new CopiesUnreadable(`catalogue/votable/${key}.json answered ${shard.status}`);
   }
   const ids = await shard.json();
   return Object.prototype.hasOwnProperty.call(ids, id) ? ids[id] : null;

@@ -96,22 +96,29 @@ export class CopiesUnreadable extends Error {}
 
 // One shard of a catalogue list keyed by record id. Each is read once, since the files change
 // only with a deploy; an absent one holds none.
+// The read itself is kept, so lookups that start together share one fetch.
 const shards = new Map();
-async function shardFile(env, dir, key) {
+async function readShard(env, name) {
+  let r;
+  try {
+    r = await env.ASSETS.fetch(new URL(`/${name}`, 'https://publicdata.au'));
+    if (r.ok) {
+      return await r.json();
+    }
+  } catch {
+    throw new CopiesUnreadable(`${name} could not be read`);
+  }
+  if (r.status === 404) {
+    return {};
+  }
+  throw new CopiesUnreadable(`${name} answered ${r.status}`);
+}
+function shardFile(env, dir, key) {
   const name = `catalogue/${dir}/${key}.json`;
   if (!shards.has(name)) {
-    let r;
-    try {
-      r = await env.ASSETS.fetch(new URL(`/${name}`, 'https://publicdata.au'));
-      shards.set(name, r.ok ? await r.json() : r.status === 404 ? {} : null);
-    } catch {
-      shards.delete(name);
-      throw new CopiesUnreadable(`${name} could not be read`);
-    }
-    if (shards.get(name) === null) {
-      shards.delete(name);
-      throw new CopiesUnreadable(`${name} answered ${r.status}`);
-    }
+    const read = readShard(env, name);
+    shards.set(name, read);
+    read.catch(() => shards.delete(name));
   }
   return shards.get(name);
 }

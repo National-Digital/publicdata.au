@@ -25,7 +25,7 @@ import requests
 from . import store
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Container, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from .jsontypes import JSON
@@ -972,7 +972,7 @@ def bare_url(url: str) -> str:
     return (u.hostname or "").removeprefix("www.") + u.path.rstrip("/")
 
 
-def _original(dup: Record, by_url: Mapping[str, str], live: set[str]) -> str:
+def _original(dup: Record, by_url: Mapping[str, str], live: Container[str]) -> str:
     """The id of the record a data.gov.au copy was harvested from, or "".
 
     The copy names the original's page, and CKAN's harvester keeps the original's package id.
@@ -1008,8 +1008,10 @@ def _carry(
     page = {c: u for r in previous for c, u in r.get("copy_pages", {}).items()}
     page |= {c: u for c, u in (pages or {}).items() if c not in live}
     to |= moved
+    # An original that was itself dropped as a copy is followed on below.
+    known = live | to.keys()
     for dup in copies:
-        if found := _original(dup, by_url, live):
+        if found := _original(dup, by_url, known):
             to[dup["id"]] = found
     by_target: dict[str, list[str]] = {}
     for c, first in to.items():
