@@ -1,0 +1,51 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "5fbbda15bc254a0ead86fa34edb12e56",
+        "title": "ACTGOV Public Toilet Assets",
+        "type": "Feature Service",
+        "license": "custom",
+        "licenseInfo": "<DIV STYLE=\"text-align:Left;\"><DIV><DIV><P><SPAN>Creative Commons By Attribution 4.0 (Australian Capital Territory) </SPAN></P><P><SPAN>Please read Data Terms and Conditions statement before data use (https://www.actmapi.act.gov.au/terms-and-conditions).</SPAN></P></DIV></DIV></DIV>",
+        "description": "<DIV STYLE=\"text-align:Left;\"><DIV><DIV><P STYLE=\"margin:0 0 0 0;\"><SPAN><SPAN>This point dataset shows the locations of Public Toilets in the Australian Capital Territory. </SPAN></SPAN></P><P /><P STYLE=\"margin:0 0 0 0;\"><SPAN><SPAN>These assets are either owned or managed by City Services, City a",
+        "snippet": "Locations of Public Toilets owned or managed by CED in the Australian Capital Territory.",
+        "created": 1698978267000,
+        "modified": 1791763313000,
+        "url": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Public_Toilet_Assets/FeatureServer",
+        "owner": "cityoperationsactgov",
+        "source": "Australian Capital Territory Government",
+        "accessInformation": "© Australian Capital Territory"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "2f277dfd24964ef3943d99b34c38ebad",
+        "title": "ACTGOV 2020 ACT Canopy Cover Extent",
+        "type": "Feature Service",
+        "license": "CC-BY-4.0",
+        "licenseInfo": "<p style='margin-top:0px; margin-bottom:1.5rem; font-family:&quot;Avenir Next W01&quot;, &quot;Avenir Next W00&quot;, &quot;Avenir Next&quot;, Avenir, &quot;Helvetica Neue&quot;, sans-serif; font-size:16px;'><font size='2'><a href='https://creativecommons.org/licenses/by/4.0/' style='color:rgb(0, 94, 149);' target='_blank' rel='nofollow ugc noopener noreferrer'>Creative Commons By Attribution 4.0 (Australian Capital Territory)</a> (https://creativecommons.org/licenses/by/4.0/)</font></p><p style='margin-top:0.6pt; margin-bottom:1.55rem; font-family:&quot;Avenir Next W01&quot;, &quot;Avenir Next W00&quot;, &quot;Avenir Next&quot;, Avenir, &quot;Helvetica Neue&quot;, sans-serif; font-size:16px;'><font size='2'>Please read our <a href='https://www.actmapi.act.gov.au/terms-and-conditions' style='color:rgb(0, 97, 155); text-decoration-line:none;' target='_blank' rel='nofollow ugc noopener noreferrer'>Data Terms and Conditions</a>  (https://www.actmapi.act.gov.au/terms-and-conditions) before use.</font></p>",
+        "description": "<div style='text-align:Left;'><p>This map contains district-based ACT canopy cover polygons at 1m resolution (vegetation cover above 3m) as at April/May 2020, detected with Light Detection and Ranging (LiDAR). The full ACT vector dataset has been split into districts and 1km tiles to allow for easie",
+        "snippet": "ACT canopy cover footprints (polygons) derived from 2020 LiDAR Canopy Height Model by ACT District, above 3m at 1m resolution. Canberra, Australian Capital Territory, Australia.",
+        "created": 1691198657000,
+        "modified": 1776475075000,
+        "url": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACT_Canopy_Cover_2020_Districts/FeatureServer",
+        "owner": "environment_ACTGOV",
+        "source": "City and Environment Directorate | ACT Government",
+        "accessInformation": "© Australian Capital Territory"
+      }
+    }
+  ],
+  "numberMatched": 2,
+  "numberReturned": 2,
+  "links": [
+    {
+      "rel": "self",
+      "type": "application/geo+json",
+      "title": "This document as GeoJSON",
+      "href": "https://actmapi-actgov.opendata.arcgis.com/api/search/v1/collections/dataset/items"
+    }
+  ]
+}

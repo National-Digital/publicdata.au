@@ -1131,7 +1131,26 @@ council's map services as well.
 An ArcGIS Hub site that hosts many bodies names no publisher in that list. Each of its items is
 filed under the body its Source field names, and an item with no Source is filed as unknown. The
 item's owner is an account name and is never used. `publicdata catalogue publishers` proposes
-curation for these bodies as it does for data.gov.au's organisations.
+curation for these bodies as it does for data.gov.au's organisations. Two such sites are read:
+ACTmapi, the ACT Government's spatial catalogue, and the Digital Atlas of Australia, which
+Geoscience Australia runs for Commonwealth bodies. data.gov.au harvests ACTmapi into one
+organisation of its own, and its copies there name no harvest origin in the fields the reader
+asks for. A portal therefore also names the organisations that hold nothing but its copies. While
+the portal has records in the snapshot, one more search reads each such organisation's download
+links, which name the Hub item a copy came from. A copy is dropped and listed under that record's
+`copies` when its links name a record on the portal, or else when its title names one. A copy
+that matches nothing is kept, since the Hub's dataset search does not list everything the
+organisation holds, and the snapshot's stats count it as unmatched. data.gov.au holds no harvest
+of the Digital Atlas.
+
+A Hub search that answers fewer items than it matched, or flags a page as partial, counts as a
+portal that could not be read, so its records are kept from the last snapshot. A Hub item's
+licence is decided from the whole of its terms, and the 280-character summary is kept for
+display. A stated open licence is held as `custom` when the terms grant it for only some data
+owners' or providers' data, or for only some layers, datasets or items. Custom terms name a
+licence through a Creative Commons deed link, by being a CC licence's name and nothing else, or
+by a CC licence named with its version. Custom terms that say the data is not licensed or not in
+the public domain, reserve all rights or mention permission are held as `custom`.
 
 The Australian Institute of Health and Welfare's data downloads are read from the list its site
 fetches for every data page (`/api/search/all-downloadable-resources`). Each report is one

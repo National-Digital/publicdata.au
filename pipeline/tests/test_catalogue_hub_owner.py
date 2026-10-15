@@ -73,7 +73,7 @@ def test_an_item_with_no_source_is_filed_as_unknown_on_its_hub() -> None:
 
 
 def test_every_council_hub_keeps_its_one_publisher() -> None:
-    hubs = [p for p in catalogue.PORTALS if p.kind == "hub"]
+    hubs = [p for p in catalogue.PORTALS if p.kind == "hub" and p.publisher]
     assert hubs
     assert all(catalogue.hub_org(p, {"id": "x", "source": "Esri"}) is None for p in hubs)
     recs = catalogue.hub(

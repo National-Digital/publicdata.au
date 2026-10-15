@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
         records: int
         dropped_duplicates: int
+        unmatched_copies: int
         error: str
         carried_from: str | None
 

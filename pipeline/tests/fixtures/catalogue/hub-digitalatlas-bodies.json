@@ -1,0 +1,123 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "c3edc5d625654681bf8678079cc54088",
+        "title": "ABS Australian population grid 2023",
+        "type": "Image Service",
+        "license": "custom",
+        "licenseInfo": "<div style='text-align:Left;'><p>© Commonwealth of Australia</p><p>The Commonwealth owns the copyright in all material produced by the Australian Bureau of Statistics (ABS).</p><p>Apart from any use permitted under the <a href='https://www.legislation.gov.au:443/C1968A00063/latest/text' target='_blank' rel='nofollow ugc noopener noreferrer'><u>Copyright Act 1968</u></a>, and those explicitly granted below, all other rights are reserved.</p><p>All material presented on this website is provided under a <a href='https://creativecommons.org:443/licenses/by/4.0/' target='_blank' rel='nofollow ugc noopener noreferrer'><u>Creative Commons Attribution 4.0 </u></a>International license, with the exception of:</p><p></p><ul><li>the Commonwealth Coat of Arms</li><li>the ABS logo</li><li>material protected by a trade mark</li><li>unit record data (microdata)</li><li>content supplied by third parties.</li></ul><p></p><p>By continuing beyond this point and/or clicking any link on this site, you agree to the terms and conditions as described above and you agree that you understand the limitations of the data provided on this website. See <a href='https://www.abs.gov.au:443/website-privacy-copyright-and-disclaimer' target='_blank' rel='nofollow ugc noopener noreferrer'><u>ABS website privacy, copyright and disclaimer</u></a> for more information.</p><p>Please note: while the Australian Bureau of Statistics seeks to verify data for accuracy and content, discrepancies may exist within the data. The Australian Bureau of Statistics welcomes your comments and concerns regarding the data and will attempt to resolve issues as they are bought to our attention. For questions about this feature service you can email <a href='mailto:geography@abs.gov.au:25' rel='nofollow ugc'><u>geography@abs.gov.au</u></a>.<br /></p></div>",
+        "description": "<div style='text-align:Left;'><p>The ABS Australian population grid 2023 was created using 2023 Estimated Residential Population (ERP) data at the SA1 level. The SA1 level ERP data was then modelled down to a 1km x 1km grid across geographic Australia using various point layers that represent popula",
+        "snippet": "A geographic representation (1 km sq grid) of the Australian residential population from 2023.",
+        "created": 1741052494000,
+        "modified": 1764541593000,
+        "url": "https://tiledimageservices1.arcgis.com/v8Kimc579yljmjSP/arcgis/rest/services/Population_Grid_2023/ImageServer",
+        "owner": "abs_aus_digitalatlas",
+        "source": "Australian Bureau of Statistics",
+        "accessInformation": "Australian Bureau of Statistics (ABS) www.abs.gov.au"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "085a9712d48b487894376208ee74a4b1",
+        "title": "Monitoring Sites - Rainfall",
+        "type": "Feature Service",
+        "license": "custom",
+        "licenseInfo": "<p><strong>License:</strong></p><div><p>Use of data from <a href='http://www.bom.gov.au/waterdata/' target='_blank' rel='nofollow ugc noopener noreferrer'>Water Data Online</a> is subject to the terms and conditions set by the supplying organisations.</p><p>Most data owners have made their data available under the CC 4.0 International Licence. You can find a list of data owners on the <strong>Copyright</strong> tab of <a href='http://www.bom.gov.au/waterdata/' target='_blank' rel='nofollow ugc noopener noreferrer'>Water Data Online</a>. </p><p>Additional Creative Commons arrangements have also been secured to allow inclusion of data based on content from <a href='https://www.wa.gov.au/service/natural-resources/water-resources/water-information-reporting' target='_blank' rel='nofollow ugc noopener noreferrer'>Water Information Reporting tool (WIR)</a>. Department of Water and Environmental Regulation, Perth, Western Australia.</p><p>Some data owners have unspecified or alternative licensing conditions. These are not covered by Creative Commons. Before using their material, please contact them directly using the details provided below to confirm their licence terms.</p></div><div><figure><figure><table style='border-collapse:collapse; font-size:12px; margin:2ex 0em;'><tbody><tr><td style='background-color:black; color:white; padding:0.25ex 0.5em;'>State/Territory</td><td style='background-color:black; color:white; padding:0.25ex 0.5em;'>Data owner name</td><td style='background-color:black; color:white; padding:0.25ex 0.5em;'>Data owner code</td><td style='background-color:black; color:white; padding:0.25ex 0.5em;'>Contact details</td></tr><tr><td style='border:1px solid rgb(224, 224, 224); padding:0.25ex 0.5em;'>NSW</td><td style='border:1px solid rgb(224, 224, 224); padding:0.25ex 0.5em;'>Snowy Hydro Limited</td><td style='border:1px solid rgb(224, 224, 224); padding:0.25ex 0.5em;'>w00205</td><td style='border:1px solid rgb(224, 224, 224); padding:0.25ex 0.5em;'>Phone: 1800 623 776<br />Email: info@snowyhydro.com.au<br />Postal Address: PO Box 332 Cooma NSW 2630<br />Website: http://www.snowyhydro.com.au</td></tr></tbody></table></figure></figure></div>",
+        "description": "<div style='font-size:1.2019em; margin:0px 0px 0.75em;'>Abstract</div><p>Monitoring sites where rainfall data, defined as 'accumulated precipitation depth, including the water-equivalent precipitation depth' (subcategory 4a of the&nbsp;<a target='_blank' href='http://www.bom.gov.au/water/regulations",
+        "snippet": "Sites measuring rainfall, reported under Water Regulations 2008.",
+        "created": 1786669205000,
+        "modified": 1786669286000,
+        "url": "https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/arcgis/rest/services/Monitoring_Sites_Rainfall/FeatureServer",
+        "owner": "aus_digitalatlas",
+        "source": "Bureau of Meteorology",
+        "accessInformation": "© Commonwealth of Australia (Bureau of Meteorology). A list of all data owners can be found on the Copyright tab of Water Data Online, http://www.bom.gov.au/waterdata/"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "082c5c6a701b464f80aab470f5c8a200",
+        "title": "Heavy Vehicle Median Speed for 2022 by Hour of the Day",
+        "type": "Feature Service",
+        "license": "custom",
+        "licenseInfo": "Creative Commons Attribution",
+        "description": "<div style='font-size:1.2019em; font-weight:400; margin:0 0 0.75em 0;'>Abstract</div>\n<p>This publication is the fourth in an annual series that uses vehicle telematics data to provide measures of traffic congestion for freight vehicles for selected routes across Australia’s five mainland state capi",
+        "snippet": "Median vehicle speed for each hour of the day for particular road segments in 2022. Hours are given in 24 hour format from 0 to 23.",
+        "created": 1706053784000,
+        "modified": 1772153695000,
+        "url": "https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/arcgis/rest/services/Heavy_Vehicle_Median_Speed_for_2022_by_Hour_of_the_Day/FeatureServer",
+        "owner": "aus_digitalatlas",
+        "source": "Bureau of Infrastructure and Transport Research Economics",
+        "accessInformation": "© Commonwealth of Australia (Bureau of Infrastructure and Transport Research Economics)"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "4879aeb3e4a7446ba3f0aba4f5d4635e",
+        "title": "DEA Land Cover Level 3",
+        "type": "Image Service",
+        "license": "CC-BY-4.0",
+        "licenseInfo": "<p>﻿<strong>License:</strong> <a href='https://creativecommons.org/licenses/by/4.0/' rel='nofollow ugc'>Creative Commons Attribution 4.0</a>.</p> <p><strong>Access rights:</strong> Open</p> <p><strong>Security classification:</strong> UNCLASSIFIED</p>",
+        "description": "<div style=\"font-size:1.2019em;font-weight:400;line-height:1.5;margin:0 0 0.75em;\">Abstract</div><p>Land cover is the observed physical cover on the Earth’s surface including trees, shrubs, grasses, soils, exposed rocks, water bodies, plantations, crops and built structures. A consistent, Australia-",
+        "snippet": "Digital Earth Australia (DEA) Land Cover translates over 30 years of satellite imagery into evidence of how Australia’s land, vegetation and waterbodies have changed over time.",
+        "created": 1740965992000,
+        "modified": 1789030333000,
+        "url": "https://di-daa.img.arcgis.com/arcgis/rest/services/Land_and_vegetation/DEA_Landcover_Landsat_Level3/ImageServer",
+        "owner": "aus_digitalatlas",
+        "source": "Digital Atlas of Australia",
+        "accessInformation": "© Commonwealth of Australia (Digital Earth Australia)"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "3128b5993f4544b287779afbe76f3d72",
+        "title": "National Roads",
+        "type": "Feature Service",
+        "license": "CC-BY-4.0",
+        "licenseInfo": "<p><strong>License: </strong><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://creativecommons.org/licenses/by/4.0/\">Creative Commons Attribution 4.0 International</a>. Geoscape Roads © Geoscape Australia, <a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://geoscape.com.au/legal/data-copyright-and-disclaimer/\">Copyright and Disclaimer Notice</a></p><p><strong>Access rights:</strong> Open</p><p><strong>Security classification: </strong>OFFICIAL</p>",
+        "description": "<div style=\"font-size:1.2019em; font-weight:400; margin:0 0 0.75em;\">Abstract</div><p>National Roads is a digital representation of the road network of Australia. National Roads contains linear features to describe surfaces that have been improved to enable vehicular, pedestrian and bicycle transpor",
+        "snippet": "National Roads by Geoscape - a digital representation of the road network of Australia.",
+        "created": 1711575809000,
+        "modified": 1791429425000,
+        "url": "https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/arcgis/rest/services/National_Roads/FeatureServer",
+        "owner": "isaac.bell@ga.gov.au_digitalatlas",
+        "source": "Geoscape Australia",
+        "accessInformation": "Geoscape Roads © Geoscape Australia, Copyright and Disclaimer Notice: https://geoscape.com.au/legal/data-copyright-and-disclaimer/"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "dba5dfe3a4134333891ce6050d6fbe94",
+        "title": "Indigenous Ranger Groups",
+        "type": "Feature Service",
+        "license": "CC-BY-NC-4.0",
+        "licenseInfo": "<p><strong>License: </strong><a target='_blank' href='https://creativecommons.org/licenses/by-nc/4.0/' rel='nofollow ugc noopener noreferrer'>Creative Commons Attribution-NonCommercial 4.0 International Licence</a></p><p><strong>Access rights: </strong>Open</p><p><strong>Security classification: </strong>OFFICIAL</p>",
+        "description": "<div><h5>Abstract</h5><p>This dataset shows the locations of Indigenous ranger groups across Australia that are funded through the Commonwealth Indigenous Rangers Program (IRP).</p><p>The IRP assists First Nations people in managing Country according to Traditional Owners’ objectives. Indigenous ran",
+        "snippet": "Location of Indigenous rangers in Commonwealth funded Indigenous Rangers Program.",
+        "created": 1779945986000,
+        "modified": 1779945987000,
+        "url": "https://services9.arcgis.com/EPcAWuPcSWtfB9jL/arcgis/rest/services/Indigenous_Rangers_Program_-_Ranger_Groups_view/FeatureServer",
+        "owner": "aus_digitalatlas",
+        "source": "National Indigenous Australians Agency",
+        "accessInformation": "© Commonwealth of Australia (National Indigenous Australians Agency)"
+      }
+    }
+  ],
+  "numberMatched": 6,
+  "numberReturned": 6,
+  "links": [
+    {
+      "rel": "self",
+      "type": "application/geo+json",
+      "title": "This document as GeoJSON",
+      "href": "https://digital.atlas.gov.au/api/search/v1/collections/dataset/items"
+    }
+  ]
+}

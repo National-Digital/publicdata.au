@@ -1,0 +1,42 @@
+{
+  "success": true,
+  "result": {
+    "count": 4,
+    "facets": {},
+    "results": [
+      {
+        "id": "c00aaa8c-b12c-4dca-95d0-38007d35d378",
+        "res_url": [
+          "https://actmapi-actgov.opendata.arcgis.com/datasets/ACTGOV::2015-lidar",
+          "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/lidar_extent_2016/FeatureServer/0",
+          "https://actmapi-actgov.opendata.arcgis.com/api/download/v1/items/db32cc64b28d4be2be5304d9e95af440/csv?layers=0"
+        ]
+      },
+      {
+        "id": "6d1a2d8c-c796-4c89-b0b1-1e8ed0bf6f01",
+        "res_url": [
+          "https://actmapi-actgov.opendata.arcgis.com/datasets/ACTGOV::act-canopy-cover-2020-1m-belconnen",
+          "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACT_Canopy_Cover_2020_Districts/FeatureServer/0",
+          "https://actmapi-actgov.opendata.arcgis.com/api/download/v1/items/2f277dfd24964ef3943d99b34c38ebad/csv?layers=0"
+        ]
+      },
+      {
+        "id": "4d39be76-3d37-4111-938b-92037f0b1a51",
+        "res_url": [
+          "https://actmapi-actgov.opendata.arcgis.com/maps/ACTGOV::actgov-public-toilet-assets",
+          "https://dservices1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/services/ACTGOV_Public_Toilet_Assets/WFSServer"
+        ]
+      },
+      {
+        "id": "1671a502-f4fb-4c88-aa61-818f30c1fabb",
+        "res_url": [
+          "https://actmapi-actgov.opendata.arcgis.com/datasets/ACTGOV::actgov-public-toilet-assets",
+          "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Public_Toilet_Assets/FeatureServer/1",
+          "https://actmapi-actgov.opendata.arcgis.com/api/download/v1/items/5fbbda15bc254a0ead86fa34edb12e56/csv?layers=1"
+        ]
+      }
+    ],
+    "sort": "extras_harvest_portal asc, score desc, metadata_modified desc",
+    "search_facets": {}
+  }
+}
