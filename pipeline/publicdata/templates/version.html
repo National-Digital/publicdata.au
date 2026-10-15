@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block disclaimer %}Published by {{ ds.publisher.name }} under {{ ds.licence.title }} and republished here {% if ds.source_withheld %}with a column left out for its terms{% else %}without change to the content{% endif %}. {{ ds.publisher.name }} has not endorsed this site.{% endblock %}
+{% block disclaimer %}{{ disclaimer(ds) }}{% endblock %}
 {% block wrap %}
 <div class="site">
 <div class="crumbs"><a href="/">Datasets</a> / <a href="/d/{{ ds.slug }}/">{{ ds.title }}</a> / {{ v.version }}</div>

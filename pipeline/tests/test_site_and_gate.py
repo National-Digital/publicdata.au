@@ -18,7 +18,7 @@ from publicdata import api_text as at
 from publicdata.__main__ import main
 from publicdata.build import DatasetOut, VersionOut, build_dataset
 from publicdata.gate import check, examples
-from publicdata.provenance import cite
+from publicdata.provenance import changes, cite
 from publicdata.register import Field, RegisterError, load, parse
 from publicdata.site import (
     ORIGIN_TRIAL,
@@ -1144,3 +1144,22 @@ def test_functions_calls_that_store_or_log_are_counted() -> None:
         "added or removed. Check that /privacy/ still says what is kept, for how long and who "
         "receives it, then update PRIVACY_COUNTS."
     )
+
+
+def test_every_page_states_what_the_operator_changed(fixture_site: Path) -> None:
+    pages = [p for p in (fixture_site / "d").rglob("index.html") if "embed" not in p.parts]
+    assert pages
+    for p in pages:
+        text = p.read_text("utf-8")
+        assert "without change to the content" not in text, p
+        assert "is responsible for these changes" in text, p
+
+
+def test_the_changes_notice_follows_the_entry() -> None:
+    plain = changes(make_dataset([]))
+    assert plain.startswith("National Digital converted the publisher's file to other formats")
+    assert plain.endswith("National Digital is responsible for these changes.")
+    assert "suppressed" not in plain
+    assert "suppressed value a null" in changes(make_dataset([], suppression=("<5",)))
+    withheld = "The ICSEA column is left out for its terms."
+    assert withheld in changes(make_dataset([], source_withheld=withheld))

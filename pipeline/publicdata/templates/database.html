@@ -3,7 +3,7 @@
 <link rel="alternate" type="application/json" href="{{ base }}datapackage.json" title="Frictionless data package">
 <script type="application/ld+json">{{ jsonld|safe }}</script>
 {% endblock %}
-{% block disclaimer %}Published by {{ ds.publisher.name }} under {{ ds.licence.title }} and republished here without change to the content. {{ ds.publisher.name }} has not endorsed this site.{% endblock %}
+{% block disclaimer %}{{ disclaimer(ds) }}{% endblock %}
 {% block wrap %}
 <div class="site">
 <div class="crumbs"><a href="/">Datasets</a> / {% if jur_path %}<a href="{{ jur_path }}">{{ jur_long }}</a>{% else %}{{ jur_long }}{% endif %} / {% if publisher_path %}<a href="{{ publisher_path }}">{{ ds.publisher.short }}</a>{% else %}{{ ds.publisher.short }}{% endif %}</div>

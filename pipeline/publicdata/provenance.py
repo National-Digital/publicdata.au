@@ -109,6 +109,37 @@ def landing(ds: Dataset) -> str:
     return ds.landing or ds.licence.evidence or ds.source.url
 
 
+def changes(ds: Dataset) -> str:
+    """What the operator changed in the publisher's release, which CC BY asks a reuser to state."""
+    if ds.kind == "database":
+        said = [
+            f"{OPERATOR} converted the publisher's release to one DuckDB database and one Parquet file per table.",
+            "It typed the cells and named the columns in lower case.",
+        ]
+    else:
+        said = [
+            f"{OPERATOR} converted the publisher's file to other formats.",
+            "It renamed and typed the columns and kept only those the schema lists.",
+        ]
+        if ds.unpivot or ds.wide:
+            said.append("It turned column headers into rows, one row for each value.")
+        if ds.suppression:
+            said.append("It made each suppressed value a null with a flag.")
+    if ds.enrich:
+        said.append(
+            "It added place columns from ABS boundary layers, which the schema marks as joined."
+        )
+    if ds.source_withheld:
+        said.append(ds.source_withheld)
+    said.append(f"{OPERATOR} is responsible for these changes.")
+    return " ".join(said)
+
+
+def disclaimer(ds: Dataset) -> str:
+    who = ds.publisher.name
+    return f"Published by {who} under {ds.licence.title}. {changes(ds)} {who} has not endorsed this site."
+
+
 def cite(ds: Dataset, m: Manifest, version_url: str) -> dict[str, str]:
     """The licence attribution plus the operator's request, in the forms people paste."""
     name = ds.collection_title or ds.title
