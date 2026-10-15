@@ -410,7 +410,7 @@ ul.cards,ul.ttiles{list-style:none;padding:0}
 .sample td.nul{color:var(--muted)}
 .places{list-style:none;margin:10px 0 0;padding:0;columns:3;column-gap:24px;font-size:0.9062rem}
 .places li{break-inside:avoid;padding:3px 0}
-.places li a{color:var(--ink);text-decoration:none}
+.places li a{color:var(--ink);text-decoration:none;display:inline-block;min-height:24px}
 .places li a:hover{text-decoration:underline}
 .places li span{color:var(--muted);font-size:0.875rem;margin-left:6px;font-variant-numeric:tabular-nums}
 @media (max-width:720px){.places{columns:2}}

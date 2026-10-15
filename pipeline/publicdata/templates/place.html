@@ -48,7 +48,7 @@
   </div>{% endif %}
 
   <h2>Other {{ place_plural|lower }}</h2>
-  <ul class="places" data-conformance="aa">{% for p in others %}<li><a href="{{ p.href }}">{{ p.value }}</a> <span>{{ ds.row_label or "Rows" }}: {{ p.rows_fmt }}</span></li>{% endfor %}</ul>
+  <ul class="places" data-conformance="aa">{% for p in others %}<li><a href="{{ p.href }}">{{ p.value }} <span>{{ ds.row_label or "Rows" }}: {{ p.rows_fmt }}</span></a></li>{% endfor %}</ul>
 </div>
 
 <div class="side">
