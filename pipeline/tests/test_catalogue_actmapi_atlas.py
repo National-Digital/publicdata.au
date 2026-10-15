@@ -213,8 +213,28 @@ def test_a_hub_search_that_stops_short_is_an_error_so_its_records_are_kept() -> 
         s = cast("requests.Session", Partial("hub-actmapi-copies.json", **change))
         with pytest.raises(catalogue.PortalError):
             catalogue.hub(ACTMAPI, s, lambda *_: None)
+    # Pages that repeat one item and skip another still answer as many features as matched.
+    page = json.loads((FIX / "hub-actmapi-copies.json").read_text(encoding="utf-8"))
+    twice = [page["features"][0]] * 2
+    s = cast("requests.Session", Partial("hub-actmapi-copies.json", features=twice))
+    with pytest.raises(catalogue.PortalError):
+        catalogue.hub(ACTMAPI, s, lambda *_: None)
     s = cast("requests.Session", Partial("hub-actmapi-copies.json"))
     assert len(catalogue.hub(ACTMAPI, s, lambda *_: None)[0]) == 2
+
+
+def test_a_hub_search_is_read_in_a_stable_order() -> None:
+    s = FakeSession([])
+    asked: list[Params | None] = []
+
+    def get(url: str, params: Params | None = None, *_: object, **__: object) -> Resp:
+        asked.append(params)
+        return Resp({"features": [], "numberMatched": 0, "links": []})
+
+    s.get = get  # type: ignore[method-assign]
+    catalogue.hub(ACTMAPI, cast("requests.Session", s), lambda *_: None)
+    assert asked[0] is not None
+    assert asked[0]["sortBy"] == "properties.created"
 
 
 def test_the_hubs_custom_terms_are_read_as_they_state() -> None:
@@ -278,6 +298,12 @@ def test_long_custom_terms_name_a_licence_only_by_a_versioned_cc_name_and_never_
     )
     assert custom("<p>It is not in the public domain. CC BY 4.0 does not apply.</p>") == "custom"
     assert custom("<p>All rights reserved. Creative Commons Attribution 4.0</p>") == "custom"
+    assert custom("<p>Creative Commons Attribution 4.0 for non-commercial use only.</p>") == (
+        "custom"
+    )
+    assert custom("<p>Creative Commons Attribution 4.0. No derivative works.</p>") == "custom"
+    assert custom("<p>CC BY 4.0 applies. The data may not be redistributed.</p>") == "custom"
+    assert custom("<p>Some of our data owners use CC BY 4.0.</p>") == "custom"
     assert custom("<p>Licensed under Creative Commons Attribution 4.0 International.</p>") == (
         "CC-BY-4.0"
     )

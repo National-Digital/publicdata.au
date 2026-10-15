@@ -981,14 +981,16 @@ def _epoch_day(ms: object) -> str:
 
 # Terms that grant a licence for only some owners' or providers' data.
 HEDGED_TERMS = re.compile(
-    r"\b(?:most|some) data (?:owners|providers)\b|\bnot covered by creative commons\b"
+    r"\b(?:most|some) (?:of (?:our|the) )?data (?:owners|providers)\b"
+    r"|\bnot covered by creative commons\b"
     r"|\b(?:some|certain|selected) (?:of the )?(?:layers|datasets|items)\b",
     re.IGNORECASE,
 )
 # Custom terms that withhold or limit a grant, so no licence named in them is read as given.
 HUB_WITHHELD = re.compile(
     r"\bnot (?:be )?licen[cs]ed\b|\bnot (?:in|part of) the public domain\b"
-    r"|\ball rights reserved\b|\bpermission\b",
+    r"|\ball rights reserved\b|\bpermission\b|\bnon[- ]?commercial\b|\bno[- ]?derivatives?\b"
+    r"|\bmay not be (?:re)?distributed\b",
     re.IGNORECASE,
 )
 _HUB_CC = (
@@ -1051,9 +1053,11 @@ def hub_org(portal: Portal, x: HubItem) -> tuple[str, str] | None:
 def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """An ArcGIS Hub site, read through its OGC Records search of the site's own catalogue."""
     out: list[Record] = []
+    seen: set[str] = set()
     n = 0
     url = f"{portal.api}/api/search/v1/collections/dataset/items"
-    params: Params | None = {"limit": 100}
+    # Unsorted pages repeat some items and skip others.
+    params: Params | None = {"limit": 100, "sortBy": "properties.created"}
     while True:
         res = get_json_as(_HubPage, s, url, params)
         if res.get("exceededTransferLimit"):
@@ -1062,6 +1066,9 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
         feats = res.get("features") or []
         for f in feats:
             x = f.get("properties") or {}
+            if x["id"] in seen:
+                continue
+            seen.add(x["id"])
             lic, lic_title = hub_licence(x)
             kind = x.get("type") or ""
             out.append(
@@ -1088,8 +1095,8 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
         url, params = nxt, None
     total = res.get("numberMatched")
     # A search that stops early would read as items withdrawn.
-    if isinstance(total, int) and n < total:
-        msg = f"{portal.host}: read {n} of the {total} items the search matched"
+    if isinstance(total, int) and len(seen) < total:
+        msg = f"{portal.host}: read {len(seen)} of the {total} items the search matched"
         raise PortalError(msg)
     return out, 0
 
