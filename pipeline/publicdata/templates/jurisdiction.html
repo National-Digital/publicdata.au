@@ -9,11 +9,14 @@
 {% if live %}
 <div class="sec-head"><h2>Served here</h2><a href="/">All datasets</a></div>
 {# Text extractors start a page's text at its first <article>, which dropped this page's heading. #}
-{% set card_tag = 'div' %}<div class="cards" data-conformance="aa">{% for d in live %}{% include "card.html" %}{% endfor %}</div>
+{% set card_tag = 'li' %}<ul class="cards" data-conformance="aa">{% for d in live %}{% include "card.html" %}{% endfor %}</ul>
 {% endif %}
+{% if groups %}<section class="publishers">
 {% for group in groups %}
 <div class="sec-head"><h2>{{ group.title }}</h2><span class="muted small">{{ group.publishers|length }} publisher{{ '' if group.publishers|length == 1 else 's' }}{% if catalogue %}, by datasets listed{% endif %}</span></div>
-<div class="publist">{% for p in group.publishers %}<p class="pubrow"><a class="pname" href="{{ p.path }}">{{ p.name }}</a> {% if catalogue %}<span class="pscale"><i style="width:{{ p.bar }}%"></i></span><span class="pn">{{ p.listed_fmt }}</span>{% else %}<span class="pscale"></span><span class="pn"></span>{% endif %}<span class="pn live">{% if p.live %}{{ p.live }} served{% endif %}</span></p>{% endfor %}</div>
+<div class="publist">{% for p in group.publishers %}{% set ds_n = p.listed or p.live %}<p class="pubrow">{% if ds_n %}<span class="pname">{{ p.name }}</span>{% else %}<a class="pname" href="{{ p.path }}">{{ p.name }}</a>{% endif %} <span class="pscale">{% if catalogue %}<i style="width:{{ p.bar }}%"></i>{% endif %}</span><span class="pn">{% if p.listed %}lists <a href="{{ p.path }}" aria-label="{{ p.listed_fmt }} dataset{{ '' if p.listed == 1 else 's' }} from {{ p.name }}">{{ p.listed_fmt }} dataset{{ '' if p.listed == 1 else 's' }}</a> on {{ p.portals|join(' and ') }}, {{ p.candidates_fmt }} open with a download.{% elif p.live %}has <a href="{{ p.path }}" aria-label="{{ p.live }} dataset{{ '' if p.live == 1 else 's' }} from {{ p.name }} served here">{{ p.live }} dataset{{ '' if p.live == 1 else 's' }} served here</a>.{% elif p.portals %}lists no datasets with a download on {{ p.portals|join(' and ') }}.{% else %}has no datasets on the portals this site reads.{% endif %}</span> <span class="pn live">{% if p.live and p.listed %}{{ p.live }} served{% endif %}</span></p>
+{% endfor %}</div>
 {% endfor %}
+</section>{% endif %}
 <p class="muted small" style="margin-top:24px">{% if catalogue %}Counts come from the portals' own catalogues, read {{ as_at_long }}. {% endif %}The list is also available as <a href="/catalogue/publishers.json" class="mono">/catalogue/publishers.json</a>.</p>
 {% endblock %}

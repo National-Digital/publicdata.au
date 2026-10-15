@@ -1,0 +1,58 @@
+{
+ "help": "https://data.nsw.gov.au/data/api/3/action/help_show?name=package_search",
+ "success": true,
+ "result": {
+  "count": 4,
+  "results": [
+   {
+    "id": "0017ac64-b72a-49b8-8181-55536ccb0578",
+    "name": "survey-and-mapping-of-darling-floodplain-vegetation-communities-in-2014-vis_id-41863ac21",
+    "title": "Survey and mapping of Darling floodplain vegetation communities in 2014. VIS_ID 4186",
+    "organization": "nsw-department-of-climate-change-energy-the-environment-and-water",
+    "license_id": "cc-by",
+    "metadata_created": "2018-09-05T13:42:25.502Z",
+    "metadata_modified": "2026-10-03T05:03:17.800Z",
+    "res_format": [
+     "PDF",
+     "ZIP",
+     "WMS",
+     "ARCGIS REST SERVICE"
+    ],
+    "dataset_type": "dataset",
+    "notes": "In 2014, the Centre for Environmental Management, Federation University Australia (previously the University of Ballarat) was commissioned by the New South Wales Office of Environment and Heritage to undertake a vegetation survey and mapping of the vegetation of the Barwon-Darling Floodplain, betwee",
+    "harvest_url": "https://datasets.seed.nsw.gov.au/dataset/survey-and-mapping-of-darling-floodplain-vegetation-communities-in-2014-vis_id-41863ac21"
+   },
+   {
+    "id": "001ad026-f24a-47d0-b76f-fe8df276a3e3",
+    "name": "melville-range-nature-reserve-vegetation-2006-vis_id-4746",
+    "title": "Melville Range Nature Reserve Vegetation 2006 VIS_ID 4746",
+    "organization": "nsw-department-of-climate-change-energy-the-environment-and-water",
+    "license_id": "cc-by",
+    "metadata_created": "2018-09-05T13:39:18.558Z",
+    "metadata_modified": "2026-10-02T19:09:35.607Z",
+    "res_format": [
+     "PDF",
+     "ZIP"
+    ],
+    "dataset_type": "dataset",
+    "notes": "Melville Range Nature Reserve vegetation mapping was undertaken by Dr John T. Hunter and Paul Sheringham in 2006 by contract for the NPWS Northern Tableland Region.  Melville Range Nature Reserve comprises some 843 ha of land and lies between Tamworth and Gunnedah. These lands were previously freeho",
+    "harvest_url": "https://datasets.seed.nsw.gov.au/dataset/melville-range-nature-reserve-vegetation-2006-vis_id-4746"
+   },
+   {
+    "id": "890610de-6e10-465a-8e7d-e45246a7ed08",
+    "name": "5-cityofsydney--sydney-development-control-plan-2012",
+    "title": "Sydney Development Control Plan 2012",
+    "organization": "city-of-sydney",
+    "harvest_url": "https://data.cityofsydney.nsw.gov.au/datasets/cityofsydney::sydney-development-control-plan-2012"
+   },
+   {
+    "id": "addf72ca-e5f7-445a-a717-6b5a230531d7",
+    "name": "nsw-points-of-interest-poi",
+    "title": "NSW Points of Interest (POI)",
+    "organization": "spatial-services",
+    "harvest_url": "https://datasets.seed.nsw.gov.au/dataset/nsw-points-of-interest-poi"
+   }
+  ],
+  "sort": "id asc"
+ }
+}

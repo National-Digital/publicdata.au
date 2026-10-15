@@ -207,8 +207,11 @@ def test_ckan_drops_copies_of_portals_read_directly() -> None:
         ),
     )
     s = FakeSession([pkg(1), copy, science, prefixed, own])
-    recs, dropped = catalogue.ckan(catalogue.BY_CODE["gov"], session(s), log=lambda *_: None)
+    got, dropped = catalogue.ckan(catalogue.BY_CODE["gov"], session(s), log=lambda *_: None)
     assert dropped == 2
+    # Copies come back marked, for harvest to drop.
+    assert sum("copy_of" in r for r in got) == dropped
+    recs = [r for r in got if "copy_of" not in r]
     assert [r["id"] for r in recs] == [
         "gov-00000001-aaaa-bbbb-cccc-dddddddddddd",
         "gov-00000003-aaaa-bbbb-cccc-dddddddddddd",
@@ -537,7 +540,9 @@ def test_every_portal_code_fits_a_vote_key_and_publishers_place_councils_locally
     replaced = [o for p in catalogue.PORTALS for o in p.replaces]
     assert len(set(replaced)) == len(replaced), "two portals replace the same organisation"
     councils = [
-        p for p in catalogue.PORTALS if p.kind in ("ods", "hub") and p.jurisdiction != "cth"
+        p
+        for p in catalogue.PORTALS
+        if p.kind in ("ods", "hub") and p.publisher and p.jurisdiction != "cth"
     ]
     recs: list[CatalogueRecord] = [
         {"portal": p.code, "org": p.code, "org_title": p.publisher} for p in councils

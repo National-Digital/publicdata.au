@@ -1,0 +1,127 @@
+{
+ "elapsedTime": 22,
+ "totalResults": "7",
+ "page": 1,
+ "resultsPerPage": 100,
+ "next": {
+  "relationship": "next",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=100&sb=RECENT&psd=2025-01-01T00:00:00%2B10:00&ped=2025-12-31T23:59:59%2B11:00&p=2",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "previous": null,
+ "first": {
+  "relationship": "first",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=100&sb=RECENT&psd=2025-01-01T00:00:00%2B10:00&ped=2025-12-31T23:59:59%2B11:00&p=1",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "last": {
+  "relationship": "last",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=100&sb=RECENT&psd=2025-01-01T00:00:00%2B10:00&ped=2025-12-31T23:59:59%2B11:00&p=2",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "query": "",
+ "criteria": null,
+ "sortBy": "RECENT",
+ "complete": false,
+ "dataCollections": [
+  {
+   "id": {
+    "identifierType": "Fedora PID",
+    "identifier": "csiro:72160"
+   },
+   "dataCollectionId": 72752,
+   "self": "https://data.csiro.au/dap/ws/v2/collections/72752",
+   "landingPage": {
+    "relationship": "alternate",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/collection/csiro:72160",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "title": "OzOat Diversity Panel: A Global Genome-to-Phenome Resource for Oat Breeding",
+   "description": "The OzOat diversity panel is a curated collection of approximately 319 oat accessions representing global genetic diversity and the breeding history of Australian oats. The panel spans material from historical landraces (circa 1892) to modern cultivars, including key international introductions and",
+   "licence": "Creative Commons Attribution 4.0 International Licence",
+   "licenceLink": {
+    "relationship": "licence",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/dap/ws/v2/licences/1121",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "published": "2025-12-31T09:49:15.314+11:00",
+   "serviceCount": 0,
+   "collectionType": "Data",
+   "domainType": "Everything Else",
+   "dataRestricted": "FALSE",
+   "dataVersionNumber": "1"
+  },
+  {
+   "id": {
+    "identifierType": "Fedora PID",
+    "identifier": "csiro:72744"
+   },
+   "dataCollectionId": 72744,
+   "self": "https://data.csiro.au/dap/ws/v2/collections/72744",
+   "landingPage": {
+    "relationship": "alternate",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/collection/csiro:72744",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "title": "Parkes observations for project PX500 semester 2025OCTS_15",
+   "description": "This proposal relates to time purchased by the Chinese Academy of Sciences for Parkes follow-up confirmation and timing of FAST discoveries.  As the observing time has been purchased this proposal (and the related PX501) does not require TAC grading.  The primary reason for submitting a proposal is",
+   "licence": "Creative Commons Attribution 4.0 International Licence",
+   "licenceLink": {
+    "relationship": "licence",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/dap/ws/v2/licences/1121",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "published": "2025-12-29T17:09:38.894+11:00",
+   "serviceCount": 0,
+   "collectionType": "Data",
+   "domainType": "Astronomy Data",
+   "dataRestricted": "FALSE",
+   "dataVersionNumber": "1"
+  },
+  {
+   "id": {
+    "identifierType": "Fedora PID",
+    "identifier": "csiro:72198"
+   },
+   "dataCollectionId": 72198,
+   "self": "https://data.csiro.au/dap/ws/v2/collections/72198",
+   "landingPage": {
+    "relationship": "alternate",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/collection/csiro:72198",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "title": "Evercrop - Pasture-Crop paired paddock soil health assessment",
+   "description": "Fields with common historical management but where pasture had been sown 4-10 years prior were compared to continuously cropped fields adjacent. Fourteen sites across northern NSW and southern Qld were sampled in 2015. ",
+   "licence": "Creative Commons Attribution 4.0 International Licence",
+   "licenceLink": {
+    "relationship": "licence",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/dap/ws/v2/licences/1121",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "published": "2025-12-09T15:43:14.925+11:00",
+   "serviceCount": 0,
+   "collectionType": "Data",
+   "domainType": "Everything Else",
+   "dataRestricted": "TRUE",
+   "dataVersionNumber": "1"
+  }
+ ]
+}

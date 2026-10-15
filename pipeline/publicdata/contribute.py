@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 from urllib.parse import urlparse
 
 import requests
 import yaml
 
 from . import REPO, SITE
-from .directory import _bare
+from .catalogue import bare_url as _bare
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -72,6 +72,7 @@ class _GhCreated(TypedDict, total=False):
 
 class _Records(TypedDict):
     rows: list[Row]
+    moved: NotRequired[dict[str, str]]
 
 
 UA = "publicdata-contribute (+https://publicdata.au/)"
@@ -198,7 +199,7 @@ def _claimed(row: Row, register: dict[str, Dataset]) -> str:
     )
 
 
-def resolve(  # noqa: PLR0911 - one return for each state a key can be in
+def resolve(  # noqa: C901, PLR0911 - one return for each state a key can be in
     key: str, register: dict[str, Dataset], rows: dict[str, Row]
 ) -> tuple[str, str, str]:
     """(the key the dataset is known by now, its state, a link or reason).
@@ -215,6 +216,9 @@ def resolve(  # noqa: PLR0911 - one return for each state a key can be in
     r = rows.get(key)
     if r is None:
         return key, "gone", "the portals' catalogue no longer lists it"
+    if r.get("id") not in (None, key):
+        # A copy the catalogue dropped for its original: the task is the original's now.
+        return resolve(r["id"], register, rows)
     claim = _claimed(r, register)
     if claim:
         return resolve(claim, register, rows)
@@ -465,7 +469,8 @@ def read_votes(http: requests.Session, site: str = SITE) -> dict[str, int]:
 def read_records(http: requests.Session, ids: list[str], site: str = SITE) -> dict[str, Row]:
     """The catalogue rows for these record ids, by id.
 
-    A chosen record is also found under the slug its votes go to.
+    A chosen record is also found under the slug its votes go to, and a copy the catalogue
+    dropped under the record that replaced it.
     """
     out: dict[str, Row] = {}
     for n in range(0, len(ids), IDS_PER_CALL):
@@ -475,6 +480,9 @@ def read_records(http: requests.Session, ids: list[str], site: str = SITE) -> di
         got: _Records = r.json()
         for row in got["rows"]:
             out[row["id"]] = row
+        for copy, rid in (got.get("moved") or {}).items():
+            if rid in out:
+                out[copy] = out[rid]
     return out
 
 

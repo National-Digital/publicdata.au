@@ -1,0 +1,837 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<csw:GetRecordsResponse xmlns:csw="http://www.opengis.net/cat/csw/2.0.2" xmlns:gco="http://www.isotc211.org/2005/gco" xmlns:gmd="http://www.isotc211.org/2005/gmd" xmlns:gmx="http://www.isotc211.org/2005/gmx" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <csw:SearchStatus timestamp="2026-10-14T14:52:27" />
+  <csw:SearchResults numberOfRecordsMatched="3" numberOfRecordsReturned="3" elementSet="full" nextRecord="0">
+    <gmd:MD_Metadata>
+      <gmd:fileIdentifier>
+        <gco:CharacterString>000ca07b-8761-4555-b0cf-a5fc86011a58</gco:CharacterString>
+      </gmd:fileIdentifier>
+      <gmd:hierarchyLevel>
+        <gmd:MD_ScopeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#MD_ScopeCode" codeListValue="dataset" />
+      </gmd:hierarchyLevel>
+      <gmd:contact>
+        <gmd:CI_ResponsibleParty>
+          <gmd:organisationName>
+            <gco:CharacterString>Commonwealth of Australia (Geoscience Australia)</gco:CharacterString>
+          </gmd:organisationName>
+          <gmd:role>
+            <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</gmd:CI_RoleCode>
+          </gmd:role>
+        </gmd:CI_ResponsibleParty>
+      </gmd:contact>
+      <gmd:contact>
+        <gmd:CI_ResponsibleParty>
+          <gmd:role>
+            <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</gmd:CI_RoleCode>
+          </gmd:role>
+        </gmd:CI_ResponsibleParty>
+      </gmd:contact>
+      <gmd:dateStamp>
+        <gco:DateTime>2021-06-17T00:00:00</gco:DateTime>
+      </gmd:dateStamp>
+      <gmd:identificationInfo>
+        <gmd:MD_DataIdentification>
+          <gmd:citation>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>GSNSW Exploration NSW Area I Albury potassium grid geodetic</gco:CharacterString>
+              </gmd:title>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:date>
+                    <gco:DateTime>2020-03-07T00:00:00</gco:DateTime>
+                  </gmd:date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_DateTypeCode" codeListValue="creation">creation</gmd:CI_DateTypeCode>
+                  </gmd:dateType>
+                </gmd:CI_Date>
+              </gmd:date>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:date>
+                    <gco:DateTime>2020-03-07T00:00:00</gco:DateTime>
+                  </gmd:date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_DateTypeCode" codeListValue="publication">publication</gmd:CI_DateTypeCode>
+                  </gmd:dateType>
+                </gmd:CI_Date>
+              </gmd:date>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:date>
+                    <gco:DateTime>2021-07-06T01:01:04</gco:DateTime>
+                  </gmd:date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_DateTypeCode" codeListValue="revision">revision</gmd:CI_DateTypeCode>
+                  </gmd:dateType>
+                </gmd:CI_Date>
+              </gmd:date>
+              <gmd:identifier>
+                <gmd:RS_Identifier>
+                  <gmd:code>
+                    <gco:CharacterString>https://pid.geoscience.gov.au/dataset/ga/140663</gco:CharacterString>
+                  </gmd:code>
+                  <gmd:codeSpace>
+                    <gco:CharacterString>Geoscience Australia Persistent Identifier</gco:CharacterString>
+                  </gmd:codeSpace>
+                </gmd:RS_Identifier>
+              </gmd:identifier>
+              <gmd:citedResponsibleParty>
+                <gmd:CI_ResponsibleParty>
+                  <gmd:role>
+                    <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="author">author</gmd:CI_RoleCode>
+                  </gmd:role>
+                </gmd:CI_ResponsibleParty>
+              </gmd:citedResponsibleParty>
+            </gmd:CI_Citation>
+          </gmd:citation>
+          <gmd:abstract>
+            <gco:CharacterString>The radiometric, or gamma-ray spectrometric method, measures the natural variations in the gamma-rays detected near the Earth's surface as the result of the natural radioactive decay of potassium (K), uranium (U) and thorium (Th). The data collected are processed via standard methods to ensure the r</gco:CharacterString>
+          </gmd:abstract>
+          <gmd:pointOfContact>
+            <gmd:CI_ResponsibleParty>
+              <gmd:organisationName>
+                <gco:CharacterString>Commonwealth of Australia (Geoscience Australia)</gco:CharacterString>
+              </gmd:organisationName>
+              <gmd:role>
+                <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</gmd:CI_RoleCode>
+              </gmd:role>
+            </gmd:CI_ResponsibleParty>
+          </gmd:pointOfContact>
+          <gmd:resourceConstraints>
+            <gmd:MD_LegalConstraints uuid="urn:ga-licences:232">
+              <gmd:reference>
+                <gmd:CI_Citation>
+                  <gmd:title>
+                    <gco:CharacterString>Creative Commons Attribution 4.0 International Licence</gco:CharacterString>
+                  </gmd:title>
+                  <gmd:alternateTitle>
+                    <gco:CharacterString>CC-BY</gco:CharacterString>
+                  </gmd:alternateTitle>
+                  <gmd:date gco:nilReason="missing" />
+                  <gmd:edition>
+                    <gco:CharacterString>4.0</gco:CharacterString>
+                  </gmd:edition>
+                </gmd:CI_Citation>
+              </gmd:reference>
+              <gmd:accessConstraints>
+                <gmd:MD_RestrictionCode codeList="codeListLocation#MD_RestrictionCode" codeListValue="license" />
+              </gmd:accessConstraints>
+              <gmd:useConstraints>
+                <gmd:MD_RestrictionCode codeList="codeListLocation#MD_RestrictionCode" codeListValue="license" />
+              </gmd:useConstraints>
+              <gmd:otherConstraints>
+                <gco:CharacterString>(c) State of New South Wales (Department of Regional New South Wales) 2020</gco:CharacterString>
+              </gmd:otherConstraints>
+            </gmd:MD_LegalConstraints>
+          </gmd:resourceConstraints>
+          <gmd:resourceConstraints>
+            <gmd:MD_SecurityConstraints>
+              <gmd:reference>
+                <gmd:CI_Citation>
+                  <gmd:title>
+                    <gco:CharacterString>Australian Government Security ClassificationSystem</gco:CharacterString>
+                  </gmd:title>
+                  <gmd:date gco:nilReason="missing" />
+                  <gmd:editionDate>
+                    <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+                  </gmd:editionDate>
+                </gmd:CI_Citation>
+              </gmd:reference>
+              <gmd:classification>
+                <gmd:MD_ClassificationCode codeList="codeListLocation#MD_ClassificationCode" codeListValue="unclassified" />
+              </gmd:classification>
+            </gmd:MD_SecurityConstraints>
+          </gmd:resourceConstraints>
+        </gmd:MD_DataIdentification>
+      </gmd:identificationInfo>
+      <gmd:distributionInfo>
+        <gmd:MD_Distribution>
+          <gmd:distributor>
+            <gmd:MD_Distributor>
+              <gmd:distributorTransferOptions>
+                <gmd:MD_DigitalTransferOptions>
+                  <gmd:onLine>
+                    <gmd:CI_OnlineResource>
+                      <gmd:linkage>
+                        <gmd:URL>https://portal.ga.gov.au/persona/gadds</gmd:URL>
+                      </gmd:linkage>
+                      <gmd:protocol>
+                        <gco:CharacterString xsi:type="gco:CodeType" codeSpace="http://pid.geoscience.gov.au/def/schema/ga/ISO19115-3-2016/codelist/ga_profile_codelists.xml#gapCI_ProtocolTypeCode">WWW:LINK-1.0-http--link</gco:CharacterString>
+                      </gmd:protocol>
+                      <gmd:applicationProfile>
+                        <gco:CharacterString>GeoscienceAustralia:GADDS2 Portal</gco:CharacterString>
+                      </gmd:applicationProfile>
+                      <gmd:name>
+                        <gco:CharacterString>File available for download in various formats from the GADDS2 portal</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:description>
+                        <gco:CharacterString>The Geophysical Archive Data Delivery System (GADDS2) portal provides HTTP download of geophysics datasets in a number of formats. Point and line datasets are available in NetCDF and ASEG-GDF2. Grid datasets are available in NetCDF, GeoTIFF and ERS.</gco:CharacterString>
+                      </gmd:description>
+                    </gmd:CI_OnlineResource>
+                  </gmd:onLine>
+                  <gmd:distributionFormat>
+                    <gmd:MD_Format>
+                      <gmd:name>
+                        <gco:CharacterString>WWW:LINK-1.0-http--link</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:version gco:nilReason="unknown" />
+                    </gmd:MD_Format>
+                  </gmd:distributionFormat>
+                </gmd:MD_DigitalTransferOptions>
+              </gmd:distributorTransferOptions>
+            </gmd:MD_Distributor>
+          </gmd:distributor>
+          <gmd:distributor>
+            <gmd:MD_Distributor>
+              <gmd:distributorTransferOptions>
+                <gmd:MD_DigitalTransferOptions>
+                  <gmd:onLine>
+                    <gmd:CI_OnlineResource>
+                      <gmd:linkage>
+                        <gmd:URL>https://thredds.nci.org.au/thredds/fileServer/iv65/Geoscience_Australia_Geophysics_Reference_Data_Collection/airborne_geophysics/NSW/grid/P739/P739-grid-k_conc.nc</gmd:URL>
+                      </gmd:linkage>
+                      <gmd:protocol>
+                        <gco:CharacterString xsi:type="gco:CodeType" codeSpace="http://pid.geoscience.gov.au/def/schema/ga/ISO19115-3-2016/codelist/ga_profile_codelists.xml#gapCI_ProtocolTypeCode">WWW:LINK-1.0-http--link</gco:CharacterString>
+                      </gmd:protocol>
+                      <gmd:applicationProfile>
+                        <gco:CharacterString>Unidata:THREDDS Data Server</gco:CharacterString>
+                      </gmd:applicationProfile>
+                      <gmd:name>
+                        <gco:CharacterString>GSNSW Exploration NSW Area I Albury potassium grid geodetic file download</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:description>
+                        <gco:CharacterString>File download for GSNSW Exploration NSW Area I Albury potassium grid geodetic</gco:CharacterString>
+                      </gmd:description>
+                    </gmd:CI_OnlineResource>
+                  </gmd:onLine>
+                  <gmd:distributionFormat>
+                    <gmd:MD_Format>
+                      <gmd:name>
+                        <gco:CharacterString>WWW:LINK-1.0-http--link</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:version gco:nilReason="unknown" />
+                    </gmd:MD_Format>
+                  </gmd:distributionFormat>
+                </gmd:MD_DigitalTransferOptions>
+              </gmd:distributorTransferOptions>
+              <gmd:distributorTransferOptions>
+                <gmd:MD_DigitalTransferOptions>
+                  <gmd:onLine>
+                    <gmd:CI_OnlineResource>
+                      <gmd:linkage>
+                        <gmd:URL>https://thredds.nci.org.au/thredds/ncss/grid/iv65/Geoscience_Australia_Geophysics_Reference_Data_Collection/airborne_geophysics/NSW/grid/P739/P739-grid-k_conc.nc/dataset.html</gmd:URL>
+                      </gmd:linkage>
+                      <gmd:protocol>
+                        <gco:CharacterString xsi:type="gco:CodeType" codeSpace="http://pid.geoscience.gov.au/def/schema/ga/ISO19115-3-2016/codelist/ga_profile_codelists.xml#gapCI_ProtocolTypeCode">NCSS</gco:CharacterString>
+                      </gmd:protocol>
+                      <gmd:applicationProfile>
+                        <gco:CharacterString>Unidata:THREDDS Data Server</gco:CharacterString>
+                      </gmd:applicationProfile>
+                      <gmd:name>
+                        <gco:CharacterString>GSNSW Exploration NSW Area I Albury potassium grid geodetic NCSS</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:description>
+                        <gco:CharacterString>NetCDF Subsetting Service (NCSS) for GSNSW Exploration NSW Area I Albury potassium grid geodetic</gco:CharacterString>
+                      </gmd:description>
+                    </gmd:CI_OnlineResource>
+                  </gmd:onLine>
+                  <gmd:distributionFormat>
+                    <gmd:MD_Format>
+                      <gmd:name>
+                        <gco:CharacterString>NCSS</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:version gco:nilReason="unknown" />
+                    </gmd:MD_Format>
+                  </gmd:distributionFormat>
+                </gmd:MD_DigitalTransferOptions>
+              </gmd:distributorTransferOptions>
+              <gmd:distributorTransferOptions>
+                <gmd:MD_DigitalTransferOptions>
+                  <gmd:onLine>
+                    <gmd:CI_OnlineResource>
+                      <gmd:linkage>
+                        <gmd:URL>https://thredds.nci.org.au/thredds/dodsC/iv65/Geoscience_Australia_Geophysics_Reference_Data_Collection/airborne_geophysics/NSW/grid/P739/P739-grid-k_conc.nc.html</gmd:URL>
+                      </gmd:linkage>
+                      <gmd:protocol>
+                        <gco:CharacterString xsi:type="gco:CodeType" codeSpace="http://pid.geoscience.gov.au/def/schema/ga/ISO19115-3-2016/codelist/ga_profile_codelists.xml#gapCI_ProtocolTypeCode">WWW:LINK-1.0-http--opendap</gco:CharacterString>
+                      </gmd:protocol>
+                      <gmd:applicationProfile>
+                        <gco:CharacterString>Unidata:THREDDS Data Server</gco:CharacterString>
+                      </gmd:applicationProfile>
+                      <gmd:name>
+                        <gco:CharacterString>GSNSW Exploration NSW Area I Albury potassium grid geodetic OPeNDAP</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:description>
+                        <gco:CharacterString>OPeNDAP web service for GSNSW Exploration NSW Area I Albury potassium grid geodetic</gco:CharacterString>
+                      </gmd:description>
+                    </gmd:CI_OnlineResource>
+                  </gmd:onLine>
+                  <gmd:distributionFormat>
+                    <gmd:MD_Format>
+                      <gmd:name>
+                        <gco:CharacterString>WWW:LINK-1.0-http--opendap</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:version gco:nilReason="unknown" />
+                    </gmd:MD_Format>
+                  </gmd:distributionFormat>
+                </gmd:MD_DigitalTransferOptions>
+              </gmd:distributorTransferOptions>
+              <gmd:distributorTransferOptions>
+                <gmd:MD_DigitalTransferOptions>
+                  <gmd:onLine>
+                    <gmd:CI_OnlineResource>
+                      <gmd:linkage>
+                        <gmd:URL>https://thredds.nci.org.au/thredds/wms/iv65/Geoscience_Australia_Geophysics_Reference_Data_Collection/airborne_geophysics/NSW/grid/P739/P739-grid-k_conc.nc?service=WMS&amp;version=1.3.0&amp;request=GetCapabilities</gmd:URL>
+                      </gmd:linkage>
+                      <gmd:protocol>
+                        <gco:CharacterString xsi:type="gco:CodeType" codeSpace="http://pid.geoscience.gov.au/def/schema/ga/ISO19115-3-2016/codelist/ga_profile_codelists.xml#gapCI_ProtocolTypeCode">OGC:WMS</gco:CharacterString>
+                      </gmd:protocol>
+                      <gmd:applicationProfile>
+                        <gco:CharacterString>Unidata:THREDDS Data Server</gco:CharacterString>
+                      </gmd:applicationProfile>
+                      <gmd:name>
+                        <gco:CharacterString>GSNSW Exploration NSW Area I Albury potassium grid geodetic WMS</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:description>
+                        <gco:CharacterString>OGC Web Mapping Service (WMS) for GSNSW Exploration NSW Area I Albury potassium grid geodetic</gco:CharacterString>
+                      </gmd:description>
+                    </gmd:CI_OnlineResource>
+                  </gmd:onLine>
+                  <gmd:distributionFormat>
+                    <gmd:MD_Format>
+                      <gmd:name>
+                        <gco:CharacterString>OGC:WMS</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:version>
+                        <gco:CharacterString>1.3.0,1.1.1</gco:CharacterString>
+                      </gmd:version>
+                    </gmd:MD_Format>
+                  </gmd:distributionFormat>
+                </gmd:MD_DigitalTransferOptions>
+              </gmd:distributorTransferOptions>
+              <gmd:distributorTransferOptions>
+                <gmd:MD_DigitalTransferOptions>
+                  <gmd:onLine>
+                    <gmd:CI_OnlineResource>
+                      <gmd:linkage>
+                        <gmd:URL>https://thredds.nci.org.au/thredds/wcs/iv65/Geoscience_Australia_Geophysics_Reference_Data_Collection/airborne_geophysics/NSW/grid/P739/P739-grid-k_conc.nc?service=WCS&amp;version=1.0.0&amp;request=GetCapabilities</gmd:URL>
+                      </gmd:linkage>
+                      <gmd:protocol>
+                        <gco:CharacterString xsi:type="gco:CodeType" codeSpace="http://pid.geoscience.gov.au/def/schema/ga/ISO19115-3-2016/codelist/ga_profile_codelists.xml#gapCI_ProtocolTypeCode">OGC:WCS</gco:CharacterString>
+                      </gmd:protocol>
+                      <gmd:applicationProfile>
+                        <gco:CharacterString>Unidata:THREDDS Data Server</gco:CharacterString>
+                      </gmd:applicationProfile>
+                      <gmd:name>
+                        <gco:CharacterString>GSNSW Exploration NSW Area I Albury potassium grid geodetic WCS</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:description>
+                        <gco:CharacterString>OGC Web Coverage Service (WCS) for GSNSW Exploration NSW Area I Albury potassium grid geodetic</gco:CharacterString>
+                      </gmd:description>
+                    </gmd:CI_OnlineResource>
+                  </gmd:onLine>
+                  <gmd:distributionFormat>
+                    <gmd:MD_Format>
+                      <gmd:name>
+                        <gco:CharacterString>OGC:WCS</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:version>
+                        <gco:CharacterString>1.0.0</gco:CharacterString>
+                      </gmd:version>
+                    </gmd:MD_Format>
+                  </gmd:distributionFormat>
+                </gmd:MD_DigitalTransferOptions>
+              </gmd:distributorTransferOptions>
+            </gmd:MD_Distributor>
+          </gmd:distributor>
+        </gmd:MD_Distribution>
+      </gmd:distributionInfo>
+      <gmd:metadataConstraints>
+        <gmd:MD_SecurityConstraints>
+          <gmd:reference>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>Australian Government Security Classification System</gco:CharacterString>
+              </gmd:title>
+              <gmd:date gco:nilReason="missing" />
+              <gmd:editionDate>
+                <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+              </gmd:editionDate>
+            </gmd:CI_Citation>
+          </gmd:reference>
+          <gmd:classification>
+            <gmd:MD_ClassificationCode codeList="codeListLocation#MD_ClassificationCode" codeListValue="unclassified" />
+          </gmd:classification>
+        </gmd:MD_SecurityConstraints>
+      </gmd:metadataConstraints>
+    </gmd:MD_Metadata>
+    <gmd:MD_Metadata>
+      <gmd:fileIdentifier>
+        <gco:CharacterString>000d3617-6e12-4a07-bc17-dce9f27bfb96</gco:CharacterString>
+      </gmd:fileIdentifier>
+      <gmd:hierarchyLevel>
+        <gmd:MD_ScopeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#MD_ScopeCode" codeListValue="document" />
+      </gmd:hierarchyLevel>
+      <gmd:contact>
+        <gmd:CI_ResponsibleParty>
+          <gmd:organisationName>
+            <gco:CharacterString>Commonwealth of Australia (Geoscience Australia)</gco:CharacterString>
+          </gmd:organisationName>
+          <gmd:role>
+            <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</gmd:CI_RoleCode>
+          </gmd:role>
+        </gmd:CI_ResponsibleParty>
+      </gmd:contact>
+      <gmd:contact>
+        <gmd:CI_ResponsibleParty>
+          <gmd:role>
+            <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</gmd:CI_RoleCode>
+          </gmd:role>
+        </gmd:CI_ResponsibleParty>
+      </gmd:contact>
+      <gmd:dateStamp>
+        <gco:DateTime>2025-07-31T06:54:16.328Z</gco:DateTime>
+      </gmd:dateStamp>
+      <gmd:identificationInfo>
+        <gmd:MD_DataIdentification>
+          <gmd:citation>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>Vanuatu Earthquake 17 Dec 2024 land motion impact observed by GNSS</gco:CharacterString>
+              </gmd:title>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:date>
+                    <gco:DateTime>2025-01-13T22:00:00</gco:DateTime>
+                  </gmd:date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_DateTypeCode" codeListValue="creation">creation</gmd:CI_DateTypeCode>
+                  </gmd:dateType>
+                </gmd:CI_Date>
+              </gmd:date>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:date>
+                    <gco:DateTime>2025-07-31T06:51:51.105Z</gco:DateTime>
+                  </gmd:date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_DateTypeCode" codeListValue="publication">publication</gmd:CI_DateTypeCode>
+                  </gmd:dateType>
+                </gmd:CI_Date>
+              </gmd:date>
+              <gmd:identifier>
+                <gmd:RS_Identifier>
+                  <gmd:code>
+                    <gco:CharacterString>https://pid.geoscience.gov.au/dataset/ga/150183</gco:CharacterString>
+                  </gmd:code>
+                  <gmd:codeSpace>
+                    <gco:CharacterString>Geoscience Australia Persistent Identifier</gco:CharacterString>
+                  </gmd:codeSpace>
+                </gmd:RS_Identifier>
+              </gmd:identifier>
+              <gmd:identifier>
+                <gmd:RS_Identifier>
+                  <gmd:code>
+                    <gmx:Anchor xlink:href="https://doi.org/10.26186/150183">10.26186/150183</gmx:Anchor>
+                  </gmd:code>
+                  <gmd:codeSpace>
+                    <gco:CharacterString>doi.org</gco:CharacterString>
+                  </gmd:codeSpace>
+                </gmd:RS_Identifier>
+              </gmd:identifier>
+              <gmd:citedResponsibleParty>
+                <gmd:CI_ResponsibleParty>
+                  <gmd:organisationName>
+                    <gco:CharacterString>Commonwealth of Australia (Geoscience Australia)</gco:CharacterString>
+                  </gmd:organisationName>
+                  <gmd:role>
+                    <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="publisher">publisher</gmd:CI_RoleCode>
+                  </gmd:role>
+                </gmd:CI_ResponsibleParty>
+              </gmd:citedResponsibleParty>
+              <gmd:citedResponsibleParty>
+                <gmd:CI_ResponsibleParty>
+                  <gmd:role>
+                    <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="author">author</gmd:CI_RoleCode>
+                  </gmd:role>
+                </gmd:CI_ResponsibleParty>
+              </gmd:citedResponsibleParty>
+              <gmd:citedResponsibleParty>
+                <gmd:CI_ResponsibleParty>
+                  <gmd:role>
+                    <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="author">author</gmd:CI_RoleCode>
+                  </gmd:role>
+                </gmd:CI_ResponsibleParty>
+              </gmd:citedResponsibleParty>
+              <gmd:citedResponsibleParty>
+                <gmd:CI_ResponsibleParty>
+                  <gmd:role>
+                    <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="author">author</gmd:CI_RoleCode>
+                  </gmd:role>
+                </gmd:CI_ResponsibleParty>
+              </gmd:citedResponsibleParty>
+            </gmd:CI_Citation>
+          </gmd:citation>
+          <gmd:abstract>
+            <gco:CharacterString>On 17th of December 2024 at 01:47:26 UTC, a magnitude 7.2 earthquake with a depth of 50 km occurred about 20 km West-North-West of Port Vila in Vanuatu1. The earthquake caused significant building damage and caused disruptions in the communication lines across the region.
+
+A Global Navigation Satell</gco:CharacterString>
+          </gmd:abstract>
+          <gmd:pointOfContact>
+            <gmd:CI_ResponsibleParty>
+              <gmd:role>
+                <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="resourceProvider">resourceProvider</gmd:CI_RoleCode>
+              </gmd:role>
+            </gmd:CI_ResponsibleParty>
+          </gmd:pointOfContact>
+          <gmd:pointOfContact>
+            <gmd:CI_ResponsibleParty>
+              <gmd:organisationName>
+                <gco:CharacterString>Commonwealth of Australia (Geoscience Australia)</gco:CharacterString>
+              </gmd:organisationName>
+              <gmd:role>
+                <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</gmd:CI_RoleCode>
+              </gmd:role>
+            </gmd:CI_ResponsibleParty>
+          </gmd:pointOfContact>
+          <gmd:pointOfContact>
+            <gmd:CI_ResponsibleParty>
+              <gmd:role>
+                <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</gmd:CI_RoleCode>
+              </gmd:role>
+            </gmd:CI_ResponsibleParty>
+          </gmd:pointOfContact>
+          <gmd:resourceConstraints>
+            <gmd:MD_LegalConstraints uuid="urn:ga-licences:232">
+              <gmd:useLimitation />
+              <gmd:releasability>
+                <gmd:MD_Releasability>
+                  <gmd:addressee>
+                    <gmd:CI_ResponsibleParty>
+                      <gmd:individualName>
+                        <gco:CharacterString>Any</gco:CharacterString>
+                      </gmd:individualName>
+                      <gmd:positionName>
+                        <gco:CharacterString>Any</gco:CharacterString>
+                      </gmd:positionName>
+                      <gmd:role>
+                        <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="user">user</gmd:CI_RoleCode>
+                      </gmd:role>
+                    </gmd:CI_ResponsibleParty>
+                  </gmd:addressee>
+                  <gmd:statement gco:nilReason="missing">
+                    <gco:CharacterString />
+                  </gmd:statement>
+                </gmd:MD_Releasability>
+              </gmd:releasability>
+              <gmd:useConstraints>
+                <gmd:MD_RestrictionCode codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#MD_RestrictionCode" codeListValue="license" />
+              </gmd:useConstraints>
+              <gmd:useConstraints>
+                <gmd:MD_RestrictionCode codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#MD_RestrictionCode" codeListValue="otherRestrictions" />
+              </gmd:useConstraints>
+              <gmd:otherConstraints>
+                <gco:CharacterString>© Commonwealth of Australia (Geoscience Australia) 2025</gco:CharacterString>
+              </gmd:otherConstraints>
+            </gmd:MD_LegalConstraints>
+          </gmd:resourceConstraints>
+          <gmd:resourceConstraints>
+            <gmd:MD_SecurityConstraints>
+              <gmd:reference>
+                <gmd:CI_Citation>
+                  <gmd:title>
+                    <gco:CharacterString>Australian Government Security Classification System</gco:CharacterString>
+                  </gmd:title>
+                  <gmd:date gco:nilReason="missing" />
+                  <gmd:editionDate>
+                    <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+                  </gmd:editionDate>
+                </gmd:CI_Citation>
+              </gmd:reference>
+              <gmd:classification>
+                <gmd:MD_ClassificationCode codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#MD_ClassificationCode" codeListValue="unclassified" />
+              </gmd:classification>
+              <gmd:classificationSystem>
+                <gco:CharacterString>Australian Government Security Classification System</gco:CharacterString>
+              </gmd:classificationSystem>
+            </gmd:MD_SecurityConstraints>
+          </gmd:resourceConstraints>
+        </gmd:MD_DataIdentification>
+      </gmd:identificationInfo>
+      <gmd:distributionInfo>
+        <gmd:MD_Distribution>
+          <gmd:transferOptions>
+            <gmd:MD_DigitalTransferOptions>
+              <gmd:onLine>
+                <gmd:CI_OnlineResource>
+                  <gmd:linkage>
+                    <gmd:URL>https://d28rz98at9flks.cloudfront.net/150183/150183_00_0.PDF</gmd:URL>
+                  </gmd:linkage>
+                  <gmd:protocol>
+                    <gco:CharacterString>WWW:LINK-1.0-http--link</gco:CharacterString>
+                  </gmd:protocol>
+                  <gmd:name>
+                    <gco:CharacterString>Download Report (pdf) [559.54 KB]</gco:CharacterString>
+                  </gmd:name>
+                  <gmd:description>
+                    <gco:CharacterString>Download Report (pdf) [559.54 KB]</gco:CharacterString>
+                  </gmd:description>
+                  <gmd:function>
+                    <gmd:CI_OnLineFunctionCode codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#CI_OnLineFunctionCode" codeListValue="download" />
+                  </gmd:function>
+                </gmd:CI_OnlineResource>
+              </gmd:onLine>
+            </gmd:MD_DigitalTransferOptions>
+          </gmd:transferOptions>
+        </gmd:MD_Distribution>
+      </gmd:distributionInfo>
+      <gmd:distributionInfo>
+        <gmd:MD_Distribution>
+          <gmd:distributor>
+            <gmd:MD_Distributor>
+              </gmd:MD_Distributor>
+          </gmd:distributor>
+        </gmd:MD_Distribution>
+      </gmd:distributionInfo>
+      <gmd:metadataConstraints>
+        <gmd:MD_SecurityConstraints>
+          <gmd:reference>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>Australian Government Security Classification System</gco:CharacterString>
+              </gmd:title>
+              <gmd:date gco:nilReason="missing" />
+              <gmd:editionDate>
+                <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+              </gmd:editionDate>
+            </gmd:CI_Citation>
+          </gmd:reference>
+          <gmd:classification>
+            <gmd:MD_ClassificationCode codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#MD_ClassificationCode" codeListValue="unclassified" />
+          </gmd:classification>
+        </gmd:MD_SecurityConstraints>
+      </gmd:metadataConstraints>
+    </gmd:MD_Metadata>
+    <gmd:MD_Metadata>
+      <gmd:fileIdentifier>
+        <gco:CharacterString>a05f7892-c76d-7506-e044-00144fdd4fa6</gco:CharacterString>
+      </gmd:fileIdentifier>
+      <gmd:hierarchyLevel>
+        <gmd:MD_ScopeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#MD_ScopeCode" codeListValue="dataset" />
+      </gmd:hierarchyLevel>
+      <gmd:contact>
+        <gmd:CI_ResponsibleParty>
+          <gmd:organisationName>
+            <gco:CharacterString>Commonwealth of Australia (Geoscience Australia)</gco:CharacterString>
+          </gmd:organisationName>
+          <gmd:role>
+            <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</gmd:CI_RoleCode>
+          </gmd:role>
+        </gmd:CI_ResponsibleParty>
+      </gmd:contact>
+      <gmd:dateStamp>
+        <gco:DateTime>2018-04-22T08:15:36</gco:DateTime>
+      </gmd:dateStamp>
+      <gmd:identificationInfo>
+        <gmd:MD_DataIdentification>
+          <gmd:citation>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>AUSGeoid98 v.1.0 data files:  (sl54-02)</gco:CharacterString>
+              </gmd:title>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:date>
+                    <gco:DateTime>2005-01-01T00:00:00</gco:DateTime>
+                  </gmd:date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_DateTypeCode" codeListValue="publication">publication</gmd:CI_DateTypeCode>
+                  </gmd:dateType>
+                </gmd:CI_Date>
+              </gmd:date>
+              <gmd:identifier>
+                <gmd:RS_Identifier>
+                  <gmd:code>
+                    <gco:CharacterString>https://pid.geoscience.gov.au/dataset/ga/62779</gco:CharacterString>
+                  </gmd:code>
+                  <gmd:codeSpace>
+                    <gco:CharacterString>Geoscience Australia Persistent Identifier</gco:CharacterString>
+                  </gmd:codeSpace>
+                </gmd:RS_Identifier>
+              </gmd:identifier>
+              <gmd:citedResponsibleParty>
+                <gmd:CI_ResponsibleParty>
+                  <gmd:organisationName>
+                    <gco:CharacterString>Geoscience Australia</gco:CharacterString>
+                  </gmd:organisationName>
+                  <gmd:role>
+                    <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="author">author</gmd:CI_RoleCode>
+                  </gmd:role>
+                </gmd:CI_ResponsibleParty>
+              </gmd:citedResponsibleParty>
+            </gmd:CI_Citation>
+          </gmd:citation>
+          <gmd:abstract>
+            <gco:CharacterString>AUSGeoid98 data files contain a 2 minute grid of AUSGeoid98 data covering the Australian region, which you can use to interpolate geoid-ellipsoid separations for the positions required.You can use your own interpolation software, or you can use Geoscience Australia's Windows Interpolation software (</gco:CharacterString>
+          </gmd:abstract>
+          <gmd:pointOfContact>
+            <gmd:CI_ResponsibleParty>
+              <gmd:organisationName>
+                <gco:CharacterString>MNHD</gco:CharacterString>
+              </gmd:organisationName>
+              <gmd:role>
+                <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="custodian">custodian</gmd:CI_RoleCode>
+              </gmd:role>
+            </gmd:CI_ResponsibleParty>
+          </gmd:pointOfContact>
+          <gmd:pointOfContact>
+            <gmd:CI_ResponsibleParty>
+              <gmd:organisationName>
+                <gco:CharacterString>Commonwealth of Australia (Geoscience Australia)</gco:CharacterString>
+              </gmd:organisationName>
+              <gmd:role>
+                <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="owner">owner</gmd:CI_RoleCode>
+              </gmd:role>
+            </gmd:CI_ResponsibleParty>
+          </gmd:pointOfContact>
+          <gmd:pointOfContact>
+            <gmd:CI_ResponsibleParty>
+              <gmd:organisationName>
+                <gco:CharacterString>Commonwealth of Australia (Geoscience Australia)</gco:CharacterString>
+              </gmd:organisationName>
+              <gmd:role>
+                <gmd:CI_RoleCode codeList="http://standards.iso.org/iso/19139/resources/gmxCodelists.xml#CI_RoleCode" codeListValue="custodian">custodian</gmd:CI_RoleCode>
+              </gmd:role>
+            </gmd:CI_ResponsibleParty>
+          </gmd:pointOfContact>
+          <gmd:resourceConstraints>
+            <gmd:MD_LegalConstraints uuid="urn:ga-licences:232">
+              <gmd:reference>
+                <gmd:CI_Citation>
+                  <gmd:title>
+                    <gco:CharacterString>Creative Commons Attribution 4.0 International Licence</gco:CharacterString>
+                  </gmd:title>
+                  <gmd:alternateTitle>
+                    <gco:CharacterString>CC-BY</gco:CharacterString>
+                  </gmd:alternateTitle>
+                  <gmd:date gco:nilReason="missing" />
+                  <gmd:edition>
+                    <gco:CharacterString>4.0</gco:CharacterString>
+                  </gmd:edition>
+                </gmd:CI_Citation>
+              </gmd:reference>
+              <gmd:accessConstraints>
+                <gmd:MD_RestrictionCode codeList="codeListLocation#MD_RestrictionCode" codeListValue="license" />
+              </gmd:accessConstraints>
+              <gmd:useConstraints>
+                <gmd:MD_RestrictionCode codeList="codeListLocation#MD_RestrictionCode" codeListValue="license" />
+              </gmd:useConstraints>
+            </gmd:MD_LegalConstraints>
+          </gmd:resourceConstraints>
+          <gmd:resourceConstraints>
+            <gmd:MD_SecurityConstraints>
+              <gmd:reference>
+                <gmd:CI_Citation>
+                  <gmd:title>
+                    <gco:CharacterString>Australian Government Security ClassificationSystem</gco:CharacterString>
+                  </gmd:title>
+                  <gmd:date gco:nilReason="missing" />
+                  <gmd:editionDate>
+                    <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+                  </gmd:editionDate>
+                </gmd:CI_Citation>
+              </gmd:reference>
+              <gmd:classification>
+                <gmd:MD_ClassificationCode codeList="codeListLocation#MD_ClassificationCode" codeListValue="unclassified" />
+              </gmd:classification>
+            </gmd:MD_SecurityConstraints>
+          </gmd:resourceConstraints>
+        </gmd:MD_DataIdentification>
+      </gmd:identificationInfo>
+      <gmd:distributionInfo>
+        <gmd:MD_Distribution>
+          <gmd:distributor>
+            <gmd:MD_Distributor>
+              <gmd:distributorTransferOptions>
+                <gmd:MD_DigitalTransferOptions>
+                  <gmd:onLine>
+                    <gmd:CI_OnlineResource>
+                      <gmd:linkage>
+                        <gmd:URL>http://www.ga.gov.au/geodesy/ausgeoid/files.jsp</gmd:URL>
+                      </gmd:linkage>
+                      <gmd:protocol>
+                        <gco:CharacterString xsi:type="gco:CodeType" codeSpace="http://pid.geoscience.gov.au/def/schema/ga/ISO19115-3-2016/codelist/ga_profile_codelists.xml#gapCI_ProtocolTypeCode">WWW:LINK-1.0-http--link</gco:CharacterString>
+                      </gmd:protocol>
+                      <gmd:name>
+                        <gco:CharacterString>Related Product</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:description>
+                        <gco:CharacterString>http://www.ga.gov.au/geodesy/ausgeoid/files.jsp</gco:CharacterString>
+                      </gmd:description>
+                      <gmd:function>
+                        <gmd:CI_OnLineFunctionCode codeList="codeListLocation#CI_OnLineFunctionCode" codeListValue="information" />
+                      </gmd:function>
+                    </gmd:CI_OnlineResource>
+                  </gmd:onLine>
+                </gmd:MD_DigitalTransferOptions>
+              </gmd:distributorTransferOptions>
+              <gmd:distributorTransferOptions>
+                <gmd:MD_DigitalTransferOptions>
+                  <gmd:onLine>
+                    <gmd:CI_OnlineResource>
+                      <gmd:linkage>
+                        <gmd:URL>https://d28rz98at9flks.cloudfront.net/62779/62779_sl54-02.zip</gmd:URL>
+                      </gmd:linkage>
+                      <gmd:protocol>
+                        <gco:CharacterString xsi:type="gco:CodeType" codeSpace="http://pid.geoscience.gov.au/def/schema/ga/ISO19115-3-2016/codelist/ga_profile_codelists.xml#gapCI_ProtocolTypeCode">WWW:LINK-1.0-http--link</gco:CharacterString>
+                      </gmd:protocol>
+                      <gmd:name>
+                        <gco:CharacterString>Download the data (.dat)</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:description>
+                        <gco:CharacterString>Download the data (.dat)</gco:CharacterString>
+                      </gmd:description>
+                      <gmd:function>
+                        <gmd:CI_OnLineFunctionCode codeList="codeListLocation#CI_OnLineFunctionCode" codeListValue="information" />
+                      </gmd:function>
+                    </gmd:CI_OnlineResource>
+                  </gmd:onLine>
+                  <gmd:distributionFormat>
+                    <gmd:MD_Format>
+                      <gmd:name>
+                        <gco:CharacterString>dat</gco:CharacterString>
+                      </gmd:name>
+                      <gmd:version gco:nilReason="unknown" />
+                      <gmd:fileDecompressionTechnique>
+                        <gco:CharacterString>7z</gco:CharacterString>
+                      </gmd:fileDecompressionTechnique>
+                    </gmd:MD_Format>
+                  </gmd:distributionFormat>
+                </gmd:MD_DigitalTransferOptions>
+              </gmd:distributorTransferOptions>
+            </gmd:MD_Distributor>
+          </gmd:distributor>
+        </gmd:MD_Distribution>
+      </gmd:distributionInfo>
+      <gmd:metadataConstraints>
+        <gmd:MD_SecurityConstraints>
+          <gmd:reference>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>Australian Government Security ClassificationSystem</gco:CharacterString>
+              </gmd:title>
+              <gmd:date gco:nilReason="missing" />
+              <gmd:editionDate>
+                <gco:DateTime>2018-11-01T00:00:00</gco:DateTime>
+              </gmd:editionDate>
+            </gmd:CI_Citation>
+          </gmd:reference>
+          <gmd:classification>
+            <gmd:MD_ClassificationCode codeList="codeListLocation#MD_ClassificationCode" codeListValue="unclassified" />
+          </gmd:classification>
+        </gmd:MD_SecurityConstraints>
+      </gmd:metadataConstraints>
+    </gmd:MD_Metadata>
+  </csw:SearchResults>
+</csw:GetRecordsResponse>

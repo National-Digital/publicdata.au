@@ -7,12 +7,12 @@
 <p style="margin-top:14px">{{ intro }}</p>
 {% if live %}
 <div class="sec-head"><h2>Served here</h2><span class="muted small">{{ live|length }} dataset{{ '' if live|length == 1 else 's' }}</span></div>
-<div class="tbl" tabindex="0" role="region" aria-label="Datasets served here" data-conformance="aa"><table class="ledger">
+<table class="ledger framed served" aria-label="Datasets served here" data-conformance="aa">
 <thead><tr><th>Dataset</th><th>Download latest</th><th>Version</th><th class="n">Rows</th></tr></thead>
 <tbody>
 {% for d in live %}<tr><td class="t"><a href="/d/{{ d.slug }}/">{{ d.title }}</a><span class="sub">{{ d.summary }}</span></td><td>{% if d.latest %}<div class="quick">{% for f in d.quick %}<a href="{{ f.url }}" aria-label="{{ f.name }}, {{ d.title }}">{{ f.name }}</a>{% endfor %}<a href="/d/{{ d.slug }}/">all formats</a></div>{% else %}<span class="muted small">available soon</span>{% endif %}</td><td class="mono">{{ d.latest or d.status }}</td><td class="n">{{ d.rows if d.latest else '' }}</td></tr>
 {% endfor %}
-</tbody></table></div>
+</tbody></table>
 {% endif %}
 {% if rows %}
 <div class="sec-head"><h2>On the portal{% if portals|length > 1 %}s{% endif %}</h2><span class="muted small">{{ stats.listed }} dataset{{ '' if stats.listed_n == 1 else 's' }}{% if stats.shown < stats.listed_n %}, newest {{ stats.shown }} shown{% endif %}</span></div>

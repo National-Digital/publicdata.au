@@ -74,9 +74,11 @@ def test_the_dcceew_hub_is_read_with_the_department_as_publisher() -> None:
     assert by["IUCN Categories"]["licence"] == ""
     assert by["IUCN Categories"]["open"] is None
     assert by["IUCN Categories"]["formats"] == ["CSV"]
-    # Terms that name CC BY are read as CC BY; terms that name no licence are held closed.
+    # Long custom terms name a licence only with a deed link or a versioned CC name, so CAPAD's
+    # "the CC-BY data licencing model" is held closed, as are terms that name no licence.
     capad = by["Collaborative Australian Protected Areas Database (CAPAD) 2024 - Marine"]
-    assert capad["licence"] == "CC-BY"
+    assert capad["licence"] == "custom"
+    assert capad["open"] is False
     snes = by[
         "Species of National Environmental Significance and selected marine and cetacean species - GDB"
     ]

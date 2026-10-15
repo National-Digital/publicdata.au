@@ -86,6 +86,7 @@ class Figures(TypedDict):
     spark_caption: str
     map: str
     map_caption: str
+    outlines: NotRequired[str]
     years: str
     series: NotRequired[Series]
     cells: NotRequired[dict[tuple[int, int], float]]
@@ -103,7 +104,8 @@ LON0, LON1, LAT0, LAT1 = 112.0, 154.5, -44.5, -9.0
 _STATES = json.loads((Path(__file__).parent / "au_states.json").read_text("utf-8"))
 STATES: dict[str, str] = _STATES["states"]
 MAP_RGB = (255, 139, 90)
-OUTLINES = "State outlines from the ABS Australian Statistical Geography Standard 2021, CC BY 4.0."
+OUTLINES_SOURCE = "ABS Australian Statistical Geography Standard 2021"
+OUTLINES = f"State outlines from the {OUTLINES_SOURCE}, CC BY 4.0."
 PALETTE = 8
 # Name, longitude, latitude, which side the label sits, and whether the national map shows it.
 CITIES = (
@@ -844,6 +846,9 @@ def dataset_figures(  # noqa: PLR0913 - the options are keyword-only and named a
             rows = ds.row_label or "Rows"
             fig["map"] = map_html(c, rows, out)
             fig["map_caption"] = f"{rows} counted in cells of {STEP:g} degrees. {OUTLINES}"
+            fig["outlines"] = (
+                f"The map's state outlines are from the {OUTLINES_SOURCE}, under CC BY 4.0."
+            )
     return fig
 
 

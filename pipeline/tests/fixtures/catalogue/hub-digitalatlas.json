@@ -1,0 +1,69 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "40b20e4b1f074b16bc1ebd71ccee8fc5",
+        "title": "Irish-Type Zn-Pb Mineral Potential Map",
+        "type": "WMTS",
+        "license": "CC-BY-4.0",
+        "licenseInfo": "<p><strong>License:</strong> <a href='https://creativecommons.org/licenses/by/4.0/' rel='nofollow ugc'>Creative Commons Attribution 4.0</a></p> <p><strong>Access rights:</strong> Open</p> <p><strong>Security classification:</strong> OFFICIAL</p>",
+        "description": "<div style='font-size: 1.2019em; line-height: 1.5; font-weight: 400; margin: 0 0 0.75em 0;'>Abstract</div>\n<p>The Mineral Potential web service provides access to digital datasets used in the assessment of mineral potential in Australia. The service includes maps showing the potential for sediment-h",
+        "snippet": "Potential for Irish-Type Zn-Pb.",
+        "created": 1724824284000,
+        "modified": 1772058118000,
+        "url": "https://services.ga.gov.au/gis/mineral-potential/gwc/service/wmts",
+        "owner": "aus_digitalatlas",
+        "source": "Geoscience Australia",
+        "accessInformation": "© Commonwealth of Australia (Geoscience Australia)"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "1b0a0c1235194a2b8e05938479e0dbde",
+        "title": "Sediment-Hosted Copper Mineral Potential Map (Model 2)",
+        "type": "WMTS",
+        "license": "CC-BY-4.0",
+        "licenseInfo": "<p><strong>License:</strong> <a href='https://creativecommons.org/licenses/by/4.0/' rel='nofollow ugc'>Creative Commons Attribution 4.0</a></p> <p><strong>Access rights:</strong> Open</p> <p><strong>Security classification:</strong> OFFICIAL</p>",
+        "description": "<div style='font-size: 1.2019em; line-height: 1.5; font-weight: 400; margin: 0 0 0.75em 0;'>Abstract</div>\n<p>The Mineral Potential web service provides access to digital datasets used in the assessment of mineral potential in Australia. The service includes maps showing the potential for sediment-h",
+        "snippet": "Potential for Sediment-Hosted Copper using Model 2",
+        "created": 1724890700000,
+        "modified": 1772058172000,
+        "url": "https://services.ga.gov.au/gis/mineral-potential/gwc/service/wmts",
+        "owner": "aus_digitalatlas",
+        "source": "Geoscience Australia",
+        "accessInformation": "© Commonwealth of Australia (Geoscience Australia)"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "a511b8fc567c4d638f621b4fc38a6391",
+        "title": "Total Magnetic Intensity Grid of Australia with Variable Reduction to Pole 2019",
+        "type": "WMTS",
+        "license": "CC-BY-4.0",
+        "licenseInfo": "<p><strong>License: </strong><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://creativecommons.org/licenses/by/4.0/\">Creative Commons Attribution 4.0 International Licence</a></p><p><strong>Access rights: </strong>Open</p><p><strong>Security classification: </strong>OFFICIAL</p>",
+        "description": "<div><h5>Abstract</h5><p>The Total Magnetic Intensity (TMI) grid displays variations in the Earth's magnetic field. Changes in the magnetic properties of rocks in the Earth’s crust cause these variations in the magnetic field.</p><p>To better understand where these variations come from, we use the V",
+        "snippet": "This layer shows variations in the Earth’s magnetic field caused by changes in the magnetic properties of rocks in the Earth's crust.",
+        "created": 1785279252000,
+        "modified": 1785279252000,
+        "url": "https://services.ga.gov.au/gis/geophysical-grids/geophys/gwc/service/wmts",
+        "owner": "aus_digitalatlas",
+        "source": "Geoscience Australia",
+        "accessInformation": "© Commonwealth of Australia (Geoscience Australia)"
+      }
+    }
+  ],
+  "numberMatched": 3,
+  "numberReturned": 3,
+  "links": [
+    {
+      "rel": "self",
+      "type": "application/geo+json",
+      "title": "This document as GeoJSON",
+      "href": "https://digital.atlas.gov.au/api/search/v1/collections/dataset/items"
+    }
+  ]
+}

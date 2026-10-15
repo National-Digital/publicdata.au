@@ -1073,16 +1073,61 @@ The settings come from a measurement over every live dataset in October 2026, wh
 ## Catalogue
 
 `publicdata catalogue fetch` reads the dataset list of every government open-data portal:
-data.gov.au, the NSW, Victorian, Queensland, SA, WA and NT portals and the Department of
-Infrastructure's catalogue over CKAN, the ACT portal over the Socrata catalogue API, and the ABS
-dataflows over SDMX. Tasmania has no portal; its agencies publish on data.gov.au. The
-Department of Climate Change, Energy, the Environment and Water's ArcGIS Hub is read like a
-council's Hub site, and every record on it is that department's. Each record is
-re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as
-an SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
+data.gov.au, the NSW, Victorian, Queensland, SA, WA and NT portals, the Department of
+Infrastructure's catalogue and NSW's Sharing and Enabling Environmental Data portal (SEED) over
+CKAN, the ACT portal over the Socrata catalogue API, the ABS dataflows over SDMX, and CSIRO's Data
+Access Portal over its web service. The Data Access Portal search returns at most 10,000
+collections, so it is read in windows of publication date that are halved until each fits. A
+collection is downloadable when its full record offers the public at least one file. The full record
+is read once for each version of an open, unrestricted data collection, and again once an embargo it
+states has ended, at most 2,000 in one harvest. A collection whose full record has never been read
+is not downloadable. One due a reread past that cap, or whose full record cannot be read, keeps its
+earlier answer until it is read. Tasmania has no CKAN portal. theLIST, the Tasmanian Government's
+spatial catalogue, is a GeoNetwork catalogue read over CSW 2.0.2 in ISO 19139, 100 records a page.
+A page that comes back empty before the match count is reached fails the read.
+Each of its records names its own custodian as publisher. Its licence is read from the record's
+constraints. A record has a licence when its statements are one known wording or one Creative
+Commons deed URL, with nothing beside them but a label such as "Other". theLIST writes the data
+licence in the metadata constraints, which are read only when a record has no resource
+constraints. Any other statement holds the record as `assessing`, which is not open.
+Other Tasmanian agencies publish on data.gov.au. Geoscience Australia's eCat is read the same way as
+theLIST. Its records name the agency's units and partners as custodians, so the portal is marked as
+one body's catalogue and every record, a partner's included, is filed under Geoscience Australia.
+eCat cites a licence by a known wording. Beside it may stand the licence's short form and version, a
+release to any user, one restriction code that adds no terms and a copyright line that names only a
+holder and a year, and such a citation is read as one statement. A restriction or classification
+code outside a short list of codes that add no terms holds a record for review. A security marking
+that says only "unclassified" under the Australian Government Security Classification System states
+no terms. data.gov.au's copies of theLIST and eCat are replaced by title, since its search index
+drops their harvest source. A copy whose title the source does not list is kept. The Department
+of Climate Change, Energy, the Environment and Water's ArcGIS Hub is read like a council's Hub
+site, and every record on it is that department's. Each record is
+re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as an
+SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
 nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so the
-original is the only copy; records it harvested from elsewhere, such as the ocean and geoscience
-catalogues, are kept and name their origin.
+original is the only copy; records it harvested from elsewhere, such as the ocean
+catalogues, are kept and name their origin. data.nsw.gov.au names the page it copied a record from
+in `harvest_url`. A record it copied from SEED or another CKAN portal read here is dropped in the
+same way when that portal still lists the original, and kept as data.nsw's own when it does not. Its
+copies of a council's site are left to the council portal's rule below. The original lists the
+dropped copy's id under `copies`, matched on the page the copy names or on the package id CKAN's
+harvester keeps, so votes and contributor issues under the copy's id follow the original. A council
+portal's record lists a copy it replaces when the copy's title names that one record. A data.gov.au
+copy with no match is dropped and listed nowhere. The original also keeps each copy's page under
+`copy_pages`, so a register entry served from or planned on a copy that is later dropped finds the
+original. A record keeps the copies it listed in earlier snapshots, so a portal that cannot be read
+for a week loses none of them. The carry is never pruned. Each copy ever seen is written twice, as
+an id under `copies` and as the key of its page under `copy_pages`. The 34,481 copies dropped in the
+2026-10-12 snapshot come to about 6 MB of the uncompressed snapshot and about 1.2 MB gzipped. A
+snapshot from before the fields existed reads as records with no copies. SEED's own licence ids are
+read as its license_list and deeds define them. Its third-party licence allows personal,
+non-commercial use only, so a record under it is not open.
+
+data.gov.au's search does not name the origin of its copies of the Data Access Portal, so the
+portal replaces that organisation as a council portal replaces its copies below. data.gov.au puts
+the collection's PID in each copy's name. A copy is dropped when the Data Access Portal lists that
+collection, and the collection lists the copy under `copies`. A copy whose name gives a PID the
+portal does not list is kept, and a copy whose name gives no PID is matched on its title.
 
 Councils that run a portal of their own are read directly: Opendatasoft portals through the
 explore API's catalogue and ArcGIS Hub sites through the OGC Records search of the site's own
@@ -1093,8 +1138,50 @@ dropped when the council portal lists the same title or the record's source URL 
 portal. Anything else such an organisation holds is kept, because data.gov.au often harvests a
 council's map services as well.
 
+An ArcGIS Hub site that hosts many bodies names no publisher in that list. Each of its items is
+filed under the body its Source field names, and an item with no Source is filed as unknown. The
+item's owner is an account name and is never used. `publicdata catalogue publishers` proposes
+curation for these bodies as it does for data.gov.au's organisations. Two such sites are read:
+ACTmapi, the ACT Government's spatial catalogue, and the Digital Atlas of Australia, which
+Geoscience Australia runs for Commonwealth bodies. data.gov.au harvests ACTmapi into one
+organisation of its own, and its copies there name no harvest origin in the fields the reader
+asks for. A portal therefore also names the organisations that hold nothing but its copies. While
+the portal has records in the snapshot, one more search reads each such organisation's download
+links, which name the Hub item a copy came from. A copy is dropped and listed under that record's
+`copies` when its links name a record on the portal, or else when its title names one. A copy
+that matches nothing is kept, since the Hub's dataset search does not list everything the
+organisation holds, and the snapshot's stats count it as unmatched. data.gov.au holds no harvest
+of the Digital Atlas.
+
+A Hub search that answers fewer items than it matched, or flags a page as partial, counts as a
+portal that could not be read, so its records are kept from the last snapshot. A Hub item's
+licence is decided from the whole of its terms, and the 280-character summary is kept for
+display. A stated open licence is held as `custom` when the terms grant it for only some data
+owners' or providers' data, or for only some layers, datasets or items. Custom terms name a
+licence through a Creative Commons deed link, by being a CC licence's name and nothing else, or
+by a CC licence named with its version. Custom terms that say the data is not licensed or not in
+the public domain, reserve all rights or mention permission are held as `custom`.
+
+The Australian Institute of Health and Welfare's data downloads are read from the list its site
+fetches for every data page (`/api/search/all-downloadable-resources`). Each report is one
+record at the report's address, with the formats of the files it lists and the files' addresses,
+and a file that names no report is a record of its own. A report with no file in a readable
+format, such as a PDF publication, is left out. The id is the report's last path segment, with
+its parent segments added while that segment is a generic one such as `data`, so one report
+listed under two topics is one record. Ids that differ only in case or punctuation are one record,
+and a record at an address on another site has that site's host in its id.
+A file on the Institute's own site carries CC BY 4.0, which
+its copyright page states for its material, and a file hosted elsewhere states no licence. A
+report takes the least open of its files' terms, so it is not marked open when any file names a
+licence that is not open or mentions third-party material, copyright or terms of use. The
+Institute replaces data.gov.au's `aihw` organisation under the same rule as a council portal. A
+live register entry that fetches one of a report's files, or its data page, marks the report's
+record served, and a planned entry that fetches one claims the record for its votes.
+
 Record ids are the portal code plus the portal's own stable id (CKAN package UUID, Socrata
-four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id), so they survive renames and serve as vote keys. The snapshot is
+four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id, Data Access Portal
+collection PID, AIHW report path or media id, ISO file identifier), so they survive renames and
+serve as vote keys. The snapshot is
 one gzipped NDJSON file sorted by id and stored like a source at `store/catalogue/<date>/`; the
 weekly harvest, a workflow of its own so a slow portal never holds up a dataset, writes a new version only when the bytes change, and builds pull only the newest. A portal that cannot be read keeps
 its records from the latest snapshot and the snapshot's stats name it and the date the records
@@ -1159,7 +1246,7 @@ table with an FTS5 index over title, summary and publisher, once per harvest.
 it. A record the register has already planned votes under the register slug, so its votes and
 the entry's are one count. Votes are one object per browser per day per dataset in the private
 R2 bucket `publicdata-votes`, keyed by a salted hash of address and user agent, and a count is a
-prefix listing. `/api/v1/votes` reads one rollup object, `_counts.json` in the same bucket, which is recounted from the vote objects once it is a minute old. `/catalogue/aliases.json` maps each record id a register entry has claimed to the entry's slug, so votes cast under the id before the entry existed count for it, and a new vote under the id is stored under the slug. "Have a link?"
+prefix listing. `/api/v1/votes` reads one rollup object, `_counts.json` in the same bucket, which is recounted from the vote objects once it is a minute old. `/catalogue/aliases.json` maps each record id a register entry has claimed to the entry's slug, so votes cast under the id before the entry existed count for it, and a new vote under the id is stored under the slug. `/catalogue/copies/<portal>-<c>.json` maps each dropped copy's id to the record that replaced it, sharded like the vote shards because data.gov.au's copies number in the tens of thousands. A vote under a copy's id is stored under the record, the counts fold earlier votes under the copy into it, and a record's vote shard entry lists its copies so its count includes them. A record that takes no votes, such as one served here or one without an open licence, lists its copies in `/catalogue/copied/<portal>-<c>.json`, so its count includes them too. A copy of a claimed record is in `aliases.json` under the entry's slug. Asked for a copy's id, `/api/v1/catalogue?ids=` answers with the record that replaced it and names the pair in `moved`, so the contributor sync moves an open issue to the record. A copies shard that cannot be read is answered 503, both by the vote endpoint and by `?ids=`, and the sync stops on any answer other than 200, so a failed read never closes an issue. "Have a link?"
 resolves a pasted portal URL against the catalogue (`locate()` in directory.py and
 functions/_catalogue.js, held together by tests) and casts a vote for the record it names. A URL
 it does not hold is not stored; the answer points to National Digital's contact form. Both endpoints keep the query API's fair-use limit per address in the edge cache

@@ -8,22 +8,11 @@
 <p style="margin-top:14px">This version is kept for as long as this site exists, and its URL can be cited. Its files change only for the reasons the <a href="/terms/">terms</a> give, and each change is recorded in its notes. {% if ds.source_withheld %}{{ ds.source_withheld }}{% else %}The publisher's file is here as <span class="mono">source.{{ v.ext }}</span>, byte for byte.{% endif %}</p>
 {% if v.notes %}<div class="caveats"><span class="k">About this version</span>{% for n in v.notes %}<p style="margin:6px 0 0">{{ n }}</p>{% endfor %}</div>{% endif %}
 {% if ds.licence.condition %}<div class="caveats"><span class="k">The licence has a condition</span><p style="margin:6px 0 0">{{ ds.licence.condition }}</p></div>{% endif %}
-</div>
-{% if fig.chart or change or others %}<div class="band figband slim"><div class="site"><div class="figgrid two{% if not fig.chart %} one{% endif %}">
-  {% if fig.chart %}<figure class="fchart">{{ fig.chart|safe }}<figcaption>{{ fig.chart_caption }} {{ fig.basis[0]|upper }}{{ fig.basis[1:] }} in this version, worked out in the build.</figcaption></figure>{% endif %}
-  <div class="card dark"><div class="k">Change from the version before</div>
-  {% if change and change.added is defined %}<p class="big-delta"><span class="add">+{{ change.added }} added</span> · <span class="rem">−{{ change.removed }} removed</span> · {{ change.changed }} changed</p><p class="small">Against {{ change.from }}, by the key <span class="mono">{{ ds.key|join(', ') }}</span>. The full list is in <a href="{{ change.url }}" class="mono">diff/{{ change.from }}..{{ change.to }}.json</a>.</p>
-  {% elif change %}<p class="big-delta">{{ '{:,}'.format(change.rows_from) }} rows before, {{ '{:,}'.format(change.rows_to) }} now</p><p class="small">Against {{ change.from }}. {{ change.note }} The comparison is in <a href="{{ change.url }}" class="mono">diff/{{ change.from }}..{{ change.to }}.json</a>.</p>
-  {% else %}<p class="big-delta">First version followed here.</p><p class="small">When the publisher releases again, this panel shows rows added, removed and changed{% if ds.key %} by <span class="mono">{{ ds.key|join(', ') }}</span>{% endif %}, with a link to the diff file.</p>{% endif %}
-  {% if others %}<p class="small">Other versions: {% for o in others %}<a href="{{ base }}v/{{ o }}/">{{ o }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
-  </div>
-</div></div></div>{% endif %}
-<div class="site">
 <div class="ds">
 <div>
   <h2>Files</h2>
   <ul class="files">
-  {% for f in files %}<li><a href="{{ f.url }}" download="{{ f.download }}" class="mono">{{ f.name }}</a><span>{{ f.size }}</span></li>{% endfor %}
+  {% for f in files %}<li><a href="{{ f.url }}" download="{{ f.download }}" class="mono">{{ f.name }}</a><span>{{ f.size }}</span>{% if f.note %} <span class="fnote">{{ f.note }}</span>{% endif %}</li>{% endfor %}
   </ul>
   {% if left_out %}<p class="muted small">{{ left_out|join(' ') }}</p>{% endif %}
   <p class="muted small"><a href="{{ base }}v/{{ v.version }}/SHA256SUMS" class="mono">SHA256SUMS</a> holds the SHA-256 of every file in this version under the name it downloads as. Check what you downloaded with <span class="mono">sha256sum -c --ignore-missing SHA256SUMS</span> in the same folder. On a Mac, use <span class="mono">shasum -a 256 -c --ignore-missing SHA256SUMS</span>. Each list is signed by the deploy that wrote it: <span class="mono">gh attestation verify SHA256SUMS --repo National-Digital/publicdata.au --source-ref refs/heads/main</span> shows it came from this project's main branch.</p>
@@ -41,4 +30,13 @@
 </div>
 </div>
 </div>
+{% if fig.chart or change or others %}<div class="band figband slim"><div class="site"><div class="figgrid two{% if not fig.chart %} one{% endif %}">
+  {% if fig.chart %}<figure class="fchart">{{ fig.chart|safe }}<figcaption>{{ fig.chart_caption }} {{ fig.basis[0]|upper }}{{ fig.basis[1:] }} in this version, worked out in the build.</figcaption></figure>{% endif %}
+  <div class="card dark"><div class="k">Change from the version before</div>
+  {% if change and change.added is defined %}<p class="big-delta"><span class="add">+{{ change.added }} added</span> · <span class="rem">−{{ change.removed }} removed</span> · {{ change.changed }} changed</p><p class="small">Against {{ change.from }}, by the key <span class="mono">{{ ds.key|join(', ') }}</span>. The full list is in <a href="{{ change.url }}" class="mono">diff/{{ change.from }}..{{ change.to }}.json</a>.</p>
+  {% elif change %}<p class="big-delta">{{ '{:,}'.format(change.rows_from) }} rows before, {{ '{:,}'.format(change.rows_to) }} now</p><p class="small">Against {{ change.from }}. {{ change.note }} The comparison is in <a href="{{ change.url }}" class="mono">diff/{{ change.from }}..{{ change.to }}.json</a>.</p>
+  {% else %}<p class="big-delta">First version followed here.</p><p class="small">When the publisher releases again, this panel shows rows added, removed and changed{% if ds.key %} by <span class="mono">{{ ds.key|join(', ') }}</span>{% endif %}, with a link to the diff file.</p>{% endif %}
+  {% if others %}<p class="small">Other versions: {% for o in others %}<a href="{{ base }}v/{{ o }}/">{{ o }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+  </div>
+</div></div></div>{% endif %}
 {% endblock %}

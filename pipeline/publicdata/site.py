@@ -1321,6 +1321,13 @@ def _format_note(ds: Dataset, key: str, rows: int) -> str:
     )
 
 
+def _file_note(ds: Dataset, key: str, rows: int) -> str:
+    """A format's note as plain text, led by its label unless the note already names the format."""
+    note = html.unescape(re.sub(r"<[^>]+>", "", _format_note(ds, key, rows)))
+    label = FORMAT_LABEL.get(key, "")
+    return note if not label or re.match(r"[\w ]+: ", note) else f"{label}: {note}"
+
+
 # The largest workbook picked first: past this, a spreadsheet takes minutes to open.
 XLSX_FIRST_MAX = 50_000_000
 
@@ -1559,7 +1566,7 @@ def _place_pages(  # noqa: PLR0913 - the options are keyword-only and named at e
         years = fig.get("years", "")
         heading = f"{what} in {p['value']}"
         title = (
-            f"{p['value']} {what.lower()}{f' {years}' if years else ''}: "
+            f"{heading}{f', {years}' if years else ''}: "
             f"{p['rows_fmt']} rows from {ds.title} | {HOST}"
         )
         intro = (
@@ -3688,7 +3695,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                 "get": {
                     "tags": ["backlog"],
                     "summary": "Search every dataset listed on Australia's government open-data portals",
-                    "description": "Words in q are matched against title, description and publisher, with plurals and other endings matched to their stem. Records that can take a vote come first. With ids, returns those records by id or vote key; with url, returns the record a portal URL names, or null. Each row's state is votable, chosen (planned in the register; its vote key is the register slug), served (it has a page here) or closed (no open licence or no file to read, with the reason).",
+                    "description": "Words in q are matched against title, description and publisher, with plurals and other endings matched to their stem. Records that can take a vote come first. With ids, returns those records by id or vote key, and answers the id of a copy the catalogue dropped with the record that replaced it, naming each such pair in moved; with url, returns the record a portal URL names, or null. Each row's state is votable, chosen (planned in the register; its vote key is the register slug), served (it has a page here) or closed (no open licence or no file to read, with the reason).",
                     "operationId": "searchCatalogue",
                     "parameters": [
                         {"name": "q", "in": "query", "schema": {"type": "string"}},
@@ -3756,7 +3763,9 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                         "429": {
                             "description": "Over the fair-use limit for one address. Wait Retry-After seconds."
                         },
-                        "503": {"description": "The catalogue index is not loaded yet"},
+                        "503": {
+                            "description": "The catalogue index is not loaded yet, or the list of dropped copies could not be read"
+                        },
                     },
                 }
             },
@@ -4066,6 +4075,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                     "size": fmt_size(v.size(k)),
                     "url": f"{version_url(ds_v.slug, v.manifest.version)}{k}",
                     "download": download_name(ds_v.slug, v.manifest.version, k),
+                    "note": _file_note(ds_v, k[5:], v.rows)
+                    if k.startswith("data.") and k[5:] in FORMAT_NOTES
+                    else "",
                 }
                 for k in v.files
                 if "/" not in k
@@ -4112,7 +4124,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                 f"d/{ds_v.slug}/v/{v.manifest.version}/index.html",
                 "version.html",
                 md,
-                title=f"{ds_v.title} {v.manifest.version} | {HOST}",
+                title=f"{ds_v.title}, version {v.manifest.version} | {HOST}",
                 description=f"Dated version {v.manifest.version} of {ds_v.title}.",
                 nav="datasets",
                 noindex=True,
@@ -5115,9 +5127,9 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
         "backlog/index.html",
         "backlog.html",
         backlog_md,
-        title=f"Backlog: search {fmt_int(dirx.listed)} government datasets and vote | {HOST}"
+        title=f"The backlog: search {fmt_int(dirx.listed)} government datasets and vote | {HOST}"
         if dirx.listed
-        else f"Backlog | {HOST}",
+        else f"The backlog | {HOST}",
         description=(
             f"Search all {fmt_int(dirx.listed)} datasets on Australia's government open-data portals and vote for the ones "
             "you want as CSV, Excel, JSON and Parquet. The most voted are built first."

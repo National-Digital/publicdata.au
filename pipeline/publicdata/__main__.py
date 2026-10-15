@@ -490,10 +490,11 @@ def cmd_catalogue(args: argparse.Namespace) -> int:
 
 
 def cmd_catalogue_publishers(args: argparse.Namespace) -> int:
-    """Print proposed curation for data.gov.au organisations no curated publisher claims yet."""
+    """Print proposed curation for organisations no portal places and no curated publisher claims."""
     import requests  # noqa: PLC0415 - CLI start-up
     import yaml  # noqa: PLC0415 - CLI start-up
 
+    from .catalogue import PORTALS  # noqa: PLC0415 - CLI start-up
     from .catalogue import load as load_catalogue  # noqa: PLC0415 - CLI start-up
     from .publishers import load_curated, suggest  # noqa: PLC0415 - CLI start-up
 
@@ -510,7 +511,13 @@ def cmd_catalogue_publishers(args: argparse.Namespace) -> int:
         for c in codes
         if len(c["id"]) == LGA_CODE_DIGITS and c["id"][0] in state
     }
-    rows = suggest(load_catalogue(Path(args.store)), load_curated(PUBLISHERS), lgas)
+    rows = suggest(
+        load_catalogue(Path(args.store)),
+        load_curated(PUBLISHERS),
+        lgas,
+        {p.code: p.jurisdiction for p in PORTALS},
+        [p.code for p in PORTALS if p.kind == "hub" and not p.publisher],
+    )
     print(yaml.safe_dump(rows, sort_keys=False, allow_unicode=True, width=100))
     print(f"# {len(rows)} organisation(s) to review", file=sys.stderr)
     return 0
@@ -1410,7 +1417,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915 - the parse
     cf.add_argument("--store", default=str(STORE))
     cf.set_defaults(fn=cmd_catalogue)
     cp = ca.add_parser(
-        "publishers", help="propose curation for uncurated data.gov.au organisations"
+        "publishers",
+        help="propose curation for organisations no portal or curated publisher places",
     )
     cp.add_argument("--store", default=str(STORE))
     cp.set_defaults(fn=cmd_catalogue_publishers)

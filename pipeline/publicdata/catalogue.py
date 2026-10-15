@@ -15,20 +15,21 @@ import html
 import json
 import re
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
 from . import store
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Container, Iterable, Mapping, Sequence
     from pathlib import Path
 
-    from .jsontypes import JSON
+    from .jsontypes import JSON, JSONObject
     from .store import PortalStats
 
     type Log = Callable[[str], object]
@@ -75,6 +76,19 @@ class Record(_Fields):
     formats: list[str]
     downloadable: bool
     source_host: NotRequired[str]
+    files: NotRequired[list[str]]
+    # The ids of the copies on other portals this record replaced, so their votes are its votes.
+    copies: NotRequired[list[str]]
+    # Each of those copies' pages, so a register entry that named a copy finds this record.
+    copy_pages: NotRequired[dict[str, str]]
+    # On a copy only, until harvest drops it: the page of the original it was harvested from.
+    copy_of: NotRequired[str]
+    # On a DAP collection: its version and publication stamp, the files its full record offers the
+    # public when that version was read, and the day a stated embargo on them ends, so a later
+    # harvest reads the full record again only on a change or once the embargo is over.
+    source_version: NotRequired[str]
+    file_count: NotRequired[int]
+    public_from: NotRequired[str]
 
 
 # The parts of each portal's API answers that the harvesters read.
@@ -90,6 +104,7 @@ class _NamedList(TypedDict):
 
 class _Harvest(TypedDict, total=False):
     site_url: str | None
+    href: str | None
 
 
 class _CkanOrg(TypedDict, total=False):
@@ -111,6 +126,8 @@ class _CkanPackage(TypedDict, total=False):
     metadata_modified: str | None
     url: str | None
     notes: str | None
+    harvest_url: str | None
+    res_url: list[str] | None
 
 
 class _CkanResult(TypedDict):
@@ -201,6 +218,7 @@ class HubItem(TypedDict, total=False):
     modified: object
     description: str | None
     snippet: str | None
+    source: str | None
 
 
 class _HubFeature(TypedDict, total=False):
@@ -216,6 +234,65 @@ class _HubPage(TypedDict, total=False):
     features: list[_HubFeature] | None
     numberMatched: int
     links: list[_HubLink] | None
+    exceededTransferLimit: bool
+
+
+class _DapId(TypedDict, total=False):
+    identifier: str
+
+
+class _DapLink(TypedDict, total=False):
+    href: str
+
+
+class _DapCollection(TypedDict, total=False):
+    id: _DapId
+    dataCollectionId: int
+    landingPage: _DapLink | None
+    title: str | None
+    description: str | None
+    licence: str | None
+    published: str | None
+    collectionType: str | None
+    dataRestricted: str | None
+    dataVersionNumber: str | None
+
+
+class _DapPage(TypedDict, total=False):
+    totalResults: str
+    next: _DapLink | None
+    dataCollections: list[_DapCollection] | None
+    errors: object
+
+
+class _Checked(TypedDict):
+    file_count: int
+    public_from: NotRequired[str]
+
+
+class _DapDetail(TypedDict, total=False):
+    fileCount: int | None
+    accessLevel: str | None
+    access: str | None
+
+
+class AihwResource(TypedDict, total=False):
+    """One file or link in the AIHW's list of downloadable resources."""
+
+    resultTitle: str | None
+    resultUrl: str  # null on a few live rows, which aihw() skips
+    resultDateTimeFormatted: str | None
+    resultDescription: str | None
+    resultFileType: str | None
+    relatedReportTitle: str | None
+    relatedReportUrl: str | None
+    schemaLicenseUrl: str | None
+    schemaDescription: str | None
+
+
+class _AihwPage(TypedDict):
+    results: list[AihwResource]
+    totalResults: int
 
 
 class _Headers(TypedDict, total=False):
@@ -224,9 +301,11 @@ class _Headers(TypedDict, total=False):
 
 class _GetOptions(_Headers, total=False):
     timeout: float
+    body: JSONObject
 
 
 UA = "publicdata.au catalogue (+https://publicdata.au/about/)"
+AIHW_LISTING = "https://www.aihw.gov.au/api/search/all-downloadable-resources"
 SLUG = "catalogue"
 FILENAME = "catalogue.ndjson.gz"
 
@@ -238,17 +317,37 @@ class Portal:
     api: str
     jurisdiction: str
     kind: str = "ckan"
-    # A portal run by one body names it here, and every record it lists is that body's.
+    # A portal run by one body names it here, and every record it lists is that body's. A hub
+    # that names none files each item under the body its own metadata names. A CSW record names
+    # its own party, and this is the body named when a record names none.
     publisher: str = ""
     # Organisations on other portals, as portal:org, that copy this one. Their records are
     # dropped whenever this portal has records of its own in the snapshot.
     replaces: tuple[str, ...] = ()
+    # A copy whose name matches this, on a portal it replaces, holds this portal's own id in group 1.
+    copy_name: str = ""
+    # The portal answers organization_list only to a POST.
+    post: bool = False
+    # A CSW portal's record page, with {id} for the file identifier. GeoNetwork 2 serves no
+    # catalog.search, which later versions do.
+    record_page: str = ""
+    # Organisations elsewhere holding only copies of this one, such as a harvester's own.
+    copied_by: tuple[str, ...] = ()
+    # A CSW catalogue of one body's own holdings files every record under its publisher, since
+    # its records name the body's units and partners as custodians.
+    one_body: bool = False
 
     def landing(self, name: str) -> str:
         if self.kind == "ods":
             return f"https://{self.host}/explore/dataset/{name}/"
         if self.kind == "hub":
             return f"https://{self.host}/datasets/{name}"
+        if self.kind == "csw":
+            page = (
+                self.record_page
+                or f"{self.api.removesuffix('/csw')}/catalog.search#/metadata/{{id}}"
+            )
+            return page.format(id=name)
         return f"{self.api.removesuffix('/api/3/action')}/dataset/{name}"
 
 
@@ -275,9 +374,49 @@ PORTALS = (
         "cth",
     ),
     Portal(
+        "seed",
+        "datasets.seed.nsw.gov.au",
+        "https://datasets.seed.nsw.gov.au/api/3/action",
+        "nsw",
+        post=True,
+    ),
+    Portal(
         "act", "www.data.act.gov.au", "https://api.us.socrata.com/api/catalog/v1", "act", "socrata"
     ),
     Portal("abs", "data.api.abs.gov.au", "https://data.api.abs.gov.au/rest", "cth", "sdmx"),
+    Portal(
+        "csiro",
+        "data.csiro.au",
+        "https://data.csiro.au/dap/ws/v2",
+        "cth",
+        "dap",
+        "CSIRO",
+        ("gov:csiro-data-access-portal",),
+        r"fedora-pid_csiro-(.+)",
+    ),
+    Portal(
+        "aihw",
+        "www.aihw.gov.au",
+        AIHW_LISTING,
+        "cth",
+        "aihw",
+        "Australian Institute of Health and Welfare",
+        ("gov:aihw",),
+    ),
+    # GeoNetwork catalogues over CSW. data.gov.au's search index drops their harvest source, so
+    # its copies are replaced by organisation.
+    Portal("thelist", "data.thelist.tas.gov.au", "https://data.thelist.tas.gov.au/datagn/srv/eng/csw", "tas", "csw", "Department of Natural Resources and Environment Tasmania", ("gov:tas-government-the-list",), record_page="https://data.thelist.tas.gov.au/datagn/srv/eng/metadata.show?uuid={id}"),
+    Portal("ga", "ecat.ga.gov.au", "https://ecat.ga.gov.au/geonetwork/srv/eng/csw", "cth", "csw", "Geoscience Australia", ("gov:geoscience-australia-data",), one_body=True),
+    # ArcGIS Hub sites of many bodies, each item filed under the body its metadata names.
+    Portal(
+        "actmapi",
+        "actmapi-actgov.opendata.arcgis.com",
+        "https://actmapi-actgov.opendata.arcgis.com",
+        "act",
+        "hub",
+        copied_by=("gov:act-government-geospatial-data-catalogue",),
+    ),
+    Portal("atlas", "digital.atlas.gov.au", "https://digital.atlas.gov.au", "cth", "hub"),
     Portal(
         "dcceew",
         "fed.dcceew.gov.au",
@@ -307,7 +446,7 @@ PORTALS = (
     _council("bayside", "nsw-bayside.opendatasoft.com", "nsw", "ods", "Bayside Council"),
     _council("wollondilly", "data.wollondilly.nsw.gov.au", "nsw", "ods", "Wollondilly Shire Council"),
     _council("darwin", "darwin.opendatasoft.com", "nt", "ods", "City of Darwin", replaces=["nt:darwin-city-council"]),
-    _council("sydney", "data.cityofsydney.nsw.gov.au", "nsw", "hub", "City of Sydney"),
+    _council("sydney", "data.cityofsydney.nsw.gov.au", "nsw", "hub", "City of Sydney", replaces=["nsw:city-of-sydney"]),
     _council("goldcoast", "data-goldcoast.opendata.arcgis.com", "qld", "hub", "City of Gold Coast", replaces=["gov:city-of-gold-coast"]),
     _council("sunshine", "data.sunshinecoast.qld.gov.au", "qld", "hub", "Sunshine Coast Council"),
     _council("townsville", "data-tsvcitycouncil.opendata.arcgis.com", "qld", "hub", "Townsville City Council", replaces=["gov:townsville-city-council"]),
@@ -321,6 +460,7 @@ PORTALS = (
 BY_CODE = {p.code: p for p in PORTALS}
 # Hosts data.gov.au harvests from that are read directly here, so its copies are duplicates.
 DIRECT_HOSTS = {p.host.removeprefix("www.") for p in PORTALS}
+PORTAL_BY_HOST = {p.host.removeprefix("www."): p.code for p in PORTALS}
 
 # A resource in one of these can be read and serialised without a browser.
 DOWNLOADABLE = {
@@ -330,15 +470,17 @@ DOWNLOADABLE = {
 FORMAT_ALIASES = {
     "EXCEL": "XLSX", "MS EXCEL": "XLSX", "EXCEL (.XLSX)": "XLSX", "XLSM": "XLSX",
     "ESRI SHAPEFILE": "SHP", "SHAPEFILE": "SHP", "SHZ": "SHP", "GEO JSON": "GEOJSON",
-    "ESRI REST": "API", "REST": "API", "ARCGIS REST": "API", "WFS": "API", "ESRI FILE GEODATABASE": "FGDB",
+    "ESRI REST": "API", "REST": "API", "ARCGIS REST": "API", "ARCGIS_REST": "API", "WFS": "API", "ESRI FILE GEODATABASE": "FGDB",
+    "ESRI_SHP": "SHP",
 }  # fmt: skip
 
 # Requested by their Solr names: the harvest origin must be asked for as
-# extras_original_harvest_source and comes back keyed original_harvest_source; the type is
-# dataset_type. CKAN drops unknown names without an error, so the harvest test pins these.
+# extras_original_harvest_source and comes back keyed original_harvest_source, and likewise
+# extras_harvest_url; the type is dataset_type. CKAN drops unknown names without an error, so
+# the harvest test pins these.
 CKAN_FIELDS = (
     "id,name,title,organization,license_id,metadata_created,metadata_modified,"
-    "res_format,dataset_type,notes,extras_original_harvest_source,url"
+    "res_format,dataset_type,notes,extras_original_harvest_source,extras_harvest_url,url"
 )
 SUMMARY_CHARS = 280
 
@@ -353,11 +495,19 @@ def _get(
     params: Params | None = None,
     *,
     timeout: float = 180,
+    body: JSONObject | None = None,
     **kw: Unpack[_Headers],
 ) -> requests.Response:
+    if params is not None and body is not None:
+        msg = f"{url}: a request takes query parameters or a JSON body, not both"
+        raise TypeError(msg)
     for attempt in range(GET_ATTEMPTS):
         try:
-            r = s.get(url, params=params, timeout=timeout, **kw)
+            r = (
+                s.post(url, json=body, timeout=timeout, **kw)
+                if body is not None
+                else s.get(url, params=params, timeout=timeout, **kw)
+            )
             if (
                 r.status_code < HTTPStatus.INTERNAL_SERVER_ERROR
                 and r.status_code != HTTPStatus.TOO_MANY_REQUESTS
@@ -427,6 +577,8 @@ KNOWN_LICENCES = {
     "notspecified": "",
 }
 OPEN_IDS = {"CC0-1.0", "PDM", "PDDL-1.0", "ODC-BY-1.0", "ODBL-1.0", "other-open", "other-at"}
+# A portal's own licence ids whose license_list title names less than the terms do, by portal.
+PORTAL_LICENCES = {"seed": {"cc-at-3": "CC-BY-3.0-AU"}}
 
 
 def licence_id(title: str) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch per licence wording a portal uses
@@ -452,7 +604,7 @@ def licence_id(title: str) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch 
         return "PDM"
     if re.search(r"creative commons|\bcc\b|^cc-", t):
         parts = ["CC-BY"]
-        if re.search(r"non-?commercial|\bnc\b", t):
+        if re.search(r"non[- ]?commercial|\bnc\b", t):
             parts.append("NC")
         if re.search(r"no[ -]?deriv|\bnd\b", t):
             parts.append("ND")
@@ -471,7 +623,7 @@ def licence_id(title: str) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch 
 
 def cc_url(url: str) -> str:
     """The licence a creativecommons.org deed URL names, such as CC-BY-3.0-AU."""
-    m = re.search(r"creativecommons\.org/licenses/([a-z-]+)/(\d\.\d)(/au)?", url.lower())
+    m = re.search(r"creativecommons\.org(?::\d+)?/licenses/([a-z-]+)/(\d\.\d)(/au)?", url.lower())
     if not m:
         return ""
     au = "-AU" if m[3] and m[2] in ("2.5", "3.0") else ""
@@ -555,23 +707,47 @@ def _record(
     return cast("Record", dict(sorted(rec.items())))
 
 
-def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
-    licences = get_json_as(_NamedList, s, f"{portal.api}/license_list")
-    lic_titles = {x["id"]: x.get("title") or x["id"] for x in licences["result"]}
+def _ckan_orgs(portal: Portal, s: requests.Session) -> dict[str, str]:
     orgs: dict[str, str] = {}
-    off = 0
+    url, off = f"{portal.api}/organization_list", 0
     while True:
-        page = get_json_as(
-            _NamedList,
-            s,
-            f"{portal.api}/organization_list",
-            {"all_fields": "true", "limit": 25, "offset": off},
+        page = (
+            get_json_as(_NamedList, s, url, body={"all_fields": True, "limit": 25, "offset": off})
+            if portal.post
+            else get_json_as(_NamedList, s, url, {"all_fields": "true", "limit": 25, "offset": off})
         )["result"]
         new = [o for o in page if o["name"] not in orgs]
         if not new:
-            break
+            return orgs
         orgs.update({o["name"]: (o.get("title") or o["name"]).strip() for o in new})
         off += len(page)
+
+
+def _copy_of(portal: Portal, p: _CkanPackage, harvest: _Harvest) -> str | None:
+    """The original's page when a record copies one on another portal read here, else None.
+
+    The page is "" for a copy that names none.
+    """
+    others = DIRECT_HOSTS - {portal.host.removeprefix("www.")}
+    # data.gov.au names itself as the origin of records it holds first hand.
+    origin = (urlparse(harvest.get("site_url") or "").hostname or "").removeprefix("www.")
+    if portal.code == "gov" and origin in others:
+        return harvest.get("href") or ""
+    # data.nsw names the page it copied a record from in harvest_url. Copies of council sites
+    # are left to the council portal's replaces rule.
+    page = p.get("harvest_url") or ""
+    code = PORTAL_BY_HOST.get((urlparse(page).hostname or "").removeprefix("www."), "")
+    if portal.code == "nsw" and code not in ("", "nsw") and BY_CODE[code].kind == "ckan":
+        return page
+    return None
+
+
+def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    """A CKAN portal. A copy of a portal read here directly carries copy_of, for harvest to drop."""
+    licences = get_json_as(_NamedList, s, f"{portal.api}/license_list")
+    lic_titles = {x["id"]: x.get("title") or x["id"] for x in licences["result"]}
+    own_licences = PORTAL_LICENCES.get(portal.code, {})
+    orgs = _ckan_orgs(portal, s)
     out: list[Record] = []
     dropped, start, rows = 0, 0, 1000
     while True:
@@ -596,39 +772,33 @@ def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
                 except ValueError:
                     harvest = {"site_url": harvest}
             origin = urlparse((harvest or {}).get("site_url") or "").hostname or ""
-            host = origin.removeprefix("www.")
-            # data.gov.au names itself as the origin of records it holds first hand.
-            if (
-                portal.code == "gov"
-                and host in DIRECT_HOSTS
-                and host != portal.host.removeprefix("www.")
-            ):
-                dropped += 1
-                continue
             lic_raw = p.get("license_id") or ""
             org = p.get("organization") or ""
             if isinstance(org, dict):
                 org = org.get("name") or ""
-            out.append(
-                _record(
-                    portal,
-                    source_id=p["id"],
-                    name=p.get("name") or "",
-                    title=re.sub(r"\s+", " ", p.get("title") or p.get("name") or "").strip(),
-                    org=org,
-                    org_title=orgs.get(org, org),
-                    kind=p.get("dataset_type") or p.get("type") or "dataset",
-                    licence=licence_id(lic_titles.get(lic_raw, lic_raw)),
-                    licence_title=lic_titles.get(lic_raw, lic_raw),
-                    formats=formats(p.get("res_format")),
-                    created=_day(p.get("metadata_created")),
-                    modified=_day(p.get("metadata_modified")),
-                    url=portal.landing(p.get("name") or p["id"]),
-                    summary=summary(p.get("notes") or ""),
-                    harvested_from=origin if origin and origin != portal.host else "",
-                    source_host=(urlparse(p.get("url") or "").hostname or "").removeprefix("www."),
-                )
+            rec = _record(
+                portal,
+                source_id=p["id"],
+                name=p.get("name") or "",
+                title=re.sub(r"\s+", " ", p.get("title") or p.get("name") or "").strip(),
+                org=org,
+                org_title=orgs.get(org, org),
+                kind=p.get("dataset_type") or p.get("type") or "dataset",
+                licence=own_licences.get(lic_raw) or licence_id(lic_titles.get(lic_raw, lic_raw)),
+                licence_title=lic_titles.get(lic_raw, lic_raw),
+                formats=formats(p.get("res_format")),
+                created=_day(p.get("metadata_created")),
+                modified=_day(p.get("metadata_modified")),
+                url=portal.landing(p.get("name") or p["id"]),
+                summary=summary(p.get("notes") or ""),
+                harvested_from=origin if origin and origin != portal.host else "",
+                source_host=(urlparse(p.get("url") or "").hostname or "").removeprefix("www."),
             )
+            copy_of = _copy_of(portal, p, harvest or {})
+            if copy_of is not None:
+                dropped += 1
+                rec["copy_of"] = copy_of
+            out.append(rec)
         start += len(batch)
         log(f"catalogue {portal.code}: {start}/{res['count']}")
         if not batch or start >= res["count"]:
@@ -655,7 +825,7 @@ def socrata(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list
                     source_id=x["id"],
                     name=x["id"],
                     title=re.sub(r"\s+", " ", x.get("name") or "").strip(),
-                    org=re.sub(r"[^a-z0-9]+", "-", org.lower()).strip("-"),
+                    org=_org_slug(org),
                     org_title=org,
                     kind=kind,
                     licence=licence_id(lic_title),
@@ -711,11 +881,22 @@ def sdmx(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
     return out, 0
 
 
-def _council_record(portal: Portal, *, created: str = "", **kw: Unpack[_CouncilFields]) -> Record:
+def _org_slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def _council_record(
+    portal: Portal,
+    *,
+    created: str = "",
+    body: tuple[str, str] | None = None,
+    **kw: Unpack[_CouncilFields],
+) -> Record:
+    key, title = body or (portal.code, portal.publisher)
     return _record(
         portal,
-        org=portal.code,
-        org_title=portal.publisher,
+        org=key,
+        org_title=title,
         kind="dataset",
         created=created,
         harvested_from="",
@@ -810,28 +991,45 @@ def _epoch_day(ms: object) -> str:
         return ""
 
 
+# Terms that grant a licence for only some owners' or providers' data.
+HEDGED_TERMS = re.compile(
+    r"\b(?:most|some) (?:of (?:our|the) )?data (?:owners|providers)\b"
+    r"|\bnot covered by creative commons\b"
+    r"|\b(?:some|certain|selected) (?:of the )?(?:layers|datasets|items)\b",
+    re.IGNORECASE,
+)
+# Custom terms that withhold or limit a grant, so no licence named in them is read as given.
+HUB_WITHHELD = re.compile(
+    r"\bnot (?:be )?licen[cs]ed\b|\bnot (?:in|part of) the public domain\b"
+    r"|\ball rights reserved\b|\bpermission\b|\bnon[- ]?commercial\b|\bno[- ]?derivatives?\b"
+    r"|\bmay not be (?:re)?distributed\b",
+    re.IGNORECASE,
+)
 # Terms that withhold commercial use or changes, whatever licence id is stated beside them.
 HUB_RESTRICTED_TERMS = re.compile(
     r"creativecommons\.org(?::\d+)?/licenses/[a-z-]*\b(nc|nd)\b|not for commercial use"
     r"|non-?commercial|no[ -]?derivative",
     re.IGNORECASE,
 )
-
-
-def hub_licence(x: HubItem) -> tuple[str, str]:
-    """The licence an ArcGIS Hub dataset states.
-
-    Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
-    Commons deed, written out in licenseInfo. An open id whose terms restrict it is held as
-    custom.
-    """
-    lid, text = _hub_stated_licence(x)
-    if is_open(lid) and HUB_RESTRICTED_TERMS.search(x.get("licenseInfo") or ""):
-        return "custom", text
-    return lid, text
+_HUB_CC = (
+    r"(?:creative commons(?: by)? attribution|cc[- ]by)"
+    r"(?:[- ](?:non[- ]?commercial|nc|no[- ]?derivatives?|nd|share[- ]?alike|sa))*"
+)
+_HUB_CC_VERSION = r"[- ]v?\d\.\d(?: (?:australia|international|au))?"
+# A CC licence named with its version anywhere in custom terms.
+HUB_CC_VERSIONED = re.compile(rf"\b{_HUB_CC}{_HUB_CC_VERSION}\b", re.IGNORECASE)
+# Custom terms that are a CC licence's name and nothing else.
+HUB_CC_WHOLE = re.compile(rf"{_HUB_CC}(?:{_HUB_CC_VERSION})?(?: licen[cs]e)?\.?", re.IGNORECASE)
 
 
 def _hub_stated_licence(x: HubItem) -> tuple[str, str]:
+    """The licence an ArcGIS Hub dataset states, and its terms as a summary for display.
+
+    Hub states a licence id, or "custom" or "none" with the terms, often a link to a Creative
+    Commons deed, written out in licenseInfo. Custom terms name a licence through a deed link,
+    by being a CC licence's name alone, or by a versioned CC name, and never when they withhold
+    the grant.
+    """
     lic = (x.get("license") or "").strip()
     raw = x.get("licenseInfo") or ""
     text = summary(raw)
@@ -842,21 +1040,56 @@ def _hub_stated_licence(x: HubItem) -> tuple[str, str]:
         return (found if found == f"{named}-AU" else named), text or lic
     if found or lic.lower() in ("", "none"):
         return found, text
-    named = licence_id(text)
-    return (named if named != text else "custom"), text
+    full = plain_text(raw)
+    if HUB_WITHHELD.search(full):
+        return "custom", text
+    if HUB_CC_WHOLE.fullmatch(full):
+        return licence_id(full), text
+    # Only a versioned CC name counts in longer terms, where "zero" or "public domain" may be prose.
+    m = HUB_CC_VERSIONED.search(full)
+    return (licence_id(m[0]) if m else "custom"), text
+
+
+def hub_licence(x: HubItem) -> tuple[str, str]:
+    """The stated licence, held as custom when the terms restrict it or cover only some data."""
+    lid, text = _hub_stated_licence(x)
+    raw = x.get("licenseInfo") or ""
+    if is_open(lid) and (HUB_RESTRICTED_TERMS.search(raw) or HEDGED_TERMS.search(plain_text(raw))):
+        return "custom", text
+    return lid, text
+
+
+def hub_org(portal: Portal, x: HubItem) -> tuple[str, str] | None:
+    """The organisation a Hub item is filed under, as (key, title), or None for the portal's own.
+
+    A hub of many bodies names each item's body in its Source field. The owner is an account
+    name, sometimes a person's, so an item with no Source is filed as unknown.
+    """
+    if portal.publisher:
+        return None
+    title = re.sub(r"\s+", " ", x.get("source") or "").strip()
+    return _org_slug(title), title
 
 
 def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """An ArcGIS Hub site, read through its OGC Records search of the site's own catalogue."""
     out: list[Record] = []
+    seen: set[str] = set()
     n = 0
     url = f"{portal.api}/api/search/v1/collections/dataset/items"
-    params: Params | None = {"limit": 100}
+    # Unsorted pages repeat some items and skip others.
+    params: Params | None = {"limit": 100, "sortBy": "properties.created"}
     while True:
         res = get_json_as(_HubPage, s, url, params)
+        if res.get("exceededTransferLimit"):
+            msg = f"{portal.host}: the search answered a partial page"
+            raise PortalError(msg)
         feats = res.get("features") or []
         for f in feats:
             x = f.get("properties") or {}
+            if x["id"] in seen:
+                continue
+            seen.add(x["id"])
             lic, lic_title = hub_licence(x)
             kind = x.get("type") or ""
             out.append(
@@ -872,6 +1105,7 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
                     modified=_epoch_day(x.get("modified")),
                     url=portal.landing(x["id"]),
                     summary=summary(x.get("description") or x.get("snippet") or ""),
+                    body=hub_org(portal, x),
                 )
             )
         n += len(feats)
@@ -880,10 +1114,842 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
         if not feats or not nxt:
             break
         url, params = nxt, None
+    total = res.get("numberMatched")
+    # A search that stops early would read as items withdrawn.
+    if isinstance(total, int) and len(seen) < total:
+        msg = f"{portal.host}: read {len(seen)} of the {total} items the search matched"
+        raise PortalError(msg)
     return out, 0
 
 
-HARVESTERS = {"ckan": ckan, "socrata": socrata, "sdmx": sdmx, "ods": ods, "hub": hub}
+HUB_ITEM_RE = re.compile(r"/api/download/v1/items/([0-9a-f]{32})/")
+
+
+def copied_items(portal: Portal, s: requests.Session, log: Log = print) -> dict[str, str]:
+    """Each copy in the portal's `copied_by` organisations mapped to the record it copies.
+
+    A Hub copy's download links name the Hub item, which the reader's fields leave out.
+    """
+    out: dict[str, str] = {}
+    for o in portal.copied_by:
+        code, org = o.split(":", 1)
+        res = get_json_as(
+            _CkanSearch,
+            s,
+            f"{BY_CODE[code].api}/package_search",
+            {"fq": f'organization:"{org}"', "fl": "id,res_url", "rows": 1000},
+        )["result"]
+        if res["count"] > len(res["results"]):
+            log(
+                f"catalogue {portal.code}: {len(res['results'])} of {res['count']} copies in {o} read"
+            )
+        for p in res["results"]:
+            ids = [m[1] for u in p.get("res_url") or [] if (m := HUB_ITEM_RE.search(u))]
+            if ids:
+                out[record_id(code, p["id"])] = record_id(portal.code, ids[0])
+    return out
+
+
+# The Data Access Portal answers a search with at most this many collections, and pages of 100.
+DAP_LIMIT = 10_000
+DAP_PAGE = 100
+DAP_FIRST = dt.date(1990, 1, 1)
+DAP_TIMEOUT = 60
+# Publication dates are compared in one fixed offset so day windows meet without a gap.
+DAP_TZ = "+10:00"
+# Full records read per harvest; the rest wait for a later week and are not downloadable yet.
+DAP_DETAILS = 2_000
+
+
+def _dap_record(portal: Portal, x: _DapCollection, detail: _Checked | None) -> Record:
+    pid = x["id"]["identifier"]
+    kind = (x.get("collectionType") or "").strip().lower()
+    lic = (x.get("licence") or "").strip()
+    rec = _record(
+        portal,
+        source_id=pid.removeprefix("csiro:"),
+        name=pid,
+        title=re.sub(r"\s+", " ", x.get("title") or pid).strip(),
+        org=portal.code,
+        org_title=portal.publisher,
+        kind="dataset" if kind == "data" else kind,
+        licence=licence_id(lic),
+        licence_title=lic,
+        # Unrestricted files can be fetched through the web service without a request.
+        formats=["API"] if detail and detail["file_count"] else [],
+        created="",
+        modified=_day(x.get("published")),
+        url=(x.get("landingPage") or {}).get("href") or "",
+        summary=summary(x.get("description") or ""),
+        harvested_from="",
+    )
+    rec["source_version"] = f"{x.get('dataVersionNumber') or ''}@{x.get('published') or ''}"
+    if detail:
+        rec["file_count"] = detail["file_count"]
+        if detail.get("public_from"):
+            rec["public_from"] = detail["public_from"]
+    return rec
+
+
+CSW_NS = {
+    "csw": "http://www.opengis.net/cat/csw/2.0.2",
+    "gmd": "http://www.isotc211.org/2005/gmd",
+    "gco": "http://www.isotc211.org/2005/gco",
+    "gmx": "http://www.isotc211.org/2005/gmx",
+    "ows": "http://www.opengis.net/ows",
+}
+XLINK_HREF = "{http://www.w3.org/1999/xlink}href"
+# A full ISO 19139 record is about 15 KB, so a page is about 1.5 MB.
+CSW_PAGE = 100
+# Held for review: a constraint that states terms no wording below names.
+ASSESSING = "assessing"
+# Licence statements as the catalogues write them, matched whole once case, spacing and a
+# trailing "licence" are folded.
+CSW_LICENCES = {
+    "creative commons attribution 2.5 australia": "CC-BY-2.5-AU",
+    "creative commons attribution 3.0 australia": "CC-BY-3.0-AU",
+    "creative commons attribution 3.0 au": "CC-BY-3.0-AU",
+    "cc by 3.0 au": "CC-BY-3.0-AU",
+    "creative commons attribution 4.0 international": "CC-BY-4.0",
+    "creative commons attribution 4.0": "CC-BY-4.0",
+    "creative commons attribution 4.0 international (cc by 4.0)": "CC-BY-4.0",
+    "cc by 4.0": "CC-BY-4.0",
+    "creative commons zero": "CC0-1.0",
+    "cc0 1.0 universal": "CC0-1.0",
+}
+# Restriction and classification codes that close a record whatever else its constraints say.
+CSW_CLOSED = {"restricted", "confidential", "private", "secret", "topSecret"}
+# The only codes that leave a record open; any other code not in CSW_CLOSED holds it for review.
+CSW_OPEN_CODES = {
+    "MD_RestrictionCode": {
+        "license", "licence", "copyright", "otherRestrictions", "intellectualPropertyRights",
+        "unrestricted", "licenceUnrestricted",
+    },
+    "MD_ClassificationCode": {"unclassified"},
+}  # fmt: skip
+# The security classification system an unclassified marking may name, folded.
+CSW_SECURITY_SYSTEM = "australian government security classification system"
+# Labels a catalogue writes beside a licence that add no terms, once folded like a wording.
+CSW_LABELS = {"other", "licence", "other licence", "other restrictions", "otherrestrictions"}
+# Online resource protocols, by prefix, onto the format vocabulary.
+CSW_PROTOCOLS = (
+    ("OGC:WMS", "WMS"),
+    ("OGC:WFS", "WFS"),
+    ("OGC:WCS", "API"),
+    ("OGC:API", "API"),
+    ("ESRI:REST", "ESRI REST"),
+    ("ESRI:ARCGIS", "ESRI REST"),
+)
+# A linked file with one of these extensions is a file in that format.
+CSW_FILE_EXTS = {
+    "CSV", "TSV", "XLSX", "XLS", "ODS", "JSON", "GEOJSON", "ZIP", "SHP", "GPKG", "KML",
+    "KMZ", "GDB", "PARQUET", "PDF",
+}  # fmt: skip
+# The role whose organisation publishes the resource, most telling first.
+CSW_ROLES = (
+    "publisher", "custodian", "owner", "distributor", "originator", "resourceProvider",
+    "pointOfContact", "principalInvestigator", "author",
+)  # fmt: skip
+MONTHS = {
+    m: i
+    for i, m in enumerate(
+        ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1
+    )
+}
+
+
+def _embargo_end(access: str) -> str:
+    """The day a DAP access statement such as "restricted until 30 Sept 2027" ends, or ''."""
+    m = re.search(r"until (\d{1,2}) ([A-Za-z]{3})[a-z]* (\d{4})", access)
+    month = MONTHS.get(m[2].lower(), 0) if m else 0
+    if not m or not month:
+        return ""
+    try:
+        return dt.date(int(m[3]), month, int(m[1])).isoformat()
+    except ValueError:
+        return ""
+
+
+def _dap_checked(got: _DapDetail) -> _Checked | None:
+    n = got.get("fileCount")
+    if not isinstance(n, int):
+        return None
+    if got.get("accessLevel") == "Public":
+        return {"file_count": n}
+    return {"file_count": 0, "public_from": _embargo_end(got.get("access") or "")}
+
+
+def _dap_page(
+    portal: Portal, s: requests.Session, first: dt.date, last: dt.date, page: int
+) -> _DapPage:
+    params: Params = {
+        "rpp": DAP_PAGE,
+        "p": page,
+        "sb": "RECENT",
+        "psd": f"{first}T00:00:00{DAP_TZ}",
+        "ped": f"{last}T23:59:59.999{DAP_TZ}",
+    }
+    res = get_json_as(
+        _DapPage,
+        s,
+        f"{portal.api}/collections",
+        params,
+        timeout=DAP_TIMEOUT,
+        headers={"Accept": "application/json"},
+    )
+    if res.get("errors") or "totalResults" not in res or "dataCollections" not in res:
+        msg = f"{portal.host}: page {page} of {first} to {last} is not a search answer: {str(res)[:200]}"
+        raise PortalError(msg)
+    return res
+
+
+def _dap_listing(portal: Portal, s: requests.Session, log: Log) -> list[_DapCollection]:
+    """Every collection, by publication date in windows halved until the search pages each in full."""
+    out: list[_DapCollection] = []
+    windows = [(DAP_FIRST, dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1))]
+    while windows:
+        first, last = windows.pop()
+        page = 1
+        while True:
+            res = _dap_page(portal, s, first, last, page)
+            total = str(res.get("totalResults") or "0")
+            if page == 1 and (not total.isdigit() or int(total) >= DAP_LIMIT):
+                if first == last:
+                    msg = f"{portal.host}: {total} collections published on {first}"
+                    raise PortalError(msg)
+                mid = first + (last - first) // 2
+                windows += [(first, mid), (mid + dt.timedelta(days=1), last)]
+                break
+            batch = res.get("dataCollections") or []
+            if not batch and int(total) > (page - 1) * DAP_PAGE:
+                msg = f"{portal.host}: page {page} of {first} to {last} is empty of {total}"
+                raise PortalError(msg)
+            out += batch
+            log(f"catalogue {portal.code}: {first} to {last}, page {page}, {len(out)} so far")
+            if not batch or not res.get("next") or page * DAP_PAGE >= DAP_LIMIT:
+                break
+            page += 1
+    return out
+
+
+def _dap_details(
+    portal: Portal, s: requests.Session, log: Log, todo: list[tuple[str, _DapCollection]]
+) -> tuple[dict[str, _Checked], int]:
+    """The answers of the full records read, by record id, and how many could not be read."""
+    done: dict[str, _Checked] = {}
+    failed = 0
+    for rid, x in todo:
+        try:
+            got = get_json_as(
+                _DapDetail,
+                s,
+                f"{portal.api}/collections/{x['dataCollectionId']}",
+                timeout=DAP_TIMEOUT,
+                headers={"Accept": "application/json"},
+            )
+        except (requests.RequestException, ValueError, PortalError) as e:
+            # One collection's record failing every week must not stop the whole portal.
+            failed += 1
+            log(f"catalogue {portal.code}: the full record of {rid} could not be read: {e}")
+            continue
+        if c := _dap_checked(got):
+            done[rid] = c
+    return done, failed
+
+
+def dap(
+    portal: Portal, s: requests.Session, log: Log = print, previous: Iterable[Record] = ()
+) -> tuple[list[Record], int]:
+    """CSIRO's Data Access Portal.
+
+    A collection is downloadable when its full record offers the public at least one file. The
+    full record is read only for an open, unrestricted data collection whose version the previous
+    snapshot did not read, or whose stated embargo has ended, and at most DAP_DETAILS of them in
+    one harvest. A collection never read is not downloadable. One due a reread that is past the
+    cap, or whose full record cannot be read, keeps its earlier answer and the version that answer
+    was read at, so the next harvest reads it again.
+    """
+    found = _dap_listing(portal, s, log)
+    if not found:
+        msg = f"{portal.host}: the search listed no collections"
+        raise PortalError(msg)
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    before = {r["id"]: r for r in previous if "file_count" in r}
+    listed = [_dap_record(portal, x, None) for x in found]
+    done: dict[str, _Checked] = {}
+    todo: list[tuple[str, _DapCollection]] = []
+    for x, r in zip(found, listed, strict=True):
+        if x.get("dataRestricted") != "FALSE" or r["kind"] != "dataset" or not r["open"]:
+            continue
+        b = before.get(r["id"])
+        ends = b.get("public_from", "") if b else ""
+        if b and b.get("source_version") == r["source_version"] and not (ends and ends <= today):
+            done[r["id"]] = {"file_count": b["file_count"]}
+            if ends:
+                done[r["id"]]["public_from"] = ends
+        else:
+            todo.append((r["id"], x))
+    todo.sort(key=lambda t: t[0])
+    read, failed = _dap_details(portal, s, log, todo[:DAP_DETAILS])
+    done |= read
+    # A collection not read this time keeps the answer it had, under the version it was read at.
+    stale = {rid: before[rid] for rid, _ in todo if rid not in done and rid in before}
+    for rid, b in stale.items():
+        done[rid] = {"file_count": b["file_count"]}
+        if b.get("public_from"):
+            done[rid]["public_from"] = b["public_from"]
+    log(
+        f"catalogue {portal.code}: {min(len(todo), DAP_DETAILS) - failed} of {len(todo)} full "
+        f"records read, {failed} failed"
+    )
+    out = [
+        _dap_record(portal, x, done[r["id"]]) if r["id"] in done else r
+        for x, r in zip(found, listed, strict=True)
+    ]
+    for r in out:
+        if r["id"] in stale:
+            r["source_version"] = stale[r["id"]]["source_version"]
+    return out, 0
+
+
+# The listing answers no more than this many resources a page, whatever it is asked for.
+AIHW_PAGE_SIZE = 50
+# What record_id keeps of a source id after "aihw-".
+AIHW_KEY_CHARS = 59
+AIHW_HOSTS = {"www.aihw.gov.au", "aihw.gov.au"}
+AIHW_LICENCE = ("CC-BY-4.0", "Creative Commons Attribution 4.0 International")
+# Words by which a resource sets its own terms apart from the copyright page's licence.
+AIHW_OTHER_TERMS = re.compile(
+    r"third[- ]party|copyright|©|all rights reserved|not (?:be )?licen[cs]ed|permission"
+    r"|terms of use|restricted",
+    re.IGNORECASE,
+)
+# Path segments that name a part of a report rather than the report.
+AIHW_GENERIC = {
+    "about", "appendix", "contents", "data", "data-downloads", "data-tables", "download",
+    "download-data", "download-data-tables", "downloads", "index", "notes", "overview", "report",
+    "reports", "resources", "summary", "technical-notes", "web-report",
+}  # fmt: skip
+
+
+def aihw_terms(x: AihwResource) -> tuple[str, str]:
+    """The licence one AIHW resource is under.
+
+    The copyright page (https://www.aihw.gov.au/copyright) releases the Institute's material under
+    CC BY 4.0, except third-party material, so only a file on the Institute's own site takes it. A
+    resource that names another licence or mentions other terms is kept as it states them, so it
+    is never marked open, and one hosted elsewhere states no licence.
+    """
+    url = (x.get("schemaLicenseUrl") or "").strip()
+    if url and cc_url(url) != AIHW_LICENCE[0]:
+        return cc_url(url) or url, url
+    said = (x.get("resultTitle"), x.get("resultDescription"), x.get("schemaDescription"))
+    words = " ".join(w for w in said if w)
+    if AIHW_OTHER_TERMS.search(words):
+        text = summary(words)
+        return text, text
+    if (urlparse(_aihw_url(x["resultUrl"])).hostname or "") not in AIHW_HOSTS:
+        return "", ""
+    return AIHW_LICENCE
+
+
+def _aihw_url(path: str) -> str:
+    return "https://www.aihw.gov.au" + path if path.startswith("/") else path
+
+
+def _aihw_rank(term: tuple[str, str]) -> tuple[bool, bool, bool]:
+    """Orders a report's terms so the least open comes first and the default last.
+
+    A stated licence that is not open comes before no licence at all.
+    """
+    return is_open(term[0]) is True, not term[0], term == AIHW_LICENCE
+
+
+def _aihw_id(url: str) -> str:
+    """A file's media id, or a report's last path segment with its parents while it is generic.
+
+    Two reports under one slug in different topics are the same report listed twice and share
+    the id. A file on another site has that site's host in front. A key too long for a vote key
+    keeps its start and a hash of the key as record_id folds it.
+    """
+    u = urlparse(url)
+    parts = [p for p in u.path.split("/") if p] or [url]
+    if parts[0] == "getmedia" and len(parts) > 1:
+        key = parts[1]
+    else:
+        i = len(parts) - 1
+        while i > 0 and parts[i].lower() in AIHW_GENERIC:
+            i -= 1
+        key = "-".join(parts[i:])
+    host = (u.hostname or "").lower()
+    if host and host not in AIHW_HOSTS:
+        key = f"{host}-{key}"
+    if len(key) > AIHW_KEY_CHARS:
+        folded = re.sub(r"[^a-z0-9-]+", "-", key.lower()).strip("-")
+        key = f"{key[: AIHW_KEY_CHARS - 9]}-{hashlib.sha256(folded.encode()).hexdigest()[:8]}"
+    return key
+
+
+def aihw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    """The AIHW's data downloads, one record per report with the files it lists.
+
+    A file that names no report is a record of its own, at the file's address. A report with no
+    file in a format we can read, such as a PDF publication, is left out.
+    """
+    groups: dict[str, dict[str, AihwResource]] = {}
+    keys: dict[str, str] = {}
+    n, page = 0, 1
+    while True:
+        res = get_json_as(
+            _AihwPage,
+            s,
+            portal.api,
+            body={"itemsPerPage": AIHW_PAGE_SIZE, "page": page, "showReportLink": True},
+            headers={"Accept": "application/json"},
+        )
+        batch = res["results"]
+        if not batch and n < res["totalResults"]:
+            msg = f"{portal.host}: page {page} is empty at {n} of {res['totalResults']} resources"
+            raise PortalError(msg)
+        for x in batch:
+            # A resource with no file address is a link to nothing we can download.
+            if not x.get("resultUrl"):
+                continue
+            url = _aihw_url(x.get("relatedReportUrl") or x["resultUrl"])
+            # Paging by number can repeat a file when the list changes between pages.
+            key = _aihw_id(url)
+            # Keys that differ only in what record_id folds are one record.
+            rid = record_id(portal.code, key)
+            groups.setdefault(rid, {}).setdefault(x["resultUrl"], x)
+            keys[rid] = min(keys.get(rid, key), key)
+        n += len(batch)
+        log(f"catalogue {portal.code}: {n}/{res['totalResults']}")
+        if n >= res["totalResults"]:
+            break
+        page += 1
+    out: list[Record] = []
+    for rid, by_file in sorted(groups.items()):
+        key = keys[rid]
+        files = [by_file[u] for u in sorted(by_file)]
+        fmts = formats(x.get("resultFileType") for x in files if x.get("resultFileType"))
+        if not set(fmts) & DOWNLOADABLE:
+            continue
+        lic, lic_title = min((aihw_terms(x) for x in files), key=_aihw_rank)
+        days = sorted(d for x in files if (d := _day(x.get("resultDateTimeFormatted"))))
+        url = min(_aihw_url(x.get("relatedReportUrl") or x["resultUrl"]) for x in files)
+        first = next(
+            x for x in files if _aihw_url(x.get("relatedReportUrl") or x["resultUrl"]) == url
+        )
+        title = first.get("relatedReportTitle") or first.get("resultTitle") or url
+        about = next((x.get("resultDescription") for x in files if x.get("resultDescription")), "")
+        rec = _council_record(
+            portal,
+            source_id=key,
+            name=key,
+            title=re.sub(r"\s+", " ", title).strip(),
+            licence=lic,
+            licence_title=lic_title,
+            formats=fmts,
+            created=days[0] if days else "",
+            modified=days[-1] if days else "",
+            url=url,
+            summary=summary(about or "; ".join(x.get("resultTitle") or "" for x in files)),
+        )
+        # The files' addresses, so a register entry fetching one marks this record served.
+        rec["files"] = [_aihw_url(x["resultUrl"]) for x in files]
+        out.append(cast("Record", dict(sorted(rec.items()))))
+    return out, 0
+
+
+def _csw_text(e: ET.Element | None, path: str = "") -> str:
+    node = e.find(path, CSW_NS) if e is not None and path else e
+    if node is None:
+        return ""
+    return re.sub(r"\s+", " ", "".join(node.itertext())).strip()
+
+
+def _csw_day(text: str) -> str:
+    """A date as ISO 19139 states it, including the "Fri Dec 20 09:34:48 EST 2013" older records use."""
+    if re.match(r"\d{4}-\d{2}-\d{2}", text):
+        return text[:10]
+    m = re.fullmatch(r"\w{3} (\w{3}) (\d{1,2}) [\d:]+ \w+ (\d{4})", text.strip())
+    if not m or m[1].lower() not in MONTHS:
+        return ""
+    return f"{m[3]}-{MONTHS[m[1].lower()]:02d}-{int(m[2]):02d}"
+
+
+def _csw_fold(text: str) -> str:
+    t = re.sub(r"\s+", " ", text.strip().lower()).rstrip(".")
+    t = re.sub(r"\bcc-by\b", "cc by", t)
+    return re.sub(r"\blicense$", "licence", t)
+
+
+def _csw_licence_wording(text: str) -> str:
+    """The licence a statement names, when the whole statement is a known wording or a deed URL."""
+    t = _csw_fold(text)
+    if re.fullmatch(r"https?://\S+", text.strip()):
+        host = (urlparse(text.strip()).hostname or "").removeprefix("www.")
+        return cc_url(text) if host == "creativecommons.org" else ""
+    return CSW_LICENCES.get(re.sub(r"\s+licence$", "", t), "")
+
+
+def _csw_local(el: ET.Element) -> str:
+    return el.tag.rsplit("}", 1)[-1]
+
+
+def _csw_copyright(text: str) -> bool:
+    """Whether a statement only names who holds copyright, such as "© State of X 2025"."""
+    t = _csw_fold(text)
+    m = re.fullmatch(r"(?:©|\(c\)|copyright)\s*([a-z ()&,-]{2,120})\s(?:19|20)\d\d", t)
+    return bool(m) and not re.search(
+        r"\b(reserved|licen[cs]e[ds]?|permission|not|may|must|only|(?:non)?commercial|nc|nd|derivative"
+        r"|third|party|except|restrict\w*|prohibit\w*|cannot|use|internal|terms|conditions"
+        r"|subject|redistribut\w*|purposes?|research|education\w*|personal|private)\b",
+        t,
+    )
+
+
+def _csw_codes_only(c: ET.Element) -> bool:
+    """Whether an access or use constraint holds nothing but one restriction code that adds no terms."""
+    kids = list(c)
+    if len(kids) != 1 or _csw_local(kids[0]) != "MD_RestrictionCode" or list(kids[0]):
+        return False
+    code = kids[0].get("codeListValue") or _csw_text(kids[0])
+    return _csw_text(kids[0]) in ("", code) and code in CSW_OPEN_CODES["MD_RestrictionCode"]
+
+
+def _csw_anyone(addressee: ET.Element) -> bool:
+    """Whether a releasability addressee names everyone: "Any", "Any user" and a user role."""
+    names = [
+        _csw_fold(_csw_text(n))
+        for n in addressee.iterfind(".//gmd:CI_ResponsibleParty/*", CSW_NS)
+        if _csw_local(n) != "role" and _csw_text(n)
+    ]
+    return bool(names) and all(n in ("any", "any user") for n in names)
+
+
+def _csw_cited(lc: ET.Element) -> str:
+    """The licence an MD_LegalConstraints cites by title, when nothing beside it adds terms.
+
+    Beside the title may stand the licence's short form as alternate title, its version as
+    edition, an addressee and a copyright line.
+    """
+    cite = lc.find("gmd:reference/gmd:CI_Citation", CSW_NS)
+    title = _csw_text(cite, "gmd:title") if cite is not None else ""
+    lid = "" if re.match(r"https?://", title) else _csw_licence_wording(title)
+    if cite is None or not lid or any(el.get(XLINK_HREF) for el in lc.iter()):
+        return ""
+    if len(lc.findall("gmd:reference", CSW_NS)) != 1:
+        return ""
+    version = re.search(r"\d\.\d", lid)
+    fits: dict[str, Callable[[str], bool]] = {
+        "title": lambda _: True,
+        "alternateTitle": lambda t: lid.startswith("CC-BY-") and _csw_fold(t) == "cc by",
+        "edition": lambda t: version is not None and t == version[0],
+    }
+    for c in cite:
+        tag, text = _csw_local(c), _csw_text(c)
+        if text and not (tag in fits and fits[tag](text)):
+            return ""
+    for c in lc:
+        tag, text = _csw_local(c), _csw_text(c)
+        if tag == "releasability":
+            ok = all(
+                (_csw_local(r) == "addressee" and _csw_anyone(r))
+                or (_csw_local(r) == "statement" and not _csw_text(r))
+                for r in c.iterfind("gmd:MD_Releasability/*", CSW_NS)
+            )
+        elif tag == "otherConstraints":
+            ok = _csw_copyright(text)
+        elif tag in ("useConstraints", "accessConstraints"):
+            ok = _csw_codes_only(c)
+        else:
+            ok = tag == "reference" or not text
+        if not ok:
+            return ""
+    return lid
+
+
+def _csw_unclassified(sc: ET.Element) -> bool:
+    """Whether a security constraint only says the resource is unclassified, under which system."""
+    code = sc.find("gmd:classification/gmd:MD_ClassificationCode", CSW_NS)
+    if code is None or code.get("codeListValue") != "unclassified":
+        return False
+    if _csw_text(code) not in ("", "unclassified"):
+        return False
+    names = [
+        n
+        for n in (
+            _csw_text(sc, "gmd:reference/gmd:CI_Citation/gmd:title"),
+            _csw_text(sc, "gmd:classificationSystem"),
+        )
+        if n
+    ]
+    # eCat writes "ClassificationSystem" as one word in some records.
+    systems = {
+        re.sub(r"classificationsystem$", "classification system", _csw_fold(n)) for n in names
+    }
+    said = [
+        el
+        for el in sc.iter()
+        if _csw_local(el) in ("CharacterString", "Anchor", "LocalisedCharacterString")
+        and _csw_text(el)
+    ]
+    return systems == {CSW_SECURITY_SYSTEM} and len(said) == len(names)
+
+
+def _csw_whole(blocks: list[ET.Element]) -> tuple[set[ET.Element], dict[str, str], list[str]]:
+    """The constraint elements read whole: licences cited by title and unclassified markings.
+
+    Returns those elements and their descendants, the licences cited and their statements.
+    """
+    quiet: set[ET.Element] = set()
+    found: dict[str, str] = {}
+    texts: list[str] = []
+    for block in blocks:
+        for lc in block.iterfind(".//gmd:MD_LegalConstraints", CSW_NS):
+            if lid := _csw_cited(lc):
+                quiet.update(lc.iter())
+                title = _csw_text(lc, "gmd:reference/gmd:CI_Citation/gmd:title")
+                found.setdefault(lid, title)
+                copyright_ = [_csw_text(o) for o in lc.iterfind("gmd:otherConstraints", CSW_NS)]
+                texts += [t for t in (title, *copyright_) if t and t not in texts]
+        for sc in block.iterfind(".//gmd:MD_SecurityConstraints", CSW_NS):
+            if _csw_unclassified(sc):
+                quiet.update(sc.iter())
+    return quiet, found, texts
+
+
+def _csw_constraints(blocks: list[ET.Element]) -> tuple[list[str], dict[str, str], str, bool]:
+    """What constraint blocks state.
+
+    That is every statement, the licences they name, any closing code, and whether any
+    statement is neither a licence nor a label. A licence cited by title is one statement, and
+    an unclassified security marking states no terms.
+    """
+    quiet, found, texts = _csw_whole(blocks)
+    closed, other = "", False
+    for el in (el for block in blocks for el in block.iter()):
+        tag = el.tag.rsplit("}", 1)[-1]
+        if tag in CSW_OPEN_CODES:
+            code = el.get("codeListValue") or _csw_text(el)
+            closed = code if code in CSW_CLOSED else closed
+            # A code no list names may carry terms of its own.
+            other = other or bool(code and code not in CSW_CLOSED | CSW_OPEN_CODES[tag])
+        if el in quiet:
+            continue
+        said = (
+            [_csw_text(el)]
+            if tag in ("CharacterString", "Anchor", "LocalisedCharacterString")
+            else []
+        )
+        said.append(el.get(XLINK_HREF, ""))
+        for text in filter(None, said):
+            if text not in texts:
+                texts.append(text)
+            if lid := _csw_licence_wording(text):
+                found.setdefault(lid, text)
+            elif _csw_fold(text) not in CSW_LABELS:
+                other = True
+    return texts, found, closed, other
+
+
+def csw_licence(m: ET.Element) -> tuple[str, str]:
+    """The licence a record's constraints state, as an id and every statement read.
+
+    The resource's constraints are read. The metadata's are read only when the record has no
+    resource constraints at all, since some catalogues write the data licence there. A record
+    whose statements are one wording in CSW_LICENCES, one Creative Commons deed URL or one
+    licence cited by such a wording as `_csw_cited` reads it, with nothing beside them but labels
+    in CSW_LABELS, has that licence. Anything else is held as `assessing`.
+    """
+    own = m.findall("gmd:identificationInfo/*/gmd:resourceConstraints", CSW_NS)
+    texts, found, closed, other = _csw_constraints(
+        own or m.findall("gmd:metadataConstraints", CSW_NS)
+    )
+    title = " ".join(texts)
+    if closed:
+        return closed, title or closed
+    if len(found) == 1 and not other:
+        return next(iter(found)), title
+    # Resource constraints that state nothing readable still state something.
+    if not texts and not own:
+        return "", ""
+    return ASSESSING, title
+
+
+def _csw_protocol(proto: str) -> list[str]:
+    return [f for p, f in CSW_PROTOCOLS if proto.upper().startswith(p)]
+
+
+def csw_formats(m: ET.Element) -> list[str]:
+    """The formats a record names, its online resources' protocols and the files it links."""
+    raw: list[str] = []
+    linked = False
+    for ol in m.iterfind(".//gmd:distributionInfo//gmd:CI_OnlineResource", CSW_NS):
+        url = _csw_text(ol, "gmd:linkage")
+        if not url:
+            continue
+        linked = True
+        raw += _csw_protocol(_csw_text(ol, "gmd:protocol"))
+        path = urlparse(url).path
+        if "/rest/services/" in path.lower():
+            raw.append("ESRI REST")
+        ext = path.rsplit(".", 1)[-1].upper() if "." in path.rsplit("/", 1)[-1] else ""
+        if ext in CSW_FILE_EXTS:
+            raw.append(ext)
+    # A format named with no link to fetch it from is no download.
+    if linked:
+        for f in m.iterfind(".//gmd:distributionInfo//gmd:MD_Format", CSW_NS):
+            name = _csw_text(f, "gmd:name")
+            # A protocol named as a format, such as OGC:WMS or WWW:LINK-1.0-http--link.
+            named = _csw_protocol(name) or name.upper().startswith("WWW:")
+            raw += _csw_protocol(name) if ":" in name and named else [name]
+    return [f for f in formats(r for r in raw if r) if f != "OTHER"]
+
+
+def _csw_party(m: ET.Element, fallback: str) -> str:
+    # Any party of the resource's own comes before the metadata record's contact, then by role.
+    parties = [
+        *(
+            (0, rp)
+            for rp in m.iterfind(
+                "gmd:identificationInfo/*/gmd:pointOfContact/gmd:CI_ResponsibleParty", CSW_NS
+            )
+        ),
+        *(
+            (0, rp)
+            for rp in m.iterfind(
+                "gmd:identificationInfo/*/gmd:citation/*/gmd:citedResponsibleParty/gmd:CI_ResponsibleParty",
+                CSW_NS,
+            )
+        ),
+        *((1, rp) for rp in m.iterfind("gmd:contact/gmd:CI_ResponsibleParty", CSW_NS)),
+    ]
+    named = []
+    for i, (meta, rp) in enumerate(parties):
+        org = _csw_text(rp, "gmd:organisationName")
+        code = rp.find("gmd:role/gmd:CI_RoleCode", CSW_NS)
+        role = code.get("codeListValue", "") if code is not None else ""
+        if org:
+            rank = CSW_ROLES.index(role) if role in CSW_ROLES else len(CSW_ROLES)
+            named.append((meta, rank, i, org))
+    return min(named)[3] if named else fallback
+
+
+def _csw_dates(m: ET.Element) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for d in m.iterfind("gmd:identificationInfo/*/gmd:citation/*/gmd:date/gmd:CI_Date", CSW_NS):
+        code = d.find("gmd:dateType/gmd:CI_DateTypeCode", CSW_NS)
+        kind = code.get("codeListValue", "") if code is not None else ""
+        day = _csw_day(_csw_text(d, "gmd:date"))
+        if kind and day:
+            out.setdefault(kind, day)
+    return out
+
+
+def _csw_record(portal: Portal, m: ET.Element) -> Record | None:
+    uid = _csw_text(m, "gmd:fileIdentifier")
+    if not uid:
+        return None
+    ident = "gmd:identificationInfo/*/"
+    org = portal.publisher if portal.one_body else _csw_party(m, portal.publisher)
+    lic, lic_title = csw_licence(m)
+    dates = _csw_dates(m)
+    scope = m.find("gmd:hierarchyLevel/gmd:MD_ScopeCode", CSW_NS)
+    return _record(
+        portal,
+        source_id=uid,
+        name=uid,
+        title=_csw_text(m, f"{ident}gmd:citation/*/gmd:title") or uid,
+        org=re.sub(r"[^a-z0-9]+", "-", org.lower()).strip("-"),
+        org_title=org,
+        kind=(scope.get("codeListValue") if scope is not None else "") or "dataset",
+        licence=lic,
+        licence_title=lic_title,
+        formats=csw_formats(m),
+        created=dates.get("creation") or dates.get("publication") or "",
+        modified=dates.get("revision") or _csw_day(_csw_text(m, "gmd:dateStamp")),
+        url=portal.landing(uid),
+        summary=summary(_csw_text(m, f"{ident}gmd:abstract")),
+        harvested_from="",
+    )
+
+
+def _csw_page(s: requests.Session, url: str, start: int) -> ET.Element:
+    params: Params = {
+        "service": "CSW",
+        "version": "2.0.2",
+        "request": "GetRecords",
+        "typeNames": "gmd:MD_Metadata",
+        "namespace": f"xmlns(gmd={CSW_NS['gmd']})",
+        "outputSchema": CSW_NS["gmd"],
+        "elementSetName": "full",
+        "resultType": "results",
+        # GeoNetwork asks for a constraint language even with no constraint.
+        "constraintLanguage": "CQL_TEXT",
+        "constraint_language_version": "1.1.0",
+        "sortBy": "Identifier:A",
+        "startPosition": start,
+        "maxRecords": CSW_PAGE,
+    }
+    r = _get(s, url, params)
+    try:
+        root = ET.fromstring(r.content)  # noqa: S314 - Expat 2.4.1+ refuses amplification, and an external entity is undefined
+    except ET.ParseError as e:
+        msg = f"{url}: HTTP {r.status_code}, {len(r.content)} bytes, not XML: {e}"
+        raise PortalError(msg) from None
+    if root.tag == f"{{{CSW_NS['ows']}}}ExceptionReport":
+        exc = root.find("ows:Exception", CSW_NS)
+        code = exc.get("exceptionCode", "") if exc is not None else ""
+        msg = f"{url}: CSW exception {code} {_csw_text(root)[:200]}".strip()
+        raise PortalError(msg)
+    return root
+
+
+def csw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    """A GeoNetwork catalogue, paged through CSW 2.0.2 GetRecords in ISO 19139."""
+    out: list[Record] = []
+    start, read, first = 1, 0, 0
+    while True:
+        res = _csw_page(s, portal.api, start).find("csw:SearchResults", CSW_NS)
+        if res is None:
+            msg = f"{portal.api}: GetRecords answered without SearchResults"
+            raise PortalError(msg)
+        total = int(res.get("numberOfRecordsMatched") or 0)
+        batch = res.findall("gmd:MD_Metadata", CSW_NS)
+        first = first or total
+        read += len(batch)
+        if not batch and start - 1 < total:
+            msg = f"{portal.api}: the page at {start} is empty of {total} records"
+            raise PortalError(msg)
+        out += [r for m in batch if (r := _csw_record(portal, m))]
+        nxt = int(res.get("nextRecord") or 0)
+        log(f"catalogue {portal.code}: {start - 1 + len(batch)}/{total}")
+        if not batch or nxt == 0 or nxt > total:
+            break
+        if nxt <= start:
+            msg = f"{portal.api}: nextRecord {nxt} does not move past {start}"
+            raise PortalError(msg)
+        start = nxt
+    # A short or empty read would list the records it missed as withdrawn. Records removed while
+    # a long harvest runs are allowed for, up to 1 in 100.
+    if not read or read < first * 0.99:
+        msg = f"{portal.api}: read {read} of the {first} records the search matched"
+        raise PortalError(msg)
+    return out, 0
+
+
+HARVESTERS = {
+    "ckan": ckan,
+    "socrata": socrata,
+    "sdmx": sdmx,
+    "ods": ods,
+    "hub": hub,
+    "dap": dap,
+    "aihw": aihw,
+    "csw": csw,
+}
 
 
 def harvest(
@@ -895,22 +1961,29 @@ def harvest(
     """A portal that cannot be read keeps its records from the previous snapshot.
 
     The stats say so, so an outage never reads as datasets withdrawn. With no previous snapshot
-    its records are absent and the stats say it was not read.
+    its records are absent and the stats say it was not read. A previous version whose snapshot
+    is not in the store stops the harvest before any portal is read.
     """
+    if previous is None and previous_version:
+        # Without it a portal's records cannot be kept and every carried copy would be dropped.
+        msg = (
+            f"the {previous_version} snapshot is not in the store to carry its records and "
+            "copies forward; run `publicdata store pull --only catalogue`"
+        )
+        raise PortalError(msg)
     s = requests.Session()
     s.headers["User-Agent"] = UA
     records: list[Record] = []
+    copies: list[Record] = []
     stats: dict[str, PortalStats] = {}
     for p in portals:
         try:
-            recs, dropped = HARVESTERS[p.kind](p, s, log)
+            # Only the DAP reader reuses earlier answers, so only it is given the last records.
+            if p.kind == "dap":
+                recs, dropped = dap(p, s, log, [r for r in previous or [] if r["portal"] == p.code])
+            else:
+                recs, dropped = HARVESTERS[p.kind](p, s, log)
         except (requests.RequestException, PortalError, KeyError, ValueError, TypeError) as e:
-            if previous is None and previous_version:
-                msg = (
-                    f"{p.host} could not be read and the {previous_version} snapshot is not in the "
-                    "store to carry its records forward; run `publicdata store pull --only catalogue`"
-                )
-                raise PortalError(msg) from e
             kept = [r for r in previous or [] if r["portal"] == p.code]
             records += kept
             stats[p.code] = {
@@ -922,51 +1995,205 @@ def harvest(
                 f"catalogue: {p.host} could not be read; {len(kept)} records kept from {previous_version or 'no earlier snapshot'}: {e}"
             )
             continue
+        copies += [r for r in recs if "copy_of" in r]
+        recs = [r for r in recs if "copy_of" not in r]
         records += recs
         stats[p.code] = {"records": len(recs), "dropped_duplicates": dropped}
-    records = _drop_copies(records, portals, stats)
+    copies = _keep_unmatched(records, copies, stats)
+    items: dict[str, str] = {}
+    have = {r["portal"] for r in records}
+    for p in portals:
+        # The copies sit on another portal, so they are read only when that portal was too.
+        if (
+            not p.copied_by
+            or p.code not in have
+            or not {o.split(":")[0] for o in p.copied_by} <= have
+        ):
+            continue
+        try:
+            items |= copied_items(p, s, log)
+        except (requests.RequestException, PortalError, KeyError, ValueError, TypeError) as e:
+            log(f"catalogue {p.code}: copies matched on title only: {e}")
+    moved: dict[str, str] = {}
+    kept = _drop_copies(records, portals, stats, moved, items)
+    pages = {r["id"]: r["url"] for r in records + copies if r.get("url")}
+    records = kept
     seen: set[str] = set()
     unique: list[Record] = []
     for r in sorted(records, key=lambda r: r["id"]):
         if r["id"] not in seen:
             seen.add(r["id"])
             unique.append(r)
-    return unique, stats
+    return _carry(unique, copies, moved, previous or [], pages), stats
 
 
 def _title_key(title: str) -> str:
     return re.sub(r"[^a-z0-9]", "", title.lower())
 
 
-def _drop_copies(
-    records: list[Record], portals: Iterable[Portal], stats: dict[str, PortalStats]
-) -> list[Record]:
-    """Drop the copies of records that a council portal now lists itself.
+def named_copy(p: Portal, name: str) -> str:
+    """The id of the record on p that a copy named `name` reproduces, when its name says, or ''."""
+    m = re.fullmatch(p.copy_name, name) if p.copy_name else None
+    return record_id(p.code, m[1]) if m else ""
 
-    A record in an organisation a council portal replaces is dropped when the council portal
-    lists the same title or the record's source is on the council portal. Anything else that
-    organisation holds is kept, since it may come from somewhere the council portal does not.
+
+def _drop_copies(  # noqa: C901 - one rule per way a portal names its copies
+    records: list[Record],
+    portals: Iterable[Portal],
+    stats: dict[str, PortalStats],
+    moved: dict[str, str] | None = None,
+    items: Mapping[str, str] | None = None,
+) -> list[Record]:
+    """Drop the copies of records that a portal read directly now lists itself.
+
+    A record in an organisation a portal replaces is a copy. When its name carries the id of a
+    record on that portal, it is dropped if that record is listed and kept if not. Otherwise it
+    is dropped when the portal lists the same title or the record's source is on the portal.
+    Anything else that organisation holds is kept, since it may come from somewhere the portal
+    does not. A dropped copy goes into `moved`, mapped to the record its name carries or else to
+    the one record on the portal with its title.
+    A record in an organisation that a portal is `copied_by` is dropped when `items` maps it to
+    a record on the portal, or else when its title names one; one that matches nothing is kept
+    and counted as unmatched.
     """
+    ids = {r["id"] for r in records}
     have = {r["portal"] for r in records}
-    scope = {o: p for p in portals if p.code in have for o in p.replaces}
+    live = [p for p in portals if p.code in have]
+    scope = {o: p for p in live for o in (*p.replaces, *p.copied_by)}
+    whole = {o for p in live for o in p.copied_by}
     if not scope:
         return records
-    titles: dict[str, set[str]] = {}
+    titles: dict[str, dict[str, list[str]]] = {}
     for r in records:
         if r["portal"] in {p.code for p in scope.values()}:
-            titles.setdefault(r["portal"], set()).add(_title_key(r["title"]))
+            titles.setdefault(r["portal"], {}).setdefault(_title_key(r["title"]), []).append(
+                r["id"]
+            )
     kept: list[Record] = []
     for r in records:
-        p = scope.get(f"{r['portal']}:{r['org'] or 'unknown'}")
-        if p and (
-            _title_key(r["title"]) in titles.get(p.code, ())
-            or r.get("source_host") == p.host.removeprefix("www.")
-        ):
+        org = f"{r['portal']}:{r['org'] or 'unknown'}"
+        p = scope.get(org)
+        if org in whole and p:
+            st = stats.setdefault(r["portal"], {})
+            same = titles.get(p.code, {}).get(_title_key(r["title"]), [])
+            to = (items or {}).get(r["id"], "")
+            to = to if to in ids else same[0] if len(same) == 1 else ""
+            if not to:
+                st["unmatched_copies"] = st.get("unmatched_copies", 0) + 1
+                kept.append(r)
+                continue
+            st["dropped_duplicates"] = st.get("dropped_duplicates", 0) + 1
+            if moved is not None:
+                moved[r["id"]] = to
+            continue
+        named = named_copy(p, r["name"]) if p else ""
+        same = [] if named or not p else titles.get(p.code, {}).get(_title_key(r["title"]), [])
+        if named and named not in ids:
+            kept.append(r)
+            continue
+        if p and (named or same or r.get("source_host") == p.host.removeprefix("www.")):
             st = stats.setdefault(r["portal"], {})
             st["dropped_duplicates"] = st.get("dropped_duplicates", 0) + 1
+            if moved is not None and (named or len(same) == 1):
+                moved[r["id"]] = named or same[0]
             continue
         kept.append(r)
     return kept
+
+
+def bare_url(url: str) -> str:
+    """A URL as host and path, which is how two portals' links to one page compare.
+
+    A GeoNetwork record page keeps what names the record: its uuid parameter, or a fragment
+    route such as #/metadata/<id>.
+    """
+    u = urlparse(url.strip())
+    out = (u.hostname or "").removeprefix("www.") + u.path.rstrip("/")
+    if uuid := parse_qs(u.query).get("uuid"):
+        out += f"?uuid={uuid[0]}"
+    return out + (f"#{u.fragment}" if u.fragment.startswith("/") else "")
+
+
+def _original(dup: Record, by_url: Mapping[str, str], live: Container[str]) -> str:
+    """The id of the record a data.gov.au copy was harvested from, or "".
+
+    The copy names the original's page, and CKAN's harvester keeps the original's package id.
+    The portal the id is looked up on is the page's, or else the harvest source's.
+    """
+    href = dup.get("copy_of", "")
+    if href and bare_url(href) in by_url:
+        return by_url[bare_url(href)]
+    hosts = ((urlparse(href).hostname or ""), dup.get("harvested_from", ""))
+    code = next((c for h in hosts if (c := PORTAL_BY_HOST.get(h.removeprefix("www.")))), "")
+    if not code:
+        return ""
+    same = record_id(code, dup["id"].split("-", 1)[1])
+    return same if same in live else ""
+
+
+def _keep_unmatched(
+    records: list[Record], copies: list[Record], stats: dict[str, PortalStats]
+) -> list[Record]:
+    """Return data.nsw's copies whose original is no longer listed to its records; the rest go on.
+
+    Such a copy is the only listing left. data.gov.au's copies with no match are still dropped.
+    """
+    live = {r["id"] for r in records}
+    by_url = {bare_url(r["url"]): r["id"] for r in records if r.get("url")}
+    rest: list[Record] = []
+    for c in copies:
+        if c["portal"] == "gov" or _original(c, by_url, live):
+            rest.append(c)
+            continue
+        del c["copy_of"]
+        records.append(c)
+        st = stats.setdefault(c["portal"], {})
+        st["records"] = st.get("records", 0) + 1
+        st["dropped_duplicates"] = st.get("dropped_duplicates", 0) - 1
+    return rest
+
+
+def _carry(
+    records: list[Record],
+    copies: list[Record],
+    moved: dict[str, str],
+    previous: list[Record],
+    pages: Mapping[str, str] | None = None,
+) -> list[Record]:
+    """Give each record the ids of the copies it replaced, so their votes and issues follow it.
+
+    A copy with no original found is dropped and left out. A record keeps the copies it replaced
+    in earlier snapshots, since a portal that cannot be read this time has no copies to match.
+    `pages` holds the page of each record harvested, by id, so a copy's page is kept beside it.
+    """
+    live = {r["id"] for r in records}
+    by_url = {bare_url(r["url"]): r["id"] for r in records if r.get("url")}
+    to: dict[str, str] = {c: r["id"] for r in previous for c in r.get("copies", [])}
+    page = {c: u for r in previous for c, u in r.get("copy_pages", {}).items()}
+    page |= {c: u for c, u in (pages or {}).items() if c not in live}
+    to |= moved
+    # An original that was itself dropped as a copy is followed on below.
+    known = live | to.keys()
+    for dup in copies:
+        if found := _original(dup, by_url, known):
+            to[dup["id"]] = found
+    by_target: dict[str, list[str]] = {}
+    for c, first in to.items():
+        t, seen = first, {c}
+        # A record that is itself replaced passes its copies on.
+        while t not in live and t in to and t not in seen:
+            seen.add(t)
+            t = to[t]
+        if c not in live and t in live:
+            by_target.setdefault(t, []).append(c)
+    for r in records:
+        r.pop("copies", None)
+        r.pop("copy_pages", None)
+        if r["id"] in by_target:
+            r["copies"] = sorted(by_target[r["id"]])
+            if found_pages := {c: page[c] for c in r["copies"] if c in page}:
+                r["copy_pages"] = found_pages
+    return records
 
 
 def encode(records: Iterable[Record]) -> bytes:

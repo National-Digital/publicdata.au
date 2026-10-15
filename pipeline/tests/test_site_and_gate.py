@@ -238,7 +238,12 @@ def test_full_fixture_build_passes_gate(  # noqa: PLR0915 - one fixture build, c
     # The header searches the whole catalogue; the phone header collapses the site links.
     assert 'class="search" action="/backlog/"' in home
     assert 'class="menu"' in home
-    assert '<div class="ttile empty">' in home
+    assert '<li class="ttile empty">' in home
+    # A tile names its portals only when it has some, and a note names its format once.
+    assert "The counts come from ." not in home
+    notes = [p.read_text(encoding="utf-8") for p in (out / "d").glob("*/v/*/index.html")]
+    assert any('<span class="fnote">GeoParquet: ' in n for n in notes)
+    assert not any(re.search(r"(\w+): \1: |Parquet: GeoParquet", n) for n in notes)
     assert 'class="vote small"' in home
     assert re.search(r'class="ticker">In the week to \d+ \w+ \d{4}, ', home)
     assert "<span>publishers</span>" in home

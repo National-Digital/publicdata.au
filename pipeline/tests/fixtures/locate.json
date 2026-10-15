@@ -10,5 +10,7 @@
   {"url": "https://explore.data.abs.gov.au/vis?df[ds]=ABS_ABS_TOPICS&df[id]=CPI&df[ag]=ABS", "expect": ["data.api.abs.gov.au", "source", "CPI"]},
   {"url": "https://data.api.abs.gov.au/rest/data/ABS,BIRTHS_SUMMARY,1.0.0/all?format=csvfilewithlabels", "expect": ["data.api.abs.gov.au", "source", "BIRTHS_SUMMARY"]},
   {"url": "https://www.example.gov.au/reports/", "expect": ["example.gov.au", "url", "example.gov.au/reports"]},
-  {"url": "not a url", "expect": null}
+  {"url": "not a url", "expect": null},
+  {"url": "https://data.thelist.tas.gov.au/datagn/srv/eng/metadata.show?uuid=008d8ecd-6451-4172-9b89-c0f70109dd04", "expect": ["data.thelist.tas.gov.au", "source", "008d8ecd-6451-4172-9b89-c0f70109dd04"]},
+  {"url": "https://ecat.ga.gov.au/geonetwork/srv/eng/catalog.search#/metadata/148759", "expect": ["ecat.ga.gov.au", "source", "148759"]}
 ]

@@ -1,0 +1,23 @@
+{
+ "id": {
+  "identifierType": "Fedora PID",
+  "identifier": "csiro:60405"
+ },
+ "dataCollectionId": 77136,
+ "self": "https://data.csiro.au/dap/ws/v2/collections/77136",
+ "landingPage": {
+  "relationship": "alternate",
+  "mediaType": "text/html",
+  "href": "https://data.csiro.au/collection/csiro:60405",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "title": "Hourly near-surface air temperature grids for Australia",
+ "licence": "Creative Commons Attribution-ShareAlike 4.0 International Licence",
+ "published": "2026-10-14T09:43:57.358+11:00",
+ "dataRestricted": "FALSE",
+ "accessLevel": "Public",
+ "access": "The metadata and files (if any) are available to the public.",
+ "fileCount": 0,
+ "dataVersionNumber": 5
+}
