@@ -417,6 +417,14 @@ PORTALS = (
         copied_by=("gov:act-government-geospatial-data-catalogue",),
     ),
     Portal("atlas", "digital.atlas.gov.au", "https://digital.atlas.gov.au", "cth", "hub"),
+    Portal(
+        "dcceew",
+        "fed.dcceew.gov.au",
+        "https://fed.dcceew.gov.au",
+        "cth",
+        "hub",
+        "Department of Climate Change, Energy, the Environment and Water",
+    ),
     # Councils with a portal of their own. One that data.gov.au or its state portal already lists
     # in full is left to that copy.
     _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", replaces=["qld:brisbane-city-council"]),
@@ -997,6 +1005,12 @@ HUB_WITHHELD = re.compile(
     r"|\bmay not be (?:re)?distributed\b",
     re.IGNORECASE,
 )
+# Terms that withhold commercial use or changes, whatever licence id is stated beside them.
+HUB_RESTRICTED_TERMS = re.compile(
+    r"creativecommons\.org(?::\d+)?/licenses/[a-z-]*\b(nc|nd)\b|not for commercial use"
+    r"|non-?commercial|no[ -]?derivative",
+    re.IGNORECASE,
+)
 _HUB_CC = (
     r"(?:creative commons(?: by)? attribution|cc[- ]by)"
     r"(?:[- ](?:non[- ]?commercial|nc|no[- ]?derivatives?|nd|share[- ]?alike|sa))*"
@@ -1019,9 +1033,11 @@ def _hub_stated_licence(x: HubItem) -> tuple[str, str]:
     lic = (x.get("license") or "").strip()
     raw = x.get("licenseInfo") or ""
     text = summary(raw)
-    if lic.lower() not in ("", "none", "custom"):
-        return licence_id(lic), text or lic
     found = cc_url(raw)
+    if lic.lower() not in ("", "none", "custom"):
+        named = licence_id(lic)
+        # Hub's licence list has no Australian ports, so the deed in the terms says which is meant.
+        return (found if found == f"{named}-AU" else named), text or lic
     if found or lic.lower() in ("", "none"):
         return found, text
     full = plain_text(raw)
@@ -1035,9 +1051,10 @@ def _hub_stated_licence(x: HubItem) -> tuple[str, str]:
 
 
 def hub_licence(x: HubItem) -> tuple[str, str]:
-    """The stated licence, held as custom when the terms grant it for only some of the data."""
+    """The stated licence, held as custom when the terms restrict it or cover only some data."""
     lid, text = _hub_stated_licence(x)
-    if is_open(lid) and HEDGED_TERMS.search(plain_text(x.get("licenseInfo") or "")):
+    raw = x.get("licenseInfo") or ""
+    if is_open(lid) and (HUB_RESTRICTED_TERMS.search(raw) or HEDGED_TERMS.search(plain_text(raw))):
         return "custom", text
     return lid, text
 

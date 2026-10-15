@@ -62,6 +62,7 @@
   orgs:
   - gov:dcceew
   - atlas:department-of-climate-change-energy-the-environment-and-water
+  - dcceew:dcceew
 - slug: australian-institute-of-health-and-welfare
   name: Australian Institute of Health and Welfare
   short: AIHW

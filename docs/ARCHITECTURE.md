@@ -1099,7 +1099,9 @@ holder and a year, and such a citation is read as one statement. A restriction o
 code outside a short list of codes that add no terms holds a record for review. A security marking
 that says only "unclassified" under the Australian Government Security Classification System states
 no terms. data.gov.au's copies of theLIST and eCat are replaced by title, since its search index
-drops their harvest source. A copy whose title the source does not list is kept. Each record is
+drops their harvest source. A copy whose title the source does not list is kept. The Department
+of Climate Change, Energy, the Environment and Water's ArcGIS Hub is read like a council's Hub
+site, and every record on it is that department's. Each record is
 re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as an
 SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
 nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so the
