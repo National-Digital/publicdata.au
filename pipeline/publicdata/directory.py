@@ -286,6 +286,10 @@ def plan(
     by_url = {_bare(r["url"]): r for r in records if r.get("url")}
     # A copy's page leads to the record that replaced it, so an entry that named the copy keeps it.
     by_copy = {_bare(u): r for r in records for u in r.get("copy_pages", {}).values()}
+    # A record that lists its files, with its own address, which a data page sits under.
+    # A report's own page wins over another report that lists the page as a file.
+    by_file = {_bare(u): r for r in records if "files" in r for u in r["files"]}
+    by_file |= {_bare(r["url"]): r for r in records if "files" in r}
     for ds in datasets:
         d.ds_pub[ds.slug] = for_dataset(ds, pubs, by_org, by_name, portal_by_host)
         host = (ds.source.portal or "").split("://")[-1].removeprefix("www.").split("/")[0]
@@ -297,12 +301,17 @@ def plan(
         if ds.status in ("live", "building"):
             # A record named by its id in the source URL; a bare URL is too loose to mark served.
             rec = rec or find(ds.source.url, by_name, by_id, {}, portal_by_host)
+            # A file's address names the one record that lists it.
+            src = _bare(ds.source.url or "")
+            rec = rec or by_file.get(src) or by_file.get(src.removesuffix("/data"))
         if rec and ds.status in ("live", "building"):
             d.served.setdefault(
                 rec["id"], f"/c/{ds.collection}/" if ds.collection else f"/d/{ds.slug}/"
             )
         elif ds.status in ("backlog", "assessing", "blocked"):
             rec = rec or find(ds.source.url, by_name, by_id, by_url, portal_by_host)
+            src = _bare(ds.source.url or "")
+            rec = rec or by_file.get(src) or by_file.get(src.removesuffix("/data"))
             if rec:
                 d.chosen.setdefault(rec["id"], ds.slug)
     for r in records:

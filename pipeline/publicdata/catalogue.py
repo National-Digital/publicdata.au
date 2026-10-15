@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Container, Iterable, Mapping, Sequence
     from pathlib import Path
 
-    from .jsontypes import JSON
+    from .jsontypes import JSON, JSONObject
     from .store import PortalStats
 
     type Log = Callable[[str], object]
@@ -75,6 +75,7 @@ class Record(_Fields):
     formats: list[str]
     downloadable: bool
     source_host: NotRequired[str]
+    files: NotRequired[list[str]]
     # The ids of the copies on other portals this record replaced, so their votes are its votes.
     copies: NotRequired[list[str]]
     # Each of those copies' pages, so a register entry that named a copy finds this record.
@@ -271,15 +272,36 @@ class _DapDetail(TypedDict, total=False):
     access: str | None
 
 
+class AihwResource(TypedDict, total=False):
+    """One file or link in the AIHW's list of downloadable resources."""
+
+    resultTitle: str | None
+    resultUrl: str  # null on a few live rows, which aihw() skips
+    resultDateTimeFormatted: str | None
+    resultDescription: str | None
+    resultFileType: str | None
+    relatedReportTitle: str | None
+    relatedReportUrl: str | None
+    schemaLicenseUrl: str | None
+    schemaDescription: str | None
+
+
+class _AihwPage(TypedDict):
+    results: list[AihwResource]
+    totalResults: int
+
+
 class _Headers(TypedDict, total=False):
     headers: dict[str, str]
 
 
 class _GetOptions(_Headers, total=False):
     timeout: float
+    body: JSONObject
 
 
 UA = "publicdata.au catalogue (+https://publicdata.au/about/)"
+AIHW_LISTING = "https://www.aihw.gov.au/api/search/all-downloadable-resources"
 SLUG = "catalogue"
 FILENAME = "catalogue.ndjson.gz"
 
@@ -343,6 +365,15 @@ PORTALS = (
         "CSIRO",
         ("gov:csiro-data-access-portal",),
         r"fedora-pid_csiro-(.+)",
+    ),
+    Portal(
+        "aihw",
+        "www.aihw.gov.au",
+        AIHW_LISTING,
+        "cth",
+        "aihw",
+        "Australian Institute of Health and Welfare",
+        ("gov:aihw",),
     ),
     # Councils with a portal of their own. One that data.gov.au or its state portal already lists
     # in full is left to that copy.
@@ -412,11 +443,19 @@ def _get(
     params: Params | None = None,
     *,
     timeout: float = 180,
+    body: JSONObject | None = None,
     **kw: Unpack[_Headers],
 ) -> requests.Response:
+    if params is not None and body is not None:
+        msg = f"{url}: a request takes query parameters or a JSON body, not both"
+        raise TypeError(msg)
     for attempt in range(GET_ATTEMPTS):
         try:
-            r = s.get(url, params=params, timeout=timeout, **kw)
+            r = (
+                s.post(url, json=body, timeout=timeout, **kw)
+                if body is not None
+                else s.get(url, params=params, timeout=timeout, **kw)
+            )
             if (
                 r.status_code < HTTPStatus.INTERNAL_SERVER_ERROR
                 and r.status_code != HTTPStatus.TOO_MANY_REQUESTS
@@ -1151,7 +1190,164 @@ def dap(
     return out, 0
 
 
-HARVESTERS = {"ckan": ckan, "socrata": socrata, "sdmx": sdmx, "ods": ods, "hub": hub, "dap": dap}
+# The listing answers no more than this many resources a page, whatever it is asked for.
+AIHW_PAGE_SIZE = 50
+# What record_id keeps of a source id after "aihw-".
+AIHW_KEY_CHARS = 59
+AIHW_HOSTS = {"www.aihw.gov.au", "aihw.gov.au"}
+AIHW_LICENCE = ("CC-BY-4.0", "Creative Commons Attribution 4.0 International")
+# Words by which a resource sets its own terms apart from the copyright page's licence.
+AIHW_OTHER_TERMS = re.compile(
+    r"third[- ]party|copyright|©|all rights reserved|not (?:be )?licen[cs]ed|permission"
+    r"|terms of use|restricted",
+    re.IGNORECASE,
+)
+# Path segments that name a part of a report rather than the report.
+AIHW_GENERIC = {
+    "about", "appendix", "contents", "data", "data-downloads", "data-tables", "download",
+    "download-data", "download-data-tables", "downloads", "index", "notes", "overview", "report",
+    "reports", "resources", "summary", "technical-notes", "web-report",
+}  # fmt: skip
+
+
+def aihw_terms(x: AihwResource) -> tuple[str, str]:
+    """The licence one AIHW resource is under.
+
+    The copyright page (https://www.aihw.gov.au/copyright) releases the Institute's material under
+    CC BY 4.0, except third-party material, so only a file on the Institute's own site takes it. A
+    resource that names another licence or mentions other terms is kept as it states them, so it
+    is never marked open, and one hosted elsewhere states no licence.
+    """
+    url = (x.get("schemaLicenseUrl") or "").strip()
+    if url and cc_url(url) != AIHW_LICENCE[0]:
+        return cc_url(url) or url, url
+    said = (x.get("resultTitle"), x.get("resultDescription"), x.get("schemaDescription"))
+    words = " ".join(w for w in said if w)
+    if AIHW_OTHER_TERMS.search(words):
+        text = summary(words)
+        return text, text
+    if (urlparse(_aihw_url(x["resultUrl"])).hostname or "") not in AIHW_HOSTS:
+        return "", ""
+    return AIHW_LICENCE
+
+
+def _aihw_url(path: str) -> str:
+    return "https://www.aihw.gov.au" + path if path.startswith("/") else path
+
+
+def _aihw_rank(term: tuple[str, str]) -> tuple[bool, bool, bool]:
+    """Orders a report's terms so the least open comes first and the default last.
+
+    A stated licence that is not open comes before no licence at all.
+    """
+    return is_open(term[0]) is True, not term[0], term == AIHW_LICENCE
+
+
+def _aihw_id(url: str) -> str:
+    """A file's media id, or a report's last path segment with its parents while it is generic.
+
+    Two reports under one slug in different topics are the same report listed twice and share
+    the id. A file on another site has that site's host in front. A key too long for a vote key
+    keeps its start and a hash of the key as record_id folds it.
+    """
+    u = urlparse(url)
+    parts = [p for p in u.path.split("/") if p] or [url]
+    if parts[0] == "getmedia" and len(parts) > 1:
+        key = parts[1]
+    else:
+        i = len(parts) - 1
+        while i > 0 and parts[i].lower() in AIHW_GENERIC:
+            i -= 1
+        key = "-".join(parts[i:])
+    host = (u.hostname or "").lower()
+    if host and host not in AIHW_HOSTS:
+        key = f"{host}-{key}"
+    if len(key) > AIHW_KEY_CHARS:
+        folded = re.sub(r"[^a-z0-9-]+", "-", key.lower()).strip("-")
+        key = f"{key[: AIHW_KEY_CHARS - 9]}-{hashlib.sha256(folded.encode()).hexdigest()[:8]}"
+    return key
+
+
+def aihw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    """The AIHW's data downloads, one record per report with the files it lists.
+
+    A file that names no report is a record of its own, at the file's address. A report with no
+    file in a format we can read, such as a PDF publication, is left out.
+    """
+    groups: dict[str, dict[str, AihwResource]] = {}
+    keys: dict[str, str] = {}
+    n, page = 0, 1
+    while True:
+        res = get_json_as(
+            _AihwPage,
+            s,
+            portal.api,
+            body={"itemsPerPage": AIHW_PAGE_SIZE, "page": page, "showReportLink": True},
+            headers={"Accept": "application/json"},
+        )
+        batch = res["results"]
+        if not batch and n < res["totalResults"]:
+            msg = f"{portal.host}: page {page} is empty at {n} of {res['totalResults']} resources"
+            raise PortalError(msg)
+        for x in batch:
+            # A resource with no file address is a link to nothing we can download.
+            if not x.get("resultUrl"):
+                continue
+            url = _aihw_url(x.get("relatedReportUrl") or x["resultUrl"])
+            # Paging by number can repeat a file when the list changes between pages.
+            key = _aihw_id(url)
+            # Keys that differ only in what record_id folds are one record.
+            rid = record_id(portal.code, key)
+            groups.setdefault(rid, {}).setdefault(x["resultUrl"], x)
+            keys[rid] = min(keys.get(rid, key), key)
+        n += len(batch)
+        log(f"catalogue {portal.code}: {n}/{res['totalResults']}")
+        if n >= res["totalResults"]:
+            break
+        page += 1
+    out: list[Record] = []
+    for rid, by_file in sorted(groups.items()):
+        key = keys[rid]
+        files = [by_file[u] for u in sorted(by_file)]
+        fmts = formats(x.get("resultFileType") for x in files if x.get("resultFileType"))
+        if not set(fmts) & DOWNLOADABLE:
+            continue
+        lic, lic_title = min((aihw_terms(x) for x in files), key=_aihw_rank)
+        days = sorted(d for x in files if (d := _day(x.get("resultDateTimeFormatted"))))
+        url = min(_aihw_url(x.get("relatedReportUrl") or x["resultUrl"]) for x in files)
+        first = next(
+            x for x in files if _aihw_url(x.get("relatedReportUrl") or x["resultUrl"]) == url
+        )
+        title = first.get("relatedReportTitle") or first.get("resultTitle") or url
+        about = next((x.get("resultDescription") for x in files if x.get("resultDescription")), "")
+        rec = _council_record(
+            portal,
+            source_id=key,
+            name=key,
+            title=re.sub(r"\s+", " ", title).strip(),
+            licence=lic,
+            licence_title=lic_title,
+            formats=fmts,
+            created=days[0] if days else "",
+            modified=days[-1] if days else "",
+            url=url,
+            summary=summary(about or "; ".join(x.get("resultTitle") or "" for x in files)),
+        )
+        # The files' addresses, so a register entry fetching one marks this record served.
+        rec["files"] = [_aihw_url(x["resultUrl"]) for x in files]
+        out.append(cast("Record", dict(sorted(rec.items()))))
+    return out, 0
+
+
+HARVESTERS = {
+    "ckan": ckan,
+    "socrata": socrata,
+    "sdmx": sdmx,
+    "ods": ods,
+    "hub": hub,
+    "dap": dap,
+    "aihw": aihw,
+}
 
 
 def harvest(
