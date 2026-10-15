@@ -1,0 +1,90 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<csw:GetRecordsResponse xmlns:csw="http://www.opengis.net/cat/csw/2.0.2" xmlns:gco="http://www.isotc211.org/2005/gco" xmlns:gmd="http://www.isotc211.org/2005/gmd">
+  <csw:SearchStatus timestamp="2026-10-14T18:43:37" />
+  <csw:SearchResults numberOfRecordsMatched="4" numberOfRecordsReturned="1" elementSet="full" nextRecord="0">
+    <gmd:MD_Metadata>
+      <gmd:fileIdentifier>
+        <gco:CharacterString>82672705-a032-4dbe-887d-576dc70c5012</gco:CharacterString>
+      </gmd:fileIdentifier>
+      <gmd:identificationInfo>
+        <gmd:MD_DataIdentification>
+          <gmd:citation>
+            <gmd:CI_Citation>
+              <gmd:title>
+                <gco:CharacterString>Sewer Points - Launceston City Council Detail Survey Database</gco:CharacterString>
+              </gmd:title>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://asdd.ga.gov.au/asdd/profileinfo/gmxCodelists.xml#CI_DateTypeCode" codeListValue="creation" />
+                  </gmd:dateType>
+                  <gmd:date>
+                    <gco:Date>2002-06-28</gco:Date>
+                  </gmd:date>
+                </gmd:CI_Date>
+              </gmd:date>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://asdd.ga.gov.au/asdd/profileinfo/gmxCodelists.xml#CI_DateTypeCode" codeListValue="publication" />
+                  </gmd:dateType>
+                  <gmd:date>
+                    <gco:Date>2002-06-28</gco:Date>
+                  </gmd:date>
+                </gmd:CI_Date>
+              </gmd:date>
+              <gmd:date>
+                <gmd:CI_Date>
+                  <gmd:dateType>
+                    <gmd:CI_DateTypeCode codeList="http://asdd.ga.gov.au/asdd/profileinfo/gmxCodelists.xml#CI_DateTypeCode" codeListValue="revision" />
+                  </gmd:dateType>
+                  <gmd:date>
+                    <gco:Date>2002-06-28</gco:Date>
+                  </gmd:date>
+                </gmd:CI_Date>
+              </gmd:date>
+            </gmd:CI_Citation>
+          </gmd:citation>
+          <gmd:abstract>
+            <gco:CharacterString>The Sewer Points dataset forms part of the Launceston City Council Detail Survey Database (LCC DSDB). The purpose of this dataset is to give a general indication of LCC maintained sewer points. The data has been compiled over a number of years and has been based upon the hand digitising (1:500 hardcopy plans), aerial photogrammety (1:5000 aerial photographs) and field survey work for the Sewer Line data.
+
+The sewer point dataset can be directly related to the sewer line dataset that is also avialable. Other datasets included in the LCC DSDB are buildings, drainage, fences, pavement, stormwater lines, stormwater points, water lines and water points.</gco:CharacterString>
+          </gmd:abstract>
+          <gmd:pointOfContact>
+            <gmd:CI_ResponsibleParty>
+              <gmd:role>
+                <gmd:CI_RoleCode codeList="http://asdd.ga.gov.au/asdd/profileinfo/gmxCodelists.xml#CI_RoleCode" codeListValue="custodian" />
+              </gmd:role>
+              <gmd:organisationName>
+                <gco:CharacterString>Launceston City Council</gco:CharacterString>
+              </gmd:organisationName>
+            </gmd:CI_ResponsibleParty>
+          </gmd:pointOfContact>
+        </gmd:MD_DataIdentification>
+      </gmd:identificationInfo>
+      <gmd:metadataConstraints>
+        <gmd:MD_LegalConstraints>
+          <gmd:useLimitation>
+            <gco:CharacterString>Other</gco:CharacterString>
+          </gmd:useLimitation>
+          <gmd:useLimitation>
+            <gco:CharacterString>The Detail Survey Data Base be made available on the basis that each client be subject to a licensing agreement. Charges apply and can be outlined upon request.</gco:CharacterString>
+          </gmd:useLimitation>
+        </gmd:MD_LegalConstraints>
+      </gmd:metadataConstraints>
+      <gmd:dateStamp>
+        <gco:DateTime>Fri Dec 20 09:24:14 EST 2013</gco:DateTime>
+      </gmd:dateStamp>
+      <gmd:contact>
+        <gmd:CI_ResponsibleParty>
+          <gmd:role>
+            <gmd:CI_RoleCode codeList="http://asdd.ga.gov.au/asdd/profileinfo/gmxCodelists.xml#CI_RoleCode" codeListValue="author" />
+          </gmd:role>
+          <gmd:organisationName>
+            <gco:CharacterString>Launceston City Council</gco:CharacterString>
+          </gmd:organisationName>
+        </gmd:CI_ResponsibleParty>
+      </gmd:contact>
+    </gmd:MD_Metadata>
+  </csw:SearchResults>
+</csw:GetRecordsResponse>

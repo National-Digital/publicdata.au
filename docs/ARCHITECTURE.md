@@ -1082,11 +1082,20 @@ collection is downloadable when its full record offers the public at least one f
 is read once for each version of an open, unrestricted data collection, and again once an embargo it
 states has ended, at most 2,000 in one harvest. A collection whose full record has never been read
 is not downloadable. One due a reread past that cap, or whose full record cannot be read, keeps its
-earlier answer until it is read. Tasmania has no portal; its agencies publish on data.gov.au. Each
-record is re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it
-and as an SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary)
-and nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so
-the original is the only copy; records it harvested from elsewhere, such as the ocean and geoscience
+earlier answer until it is read. Tasmania has no CKAN portal. theLIST, the Tasmanian Government's
+spatial catalogue, is a GeoNetwork catalogue read over CSW 2.0.2 in ISO 19139, 100 records a page.
+A page that comes back empty before the match count is reached fails the read.
+Each of its records names its own custodian as publisher. Its licence is read from the record's
+constraints. A record has a licence when its statements are one known wording or one Creative
+Commons deed URL, with nothing beside them but a label such as "Other". theLIST writes the data
+licence in the metadata constraints, which are read only when a record has no resource
+constraints. Any other statement holds the record as `assessing`, which is not open.
+data.gov.au's copies of theLIST are replaced by title, since its search index drops their harvest
+source. Other Tasmanian agencies publish on data.gov.au. Each record is
+re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as an
+SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
+nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so the
+original is the only copy; records it harvested from elsewhere, such as the ocean and geoscience
 catalogues, are kept and name their origin. data.nsw.gov.au names the page it copied a record from
 in `harvest_url`. A record it copied from SEED or another CKAN portal read here is dropped in the
 same way when that portal still lists the original, and kept as data.nsw's own when it does not. Its
@@ -1141,7 +1150,9 @@ live register entry that fetches one of a report's files, or its data page, mark
 record served, and a planned entry that fetches one claims the record for its votes.
 
 Record ids are the portal code plus the portal's own stable id (CKAN package UUID, Socrata
-four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id, Data Access Portal collection PID, AIHW report path or media id), so they survive renames and serve as vote keys. The snapshot is
+four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id, Data Access Portal
+collection PID, AIHW report path or media id, ISO file identifier), so they survive renames and
+serve as vote keys. The snapshot is
 one gzipped NDJSON file sorted by id and stored like a source at `store/catalogue/<date>/`; the
 weekly harvest, a workflow of its own so a slow portal never holds up a dataset, writes a new version only when the bytes change, and builds pull only the newest. A portal that cannot be read keeps
 its records from the latest snapshot and the snapshot's stats name it and the date the records

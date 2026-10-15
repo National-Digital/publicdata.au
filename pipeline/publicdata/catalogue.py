@@ -15,10 +15,11 @@ import html
 import json
 import re
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import TYPE_CHECKING, NotRequired, TypedDict, Unpack, cast
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 
@@ -315,7 +316,8 @@ class Portal:
     jurisdiction: str
     kind: str = "ckan"
     # A portal run by one body names it here, and every record it lists is that body's. A hub
-    # that names none files each item under the body its own metadata names.
+    # that names none files each item under the body its own metadata names. A CSW record names
+    # its own party, and this is the body named when a record names none.
     publisher: str = ""
     # Organisations on other portals, as portal:org, that copy this one. Their records are
     # dropped whenever this portal has records of its own in the snapshot.
@@ -324,12 +326,21 @@ class Portal:
     copy_name: str = ""
     # The portal answers organization_list only to a POST.
     post: bool = False
+    # A CSW portal's record page, with {id} for the file identifier. GeoNetwork 2 serves no
+    # catalog.search, which later versions do.
+    record_page: str = ""
 
     def landing(self, name: str) -> str:
         if self.kind == "ods":
             return f"https://{self.host}/explore/dataset/{name}/"
         if self.kind == "hub":
             return f"https://{self.host}/datasets/{name}"
+        if self.kind == "csw":
+            page = (
+                self.record_page
+                or f"{self.api.removesuffix('/csw')}/catalog.search#/metadata/{{id}}"
+            )
+            return page.format(id=name)
         return f"{self.api.removesuffix('/api/3/action')}/dataset/{name}"
 
 
@@ -385,6 +396,9 @@ PORTALS = (
         "Australian Institute of Health and Welfare",
         ("gov:aihw",),
     ),
+    # GeoNetwork catalogues over CSW. data.gov.au's search index drops their harvest source, so
+    # its copies are replaced by organisation.
+    Portal("thelist", "data.thelist.tas.gov.au", "https://data.thelist.tas.gov.au/datagn/srv/eng/csw", "tas", "csw", "Department of Natural Resources and Environment Tasmania", ("gov:tas-government-the-list",), record_page="https://data.thelist.tas.gov.au/datagn/srv/eng/metadata.show?uuid={id}"),
     # Councils with a portal of their own. One that data.gov.au or its state portal already lists
     # in full is left to that copy.
     _council("bne", "data.brisbane.qld.gov.au", "qld", "ods", "Brisbane City Council", replaces=["qld:brisbane-city-council"]),
@@ -431,6 +445,7 @@ FORMAT_ALIASES = {
     "EXCEL": "XLSX", "MS EXCEL": "XLSX", "EXCEL (.XLSX)": "XLSX", "XLSM": "XLSX",
     "ESRI SHAPEFILE": "SHP", "SHAPEFILE": "SHP", "SHZ": "SHP", "GEO JSON": "GEOJSON",
     "ESRI REST": "API", "REST": "API", "ARCGIS REST": "API", "ARCGIS_REST": "API", "WFS": "API", "ESRI FILE GEODATABASE": "FGDB",
+    "ESRI_SHP": "SHP",
 }  # fmt: skip
 
 # Requested by their Solr names: the harvest origin must be asked for as
@@ -1059,6 +1074,63 @@ def _dap_record(portal: Portal, x: _DapCollection, detail: _Checked | None) -> R
     return rec
 
 
+CSW_NS = {
+    "csw": "http://www.opengis.net/cat/csw/2.0.2",
+    "gmd": "http://www.isotc211.org/2005/gmd",
+    "gco": "http://www.isotc211.org/2005/gco",
+    "gmx": "http://www.isotc211.org/2005/gmx",
+    "ows": "http://www.opengis.net/ows",
+}
+XLINK_HREF = "{http://www.w3.org/1999/xlink}href"
+# A full ISO 19139 record is about 15 KB, so a page is about 1.5 MB.
+CSW_PAGE = 100
+# Held for review: a constraint that states terms no wording below names.
+ASSESSING = "assessing"
+# Licence statements as the catalogues write them, matched whole once case, spacing and a
+# trailing "licence" are folded.
+CSW_LICENCES = {
+    "creative commons attribution 2.5 australia": "CC-BY-2.5-AU",
+    "creative commons attribution 3.0 australia": "CC-BY-3.0-AU",
+    "creative commons attribution 3.0 au": "CC-BY-3.0-AU",
+    "cc by 3.0 au": "CC-BY-3.0-AU",
+    "creative commons attribution 4.0 international": "CC-BY-4.0",
+    "creative commons attribution 4.0": "CC-BY-4.0",
+    "creative commons attribution 4.0 international (cc by 4.0)": "CC-BY-4.0",
+    "cc by 4.0": "CC-BY-4.0",
+    "creative commons zero": "CC0-1.0",
+    "cc0 1.0 universal": "CC0-1.0",
+}
+# Restriction and classification codes that close a record whatever else its constraints say.
+CSW_CLOSED = {"restricted", "confidential", "private", "secret", "topSecret"}
+# The only codes that leave a record open; any other code not in CSW_CLOSED holds it for review.
+CSW_OPEN_CODES = {
+    "MD_RestrictionCode": {
+        "license", "licence", "copyright", "otherRestrictions", "intellectualPropertyRights",
+        "unrestricted", "licenceUnrestricted",
+    },
+    "MD_ClassificationCode": {"unclassified"},
+}  # fmt: skip
+# Labels a catalogue writes beside a licence that add no terms, once folded like a wording.
+CSW_LABELS = {"other", "licence", "other licence", "other restrictions", "otherrestrictions"}
+# Online resource protocols, by prefix, onto the format vocabulary.
+CSW_PROTOCOLS = (
+    ("OGC:WMS", "WMS"),
+    ("OGC:WFS", "WFS"),
+    ("OGC:WCS", "API"),
+    ("OGC:API", "API"),
+    ("ESRI:REST", "ESRI REST"),
+    ("ESRI:ARCGIS", "ESRI REST"),
+)
+# A linked file with one of these extensions is a file in that format.
+CSW_FILE_EXTS = {
+    "CSV", "TSV", "XLSX", "XLS", "ODS", "JSON", "GEOJSON", "ZIP", "SHP", "GPKG", "KML",
+    "KMZ", "GDB", "PARQUET", "PDF",
+}  # fmt: skip
+# The role whose organisation publishes the resource, most telling first.
+CSW_ROLES = (
+    "publisher", "custodian", "owner", "distributor", "originator", "resourceProvider",
+    "pointOfContact", "principalInvestigator", "author",
+)  # fmt: skip
 MONTHS = {
     m: i
     for i, m in enumerate(
@@ -1370,6 +1442,252 @@ def aihw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
     return out, 0
 
 
+def _csw_text(e: ET.Element | None, path: str = "") -> str:
+    node = e.find(path, CSW_NS) if e is not None and path else e
+    if node is None:
+        return ""
+    return re.sub(r"\s+", " ", "".join(node.itertext())).strip()
+
+
+def _csw_day(text: str) -> str:
+    """A date as ISO 19139 states it, including the "Fri Dec 20 09:34:48 EST 2013" older records use."""
+    if re.match(r"\d{4}-\d{2}-\d{2}", text):
+        return text[:10]
+    m = re.fullmatch(r"\w{3} (\w{3}) (\d{1,2}) [\d:]+ \w+ (\d{4})", text.strip())
+    if not m or m[1].lower() not in MONTHS:
+        return ""
+    return f"{m[3]}-{MONTHS[m[1].lower()]:02d}-{int(m[2]):02d}"
+
+
+def _csw_fold(text: str) -> str:
+    t = re.sub(r"\s+", " ", text.strip().lower()).rstrip(".")
+    t = re.sub(r"\bcc-by\b", "cc by", t)
+    return re.sub(r"\blicense$", "licence", t)
+
+
+def _csw_licence_wording(text: str) -> str:
+    """The licence a statement names, when the whole statement is a known wording or a deed URL."""
+    t = _csw_fold(text)
+    if re.fullmatch(r"https?://\S+", text.strip()):
+        host = (urlparse(text.strip()).hostname or "").removeprefix("www.")
+        return cc_url(text) if host == "creativecommons.org" else ""
+    return CSW_LICENCES.get(re.sub(r"\s+licence$", "", t), "")
+
+
+def _csw_constraints(blocks: Iterable[ET.Element]) -> tuple[list[str], dict[str, str], str, bool]:
+    """What constraint blocks state.
+
+    That is every statement, the licences they name, any closing code, and whether any
+    statement is neither a licence nor a label.
+    """
+    texts: list[str] = []
+    found: dict[str, str] = {}
+    closed, other = "", False
+    for el in (el for block in blocks for el in block.iter()):
+        tag = el.tag.rsplit("}", 1)[-1]
+        if tag in CSW_OPEN_CODES:
+            code = el.get("codeListValue") or _csw_text(el)
+            closed = code if code in CSW_CLOSED else closed
+            # A code no list names may carry terms of its own.
+            other = other or bool(code and code not in CSW_CLOSED | CSW_OPEN_CODES[tag])
+        said = (
+            [_csw_text(el)]
+            if tag in ("CharacterString", "Anchor", "LocalisedCharacterString")
+            else []
+        )
+        said.append(el.get(XLINK_HREF, ""))
+        for text in filter(None, said):
+            if text not in texts:
+                texts.append(text)
+            if lid := _csw_licence_wording(text):
+                found.setdefault(lid, text)
+            elif _csw_fold(text) not in CSW_LABELS:
+                other = True
+    return texts, found, closed, other
+
+
+def csw_licence(m: ET.Element) -> tuple[str, str]:
+    """The licence a record's constraints state, as an id and every statement read.
+
+    The resource's constraints are read. The metadata's are read only when the record has no
+    resource constraints at all, since some catalogues write the data licence there. A record
+    whose statements are one wording in CSW_LICENCES or one Creative Commons deed URL, with
+    nothing beside them but labels in CSW_LABELS, has that licence. Anything else is held as
+    `assessing`.
+    """
+    own = m.findall("gmd:identificationInfo/*/gmd:resourceConstraints", CSW_NS)
+    texts, found, closed, other = _csw_constraints(
+        own or m.findall("gmd:metadataConstraints", CSW_NS)
+    )
+    title = " ".join(texts)
+    if closed:
+        return closed, title or closed
+    if len(found) == 1 and not other:
+        return next(iter(found)), title
+    # Resource constraints that state nothing readable still state something.
+    if not texts and not own:
+        return "", ""
+    return ASSESSING, title
+
+
+def csw_formats(m: ET.Element) -> list[str]:
+    """The formats a record names, its online resources' protocols and the files it links."""
+    raw: list[str] = []
+    linked = False
+    for ol in m.iterfind(".//gmd:distributionInfo//gmd:CI_OnlineResource", CSW_NS):
+        url = _csw_text(ol, "gmd:linkage")
+        if not url:
+            continue
+        linked = True
+        proto = _csw_text(ol, "gmd:protocol").upper()
+        raw += [f for p, f in CSW_PROTOCOLS if proto.startswith(p)]
+        path = urlparse(url).path
+        if "/rest/services/" in path.lower():
+            raw.append("ESRI REST")
+        ext = path.rsplit(".", 1)[-1].upper() if "." in path.rsplit("/", 1)[-1] else ""
+        if ext in CSW_FILE_EXTS:
+            raw.append(ext)
+    # A format named with no link to fetch it from is no download.
+    if linked:
+        raw += [
+            _csw_text(f, "gmd:name")
+            for f in m.iterfind(".//gmd:distributionInfo//gmd:MD_Format", CSW_NS)
+        ]
+    return [f for f in formats(r for r in raw if r) if f != "OTHER"]
+
+
+def _csw_party(m: ET.Element, fallback: str) -> str:
+    # Any party of the resource's own comes before the metadata record's contact, then by role.
+    parties = [
+        *(
+            (0, rp)
+            for rp in m.iterfind(
+                "gmd:identificationInfo/*/gmd:pointOfContact/gmd:CI_ResponsibleParty", CSW_NS
+            )
+        ),
+        *(
+            (0, rp)
+            for rp in m.iterfind(
+                "gmd:identificationInfo/*/gmd:citation/*/gmd:citedResponsibleParty/gmd:CI_ResponsibleParty",
+                CSW_NS,
+            )
+        ),
+        *((1, rp) for rp in m.iterfind("gmd:contact/gmd:CI_ResponsibleParty", CSW_NS)),
+    ]
+    named = []
+    for i, (meta, rp) in enumerate(parties):
+        org = _csw_text(rp, "gmd:organisationName")
+        code = rp.find("gmd:role/gmd:CI_RoleCode", CSW_NS)
+        role = code.get("codeListValue", "") if code is not None else ""
+        if org:
+            rank = CSW_ROLES.index(role) if role in CSW_ROLES else len(CSW_ROLES)
+            named.append((meta, rank, i, org))
+    return min(named)[3] if named else fallback
+
+
+def _csw_dates(m: ET.Element) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for d in m.iterfind("gmd:identificationInfo/*/gmd:citation/*/gmd:date/gmd:CI_Date", CSW_NS):
+        code = d.find("gmd:dateType/gmd:CI_DateTypeCode", CSW_NS)
+        kind = code.get("codeListValue", "") if code is not None else ""
+        day = _csw_day(_csw_text(d, "gmd:date"))
+        if kind and day:
+            out.setdefault(kind, day)
+    return out
+
+
+def _csw_record(portal: Portal, m: ET.Element) -> Record | None:
+    uid = _csw_text(m, "gmd:fileIdentifier")
+    if not uid:
+        return None
+    ident = "gmd:identificationInfo/*/"
+    org = _csw_party(m, portal.publisher)
+    lic, lic_title = csw_licence(m)
+    dates = _csw_dates(m)
+    scope = m.find("gmd:hierarchyLevel/gmd:MD_ScopeCode", CSW_NS)
+    return _record(
+        portal,
+        source_id=uid,
+        name=uid,
+        title=_csw_text(m, f"{ident}gmd:citation/*/gmd:title") or uid,
+        org=re.sub(r"[^a-z0-9]+", "-", org.lower()).strip("-"),
+        org_title=org,
+        kind=(scope.get("codeListValue") if scope is not None else "") or "dataset",
+        licence=lic,
+        licence_title=lic_title,
+        formats=csw_formats(m),
+        created=dates.get("creation") or dates.get("publication") or "",
+        modified=dates.get("revision") or _csw_day(_csw_text(m, "gmd:dateStamp")),
+        url=portal.landing(uid),
+        summary=summary(_csw_text(m, f"{ident}gmd:abstract")),
+        harvested_from="",
+    )
+
+
+def _csw_page(s: requests.Session, url: str, start: int) -> ET.Element:
+    params: Params = {
+        "service": "CSW",
+        "version": "2.0.2",
+        "request": "GetRecords",
+        "typeNames": "gmd:MD_Metadata",
+        "namespace": f"xmlns(gmd={CSW_NS['gmd']})",
+        "outputSchema": CSW_NS["gmd"],
+        "elementSetName": "full",
+        "resultType": "results",
+        # GeoNetwork asks for a constraint language even with no constraint.
+        "constraintLanguage": "CQL_TEXT",
+        "constraint_language_version": "1.1.0",
+        "sortBy": "Identifier:A",
+        "startPosition": start,
+        "maxRecords": CSW_PAGE,
+    }
+    r = _get(s, url, params)
+    try:
+        root = ET.fromstring(r.content)  # noqa: S314 - Expat 2.4.1+ refuses amplification, and an external entity is undefined
+    except ET.ParseError as e:
+        msg = f"{url}: HTTP {r.status_code}, {len(r.content)} bytes, not XML: {e}"
+        raise PortalError(msg) from None
+    if root.tag == f"{{{CSW_NS['ows']}}}ExceptionReport":
+        exc = root.find("ows:Exception", CSW_NS)
+        code = exc.get("exceptionCode", "") if exc is not None else ""
+        msg = f"{url}: CSW exception {code} {_csw_text(root)[:200]}".strip()
+        raise PortalError(msg)
+    return root
+
+
+def csw(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    """A GeoNetwork catalogue, paged through CSW 2.0.2 GetRecords in ISO 19139."""
+    out: list[Record] = []
+    start, read, first = 1, 0, 0
+    while True:
+        res = _csw_page(s, portal.api, start).find("csw:SearchResults", CSW_NS)
+        if res is None:
+            msg = f"{portal.api}: GetRecords answered without SearchResults"
+            raise PortalError(msg)
+        total = int(res.get("numberOfRecordsMatched") or 0)
+        batch = res.findall("gmd:MD_Metadata", CSW_NS)
+        first = first or total
+        read += len(batch)
+        if not batch and start - 1 < total:
+            msg = f"{portal.api}: the page at {start} is empty of {total} records"
+            raise PortalError(msg)
+        out += [r for m in batch if (r := _csw_record(portal, m))]
+        nxt = int(res.get("nextRecord") or 0)
+        log(f"catalogue {portal.code}: {start - 1 + len(batch)}/{total}")
+        if not batch or nxt == 0 or nxt > total:
+            break
+        if nxt <= start:
+            msg = f"{portal.api}: nextRecord {nxt} does not move past {start}"
+            raise PortalError(msg)
+        start = nxt
+    # A short or empty read would list the records it missed as withdrawn. Records removed while
+    # a long harvest runs are allowed for, up to 1 in 100.
+    if not read or read < first * 0.99:
+        msg = f"{portal.api}: read {read} of the {first} records the search matched"
+        raise PortalError(msg)
+    return out, 0
+
+
 HARVESTERS = {
     "ckan": ckan,
     "socrata": socrata,
@@ -1378,6 +1696,7 @@ HARVESTERS = {
     "hub": hub,
     "dap": dap,
     "aihw": aihw,
+    "csw": csw,
 }
 
 
@@ -1497,9 +1816,16 @@ def _drop_copies(
 
 
 def bare_url(url: str) -> str:
-    """A URL as host and path, which is how two portals' links to one page compare."""
+    """A URL as host and path, which is how two portals' links to one page compare.
+
+    A GeoNetwork record page keeps what names the record: its uuid parameter, or a fragment
+    route such as #/metadata/<id>.
+    """
     u = urlparse(url.strip())
-    return (u.hostname or "").removeprefix("www.") + u.path.rstrip("/")
+    out = (u.hostname or "").removeprefix("www.") + u.path.rstrip("/")
+    if uuid := parse_qs(u.query).get("uuid"):
+        out += f"?uuid={uuid[0]}"
+    return out + (f"#{u.fragment}" if u.fragment.startswith("/") else "")
 
 
 def _original(dup: Record, by_url: Mapping[str, str], live: Container[str]) -> str:

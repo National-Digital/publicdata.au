@@ -17,8 +17,12 @@ export const recordId = (portal, source) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 64);
 
+// bare_url in pipeline/publicdata/catalogue.py: a GeoNetwork record page keeps its uuid or route.
 export const bare = (u) =>
-  (u.hostname || '').replace(/^www\./, '') + u.pathname.replace(/\/+$/, '');
+  (u.hostname || '').replace(/^www\./, '') +
+  u.pathname.replace(/\/+$/, '') +
+  (u.searchParams.get('uuid') ? `?uuid=${u.searchParams.get('uuid')}` : '') +
+  (u.hash.startsWith('#/') ? u.hash : '');
 
 // PORTAL_HOSTS in pipeline/publicdata/directory.py.
 const PORTAL_HOSTS = {
@@ -51,6 +55,10 @@ export function locate(raw) {
   const df = u.searchParams.get('df[id]');
   if (df) {
     return { host, kind: 'source', value: df, bare: bare(u) };
+  }
+  const gn = u.searchParams.get('uuid') || (u.hash.match(/^#\/metadata\/([^/?#]+)/) || [])[1];
+  if (gn) {
+    return { host, kind: 'source', value: gn, bare: bare(u) };
   }
   m = u.pathname.match(/\/data\/[^/,]+,([^/,]+),/);
   if (m) {
