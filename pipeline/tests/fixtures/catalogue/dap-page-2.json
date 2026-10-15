@@ -1,0 +1,158 @@
+{
+ "elapsedTime": 22,
+ "totalResults": "7",
+ "page": 2,
+ "resultsPerPage": 100,
+ "next": null,
+ "previous": {
+  "relationship": "previous",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=100&sb=RECENT&psd=2025-01-01T00:00:00%2B10:00&ped=2025-12-31T23:59:59%2B11:00&p=1",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "first": {
+  "relationship": "first",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=100&sb=RECENT&psd=2025-01-01T00:00:00%2B10:00&ped=2025-12-31T23:59:59%2B11:00&p=1",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "last": {
+  "relationship": "last",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=100&sb=RECENT&psd=2025-01-01T00:00:00%2B10:00&ped=2025-12-31T23:59:59%2B11:00&p=2",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "query": "",
+ "criteria": null,
+ "sortBy": "RECENT",
+ "complete": false,
+ "dataCollections": [
+  {
+   "id": {
+    "identifierType": "Fedora PID",
+    "identifier": "csiro:61066"
+   },
+   "dataCollectionId": 72753,
+   "self": "https://data.csiro.au/dap/ws/v2/collections/72753",
+   "landingPage": {
+    "relationship": "alternate",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/collection/csiro:61066",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "title": "OzOat Diversity Panel: RNA-seq Transcriptome Data from Controlled Photoperiod Experiments",
+   "description": "RNASeq data from 324 oat leaf tissues sampled at long day and short day controlled environment conditions",
+   "licence": "Creative Commons Attribution-Noncommercial 4.0 Licence",
+   "licenceLink": {
+    "relationship": "licence",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/dap/ws/v2/licences/1181",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "published": "2025-12-31T20:52:15.347+11:00",
+   "serviceCount": 0,
+   "collectionType": "Data",
+   "domainType": "Everything Else",
+   "dataRestricted": "TRUE",
+   "dataVersionNumber": "1"
+  },
+  {
+   "id": {
+    "identifierType": "Fedora PID",
+    "identifier": "csiro:72235"
+   },
+   "dataCollectionId": 72235,
+   "self": "https://data.csiro.au/dap/ws/v2/collections/72235",
+   "landingPage": {
+    "relationship": "alternate",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/collection/csiro:72235",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "title": "Roper catchment floodplain inundation maps",
+   "description": "This collection consists of raster maps (tif format) at the maximum flood extent for two different events in the Roper catchment. These were created during the CSIRO Roper River Water Resource Assessment.",
+   "licence": "Creative Commons Attribution-ShareAlike 4.0 International Licence",
+   "licenceLink": {
+    "relationship": "licence",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/dap/ws/v2/licences/1122",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "published": "2025-12-11T14:55:57.275+11:00",
+   "serviceCount": 0,
+   "collectionType": "Data",
+   "domainType": "Everything Else",
+   "dataRestricted": "FALSE",
+   "dataVersionNumber": "1"
+  },
+  {
+   "id": {
+    "identifierType": "Fedora PID",
+    "identifier": "csiro:57058"
+   },
+   "dataCollectionId": 72601,
+   "self": "https://data.csiro.au/dap/ws/v2/collections/72601",
+   "landingPage": {
+    "relationship": "alternate",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/collection/csiro:57058",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "title": "nvcl_kit: Access AuScope National Virtual Core Library (NVCL) data services",
+   "description": "nvcl_kit is a Python package that provides access to Australia's NVCL (National Virtual Core Library). This is a national database of drill cores that have been analysed by the CSIRO-developed HyLogger hyperspectral core-scanning system. The Hylogger system uses visible and near-infrared, shortwave",
+   "licence": "Licence Defined by Data Provider",
+   "licenceLink": {
+    "relationship": "licence",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/dap/ws/v2/licences/1161",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "published": "2025-12-15T17:07:42.480+11:00",
+   "serviceCount": 0,
+   "collectionType": "Service",
+   "domainType": "Everything Else",
+   "dataRestricted": "N/A",
+   "dataVersionNumber": "1"
+  },
+  {
+   "id": {
+    "identifierType": "Fedora PID",
+    "identifier": "csiro:60405"
+   },
+   "dataCollectionId": 77136,
+   "self": "https://data.csiro.au/dap/ws/v2/collections/77136",
+   "landingPage": {
+    "relationship": "alternate",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/collection/csiro:60405",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "title": "Hourly near-surface air temperature grids for Australia",
+   "description": "Note: This collection is now maintained on the TERN Data Discovery Portal (https://dx.doi.org/10.25901/h79h-jw68). The latest version includes a space- and time-varying coastal distance index for interpolation.\n\nThis collection provides hourly near-surface (1.5 m) air temperature grids for",
+   "licence": "Creative Commons Attribution-ShareAlike 4.0 International Licence",
+   "licenceLink": {
+    "relationship": "licence",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/dap/ws/v2/licences/1122",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "published": "2026-10-14T09:43:57.358+11:00",
+   "serviceCount": 0,
+   "collectionType": "Data",
+   "domainType": "Everything Else",
+   "dataRestricted": "FALSE",
+   "dataVersionNumber": "5"
+  }
+ ]
+}

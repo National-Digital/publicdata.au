@@ -1074,8 +1074,15 @@ The settings come from a measurement over every live dataset in October 2026, wh
 
 `publicdata catalogue fetch` reads the dataset list of every government open-data portal:
 data.gov.au, the NSW, Victorian, Queensland, SA, WA and NT portals and the Department of
-Infrastructure's catalogue over CKAN, the ACT portal over the Socrata catalogue API, and the ABS
-dataflows over SDMX. Tasmania has no portal; its agencies publish on data.gov.au. Each record is
+Infrastructure's catalogue over CKAN, the ACT portal over the Socrata catalogue API, the ABS
+dataflows over SDMX, and CSIRO's Data Access Portal over its web service. The Data Access Portal
+search returns at most 10,000 collections, so it is read in windows of publication date that are
+halved until each fits. A collection is downloadable when its full record offers the public at
+least one file. The full record is read once for each version of an open, unrestricted data
+collection, and again once an embargo it states has ended, at most 2,000 in one harvest. A
+collection whose full record has never been read is not downloadable. One due a reread past that
+cap, or whose full record cannot be read, keeps its earlier answer until it is read.
+Tasmania has no portal; its agencies publish on data.gov.au. Each record is
 re-keyed onto one shape (id, portal, title, organisation, licence as the portal states it and as
 an SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
 nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so the
@@ -1092,6 +1099,12 @@ loses none of them. The carry is never pruned. Each copy ever seen is written tw
 snapshot come to about 6 MB of the uncompressed snapshot and about 1.2 MB gzipped. A snapshot from
 before the fields existed reads as records with no copies.
 
+data.gov.au's search does not name the origin of its copies of the Data Access Portal, so the
+portal replaces that organisation as a council portal replaces its copies below. data.gov.au puts
+the collection's PID in each copy's name. A copy is dropped when the Data Access Portal lists that
+collection, and the collection lists the copy under `copies`. A copy whose name gives a PID the
+portal does not list is kept, and a copy whose name gives no PID is matched on its title.
+
 Councils that run a portal of their own are read directly: Opendatasoft portals through the
 explore API's catalogue and ArcGIS Hub sites through the OGC Records search of the site's own
 catalogue. The list in `catalogue.py` holds only portals that add datasets no other portal lists
@@ -1107,7 +1120,7 @@ item's owner is an account name and is never used. `publicdata catalogue publish
 curation for these bodies as it does for data.gov.au's organisations.
 
 Record ids are the portal code plus the portal's own stable id (CKAN package UUID, Socrata
-four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id), so they survive renames and serve as vote keys. The snapshot is
+four-by-four, ABS dataflow id, Opendatasoft dataset uid, ArcGIS item id, Data Access Portal collection PID), so they survive renames and serve as vote keys. The snapshot is
 one gzipped NDJSON file sorted by id and stored like a source at `store/catalogue/<date>/`; the
 weekly harvest, a workflow of its own so a slow portal never holds up a dataset, writes a new version only when the bytes change, and builds pull only the newest. A portal that cannot be read keeps
 its records from the latest snapshot and the snapshot's stats name it and the date the records

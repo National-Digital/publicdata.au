@@ -1,0 +1,65 @@
+{
+ "elapsedTime": 23,
+ "totalResults": "10000+",
+ "page": 1,
+ "resultsPerPage": 2,
+ "next": {
+  "relationship": "next",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=2&p=2",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "previous": null,
+ "first": {
+  "relationship": "first",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=2&p=1",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "last": {
+  "relationship": "last",
+  "mediaType": null,
+  "href": "https://data.csiro.au/dap/ws/v2/collections.json?rpp=2&p=5000",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "query": "",
+ "criteria": null,
+ "sortBy": "RELEVANCE",
+ "complete": false,
+ "dataCollections": [
+  {
+   "id": {
+    "identifierType": "Fedora PID",
+    "identifier": "csiro:60405"
+   },
+   "dataCollectionId": 77136,
+   "self": "https://data.csiro.au/dap/ws/v2/collections/77136",
+   "landingPage": {
+    "relationship": "alternate",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/collection/csiro:60405",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "title": "Hourly near-surface air temperature grids for Australia",
+   "description": "Note: This collection is now maintained on the TERN Data Discovery Portal (https://dx.doi.org/10.25901/h79h-jw68). The latest version includes a space- and time-varying coastal distance index for interpolation.\n\nThis collection provides hourly near-surface (1.5 m) air temperature grids for",
+   "licence": "Creative Commons Attribution-ShareAlike 4.0 International Licence",
+   "licenceLink": {
+    "relationship": "licence",
+    "mediaType": "text/html",
+    "href": "https://data.csiro.au/dap/ws/v2/licences/1122",
+    "fileUpload": false,
+    "fileId": 0
+   },
+   "published": "2026-10-14T09:43:57.358+11:00",
+   "serviceCount": 0,
+   "collectionType": "Data",
+   "domainType": "Everything Else",
+   "dataRestricted": "FALSE",
+   "dataVersionNumber": "5"
+  }
+ ]
+}

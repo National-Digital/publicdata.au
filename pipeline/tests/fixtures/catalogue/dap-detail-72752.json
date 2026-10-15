@@ -1,0 +1,23 @@
+{
+ "id": {
+  "identifierType": "Fedora PID",
+  "identifier": "csiro:72160"
+ },
+ "dataCollectionId": 72752,
+ "self": "https://data.csiro.au/dap/ws/v2/collections/72752",
+ "landingPage": {
+  "relationship": "alternate",
+  "mediaType": "text/html",
+  "href": "https://data.csiro.au/collection/csiro:72160",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "title": "OzOat Diversity Panel: A Global Genome-to-Phenome Resource for Oat Breeding",
+ "licence": "Creative Commons Attribution 4.0 International Licence",
+ "published": "2025-12-31T09:49:15.314+11:00",
+ "dataRestricted": "FALSE",
+ "accessLevel": "Public",
+ "access": "The metadata and files (if any) are available to the public.",
+ "fileCount": 1,
+ "dataVersionNumber": 1
+}

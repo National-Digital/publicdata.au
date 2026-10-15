@@ -1,0 +1,23 @@
+{
+ "id": {
+  "identifierType": "Fedora PID",
+  "identifier": "csiro:72744"
+ },
+ "dataCollectionId": 72744,
+ "self": "https://data.csiro.au/dap/ws/v2/collections/72744",
+ "landingPage": {
+  "relationship": "alternate",
+  "mediaType": "text/html",
+  "href": "https://data.csiro.au/collection/csiro:72744",
+  "fileUpload": false,
+  "fileId": 0
+ },
+ "title": "Parkes observations for project PX500 semester 2025OCTS_15",
+ "licence": "Creative Commons Attribution 4.0 International Licence",
+ "published": "2025-12-29T17:09:38.894+11:00",
+ "dataRestricted": "FALSE",
+ "accessLevel": "Project Team",
+ "access": "Access to this collection's metadata and/or files (if any) are restricted until 30 Sept 2027. ",
+ "fileCount": 134,
+ "dataVersionNumber": 1
+}
