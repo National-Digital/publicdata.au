@@ -29,21 +29,51 @@ pd_datasets("road crashes")[, c("slug", "title")]
 #>    slug                                title                                              
 #>    <chr>                               <chr>                                              
 #>  1 act-road-crashes                    Road crashes, ACT                                  
-#>  2 qld-road-casualties                 Road casualties, Queensland                        
-#>  3 qld-road-crash-restraint-helmet-use Seatbelt and helmet use in road crash casualties, …
-#>  4 qld-road-crash-locations            Road crash locations, Queensland                   
-#>  5 qld-road-crash-vehicle-types        Vehicle types in road crashes, Queensland          
-#>  6 sa-road-crash-locations             Road crash locations, South Australia              
-#>  7 tas-road-crashes                    Road crashes, Tasmania                             
-#>  8 qld-road-crash-factors              Factors in road crashes, Queensland                
-#>  9 nsw-road-crashes                    Road crashes, New South Wales                      
-#> 10 vic-road-crashes                    Road crashes, Victoria                             
-#> 11 qld-road-crash-driver-demographics  Driver demographics in road crashes, Queensland    
+#>  2 qld-road-crash-restraint-helmet-use Seatbelt and helmet use in road crash casualties, …
+#>  3 qld-road-crash-vehicle-types        Vehicle types in road crashes, Queensland          
+#>  4 qld-road-casualties                 Road casualties, Queensland                        
+#>  5 qld-road-crash-locations            Road crash locations, Queensland                   
+#>  6 tas-road-crashes                    Road crashes, Tasmania                             
+#>  7 qld-road-crash-factors              Factors in road crashes, Queensland                
+#>  8 sa-road-crash-locations             Road crash locations, South Australia              
+#>  9 qld-road-crash-driver-demographics  Driver demographics in road crashes, Queensland    
+#> 10 nsw-road-crashes                    Road crashes, New South Wales                      
+#> 11 vic-road-crashes                    Road crashes, Victoria                             
 #> 12 au-road-deaths                      Australian Road Deaths Database, fatalities
 pd_datasets(topic = "roads", jurisdiction = "Qld")$slug
-#> [1] "qld-road-crash-driver-demographics"  "qld-road-crash-factors"             
-#> [3] "qld-road-casualties"                 "qld-road-crash-locations"           
-#> [5] "qld-road-crash-restraint-helmet-use" "qld-road-crash-vehicle-types"
+#>  [1] "qld-translink-citytrain-punctuality"      
+#>  [2] "qld-road-crash-driver-demographics"       
+#>  [3] "qld-driver-licence-renewals-early"        
+#>  [4] "qld-road-crash-factors"                   
+#>  [5] "qld-mobile-speed-camera-sites"            
+#>  [6] "qld-new-recreational-vessel-registrations"
+#>  [7] "qld-new-vehicle-registrations-daily"      
+#>  [8] "qld-regional-bus-patronage"               
+#>  [9] "qld-motorcycle-registrations"             
+#> [10] "qld-vessel-registrations"                 
+#> [11] "qld-vehicle-registrations-by-suburb"      
+#> [12] "qld-road-casualties"                      
+#> [13] "qld-road-crash-locations"                 
+#> [14] "qld-speed-camera-trailer-sites"           
+#> [15] "qld-road-crash-restraint-helmet-use"      
+#> [16] "qld-translink-seq-bus-punctuality"        
+#> [17] "qld-translink-tram-punctuality"           
+#> [18] "qld-translink-taxi-subsidy"               
+#> [19] "qld-traffic-by-hour-and-day"              
+#> [20] "qld-traffic-census"                       
+#> [21] "qld-traffic-infringement-payments"        
+#> [22] "qld-traffic-infringements-issued"         
+#> [23] "qld-translink-complaints"                 
+#> [24] "qld-translink-origin-destination-stops"   
+#> [25] "qld-translink-origin-destination-trips"   
+#> [26] "qld-translink-fines-warnings"             
+#> [27] "qld-translink-passenger-injuries"         
+#> [28] "qld-translink-patronage-regional"         
+#> [29] "qld-translink-patronage-seq"              
+#> [30] "qld-traveltrain-patronage"                
+#> [31] "qld-registration-renewals-daily"          
+#> [32] "qld-vehicle-registration-transfers"       
+#> [33] "qld-road-crash-vehicle-types"
 ```
 
 `pd_catalogue()` searches every dataset on the government portals, including the many the site does not serve yet. Each record says whether it is served; one that is not can be voted for on its page.
@@ -224,10 +254,11 @@ Each release is compared with the one before it on the dataset's key.
 
 ``` r
 pd_changes("rba-money-market-daily")[, c("from", "to", "added", "removed", "changed")]
-#> # A tibble: 1 × 5
+#> # A tibble: 2 × 5
 #>   from       to         added removed changed
 #>   <chr>      <chr>      <dbl>   <dbl>   <dbl>
 #> 1 2026-09-30 2026-10-01     1       0       1
+#> 2 2026-10-01 2026-10-02     1       0       2
 ```
 
 `pd_provenance()` gives the record kept with a version: the publisher's file it was read from, its checksum and when it was fetched.
