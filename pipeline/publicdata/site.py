@@ -1321,6 +1321,13 @@ def _format_note(ds: Dataset, key: str, rows: int) -> str:
     )
 
 
+def _file_note(ds: Dataset, key: str, rows: int) -> str:
+    """A format's note as plain text, led by its label unless the note already names the format."""
+    note = html.unescape(re.sub(r"<[^>]+>", "", _format_note(ds, key, rows)))
+    label = FORMAT_LABEL.get(key, "")
+    return note if not label or re.match(r"[\w ]+: ", note) else f"{label}: {note}"
+
+
 # The largest workbook picked first: past this, a spreadsheet takes minutes to open.
 XLSX_FIRST_MAX = 50_000_000
 
@@ -4066,8 +4073,7 @@ def render_site(  # noqa: C901, PLR0912, PLR0913, PLR0915 - the site's pages in 
                     "size": fmt_size(v.size(k)),
                     "url": f"{version_url(ds_v.slug, v.manifest.version)}{k}",
                     "download": download_name(ds_v.slug, v.manifest.version, k),
-                    "label": FORMAT_LABEL.get(k[5:], "") if k.startswith("data.") else "",
-                    "note": html.unescape(re.sub(r"<[^>]+>", "", _format_note(ds_v, k[5:], v.rows)))
+                    "note": _file_note(ds_v, k[5:], v.rows)
                     if k.startswith("data.") and k[5:] in FORMAT_NOTES
                     else "",
                 }

@@ -76,7 +76,7 @@
 
 {% if jur_rows %}<div class="sec-head"><h2>Every dataset, by government</h2><a href="/browse/">Browse all {{ catalogue_total }}</a></div>
 <p class="muted" style="margin-top:0">This is what Australian governments list on their open-data portals, read from the portals' own catalogues. A dataset with an open licence and a download can be voted for. Only the licence can block one.</p>
-<div class="jtiles">{% for j in jur_rows %}<p class="jtile"><a class="jname" href="{{ j.path }}">{{ j.name }}</a> <span class="jbar"><i style="width:{{ j.bar }}%"></i></span> <span class="jn"><b>{{ j.listed }}</b> listed</span> <span class="jn"><b>{{ j.candidates }}</b> open with a download</span> <span class="jn"><b>{{ j.live }}</b> served here</span> <span class="jportal">The counts come from {{ j.portals|join(' and ') }}.</span></p>{% endfor %}</div>{% endif %}
+<div class="jtiles">{% for j in jur_rows %}<p class="jtile"><a class="jname" href="{{ j.path }}">{{ j.name }}</a> <span class="jbar"><i style="width:{{ j.bar }}%"></i></span> <span class="jn"><b>{{ j.listed }}</b> listed</span> <span class="jn"><b>{{ j.candidates }}</b> open with a download</span> <span class="jn"><b>{{ j.live }}</b> served here</span> {% if j.portals %}<span class="jportal">The counts come from {{ j.portals|join(' and ') }}.</span>{% endif %}</p>{% endfor %}</div>{% endif %}
 </div>
 
 <div class="band soft">
