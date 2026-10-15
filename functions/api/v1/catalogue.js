@@ -1,4 +1,4 @@
-import { json } from '../../_lib.js';
+import { CopiesUnreadable, json, replacedBy } from '../../_lib.js';
 import { CatalogueError, resolve, searchPlan, table } from '../../_catalogue.js';
 import { policy, spend } from '../../_limit.js';
 
@@ -69,12 +69,27 @@ export async function onRequestGet({ request, env }) {
       if (!ids.length) {
         return json({ ...head, rows: [] }, 200, cache);
       }
-      const res = await env.DB.prepare(
-        `SELECT * FROM "${t.tbl}" WHERE id IN (${ids.map(() => '?').join(',')}) OR vote IN (${ids.map(() => '?').join(',')})`,
-      )
-        .bind(...ids, ...ids)
-        .all();
-      return json({ ...head, rows: (res.results || []).map(shape) }, 200, cache);
+      const byIds = async (want) =>
+        (
+          (
+            await env.DB.prepare(
+              `SELECT * FROM "${t.tbl}" WHERE id IN (${want.map(() => '?').join(',')}) OR vote IN (${want.map(() => '?').join(',')})`,
+            )
+              .bind(...want, ...want)
+              .all()
+          ).results || []
+        ).map(shape);
+      const rows = await byIds(ids);
+      // An id the catalogue dropped as a copy answers with the record that replaced it.
+      const found = new Set(rows.flatMap((r) => [r.id, r.vote]));
+      const lost = ids.filter((id) => !found.has(id));
+      const to = await Promise.all(lost.map((id) => replacedBy(env, id)));
+      const moved = Object.fromEntries(lost.map((id, i) => [id, to[i]]).filter(([, r]) => r));
+      const more = [...new Set(Object.values(moved))].filter((id) => !found.has(id));
+      if (more.length) {
+        rows.push(...(await byIds(more)));
+      }
+      return json({ ...head, rows, moved }, 200, cache);
     }
     const plan = searchPlan(t.tbl, params);
     // The total is counted on the first page only; later pages carry next_offset alone.
@@ -102,6 +117,9 @@ export async function onRequestGet({ request, env }) {
       cache,
     );
   } catch (e) {
+    if (e instanceof CopiesUnreadable) {
+      return json({ error: 'The catalogue cannot be read at the moment. Try again later.' }, 503);
+    }
     if (e instanceof CatalogueError) {
       return json({ error: e.message }, 400);
     }

@@ -1080,7 +1080,17 @@ re-keyed onto one shape (id, portal, title, organisation, licence as the portal 
 an SPDX-style id, formats, created and modified dates, landing URL, a 280-character summary) and
 nothing is scored. A record data.gov.au copied from a portal read here directly is dropped so the
 original is the only copy; records it harvested from elsewhere, such as the ocean and geoscience
-catalogues, are kept and name their origin.
+catalogues, are kept and name their origin. The original lists the dropped copy's id under
+`copies`, matched on the page the copy names or on the package id CKAN's harvester keeps, so
+votes and contributor issues under the copy's id follow the original. A council portal's record
+lists a copy it replaces when the copy's title names that one record. A copy with no match is
+dropped and listed nowhere. The original also keeps each copy's page under `copy_pages`, so a
+register entry served from or planned on a copy that is later dropped finds the original. A
+record keeps the copies it listed in earlier snapshots, so a portal that cannot be read for a week
+loses none of them. The carry is never pruned. Each copy ever seen is written twice, as an id under
+`copies` and as the key of its page under `copy_pages`. The 34,481 copies dropped in the 2026-10-12
+snapshot come to about 6 MB of the uncompressed snapshot and about 1.2 MB gzipped. A snapshot from
+before the fields existed reads as records with no copies.
 
 Councils that run a portal of their own are read directly: Opendatasoft portals through the
 explore API's catalogue and ArcGIS Hub sites through the OGC Records search of the site's own
@@ -1157,7 +1167,7 @@ table with an FTS5 index over title, summary and publisher, once per harvest.
 it. A record the register has already planned votes under the register slug, so its votes and
 the entry's are one count. Votes are one object per browser per day per dataset in the private
 R2 bucket `publicdata-votes`, keyed by a salted hash of address and user agent, and a count is a
-prefix listing. `/api/v1/votes` reads one rollup object, `_counts.json` in the same bucket, which is recounted from the vote objects once it is a minute old. `/catalogue/aliases.json` maps each record id a register entry has claimed to the entry's slug, so votes cast under the id before the entry existed count for it, and a new vote under the id is stored under the slug. "Have a link?"
+prefix listing. `/api/v1/votes` reads one rollup object, `_counts.json` in the same bucket, which is recounted from the vote objects once it is a minute old. `/catalogue/aliases.json` maps each record id a register entry has claimed to the entry's slug, so votes cast under the id before the entry existed count for it, and a new vote under the id is stored under the slug. `/catalogue/copies/<portal>-<c>.json` maps each dropped copy's id to the record that replaced it, sharded like the vote shards because data.gov.au's copies number in the tens of thousands. A vote under a copy's id is stored under the record, the counts fold earlier votes under the copy into it, and a record's vote shard entry lists its copies so its count includes them. A record that takes no votes, such as one served here or one without an open licence, lists its copies in `/catalogue/copied/<portal>-<c>.json`, so its count includes them too. A copy of a claimed record is in `aliases.json` under the entry's slug. Asked for a copy's id, `/api/v1/catalogue?ids=` answers with the record that replaced it and names the pair in `moved`, so the contributor sync moves an open issue to the record. A copies shard that cannot be read is answered 503, both by the vote endpoint and by `?ids=`, and the sync stops on any answer other than 200, so a failed read never closes an issue. "Have a link?"
 resolves a pasted portal URL against the catalogue (`locate()` in directory.py and
 functions/_catalogue.js, held together by tests) and casts a vote for the record it names. A URL
 it does not hold is not stored; the answer points to National Digital's contact form. Both endpoints keep the query API's fair-use limit per address in the edge cache

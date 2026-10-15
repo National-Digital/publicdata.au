@@ -195,6 +195,12 @@ const env = {
       if (p === '/catalogue/votable/act-3.json') {
         return Response.json({ 'act-3u5a-ve4j': [] });
       }
+      if (p === '/catalogue/copies/vic-o.json') {
+        return Response.json({ 'vic-old': 'gov-1111' });
+      }
+      if (p === '/catalogue/copies/vic-x.json') {
+        return new Response('', { status: 500 });
+      }
       return new Response('', { status: 404 });
     },
   },
@@ -231,7 +237,19 @@ test('search ranks what can take a vote first and greys nothing out of the answe
   assert.deepEqual(
     (await get('ids=abn-bulk-extract')).rows.map((r) => r.id),
     ['gov-1111'],
+  ); // A dropped copy's id answers with the record that replaced it.
+  const moved = await get('ids=vic-old,vic-gone');
+  assert.deepEqual(moved.moved, { 'vic-old': 'gov-1111' });
+  assert.deepEqual(
+    moved.rows.map((r) => r.id),
+    ['gov-1111'],
   );
+  // A copies list that cannot be read is a pause, so no caller takes the id for gone.
+  const down = await onRequestGet({
+    request: new Request('https://publicdata.au/api/v1/catalogue?ids=vic-xyz'),
+    env,
+  });
+  assert.equal(down.status, 503);
 });
 
 test('a pasted link votes for the record it names, and an unknown link is not stored', async () => {

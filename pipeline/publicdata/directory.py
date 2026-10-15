@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import REPO, SITE
 from .catalogue import BY_CODE, record_id
+from .catalogue import bare_url as _bare
 from .provenance import OPERATOR_ORG
 from .publishers import (
     JUR_NAME,
@@ -216,6 +217,7 @@ class Directory:
     unread: dict[str, PortalStats] = field(default_factory=dict)  # portal code -> harvest stats
     jur_rows: list[JurRow] = field(default_factory=list)  # filled by render, for the home page
     tasks: dict[str, int] = field(default_factory=dict)  # vote key -> open contributor issue
+    copies: dict[str, str] = field(default_factory=dict)  # dropped copy's id -> the record's id
 
     def task_url(self, key: str) -> str:
         """The open contributor issue for a register slug or record id, or ''."""
@@ -282,11 +284,16 @@ def plan(
     )
     by_id = {r["id"]: r for r in records}
     by_url = {_bare(r["url"]): r for r in records if r.get("url")}
+    # A copy's page leads to the record that replaced it, so an entry that named the copy keeps it.
+    by_copy = {_bare(u): r for r in records for u in r.get("copy_pages", {}).values()}
     for ds in datasets:
         d.ds_pub[ds.slug] = for_dataset(ds, pubs, by_org, by_name, portal_by_host)
         host = (ds.source.portal or "").split("://")[-1].removeprefix("www.").split("/")[0]
         portal = portal_by_host.get(host)
         rec = by_name.get((portal, ds.source.package)) if portal is not None else None
+        if rec is None and portal is not None and ds.source.package:
+            rec = by_copy.get(_bare(BY_CODE[portal].landing(ds.source.package)))
+        rec = rec or by_copy.get(_bare(ds.source.url or ""))
         if ds.status in ("live", "building"):
             # A record named by its id in the source URL; a bare URL is too loose to mark served.
             rec = rec or find(ds.source.url, by_name, by_id, {}, portal_by_host)
@@ -300,12 +307,8 @@ def plan(
                 d.chosen.setdefault(rec["id"], ds.slug)
     for r in records:
         d.records.setdefault(by_org[org_key(r)].path, []).append(r)
+        d.copies.update(dict.fromkeys(r.get("copies", []), r["id"]))
     return d
-
-
-def _bare(url: str) -> str:
-    u = urlparse(url.strip())
-    return (u.hostname or "").removeprefix("www.") + u.path.rstrip("/")
 
 
 # Hosts people browse a portal on, mapped to the host its records are listed under.
@@ -924,7 +927,8 @@ def render(  # noqa: C901, PLR0912, PLR0915 - the directory's pages in the order
     )
     if have:
         urls.insert(0, SITE + "/browse/")
-    votable: dict[str, dict[str, list[str]]] = defaultdict(dict)
+    votable: dict[str, dict[str, list[str | list[str]]]] = defaultdict(dict)
+    copied: dict[str, dict[str, list[str]]] = defaultdict(dict)
     for path, recs in d.records.items():
         pub = pub_by_path.get(path)
         for r in recs:
@@ -935,18 +939,32 @@ def render(  # noqa: C901, PLR0912, PLR0915 - the directory's pages in the order
                 and r["id"] not in d.served
                 and r["id"] not in d.chosen
             ):
+                # A fifth item lists the copies the record replaced, whose votes it counts.
                 votable[shard(r["id"])][r["id"]] = [
                     r["title"],
                     path,
                     r["url"],
                     pub.name if pub else "",
+                    *([r["copies"]] if r.get("copies") else []),
                 ]
+            elif r.get("copies") and r["id"] not in d.chosen:
+                # So a record that takes no votes still counts the votes under its copies.
+                copied[shard(r["id"])][r["id"]] = r["copies"]
     for key, ids in sorted(votable.items()):
         write(
             f"catalogue/votable/{key}.json",
             json.dumps(ids, ensure_ascii=False, sort_keys=True) + "\n",
         )
-    write("catalogue/aliases.json", json.dumps(d.chosen, sort_keys=True) + "\n")
+    copy_shards: dict[str, dict[str, str]] = defaultdict(dict)
+    for copy, rid in d.copies.items():
+        copy_shards[shard(copy)][copy] = rid
+    for key, moved in sorted(copy_shards.items()):
+        write(f"catalogue/copies/{key}.json", json.dumps(moved, sort_keys=True) + "\n")
+    for key, held in sorted(copied.items()):
+        write(f"catalogue/copied/{key}.json", json.dumps(held, sort_keys=True) + "\n")
+    # A copy of a record the register has claimed votes for the entry, as the record does.
+    claimed = {c: d.chosen[rid] for c, rid in d.copies.items() if rid in d.chosen}
+    write("catalogue/aliases.json", json.dumps(claimed | d.chosen, sort_keys=True) + "\n")
     write(
         "catalogue/publishers.json",
         json.dumps(

@@ -25,7 +25,7 @@ import requests
 from . import store
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Container, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from .jsontypes import JSON
@@ -75,6 +75,12 @@ class Record(_Fields):
     formats: list[str]
     downloadable: bool
     source_host: NotRequired[str]
+    # The ids of the copies on other portals this record replaced, so their votes are its votes.
+    copies: NotRequired[list[str]]
+    # Each of those copies' pages, so a register entry that named a copy finds this record.
+    copy_pages: NotRequired[dict[str, str]]
+    # On a copy only, until harvest drops it: the page of the original it was harvested from.
+    copy_of: NotRequired[str]
 
 
 # The parts of each portal's API answers that the harvesters read.
@@ -90,6 +96,7 @@ class _NamedList(TypedDict):
 
 class _Harvest(TypedDict, total=False):
     site_url: str | None
+    href: str | None
 
 
 class _CkanOrg(TypedDict, total=False):
@@ -313,6 +320,7 @@ PORTALS = (
 BY_CODE = {p.code: p for p in PORTALS}
 # Hosts data.gov.au harvests from that are read directly here, so its copies are duplicates.
 DIRECT_HOSTS = {p.host.removeprefix("www.") for p in PORTALS}
+PORTAL_BY_HOST = {p.host.removeprefix("www."): p.code for p in PORTALS}
 
 # A resource in one of these can be read and serialised without a browser.
 DOWNLOADABLE = {
@@ -548,6 +556,7 @@ def _record(
 
 
 def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
+    """A CKAN portal. A copy of a portal read here directly carries copy_of, for harvest to drop."""
     licences = get_json_as(_NamedList, s, f"{portal.api}/license_list")
     lic_titles = {x["id"]: x.get("title") or x["id"] for x in licences["result"]}
     orgs: dict[str, str] = {}
@@ -589,6 +598,28 @@ def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
                     harvest = {"site_url": harvest}
             origin = urlparse((harvest or {}).get("site_url") or "").hostname or ""
             host = origin.removeprefix("www.")
+            lic_raw = p.get("license_id") or ""
+            org = p.get("organization") or ""
+            if isinstance(org, dict):
+                org = org.get("name") or ""
+            rec = _record(
+                portal,
+                source_id=p["id"],
+                name=p.get("name") or "",
+                title=re.sub(r"\s+", " ", p.get("title") or p.get("name") or "").strip(),
+                org=org,
+                org_title=orgs.get(org, org),
+                kind=p.get("dataset_type") or p.get("type") or "dataset",
+                licence=licence_id(lic_titles.get(lic_raw, lic_raw)),
+                licence_title=lic_titles.get(lic_raw, lic_raw),
+                formats=formats(p.get("res_format")),
+                created=_day(p.get("metadata_created")),
+                modified=_day(p.get("metadata_modified")),
+                url=portal.landing(p.get("name") or p["id"]),
+                summary=summary(p.get("notes") or ""),
+                harvested_from=origin if origin and origin != portal.host else "",
+                source_host=(urlparse(p.get("url") or "").hostname or "").removeprefix("www."),
+            )
             # data.gov.au names itself as the origin of records it holds first hand.
             if (
                 portal.code == "gov"
@@ -596,31 +627,8 @@ def ckan(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
                 and host != portal.host.removeprefix("www.")
             ):
                 dropped += 1
-                continue
-            lic_raw = p.get("license_id") or ""
-            org = p.get("organization") or ""
-            if isinstance(org, dict):
-                org = org.get("name") or ""
-            out.append(
-                _record(
-                    portal,
-                    source_id=p["id"],
-                    name=p.get("name") or "",
-                    title=re.sub(r"\s+", " ", p.get("title") or p.get("name") or "").strip(),
-                    org=org,
-                    org_title=orgs.get(org, org),
-                    kind=p.get("dataset_type") or p.get("type") or "dataset",
-                    licence=licence_id(lic_titles.get(lic_raw, lic_raw)),
-                    licence_title=lic_titles.get(lic_raw, lic_raw),
-                    formats=formats(p.get("res_format")),
-                    created=_day(p.get("metadata_created")),
-                    modified=_day(p.get("metadata_modified")),
-                    url=portal.landing(p.get("name") or p["id"]),
-                    summary=summary(p.get("notes") or ""),
-                    harvested_from=origin if origin and origin != portal.host else "",
-                    source_host=(urlparse(p.get("url") or "").hostname or "").removeprefix("www."),
-                )
-            )
+                rec["copy_of"] = (harvest or {}).get("href") or ""
+            out.append(rec)
         start += len(batch)
         log(f"catalogue {portal.code}: {start}/{res['count']}")
         if not batch or start >= res["count"]:
@@ -869,22 +877,25 @@ def harvest(
     """A portal that cannot be read keeps its records from the previous snapshot.
 
     The stats say so, so an outage never reads as datasets withdrawn. With no previous snapshot
-    its records are absent and the stats say it was not read.
+    its records are absent and the stats say it was not read. A previous version whose snapshot
+    is not in the store stops the harvest before any portal is read.
     """
+    if previous is None and previous_version:
+        # Without it a portal's records cannot be kept and every carried copy would be dropped.
+        msg = (
+            f"the {previous_version} snapshot is not in the store to carry its records and "
+            "copies forward; run `publicdata store pull --only catalogue`"
+        )
+        raise PortalError(msg)
     s = requests.Session()
     s.headers["User-Agent"] = UA
     records: list[Record] = []
+    copies: list[Record] = []
     stats: dict[str, PortalStats] = {}
     for p in portals:
         try:
             recs, dropped = HARVESTERS[p.kind](p, s, log)
         except (requests.RequestException, PortalError, KeyError, ValueError, TypeError) as e:
-            if previous is None and previous_version:
-                msg = (
-                    f"{p.host} could not be read and the {previous_version} snapshot is not in the "
-                    "store to carry its records forward; run `publicdata store pull --only catalogue`"
-                )
-                raise PortalError(msg) from e
             kept = [r for r in previous or [] if r["portal"] == p.code]
             records += kept
             stats[p.code] = {
@@ -896,16 +907,21 @@ def harvest(
                 f"catalogue: {p.host} could not be read; {len(kept)} records kept from {previous_version or 'no earlier snapshot'}: {e}"
             )
             continue
+        copies += [r for r in recs if "copy_of" in r]
+        recs = [r for r in recs if "copy_of" not in r]
         records += recs
         stats[p.code] = {"records": len(recs), "dropped_duplicates": dropped}
-    records = _drop_copies(records, portals, stats)
+    moved: dict[str, str] = {}
+    kept = _drop_copies(records, portals, stats, moved)
+    pages = {r["id"]: r["url"] for r in records + copies if r.get("url")}
+    records = kept
     seen: set[str] = set()
     unique: list[Record] = []
     for r in sorted(records, key=lambda r: r["id"]):
         if r["id"] not in seen:
             seen.add(r["id"])
             unique.append(r)
-    return unique, stats
+    return _carry(unique, copies, moved, previous or [], pages), stats
 
 
 def _title_key(title: str) -> str:
@@ -913,34 +929,107 @@ def _title_key(title: str) -> str:
 
 
 def _drop_copies(
-    records: list[Record], portals: Iterable[Portal], stats: dict[str, PortalStats]
+    records: list[Record],
+    portals: Iterable[Portal],
+    stats: dict[str, PortalStats],
+    moved: dict[str, str] | None = None,
 ) -> list[Record]:
     """Drop the copies of records that a council portal now lists itself.
 
     A record in an organisation a council portal replaces is dropped when the council portal
     lists the same title or the record's source is on the council portal. Anything else that
     organisation holds is kept, since it may come from somewhere the council portal does not.
+    A dropped copy whose title names one record on the council portal goes into `moved`, mapped
+    to that record's id.
     """
     have = {r["portal"] for r in records}
     scope = {o: p for p in portals if p.code in have for o in p.replaces}
     if not scope:
         return records
-    titles: dict[str, set[str]] = {}
+    titles: dict[str, dict[str, list[str]]] = {}
     for r in records:
         if r["portal"] in {p.code for p in scope.values()}:
-            titles.setdefault(r["portal"], set()).add(_title_key(r["title"]))
+            titles.setdefault(r["portal"], {}).setdefault(_title_key(r["title"]), []).append(
+                r["id"]
+            )
     kept: list[Record] = []
     for r in records:
         p = scope.get(f"{r['portal']}:{r['org'] or 'unknown'}")
-        if p and (
-            _title_key(r["title"]) in titles.get(p.code, ())
-            or r.get("source_host") == p.host.removeprefix("www.")
-        ):
+        same = titles.get(p.code, {}).get(_title_key(r["title"]), []) if p else []
+        if p and (same or r.get("source_host") == p.host.removeprefix("www.")):
             st = stats.setdefault(r["portal"], {})
             st["dropped_duplicates"] = st.get("dropped_duplicates", 0) + 1
+            if moved is not None and len(same) == 1:
+                moved[r["id"]] = same[0]
             continue
         kept.append(r)
     return kept
+
+
+def bare_url(url: str) -> str:
+    """A URL as host and path, which is how two portals' links to one page compare."""
+    u = urlparse(url.strip())
+    return (u.hostname or "").removeprefix("www.") + u.path.rstrip("/")
+
+
+def _original(dup: Record, by_url: Mapping[str, str], live: Container[str]) -> str:
+    """The id of the record a data.gov.au copy was harvested from, or "".
+
+    The copy names the original's page, and CKAN's harvester keeps the original's package id.
+    The portal the id is looked up on is the page's, or else the harvest source's.
+    """
+    href = dup.get("copy_of", "")
+    if href and bare_url(href) in by_url:
+        return by_url[bare_url(href)]
+    hosts = ((urlparse(href).hostname or ""), dup.get("harvested_from", ""))
+    code = next((c for h in hosts if (c := PORTAL_BY_HOST.get(h.removeprefix("www.")))), "")
+    if not code:
+        return ""
+    same = record_id(code, dup["id"].split("-", 1)[1])
+    return same if same in live else ""
+
+
+def _carry(
+    records: list[Record],
+    copies: list[Record],
+    moved: dict[str, str],
+    previous: list[Record],
+    pages: Mapping[str, str] | None = None,
+) -> list[Record]:
+    """Give each record the ids of the copies it replaced, so their votes and issues follow it.
+
+    A copy with no original found is dropped and left out. A record keeps the copies it replaced
+    in earlier snapshots, since a portal that cannot be read this time has no copies to match.
+    `pages` holds the page of each record harvested, by id, so a copy's page is kept beside it.
+    """
+    live = {r["id"] for r in records}
+    by_url = {bare_url(r["url"]): r["id"] for r in records if r.get("url")}
+    to: dict[str, str] = {c: r["id"] for r in previous for c in r.get("copies", [])}
+    page = {c: u for r in previous for c, u in r.get("copy_pages", {}).items()}
+    page |= {c: u for c, u in (pages or {}).items() if c not in live}
+    to |= moved
+    # An original that was itself dropped as a copy is followed on below.
+    known = live | to.keys()
+    for dup in copies:
+        if found := _original(dup, by_url, known):
+            to[dup["id"]] = found
+    by_target: dict[str, list[str]] = {}
+    for c, first in to.items():
+        t, seen = first, {c}
+        # A record that is itself replaced passes its copies on.
+        while t not in live and t in to and t not in seen:
+            seen.add(t)
+            t = to[t]
+        if c not in live and t in live:
+            by_target.setdefault(t, []).append(c)
+    for r in records:
+        r.pop("copies", None)
+        r.pop("copy_pages", None)
+        if r["id"] in by_target:
+            r["copies"] = sorted(by_target[r["id"]])
+            if found_pages := {c: page[c] for c in r["copies"] if c in page}:
+                r["copy_pages"] = found_pages
+    return records
 
 
 def encode(records: Iterable[Record]) -> bytes:
