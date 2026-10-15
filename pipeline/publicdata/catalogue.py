@@ -208,6 +208,7 @@ class HubItem(TypedDict, total=False):
     modified: object
     description: str | None
     snippet: str | None
+    source: str | None
 
 
 class _HubFeature(TypedDict, total=False):
@@ -245,7 +246,8 @@ class Portal:
     api: str
     jurisdiction: str
     kind: str = "ckan"
-    # A portal run by one body names it here, and every record it lists is that body's.
+    # A portal run by one body names it here, and every record it lists is that body's. A hub
+    # that names none files each item under the body its own metadata names.
     publisher: str = ""
     # Organisations on other portals, as portal:org, that copy this one. Their records are
     # dropped whenever this portal has records of its own in the snapshot.
@@ -655,7 +657,7 @@ def socrata(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list
                     source_id=x["id"],
                     name=x["id"],
                     title=re.sub(r"\s+", " ", x.get("name") or "").strip(),
-                    org=re.sub(r"[^a-z0-9]+", "-", org.lower()).strip("-"),
+                    org=_org_slug(org),
                     org_title=org,
                     kind=kind,
                     licence=licence_id(lic_title),
@@ -711,11 +713,22 @@ def sdmx(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Re
     return out, 0
 
 
-def _council_record(portal: Portal, *, created: str = "", **kw: Unpack[_CouncilFields]) -> Record:
+def _org_slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def _council_record(
+    portal: Portal,
+    *,
+    created: str = "",
+    body: tuple[str, str] | None = None,
+    **kw: Unpack[_CouncilFields],
+) -> Record:
+    key, title = body or (portal.code, portal.publisher)
     return _record(
         portal,
-        org=portal.code,
-        org_title=portal.publisher,
+        org=key,
+        org_title=title,
         kind="dataset",
         created=created,
         harvested_from="",
@@ -828,6 +841,18 @@ def hub_licence(x: HubItem) -> tuple[str, str]:
     return (named if named != text else "custom"), text
 
 
+def hub_org(portal: Portal, x: HubItem) -> tuple[str, str] | None:
+    """The organisation a Hub item is filed under, as (key, title), or None for the portal's own.
+
+    A hub of many bodies names each item's body in its Source field. The owner is an account
+    name, sometimes a person's, so an item with no Source is filed as unknown.
+    """
+    if portal.publisher:
+        return None
+    title = re.sub(r"\s+", " ", x.get("source") or "").strip()
+    return _org_slug(title), title
+
+
 def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Record], int]:
     """An ArcGIS Hub site, read through its OGC Records search of the site's own catalogue."""
     out: list[Record] = []
@@ -854,6 +879,7 @@ def hub(portal: Portal, s: requests.Session, log: Log = print) -> tuple[list[Rec
                     modified=_epoch_day(x.get("modified")),
                     url=portal.landing(x["id"]),
                     summary=summary(x.get("description") or x.get("snippet") or ""),
+                    body=hub_org(portal, x),
                 )
             )
         n += len(feats)

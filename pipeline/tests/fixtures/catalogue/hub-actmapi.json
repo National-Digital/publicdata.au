@@ -1,0 +1,69 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "e357b0d7c7bb41b1afa21b4268c2cb1d",
+        "title": "ACTGOV Threatened Native Species List",
+        "type": "Feature Service",
+        "license": "CC-BY-4.0",
+        "licenseInfo": "<p style='margin-top:0px; margin-bottom:1.5rem;'><font size='3'><a href='https://creativecommons.org/licenses/by/4.0/' target='_blank' rel='nofollow ugc noopener noreferrer'>Creative Commons By Attribution 4.0 (Australian Capital Territory)</a> (https://creativecommons.org/licenses/by/4.0/) </font></p><p style='margin-top:0.6pt; margin-bottom:1.55rem;'><font size='3'>Please read our <a href='https",
+        "description": "<div style='text-align:Left;'><div><div><p><span style='font-size:12pt;'>Nature Conservation Act 2014 - Threatened Native Species List October 2026</span></p><p><i>Species listed as threatened under the Nature Conservation Act 2014</i></p><p><strong>valid from: </strong>09<span>/10/2026</span></p><p",
+        "snippet": "Species listed as threatened under the Nature Conservation Act 2014",
+        "created": 1724046895000,
+        "modified": 1791948815000,
+        "url": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Threatened_Native_Species_List/FeatureServer",
+        "owner": "environment_ACTGOV",
+        "source": "City and Environment Directorate | ACT Government",
+        "accessInformation": "© Australian Capital Territory © Winnagaay Ngunnawal Language Aboriginal Corporation."
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "01f21cb1553e4eb4a5f0d623e0a900ea",
+        "title": "ACTGOV Road Barrier Assets",
+        "type": "Feature Service",
+        "license": "custom",
+        "licenseInfo": "<DIV STYLE=\"text-align:Left;\"><DIV><DIV><P><SPAN>Creative Commons By Attribution 4.0 (Australian Capital Territory) </SPAN></P><P><SPAN>Please read Data Terms and Conditions statement before data use (https://www.actmapi.act.gov.au/terms-and-conditions).</SPAN></P></DIV></DIV></DIV>",
+        "description": "<DIV STYLE=\"text-align:Left;\"><DIV><DIV><P STYLE=\"margin:0 0 0 0;\"><SPAN><SPAN>This polyline dataset shows the locations of Road Barriers in the Australian Capital Territory. </SPAN></SPAN></P><P /><P STYLE=\"margin:0 0 0 0;\"><SPAN><SPAN>These assets are either owned or managed by City Services, City",
+        "snippet": "Locations of Road Barriers owned or managed by CED in the Australian Capital Territory.",
+        "created": 1702257193000,
+        "modified": 1791763479000,
+        "url": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Road_Barrier_Assets/FeatureServer",
+        "owner": "cityoperationsactgov",
+        "source": "Australian Capital Territory Government",
+        "accessInformation": "© Australian Capital Territory"
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "77393a8101804828af9aefbf934f1f18",
+        "title": "ACTGOV Pram Crossing Assets",
+        "type": "Feature Service",
+        "license": "custom",
+        "licenseInfo": "<DIV STYLE=\"text-align:Left;\"><DIV><DIV><P><SPAN>Creative Commons By Attribution 4.0 (Australian Capital Territory) </SPAN></P><P><SPAN>Please read Data Terms and Conditions statement before data use (https://www.actmapi.act.gov.au/terms-and-conditions).</SPAN></P></DIV></DIV></DIV>",
+        "description": "<DIV STYLE=\"text-align:Left;\"><DIV><DIV><P STYLE=\"margin:0 0 0 0;\"><SPAN><SPAN>This point dataset shows the locations of Pram Crossings in the Australian Capital Territory. </SPAN></SPAN></P><P /><P STYLE=\"margin:0 0 0 0;\"><SPAN><SPAN>These assets are either owned or managed by City Services, City a",
+        "snippet": "Locations of Pram Crossings owned or managed by CED in the Australian Capital Territory.",
+        "created": 1702252649000,
+        "modified": 1791763467000,
+        "url": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Pram_Crossing_Assets/FeatureServer",
+        "owner": "cityoperationsactgov",
+        "source": "Australian Capital Territory Government",
+        "accessInformation": "© Australian Capital Territory"
+      }
+    }
+  ],
+  "numberMatched": 173,
+  "numberReturned": 3,
+  "links": [
+    {
+      "rel": "self",
+      "type": "application/geo+json",
+      "title": "This document as GeoJSON",
+      "href": "https://actmapi-actgov.opendata.arcgis.com/api/search/v1/collections/dataset/items"
+    }
+  ]
+}
