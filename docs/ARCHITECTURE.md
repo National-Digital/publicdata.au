@@ -840,7 +840,8 @@ receive it.
 Everything the site answers dynamically is under `/api/v1/`. `/api/v1/datasets/<slug>/rows` and
 `/aggregate` answer for the newest version, the same under
 `/api/v1/datasets/<slug>/versions/<date>/` for a dated version, and `/api/v1/datasets/<slug>/versions`
-lists every version with a table to query; `/api/v1/datasets?q=` searches the datasets served here,
+lists every version with a table to query; `/api/v1/datasets?q=` searches the datasets served here
+and returns the best 50, and without `q` it lists every one,
 votes are `/api/v1/votes`, the catalogue search `/api/v1/catalogue` and requests `/api/v1/requests`.
 Filters follow PostgREST (`field=gte.2020`, `in.(a,b)`, `is.null`,
 `like.*x*`, `not.` to negate), every name is checked against the field list and every value is

@@ -373,3 +373,51 @@ CREATE VIRTUAL TABLE "${S}_fts" USING fts5(title, summary, publisher, keywords, 
     { slug: 'x', title: 'Crashes', publisher: undefined, licence: 'l', page: 'p', latest: 'a' },
   ]);
 });
+
+test('without words the dataset list is whole, and the tool still stops at 50', async () => {
+  const { LIMIT, searchServed } = await import('./_served.js');
+  const { onRequestGet: datasets } = await import('./api/v1/datasets.js');
+  const { EXEC } = await import('./_tools.js');
+  const n = LIMIT + 10;
+  const catalog = {
+    dataset: [...Array(n).keys()].map((i) => ({
+      identifier: `road-${String(i).padStart(2, '0')}`,
+      title: `Road set ${i}`,
+    })),
+  };
+  const site = {
+    ASSETS: { fetch: async () => new Response(JSON.stringify(catalog)) },
+  };
+  const ask = async (q) => {
+    const r = await datasets({
+      request: new Request(`https://publicdata.au/api/v1/datasets${q === null ? '' : '?q=' + q}`),
+      env: site,
+    });
+    return (await r.json()).results.length;
+  };
+  assert.equal(await ask(null), n);
+  assert.equal(await ask(''), n);
+  assert.equal(await ask('road'), LIMIT);
+  const tool = async (query) =>
+    JSON.parse(
+      await EXEC.search_datasets(
+        { request: new Request('https://publicdata.au/mcp'), env: site },
+        { query },
+      ),
+    ).results.length;
+  assert.equal(await tool(''), LIMIT);
+  assert.equal(await tool('road'), LIMIT);
+
+  const S = 'v__served_many';
+  const s = new DatabaseSync(':memory:');
+  s.exec(`CREATE TABLE _versions (slug TEXT, version TEXT, tbl TEXT);
+INSERT INTO _versions VALUES ('_served', 'a', '${S}');
+CREATE TABLE "${S}" (slug TEXT, title TEXT, publisher TEXT, licence TEXT, page TEXT, latest TEXT);`);
+  const put = s.prepare(`INSERT INTO "${S}" (slug, title) VALUES (?, ?)`);
+  for (const d of catalog.dataset) {
+    put.run(d.identifier, d.title);
+  }
+  const served = { DB: d1(s) };
+  assert.equal((await searchServed(served, '')).length, LIMIT);
+  assert.equal((await searchServed(served, '', null)).length, n);
+});

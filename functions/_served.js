@@ -14,6 +14,7 @@ const pick = (r) => ({
   latest: r.latest,
 });
 
+// limit null returns every match.
 export async function searchServed(env, q, limit = LIMIT) {
   if (!env.DB) {
     return null;
@@ -37,9 +38,11 @@ export async function searchServed(env, q, limit = LIMIT) {
       ? await env.DB.prepare(
           `SELECT c.* FROM "${t.tbl}_fts" f JOIN "${t.tbl}" c ON c.rowid = f.rowid WHERE "${t.tbl}_fts" MATCH ? ORDER BY bm25("${t.tbl}_fts", 8.0, 1.0, 3.0, 4.0, 1.0), c.slug LIMIT ?`,
         )
-          .bind(m, limit)
+          .bind(m, limit ?? -1)
           .all()
-      : await env.DB.prepare(`SELECT * FROM "${t.tbl}" ORDER BY title LIMIT ?`).bind(limit).all();
+      : await env.DB.prepare(`SELECT * FROM "${t.tbl}" ORDER BY title LIMIT ?`)
+          .bind(limit ?? -1)
+          .all();
     return (res.results || []).map(pick);
   } catch {
     return null;
@@ -51,7 +54,7 @@ export function scanCatalog(catalog, q, limit = LIMIT) {
   const s = String(q || '').toLowerCase();
   return (catalog.dataset || [])
     .filter((d) => JSON.stringify(d).toLowerCase().indexOf(s) >= 0)
-    .slice(0, limit)
+    .slice(0, limit ?? undefined)
     .map((d) => ({
       slug: d.identifier,
       title: d.title,
