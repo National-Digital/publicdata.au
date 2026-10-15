@@ -1585,9 +1585,9 @@ def _csw_copyright(text: str) -> bool:
     t = _csw_fold(text)
     m = re.fullmatch(r"(?:©|\(c\)|copyright)\s*([a-z ()&,-]{2,120})\s(?:19|20)\d\d", t)
     return bool(m) and not re.search(
-        r"\b(reserved|licen[cs]e[ds]?|permission|not|may|must|only|commercial|nc|nd|derivative"
+        r"\b(reserved|licen[cs]e[ds]?|permission|not|may|must|only|(?:non)?commercial|nc|nd|derivative"
         r"|third|party|except|restrict\w*|prohibit\w*|cannot|use|internal|terms|conditions"
-        r"|subject|redistribut\w*)\b",
+        r"|subject|redistribut\w*|purposes?|research|education\w*|personal|private)\b",
         t,
     )
 
@@ -1621,6 +1621,8 @@ def _csw_cited(lc: ET.Element) -> str:
     title = _csw_text(cite, "gmd:title") if cite is not None else ""
     lid = "" if re.match(r"https?://", title) else _csw_licence_wording(title)
     if cite is None or not lid or any(el.get(XLINK_HREF) for el in lc.iter()):
+        return ""
+    if len(lc.findall("gmd:reference", CSW_NS)) != 1:
         return ""
     version = re.search(r"\d\.\d", lid)
     fits: dict[str, Callable[[str], bool]] = {

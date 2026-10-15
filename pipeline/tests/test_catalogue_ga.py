@@ -184,6 +184,10 @@ def test_a_cited_licence_with_other_terms_beside_it_is_held_or_closed() -> None:
     assert lic(other="© Commonwealth of Australia 2025. All rights reserved") == catalogue.ASSESSING
     assert lic(other="© Commonwealth, third party material excepted 2025") == catalogue.ASSESSING
     assert lic(other="Not to be used for navigation") == catalogue.ASSESSING
+    assert lic(other="(c) Geoscience Australia for noncommercial purposes 2020") == (
+        catalogue.ASSESSING
+    )
+    assert lic(other="© Geoscience Australia, research and education 2020") == catalogue.ASSESSING
     # Use and access constraints hold one code that adds no terms.
     assert lic(access=cs("Non-commercial only")) == catalogue.ASSESSING
     assert lic(use=f'<gmd:MD_RestrictionCode codeListValue="license"/>{cs("NC")}') == (
@@ -195,6 +199,25 @@ def test_a_cited_licence_with_other_terms_beside_it_is_held_or_closed() -> None:
     assert lic(addressee="Australian Government agencies") == catalogue.ASSESSING
     assert lic(release="Australian Government use only") == catalogue.ASSESSING
     assert lic(dissemination="unrestricted") == catalogue.ASSESSING
+
+
+def test_a_second_citation_beside_a_cited_licence_holds_it() -> None:
+    for title in (
+        "Creative Commons Attribution-NonCommercial 4.0 International",
+        "Internal use only",
+    ):
+        md = cited()
+        lc = md.find(".//gmd:MD_LegalConstraints", catalogue.CSW_NS)
+        assert lc is not None
+        second = ET.fromstring(  # noqa: S314 - the test's own literal
+            '<gmd:reference xmlns:gmd="http://www.isotc211.org/2005/gmd" '
+            'xmlns:gco="http://www.isotc211.org/2005/gco"><gmd:CI_Citation>'
+            f"<gmd:title>{cs(title)}</gmd:title></gmd:CI_Citation></gmd:reference>"
+        )
+        lc.insert(2, second)
+        licence, title_read = catalogue.csw_licence(md)[:2]
+        assert licence != "CC-BY-4.0"
+        assert title in title_read
 
 
 def test_a_restriction_code_no_list_names_holds_a_stated_licence() -> None:
