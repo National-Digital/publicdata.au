@@ -8,7 +8,8 @@ pd_datasets(q = NULL, publisher = NULL, topic = NULL, jurisdiction = NULL)
 }
 \arguments{
 \item{q}{Words to search titles, summaries, publishers, keywords and field
-names for. Every served dataset when `NULL`.}
+names for. The search returns the best 50 matches, and the other
+conditions are applied to those. Every served dataset when `NULL`.}
 
 \item{publisher}{Part of a publisher's name, such as `"Bureau of
 Meteorology"` or `"Transport"`, ignoring case.}
