@@ -1,6 +1,6 @@
 import { json } from '../../_lib.js';
 import { policy, spend } from '../../_limit.js';
-import { scanCatalog, searchServed } from '../../_served.js';
+import { LIMIT, scanCatalog, searchServed } from '../../_served.js';
 
 // The datasets served here that match some words: search_datasets as a URL.
 export async function onRequestGet({ request, env }) {
@@ -12,13 +12,15 @@ export async function onRequestGet({ request, env }) {
       'ratelimit-policy': policy(),
     });
   }
-  let results = await searchServed(env, q);
+  // Without words this lists every served dataset, so clients can filter the whole list.
+  const limit = q.trim() ? LIMIT : null;
+  let results = await searchServed(env, q, limit);
   if (!results) {
     const r = await env.ASSETS.fetch(new Request('https://publicdata.au/catalog.json'));
     if (!r.ok) {
       return json({ error: 'The dataset list could not be read' }, 503);
     }
-    results = scanCatalog(await r.json(), q);
+    results = scanCatalog(await r.json(), q, limit);
   }
   return json({ results }, 200, {
     'cache-control': 'public, max-age=300',

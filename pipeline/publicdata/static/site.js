@@ -1850,27 +1850,34 @@
     var EXEC = {};
     EXEC.search_datasets = function (input) {
       var s = input.query || '';
-      return getJSON('/api/v1/datasets?q=' + encodeURIComponent(s)).then(text, function () {
-        return catalog().then(function (c) {
-          var l = s.toLowerCase();
-          return text({
-            results: (c.dataset || [])
-              .filter(function (d) {
-                return JSON.stringify(d).toLowerCase().indexOf(l) >= 0;
-              })
-              .map(function (d) {
-                return {
-                  slug: d.identifier,
-                  title: d.title,
-                  publisher: d.publisher && d.publisher.name,
-                  licence: d.license,
-                  page: d.landingPage,
-                  latest: d.distribution && d.distribution[0] && d.distribution[0].accessURL,
-                };
-              }),
+      // The tool promises at most 50 matches, as functions/_tools.js does.
+      return getJSON('/api/v1/datasets?q=' + encodeURIComponent(s)).then(
+        function (b) {
+          return text({ results: b.results.slice(0, 50) });
+        },
+        function () {
+          return catalog().then(function (c) {
+            var l = s.toLowerCase();
+            return text({
+              results: (c.dataset || [])
+                .filter(function (d) {
+                  return JSON.stringify(d).toLowerCase().indexOf(l) >= 0;
+                })
+                .slice(0, 50)
+                .map(function (d) {
+                  return {
+                    slug: d.identifier,
+                    title: d.title,
+                    publisher: d.publisher && d.publisher.name,
+                    licence: d.license,
+                    page: d.landingPage,
+                    latest: d.distribution && d.distribution[0] && d.distribution[0].accessURL,
+                  };
+                }),
+            });
           });
-        });
-      });
+        }
+      );
     };
     EXEC.get_dataset = function (input) {
       var base = '/d/' + encodeURIComponent(input.slug) + '/';

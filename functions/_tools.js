@@ -6,6 +6,7 @@ import { onRequestPost as castVote } from './api/v1/votes/[slug].js';
 import { onRequestGet as voteCounts } from './api/v1/votes.js';
 import { onRequestGet as catalogue } from './api/v1/catalogue.js';
 import { onRequestGet as searchDatasets } from './api/v1/datasets.js';
+import { LIMIT } from './_served.js';
 
 // The server side of the tools in pipeline/publicdata/api.json. Each does what its twin in
 // site.js does, through the same handlers the public URLs use, so answers and caching match.
@@ -102,7 +103,8 @@ EXEC.search_datasets = async (ctx, input) => {
   if (!r.ok) {
     throw new ToolError(b.error || String(r.status));
   }
-  return text(b);
+  // The tool promises at most LIMIT matches, even for a query with no words left.
+  return text({ ...b, results: b.results.slice(0, LIMIT) });
 };
 EXEC.get_dataset = async (ctx, input) => {
   const base = '/d/' + enc(slugOf(input)) + '/';
