@@ -3674,7 +3674,7 @@ def _openapi(live: list[DatasetOut], queried: list[DatasetOut]) -> OpenApiDoc:
                 "get": {
                     "tags": ["catalogue"],
                     "summary": "Search the datasets served here by title, description, publisher, keyword or field name",
-                    "description": "The search behind the search_datasets tool. Words are matched to their stem, and up to 50 datasets come back, best match first.",
+                    "description": "The search behind the search_datasets tool. Words in q are matched to their stem, and up to 50 datasets come back, best match first. Without q, every dataset served here comes back.",
                     "operationId": "searchDatasets",
                     "parameters": [{"name": "q", "in": "query", "schema": {"type": "string"}}],
                     "responses": {
