@@ -7,7 +7,15 @@ the other changes.
 
 ## R CMD check results
 
-0 errors | 0 warnings | 0 notes
+0 errors | 0 warnings | 1 note
+
+win-builder's R-devel check of 16 October 2026 gave one NOTE:
+
+    * checking CRAN incoming feasibility ... NOTE
+    Days since last update: 2
+
+0.4.1 was published on CRAN on 14 October 2026. The NOTE counts the days since then. This update
+is submitted about a month later, as CRAN asks.
 
 ## Reverse dependencies
 
