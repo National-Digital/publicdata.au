@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block head %}<script type="application/ld+json">{{ jsonld|safe }}</script>{% endblock %}
-{% block disclaimer %}Published by {{ publisher.name }} under {{ licence.title }} and republished here without change to the content. {{ publisher.name }} has not endorsed this site.{% endblock %}
+{% block disclaimer %}{{ disclaimer_text }}{% endblock %}
 {% block main %}
 <div class="crumbs"><a href="/">Datasets</a> / {% if jur_path %}<a href="{{ jur_path }}">{{ jur_long }}</a>{% else %}{{ jur_long }}{% endif %} / {% if publisher_path %}<a href="{{ publisher_path }}">{{ publisher.short }}</a>{% else %}{{ publisher.short }}{% endif %}</div>
 <div class="ds-head"><h1>{{ heading }}</h1><span class="chip {{ status }}">{{ status }}</span></div>
