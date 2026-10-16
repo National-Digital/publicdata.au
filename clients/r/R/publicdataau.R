@@ -245,7 +245,8 @@ answer <- function(rows, slug, meta, nxt = NULL, version = NULL) {
 #' Datasets served by publicdata.au
 #'
 #' @param q Words to search titles, summaries, publishers, keywords and field
-#'   names for. Every served dataset when `NULL`.
+#'   names for. The search returns the best 50 matches, and the other
+#'   conditions are applied to those. Every served dataset when `NULL`.
 #' @param publisher Part of a publisher's name, such as `"Bureau of
 #'   Meteorology"` or `"Transport"`, ignoring case.
 #' @param topic A topic the site files datasets under, such as `"roads"`,

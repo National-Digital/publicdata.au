@@ -1,15 +1,25 @@
-## Resubmission
+## Update
 
-0.4.0 failed the incoming pre-test on Debian: the `pd_read()` example read a
-zstd-compressed Parquet file with an 'arrow' built without zstd. In 0.5.0
-`pd_read()` reads the gzipped CSV instead wherever 'arrow' or its zstd codec is
-missing, so the example runs on every check machine.
+This updates 0.4.1 to 0.5.0. In 0.4.1, `pd_read()` stopped with an error when
+'arrow' was missing or built without zstd. In 0.5.0 it reads the version's
+gzipped CSV in that case, typed from the version's field list. `NEWS.md` lists
+the other changes.
 
 ## R CMD check results
 
 0 errors | 0 warnings | 1 note
 
-* This is a new submission.
+win-builder's R-devel check of 16 October 2026 gave one NOTE:
+
+    * checking CRAN incoming feasibility ... NOTE
+    Days since last update: 2
+
+0.4.1 was published on CRAN on 14 October 2026. The NOTE counts the days since then. This update
+is submitted about a month later, as CRAN asks.
+
+## Reverse dependencies
+
+There are no reverse dependencies.
 
 ## Web access
 

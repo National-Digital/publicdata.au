@@ -697,7 +697,8 @@ class Client:
     ) -> list[JSONObject]:
         """Datasets the site serves, each with slug, title, publisher, licence and page URL.
 
-        `q` searches titles, summaries, publishers, keywords and field names. `publisher` is
+        `q` searches titles, summaries, publishers, keywords and field names and returns the
+        best 50 matches, which the other conditions then filter. `publisher` is
         part of a publisher's name, `topic` a topic such as "roads" or "crime", and
         `jurisdiction` a code such as "Qld" or a name such as "Queensland", all ignoring case.
         Every condition given must match.
