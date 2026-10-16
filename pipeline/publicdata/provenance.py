@@ -131,7 +131,7 @@ def changes(ds: Dataset) -> str:
         )
     if ds.source_withheld:
         said.append(ds.source_withheld)
-    said.append(f"{OPERATOR} is responsible for these changes.")
+    said.append(f"{OPERATOR} made these changes, and the publisher is not responsible for them.")
     return " ".join(said)
 
 

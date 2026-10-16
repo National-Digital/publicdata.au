@@ -2725,7 +2725,7 @@ PROSE = {
 <h2>No endorsement</h2>
 <p>publicdata.au is a private website with no connection to any government agency. No publisher has endorsed it, and nothing on it speaks for a publisher.</p>
 <h2>Accuracy</h2>
-<p>The site republishes each publisher's file in other formats, and we are responsible for that conversion. We type each cell and rename headers, and a cell the publisher suppressed, such as "&lt;5", becomes null with a flag, as the <a href="/about/">about page</a> sets out. A value that is wrong in the publisher's file is wrong here too. Before a version is published, an automated check confirms that every format was written and that each file carries the licence and the publisher's attribution. Nothing compares each value with the publisher's file.</p>
+<p>The site republishes each publisher's file in other formats. National Digital does the conversion, and a fault in it is not the publisher's. We type each cell and rename headers, and a cell the publisher suppressed, such as "&lt;5", becomes null with a flag, as the <a href="/about/">about page</a> sets out. A value that is wrong in the publisher's file is wrong here too. Before a version is published, an automated check confirms that every format was written and that each file carries the licence and the publisher's attribution. Nothing compares each value with the publisher's file.</p>
 <p>Counts, sums and averages from the query API and the MCP server leave out null cells, so a total can be lower than the publisher's own. We give no warranty that the data, or an answer a program or an AI agent draws from it, is complete or accurate, or that it is current or suits your purpose. The publisher's original file is kept beside every version with its SHA-256. Check anything that matters against that file or the publisher's current release. This does not affect your rights under the Australian Consumer Law, as the liability section sets out.</p>
 <h2>Using the query API and the MCP server</h2>
 <p>Programs, scripts and AI agents may use the site, the files, the query API and the MCP server. {terms_limits} Do not try to get around a limit, for example by spreading requests across many addresses, and do not use the site in a way that slows it for other people. We may slow or block traffic that does. These limits apply to our servers. What you may do with data you already hold is governed by the dataset's licence. <a href="/robots.txt"><code>/robots.txt</code></a> asks crawlers not to index <code>/api/</code>, and it does not stop a program from using the API.</p>
@@ -2750,7 +2750,7 @@ PROSE = {
 # and the hash does not, so the date on the page cannot fall behind the wording.
 TERMS_CHANGED = (
     "16 October 2026",
-    "f29e39720f5dda79aa2ed20927866a40bca0f82b99866d7303788c34fe97e6be",
+    "dac39ea7b32692ed45f40105d3ad03bbf338f7a498a9ee69c295f2a51509b084",
 )
 
 

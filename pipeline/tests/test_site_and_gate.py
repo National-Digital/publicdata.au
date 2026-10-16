@@ -1152,13 +1152,15 @@ def test_every_page_states_what_the_operator_changed(fixture_site: Path) -> None
     for p in pages:
         text = p.read_text("utf-8")
         assert "without change to the content" not in text, p
-        assert "is responsible for these changes" in text, p
+        assert "the publisher is not responsible for them" in text, p
 
 
 def test_the_changes_notice_follows_the_entry() -> None:
     plain = changes(make_dataset([]))
     assert plain.startswith("National Digital converted the publisher's file to other formats")
-    assert plain.endswith("National Digital is responsible for these changes.")
+    assert plain.endswith(
+        "National Digital made these changes, and the publisher is not responsible for them."
+    )
     assert "suppressed" not in plain
     assert "suppressed value a null" in changes(make_dataset([], suppression=("<5",)))
     withheld = "The ICSEA column is left out for its terms."
