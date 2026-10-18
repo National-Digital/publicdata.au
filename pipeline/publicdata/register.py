@@ -53,6 +53,7 @@ if TYPE_CHECKING:
         package_match: object
         resource_match: object
         member: object
+        licence_member: object
         search: object
         providers: list[object]
         feed: object
@@ -479,6 +480,8 @@ class Source:
     resource_match: str = ""
     # The data file inside a zip the publisher serves, by name.
     member: str = ""
+    # A licence file inside that zip: each new download must still carry licence.statement in it.
+    licence_member: str = field(default="", repr=False)
     # An API that answers a search: the search, and the providers whose rows are taken, by id.
     search: str = ""
     providers: tuple[str, ...] = ()
@@ -705,6 +708,7 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         package_match=str(src.get("package_match", "")),
         resource_match=str(src.get("resource_match", "")),
         member=str(src.get("member", "")),
+        licence_member=str(src.get("licence_member", "")),
         search=str(src.get("search", "")),
         providers=tuple(str(x) for x in (src.get("providers") or [])),
         feed=_bool(src.get("feed", False), f"{ctx}.source.feed"),
@@ -896,6 +900,9 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
             and not ds.licence.statement
         ):
             msg = f"{ctx}: a {ds.source.adapter} source needs licence.statement, the evidence page's own words"
+            raise RegisterError(msg)
+        if ds.source.licence_member and not ds.licence.statement:
+            msg = f"{ctx}: source.licence_member needs licence.statement, the words that file must carry"
             raise RegisterError(msg)
         if ds.source.adapter == "aihw" and not ds.source.resource_match:
             msg = f"{ctx}: an aihw source needs resource_match, the file's listed title"

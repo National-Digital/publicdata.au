@@ -562,3 +562,25 @@ def test_rollup_lists_field_sets_and_shapes_no_version() -> None:
     for bad in bads:
         with pytest.raises(RegisterError, match="rollup"):
             parse(_fielded(rollup=bad), "x")
+
+
+def test_a_licence_file_in_the_archive_needs_the_words_it_must_carry() -> None:
+    entry: RawEntry = {
+        "status": "building",
+        "licence": {"id": "CC-BY-3.0-AU", "evidence": "https://e", "attribution": "a"},
+        "source": {
+            "adapter": "ckan-resource",
+            "url": "https://example.gov.au/",
+            "portal": "https://data.gov.au/data",
+            "package": "p",
+            "resource": "r",
+            "licence_member": "License.txt",
+        },
+    }
+    with pytest.raises(RegisterError, match=re.escape("licence_member needs licence.statement")):
+        parse(_raw(**entry), "x")
+    entry["licence"] = {
+        **entry["licence"],
+        "statement": "Creative Commons Attribution 3.0 Australia",
+    }
+    assert parse(_raw(**entry), "x").source.licence_member == "License.txt"

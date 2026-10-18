@@ -554,6 +554,9 @@ rule carries `# nolint: <linter>. <reason>`.
 - Each fetch records in the version's manifest where it read the licence (`licence.read_from`) and when
   (`licence.read_at`), and a fetch whose adapter records neither is refused. `licence.reviewed` in the
   register is the date the evidence page was read and the licence decided; a live entry needs it.
+- A publisher that ships its licence inside a zip with the data can change it there without
+  touching the portal's record. `source.licence_member` names that file, and each new download
+  is stopped unless the file still carries the words `licence.statement` quotes.
 - A portal's generic licence code means what that portal's `license_list` says: `cc-by` is CC BY 4.0 on
   the WA, SA and Victorian portals and CC BY 3.0 AU on data.gov.au (`PORTAL_LICENCES` in fetch.py). NSW and
   NT name no version for `cc-by`, so an entry there sets `licence.portal_id` and the version from the

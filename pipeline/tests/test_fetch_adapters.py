@@ -2,6 +2,7 @@ import dataclasses
 import io
 import json
 import re
+import zipfile
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import pytest
@@ -345,6 +346,65 @@ def test_a_licence_page_that_lost_its_grant_stops_the_fetch(
     }
     with pytest.raises(f.LicenceDrift, match="no longer says"):
         run("file", file_ds(), routes, tmp_path, monkeypatch)
+
+
+SA_LICENCE = (
+    b"Creative Commons Attribution 3.0 Australia (CC BY 3.0 AU) license available here:\r\n\r\n"
+    b"http://creativecommons.org/licenses/by/3.0/au/"
+)
+
+
+def zipped(members: Mapping[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, body in members.items():
+            z.writestr(name, body)
+    return buf.getvalue()
+
+
+def licence_member_ds() -> Dataset:
+    return make_dataset(
+        [Field("a", "a")],
+        licence=Licence(
+            "CC-BY-3.0-AU",
+            "https://example.gov.au/data",
+            "Example, sourced {sourced}.",
+            "",
+            "Creative Commons Attribution 3.0 Australia",
+        ),
+        source=Source(
+            adapter="ckan-resource",
+            url="https://example.gov.au/data",
+            member="t.geojson",
+            licence_member="License.txt",
+        ),
+    )
+
+
+def test_a_zip_whose_licence_file_still_states_the_licence_passes() -> None:
+    f.check_licence_member(
+        licence_member_ds(), zipped({"License.txt": SA_LICENCE, "t.geojson": b"{}"})
+    )
+
+
+def test_a_licence_file_that_names_another_licence_stops_the_fetch() -> None:
+    data = zipped(
+        {"License.txt": b"Creative Commons Attribution 4.0 International", "t.geojson": b"{}"}
+    )
+    with pytest.raises(f.LicenceDrift, match="no longer says"):
+        f.check_licence_member(licence_member_ds(), data)
+
+
+def test_a_download_without_its_licence_file_stops_the_fetch() -> None:
+    with pytest.raises(f.LicenceDrift, match=re.escape("no readable License.txt")):
+        f.check_licence_member(licence_member_ds(), zipped({"t.geojson": b"{}"}))
+    with pytest.raises(f.LicenceDrift, match=re.escape("no readable License.txt")):
+        f.check_licence_member(licence_member_ds(), b"<html>not a zip</html>")
+
+
+def test_an_entry_without_a_licence_file_reads_no_archive() -> None:
+    ds = make_dataset([Field("a", "a")])
+    f.check_licence_member(ds, b"a\n1\n")
 
 
 def manual_portal(modified: str = "2026-09-01T00:00:00") -> object:
