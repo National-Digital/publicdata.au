@@ -1,0 +1,188 @@
+slug: tas-roadside-stops
+title: Roadside stops on state roads, Tasmania
+status: live
+topics:
+- roads
+example:
+  group: type
+  metric: count
+  label: Roadside stops of each type
+order: 534
+search_title: Tasmania rest areas and roadside stops on state roads (Department of State Growth)
+also_known_as:
+- Roadside Stops (State Owned)
+- Tasmanian rest areas
+- Heavy vehicle parking areas Tasmania
+- Roadside lookouts Tasmania
+keywords:
+- rest areas
+- roadside stops
+- lookouts
+- heavy vehicle parking
+- driver fatigue
+- Department of State Growth
+- Tasmania
+faq:
+- q: What is in each row?
+  a: One roadside stop on a Tasmanian state road, which the department types as a rest area, a heavy vehicle
+    parking area or a roadside lookout. Each row has the road number and name, the site name and location,
+    the direction of travel it serves, the authority, and whether the site has a car park, shelter, barbecue,
+    toilet, rubbish bin, information sign, picnic area or playground.
+- q: How accurate are the locations?
+  a: The publisher's metadata says the stops were placed from a road asset spreadsheet and then moved to their
+    actual positions using the orthophoto, topographic and cadastre layers of the Land Information System
+    Tasmania, and that they are within 50 metres of the true position 90 per cent of the time.
+summary: The rest areas, heavy vehicle parking areas and lookouts on Tasmania's state roads, with each stop's
+  location and facilities, from the Department of State Growth on the Land Information System Tasmania.
+description: The Roadside Stops (State Owned) layer of the Department of State Growth, read from its map service.
+  Each row is one roadside stop on the State Government road network, with its type, road, site name, location,
+  direction, authority, access and the facilities the department records. The layer is held in GDA94 Map
+  Grid of Australia zone 55, and the map service gives each point's longitude and latitude in WGS84.
+publisher:
+  name: Department of State Growth
+  short: State Growth
+  jurisdiction: Tas
+  url: https://www.stategrowth.tas.gov.au/
+licence:
+  id: CC-BY-3.0-AU
+  reviewed: '2026-10-18'
+  evidence: https://data.thelist.tas.gov.au/datagn/srv/eng/xml.metadata.get?uuid=40bf6146-be5c-4276-8997-bf4549f3c6aa
+  statement: Creative Commons Attribution 3.0 Australia Licence
+  attribution: Roadside Stops (State Owned) from www.theLIST.tas.gov.au © State of Tasmania, Department of State
+    Growth, sourced {sourced}, https://data.thelist.tas.gov.au/datagn/srv/eng/catalog.search#/metadata/40bf6146-be5c-4276-8997-bf4549f3c6aa,
+    licensed under CC BY 3.0 AU.
+source:
+  adapter: file
+  url: https://data.stategrowth.tas.gov.au/ags/rest/services/PUBLIC/ROADSIDESTOPS/MapServer/0/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&outSR=4326&f=geojson
+  format: geojson
+  cadence: irregular
+key:
+- objectid
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:4326
+  crs_note: Longitude and latitude in WGS84 (EPSG:4326), as the map service projects them on request. The
+    layer's own coordinates are GDA94 Map Grid of Australia zone 55.
+row_label: Roadside stops
+fields:
+- name: objectid
+  label: Object id
+  source: OBJECTID
+  type: integer
+  description: The layer's row number, the only identifier it fills for every stop.
+- name: longitude
+  label: Longitude
+  source: (longitude)
+  type: number
+- name: latitude
+  label: Latitude
+  source: (latitude)
+  type: number
+- name: type
+  label: Type
+  source: TYPE
+  type: string
+- name: road_no
+  label: Road number
+  source: ROAD_NO
+  type: string
+- name: road_name
+  label: Road
+  source: ROAD_NAME
+  type: string
+- name: site_name
+  label: Site name
+  source: SITE_NAME
+  type: string
+- name: location
+  label: Location
+  source: LOCATION
+  type: string
+- name: direction
+  label: Direction
+  source: DIRECTION
+  type: string
+- name: authority
+  label: Authority
+  source: AUTHORITY
+  type: string
+- name: access
+  label: Access
+  source: ACCESS_
+  type: string
+- name: car_park
+  label: Car park
+  source: CAR_PARK
+  type: boolean
+  true_values:
+  - 'Y'
+  false_values:
+  - 'N'
+- name: shelter
+  label: Shelter
+  source: SHELTER
+  type: string
+- name: bbq
+  label: Barbecue
+  source: BBQ
+  type: boolean
+  true_values:
+  - 'Y'
+  false_values:
+  - 'N'
+- name: toilet
+  label: Toilet
+  source: TOILET
+  type: boolean
+  true_values:
+  - 'Y'
+  false_values:
+  - 'N'
+- name: rubbish_bin
+  label: Rubbish bin
+  source: RUBBISH_BIN
+  type: boolean
+  true_values:
+  - 'Y'
+  false_values:
+  - 'N'
+- name: info_sign
+  label: Information sign
+  source: INFO_SIGN
+  type: boolean
+  true_values:
+  - 'Y'
+  false_values:
+  - 'N'
+- name: picnic_area
+  label: Picnic area
+  source: PICNIC_AREA
+  type: boolean
+  true_values:
+  - 'Y'
+  false_values:
+  - 'N'
+- name: play_ground
+  label: Playground
+  source: PLAY_GROUND
+  type: boolean
+  true_values:
+  - 'Y'
+  false_values:
+  - 'N'
+- name: comments
+  label: Comments
+  source: COMMENTS
+  type: string
+- name: placed
+  label: Placement method code
+  source: PLACED
+  type: integer
+- name: accuracy
+  label: Accuracy code
+  source: ACCURACY
+  type: integer
+omit:
+  SITE_NO: A site number column the publisher leaves empty.
+  ID: An identifier column the publisher leaves empty.
