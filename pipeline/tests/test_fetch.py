@@ -101,6 +101,13 @@ def test_as_at_from_publishers_words() -> None:
     assert parse_as_at("no date here", rx) == ""
 
 
+def test_as_at_written_month_first() -> None:
+    rx = r"Data as of:\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+ \d{1,2}, \d{4})"
+    head = "Data as of: Wednesday, August 19, 2026, version: 2026081901"
+    assert parse_as_at(head, rx) == "2026-08-19"
+    assert parse_as_at("Data as of: Smarch 19, 2026", rx) == ""
+
+
 def test_an_empty_or_html_answer_is_refused_not_stored() -> None:
     class D:
         slug = "x"
