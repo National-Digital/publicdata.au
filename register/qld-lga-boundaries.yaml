@@ -34,7 +34,7 @@ publisher:
   url: https://www.nrmmrrd.qld.gov.au/
 licence:
   id: CC-BY-4.0
-  reviewed: '2026-10-13'
+  reviewed: '2026-10-18'
   evidence: https://www.data.qld.gov.au/dataset/local-government-area-boundaries-queensland
   attribution: Department of Natural Resources and Mines, Manufacturing and Regional and Rural Development,
     Queensland Government, Local government area boundaries - Queensland, sourced {sourced},
