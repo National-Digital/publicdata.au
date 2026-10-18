@@ -1,0 +1,93 @@
+slug: abs-states-territories-2021
+title: State and territory boundaries, 2021, Australia
+status: building
+topics:
+- places
+example:
+  where: {area_sqkm: {gt: 0}}
+  group: state_2021_name
+  metric: max.area_sqkm
+  label: Area of each state and territory (km²)
+order: 126
+collection: abs-boundaries
+collection_title: ABS boundaries
+publisher:
+  name: Australian Bureau of Statistics
+  short: ABS
+  jurisdiction: Cth
+  url: https://www.abs.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-18'
+  evidence: https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs/edition-3-july-2021-june-2026/access-and-downloads/digital-boundary-files
+  statement: Copyright Commonwealth of Australia administered by the ABS. Unless otherwise noted, content is licensed
+    under a Creative Commons Attribution 4.0 International licence.
+  attribution: Australian Bureau of Statistics, Australian Statistical Geography Standard (ASGS) Edition 3, STE_2021_AUST_SHP_GDA2020.zip,
+    sourced {sourced}, https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs/edition-3-july-2021-june-2026/access-and-downloads/digital-boundary-files,
+    licensed under CC BY 4.0.
+search_title: 'State and territory boundaries 2021: every state shape, Australia (ABS)'
+also_known_as:
+- ABS state boundaries
+- States and territories shapefile
+- STE 2021 digital boundary file
+- Australian state borders GeoJSON
+keywords:
+- states
+- territories
+- state boundaries
+- ASGS
+- boundaries
+- shapefile
+- GeoJSON
+- ABS
+faq:
+- q: What is in each row?
+  a: One of the states and territories as the ABS's Australian Statistical Geography Standard, Edition 3 (2021),
+    defines them, with its code, name, area and the other columns the ABS publishes, and its shape in the GeoParquet,
+    GeoJSON, GeoPackage and PMTiles files. The CSV, Excel and other table files hold the columns without the shape.
+- q: What coordinate system are the shapes in?
+  a: GDA2020 (EPSG:7844), the file the ABS publishes in that datum. GDA2020 differs from WGS84 by well under a metre,
+    so web maps can use it as it is.
+- q: What is Other Territories?
+  a: The ABS groups Jervis Bay Territory, Christmas Island, the Cocos (Keeling) Islands and Norfolk Island as Other
+    Territories. Any row the ABS adds without a shape is kept, with a null geometry, so every ABS code is in the table.
+summary: The states and territories of Australia as the ABS's Australian Statistical Geography Standard, Edition 3
+  (2021), defines them, one shape each, in GDA2020.
+description: The ABS digital boundary file STE_2021_AUST_SHP_GDA2020.zip, from the Australian Statistical Geography
+  Standard (ASGS) Edition 3. Each row is one state or territory with the columns the ABS publishes. A row the ABS
+  adds without a shape is kept, with a null geometry, so every ABS code is in the table.
+key:
+- state_2021_code
+geometry:
+  kind: polygon
+  crs: EPSG:7844
+  crs_note: Shapes in GDA2020 (EPSG:7844), as the ABS publishes them.
+  maxzoom: 8
+source:
+  adapter: file
+  url: https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs/edition-3-july-2021-june-2026/access-and-downloads/digital-boundary-files/STE_2021_AUST_SHP_GDA2020.zip
+  member: STE_2021_AUST_GDA2020.shp
+  cadence: when the ABS releases a new edition
+fields:
+- name: state_2021_code
+  source: STE_CODE21
+  label: State code (2021)
+- name: state_2021_name
+  source: STE_NAME21
+  label: State or territory (2021)
+- name: change_flag
+  source: CHG_FLAG21
+  label: Change flag
+- name: change_label
+  source: CHG_LBL21
+  label: Change since 2016
+- name: area_sqkm
+  source: AREASQKM21
+  label: Area (km²)
+  type: number
+- name: loci_uri
+  source: LOCI_URI21
+  label: Linked data URI
+omit:
+  AUS_CODE21: The code for Australia, the same on every row.
+  AUS_NAME21: The word Australia, the same on every row.
