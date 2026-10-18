@@ -40,7 +40,7 @@ publisher:
   url: https://libraries.tas.gov.au/
 licence:
   id: CC-BY-4.0
-  reviewed: '2026-10-13'
+  reviewed: '2026-10-18'
   evidence: https://data.gov.au/data/dataset/libraries-tasmania-locations
   attribution: Libraries Tasmania, Tasmanian Government, Libraries Tasmania locations, sourced {sourced},
     https://data.gov.au/data/dataset/libraries-tasmania-locations, licensed under CC BY 4.0.
