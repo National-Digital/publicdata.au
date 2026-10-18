@@ -1,5 +1,5 @@
 slug: qld-elective-surgery-by-specialty
-title: Elective surgery by specialty and hospital, Queensland, September quarter 2025
+title: Elective surgery by specialty and hospital, Queensland, each quarter
 status: live
 topics:
 - health
@@ -28,11 +28,12 @@ faq:
     no patients behind it. Those cells are null here and flagged as suppressed. A few cells read `NULL`,
     and those are null too.
 - q: Which quarter is it?
-  a: The quarter ending September 2025. This table is fixed to that file, and later quarters need the
-    entry pointed at the new file.
-summary: Elective surgery at each Queensland public hospital in the September quarter 2025 by surgical
+  a: Each version holds one quarter, named in the quarter ending field. Queensland Health adds a file for
+    each quarter, and this table follows the newest, so each new quarter becomes a new version. The first
+    version here is the quarter ending September 2025.
+summary: Elective surgery at each Queensland public hospital each quarter by surgical
   specialty, with patients treated, patients waiting and the share within the recommended time.
-description: Queensland Health elective surgery summary 2 for the quarter ending September 2025, one row
+description: Queensland Health elective surgery summary 2 for the newest quarter, one row
   per public hospital and surgical specialty. Each row has the volumes treated and waiting, the long waits,
   and the percentages treated and waiting within the clinically recommended time.
 publisher:
@@ -65,7 +66,7 @@ source:
   adapter: ckan-resource
   portal: https://www.data.qld.gov.au
   package: elective-surgery
-  resource: 49a1a9ef-ca67-4568-8b90-b08cb9c94bd5
+  resource_match: Elective Surgery by Speciality
   url: https://www.data.qld.gov.au/dataset/elective-surgery
   encoding: utf-8-sig
   cadence: quarterly

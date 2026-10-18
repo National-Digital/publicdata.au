@@ -1,5 +1,5 @@
 slug: qld-elective-surgery-by-category
-title: Elective surgery by urgency category and hospital, Queensland, September quarter 2025
+title: Elective surgery by urgency category and hospital, Queensland, each quarter
 status: live
 topics:
 - health
@@ -22,7 +22,7 @@ keywords:
 collection_description: |
   Queensland Health publishes elective surgery performance for each public hospital that reports it, every quarter. One summary is by urgency category and the other by surgical specialty.
 
-  Each table holds one quarter. Urgency category 1 patients are clinically recommended to be treated within 30 days, category 2 within 90 days and category 3 within 365 days. Queensland Health writes a dash where a figure is not given, and those cells are null here with a suppressed flag.
+  Each version of a table holds one quarter. Urgency category 1 patients are clinically recommended to be treated within 30 days, category 2 within 90 days and category 3 within 365 days. Queensland Health writes a dash where a figure is not given, and those cells are null here with a suppressed flag.
 faq:
 - q: What is in each row?
   a: One public hospital and one urgency category, 1, 2, 3 or `ALL`, for the quarter, with the patients
@@ -34,11 +34,12 @@ faq:
     no patients behind it. Those cells are null here and flagged as suppressed. A few cells read `NULL`,
     and those are null too.
 - q: Which quarter is it?
-  a: The quarter ending September 2025. Queensland Health adds a file each quarter. This table is fixed
-    to that file, and later quarters need the entry pointed at the new file.
-summary: Elective surgery at each Queensland public hospital in the September quarter 2025 by urgency
+  a: Each version holds one quarter, named in the quarter ending field. Queensland Health adds a file for
+    each quarter, and this table follows the newest, so each new quarter becomes a new version. The first
+    version here is the quarter ending September 2025.
+summary: Elective surgery at each Queensland public hospital each quarter by urgency
   category, with patients treated, patients waiting and the share within the recommended time.
-description: Queensland Health elective surgery summary 1 for the quarter ending September 2025, one row
+description: Queensland Health elective surgery summary 1 for the newest quarter, one row
   per public hospital and urgency category. Each row has the volumes treated and waiting, the long waits,
   and the percentages treated and waiting within the clinically recommended time.
 publisher:
@@ -72,7 +73,7 @@ source:
   adapter: ckan-resource
   portal: https://www.data.qld.gov.au
   package: elective-surgery
-  resource: d5b2d273-6eca-428d-8145-10a07fcf81d0
+  resource_match: Elective Surgery by Category
   url: https://www.data.qld.gov.au/dataset/elective-surgery
   encoding: utf-8-sig
   cadence: quarterly
