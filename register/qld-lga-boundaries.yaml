@@ -1,0 +1,81 @@
+slug: qld-lga-boundaries
+title: Local government area boundaries, Queensland
+status: live
+topics:
+- places
+order: 273
+search_title: Queensland council boundaries map of local government areas (Natural Resources and Mines)
+also_known_as:
+- Queensland council boundaries
+- QLD local government area boundaries shapefile
+- Queensland LGA boundaries
+keywords:
+- council boundaries
+- local government areas
+- councils
+- Queensland
+faq:
+- q: What is in each row?
+  a: Each row is one local government area in Queensland, with its name, its abbreviated name, its code,
+    its area in square kilometres and its boundary as a polygon.
+- q: How do these differ from the ABS local government areas?
+  a: These are the Queensland Government's own boundaries, kept up to date as council areas change. The
+    ABS layer is a statistical approximation of them, built from Mesh Blocks for one edition of the
+    Australian Statistical Geography Standard.
+summary: The boundary, name and code of each of the 78 local government areas in Queensland, from the Queensland
+  Government's administrative boundaries.
+description: The spatial representation of the local government areas of Queensland. Each feature carries
+  the area's name, its abbreviated name, its local government area code and its area in square kilometres.
+  The layer is read from the Queensland Government's administrative boundaries map service.
+publisher:
+  name: Department of Natural Resources and Mines, Manufacturing and Regional and Rural Development
+  short: Natural Resources and Mines
+  jurisdiction: Qld
+  url: https://www.nrmmrrd.qld.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-18'
+  evidence: https://www.data.qld.gov.au/dataset/local-government-area-boundaries-queensland
+  attribution: Department of Natural Resources and Mines, Manufacturing and Regional and Rural Development,
+    Queensland Government, Local government area boundaries - Queensland, sourced {sourced},
+    https://www.data.qld.gov.au/dataset/local-government-area-boundaries-queensland, licensed under CC BY 4.0.
+example:
+  group: lga
+  metric: max.ca_area_sqkm
+  label: Area of each local government area (km2)
+source:
+  adapter: arcgis-feature
+  portal: https://www.data.qld.gov.au
+  package: local-government-area-boundaries-queensland
+  url: https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdministrativeBoundaries/MapServer/1
+  cadence: as council areas change, about once a year
+key:
+- lga_code
+geometry:
+  kind: polygon
+  crs: EPSG:4326
+  crs_note: The map service projects the boundaries to WGS84 (EPSG:4326) on request. They are moved to
+    GDA2020 for publication.
+  maxzoom: 10
+row_label: Local government areas
+fields:
+- name: objectid
+  label: Object ID
+  source: objectid
+  type: integer
+- name: lga
+  label: Council area
+  source: lga
+  type: string
+- name: abbrev_name
+  label: Short name
+  source: abbrev_name
+  type: string
+- name: lga_code
+  label: LGA code
+  source: lga_code
+  type: string
+- name: ca_area_sqkm
+  label: Area (km2)
+  source: ca_area_sqkm
+  type: number
