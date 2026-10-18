@@ -1,0 +1,26 @@
+slug: au-national-public-toilet-map
+title: National Public Toilet Map
+status: blocked
+topics:
+- community
+summary: The location, opening hours and facilities of more than 17,000 public toilets across Australia,
+  including showers, drinking water and dump points.
+publisher:
+  name: Department of Health, Disability and Ageing
+  short: Health
+  jurisdiction: Cth
+  url: https://www.health.gov.au/
+licence:
+  id: NPTM-DATABASE-TERMS
+  reviewed: '2026-10-13'
+  evidence: https://data.gov.au/data/dataset/national-public-toilet-map
+source:
+  adapter: none
+  url: https://data.gov.au/data/dataset/national-public-toilet-map
+blocked_reason: The data.gov.au record names CC BY 3.0 AU, and the same record sets out the database's
+  own terms of use. Clause 3.2 of those terms says a licensee may not sublicense its rights, and that
+  anyone else who needs the database must obtain a copy from data.gov.au and accept the terms
+  themselves. A copy served here could not pass on the right to reuse it. We asked the project team on
+  1 October 2026 whether CC BY 3.0 AU applies to the whole database, and followed up on 15 October 2026.
+  The Continence Foundation of Australia replied on 7 October 2026 that it is seeking advice from the
+  Australian Government. It can be built once the department confirms the licence.
