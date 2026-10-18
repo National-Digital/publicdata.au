@@ -77,6 +77,7 @@ source:
   sheet: Urgency category
   header_row: 14
   cadence: several times a year
+  as_at_regex: 'Data as of:\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+ \d{1,2}, \d{4})'
 suppression:
 - <5
 - NP

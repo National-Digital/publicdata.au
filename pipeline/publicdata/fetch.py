@@ -265,11 +265,25 @@ def parse_as_at(text: str, regex: str) -> str:
     mm = re.match(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", s)
     if mm and mm.group(2).lower() in MONTHS:
         return dt.date(int(mm.group(3)), MONTHS[mm.group(2).lower()], int(mm.group(1))).isoformat()
+    mm = re.match(r"([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})", s)
+    if mm and mm.group(1).lower() in MONTHS:
+        return dt.date(int(mm.group(3)), MONTHS[mm.group(1).lower()], int(mm.group(2))).isoformat()
     mm = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", s)
     if mm:
         return dt.date(int(mm.group(3)), int(mm.group(2)), int(mm.group(1))).isoformat()
     mm = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
     return mm.group(0) if mm else ""
+
+
+def workbook_head(data: bytes, sheet: str, header_row: int) -> str:
+    """The words above a workbook's header row, where a publisher may state its data's date."""
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
+    try:
+        ws = wb[sheet] if sheet in wb.sheetnames else wb.worksheets[0]
+        rows = ws.iter_rows(max_row=header_row - 1, values_only=True) if header_row > 1 else []
+        return "\n".join(_cell(v) for row in rows for v in row if v is not None)
+    finally:
+        wb.close()
 
 
 def ckan_resource(
@@ -1180,7 +1194,8 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
     """A file at a fixed URL on the publisher's own site, with no portal record.
 
     The version is dated by the server's Last-Modified, or failing that by the fetch, and the
-    licence is the evidence page's own words, read every run.
+    licence is the evidence page's own words, read every run. A workbook's as-at date comes from
+    the words above its header row, when the register gives the pattern that finds it.
     """
     s = _session(session)
     licence = statement_licence(ds, s)
@@ -1211,10 +1226,14 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
         if ds.source.format
         else ds.source.url.split("?", 1)[0].rsplit("/", 1)[-1] or "source.bin"
     )
+    as_at = ""
+    if ds.source.as_at_regex and store.ext_of(filename) in ("xlsx", "xlsm"):
+        head = workbook_head(data, ds.source.sheet, ds.source.header_row)
+        as_at = parse_as_at(head, ds.source.as_at_regex)
     m = store.Manifest(
         dataset=ds.slug,
         version=version,
-        as_at="",
+        as_at=as_at,
         fetched_at=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         sha256=digest,
         bytes=len(data),

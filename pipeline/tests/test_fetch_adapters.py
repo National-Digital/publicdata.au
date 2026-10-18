@@ -336,6 +336,54 @@ def test_a_file_whose_server_states_no_date_is_dated_by_the_fetch_and_says_so(
     assert m.notes == [f.FILE_NOTE]
 
 
+def _dated_book(head: str) -> bytes:
+    buf = io.BytesIO()
+    wb = xlsxwriter.Workbook(buf, {"in_memory": True})
+    ws = wb.add_worksheet("Data")
+    ws.write(0, 0, "Agency")
+    ws.write(1, 0, head)
+    ws.write_row(3, 0, ["a", "b"])
+    ws.write_row(4, 0, [1, "x"])
+    wb.close()
+    return buf.getvalue()
+
+
+def test_a_workbook_is_dated_by_the_words_above_its_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rx = r"Data as of:\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+ \d{1,2}, \d{4})"
+    ds = file_ds()
+    ds = dataclasses.replace(
+        ds,
+        source=dataclasses.replace(
+            ds.source,
+            url="https://example.gov.au/files/t",
+            format="xlsx",
+            sheet="Data",
+            header_row=4,
+            as_at_regex=rx,
+        ),
+    )
+    book = _dated_book("Data as of: Wednesday, August 19, 2026, version: 2026081901")
+    routes = {
+        "https://example.gov.au/copyright": Resp(PAGE, ctype="text/html"),
+        "https://example.gov.au/files/t": Resp(book),
+    }
+    _, m, _ = run("file", ds, routes, tmp_path, monkeypatch)
+    assert m.as_at == "2026-08-19"
+    routes["https://example.gov.au/files/t"] = Resp(_dated_book("No date stated"))
+    _, m, _ = run("file", ds, routes, tmp_path, monkeypatch)
+    assert m.as_at == ""
+    _, m, _ = run(
+        "file",
+        file_ds(),
+        {**routes, "https://example.gov.au/files/t.csv": Resp(CSV)},
+        tmp_path,
+        monkeypatch,
+    )
+    assert m.as_at == ""
+
+
 def test_a_licence_page_that_lost_its_grant_stops_the_fetch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
