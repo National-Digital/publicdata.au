@@ -1,0 +1,306 @@
+slug: qld-roadside-amenities
+title: Roadside amenities on state roads, Queensland
+status: live
+topics:
+- roads
+example:
+  group: type_desc
+  metric: count
+  label: Roadside amenities of each type
+order: 530
+search_title: Queensland rest areas and roadside amenities map (Transport and Main Roads)
+also_known_as:
+- Queensland rest areas
+- Roadside amenities - Queensland
+- TMR rest area locations
+- Queensland effluent dump points on state roads
+keywords:
+- rest areas
+- roadside amenities
+- rest stops
+- driver fatigue
+- effluent dump points
+- public toilets
+- Queensland
+faq:
+- q: What is in each row?
+  a: One roadside amenity on a Queensland state road, such as a rest area, a heavy vehicle rest area
+    or a service centre. Each row has the department's amenity identifier, its name and type, the
+    local government area, its longitude and latitude in GDA2020, and the facilities the department
+    records there, such as toilets, water, showers, tables, shelter, lighting and mobile reception.
+- q: Does it cover council and national park rest areas?
+  a: The layer holds the amenities the department records beside the state-controlled road network, and the
+    local government area column names the council each one sits in. Rest areas on council roads and in parks
+    are listed by their own managers.
+- q: Can I camp at these sites?
+  a: The layer records where an amenity is and what it offers. It states no rule about how long a person
+    may stay. Signs at each site and the managing authority set those rules.
+summary: The roadside amenities on Queensland's state roads, with each site's type, location and facilities,
+  from the Department of Transport and Main Roads.
+description: The Roadside amenities layer of the Department of Transport and Main Roads, which shows the position
+  of roadside amenities, facilities and effluent dump sites in Queensland as part of the road safety management
+  program. Each row is one amenity with its identifier, name, type, local government area, the longitude and
+  latitude the department gives in GDA2020, and its recorded facilities. The layer is read from the Queensland
+  Government's State Road Information map service.
+publisher:
+  name: Department of Transport and Main Roads
+  short: Transport and Main Roads
+  jurisdiction: Qld
+  url: https://www.tmr.qld.gov.au/
+licence:
+  id: CC-BY-3.0-AU
+  reviewed: '2026-10-18'
+  evidence: https://www.data.qld.gov.au/dataset/roadside-amenities-queensland
+  attribution: Department of Transport and Main Roads, Queensland Government, Roadside amenities - Queensland,
+    sourced {sourced}, https://www.data.qld.gov.au/dataset/roadside-amenities-queensland, licensed under CC BY
+    3.0 AU.
+source:
+  adapter: arcgis-feature
+  portal: https://www.data.qld.gov.au
+  package: roadside-amenities-queensland
+  url: https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Transportation/StateRoadInformation/MapServer/17
+  cadence: quarterly
+key:
+- ra_id
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:7844
+  crs_note: The department's own longitude and latitude fields, which it labels GDA2020, are published as given.
+row_label: Roadside amenities
+fields:
+- name: objectid
+  label: Object id
+  source: objectid
+  type: integer
+- name: ra_id
+  label: Roadside amenity ID
+  source: ra_id
+  type: string
+- name: name
+  label: Name
+  source: name
+  type: string
+- name: type_desc
+  label: Type
+  source: type_desc
+  type: string
+- name: type_code
+  label: Type code
+  source: type_code
+  type: string
+- name: lga
+  label: Local government area
+  source: lga
+  type: string
+- name: longitude
+  label: Longitude
+  source: longitude
+  type: number
+- name: latitude
+  label: Latitude
+  source: latitude
+  type: number
+- name: road_surf
+  label: Road surface
+  source: road_surf
+  type: string
+- name: green_rflc
+  label: Green reflector
+  source: green_rflc
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: lane_decel
+  label: Deceleration lane
+  source: lane_decel
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: lane_turn
+  label: Turning lane
+  source: lane_turn
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: lane_accel
+  label: Acceleration lane
+  source: lane_accel
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: acc_parkng
+  label: Accessible parking
+  source: acc_parkng
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: hvcvan_num
+  label: Large vehicle capacity
+  source: hvcvan_num
+  type: string
+- name: toilet
+  label: Toilet
+  source: toilet
+  type: string
+- name: toilet_dbn
+  label: Toilet ID
+  source: toilet_dbn
+  type: integer
+- name: acc_toilet
+  label: Accessible toilet
+  source: acc_toilet
+  type: string
+- name: amb_toilet
+  label: Ambulant toilet
+  source: amb_toilet
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: baby_chnge
+  label: Baby change table
+  source: baby_chnge
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: water_sup
+  label: Water supply
+  source: water_sup
+  type: string
+- name: shower
+  label: Shower
+  source: shower
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: acc_shower
+  label: Accessible shower
+  source: acc_shower
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: table_seat
+  label: Table with seats
+  source: table_seat
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: shelter
+  label: Shelter
+  source: shelter
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: bbq
+  label: Barbecue
+  source: bbq
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: bin
+  label: Rubbish bin
+  source: bin
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: eflnt_dump
+  label: Effluent dump point
+  source: eflnt_dump
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: playground
+  label: Playground
+  source: playground
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: lighting
+  label: Lighting
+  source: lighting
+  type: string
+- name: mob_recpt
+  label: Mobile reception
+  source: mob_recpt
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+- name: wifi
+  label: Wi-Fi
+  source: wifi
+  type: boolean
+  true_values:
+  - 'True'
+  - 'TRUE'
+  false_values:
+  - 'False'
+  - 'FALSE'
+omit:
+  (longitude): The map service's reprojection of the point to WGS84. The department's own GDA2020 longitude
+    and latitude fields are published.
+  (latitude): The map service's reprojection of the point to WGS84. The department's own GDA2020 longitude
+    and latitude fields are published.
