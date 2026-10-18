@@ -1,0 +1,253 @@
+slug: wa-road-stopping-places
+title: Road stopping places on state roads, Western Australia
+status: live
+topics:
+- roads
+example:
+  group: rest_area_type
+  metric: count
+  label: Stopping places of each type
+order: 532
+search_title: WA rest areas and road stopping places map (Main Roads WA)
+also_known_as:
+- Road Stopping Places
+- Western Australia rest areas
+- Main Roads WA rest areas
+- 24 hour rest areas WA
+keywords:
+- rest areas
+- road stopping places
+- rest stops
+- driver fatigue
+- 24 hour stay
+- Main Roads Western Australia
+- Western Australia
+faq:
+- q: What is in each row?
+  a: One stopping place on a Western Australian state road, with its road, the straight line kilometre
+    where it sits, its local government area and Main Roads region, its type and name, whether a 24 hour stay
+    is allowed, and the facilities recorded there, such as toilets, tables, bins, shelter, shade and lighting.
+- q: Can I stay overnight at a stopping place?
+  a: The publisher records `Yes`, `No` or `Unknown` for a 24 hour stay at each site, and the column is kept as
+    published. Signs at each site and the managing authority set the rules.
+- q: Which roads are covered?
+  a: The layer shows stopping places and rest areas on all state roads in Western Australia, of three kinds
+    the publisher names as parking, short break and long break. Sites on local roads are not included.
+summary: The road stopping places and rest areas on Western Australia's state roads, with each site's type,
+  24 hour stay rule, location and facilities, from Main Roads Western Australia.
+description: The Road Stopping Places layer of Main Roads Western Australia, read as the CSV its open data portal
+  serves. Each row is one stopping place on a state road, with the road and straight line kilometre, the local
+  government area and region, the rest area type and name, the 24 hour stay rule, the surface and the facilities
+  the publisher records, and the point's longitude and latitude.
+publisher:
+  name: Main Roads Western Australia
+  short: Main Roads WA
+  jurisdiction: WA
+  url: https://www.mainroads.wa.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-18'
+  evidence: https://catalogue.data.wa.gov.au/dataset/mrwa-road-stopping-places
+  attribution: Main Roads Western Australia, Government of Western Australia, Road Stopping Places,
+    https://catalogue.data.wa.gov.au/dataset/mrwa-road-stopping-places, accessed {sourced}, licensed under
+    CC BY 4.0. The Commissioner of Main Roads is the creator and owner of the data and Licenced Material, which
+    is accessed pursuant to a Creative Commons (Attribution) Licence, which has a disclaimer of warranties and
+    limitation of liability.
+source:
+  adapter: arcgis-hub
+  portal: https://portal-mainroads.opendata.arcgis.com
+  package: 79232357944c4bd6a593d19e0fbdcc77
+  resource: '19'
+  url: https://portal-mainroads.opendata.arcgis.com/datasets/mainroads::road-stopping-places
+  encoding: utf-8-sig
+  cadence: as stopping places change
+key:
+- globalid
+geometry:
+  lon: x
+  lat: y
+  crs: EPSG:4326
+  crs_note: Longitude and latitude in decimal degrees as the portal's CSV download gives them. The
+    layer itself is held in GDA94, which differs from WGS84 by under 2 metres.
+row_label: Stopping places
+fields:
+- name: x
+  label: Longitude
+  source: X
+  type: number
+- name: y
+  label: Latitude
+  source: Y
+  type: number
+- name: objectid
+  label: Object id
+  source: OBJECTID
+  type: integer
+- name: globalid
+  label: Global id
+  source: GlobalID
+  type: string
+- name: road
+  label: Road number
+  source: ROAD
+  type: string
+- name: road_name
+  label: Road
+  source: ROAD_NAME
+  type: string
+- name: common_usage_name
+  label: Common road name
+  source: COMMON_USAGE_NAME
+  type: string
+- name: start_slk
+  label: Start straight line kilometre
+  source: START_SLK
+  type: number
+- name: end_slk
+  label: End straight line kilometre
+  source: END_SLK
+  type: number
+- name: cwy
+  label: Carriageway
+  source: CWY
+  type: string
+- name: start_true_dist
+  label: Start true distance
+  source: START_TRUE_DIST
+  type: number
+- name: end_true_dist
+  label: End true distance
+  source: END_TRUE_DIST
+  type: number
+- name: network_type
+  label: Network type
+  source: NETWORK_TYPE
+  type: string
+- name: ra_no
+  label: Region number
+  source: RA_NO
+  type: string
+- name: ra_name
+  label: Region
+  source: RA_NAME
+  type: string
+- name: lg_no
+  label: Local government number
+  source: LG_NO
+  type: string
+- name: lg_name
+  label: Local government area
+  source: LG_NAME
+  type: string
+- name: xsp
+  label: Cross section position
+  source: XSP
+  type: string
+- name: rest_area_type
+  label: Type
+  source: REST_AREA_TYPE
+  type: string
+- name: stay_24_hour
+  label: 24 hour stay
+  source: STAY_24_HOUR
+  type: string
+- name: rest_area_name
+  label: Name
+  source: REST_AREA_NAME
+  type: string
+- name: ownership
+  label: Ownership
+  source: OWNERSHIP
+  type: string
+- name: information_board
+  label: Information board
+  source: INFORMATION_BOARD
+  type: boolean
+  true_values:
+  - 'Yes'
+  false_values:
+  - 'No'
+- name: scenic_lookout
+  label: Scenic lookout
+  source: SCENIC_LOOKOUT
+  type: boolean
+  true_values:
+  - 'Yes'
+  false_values:
+  - 'No'
+- name: commemoration_way
+  label: Commemoration way
+  source: COMMEMORATION_WAY
+  type: string
+- name: surface
+  label: Surface
+  source: SURFACE
+  type: string
+- name: surface_type
+  label: Surface type
+  source: SURFACE_TYPE
+  type: string
+- name: surface_area
+  label: Surface area
+  source: SURFACE_AREA
+  type: integer
+- name: constructed_shelter
+  label: Constructed shelter
+  source: CONSTRUCTED_SHELTER
+  type: boolean
+  true_values:
+  - 'Yes'
+  false_values:
+  - 'No'
+- name: natural_shade
+  label: Natural shade
+  source: NATURAL_SHADE
+  type: boolean
+  true_values:
+  - 'Yes'
+  false_values:
+  - 'No'
+- name: lighting_present
+  label: Lighting
+  source: LIGHTING_PRESENT
+  type: string
+- name: number_of_bins
+  label: Bins
+  source: NUMBER_OF_BINS
+  type: integer
+- name: number_of_toilets
+  label: Toilets
+  source: NUMBER_OF_TOILETS
+  type: integer
+- name: accessible_toilets
+  label: Accessible toilets
+  source: ACCESSIBLE_TOILETS
+  type: boolean
+  true_values:
+  - 'Yes'
+  false_values:
+  - 'No'
+- name: effluent_dump_site
+  label: Effluent dump point
+  source: EFFLUENT_DUMP_SITE
+  type: boolean
+  true_values:
+  - 'Yes'
+  false_values:
+  - 'No'
+- name: number_of_tables
+  label: Tables
+  source: NUMBER_OF_TABLES
+  type: integer
+- name: accessible_tables
+  label: Accessible tables
+  source: ACCESSIBLE_TABLES
+  type: boolean
+  true_values:
+  - 'Yes'
+  false_values:
+  - 'No'
+- name: route_ne_id
+  label: Route network element id
+  source: ROUTE_NE_ID
+  type: number
