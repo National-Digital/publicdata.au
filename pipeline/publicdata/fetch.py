@@ -18,6 +18,7 @@ import json
 import re
 import time
 import urllib.parse
+import zipfile
 import zoneinfo
 from dataclasses import replace
 from http import HTTPStatus
@@ -2155,6 +2156,28 @@ def _encoding(filename: str, data: bytes, preferred: str) -> str:
     return detect_encoding(data, preferred)
 
 
+def check_licence_member(ds: Dataset, data: bytes) -> None:
+    """Stops the run when the licence file inside a publisher's zip no longer states the licence.
+
+    A publisher that ships its licence with the data can change it there without touching the
+    portal's record, so each new download is read too.
+    """
+    if not ds.source.licence_member:
+        return
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            text = page_text(z.read(ds.source.licence_member))
+    except (zipfile.BadZipFile, KeyError) as e:
+        msg = f"{ds.slug}: the download has no readable {ds.source.licence_member}: {e}"
+        raise LicenceDrift(msg) from e
+    if ds.licence.statement not in text:
+        msg = (
+            f"{ds.slug}: {ds.source.licence_member} in the download no longer says "
+            f"'{ds.licence.statement[:80]}'; it says '{text[:120]}'"
+        )
+        raise LicenceDrift(msg)
+
+
 def check_licence(ds: Dataset, licence: LicenceRead) -> None:
     """Stops the run when the portal's licence differs from the register's.
 
@@ -2221,6 +2244,7 @@ def fetch(
         )
     if data is None:
         return None
+    check_licence_member(ds, data)
     m.rows_sha256, n, misfit = _rows(ds, m, data)
 
     m.parquet = layout(ds)

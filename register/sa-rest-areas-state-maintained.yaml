@@ -1,0 +1,171 @@
+slug: sa-rest-areas-state-maintained
+title: State maintained rest areas, South Australia
+status: live
+topics:
+- roads
+example:
+  group: restareatype_desc
+  metric: count
+  label: Rest areas of each type
+order: 533
+search_title: South Australia rest areas map on state roads (Department for Infrastructure and Transport)
+also_known_as:
+- Rest Areas - State Maintained
+- SA rest areas
+- South Australian highway rest areas
+- Truck parking bays SA
+keywords:
+- rest areas
+- rest stops
+- truck parking
+- driver fatigue
+- public toilets
+- Department for Infrastructure and Transport
+- South Australia
+faq:
+- q: What is in each row?
+  a: One rest area that the State maintains in South Australia, with the department's asset number, the rest
+    area type, surface, size in square metres, condition and status, whether truck parking is allowed, and
+    counts of toilet blocks, water tanks, shelters, tables and bins. The shape of each site is its mapped
+    footprint.
+- q: Why are the sites shapes and not points?
+  a: The department maps each rest area as the area it covers beside the road. The shapes are published as
+    given, moved to GDA2020 where needed, and no centre point is worked out.
+- q: Does it include council rest areas?
+  a: No. The layer holds the rest areas the State maintains. The publisher says councils should be asked about
+    the rest areas each one maintains.
+summary: The rest areas the State maintains on South Australian roads, each as its mapped footprint, with its
+  type, surface, condition and facility counts, from the Department for Infrastructure and Transport.
+description: The Rest Areas - State Maintained layer of the Department for Infrastructure and Transport, read
+  from the GeoJSON in its download. Each row is one rest area with the department's asset number, type, surface,
+  size, condition, status, truck parking flag and counts of toilet blocks, water tanks, shelters, tables and
+  bins. The publisher's metadata says field staff captured the sites in 2017 and that most are placed within
+  100 metres.
+publisher:
+  name: Department for Infrastructure and Transport
+  short: Infrastructure and Transport
+  jurisdiction: SA
+  url: https://www.dit.sa.gov.au/
+licence:
+  id: CC-BY-3.0-AU
+  reviewed: '2026-10-18'
+  portal_id: cc-by
+  evidence: https://data.gov.au/data/dataset/rest-areas-state-maintained
+  statement: Creative Commons Attribution 3.0 Australia
+  attribution: Department for Infrastructure and Transport, Government of South Australia, Rest Areas - State
+    Maintained, https://data.gov.au/data/dataset/rest-areas-state-maintained, accessed {sourced}, licensed under
+    CC BY 3.0 AU.
+source:
+  adapter: ckan-resource
+  portal: https://data.gov.au/data
+  package: rest-areas-state-maintained
+  resource: 8d5f4f51-0a56-4117-941d-77268bf52057
+  url: https://data.gov.au/data/dataset/rest-areas-state-maintained
+  member: StateMaintainedRestAreas_GDA2020.geojson
+  licence_member: License.txt
+  cadence: as required
+key:
+- deptassetid
+geometry:
+  kind: polygon
+  crs: EPSG:7844
+  crs_note: The GDA2020 GeoJSON in the publisher's download, read as published.
+  maxzoom: 14
+row_label: Rest areas
+fields:
+- name: deptassetid
+  label: Asset number
+  source: deptassetid
+  type: string
+- name: uid
+  label: Row id
+  source: uid
+  type: string
+- name: restareatype_desc
+  label: Type
+  source: restareatype_desc
+  type: string
+- name: restareasurface_desc
+  label: Surface
+  source: restareasurface_desc
+  type: string
+- name: restareasize
+  label: Size (square metres)
+  source: restareasize
+  type: number
+- name: currentcondition_desc
+  label: Condition
+  source: currentcondition_desc
+  type: string
+- name: assetstatus_desc
+  label: Status
+  source: assetstatus_desc
+  type: string
+- name: truckparking
+  label: Truck parking
+  source: truckparking
+  type: boolean
+  true_values:
+  - 'Y'
+  false_values:
+  - 'N'
+- name: toiletblocks
+  label: Toilet blocks
+  source: toiletblocks
+  type: number
+- name: watertanks
+  label: Water tanks
+  source: watertanks
+  type: number
+- name: shelters
+  label: Shelters
+  source: shelters
+  type: number
+- name: tables
+  label: Tables
+  source: tables
+  type: number
+- name: bins
+  label: Bins
+  source: bins
+  type: number
+- name: comments
+  label: Comments
+  source: comments
+  type: string
+- name: phones
+  label: Phones
+  source: phones
+  type: number
+- name: seats
+  label: Seats
+  source: seats
+  type: number
+- name: sheds
+  label: Sheds
+  source: sheds
+  type: number
+- name: contractorid
+  label: Contractor asset number
+  source: contractorid
+  type: string
+- name: restareatype
+  label: Type code
+  source: restareatype
+  type: string
+- name: restareasurface
+  label: Surface code
+  source: restareasurface
+  type: string
+- name: currentcondition
+  label: Condition code
+  source: currentcondition
+  type: string
+- name: assetstatus
+  label: Status code
+  source: assetstatus
+  type: string
+omit:
+  truckparking_desc: The words `Yes` and `No` for the truck parking flag, which the flag column already holds.
+  shape_Length: The footprint's perimeter in degrees, which the published shape already carries.
+  shape_Area: The footprint's area in square degrees, which the published shape already carries.

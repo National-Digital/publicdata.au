@@ -28,7 +28,7 @@ from publicdata.register import (
 )
 
 from .conftest import make_dataset, make_manifest, present
-from .test_fetch_adapters import Portal, Resp
+from .test_fetch_adapters import Portal, Resp, licence_member_ds, zipped
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -162,6 +162,23 @@ def test_a_fetch_refuses_a_licence_read_with_no_place_or_time(
     }
     monkeypatch.setitem(f.ADAPTERS, "file", lambda d, s: (b"a\n1\n", m, lic))
     assert present(f.fetch(ds, tmp_path)).version == m.version
+
+
+def test_a_fetch_stops_before_storing_a_zip_whose_licence_file_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ds = licence_member_ds()
+    data = zipped({"License.txt": b"All rights reserved.", "t.geojson": b"{}"})
+    lic: LicenceRead = {
+        "id": "CC-BY-3.0-AU",
+        "read_from": "https://e",
+        "read_at": "2026-10-01T00:00:00+00:00",
+    }
+    m = make_manifest(data, dataset="t", filename="source.zip")
+    monkeypatch.setitem(f.ADAPTERS, "ckan-resource", lambda d, s: (data, m, lic))
+    with pytest.raises(f.LicenceDrift, match="no longer says"):
+        f.fetch(ds, tmp_path)
+    assert not store.manifests(tmp_path, "t", fetches=True)
 
 
 def test_every_adapter_records_where_it_read_the_licence() -> None:
