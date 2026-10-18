@@ -1,0 +1,348 @@
+slug: nsw-rest-areas
+title: Rest areas, New South Wales
+status: live
+topics:
+- roads
+example:
+  group: category
+  metric: count
+  label: Rest areas in each category
+order: 531
+search_title: NSW rest areas map with toilets and facilities (Transport for NSW)
+also_known_as:
+- NSW Rest Areas
+- Rest stops in New South Wales
+- NSW highway rest areas list
+- Truck rest areas NSW
+keywords:
+- rest areas
+- rest stops
+- driver fatigue
+- truck parking
+- public toilets
+- Transport for NSW
+- New South Wales
+faq:
+- q: What is in each row?
+  a: One rest area in New South Wales, with its rest area number, name, road, suburb, local government area
+    and region, its category and the vehicles it takes, its status, its latitude and longitude, the number of
+    toilets and the facilities the publisher records there.
+- q: Who manages these rest areas?
+  a: The list covers rest areas managed by Transport for NSW and by other authorities, including local
+    councils and the National Parks and Wildlife Service. The responsible authority column names the manager
+    of each site. Inspection bays that Transport for NSW manages are not included.
+- q: Why are some facility columns blank?
+  a: The publisher writes `TRUE` where a site has a facility and leaves the cell blank otherwise. It never writes
+    false, so a blank here is null and means the file does not say.
+summary: The rest areas on New South Wales roads, with each site's category, vehicle access, status, location
+  and facilities, from Transport for NSW.
+description: The NSW Rest Areas dataset from Transport for NSW, read from its CSV download on the Transport Open
+  Data Hub. Each row is one rest area managed by Transport for NSW or another authority, with its number, name,
+  road, place, category, vehicle type, status, coordinates, toilet count and facility flags. The publisher has
+  left several facility and parking columns empty until it validates them. They are published as they stand, so
+  values the publisher adds later appear here.
+publisher:
+  name: Transport for NSW
+  short: TfNSW
+  jurisdiction: NSW
+  url: https://www.transport.nsw.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-18'
+  portal_id: cc-by
+  evidence: https://opendata.transport.nsw.gov.au/datalicence
+  attribution: Transport for NSW, NSW Government, NSW Rest Areas, sourced {sourced}, https://opendata.transport.nsw.gov.au/data/dataset/nsw-rest-areas,
+    licensed under CC BY 4.0.
+source:
+  adapter: ckan-resource
+  portal: https://opendata.transport.nsw.gov.au/data
+  package: nsw-rest-areas
+  resource: 6f2bcede-9d55-4315-b609-dffa30510894
+  url: https://opendata.transport.nsw.gov.au/data/dataset/nsw-rest-areas
+  cadence: as rest areas change
+key:
+- rest_area_number
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:4326
+  crs_note: Latitude and longitude in decimal degrees as published. The publisher does not name the datum;
+    WGS84 and GDA2020 differ by under 2 metres.
+row_label: Rest areas
+fields:
+- name: rest_area_number
+  label: Rest area number
+  source: rest_area_number
+  type: string
+- name: rest_area_name
+  label: Rest area
+  source: rest_area_name
+  type: string
+- name: road_name
+  label: Road
+  source: road_name
+  type: string
+- name: road_number
+  label: Road number
+  source: road_number
+  type: string
+- name: suburb
+  label: Suburb
+  source: suburb
+  type: string
+- name: lga
+  label: Local government area
+  source: lga
+  type: string
+- name: region
+  label: Region
+  source: region
+  type: string
+- name: responsible_authority
+  label: Responsible authority
+  source: responsible_authority
+  type: string
+- name: category
+  label: Category
+  source: category
+  type: string
+- name: vehicle_type
+  label: Vehicle type
+  source: vehicle_type
+  type: string
+- name: site_status
+  label: Status
+  source: site_status
+  type: string
+- name: side_of_road
+  label: Side of road
+  source: side_of_road
+  type: string
+- name: access_direction
+  label: Access direction
+  source: access_direction
+  type: string
+- name: access_direction_cardinal
+  label: Access direction (compass)
+  source: access_direction_cardinal
+  type: string
+- name: carriageway_configuration
+  label: Carriageway configuration
+  source: carriageway_configuration
+  type: string
+- name: distance_from
+  label: Distance from
+  source: distance_from
+  type: string
+- name: latitude
+  label: Latitude
+  source: latitude
+  type: number
+- name: longitude
+  label: Longitude
+  source: longitude
+  type: number
+- name: toilets
+  label: Toilets
+  source: toilets
+  type: integer
+  description: The number of toilets at the site.
+- name: disabled_toilet
+  label: Accessible toilet
+  source: disabled_toilet
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: shelter
+  label: Shelter
+  source: shelter
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: bbq
+  label: Barbecue
+  source: bbq
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: picnic_table
+  label: Picnic table
+  source: picnic_table
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: litter_bins
+  label: Litter bins
+  source: litter_bins
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: playground
+  label: Playground
+  source: playground
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: driver_reviver
+  label: Driver Reviver
+  source: driver_reviver
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: food_available
+  label: Food available
+  source: food_available
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: fuel_available
+  label: Fuel available
+  source: fuel_available
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: description
+  label: Description
+  source: description
+  type: string
+- name: construction_date
+  label: Construction date
+  source: construction_date
+  type: string
+- name: carriageway_code
+  label: Carriageway code
+  source: carriageway_code
+  type: string
+- name: light_vehicle_parking_capacity
+  label: Light vehicle parking capacity
+  source: light_vehicle_parking_capacity
+  type: string
+- name: light_vehicles_parking_type
+  label: Light vehicle parking type
+  source: light_vehicles_parking_type
+  type: string
+- name: heavy_vehicle_parking_capacity
+  label: Heavy vehicle parking capacity
+  source: heavy_vehicle_parking_capacity
+  type: string
+- name: heavy_vehicles_parking_type
+  label: Heavy vehicle parking type
+  source: heavy_vehicles_parking_type
+  type: string
+- name: entry_taper
+  label: Entry taper
+  source: entry_taper
+  type: string
+- name: exit_taper
+  label: Exit taper
+  source: exit_taper
+  type: string
+- name: lighting
+  label: Lighting
+  source: lighting
+  type: string
+- name: water_supply_type
+  label: Water supply type
+  source: water_supply_type
+  type: string
+- name: separated_parking_areas_light_heavy
+  label: Separate light and heavy parking
+  source: separated_parking_areas_light_heavy
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: shade
+  label: Shade
+  source: shade
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: sign_non_potable
+  label: Non-potable water sign
+  source: sign_non_potable
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: power_outlets
+  label: Power outlets
+  source: power_outlets
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: emergency_phones
+  label: Emergency phones
+  source: emergency_phones
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: accessible
+  label: Accessible
+  source: accessible
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: tree_shading
+  label: Tree shading
+  source: tree_shading
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: tourist_information
+  label: Tourist information
+  source: tourist_information
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: sports_ground
+  label: Sports ground
+  source: sports_ground
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: baby_change_facilities
+  label: Baby change facilities
+  source: baby_change_facilities
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: lookout
+  label: Lookout
+  source: lookout
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: caravan_disposal
+  label: Caravan waste disposal
+  source: caravan_disposal
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: power_supply
+  label: Power supply
+  source: power_supply
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: boat_ramp
+  label: Boat ramp
+  source: boat_ramp
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: pets_allowed
+  label: Pets allowed
+  source: pets_allowed
+  type: boolean
+  true_values:
+  - 'TRUE'
+- name: last_updated
+  label: Last updated
+  source: last_updated
+  type: date
+  date_format: '%Y%m%d'
+omit:
+  cartodb_id: A row number the publisher's hosting platform assigns to each row.
+  _ds_write_method: A marker the publisher's hosting platform writes, empty in every row.
+  guid: A checksum column the publisher leaves empty.
+  link_no: The publisher's internal road network link number.
+  ne_unique: The publisher's internal road network element identifiers.
