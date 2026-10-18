@@ -104,6 +104,33 @@ def test_geojson_source_becomes_rows_with_the_point_as_two_fields() -> None:
     assert rows[0]["speed_zone"] == "060"
 
 
+def test_geojson_multipoint_gives_coordinates_only_when_it_holds_one_point() -> None:
+    def feature(i: int, geometry: dict[str, object] | None) -> dict[str, object]:
+        return {"type": "Feature", "geometry": geometry, "properties": {"ID": i}}
+
+    fc = {
+        "type": "FeatureCollection",
+        "features": [
+            feature(1, {"type": "MultiPoint", "coordinates": [[144.73, -37.27]]}),
+            feature(2, {"type": "MultiPoint", "coordinates": [[145.44, -37.92], [145.45, -37.93]]}),
+            feature(3, {"type": "MultiPoint", "coordinates": []}),
+            {"type": "Feature", "properties": {"ID": 4}},
+        ],
+    }
+    data = json.dumps(fc).encode()
+    ds = make_dataset(
+        [
+            Field("id", "ID", "integer"),
+            Field("longitude", LON_SOURCE, "number"),
+            Field("latitude", LAT_SOURCE, "number"),
+        ],
+        key=("id",),
+    )
+    t = normalise(ds, make_manifest(data, filename="t.geojson", encoding="utf-8"), data)
+    got = [(r["id"], r["longitude"], r["latitude"]) for r in t.table.to_pylist()]
+    assert got == [(1, 144.73, -37.27), (2, None, None), (3, None, None), (4, None, None)]
+
+
 def test_zip_source_reads_the_named_member() -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
