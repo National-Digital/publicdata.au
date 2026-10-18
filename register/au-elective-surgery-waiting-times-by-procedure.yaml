@@ -73,12 +73,14 @@ faq:
     the change.
 - q: What do the blanks mean?
   a: The Institute writes `<5` for a count under five and `NP` where the data did not meet its criteria. Those
-    cells are null here with a suppressed flag. A dash, meaning no patients were reported, and Not peered
+    cells are null here with a suppressed flag. Only the number of surgeries is ever `<5` and only the
+    other figures are ever `NP`, so the field the flag names tells you which code was written. A dash, meaning no patients were reported, and Not peered
     are null. Peer group results appear only where more than two hospitals in the peer group performed the
     procedure. The share who waited more than 365 days is a fraction, so 0.05 means 5 per cent.
 - q: How does this join to the hospital list?
   a: Each row names its reporting unit as the Institute's list of hospitals and networks in this collection
-    names it, so the two join on the name and the reporting unit type.
+    names it, so the two join on the name and the reporting unit type, which give one unit each. The code
+    is on the hospital list.
 summary: Median waiting times for elective surgery and the share who waited more than a year, for each
   public hospital and network by intended procedure each year since 2011-12, from AIHW MyHospitals.
 description: The Intended procedure sheet of the MyHospitals elective surgery waiting times data extract from
@@ -92,6 +94,7 @@ source:
   sheet: Intended procedure
   header_row: 15
   cadence: several times a year
+  as_at_regex: 'Data as of:\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+ \d{1,2}, \d{4})'
 suppression:
 - <5
 - NP
