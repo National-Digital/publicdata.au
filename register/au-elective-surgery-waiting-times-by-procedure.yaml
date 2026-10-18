@@ -1,0 +1,167 @@
+slug: au-elective-surgery-waiting-times-by-procedure
+title: Elective surgery waiting times by hospital and intended procedure, Australia
+status: live
+topics:
+- health
+example:
+  where:
+    year: newest
+    reporting_unit_type: State
+    intended_procedure: Total knee replacement
+  group: reporting_unit
+  metric: max.median_wait_days
+  label: Median days waited for a total knee replacement in each state in the newest year
+chart:
+  where:
+    reporting_unit_type: National
+    intended_procedure: Total knee replacement
+  split: none
+  metric: max.median_wait_days
+  label: Median days waited for a total knee replacement, Australia
+  year: year
+sample:
+  where:
+    year: newest
+    reporting_unit_type: Hospital
+    intended_procedure: Total knee replacement
+  order:
+  - surgeries.desc
+  spread: state
+  label: Total knee replacements at the busiest hospitals in the newest year, the busiest hospital in each
+    state first, then the next busiest.
+order: 510
+collection: au-myhospitals
+collection_title: AIHW MyHospitals
+publisher:
+  name: Australian Institute of Health and Welfare
+  short: AIHW
+  jurisdiction: Cth
+  url: https://www.aihw.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-13'
+  evidence: https://www.aihw.gov.au/copyright
+  statement: has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence
+  attribution: Based on Australian Institute of Health and Welfare material. Australian Institute of Health
+    and Welfare, Australian Government, MyHospitals Data API, elective surgery waiting times data extract,
+    sourced {sourced}, https://myhospitalsapi.aihw.gov.au/, licensed under CC BY 4.0.
+temporal_start: '2011-07-01'
+search_title: Elective surgery waiting times by hospital and procedure each year, Australia (AIHW MyHospitals)
+also_known_as:
+- Surgery waiting times by procedure and hospital
+- Hip and knee replacement waiting times by hospital
+- Cataract surgery waiting times Australia
+- Elective surgery median wait by intended procedure
+keywords:
+- elective surgery
+- waiting times
+- intended procedure
+- knee replacement
+- hip replacement
+- cataract surgery
+- public hospitals
+- MyHospitals
+- AIHW
+faq:
+- q: What is in each row?
+  a: One public hospital, Local Hospital Network, state or the nation, one financial year from 2011-12 and
+    one intended procedure. It gives the number of elective surgeries, the median days waited, the share of
+    patients who waited more than 365 days, and the peer group's median and average beside them.
+- q: Why are there more procedures from 2016-17?
+  a: In 2016-17 the Institute replaced its list of 15 indicator procedures with a list of 152 intended
+    procedures. Years before 2016-17 hold only the earlier list, so a comparison over time should allow for
+    the change.
+- q: What do the blanks mean?
+  a: The Institute writes `<5` for a count under five and `NP` where the data did not meet its criteria. Those
+    cells are null here with a suppressed flag. Only the number of surgeries is ever `<5` and only the
+    other figures are ever `NP`, so the field the flag names tells you which code was written. A dash, meaning no patients were reported, and Not peered
+    are null. Peer group results appear only where more than two hospitals in the peer group performed the
+    procedure. The share who waited more than 365 days is a fraction, so 0.05 means 5 per cent.
+- q: How does this join to the hospital list?
+  a: Each row names its reporting unit as the Institute's list of hospitals and networks in this collection
+    names it, so the two join on the name and the reporting unit type, which give one unit each. The code
+    is on the hospital list.
+summary: Median waiting times for elective surgery and the share who waited more than a year, for each
+  public hospital and network by intended procedure each year since 2011-12, from AIHW MyHospitals.
+description: The Intended procedure sheet of the MyHospitals elective surgery waiting times data extract from
+  the AIHW MyHospitals Data API. Each row is one reporting unit, financial year and intended procedure, with
+  the number of surgeries, the median waiting time in days, the percentage of patients who waited more than
+  365 days and the peer group's median and average.
+source:
+  adapter: file
+  url: https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-es
+  format: xlsx
+  sheet: Intended procedure
+  header_row: 15
+  cadence: several times a year
+  as_at_regex: 'Data as of:\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+ \d{1,2}, \d{4})'
+suppression:
+- <5
+- NP
+key:
+- reporting_unit
+- reporting_unit_type
+- year
+- intended_procedure
+partition_by:
+- state
+row_label: Hospital, year and procedure rows
+fields:
+- name: reporting_unit
+  label: Hospital or network
+  source: Reporting unit
+  type: string
+- name: reporting_unit_type
+  label: Reporting unit type
+  source: Reporting unit type
+  type: string
+- name: state
+  label: State
+  source: State
+  type: string
+- name: peer_group
+  label: Peer group
+  source: Peer group
+  type: string
+- name: year
+  label: Financial year
+  source: Year
+  type: string
+- name: intended_procedure
+  label: Intended procedure
+  source: Intended procedure
+  type: string
+- name: surgeries
+  label: Surgeries
+  source: Number of surgeries
+  type: integer
+  null_values:
+  - '-'
+- name: median_wait_days
+  label: Median wait (days)
+  source: Median waiting time (days)
+  type: integer
+  null_values:
+  - '-'
+- name: peer_group_median_days
+  label: Peer group median (days)
+  source: Peer group median (days)
+  type: integer
+  null_values:
+  - Not peered
+- name: share_waited_over_365_days
+  label: Share waited over 365 days
+  source: Percentage who waited more than 365 days for surgery
+  type: number
+  null_values:
+  - '-'
+  description: The fraction of patients who waited more than 365 days for surgery, 0.05 for 5 per cent.
+- name: peer_group_average
+  label: Peer group average
+  source: Peer group average
+  type: number
+  null_values:
+  - Not peered
+omit:
+  ? ''
+  : A column with no header in the publisher's file, which has no name to publish it under.
