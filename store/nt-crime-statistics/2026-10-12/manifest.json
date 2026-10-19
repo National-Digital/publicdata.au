@@ -1,0 +1,51 @@
+{
+  "dataset": "nt-crime-statistics",
+  "version": "2026-10-12",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:34:44+00:00",
+  "sha256": "ba15f62b59b02a8f2e03d3a1d307a2bf64a2552562ccbd2539899c6aaa6b14d4",
+  "bytes": 968929,
+  "filename": "nt_crime_statistics_aug_2026.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.nt.gov.au/dataset/ec7f057c-de34-4912-b887-73fc9081af37/resource/be240fb9-4dd6-4506-a5ac-367218ec9afe/download/nt_crime_statistics_aug_2026.csv",
+    "portal": "https://data.nt.gov.au",
+    "package": "current-nt-crime-statistics-august-2026",
+    "package_id": "ec7f057c-de34-4912-b887-73fc9081af37",
+    "resource": "be240fb9-4dd6-4506-a5ac-367218ec9afe",
+    "resource_name": "NT_crime_statistics_Aug_2026.csv",
+    "resource_last_modified": "2026-10-12T03:26:10.419680",
+    "package_modified": "2026-10-14T01:30:03.961205",
+    "package_version": "",
+    "etag": "1791775570.501869-968929-1041568258",
+    "http_last_modified": "Mon, 12 Oct 2026 03:26:10 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://data.nt.gov.au/api/3/action/package_show?id=current-nt-crime-statistics-august-2026",
+    "read_at": "2026-10-19T20:34:43+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "6082aa137e7e3faa12605b7f327e29cb31e9960edf75da2dd8e4a1157847c561",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "year",
+      "month",
+      "offence_category",
+      "offence_type",
+      "alcohol_involvement",
+      "dv_involvement",
+      "reporting_region",
+      "sa2"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
