@@ -1,0 +1,191 @@
+slug: vic-public-libraries
+title: Public libraries in Victoria, Vicmap Features of Interest
+status: live
+topics:
+- community
+example:
+  group: state
+  metric: count
+  label: Vicmap library features by state
+chart: none
+search_title: Victorian public library locations map (Vicmap Features of Interest)
+also_known_as:
+- Victorian public libraries
+- Public library locations Victoria
+- Vicmap FOI libraries
+keywords:
+- public libraries
+- library locations
+- Vicmap
+- features of interest
+- Victoria
+faq:
+- q: What is in each row?
+  a: One feature that Vicmap types as feature type cultural centre with subtype library, with its name, the name
+    of its parent feature where Vicmap records one, the identifiers Vicmap and VICNAMES use for it, the dates
+    Vicmap created its records, and its longitude and latitude in GDA2020.
+- q: Why do some rows have no coordinates?
+  a: Vicmap serves each feature as a set of points. Most libraries are one point, and their coordinates are
+    published as given. A few libraries are served as two points, and those rows have blank coordinates
+    because this site does not choose one point over another.
+- q: Why are some libraries in New South Wales?
+  a: Vicmap maps features near the border on both sides, and its state field marks those in New South Wales
+    as NSW. The rows are kept as served.
+- q: Does it give opening hours or who runs each library?
+  a: No. Vicmap records where a named feature is. It does not record opening hours or the library service
+    that runs each branch.
+summary: About 320 libraries that Vicmap Features of Interest maps as points in and near Victoria, one row per
+  library, with its name, Vicmap identifiers and coordinates.
+description: The libraries in the Vicmap Features of Interest point layer, foi_point, read from the Vicmap web
+  feature service with the filter feature type cultural centre and subtype library. Each row carries the
+  library's name, its parent feature's name, the authority Vicmap records for it, its Vicmap and VICNAMES
+  identifiers, the dates Vicmap created its records, and its longitude and latitude in GDA2020.
+publisher:
+  name: Department of Transport and Planning
+  short: Transport and Planning
+  jurisdiction: Vic
+  url: https://www.transport.vic.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-19'
+  evidence: https://discover.data.vic.gov.au/dataset/vicmap-features-features-of-interest-foi-point
+  statement: Creative Commons Attribution 4.0 International
+  attribution: Department of Transport and Planning, Victorian Government, Vicmap Features - Features of
+    Interest (FOI) Point (Vicmap layer foi_point), sourced {sourced},
+    https://discover.data.vic.gov.au/dataset/vicmap-features-features-of-interest-foi-point, licensed under
+    CC BY 4.0.
+source:
+  adapter: file
+  url: https://opendata.maps.vic.gov.au/geoserver/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=open-data-platform:foi_point&outputFormat=application/json&CQL_FILTER=feature_type%3D%27cultural%20centre%27%20AND%20feature_subtype%3D%27library%27&sortBy=pfi
+  format: geojson
+  page_size: 1000
+  cadence: as needed
+key:
+- pfi
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:7844
+  crs_note: Points in GDA2020 (EPSG:7844), as the Vicmap service publishes them. A feature served as one
+    point has its longitude and latitude published as given, and a feature served as several points has
+    them blank.
+row_label: Libraries
+fields:
+- name: name_label
+  label: Library
+  source: name_label
+  type: string
+  description: The library's name in mixed case, as Vicmap labels it. Blank where Vicmap gives no name.
+- name: name
+  label: Name in capitals
+  source: name
+  type: string
+  description: The library's name in Vicmap's capitals.
+- name: feature_type
+  label: Feature type
+  source: feature_type
+  type: string
+- name: feature_subtype
+  label: Feature subtype
+  source: feature_subtype
+  type: string
+- name: feature_status
+  label: Feature status
+  source: feature_status
+  type: string
+- name: parent_name
+  label: Parent feature name
+  source: parent_name
+  type: string
+  description: The feature the library sits within, such as a park or reserve, where Vicmap records one.
+- name: parent_feature_id
+  label: Parent feature ID
+  source: parent_feature_id
+  type: integer
+- name: child_exists
+  label: Has child features
+  source: child_exists
+  type: string
+- name: state
+  label: State
+  source: state
+  type: string
+- name: auth_org_code
+  label: Responsible authority code
+  source: auth_org_code
+  type: string
+- name: auth_org_id
+  label: Responsible authority ID
+  source: auth_org_id
+  type: string
+- name: auth_org_verified
+  label: Authority verified
+  source: auth_org_verified
+  type: string
+  description: The timestamp the service gives, kept as its text.
+- name: ufi
+  label: Record identifier
+  source: ufi
+  type: integer
+  description: Vicmap's identifier for this version of the feature's record.
+- name: pfi
+  label: Persistent feature identifier
+  source: pfi
+  type: integer
+  description: Vicmap's persistent identifier for the feature, kept across its record's versions.
+- name: feature_id
+  label: Feature ID
+  source: feature_id
+  type: integer
+- name: vmadd_pfi
+  label: Vicmap Address identifier
+  source: vmadd_pfi
+  type: string
+  description: The persistent identifier of the feature's Vicmap Address record, where it has one.
+- name: vicnames_id
+  label: VICNAMES ID
+  source: vicnames_id
+  type: integer
+- name: vicnames_status_code
+  label: VICNAMES status
+  source: vicnames_status_code
+  type: string
+- name: theme1
+  label: Theme
+  source: theme1
+  type: string
+- name: theme2
+  label: Second theme
+  source: theme2
+  type: string
+- name: create_date_pfi
+  label: Feature created
+  source: create_date_pfi
+  type: string
+  description: The timestamp the service gives, kept as its text.
+- name: superceded_pfi
+  label: Superseded identifier
+  source: superceded_pfi
+  type: integer
+- name: create_date_ufi
+  label: Record created
+  source: create_date_ufi
+  type: string
+  description: The timestamp the service gives, kept as its text.
+- name: feature_ufi
+  label: Feature record identifier
+  source: feature_ufi
+  type: integer
+- name: feature_create_date_ufi
+  label: Feature record created
+  source: feature_create_date_ufi
+  type: string
+  description: The timestamp the service gives, kept as its text.
+- name: longitude
+  label: Longitude
+  source: (longitude)
+  type: number
+- name: latitude
+  label: Latitude
+  source: (latitude)
+  type: number

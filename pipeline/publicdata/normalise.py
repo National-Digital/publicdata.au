@@ -378,6 +378,9 @@ def read_geojson(data: bytes) -> pa.Table:
             cols[h].append(_cell(props.get(h)))
         geom = ft.get("geometry") or {}
         xy = geom.get("coordinates") if geom.get("type") == "Point" else None
+        # A MultiPoint is read only when it holds one point; choosing among several would derive one.
+        if geom.get("type") == "MultiPoint" and len(geom.get("coordinates") or []) == 1:
+            xy = geom["coordinates"][0]
         cols[LON_SOURCE].append(_cell(xy[0]) if xy else "")
         cols[LAT_SOURCE].append(_cell(xy[1]) if xy else "")
     return pa.table({h: pa.array(c, pa.string()) for h, c in cols.items()})
