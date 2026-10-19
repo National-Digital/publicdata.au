@@ -414,6 +414,11 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-public-holidays",
       "zenodo": "10.5281/zenodo.23123051"
     },
+    "nsw-public-libraries": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-public-libraries",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-public-libraries",
+      "zenodo": "10.5281/zenodo.23485005"
+    },
     "nsw-public-schools": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-public-schools",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-public-schools",
@@ -473,6 +478,11 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rental-bond-refunds-2025",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rental-bond-refunds-2025",
       "zenodo": "10.5281/zenodo.23123379"
+    },
+    "nsw-rest-areas": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-rest-areas",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-rest-areas",
+      "zenodo": "10.5281/zenodo.23485012"
     },
     "nsw-road-crashes": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-road-crashes",
