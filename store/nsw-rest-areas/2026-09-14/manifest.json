@@ -1,0 +1,44 @@
+{
+  "dataset": "nsw-rest-areas",
+  "version": "2026-09-14",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:07:17+00:00",
+  "sha256": "4d7c7bcb9c93676c88313f65487cafb46fa76126725ab1d91a985ef2d875f87b",
+  "bytes": 275754,
+  "filename": "rest-areas-csv-format.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://opendata.transport.nsw.gov.au/data/dataset/37a56f96-feb7-49c4-9a7d-06957ccf7368/resource/6f2bcede-9d55-4315-b609-dffa30510894/download/rest-areas-csv-format.csv",
+    "portal": "https://opendata.transport.nsw.gov.au/data",
+    "package": "nsw-rest-areas",
+    "package_id": "37a56f96-feb7-49c4-9a7d-06957ccf7368",
+    "resource": "6f2bcede-9d55-4315-b609-dffa30510894",
+    "resource_name": "NSW Rest Areas - CSV Format",
+    "resource_last_modified": "2026-09-14T06:10:19.630976",
+    "package_modified": "2026-09-14T06:15:10.033673",
+    "package_version": "",
+    "etag": "1789366219.782-275754-2256212667",
+    "http_last_modified": "Mon, 14 Sep 2026 06:10:19 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://opendata.transport.nsw.gov.au/data/api/3/action/package_show?id=nsw-rest-areas",
+    "read_at": "2026-10-19T21:07:16+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "c4b5a6b0ed988af1c1964360c39357a08c2f1b9b7bf1ddcd0fbe39c27a69c218",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "rest_area_number"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
