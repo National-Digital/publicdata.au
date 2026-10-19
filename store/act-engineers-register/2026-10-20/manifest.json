@@ -1,0 +1,42 @@
+{
+  "dataset": "act-engineers-register",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:01:32+00:00",
+  "sha256": "fffcbc5de504d1ffd62256a737886b6222fb0159ebebb46b64ff212d73b97b8a",
+  "bytes": 105629,
+  "filename": "piuu-cqvu.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/piuu-cqvu/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "piuu-cqvu",
+    "resource_name": "Engineers Public Register",
+    "rows_updated_at": 1792422268,
+    "etag": "aW5kaWEuNzgyNTBfMV8xMjgxeTF3dzExaEVzTFFjQkpLMnlsQTBfdjA1Y29J---gzipbhf4xw6Mk7ucIR7RP8KxSUxP2zs--gzip--gzip",
+    "http_last_modified": "Mon, 19 Oct 2026 15:04:27 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/piuu-cqvu.json",
+    "read_at": "2026-10-19T21:01:31+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "9f224610c9c1b74651deb8868035815af048913d44308eff9c891138c2680ace",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "identifier"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
