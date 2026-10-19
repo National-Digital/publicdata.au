@@ -1,0 +1,40 @@
+{
+  "dataset": "tas-roadside-stops",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:07:25+00:00",
+  "sha256": "921f3d39dc04c6df6912251c79212dd9e7f404ecf39598deeffc8e3c98221794",
+  "bytes": 42478,
+  "filename": "tas-roadside-stops.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.stategrowth.tas.gov.au/ags/rest/services/PUBLIC/ROADSIDESTOPS/MapServer/0/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&outSR=4326&f=geojson",
+    "etag": "66dfa75",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-3.0-AU",
+    "stated": "Creative Commons Attribution 3.0 Australia Licence",
+    "normalised": "CC-BY-3.0-AU",
+    "title": "CC BY 3.0 AU",
+    "url": "https://data.thelist.tas.gov.au/datagn/srv/eng/xml.metadata.get?uuid=40bf6146-be5c-4276-8997-bf4549f3c6aa",
+    "read_from": "https://data.thelist.tas.gov.au/datagn/srv/eng/xml.metadata.get?uuid=40bf6146-be5c-4276-8997-bf4549f3c6aa",
+    "read_at": "2026-10-19T21:07:25+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "25ac656395d609d5c939421c46498e4762d5cac3bddd1441a5d9ee737e34f570",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "objectid"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
