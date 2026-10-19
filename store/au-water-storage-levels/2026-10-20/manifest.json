@@ -1,0 +1,53 @@
+{
+  "dataset": "au-water-storage-levels",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:47:35+00:00",
+  "sha256": "fe83c2994abb5c1c22e66474b50afa01cf3c4ca3336d576299c569184aa19462",
+  "bytes": 363082254,
+  "filename": "au-water-storage-levels.csv",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://www.bom.gov.au/waterdata/services",
+    "parameter": "Storage Volume",
+    "stations": 568,
+    "series": "DMQaQc.Merged.DailyMean.24HR",
+    "series_read": 535,
+    "newest": "2026-10-20T00:00:00.000+10:00"
+  },
+  "licence": {
+    "id": "CC-BY-3.0-AU",
+    "stated": "all material on this page is licensed under the Creative Commons Attribution Australia Licence",
+    "normalised": "CC-BY-3.0-AU",
+    "title": "CC BY 3.0 AU",
+    "url": "https://www.bom.gov.au/waterdata/",
+    "read_from": "https://www.bom.gov.au/waterdata/",
+    "read_at": "2026-10-19T20:34:50+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher offers no file. These bytes are every value of the named time series for every station reporting the parameter, as the Bureau's Water Data Online service returned them, ordered by station and date, so the same data gives the same bytes."
+  ],
+  "rows_sha256": "b19f1e4e7cf7c8fe9edeab9e33df5f9dae220c98046490c3cabe6834ffde6d86",
+  "parquet": {
+    "profile": "1",
+    "sort": [
+      "station_no"
+    ],
+    "key": [
+      "station_no",
+      "date"
+    ],
+    "lookup": [],
+    "int32": [
+      "quality_code"
+    ]
+  },
+  "caps": 1,
+  "period": {
+    "field": "date",
+    "grain": "year",
+    "revision_window": 2
+  }
+}

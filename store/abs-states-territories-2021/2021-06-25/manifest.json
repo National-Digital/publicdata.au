@@ -1,0 +1,37 @@
+{
+  "dataset": "abs-states-territories-2021",
+  "version": "2021-06-25",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:50:18+00:00",
+  "sha256": "d9b7f735de6085b37414faf011f796dda3c7f768c55e9dce01f96e790f399a21",
+  "bytes": 21559880,
+  "filename": "STE_2021_AUST_SHP_GDA2020.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs/edition-3-july-2021-june-2026/access-and-downloads/digital-boundary-files/STE_2021_AUST_SHP_GDA2020.zip",
+    "etag": "",
+    "http_last_modified": "Thu, 24 Jun 2021 22:48:33 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "Copyright Commonwealth of Australia administered by the ABS. Unless otherwise noted, content is licensed under a Creative Commons Attribution 4.0 International licence.",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs/edition-3-july-2021-june-2026/access-and-downloads/digital-boundary-files",
+    "read_from": "https://www.abs.gov.au/statistics/standards/australian-statistical-geography-standard-asgs/edition-3-july-2021-june-2026/access-and-downloads/digital-boundary-files",
+    "read_at": "2026-10-19T20:50:17+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "state_2021_code"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
