@@ -1,0 +1,44 @@
+{
+  "dataset": "tas-libraries-locations",
+  "version": "2020-04-29",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:50:03+00:00",
+  "sha256": "ccb6c90a988755447c216f4bad4060e080cf2531265621a7db775e8c9abd32cc",
+  "bytes": 24028,
+  "filename": "libraries-tasmania.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.gov.au/data/dataset/409f7f64-35ef-4a70-8db1-dd737a6fabec/resource/599333a0-00c5-4682-9192-b78b253240bc/download/libraries-tasmania.geojson",
+    "portal": "https://data.gov.au/data",
+    "package": "libraries-tasmania-locations",
+    "package_id": "409f7f64-35ef-4a70-8db1-dd737a6fabec",
+    "resource": "599333a0-00c5-4682-9192-b78b253240bc",
+    "resource_name": "Libraries Tasmania GeoJSON Locations",
+    "resource_last_modified": "2020-04-29T06:05:32.762812",
+    "package_modified": "2024-09-11T06:25:05.749698",
+    "package_version": null,
+    "etag": "W/1588140332.0-24028-3095400111",
+    "http_last_modified": "Wed, 29 Apr 2020 06:05:32 GMT"
+  },
+  "licence": {
+    "id": "cc-by-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=libraries-tasmania-locations",
+    "read_at": "2026-10-19T20:50:03+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "482a2491912c5ffbd64f929a1a33242935c9b2a835da6636f7a461765e2a1045",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "title"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

@@ -1,0 +1,89 @@
+{
+  "dataset": "tas-road-crashes",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:30:23+00:00",
+  "sha256": "c30cd8d7c6c6484d8218b5dffec07696d7466f46ad4ec1368327fc8c70239ae0",
+  "bytes": 78554077,
+  "filename": "tas-road-crashes.geojson",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://data.stategrowth.tas.gov.au/ags/rest/services/PUBLIC/CDM_CRASH/FeatureServer/0",
+    "portal": "https://data.gov.au/data",
+    "package": "tasmanian",
+    "package_id": "8f7d9792-dde8-4d88-966a-1874c775640f",
+    "package_modified": "2023-08-11T14:39:25.606079",
+    "layer_name": "Crashes since 1/Jan/2009",
+    "object_id_field": "ID",
+    "last_edit_date": null,
+    "newest_record": 1792425600000,
+    "features": 176522,
+    "date_fields": [
+      "CRASH_DATE_TIME"
+    ]
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "cc-by-4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=tasmanian",
+    "read_at": "2026-10-19T20:28:12+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The layer states no edit date, so this version is dated by the newest record it holds.",
+    "The publisher offers no file. These bytes are every feature of the layer as the service returned them in WGS84, ordered by its object id, so the same layer gives the same bytes."
+  ],
+  "rows_sha256": "1ceb9cd9d0541904d6a7089da476f6fb3e00d2c73c506fbad43963862e4e1612",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1,
+  "spine": [
+    {
+      "layer": "sa2",
+      "dataset": "abs-sa2-2021",
+      "version": "2021-06-25",
+      "sha256": "c4dc5bac209f01177eaa0715d27f32cdb09ab5784fb82979741556d2f8e6d148"
+    },
+    {
+      "layer": "lga",
+      "dataset": "abs-lga-2025",
+      "version": "2026-07-20",
+      "sha256": "acc3015a0ac78ade978c41a2e4110269b5219b60d6a56cbb70393ae647f31b15"
+    },
+    {
+      "layer": "suburb",
+      "dataset": "abs-suburbs-localities-2021",
+      "version": "2021-09-15",
+      "sha256": "1284f6aa4a5eedbe6d0b8c71099494f634d59f1500532c1944b8227b4d1474ca"
+    },
+    {
+      "layer": "postcode",
+      "dataset": "abs-postal-areas-2021",
+      "version": "2021-09-15",
+      "sha256": "92182d5e491a2dc0d49bd282283722701eef8a347ae072c04c344b4aeac2c49a"
+    },
+    {
+      "layer": "state_electorate",
+      "dataset": "abs-state-electoral-divisions-2025",
+      "version": "2025-07-14",
+      "sha256": "7b5c7c9a2965cd4b7523dc91dc612598ce0c0ca8a1bb0798c8d703f4b3cfc1aa"
+    },
+    {
+      "layer": "federal_electorate",
+      "dataset": "abs-federal-electoral-divisions-2025",
+      "version": "2025-07-14",
+      "sha256": "7664b279214a349e8a2a3052ebd8bd5adf82590a8ab667d700772cf677048e90"
+    }
+  ]
+}
