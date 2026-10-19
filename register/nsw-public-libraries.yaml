@@ -1,0 +1,139 @@
+slug: nsw-public-libraries
+title: Libraries in New South Wales
+status: live
+topics:
+- community
+example:
+  group: urbanity
+  metric: count
+  label: Libraries
+chart: none
+search_title: NSW library locations from the state's Points of Interest layer (Spatial Services)
+also_known_as:
+- NSW public libraries
+- Library locations in New South Wales
+- NSW Points of Interest libraries
+keywords:
+- public libraries
+- library locations
+- Points of Interest
+- Spatial Services
+- New South Wales
+faq:
+- q: What is in each row?
+  a: One feature of the NSW Points of Interest layer that Spatial Services types as a library. Each row
+    has the feature's name and label, the dates Spatial Services recorded for it, the publisher's
+    urbanity code and its longitude and latitude.
+- q: Are these only council libraries?
+  a: No. The layer types a feature as a library without saying who runs it. Going by their names, most
+    rows are council branch libraries. A small number are university or other institute libraries, such as Fisher Library
+    at the University of Sydney. The layer gives no field that tells them apart.
+- q: Does it give addresses or opening hours?
+  a: No. The layer records a library's name and location only. It does not record an address, phone
+    number, opening hours or the library service that runs it.
+summary: The libraries in the NSW Points of Interest layer, one row per library, with each one's name and
+  location.
+description: The features that Spatial Services types `Library` in the NSW Points of Interest layer, read
+  from its map service. Each row is one library, with its name and label, its topographic database id,
+  the dates Spatial Services recorded for it, the publisher's urbanity code and the point's longitude
+  and latitude in WGS84. The layer does not say who operates a library. Going by their names, most rows
+  are council branch libraries. A small number are university or other institute libraries, which the layer types the
+  same way. The layer records no address, phone number or opening hours.
+publisher:
+  name: Spatial Services, Department of Customer Service NSW
+  short: Spatial Services
+  jurisdiction: NSW
+  url: https://www.spatial.nsw.gov.au/
+licence:
+  id: CC-BY-3.0-AU
+  reviewed: '2026-10-19'
+  evidence: https://data.nsw.gov.au/data/dataset/nsw-points-of-interest-poi
+  statement: Licence Creative Commons Attribution 3.0
+  attribution: © State Government of NSW and Spatial Services (DCS), NSW Points of Interest (POI), sourced
+    {sourced}, https://data.nsw.gov.au/data/dataset/nsw-points-of-interest-poi, licensed under CC BY 3.0 AU.
+source:
+  adapter: file
+  url: https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_POI/MapServer/0/query?where=poitype%3D%27Library%27&outFields=*&orderByFields=objectid&outSR=4326&f=geojson
+  format: geojson
+  cadence: as needed
+key:
+- objectid
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:4326
+  crs_note: Longitude and latitude in WGS84 (EPSG:4326), as the map service projects them on request. The
+    layer's own extent is stated in GDA94.
+row_label: Libraries
+fields:
+- name: objectid
+  label: Object id
+  source: objectid
+  type: integer
+  description: The layer's row number, which the map service orders its answer by.
+- name: name
+  label: Library
+  source: poiname
+  type: string
+  description: The library's name as Spatial Services records it, in capitals. It is empty for the few
+    rows whose label type is `GENERIC`.
+- name: label
+  label: Label
+  source: poilabel
+  type: string
+  description: The text the layer labels the point with. It is the name where there is one, and `Library`
+    where there is not.
+- name: label_type
+  label: Label type
+  source: poilabeltype
+  type: string
+  description: The publisher's `NAMED` or `GENERIC`, as published.
+- name: alternative_label
+  label: Alternative label
+  source: poialtlabel
+  type: string
+- name: type
+  label: Feature type
+  source: poitype
+  type: string
+- name: urbanity
+  label: Urbanity
+  source: urbanity
+  type: string
+  description: The publisher's urbanity code, `U` or `S`, as published. The layer does not define the codes.
+- name: topo_id
+  label: Topographic database id
+  source: topoid
+  type: integer
+- name: shape_uuid
+  label: Shape UUID
+  source: shapeuuid
+  type: string
+- name: start_date
+  label: Start date
+  source: startdate
+  type: date
+  date_format: epoch_ms
+- name: last_update_ms
+  label: Last updated (ms since 1970)
+  source: lastupdate
+  type: integer
+  description: The time Spatial Services last updated the feature, as the map service gives it, in
+    milliseconds since 1 January 1970 UTC. It is kept as a number because the values carry milliseconds.
+- name: longitude
+  label: Longitude
+  source: (longitude)
+  type: number
+- name: latitude
+  label: Latitude
+  source: (latitude)
+  type: number
+omit:
+  poigroup: A group code that is 1 for every library.
+  poisourcefeatureoid: The internal number of the source feature class, which is the same for every library.
+  accesscontrol: An access code that is the same for every library.
+  enddate: An end date that holds the same placeholder, 1 January 3000, for every library.
+  msoid: An internal maintenance id with no meaning outside the publisher's database.
+  centroidid: A column the publisher leaves empty.
+  changetype: An internal code for the publisher's last edit.
+  processstate: A column the publisher leaves empty.
