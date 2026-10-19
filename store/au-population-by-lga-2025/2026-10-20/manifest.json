@@ -1,0 +1,41 @@
+{
+  "dataset": "au-population-by-lga-2025",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:07:15+00:00",
+  "sha256": "3fdcb89ad1468cbf2fc281874c5f22908eed5838914940ec040717e766c5f356",
+  "bytes": 3299003,
+  "filename": "au-population-by-lga-2025.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.api.abs.gov.au/rest/data/ABS,ABS_ANNUAL_ERP_LGA2025,1.0.0/ERP.3.TOT..LGA2025.A?format=csvfilewithlabels",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "All material presented on this website is provided under a Creative Commons Attribution 4.0 International licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.abs.gov.au/website-privacy-copyright-and-disclaimer",
+    "read_from": "https://www.abs.gov.au/website-privacy-copyright-and-disclaimer",
+    "read_at": "2026-10-19T21:07:13+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "cea32d16241b4590aa8d270761cf12cbe9913232fea3ba3945f8d8384e2c65bd",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "lga_code",
+      "year"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
