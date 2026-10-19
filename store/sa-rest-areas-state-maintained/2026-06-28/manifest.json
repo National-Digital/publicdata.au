@@ -1,0 +1,43 @@
+{
+  "dataset": "sa-rest-areas-state-maintained",
+  "version": "2026-06-28",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:07:24+00:00",
+  "sha256": "9a3214864fbf1f900c58364e0698a69181b40a1a7576c9665c665a0668231573",
+  "bytes": 289564,
+  "filename": "StateMaintainedRestAreas_geojson.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://www.dptiapps.com.au/dataportal/StateMaintainedRestAreas_geojson.zip",
+    "portal": "https://data.gov.au/data",
+    "package": "rest-areas-state-maintained",
+    "package_id": "a2acc711-03d2-47d1-b001-01da40af647a",
+    "resource": "8d5f4f51-0a56-4117-941d-77268bf52057",
+    "resource_name": "Rest Areas (geojson)",
+    "resource_last_modified": "2023-07-15T01:58:43",
+    "package_modified": "2025-06-25T14:52:22.074226",
+    "package_version": null,
+    "etag": "",
+    "http_last_modified": "Sun, 28 Jun 2026 01:28:23 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 3.0 Australia",
+    "url": "http://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=rest-areas-state-maintained",
+    "read_at": "2026-10-19T21:07:24+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "deptassetid"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
