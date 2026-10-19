@@ -1,0 +1,46 @@
+{
+  "dataset": "sa-metro-median-house-prices",
+  "version": "2026-10-14",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:59:56+00:00",
+  "sha256": "d393beedee688d9e8612320125ce957e4d828f13fa764b6bab935e51028fd2c5",
+  "bytes": 37129,
+  "filename": "lsg_stats_2026_3q.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://data.sa.gov.au/data/dataset/0d447195-1158-4a3c-8cc7-0e333b87eb72/resource/4245a13e-a972-431c-b446-e1e11c951836/download/lsg_stats_2026_3q.xlsx",
+    "portal": "https://data.sa.gov.au/data",
+    "package": "metro-median-house-sales",
+    "package_id": "0d447195-1158-4a3c-8cc7-0e333b87eb72",
+    "resource": "4245a13e-a972-431c-b446-e1e11c951836",
+    "resource_name": "Metropolitan Median House Sales Q3 2026",
+    "resource_last_modified": "2026-10-14T00:25:03.202130",
+    "package_modified": "2026-10-14T00:26:42.257470",
+    "package_version": null,
+    "etag": "1791937505.606-37129-998709403",
+    "http_last_modified": "Wed, 14 Oct 2026 00:25:05 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.sa.gov.au/data/api/3/action/package_show?id=metro-median-house-sales",
+    "read_at": "2026-10-19T20:59:56+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "77c4983f450fdb69320a979667b50fb391401f3edf7c13f26ebbbaeffd57461c",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "council",
+      "suburb",
+      "measure"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
