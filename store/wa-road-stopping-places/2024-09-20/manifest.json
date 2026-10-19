@@ -1,0 +1,43 @@
+{
+  "dataset": "wa-road-stopping-places",
+  "version": "2024-09-20",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:07:24+00:00",
+  "sha256": "7527313864cc06b18aec656fe5c9b14f062d20bd3df416f0e9b85904949f6e76",
+  "bytes": 477919,
+  "filename": "79232357944c4bd6a593d19e0fbdcc77_19.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://portal-mainroads.opendata.arcgis.com/api/download/v1/items/79232357944c4bd6a593d19e0fbdcc77/csv?layers=19",
+    "portal": "https://portal-mainroads.opendata.arcgis.com",
+    "package": "79232357944c4bd6a593d19e0fbdcc77",
+    "resource": "19",
+    "resource_name": "Road Stopping Places",
+    "service": "https://gisservices.mainroads.wa.gov.au/arcgis/rest/services/OpenData/RoadAssets_DataPortal/MapServer/19",
+    "etag": "a9e85846b742a5119fc68e5b73f901e5",
+    "http_last_modified": "Tue, 24 Jun 2025 16:18:56 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC-BY-4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "This work is licensed under a Creative Commons Attribution 4.0 International License .",
+    "url": "",
+    "read_from": "https://portal-mainroads.opendata.arcgis.com/api/search/v1/collections/dataset/items/79232357944c4bd6a593d19e0fbdcc77",
+    "read_at": "2026-10-19T21:07:18+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "a16f6d4292ef136ce11baaf68f0493ccf2890358708098e640c1bd2c6fda3b86",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "globalid"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
