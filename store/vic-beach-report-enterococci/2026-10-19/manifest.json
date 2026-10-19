@@ -1,0 +1,42 @@
+{
+  "dataset": "vic-beach-report-enterococci",
+  "version": "2026-10-19",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:58:44+00:00",
+  "sha256": "1f4514eb25d0c29f61cf760fc03460fd3a381c2ba7a42b42d866c6f272e28baf",
+  "bytes": 392610,
+  "filename": "Beach_Report_enterococci_data.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://apps.epa.vic.gov.au/datavic/Data_Vic/BeachReport/Beach_Report_enterococci_data.xlsx",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "beach-report-enterococci-data",
+    "package_id": "7dd33bd7-b820-4332-a273-7566fe7aa178",
+    "resource": "b4bc2d2b-6c20-4331-9069-baba2a1c4cdc",
+    "resource_name": "Beach Report enterococci data",
+    "resource_last_modified": "2026-06-29T04:32:04.058809",
+    "package_modified": "2026-07-06T23:38:27.239912",
+    "package_version": null,
+    "etag": "0x8DF2D6B8F30B989",
+    "http_last_modified": "Sun, 18 Oct 2026 23:00:09 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=beach-report-enterococci-data",
+    "read_at": "2026-10-19T20:58:43+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "aa79dadfde743056c6c0e36197d4997be93aea2938d5566c51c9f0cc86a1b5b8",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

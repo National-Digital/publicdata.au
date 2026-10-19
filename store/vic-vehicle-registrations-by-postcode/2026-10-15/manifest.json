@@ -1,0 +1,42 @@
+{
+  "dataset": "vic-vehicle-registrations-by-postcode",
+  "version": "2026-10-15",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:59:31+00:00",
+  "sha256": "085843370244ffc3b956e82564edd62bbc0ebd5dde87932da8c9eab4e73c42ac",
+  "bytes": 29258014,
+  "filename": "whole_fleet_vehicle_registration_snapshot_by_postcode_q3_2026.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://opendata.transport.vic.gov.au/dataset/54e52c3b-6016-4166-a241-c253e26b8f62/resource/fb041326-4af4-4797-abef-de9cb6347bae/download/whole_fleet_vehicle_registration_snapshot_by_postcode_q3_2026.csv",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "whole-fleet-vehicle-registration-snapshot-by-postcode",
+    "package_id": "9c49a00b-75d1-4446-bdd9-687a561a04a8",
+    "resource": "fb041326-4af4-4797-abef-de9cb6347bae",
+    "resource_name": "Whole Fleet Vehicle Registration Snapshot by Postcode Q3 2026",
+    "resource_last_modified": "2026-10-15T05:45:44.502307",
+    "package_modified": "2026-10-15T09:12:48.670655",
+    "package_version": null,
+    "etag": "1792043145.3820622-29258014-2096960329",
+    "http_last_modified": "Thu, 15 Oct 2026 05:45:45 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=whole-fleet-vehicle-registration-snapshot-by-postcode",
+    "read_at": "2026-10-19T20:59:30+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "acc40ee86938d06d48a46ac90f6252b5a45bb4933771e6677d09671e16ee430c",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

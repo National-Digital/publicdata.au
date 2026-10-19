@@ -1,0 +1,40 @@
+{
+  "dataset": "vic-public-libraries",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:50:04+00:00",
+  "sha256": "e9f07816cdbce4e7233ee01649aef7589960a63f6759546039fb97e483a78c94",
+  "bytes": 269917,
+  "filename": "vic-public-libraries.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://opendata.maps.vic.gov.au/geoserver/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=open-data-platform:foi_point&outputFormat=application/json&CQL_FILTER=feature_type%3D%27cultural%20centre%27%20AND%20feature_subtype%3D%27library%27&sortBy=pfi",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "Creative Commons Attribution 4.0 International",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://discover.data.vic.gov.au/dataset/vicmap-features-features-of-interest-foi-point",
+    "read_from": "https://discover.data.vic.gov.au/dataset/vicmap-features-features-of-interest-foi-point",
+    "read_at": "2026-10-19T20:50:04+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "001856b861fe922d78eb0751c0583cd5c78b6abdc69a6c6be674d59f3dd949bf",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "pfi"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

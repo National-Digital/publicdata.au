@@ -1,0 +1,42 @@
+{
+  "dataset": "vic-vehicle-registrations-by-model",
+  "version": "2026-10-15",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:59:35+00:00",
+  "sha256": "1bce46ee689bc2195649d84e354d9bce18015c6d5daa88f3650dbf85c1594572",
+  "bytes": 3488815,
+  "filename": "whole_fleet_vehicle_registration_snapshot_by_model_q3_2026.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://opendata.transport.vic.gov.au/dataset/3e1a73a2-5cc3-4e22-92bc-e80442efb009/resource/c1e343ed-7ce7-48ee-a7b8-fc3df23014d5/download/whole_fleet_vehicle_registration_snapshot_by_model_q3_2026.csv",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "whole-fleet-vehicle-registration-snapshot-by-model",
+    "package_id": "17291928-47bb-41ab-b83f-510c33aed010",
+    "resource": "c1e343ed-7ce7-48ee-a7b8-fc3df23014d5",
+    "resource_name": "Whole Fleet Vehicle Registration Snapshot by Model Q3 2026",
+    "resource_last_modified": "2026-10-15T05:43:18.332504",
+    "package_modified": "2026-10-15T09:32:59.846167",
+    "package_version": null,
+    "etag": "1792042998.7073839-3488815-2307920713",
+    "http_last_modified": "Thu, 15 Oct 2026 05:43:18 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=whole-fleet-vehicle-registration-snapshot-by-model",
+    "read_at": "2026-10-19T20:59:34+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "b61757d8422dd545016326c7886af8b9d8be3e11418ffff64fa5d7e0c7679e0a",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
