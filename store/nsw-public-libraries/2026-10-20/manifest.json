@@ -1,0 +1,40 @@
+{
+  "dataset": "nsw-public-libraries",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:50:03+00:00",
+  "sha256": "0817fa2ca731f55e59f2f055d21bc88fe0f6e5184309884bf4e65d8c8412d496",
+  "bytes": 237388,
+  "filename": "nsw-public-libraries.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_POI/MapServer/0/query?where=poitype%3D%27Library%27&outFields=*&orderByFields=objectid&outSR=4326&f=geojson",
+    "etag": "1792393992",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-3.0-AU",
+    "stated": "Licence Creative Commons Attribution 3.0",
+    "normalised": "CC-BY-3.0-AU",
+    "title": "CC BY 3.0 AU",
+    "url": "https://data.nsw.gov.au/data/dataset/nsw-points-of-interest-poi",
+    "read_from": "https://data.nsw.gov.au/data/dataset/nsw-points-of-interest-poi",
+    "read_at": "2026-10-19T20:50:03+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "8d670d7a9780ea991727af0f77051a2bf36619ead0779a96d49e761410cebca3",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "objectid"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
