@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-translink-taxi-subsidy",
+  "version": "2026-10-07",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:53:29+00:00",
+  "sha256": "55ad58443902341185d20fec5a8402685d5e1d24e28e77307400b5a99c45cdd5",
+  "bytes": 759,
+  "filename": "taxi-subsidy-scheme.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b33b4ed9-0db4-4c1b-8f85-664ca0d42a54/resource/f1fe8df4-03ad-45af-bc28-ea09341b8dbf/download/taxi-subsidy-scheme.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "translink-monthly-performance-data",
+    "package_id": "b33b4ed9-0db4-4c1b-8f85-664ca0d42a54",
+    "resource": "f1fe8df4-03ad-45af-bc28-ea09341b8dbf",
+    "resource_name": "Taxi Subsidy Scheme",
+    "resource_last_modified": "2026-10-06T23:04:05.534818",
+    "package_modified": "2026-10-06T23:04:11.303565",
+    "package_version": "1",
+    "etag": "3258433ebad75306765f09685b7e2e4d",
+    "http_last_modified": "Tue, 06 Oct 2026 23:04:07 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=translink-monthly-performance-data",
+    "read_at": "2026-10-19T20:53:28+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "2c06c595679c4990aee4362d483663f8def2c2e3208153da25559fae689146e1",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

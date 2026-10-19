@@ -1,0 +1,41 @@
+{
+  "dataset": "qld-median-rents-by-postcode",
+  "version": "2026-10-15",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:07:02+00:00",
+  "sha256": "1e3169e4deee970179dc5d26c29d53d7443a4777bbb496aefa7e8084ef0c05bf",
+  "bytes": 6391803,
+  "filename": "rta-bond-statistics.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.rta.qld.gov.au/sites/default/files/2023-04/rta-bond-statistics.xlsx",
+    "etag": "6ad04f5e-6187fb",
+    "http_last_modified": "Thu, 15 Oct 2026 03:58:22 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0-AU",
+    "stated": "The RTA has applied the Creative Commons Attribution 3.0 Australia Licence",
+    "normalised": "CC-BY-3.0-AU",
+    "title": "CC BY 3.0 AU",
+    "url": "https://www.rta.qld.gov.au/copyright",
+    "read_from": "https://www.rta.qld.gov.au/copyright",
+    "read_at": "2026-10-19T21:07:00+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "9d589bd5bfd16ec9370865af9f2883a2f4426e2737619ea6bc3cfd2991d894c5",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "postcode",
+      "dwelling",
+      "year",
+      "quarter_month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

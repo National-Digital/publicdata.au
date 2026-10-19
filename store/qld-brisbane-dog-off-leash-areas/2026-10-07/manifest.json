@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-brisbane-dog-off-leash-areas",
+  "version": "2026-10-07",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:53:32+00:00",
+  "sha256": "8b61262c719d4a0712d5e3ee785050905e9017f00f892208d235fd918e9369c7",
+  "bytes": 155614,
+  "filename": "park-dog-off-leash-areas.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.brisbane.qld.gov.au/api/explore/v2.1/catalog/datasets/park-dog-off-leash-areas/exports/csv?delimiter=%2C&with_bom=false",
+    "portal": "https://data.brisbane.qld.gov.au",
+    "package": "park-dog-off-leash-areas",
+    "resource_name": "Park — Dog off-leash areas",
+    "data_processed": "2026-10-06T21:04:31+00:00",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC BY 4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://data.brisbane.qld.gov.au/api/explore/v2.1/catalog/datasets/park-dog-off-leash-areas",
+    "read_at": "2026-10-19T20:53:32+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "2a1a5efc0f51205a47fa4af3d3aa3325ed4141f9ad383efa69f428e0f81dc389",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "objectid"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
