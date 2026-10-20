@@ -488,6 +488,10 @@ def authorised(record: CatalogueRecord, registered: Registered | None) -> None:
     if registered is None:
         msg = f"{slug} is in the catalogue but not in the register"
         raise Refused(msg)
+    # The site serves a building entry, and the hubs wait until it is live.
+    if getattr(registered, "status", "") == "building":
+        msg = f"{slug} is building in the register, so the hubs copy it once it is live"
+        raise Excluded(msg)
     if getattr(registered, "status", "") != "live":
         msg = f"{slug} is {getattr(registered, 'status', 'unknown')} in the register, not live"
         raise Refused(msg)
