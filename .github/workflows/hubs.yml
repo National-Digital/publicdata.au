@@ -112,6 +112,11 @@ jobs:
           # Main moves during a long run, and a branch behind a workflow change is refused.
           git fetch -q origin main
           git rebase -q origin/main
+          # An earlier run's PR may have merged the same record, and the rebase then drops the commit.
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+            echo "Main already holds this hub record." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           git push -q -u origin HEAD
           PR=$(gh pr create --title "data(hubs): where the copies are, $DATE" --body "The Hubs run recorded where each dataset's copies are. Merging lists them on the dataset pages and in their structured data.")
           gh pr merge --auto --squash || echo "::warning::auto-merge was not armed; merge the hubs PR by hand."

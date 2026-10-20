@@ -80,10 +80,10 @@ convention = "google"
 # and npx are found on PATH as CI installs them.
 "publicdata/{cost,d1,explorer,hubs}.py" = ["S603"]
 "publicdata/{__main__,cost}.py" = ["S607"]
-"tests/{conftest,test_cost,test_d1,test_directory,test_hooks,test_parts_sql,test_r2,test_site_and_gate}.py" = [
+"tests/{conftest,test_cost,test_d1,test_directory,test_hooks,test_hubs,test_parts_sql,test_r2,test_site_and_gate}.py" = [
   "S603",
 ]
-"tests/test_{brand,cost,r2}.py" = ["S607"]
+"tests/test_{brand,cost,hubs,r2}.py" = ["S607"]
 # The fake S3 clients take boto3's keyword names.
 "tests/test_{checksums,r2}.py" = ["N803"]
 # The command line, the commands it hands to (gate.main, cost.run, verify.run) and the modules run

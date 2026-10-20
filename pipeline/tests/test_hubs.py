@@ -1,6 +1,8 @@
 import dataclasses
 import json
+import os
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -871,6 +873,57 @@ def test_hubs_command_fails_when_a_hub_fails(
     monkeypatch.setattr(hubs, "configured", lambda: ({"fake": FakeHub}, []))
     assert main(["hubs", "--hub", "fake"]) == 1
     assert "REFUSED nope" in capsys.readouterr().out
+
+
+def test_the_record_step_opens_no_pr_when_main_already_holds_the_record(tmp_path: Path) -> None:
+    wf = yaml.safe_load((ROOT / ".github/workflows/hubs.yml").read_text())
+    step = next(
+        s for s in wf["jobs"]["publish"]["steps"] if s.get("name", "").startswith("Open a pull")
+    )
+
+    def git(cwd: Path, *a: str) -> None:
+        subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
+
+    origin, run_dir, merged = tmp_path / "origin", tmp_path / "run", tmp_path / "merged"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(origin))
+    git(tmp_path, "clone", "-q", str(origin), str(merged))
+    git(merged, "config", "user.name", "t")
+    git(merged, "config", "user.email", "t@t")
+    (merged / "store").mkdir()
+    (merged / "store/hubs.json").write_text("old\n")
+    git(merged, "add", ".")
+    git(merged, "commit", "-q", "-m", "old")
+    git(merged, "push", "-q", "origin", "main")
+    git(tmp_path, "clone", "-q", str(origin), str(run_dir))
+    # An earlier run's PR merges the same record while this run is going.
+    (merged / "store/hubs.json").write_text("new\n")
+    git(merged, "commit", "-q", "-am", "new")
+    git(merged, "push", "-q", "origin", "main")
+    (run_dir / "store/hubs.json").write_text("new\n")
+    bin_, calls, summary = tmp_path / "bin", tmp_path / "gh-calls", tmp_path / "summary.md"
+    bin_.mkdir()
+    (bin_ / "gh").write_text(f'#!/bin/sh\necho "$@" >> {calls}\n')
+    (bin_ / "gh").chmod(0o755)
+    env = {
+        "PATH": f"{bin_}:{os.environ['PATH']}",
+        "HOME": str(tmp_path),
+        "GH_TOKEN": "t",
+        "HUB": "huggingface zenodo kaggle",
+        "ONLY": "",
+        "GITHUB_RUN_ID": "1",
+        "GITHUB_STEP_SUMMARY": str(summary),
+    }
+    run = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        cwd=run_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert run.returncode == 0, run.stderr
+    assert not calls.exists()
+    assert summary.read_text() == "Main already holds this hub record.\n"
 
 
 def test_workflow_passes_each_credential_the_module_reads() -> None:
