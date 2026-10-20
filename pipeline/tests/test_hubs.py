@@ -746,7 +746,8 @@ def test_refresh_uploads_the_files_again_after_the_settings(tmp_path: Path) -> N
     hubs.Kaggle("o", "tok", cli).refresh(make(), tmp_path / "w", fake_fetch)
     calls = log.read_text().splitlines()
     order = [c.split()[1] for c in calls]
-    assert order[:7] == ["status", "metadata", "version", "status", "metadata", "status", "push"]
+    # The notebook is pushed without asking whether one exists, so a fix to it reaches Kaggle.
+    assert order[:6] == ["status", "metadata", "version", "status", "metadata", "push"]
     assert "Page settings for publicdata.au version 2026-09-30" in calls[2]
 
 
@@ -811,6 +812,15 @@ def test_every_field_gets_a_description_from_the_register_or_its_name() -> None:
         RECORD, VERSIONS, {"fields": [{"name": "crash_severity", "title": "(cell)"}]}, MANIFEST
     )
     assert bare.fields[0]["description"]
+
+
+def test_the_notebook_counts_categories_only_in_text_fields() -> None:
+    # Kaggle's pandas cannot hash the suppressed field's arrays, so nunique on it raises.
+    schema: Schema = {"fields": [*SCHEMA["fields"], {"name": "suppressed", "type": "array"}]}
+    e = hubs.entry(RECORD, VERSIONS, schema, MANIFEST)
+    nb = json.dumps(hubs.kaggle_notebook(e, "o")[1])
+    assert "cats = [c for c in ['factor', 'region'] if 1 < df[c].nunique() <= 30]" in nb
+    assert "dtype == object" not in nb
 
 
 def test_notebook_titles_are_unique_per_slug_and_short_enough() -> None:
