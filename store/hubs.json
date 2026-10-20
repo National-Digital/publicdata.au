@@ -214,6 +214,16 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-elective-surgery-waiting-times",
       "zenodo": "10.5281/zenodo.23123810"
     },
+    "au-elective-surgery-waiting-times-by-procedure": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-elective-surgery-waiting-times-by-procedure",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-elective-surgery-waiting-times-by-procedure",
+      "zenodo": "10.5281/zenodo.23486163"
+    },
+    "au-elective-surgery-waiting-times-by-specialty": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-elective-surgery-waiting-times-by-specialty",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-elective-surgery-waiting-times-by-specialty",
+      "zenodo": "10.5281/zenodo.23486165"
+    },
     "au-emergency-services-facilities": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/au-emergency-services-facilities",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-emergency-services-facilities",
@@ -318,6 +328,11 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/au-permanent-additions-by-country",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-permanent-additions-by-country",
       "zenodo": "10.5281/zenodo.23077321"
+    },
+    "au-population-by-lga-2025": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-population-by-lga-2025",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-population-by-lga-2025",
+      "zenodo": "10.5281/zenodo.23486167"
     },
     "au-public-holidays-2021-2025": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/au-public-holidays-2021-2025",
@@ -1434,6 +1449,11 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/sa-reservoir-volumes",
       "zenodo": "10.5281/zenodo.23116553"
     },
+    "sa-rest-areas-state-maintained": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/sa-rest-areas-state-maintained",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/sa-rest-areas-state-maintained",
+      "zenodo": "10.5281/zenodo.23486171"
+    },
     "sa-river-murray-flood-100gl": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/sa-river-murray-flood-100gl",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/sa-river-murray-flood-100gl",
@@ -1519,6 +1539,11 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/tas-deaths-1803-1939",
       "zenodo": "10.5281/zenodo.23123647"
     },
+    "tas-libraries-locations": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/tas-libraries-locations",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/tas-libraries-locations",
+      "zenodo": "10.5281/zenodo.23486140"
+    },
     "tas-rental-bonds-closed-2016-11": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/tas-rental-bonds-closed-2016-11",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/tas-rental-bonds-closed-2016-11",
@@ -1533,6 +1558,11 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/tas-road-crashes",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/tas-road-crashes",
       "zenodo": "10.5281/zenodo.23076693"
+    },
+    "tas-roadside-stops": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/tas-roadside-stops",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/tas-roadside-stops",
+      "zenodo": "10.5281/zenodo.23486174"
     },
     "vic-air-quality-hourly": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/vic-air-quality-hourly",
@@ -1689,6 +1719,11 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-prison-locations",
       "zenodo": "10.5281/zenodo.23116209"
     },
+    "vic-public-libraries": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/vic-public-libraries",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-public-libraries",
+      "zenodo": "10.5281/zenodo.23486142"
+    },
     "vic-recorded-offences-by-lga": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/vic-recorded-offences-by-lga",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-recorded-offences-by-lga",
@@ -1808,6 +1843,11 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/wa-public-libraries",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/wa-public-libraries",
       "zenodo": "10.5281/zenodo.23123610"
+    },
+    "wa-road-stopping-places": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/wa-road-stopping-places",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/wa-road-stopping-places",
+      "zenodo": "10.5281/zenodo.23486169"
     },
     "wa-slwa-obituaries-index": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/wa-slwa-obituaries-index",
