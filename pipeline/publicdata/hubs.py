@@ -941,7 +941,8 @@ def kaggle_notebook(e: Entry, owner: str) -> tuple[KernelMetadata, JSONObject]:
         cells += [
             _md("## Rows by category\n\nThe first text field with between 2 and 30 values."),
             _code(
-                "cats = [c for c in df.columns if df[c].dtype == object and 1 < df[c].nunique() <= 30]\n"
+                # The schema's text fields, as the suppressed list column cannot be hashed.
+                f"cats = [c for c in {text_fields!r} if 1 < df[c].nunique() <= 30]\n"
                 "df[cats[0]].value_counts(dropna=False) if cats else 'No field has 2 to 30 values.'"
             ),
         ]
@@ -1555,7 +1556,7 @@ class Kaggle:
         """Gives a version Kaggle already holds the current settings and uploads its files again.
 
         The upload attaches their descriptions and has the page scored afresh, and the notebook is
-        pushed after.
+        pushed again after.
         """
         ref = f"{self.owner}/{e.slug}"
         data = work / "data"
@@ -1566,7 +1567,9 @@ class Kaggle:
         self.upload(e, data, f"Page settings for publicdata.au version {e.version}")
         self.wait_ready(ref)
         self.settings(e, work / "meta", fetch)
-        self.notebook(e, work / "notebook")
+        # A refresh replaces the notebook too, so a fix to it reaches notebooks already pushed.
+        if not self._notebooks_limited:
+            self.push_notebook(e, work / "notebook")
         rating = self.usability(ref)
         url = f"https://www.kaggle.com/datasets/{ref}"
         return url if rating is None else f"{url} (usability {rating:.2f} before Kaggle rescores)"
