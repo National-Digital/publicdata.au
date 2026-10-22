@@ -1,0 +1,151 @@
+slug: au-cancer-surgery-waiting-times
+title: Cancer surgery waiting times by hospital and cancer type, Australia
+status: live
+topics:
+- health
+example:
+  where:
+    year: newest
+  group: cancer_type
+  metric: count
+  label: Hospitals reported for each cancer type in the newest year
+sample:
+  where:
+    year: newest
+    cancer_type: Breast cancer
+  order:
+  - surgeries.desc
+  spread: state
+  label: Breast cancer surgeries at the busiest hospitals in the newest year, the busiest hospital in each
+    state first, then the next busiest.
+order: 510
+collection: au-myhospitals
+collection_title: AIHW MyHospitals
+publisher:
+  name: Australian Institute of Health and Welfare
+  short: AIHW
+  jurisdiction: Cth
+  url: https://www.aihw.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  evidence: https://www.aihw.gov.au/copyright
+  statement: has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence
+  attribution: Based on Australian Institute of Health and Welfare material. Australian Institute of Health
+    and Welfare, Australian Government, MyHospitals Data API, cancer surgery waiting times data extract,
+    sourced {sourced}, https://myhospitalsapi.aihw.gov.au/, licensed under CC BY 4.0.
+temporal_start: '2011-07-01'
+search_title: Cancer surgery waiting times by hospital, 2011-12 and 2012-13, Australia (AIHW MyHospitals)
+also_known_as:
+- Waiting times for surgery for malignant cancer
+- Breast cancer surgery waiting times by hospital
+- Bowel cancer surgery waiting times by hospital
+- Lung cancer surgery waiting times by hospital
+keywords:
+- cancer surgery
+- elective surgery
+- waiting times
+- breast cancer
+- bowel cancer
+- lung cancer
+- public hospitals
+- MyHospitals
+- AIHW
+faq:
+- q: What is in each row?
+  a: One public hospital, one financial year and one type of cancer, which is bowel, breast or lung cancer. It
+    gives the number of elective surgeries for the malignant cancer, the median days waited, the peer group's
+    average, and the shares of patients who received surgery within 30 days and within 45 days.
+- q: Why are there only two years and no state totals?
+  a: The Institute publishes these measures for 2011-12 and 2012-13 only. It reports them for each hospital
+    and its peer group, and it publishes no figure for a Local Hospital Network, a state or the nation.
+- q: What do the blanks mean?
+  a: The Institute writes `<5` for a count under five, `10–30` for a count from 10 to 30, `>=90%` for a share of
+    90 per cent or more, and `NP` where the data did not meet its criteria. Those cells are null here with a
+    suppressed flag. The flag names the field and does not name the code, so a flagged number of surgeries
+    was either `<5` or `10–30`, and a flagged share was either `>=90%` or `NP`. A dash, meaning no patients
+    were reported, is null. The shares are fractions, so 0.85 means 85 per cent.
+- q: How does this join to the hospital list?
+  a: Each row names its hospital as the Institute's list of hospitals and networks in this collection names
+    it, so the two join on the name and the reporting unit type, which give one unit each. The code is on the
+    hospital list.
+summary: Median waiting times for surgery for malignant bowel, breast and lung cancer, and the shares treated
+  within 30 and 45 days, for each public hospital in 2011-12 and 2012-13, from AIHW MyHospitals.
+description: The cancer surgery waiting times data extract from the AIHW MyHospitals Data API. Each row is one
+  hospital, financial year and cancer type, with the number of surgeries, the median waiting time in days, the
+  peer group average and the percentages of patients who received surgery within 30 days and within 45 days.
+source:
+  adapter: file
+  url: https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-cancer
+  format: xlsx
+  sheet: Cancer surgery waiting times
+  header_row: 11
+  cadence: no longer updated
+  as_at_regex: 'Data as of:\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+ \d{1,2}, \d{4})'
+suppression:
+- <5
+- 10–30
+- '>=90%'
+- NP
+key:
+- reporting_unit
+- reporting_unit_type
+- year
+- cancer_type
+row_label: Hospital, year and cancer type rows
+fields:
+- name: reporting_unit
+  label: Hospital
+  source: Reporting unit
+  type: string
+- name: reporting_unit_type
+  label: Reporting unit type
+  source: Reporting unit type
+  type: string
+- name: state
+  label: State
+  source: State
+  type: string
+- name: peer_group
+  label: Peer group
+  source: Peer group
+  type: string
+- name: year
+  label: Financial year
+  source: Time period
+  type: string
+- name: cancer_type
+  label: Cancer type
+  source: Cancer type
+  type: string
+- name: surgeries
+  label: Surgeries
+  source: Number of surgeries
+  type: integer
+- name: median_wait_days
+  label: Median wait (days)
+  source: Median waiting time (days)
+  type: integer
+  null_values:
+  - '-'
+- name: peer_group_average_days
+  label: Peer group average (days)
+  source: Peer group average (days)
+  type: integer
+- name: share_within_30_days
+  label: Share within 30 days
+  source: Surgeries within 30 days
+  type: number
+  null_values:
+  - '-'
+  description: The fraction of patients who received surgery within 30 days, 0.85 for 85 per cent.
+- name: share_within_45_days
+  label: Share within 45 days
+  source: Surgeries within 45 days
+  type: number
+  null_values:
+  - '-'
+  description: The fraction of patients who received surgery within 45 days, 0.85 for 85 per cent.
+omit:
+  ? ''
+  : A column with no header in the publisher's file, which has no name to publish it under.
