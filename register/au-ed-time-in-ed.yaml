@@ -1,0 +1,163 @@
+slug: au-ed-time-in-ed
+title: Time spent in emergency departments by hospital and patient group, Australia
+status: live
+topics:
+- health
+example:
+  where:
+    year: newest
+    reporting_unit_type: State
+    patient_cohort: All patients
+  group: reporting_unit
+  metric: sum.presentations
+  label: Emergency department presentations in each state in the newest year
+sample:
+  where:
+    year: newest
+    reporting_unit_type: Hospital
+    patient_cohort: All patients
+  order:
+  - presentations.desc
+  spread: state
+  label: All patients at the busiest hospitals in the newest year, the busiest hospital in each state first,
+    then the next busiest.
+order: 509
+collection: au-myhospitals
+collection_title: AIHW MyHospitals
+publisher:
+  name: Australian Institute of Health and Welfare
+  short: AIHW
+  jurisdiction: Cth
+  url: https://www.aihw.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  evidence: https://www.aihw.gov.au/copyright
+  statement: has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence
+  attribution: Based on Australian Institute of Health and Welfare material. Australian Institute of Health
+    and Welfare, Australian Government, MyHospitals Data API, emergency department data extract, sourced
+    {sourced}, https://myhospitalsapi.aihw.gov.au/, licensed under CC BY 4.0.
+temporal_start: '2011-07-01'
+search_title: Time spent in emergency departments by hospital, median and 90th percentile, Australia (AIHW
+  MyHospitals)
+also_known_as:
+- ED length of stay by hospital
+- Median time in emergency department
+- How long patients spend in ED
+keywords:
+- emergency department
+- length of stay
+- median time
+- public hospitals
+- MyHospitals
+- AIHW
+faq:
+- q: What is in each row?
+  a: One public hospital, Local Hospital Network, state or the nation, one financial year from 2011-12 and
+    one patient group. It gives the number of emergency presentations, the median time patients spent in
+    the emergency department and the time by which 90 per cent of them had left, beside the peer group
+    average of that second figure.
+- q: Which patient groups are there?
+  a: The Institute gives all patients, patients admitted from the emergency department to the same hospital,
+    and patients not admitted.
+- q: Why are the times text?
+  a: The Institute writes each time in hours and minutes, such as `2 hrs 58 mins`. This site publishes the
+    times as the Institute wrote them. For some unpeered hospitals the file gives a peer group average of
+    `0 hrs 0 mins`, and that value is kept as written.
+- q: What do the blanks mean?
+  a: The Institute writes `<5` for a count under five. Those cells are null here with a suppressed flag. In
+    the times, `NP` means the data did not meet the Institute's criteria to calculate the figure and `NP†`
+    means more than 10 per cent of presentations had missing or invalid time data. Those cells, a dash
+    meaning no patients were reported, and Not peered are null. The markers column keeps each code. The
+    Institute's file also marks with an asterisk the figures to interpret with caution, in columns with no
+    heading, which are not carried here.
+summary: The median time patients spent in emergency departments and the time by which 90 per cent had left,
+  for each public hospital, network and state each year since 2011-12, from AIHW MyHospitals.
+description: The Time in ED sheet of the MyHospitals emergency department data extract from the AIHW
+  MyHospitals Data API. Each row is one reporting unit, financial year and patient group, with the number of
+  presentations, the median time in the emergency department, the time until 90 per cent of patients
+  departed and the peer group average of that time.
+source:
+  adapter: file
+  url: https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-ed
+  format: xlsx
+  sheet: Time in ED
+  header_row: 17
+  cadence: several times a year
+suppression:
+- <5
+markers:
+  <5: The Institute's notes do not define this code. It appears only in the number of presentations.
+  NP: Reported data did not meet the criteria to calculate this indicator.
+  NP†: Results could not be accurately calculated as more than 10% of presentations had missing or invalid
+    time data.
+  '-': There were no patients reported for this indicator in this time period.
+  Not peered: The Institute's notes do not define this code. It appears in place of a peer group figure.
+key:
+- reporting_unit
+- reporting_unit_type
+- year
+- patient_cohort
+partition_by:
+- state
+row_label: Hospital, year and patient group rows
+fields:
+- name: reporting_unit
+  label: Hospital or network
+  source: Reporting unit
+  type: string
+- name: reporting_unit_type
+  label: Reporting unit type
+  source: Reporting unit type
+  type: string
+- name: state
+  label: State
+  source: State
+  type: string
+- name: peer_group
+  label: Peer group
+  source: Peer group
+  type: string
+- name: year
+  label: Financial year
+  source: Year
+  type: string
+- name: patient_cohort
+  label: Patient group
+  source: Patient cohort
+  type: string
+- name: presentations
+  label: Presentations
+  source: Number of presentations
+  type: integer
+- name: median_time
+  label: Median time in ED
+  source: Median time
+  type: string
+  null_values:
+  - '-'
+  - NP
+  - NP†
+  description: The time by which half of the patients had departed the emergency department, in hours and
+    minutes as the Institute writes it.
+- name: time_90_percent_departed
+  label: Time until 90% departed
+  source: Time until most patients (90%) depart ED
+  type: string
+  null_values:
+  - '-'
+  - NP
+  - NP†
+  description: The time by which 90 per cent of the patients had departed the emergency department, in hours
+    and minutes as the Institute writes it.
+- name: peer_group_average_90
+  label: Peer group average (90%)
+  source: Peer group average (90%)
+  type: string
+  null_values:
+  - Not peered
+  description: The peer group average of the time until 90 per cent of patients departed, in hours and
+    minutes as the Institute writes it.
+omit:
+  ? ''
+  : A column with no header in the publisher's file, which has no name to publish it under.
