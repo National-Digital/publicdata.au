@@ -59,7 +59,6 @@ source:
   resource: 52b67b8a-0071-4f49-9322-5cb51727487a
   url: https://www.data.qld.gov.au/dataset/youth-justice-young-offenders-in-youth-detention
   cadence: not updated since 2017
-  manual: true
 key:
 - date
 partition_by:
