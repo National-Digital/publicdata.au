@@ -1,0 +1,98 @@
+slug: au-myhospitals-reported-measures
+title: Reported measures and their codes in MyHospitals, Australia
+status: live
+topics:
+- health
+order: 508
+collection: au-myhospitals
+collection_title: AIHW MyHospitals
+publisher:
+  name: Australian Institute of Health and Welfare
+  short: AIHW
+  jurisdiction: Cth
+  url: https://www.aihw.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  evidence: https://www.aihw.gov.au/copyright
+  statement: has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence
+  attribution: Based on Australian Institute of Health and Welfare material. Australian Institute of Health
+    and Welfare, Australian Government, MyHospitals Data API, reported measures, sourced {sourced},
+    https://myhospitalsapi.aihw.gov.au/, licensed under CC BY 4.0.
+search_title: MyHospitals measure codes and category codes, such as intended procedure codes (AIHW)
+also_known_as:
+- MyHospitals measure codes
+- MyHospitals reported measure categories
+- Elective surgery intended procedure codes
+keywords:
+- MyHospitals
+- measure codes
+- reported measures
+- intended procedure
+- urgency category
+- AIHW
+faq:
+- q: What is in each row?
+  a: One reported measure of the MyHospitals Data API. A reported measure is one measure, such as the median
+    waiting time for elective surgery (MYH0007), given for one category, such as an intended procedure or
+    an urgency category. Each row has the reported measure's code and name, the measure's code, name and
+    units, and the category's code, name and type.
+- q: How does this join to the waiting-time tables?
+  a: The waiting-time tables in this collection name each intended procedure by the category name here.
+    The category code stays the same when the Institute changes a name, so a reuser can hold the code and
+    look up the name. The Institute has not endorsed this site.
+summary: The codes behind the names in AIHW MyHospitals, about 700 rows, one for each measure the Institute
+  reports for each category such as an intended procedure.
+description: The reported measures list of the AIHW MyHospitals Data API. Each row is one reported measure
+  with its code and name, the code, name and units of the measure it reports, and the code, name and type
+  of the category it reports the measure for.
+source:
+  adapter: file
+  url: https://myhospitalsapi.aihw.gov.au/api/v1/reported-measures
+  format: json
+  record: result
+  cadence: several times a year
+key:
+- reported_measure_code
+row_label: Reported measures
+fields:
+- name: reported_measure_code
+  label: Reported measure code
+  source: reported_measure_code
+  type: string
+- name: reported_measure_name
+  label: Reported measure
+  source: reported_measure_name
+  type: string
+- name: measure_code
+  label: Measure code
+  source: measure.measure_code
+  type: string
+- name: measure_name
+  label: Measure
+  source: measure.measure_name
+  type: string
+- name: units
+  label: Units
+  source: measure.units.units_name
+  type: string
+- name: category_code
+  label: Category code
+  source: reported_measure_categories.reported_measure_category_code
+  type: string
+- name: category_name
+  label: Category
+  source: reported_measure_categories.reported_measure_category_name
+  type: string
+- name: category_type_code
+  label: Category type code
+  source: reported_measure_categories.reported_measure_category_type.reported_measure_category_type_code
+  type: string
+- name: category_type_name
+  label: Category type
+  source: reported_measure_categories.reported_measure_category_type.reported_measure_category_type_name
+  type: string
+omit:
+  measure.units.decimal_places: The number of decimal places the MyHospitals site shows a figure with.
+  measure.units.units_are_prefix: Whether the MyHospitals site shows the unit before a figure.
+  measure.units.units_display: The symbol the MyHospitals site shows beside a figure.
