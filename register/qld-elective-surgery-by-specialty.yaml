@@ -30,7 +30,8 @@ faq:
 - q: Which quarter is it?
   a: Each version holds one quarter, named in the quarter ending field. Queensland Health adds a file for
     each quarter, and this table follows the newest, so each new quarter becomes a new version. The first
-    version here is the quarter ending September 2025.
+    version here is the quarter ending September 2025. A version's as-at date is the last day of its
+    quarter, read from the name Queensland Health gives the file.
 summary: Elective surgery at each Queensland public hospital each quarter by surgical
   specialty, with patients treated, patients waiting and the share within the recommended time.
 description: Queensland Health elective surgery summary 2 for the newest quarter, one row
@@ -70,6 +71,7 @@ source:
   url: https://www.data.qld.gov.au/dataset/elective-surgery
   encoding: utf-8-sig
   cadence: quarterly
+  as_at_regex: ([A-Za-z]+ \d{4})\s*[–-]\s*Elective Surgery by
 key:
 - facility_code
 - specialty_code
@@ -106,43 +108,53 @@ fields:
   label: Patients treated
   source: Vol_Treated
   type: integer
+  description: The number of elective surgery patients treated in the quarter. Queensland Health describes it as the "number of elective surgery patients treated".
 - name: percent_treated_in_time
   label: Treated in recommended time (%)
   source: Percent_Treated_InTime
   type: number
+  description: Queensland Health describes it as the "percent of elective surgery patients treated within the clinically recommended time".
 - name: percent_change_treated_on_prior_year
   label: Change in treated on a year before (%)
   source: Percent_Variation_Treated_Prior_Year
   type: number
   null_values:
   - 'NULL'
+  description: Queensland Health describes it as the "variation in number of elective surgery patients treated between reporting month and reference month in the previous year". A cell that reads NULL is null.
 - name: waiting
   label: Patients waiting
   source: Vol_Waiting
   type: integer
+  description: The number of patients on the elective surgery waiting list on the day after the quarter ends. The quarter ending September 2025, for example, counts the patients waiting on 1 October 2025. Queensland Health describes it as the "number of elective surgery patients waiting on the day after the month".
 - name: long_waits
   label: Waiting longer than recommended
   source: Vol_LongWaits
   type: integer
+  description: The number of patients waiting longer than the clinically recommended time for their urgency category on the day after the quarter ends. It counts patients ready for surgery and patients not ready for surgery. Queensland Health describes it as the "number of elective surgery patients waiting longer than the clinically recommended time on the day after the month".
 - name: percent_waiting_in_time
   label: Waiting in recommended time (%)
   source: Percent_Waiting_InTime_Total
   type: number
+  description: The share of patients waiting within the clinically recommended time on the day after the quarter ends, ready for surgery or not. Queensland Health describes it as the "percent of elective surgery patients waiting within the clinically recommended time on the day after the month".
 - name: data_last_update
   label: Data last updated
   source: data_last_update
   type: date
   date_format: '%d/%m/%Y'
+  description: The date Queensland Health last updated the figures.
 - name: long_waits_ready_for_surgery
   label: Long waits, ready for surgery
   source: Vol_LongWaits_RFS
   type: integer
+  description: The number of patients waiting longer than the clinically recommended time who were ready for surgery, on the day after the quarter ends. Queensland Health describes it as the "number of elective surgery patients waiting longer than the clinically recommended time on the day after the month" and lists it for patients ready for surgery.
 - name: long_waits_not_ready_for_surgery
   label: Long waits, not ready for surgery
   source: Vol_LongWaits_NRFS
   type: integer
+  description: The number of patients waiting longer than the clinically recommended time who were not ready for surgery, on the day after the quarter ends. Queensland Health describes it as the "number of elective surgery patients waiting longer than the clinically recommended time on the day after the month" and lists it for patients not ready for surgery.
 - name: percent_waiting_in_time_ready_for_surgery
   label: Ready for surgery, waiting in time (%)
   source: Percent_Waiting_InTime_RFS
   type: number
+  description: The share of patients ready for surgery who were waiting within the clinically recommended time on the day after the quarter ends. Queensland Health describes it as the "percent of elective surgery patients waiting within the clinically recommended time on the day after the month" and lists it for patients ready for surgery.
 note: Cells were typed and headers were made snake_case. Rows were left alone.
