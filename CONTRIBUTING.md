@@ -620,6 +620,10 @@ rule carries `# nolint: <linter>. <reason>`.
 - A point layer published as a shapefile or GeoPackage is read with its coordinates as `(longitude)` and
   `(latitude)`, as published. A WFS that caps its answers sets `source.page_size` and is read page by
   page into one GeoJSON file.
+- A field's `was` lists the names its column had in an earlier source. When an entry moves to a new
+  source whose column names differ, such as from a portal's CSV to the layer's GeoJSON, the versions
+  stored from the old source are still read: a version whose source lacks the field's `source`
+  reads the first `was` name it holds, and its `schema.json` names that column.
 - An XML file is read one row per element named in `source.record`: its attributes as `@name`, each
   child's text by the child's name, and a child that repeats joined by ` | `.
 - The MCP tool definitions in `pipeline/publicdata/api.json` must pass a static check. Each tool

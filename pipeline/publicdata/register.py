@@ -74,6 +74,7 @@ if TYPE_CHECKING:
         null_values: list[object]
         label: object
         references: object
+        was: list[object]
 
     class RawUnpivot(TypedDict, total=False):
         headers: object
@@ -321,6 +322,8 @@ class Field:
     label: str = ""
     # In a database, the table and field this one refers to, as "table.field".
     references: str = ""
+    # The column's names in an earlier source, read by a version whose source lacks `source`.
+    was: tuple[str, ...] = ()
 
     @property
     def display(self) -> str:
@@ -1123,6 +1126,7 @@ def _fields(raw: list[RawField], ctx: str) -> list[Field]:
                 null_values=tuple(str(v) for v in f.get("null_values") or ()),
                 label=str(f.get("label", "")).strip(),
                 references=str(f.get("references", "")).strip(),
+                was=tuple(str(v) for v in f.get("was") or ()),
             )
         )
     labels = [f.display for f in fields]
