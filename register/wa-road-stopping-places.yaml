@@ -35,10 +35,10 @@ faq:
     the publisher names as parking, short break and long break. Sites on local roads are not included.
 summary: The road stopping places and rest areas on Western Australia's state roads, with each site's type,
   24 hour stay rule, location and facilities, from Main Roads Western Australia.
-description: The Road Stopping Places layer of Main Roads Western Australia, read as the CSV its open data portal
-  serves. Each row is one stopping place on a state road, with the road and straight line kilometre, the local
+description: The Road Stopping Places layer of Main Roads Western Australia, read from the layer on the publisher's
+  own map service. Each row is one stopping place on a state road, with the road and straight line kilometre, the local
   government area and region, the rest area type and name, the 24 hour stay rule, the surface and the facilities
-  the publisher records, and the point's longitude and latitude.
+  the publisher records, the publisher's GlobalID for the site, and the point's longitude and latitude.
 publisher:
   name: Main Roads Western Australia
   short: Main Roads WA
@@ -46,7 +46,7 @@ publisher:
   url: https://www.mainroads.wa.gov.au/
 licence:
   id: CC-BY-4.0
-  reviewed: '2026-10-18'
+  reviewed: '2026-10-23'
   evidence: https://catalogue.data.wa.gov.au/dataset/mrwa-road-stopping-places
   attribution: Main Roads Western Australia, Government of Western Australia, Road Stopping Places,
     https://catalogue.data.wa.gov.au/dataset/mrwa-road-stopping-places, accessed {sourced}, licensed under
@@ -54,12 +54,10 @@ licence:
     is accessed pursuant to a Creative Commons (Attribution) Licence, which has a disclaimer of warranties and
     limitation of liability.
 source:
-  adapter: arcgis-hub
-  portal: https://portal-mainroads.opendata.arcgis.com
-  package: 79232357944c4bd6a593d19e0fbdcc77
-  resource: '19'
-  url: https://portal-mainroads.opendata.arcgis.com/datasets/mainroads::road-stopping-places
-  encoding: utf-8-sig
+  adapter: arcgis-feature
+  portal: https://catalogue.data.wa.gov.au
+  package: mrwa-road-stopping-places
+  url: https://gisservices.mainroads.wa.gov.au/arcgis/rest/services/OpenData/RoadAssets_DataPortal/MapServer/19
   cadence: as stopping places change
 key:
 - globalid
@@ -67,18 +65,25 @@ geometry:
   lon: x
   lat: y
   crs: EPSG:4326
-  crs_note: Longitude and latitude in decimal degrees as the portal's CSV download gives them. The
-    layer itself is held in GDA94, which differs from WGS84 by under 2 metres.
+  crs_note: Longitude and latitude in decimal degrees, which the map service projects to WGS84 on request.
+    The 2024-09-20 version holds the X and Y columns of the portal's CSV download. The layer itself is held
+    in GDA94, which differs from WGS84 by under 2 metres.
 row_label: Stopping places
 fields:
 - name: x
   label: Longitude
-  source: X
+  source: (longitude)
   type: number
+  description: Decimal degrees, WGS84.
+  was:
+  - X
 - name: y
   label: Latitude
-  source: Y
+  source: (latitude)
   type: number
+  description: Decimal degrees, WGS84.
+  was:
+  - Y
 - name: objectid
   label: Object id
   source: OBJECTID
