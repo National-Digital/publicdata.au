@@ -135,6 +135,7 @@ if TYPE_CHECKING:
         lookup: object
         int32: object
         suppression: list[str]
+        markers: object
         note: object
         blocked_reason: object
         planned: object
@@ -525,6 +526,9 @@ class Dataset:
     enrich: tuple[str, ...] = ()
     fields: tuple[Field, ...] = ()
     suppression: tuple[str, ...] = ()
+    # Each token the publisher writes in place of a value, with what it means, in the publisher's
+    # words where it gives them. When set, each row records the token of every cell one emptied.
+    markers: dict[str, str] = field(default_factory=dict)
     note: str = ""
     blocked_reason: str = ""
     planned: str = ""
@@ -801,6 +805,11 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         enrich=enrich,
         fields=tuple(fields),
         suppression=tuple(raw.get("suppression") or ()),
+        markers=(
+            _markers(raw.get("markers"), fields, tuple(raw.get("suppression") or ()), ctx)
+            if kind != "database"
+            else {}
+        ),
         note=str(raw.get("note", "")).strip(),
         blocked_reason=str(raw.get("blocked_reason", "")).strip(),
         planned=str(raw.get("planned", "")).strip(),
@@ -849,8 +858,8 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
                 raise RegisterError(msg)
         # A database's cells are typed by DuckDB with no suppressed flag, so a release that
         # suppresses cells is not a database until that is built.
-        if raw.get("suppression"):
-            msg = f"{ctx}: a database does not support suppression"
+        if raw.get("suppression") or raw.get("markers"):
+            msg = f"{ctx}: a database does not support suppression or markers"
             raise RegisterError(msg)
         # The archive is linked whole, so there is no source file to leave out.
         if raw.get("source_withheld"):
@@ -1340,6 +1349,29 @@ def _rollup(raw: object, fields: list[Field], ctx: str) -> tuple[tuple[str, ...]
             raise RegisterError(msg)
         out.append(tuple(str(x) for x in s))
     return tuple(out)
+
+
+def _markers(
+    raw: object, fields: list[Field], suppression: tuple[str, ...], ctx: str
+) -> dict[str, str]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict) or not all(
+        isinstance(v, str) and v.strip() and str(k).strip() for k, v in raw.items()
+    ):
+        msg = f"{ctx}: markers maps each token to what the publisher says it means"
+        raise RegisterError(msg)
+    tokens = {str(t) for t in suppression} | {v for f in fields for v in f.null_values}
+    unknown = sorted(str(k) for k in raw if str(k) not in tokens)
+    if unknown:
+        msg = f"{ctx}: markers names {unknown}, which no suppression or null_values declares"
+        raise RegisterError(msg)
+    # A token left out would empty a cell with no marker, as if the publisher had left it blank.
+    missing = sorted(tokens - {str(k) for k in raw})
+    if missing:
+        msg = f"{ctx}: markers does not say what {missing} mean"
+        raise RegisterError(msg)
+    return {str(k): " ".join(str(v).split()) for k, v in raw.items()}
 
 
 def _omit(raw: object, fields: list[Field], ctx: str) -> dict[str, str]:

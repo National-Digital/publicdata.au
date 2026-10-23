@@ -59,7 +59,8 @@ pipeline/publicdata/
    rates, rankings, thresholds, estimates or imputations, and never moves a publisher's
    coordinates. A database's views are the publisher's own scripts, kept in the register.
 3. Suppression survives: a source cell such as "<5" becomes a null with a typed `suppressed`
-   flag, never 0, 5 or a blank.
+   flag, never 0, 5 or a blank. An entry whose `markers` say what each of the publisher's tokens
+   means also keeps the token of every cell it empties, in a `markers` column.
 4. Ingest is an allow-list; unknown upstream columns are reported and held.
 5. Licence is data. Every register entry carries a licence id, an evidence URL from the
    publisher's own statement, an attribution string and the date a person reviewed it

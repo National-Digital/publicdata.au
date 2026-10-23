@@ -64,12 +64,15 @@ faq:
     waited, the share of patients who waited more than 365 days, and the peer group's median and average
     beside them.
 - q: What do the blanks mean?
-  a: The Institute writes `<5` for a count under five and `NP` where the data did not meet its criteria. Those
-    cells are null here with a suppressed flag. Only the number of surgeries is ever `<5` and only the
-    other figures are ever `NP`, so the field the flag names tells you which code was written. A dash, meaning no patients were reported, and Not peered
-    are null. Peer group results appear only where more than two hospitals in the peer group performed
-    surgery in the specialty, and there are none for 2016-17 or 2017-18, after paediatric surgery became a
-    specialty on 1 July 2016. The share who waited more than 365 days is a fraction, so 0.05 means 5 per cent.
+  a: The Institute's explanatory notes define two codes. A dash means "There were no patients reported for
+    this indicator in this time period." `NP` means "Reported data did not meet the criteria to calculate
+    this indicator." The notes do not define `<5`, which appears only in the number of surgeries, or Not
+    peered, which appears only in the peer group figures. Each of these cells is null here, and the row's
+    `markers` column holds the code the Institute wrote, such as `{"median_wait_days":"-"}`. A `<5` or `NP`
+    cell is also named in the `suppressed` column. A cell the Institute left empty has no marker. Peer group results appear only where
+    more than two hospitals in the peer group performed surgery in the specialty, and there are none for
+    2016-17 or 2017-18, after paediatric surgery became a specialty on 1 July 2016. The share who waited more
+    than 365 days is a fraction, so 0.05 means 5 per cent.
 - q: How does this join to the hospital list?
   a: Each row names its reporting unit as the Institute's list of hospitals and networks in this collection
     names it, so the two join on the name and the reporting unit type, which give one unit each. The code
@@ -91,6 +94,13 @@ source:
 suppression:
 - <5
 - NP
+markers:
+  <5: The Institute's notes do not define this code. It appears only in the number of surgeries.
+  NP: Reported data did not meet the criteria to calculate this indicator.
+  '-': There were no patients reported for this indicator in this time period.
+  Not peered: The Institute's notes do not define this code. They say "Peer group results by specialty
+    of surgeon are only presented if there were more than two hospitals that performed the surgery in
+    the peer group."
 key:
 - reporting_unit
 - reporting_unit_type
@@ -158,3 +168,4 @@ fields:
 omit:
   ? ''
   : A column with no header in the publisher's file, which has no name to publish it under.
+rebuild: 1

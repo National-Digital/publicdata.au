@@ -61,6 +61,7 @@ if TYPE_CHECKING:
         geometry: Geometry | None
         enrich: tuple[str, ...]
         suppression: tuple[str, ...]
+        markers: dict[str, str]
         note: str
         blocked_reason: str
         planned: str

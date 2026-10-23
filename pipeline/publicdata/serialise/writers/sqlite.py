@@ -18,9 +18,9 @@ def write_sqlite(tbl: Table, header: Header, path: Path) -> None:
     ds = tbl.dataset
     names = [f.name for f in ds.fields]
     cols = [f'"{f.name}" {SQLITE_TYPES[f.type]}' for f in ds.fields]
-    if "suppressed" in tbl.table.column_names:
-        names.append("suppressed")
-        cols.append('"suppressed" TEXT')
+    flags = [c for c in ("suppressed", "markers") if c in tbl.table.column_names]
+    names += flags
+    cols += [f'"{c}" TEXT' for c in flags]
     con = sqlite3.connect(path)
     con.execute("PRAGMA journal_mode=OFF")
     con.execute("PRAGMA synchronous=OFF")

@@ -2316,11 +2316,13 @@ def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None,
         tbl = normalise.normalise(ds, m, data)
     except Exception:  # noqa: BLE001 - any failure falls back to the byte comparison
         return "", None, []
-    cols = [tbl.table.column(n).to_pylist() for n in tbl.table.column_names]
+    # The markers repeat the null cells' tokens, so a version stored before them still matches.
+    t = tbl.table.drop_columns([c for c in ("markers",) if c in tbl.table.column_names])
+    cols = [t.column(n).to_pylist() for n in t.column_names]
     if tbl.geometry is not None:
         cols.append(tbl.geometry.to_pylist())
     rows = sorted(hashlib.sha256(repr(r).encode()).digest() for r in zip(*cols, strict=True))
-    h = hashlib.sha256(repr(tbl.table.schema).encode())
+    h = hashlib.sha256(repr(t.schema).encode())
     for r in rows:
         h.update(r)
     return h.hexdigest(), len(rows), misfits(tbl.table, ds.int32)
