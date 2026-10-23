@@ -1,14 +1,22 @@
 import datetime as dt
 import io
 import json
+import sqlite3
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
+import duckdb
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
+from publicdata import fetch
+from publicdata.build import build_version
 from publicdata.normalise import NormaliseError, normalise, read_csv, read_xlsx, xls_to_xlsx
+from publicdata.provenance import changes
 from publicdata.register import LAT_SOURCE, LON_SOURCE, Field, Source
+from publicdata.serialise import profile
 
 from .conftest import make_dataset, make_manifest, present
 
@@ -239,3 +247,72 @@ def test_a_legacy_xls_workbook_reads_like_an_xlsx_one() -> None:
     assert t.column_names == ["Name", "Count", "When"]
     assert t.column("Count").to_pylist() == ["3", "4"]
     assert present(t.column("When").to_pylist()[0]).startswith(dt.date(2024, 7, 1).isoformat())
+
+
+MARKED = b"Id,Count,Median,Peer\n1,<5,NP,Not peered\n2,-,-,\n3,7,12,30\n4,NP,9,\n"
+MARKED_FIELDS = [
+    Field("id", "Id", "integer"),
+    Field("count", "Count", "integer", null_values=("-",)),
+    Field("median", "Median", "integer", null_values=("-",)),
+    Field("peer", "Peer", "integer", null_values=("Not peered",)),
+]
+MEANINGS = {
+    "<5": "Fewer than five.",
+    "NP": "Not published.",
+    "-": "No patients.",
+    "Not peered": "No peer group.",
+}
+
+
+def test_markers_keep_the_token_of_every_cell_a_marker_emptied() -> None:
+    ds = make_dataset(MARKED_FIELDS, suppression=("<5", "NP"), markers=MEANINGS, key=("id",))
+    t = normalise(ds, make_manifest(MARKED), MARKED)
+    rows = t.table.to_pylist()
+    assert t.table.column_names[-2:] == ["suppressed", "markers"]
+    assert [json.loads(r["markers"]) if r["markers"] else None for r in rows] == [
+        {"count": "<5", "median": "NP", "peer": "Not peered"},
+        {"count": "-", "median": "-"},
+        None,
+        {"count": "NP"},
+    ]
+    # The flag still names only the suppressed cells; a dash and a blank are no suppression.
+    assert [r["suppressed"] for r in rows] == [["count", "median"], [], [], ["count"]]
+    assert rows[1]["peer"] is None
+    assert rows[3]["peer"] is None
+
+
+def test_without_markers_the_table_keeps_its_shape() -> None:
+    ds = make_dataset(MARKED_FIELDS, suppression=("<5", "NP"), key=("id",))
+    t = normalise(ds, make_manifest(MARKED), MARKED)
+    assert "markers" not in t.table.column_names
+    marked = replace(ds, markers=MEANINGS)
+    plain = normalise(marked, make_manifest(MARKED), MARKED).table.drop_columns(["markers"])
+    assert plain.equals(t.table)
+
+
+def test_markers_reach_every_format_and_the_schema(tmp_path: Path) -> None:
+    ds = make_dataset(MARKED_FIELDS, suppression=("<5", "NP"), markers=MEANINGS, key=("id",))
+    m = make_manifest(MARKED, parquet=profile.layout(ds))
+    build_version(ds, m, MARKED, tmp_path)
+    vdir = tmp_path / "d" / "t" / "v" / m.version
+    want = ['{"count":"-","median":"-"}', None]
+    assert pq.read_table(vdir / "data.parquet").column("markers").to_pylist()[1:3] == want
+    with sqlite3.connect(vdir / "data.sqlite") as con:
+        got = [r[0] for r in con.execute("SELECT markers FROM records ORDER BY id")]
+    assert got[1:3] == want
+    with duckdb.connect(str(vdir / "data.duckdb"), read_only=True) as con:
+        row = con.execute("SELECT markers->>'count' FROM records WHERE id = 2").fetchone()
+    assert row == ("-",)
+    assert '"{""count"":""-"",""median"":""-""}"' in (vdir / "data.csv").read_text()
+    schema = json.loads((vdir / "schema.json").read_text())
+    assert schema["publicdata:markers"] == MEANINGS
+    field = schema["fields"][-1]
+    assert (field["name"], field["type"]) == ("markers", "object")
+    assert '"-" means: No patients.' in field["description"]
+    assert "markers column" in changes(ds)
+
+
+def test_the_rows_digest_leaves_the_markers_out() -> None:
+    ds = make_dataset(MARKED_FIELDS, suppression=("<5", "NP"), key=("id",))
+    m = make_manifest(MARKED)
+    assert fetch._rows(ds, m, MARKED)[0] == fetch._rows(replace(ds, markers=MEANINGS), m, MARKED)[0]

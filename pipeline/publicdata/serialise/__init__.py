@@ -270,11 +270,15 @@ def table_schema(tbl: Table) -> JSONObject:  # noqa: C901 - one branch per field
                 "The suppressed cells are null.",
             }
         )
+    if "markers" in tbl.table.column_names:
+        fields.append({"name": "markers", "type": "object", "description": markers_note(ds)})
     schema: JSONObject = {"fields": fields, "missingValues": [""]}
     if ds.key:
         schema["primaryKey"] = list(ds.key)
     if ds.suppression:
         schema["publicdata:suppressionTokens"] = list(ds.suppression)
+    if ds.markers:
+        schema["publicdata:markers"] = dict(ds.markers)
     if ds.geometry:
         kind = ds.geometry["kind"]
         schema["publicdata:geometry"] = {
@@ -294,6 +298,15 @@ SUPPRESSED_NOTE = (
 )
 
 
+def markers_note(ds: Dataset) -> str:
+    """The markers column's description, with the publisher's meaning of each token."""
+    said = " ".join(f'"{token}" means: {meaning}' for token, meaning in ds.markers.items())
+    return (
+        "The token the publisher wrote in each cell of this row that is null here, as a JSON "
+        f"object of field name to token. {said}"
+    )
+
+
 def field_rows(tbl: Table) -> list[tuple[str, str, str, str]]:
     """(name, type, publisher header, description) for every published column, suppressed included."""
     rows: list[tuple[str, str, str, str]] = [
@@ -301,6 +314,8 @@ def field_rows(tbl: Table) -> list[tuple[str, str, str, str]]:
     ]
     if "suppressed" in tbl.table.column_names:
         rows.append(("suppressed", "array", "", SUPPRESSED_NOTE))
+    if "markers" in tbl.table.column_names:
+        rows.append(("markers", "object", "", markers_note(tbl.dataset)))
     return rows
 
 
@@ -603,6 +618,8 @@ def schema_sql(tbl: Table, header: Header) -> str:
     cols = [f'  "{f.name}" {SQL_TYPES[f.type]}' for f in ds.fields]
     if "suppressed" in tbl.table.column_names:
         cols.append('  "suppressed" text')
+    if "markers" in tbl.table.column_names:
+        cols.append('  "markers" text')
     if ds.key:
         cols.append(f"  PRIMARY KEY ({', '.join(chr(34) + k + chr(34) for k in ds.key)})")
     lines += [",\n".join(cols), ");", ""]
@@ -649,6 +666,15 @@ def csvw_metadata(tbl: Table, header: Header) -> JSONObject:
                 "datatype": "string",
                 "separator": ";",
                 "dc:description": "Fields the publisher suppressed in this row. The cells are null.",
+            }
+        )
+    if "markers" in tbl.table.column_names:
+        columns.append(
+            {
+                "name": "markers",
+                "titles": ["markers"],
+                "datatype": "json",
+                "dc:description": markers_note(ds),
             }
         )
     schema: JSONObject = {"columns": columns}

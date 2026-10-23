@@ -272,7 +272,8 @@ def parquet_columns(parquet: Path, ds: Dataset) -> list[tuple[str, str]]:
     """The records table's columns and SQLite types, as the SQLite writer declares them."""
     have = set(pq.read_schema(parquet).names)
     cols = [(f.name, SQLITE_TYPES[f.type]) for f in ds.fields if f.name in have]
-    return cols + ([("suppressed", "TEXT")] if "suppressed" in have else [])
+    flags = [(c, "TEXT") for c in ("suppressed", "markers") if c in have]
+    return cols + flags
 
 
 def _table_sql(  # noqa: C901, PLR0912, PLR0913, PLR0915 - one table's statements, read in order
@@ -504,7 +505,8 @@ def built_fields(ds: Dataset, parquet: Path) -> list[dict[str, str]]:
     """The field list a version registers, as its data.sqlite's fields table names them."""
     have = set(pq.read_schema(parquet).names)
     fields = [{"name": f.name, "type": f.type} for f in ds.fields if f.name in have]
-    return fields + ([{"name": "suppressed", "type": "array"}] if "suppressed" in have else [])
+    fields += [{"name": "suppressed", "type": "array"}] if "suppressed" in have else []
+    return fields + ([{"name": "markers", "type": "string"}] if "markers" in have else [])
 
 
 def _csv_bytes(roots: list[Path], slug: str, version: str) -> int | None:

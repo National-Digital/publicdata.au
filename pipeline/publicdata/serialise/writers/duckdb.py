@@ -32,6 +32,8 @@ def write_duckdb(tbl: Table, header: Header, path: Path) -> None:
         cols = [f'"{f.name}" {DUCKDB_TYPES[f.type]}' for f in ds.fields]
         if "suppressed" in tbl.table.column_names:
             cols.append('"suppressed" VARCHAR[]')
+        if "markers" in tbl.table.column_names:
+            cols.append('"markers" VARCHAR')
         con.execute(f"CREATE TABLE records ({', '.join(cols)})")
         lay = tbl.manifest.parquet
         perm = profile.order_of(tbl, lay["sort"], lay["key"]) if lay else None

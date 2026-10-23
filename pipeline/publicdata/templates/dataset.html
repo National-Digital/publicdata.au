@@ -91,6 +91,7 @@
   <tbody>
   {% for f in ds.fields %}<tr><td>{{ f.name }}</td><td class="ty">{{ f.type }}</td><td>{{ f.source }}</td><td>{{ f.description }}</td></tr>{% endfor %}
   {% if has_suppressed %}<tr><td>suppressed</td><td class="ty">array</td><td></td><td>Names of the fields the publisher suppressed in this row. The cells are null.</td></tr>{% endif %}
+  {% if markers_note %}<tr><td>markers</td><td class="ty">object</td><td></td><td>{{ markers_note }}</td></tr>{% endif %}
   </tbody></table></div>
   <p class="muted small"><a href="{{ base }}schema.xlsx">Download this table as a data dictionary</a> (Excel), or read it as a Frictionless Table Schema at <a href="{{ base }}schema.json" class="mono">schema.json</a>.{% if ds.key %} The key is <span class="mono">{{ ds.key|join(', ') }}</span>.{% endif %}</p>
 

@@ -1,7 +1,8 @@
 """CSV or Excel bytes -> typed Arrow table with the register's field names and nothing else.
 
 Rules that live here: allow-list ingest, blank cells become null, a field's declared unknown
-markers become null, suppression tokens become null plus a typed flag, a wide table of dated
+markers become null, suppression tokens become null plus a typed flag, an entry that describes
+its markers keeps the token of each cell they emptied, a wide table of dated
 columns is unpivoted to one row per cell when the register says so, and a value that cannot take
 its declared type stops the build instead of being coerced.
 """
@@ -584,6 +585,39 @@ def convert(arr: Arr, f: Field, suppression: tuple[str, ...]) -> tuple[Arr, Arr 
     raise NormaliseError(msg)
 
 
+def marker(arr: Arr, f: Field, suppression: tuple[str, ...]) -> Arr | None:
+    """The token in each cell that convert empties for a null value or suppression, else null."""
+    tokens = list(f.null_values)
+    if f.type in ("integer", "number"):
+        tokens += suppression
+    if not tokens:
+        return None
+    arr = _blank_to_null(arr)
+    hit = fill_null(pc.is_in(arr, value_set=pa.array(tokens)), fill=False)
+    if not pc.any(hit).as_py():
+        return None
+    out: Arr = pc.if_else(hit, arr, pa.scalar(None, pa.string()))
+    return out
+
+
+def markers_column(
+    raw: pa.Table, upstream: dict[str, str], ds: Dataset, own: list[Field]
+) -> Arr | None:
+    """Each row's markers as JSON text, {field: token} in field order, or null for a row with none."""
+    found = [
+        (f.name, m.to_pylist())
+        for f in own
+        if (m := marker(raw.column(upstream[f.source]), f, ds.suppression)) is not None
+    ]
+    if not found:
+        return None
+    out: list[str | None] = []
+    for i in range(raw.num_rows):
+        row = {name: vals[i] for name, vals in found if vals[i] is not None}
+        out.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")) if row else None)
+    return pa.array(out, pa.string())
+
+
 def _is_shapefile(ext: str, member: str) -> bool:
     """A layer GDAL reads, as opposed to a table: a shapefile or GeoPackage, or one inside a zip."""
     return ext in ("shp", "gpkg") or (ext == "zip" and member.lower().endswith((".shp", ".gpkg")))
@@ -650,6 +684,10 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
                     suppressed += 1
         cols.append(pa.array(flags, pa.list_(pa.string())))
         names.append("suppressed")
+    marks = markers_column(raw, upstream, ds, own) if ds.markers else None
+    if marks is not None:
+        cols.append(marks)
+        names.append("markers")
     table = pa.table(cols, names=names)
     return Table(
         dataset=ds,

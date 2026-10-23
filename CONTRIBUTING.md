@@ -643,6 +643,14 @@ rule carries `# nolint: <linter>. <reason>`.
   `FY18-19`, or `FY2019` for the year that ends in June 2019), and the chart names each bar as the
   publisher wrote it. A value that is not a financial year is left out. `chart: none`
   draws no chart, for a table with no year worth drawing.
+- `suppression` lists the tokens a publisher writes in place of a number it withholds, such as
+  `<5`. Each such cell becomes null and the row's `suppressed` column names its field. A field's
+  `null_values` lists tokens that mean no value, such as `-`, which become null with no flag.
+  `markers` maps every one of those tokens to what it means, quoting the publisher's notes where
+  they define it. An entry with `markers` gets a `markers` column, which holds each row's tokens
+  as a JSON object of field name to token, such as `{"median_wait_days":"-"}`, and is null in a
+  row with none. The schema describes each token. Adding `markers` to an entry changes its files,
+  so raise its `rebuild` in the same pull request.
 - `rollup` lists field sets a version's rollup weighs as the register's own questions, such as
   `[type, registration_date]`, for a count readers ask that the query layer cannot otherwise
   afford, as on a table too large for D1 whose Parquet is not sorted for it. It shapes no
