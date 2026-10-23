@@ -1164,14 +1164,15 @@ class Reg:
         self.kind = kind
 
 
-EXCLUDED_REASONS = ("condition of use", "not copied to the hubs")
+EXCLUDED_REASONS = ("condition of use", "not copied to the hubs", "once it is live")
 
 
 def test_only_a_live_register_entry_with_the_same_open_licence_is_authorised() -> None:
     hubs.authorised(RECORD, Reg())
     for reg, why in (
         (None, "not in the register"),
-        (Reg(status="building"), "not live"),
+        (Reg(status="building"), "once it is live"),
+        (Reg(status="backlog"), "not live"),
         (Reg(status="blocked", licence="CC-BY-NC-4.0"), "not live"),
         (Reg(licence="CC-BY-3.0-AU"), "the catalogue states"),
         (Reg(licence="OPEN-GNAF-EULA"), "condition of use"),
