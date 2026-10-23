@@ -60,11 +60,13 @@ faq:
   a: The Institute publishes these measures for 2011-12 and 2012-13 only. It reports them for each hospital
     and its peer group, and it publishes no figure for a Local Hospital Network, a state or the nation.
 - q: What do the blanks mean?
-  a: The Institute writes `<5` for a count under five, `10–30` for a count from 10 to 30, `>=90%` for a share of
-    90 per cent or more, and `NP` where the data did not meet its criteria. Those cells are null here with a
-    suppressed flag. The flag names the field and does not name the code, so a flagged number of surgeries
-    was either `<5` or `10–30`, and a flagged share was either `>=90%` or `NP`. A dash, meaning no patients
-    were reported, is null. The shares are fractions, so 0.85 means 85 per cent.
+  a: The Institute's explanatory notes define two codes. A dash means "There were no patients reported for
+    this indicator in this time period." `NP` means "Reported data did not meet the criteria to calculate
+    this indicator." The notes do not define `<5` or `10–30`, which appear only in the number of surgeries,
+    or `>=90%`, which appears only in the shares within 30 and 45 days. Each of these cells is null here,
+    and the row's `markers` column holds the code the Institute wrote, such as `{"surgeries":"10–30"}`. A
+    `<5`, `10–30`, `>=90%` or `NP` cell is also named in the `suppressed` column. A cell the Institute left
+    empty has no marker. The shares are fractions, so 0.85 means 85 per cent.
 - q: How does this join to the hospital list?
   a: Each row names its hospital as the Institute's list of hospitals and networks in this collection names
     it, so the two join on the name and the reporting unit type, which give one unit each. The code is on the
@@ -82,11 +84,19 @@ source:
   header_row: 11
   cadence: no longer updated
   as_at_regex: 'Data as of:\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+ \d{1,2}, \d{4})'
+  release_regex: 'version:\s*(\d+)'
 suppression:
 - <5
 - 10–30
 - '>=90%'
 - NP
+markers:
+  <5: The Institute's notes do not define this code. It appears only in the number of surgeries.
+  10–30: The Institute's notes do not define this code. It appears only in the number of surgeries.
+  '>=90%': The Institute's notes do not define this code. It appears only in the shares within 30 and 45
+    days.
+  NP: Reported data did not meet the criteria to calculate this indicator.
+  '-': There were no patients reported for this indicator in this time period.
 key:
 - reporting_unit
 - reporting_unit_type
