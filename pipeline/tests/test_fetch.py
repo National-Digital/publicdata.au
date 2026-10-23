@@ -1,6 +1,6 @@
 import datetime as dt
 import json
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, ClassVar, TypedDict, cast
 
 import pytest
 import yaml
@@ -27,7 +27,7 @@ from publicdata.fetch import (
     pick_resource,
     resource_filename,
 )
-from publicdata.register import Field, Source
+from publicdata.register import Field, Source, load
 from publicdata.spine import LAYERS
 
 from .conftest import ROOT, make_dataset
@@ -106,6 +106,89 @@ def test_as_at_written_month_first() -> None:
     head = "Data as of: Wednesday, August 19, 2026, version: 2026081901"
     assert parse_as_at(head, rx) == "2026-08-19"
     assert parse_as_at("Data as of: Smarch 19, 2026", rx) == ""
+
+
+# The portal names each quarter's file with an en dash.
+DASH = "\u2013"
+
+
+def test_a_release_named_by_its_month_runs_to_the_month_end() -> None:
+    rx = rf"([A-Za-z]+ \d{{4}})\s*[{DASH}-]\s*Elective Surgery by"
+    assert parse_as_at(f"September 2025 {DASH} Elective Surgery by Category", rx) == "2025-09-30"
+    assert parse_as_at(f"December 2024 {DASH} Elective Surgery by Speciality", rx) == "2024-12-31"
+    assert parse_as_at("June 2023 - Elective Surgery by Category", rx) == "2023-06-30"
+    assert parse_as_at("February 2024", r"(\w+ \d{4})") == "2024-02-29"
+    assert parse_as_at(f"Smarch 2025 {DASH} Elective Surgery by Category", rx) == ""
+
+
+def test_a_quarterly_resource_is_dated_by_its_name(tmp_path: Path) -> None:
+    ds = next(d for d in load(ROOT / "register") if d.slug == "qld-elective-surgery-by-category")
+
+    def res(rid: str, name: str, created: str) -> dict[str, str]:
+        return {
+            "id": rid,
+            "name": name,
+            "url": f"https://portal.example/{rid}.csv",
+            "description": "Elective Surgery summary 1 hospital performance open data",
+            "created": created,
+            "last_modified": "2025-12-10T02:08:43",
+        }
+
+    pkg = {
+        "success": True,
+        "result": {
+            "id": "p",
+            "name": "elective-surgery",
+            "notes": "Data prior to October 2020 can be found elsewhere.",
+            "metadata_modified": "2025-12-10T02:08:34",
+            "license_id": "CC-BY-4.0",
+            "resources": [
+                res(
+                    "sep25",
+                    f"September 2025 {DASH} Elective Surgery by Category {DASH} Summary 1",
+                    "2025-12-10T02:07",
+                ),
+                res(
+                    "spec",
+                    f"September 2025 {DASH} Elective Surgery by Speciality {DASH} Summary 2",
+                    "2025-12-10T02:08",
+                ),
+                res(
+                    "jun25",
+                    f"June 2025 {DASH} Elective Surgery by Category {DASH} Summary 1",
+                    "2025-12-10T02:03",
+                ),
+            ],
+        },
+    }
+
+    class R:
+        def __init__(self, j: object = None, content: bytes = b"") -> None:
+            self._j, self.content, self.status_code = j, content, 200
+            self.headers: dict[str, str] = {}
+
+        def json(self) -> object:
+            return self._j
+
+        def raise_for_status(self) -> None:
+            pass
+
+    class S:
+        headers: ClassVar[dict[str, str]] = {}
+
+        def get(
+            self,
+            url: str,
+            params: object = None,
+            timeout: float | None = None,
+            *,
+            allow_redirects: bool | None = None,
+        ) -> R:
+            return R(pkg) if "package_show" in url else R(content=b"Facility_Code\n1\n")
+
+    _, m, _ = f.ckan_resource(ds, tmp_path, session=cast("requests.Session", S()))
+    assert m.source["resource"] == "sep25"
+    assert m.as_at == "2025-09-30"
 
 
 def test_an_empty_or_html_answer_is_refused_not_stored() -> None:

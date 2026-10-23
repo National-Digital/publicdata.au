@@ -273,7 +273,16 @@ def parse_as_at(text: str, regex: str) -> str:
     if mm:
         return dt.date(int(mm.group(3)), int(mm.group(2)), int(mm.group(1))).isoformat()
     mm = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
-    return mm.group(0) if mm else ""
+    return mm.group(0) if mm else _month_end(s)
+
+
+def _month_end(s: str) -> str:
+    """A release named by its month alone, such as a quarter's 'September 2025', runs to its end."""
+    mm = re.match(r"([A-Za-z]+)\s+(\d{4})\b", s)
+    if not (mm and mm.group(1).lower() in MONTHS):
+        return ""
+    year, month = int(mm.group(2)), MONTHS[mm.group(1).lower()]
+    return (dt.date(year + month // 12, month % 12 + 1, 1) - dt.timedelta(days=1)).isoformat()
 
 
 def workbook_head(data: bytes, sheet: str, header_row: int) -> str:
@@ -337,7 +346,14 @@ def ckan_resource(
         _date_local(changed), {m.version for m in existing}, dt.datetime.now(TZ).date()
     )
     as_at = parse_as_at(
-        " ".join([p.get("version") or "", res.get("description") or "", p.get("notes") or ""]),
+        " ".join(
+            [
+                p.get("version") or "",
+                res.get("description") or "",
+                p.get("notes") or "",
+                res.get("name") or "",
+            ]
+        ),
         ds.source.as_at_regex,
     )
     filename = resource_filename(res)
