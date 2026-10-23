@@ -1,0 +1,382 @@
+slug: vic-state-forest-recreation-sites
+title: Recreation sites in State forest, Victoria
+status: live
+topics:
+- nature
+- places
+example:
+  group: site_class
+  metric: count
+  label: Recreation sites in each site class
+chart: none
+search_title: Victorian State forest camping and picnic areas map (DEECA Recreation Sites)
+also_known_as:
+- Recreation Sites
+- RECWEB_SITE
+- Victorian State forest campgrounds
+- Camping areas in Victorian State forests
+- Free camping areas in State forest, Victoria
+keywords:
+- camping areas
+- campgrounds
+- picnic areas
+- State forest
+- caravan sites
+- barbecues
+- picnic tables
+- site closures
+- DEECA
+- Victoria
+faq:
+- q: What is in each row?
+  a: One recreation site in Victorian State forest, such as a camping area or a picnic area. Each row has
+    the department's serial number for the site, its name, its site class, its access notes and fee, the
+    work centre that maintains it, any closure in place, a flag and a description for each activity the
+    site offers, the number of picnic tables and barbecues of each kind, and its longitude and latitude
+    in GDA2020.
+- q: How do I find the camping areas?
+  a: The camping column is true where the department marks the site for camping. Where it is blank the
+    record does not mark the site for camping. The campervanning column and the campervan type column
+    say which sites take caravans or camper trailers.
+- q: Do I have to pay to camp at these sites?
+  a: The fee column holds the fee the department records for a site, as it writes it. Most rows leave it
+    blank. A blank fee means the record states no fee. It does not confirm the site is free, so check the
+    site's page on the Forests and Reserves website before you go.
+- q: Is a site open now?
+  a: The closure columns give the closure status, its reason, its description and its start and reopening
+    times as the department last recorded them. The department changes these as fire, harvesting and
+    maintenance close sites. A version here holds the closures in force on the day it was fetched, so check
+    the department's current notices before you travel.
+- q: Why are some activity columns blank in every row?
+  a: The department's table has a column for each activity it can record, such as horse riding and rock
+    climbing. Some of them hold no values today. They are published as they stand, so values the
+    department adds later appear here.
+summary: About 530 camping, picnic and other recreation sites in Victorian State forest, one row per site,
+  with each site's class, activities, facilities, closures and coordinates, from DEECA.
+description: The Recreation Sites layer, RECWEB_SITE, of the Department of Energy, Environment and Climate
+  Action, read from the department's open web feature service. The department records each recreation site
+  it maintains in State forest, mostly camping and picnic areas. Each row carries the site's serial number,
+  name, site class, accessibility, access notes and fee, the work centre that maintains it, the closure the
+  department has recorded, a flag and a description for each activity, the counts of picnic tables and
+  barbecues of each kind, the date the record was last changed, and its longitude and latitude in GDA2020.
+publisher:
+  name: Department of Energy, Environment and Climate Action
+  short: DEECA
+  jurisdiction: Vic
+  url: https://www.deeca.vic.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  evidence: https://discover.data.vic.gov.au/dataset/recreation-sites
+  statement: Creative Commons Attribution 4.0 International
+  attribution: Department of Energy, Environment and Climate Action, Victorian Government, Recreation Sites
+    (layer RECWEB_SITE), sourced {sourced}, https://discover.data.vic.gov.au/dataset/recreation-sites,
+    licensed under CC BY 4.0.
+source:
+  adapter: file
+  url: https://opendata.maps.vic.gov.au/geoserver/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=open-data-platform:recweb_site&outputFormat=application/json&sortBy=serial_no
+  format: geojson
+  page_size: 1000
+  cadence: as sites and closures change
+key:
+- serial_no
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:7844
+  crs_note: Points in GDA2020 (EPSG:7844), the layer's default reference system on the Vicmap service. The
+    longitude and latitude are the department's x and y columns, published as given.
+row_label: Recreation sites
+fields:
+- name: serial_no
+  label: Serial number
+  source: serial_no
+  type: string
+  description: The department's identifier for the site.
+- name: name
+  label: Site
+  source: name
+  type: string
+- name: site_class
+  label: Site class
+  source: site_class
+  type: string
+  description: The department's class for the site's level of development, from VERY BASIC to HIGH.
+- name: maintained_by
+  label: Maintained by
+  source: maintained_by
+  type: string
+  description: The department work centre that maintains the site.
+- name: dis_access
+  label: Disabled access
+  source: dis_access
+  type: string
+- name: access_dsc
+  label: Access
+  source: access_dsc
+  type: string
+  description: How to reach the site, in the department's words.
+- name: fee
+  label: Fee
+  source: fee
+  type: string
+  description: The fee the department records for the site, as it writes it. Blank where it records none.
+- name: comments
+  label: Comments
+  source: comments
+  type: string
+- name: wilderness
+  label: Wilderness
+  source: wilderness
+  type: string
+- name: clos_stat
+  label: Closure status
+  source: clos_stat
+  type: string
+- name: clos_reas
+  label: Closure reason
+  source: clos_reas
+  type: string
+- name: clos_desc
+  label: Closure description
+  source: clos_desc
+  type: string
+- name: clos_start
+  label: Closure start
+  source: clos_start
+  type: string
+  description: The timestamp the service gives, in UTC, kept as its text.
+- name: clos_open
+  label: Reopening
+  source: clos_open
+  type: string
+  description: The timestamp the service gives, in UTC, kept as its text.
+- name: camping
+  label: Camping
+  source: camping
+  type: boolean
+  true_values:
+  - 'Y'
+  description: True where the department marks the site for camping. Blank where it does not.
+- name: camping_c
+  label: Camping description
+  source: camping_c
+  type: string
+- name: campervanning
+  label: Campervanning
+  source: campervanning
+  type: boolean
+  true_values:
+  - 'Y'
+- name: campervan_c
+  label: Campervanning description
+  source: campervan_c
+  type: string
+- name: campervan_type
+  label: Campervan type
+  source: campervan_type
+  type: string
+  description: The kind of van the department says the site takes, such as a small caravan or a camper
+    trailer.
+- name: picnicing
+  label: Picnicking
+  source: picnicing
+  type: boolean
+  true_values:
+  - 'Y'
+- name: picnicing_c
+  label: Picnicking description
+  source: picnicing_c
+  type: string
+- name: tb_visitor
+  label: TB visitor
+  source: tb_visitor
+  type: boolean
+  true_values:
+  - 'Y'
+  description: The department's TB_VISITOR activity flag, which its metadata does not describe further.
+- name: tbva_c
+  label: TB visitor description
+  source: tbva_c
+  type: string
+- name: heritage
+  label: Heritage
+  source: heritage
+  type: boolean
+  true_values:
+  - 'Y'
+- name: heritage_c
+  label: Heritage description
+  source: heritage_c
+  type: string
+- name: fishing
+  label: Fishing
+  source: fishing
+  type: boolean
+  true_values:
+  - 'Y'
+- name: fishing_c
+  label: Fishing description
+  source: fishing_c
+  type: string
+- name: fossicking
+  label: Fossicking
+  source: fossicking
+  type: boolean
+  true_values:
+  - 'Y'
+- name: fossick_c
+  label: Fossicking description
+  source: fossick_c
+  type: string
+- name: hang_glide
+  label: Hang gliding
+  source: hang_glide
+  type: boolean
+  true_values:
+  - 'Y'
+- name: hang_gld_c
+  label: Hang gliding description
+  source: hang_gld_c
+  type: string
+- name: horse_ride
+  label: Horse riding
+  source: horse_ride
+  type: boolean
+  true_values:
+  - 'Y'
+- name: horseride_c
+  label: Horse riding description
+  source: horseride_c
+  type: string
+- name: paddling
+  label: Paddling
+  source: paddling
+  type: boolean
+  true_values:
+  - 'Y'
+- name: paddling_c
+  label: Paddling description
+  source: paddling_c
+  type: string
+- name: reduce_na
+  label: Reduce noise area
+  source: reduce_na
+  type: boolean
+  true_values:
+  - 'Y'
+- name: reduce_c
+  label: Reduce noise area description
+  source: reduce_c
+  type: string
+- name: rockclimb
+  label: Rock climbing
+  source: rockclimb
+  type: boolean
+  true_values:
+  - 'Y'
+- name: rockclimb_c
+  label: Rock climbing description
+  source: rockclimb_c
+  type: string
+- name: tree_view
+  label: Tree viewing
+  source: tree_view
+  type: boolean
+  true_values:
+  - 'Y'
+- name: treeview_c
+  label: Tree viewing description
+  source: treeview_c
+  type: string
+- name: walkingdog
+  label: Dog walking
+  source: walkingdog
+  type: boolean
+  true_values:
+  - 'Y'
+- name: walkdog_c
+  label: Dog walking description
+  source: walkdog_c
+  type: string
+- name: wildlife
+  label: Wildlife watching
+  source: wildlife
+  type: boolean
+  true_values:
+  - 'Y'
+- name: wildlife_c
+  label: Wildlife watching description
+  source: wildlife_c
+  type: string
+- name: pct_aframe
+  label: A-frame picnic tables
+  source: pct_aframe
+  type: integer
+- name: pct_pedest
+  label: Pedestal picnic tables
+  source: pct_pedest
+  type: integer
+- name: pct_other
+  label: Other picnic tables
+  source: pct_other
+  type: integer
+- name: bbq_elec
+  label: Electric barbecues
+  source: bbq_elec
+  type: integer
+- name: bbq_gas
+  label: Gas barbecues
+  source: bbq_gas
+  type: integer
+- name: bbq_pit
+  label: Pit barbecues
+  source: bbq_pit
+  type: integer
+- name: bbq_wood
+  label: Wood barbecues
+  source: bbq_wood
+  type: integer
+- name: alter_date
+  label: Record changed
+  source: alter_date
+  type: date
+  date_format: '%d/%m/%Y'
+  description: The date the department last changed the site's record.
+- name: longitude
+  label: Longitude
+  source: x_coord
+  type: number
+- name: latitude
+  label: Latitude
+  source: y_coord
+  type: number
+omit:
+  fac_type: The layer's name, RECWEB_SITES, the same in every row.
+  vers_date: The date the service extracted the layer, which changes every day.
+  published: A flag the department uses to choose which sites the service carries, Y in every row.
+  label: A copy of the site's name for map labels.
+  act_code: An internal activity code the department leaves empty.
+  fac_code: An internal facility code the department leaves empty.
+  entity_id: An internal identifier the department leaves empty.
+  is_part_of: An internal grouping the department leaves empty.
+  photo_id_1: The department's internal identifier for a photograph of the site.
+  photo_id_2: The department's internal identifier for a photograph of the site.
+  photo_id_3: The department's internal identifier for a photograph of the site.
+  camping_r: A rank for the activity that the department's metadata does not describe.
+  campervan_r: A rank for the activity that the department's metadata does not describe.
+  tbva_r: A rank for the activity that the department's metadata does not describe.
+  heritage_r: A rank for the activity that the department's metadata does not describe.
+  fishing_r: A rank for the activity that the department's metadata does not describe.
+  fossick_r: A rank for the activity that the department's metadata does not describe.
+  hang_gld_r: A rank for the activity that the department's metadata does not describe.
+  horseride_r: A rank for the activity that the department's metadata does not describe.
+  paddling_r: A rank for the activity that the department's metadata does not describe.
+  picnicing_r: A rank for the activity that the department's metadata does not describe.
+  reduce_r: A rank for the activity that the department's metadata does not describe.
+  rockclimb_r: A rank for the activity that the department's metadata does not describe.
+  treeview_r: A rank for the activity that the department's metadata does not describe.
+  walkdog_r: A rank for the activity that the department's metadata does not describe.
+  wildlife_r: A rank for the activity that the department's metadata does not describe.
+  (longitude): The longitude of the feature's point geometry, which repeats x_coord rounded to six decimal places.
+  (latitude): The latitude of the feature's point geometry, which repeats y_coord rounded to six decimal places.
