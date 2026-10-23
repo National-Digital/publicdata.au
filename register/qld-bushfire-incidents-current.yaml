@@ -34,7 +34,9 @@ faq:
 - q: Why are some columns missing?
   a: Some details, such as vehicles on scene and locality, appear only on incidents, and others, such
     as what to do, only on warnings. On a day with none of one kind those columns are absent, so this
-    table keeps the columns every item carries.
+    table keeps the columns every item carries. The publisher added eleven columns to the feed on 23 October
+    2026, such as the incident type and nearest cross street. The earlier versions do not carry them, so
+    this table does not include them.
 summary: A daily snapshot of every current vegetation fire, permitted burn and fire warning in the Queensland
   Fire Department feed, with title, warning level, text, area, point and times.
 description: The Queensland Fire Department current bushfire incidents feed, read once a day, one row
@@ -179,6 +181,27 @@ omit:
     that kind of item; a declared column must be present on every read.
   Locality: Present only on warnings or only on incidents, so absent from the feed on a day without that
     kind of item; a declared column must be present on every read.
+  MIN_ID: Added to the feed on 23 October 2026. Versions before that date do not carry it, and a declared
+    column must be present on every read, so it is held.
+  Incident_Type: Added to the feed on 23 October 2026. Versions before that date do not carry it, and a declared
+    column must be present on every read, so it is held.
+  MIN_Details: Added to the feed on 23 October 2026 as free-text dispatch notes, which can hold radio
+    channels, permit numbers and crew shorthand. The publisher's description of the dataset does not include
+    them.
+  Location_Name: Added to the feed on 23 October 2026. Versions before that date do not carry it, and a declared
+    column must be present on every read, so it is held.
+  Cross_Street: Added to the feed on 23 October 2026. Versions before that date do not carry it, and a declared
+    column must be present on every read, so it is held.
+  LGA: Added to the feed on 23 October 2026 and empty on every item in the first read.
+  Command_Channel: A radio channel for the crews at the fire. It is operational detail that the publisher's
+    description of the dataset does not include, and it was empty on every item in the first read.
+  Primary_TAC_Channel: A radio channel for the crews at the fire. It is operational detail that the publisher's
+    description of the dataset does not include, and it was empty on every item in the first read.
+  SubType: Added to the feed on 23 October 2026. It repeats the type that GroupedType gives, as VEGETATION
+    or PERMITTED BURN.
+  MajorType: Added to the feed on 23 October 2026. It was FIRE on every item in the first read.
+  IsPubliclyShared: Added to the feed on 23 October 2026. It marks the items the publisher releases and was
+    YES on every item in the first read.
   (longitude): The point geometry of a feature, which repeats the Longitude property; polygon warning
     areas have none.
   (latitude): The point geometry of a feature, which repeats the Latitude property; polygon warning areas
