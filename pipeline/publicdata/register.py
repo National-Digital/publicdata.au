@@ -60,6 +60,7 @@ if TYPE_CHECKING:
         record: object
         format: object
         page_size: int
+        backfill_from: object
         browser: object
 
     class RawField(TypedDict, total=False):
@@ -499,6 +500,24 @@ class Source:
     # A WFS GetFeature that caps each answer: the features asked for per request, read page by page
     # with startIndex into one GeoJSON file.
     page_size: int = 0
+    # The earliest as-at date of the earlier releases a package still lists that are kept too.
+    backfill_from: str = ""
+
+
+def _check_backfill(ds: Dataset, ctx: str) -> None:
+    """A backfill reads each earlier release by name and dates it by its own as-at date."""
+    src = ds.source
+    if not (src.adapter == "ckan-resource" and src.resource_match and src.as_at_regex):
+        msg = (
+            f"{ctx}: source.backfill_from needs a ckan-resource with resource_match and as_at_regex"
+        )
+        raise RegisterError(msg)
+    if src.manual or ds.update != "release":
+        msg = f"{ctx}: source.backfill_from is for a release whose files the fetch downloads"
+        raise RegisterError(msg)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", src.backfill_from):
+        msg = f"{ctx}: source.backfill_from is a date, YYYY-MM-DD"
+        raise RegisterError(msg)
 
 
 @dataclass(frozen=True)
@@ -722,6 +741,7 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         record=str(src.get("record", "")),
         format=str(src.get("format", "")).lstrip(".").lower(),
         page_size=int(src.get("page_size", 0)),
+        backfill_from=str(src.get("backfill_from", "")),
     )
     if source.manual and source.adapter not in ("ckan-resource", "ckan-stack"):
         msg = f"{ctx}: source.manual needs a ckan-resource or ckan-stack, whose portal records date it"
@@ -958,6 +978,8 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
             if not (ds.source.resource or ds.source.resource_match):
                 msg = f"{ctx}: source needs resource or resource_match"
                 raise RegisterError(msg)
+        if ds.source.backfill_from:
+            _check_backfill(ds, ctx)
     for topic in ds.topics:
         if topic not in TOPICS:
             msg = f"{ctx}: unknown topic '{topic}', the topics are {sorted(TOPICS)}"

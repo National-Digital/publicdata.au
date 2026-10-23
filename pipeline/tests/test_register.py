@@ -601,3 +601,22 @@ def test_a_licence_file_in_the_archive_needs_the_words_it_must_carry() -> None:
         "statement": "Creative Commons Attribution 3.0 Australia",
     }
     assert parse(_raw(**entry), "x").source.licence_member == "License.txt"
+
+
+def test_backfill_from_needs_a_named_release_dated_by_its_name() -> None:
+    raw = yaml.safe_load((ROOT / "register" / "qld-elective-surgery-by-category.yaml").read_text())
+    assert parse(copy.deepcopy(raw), "x").source.backfill_from == "2025-06-30"
+    for drop in ("as_at_regex", "resource_match"):
+        bad = copy.deepcopy(raw)
+        del bad["source"][drop]
+        bad["source"].setdefault("resource", "r")
+        with pytest.raises(RegisterError, match="backfill_from needs"):
+            parse(bad, "x")
+    bad = copy.deepcopy(raw)
+    bad["source"]["backfill_from"] = "June 2025"
+    with pytest.raises(RegisterError, match="YYYY-MM-DD"):
+        parse(bad, "x")
+    bad = copy.deepcopy(raw)
+    bad["source"]["manual"] = True
+    with pytest.raises(RegisterError, match="downloads"):
+        parse(bad, "x")

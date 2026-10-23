@@ -36,8 +36,10 @@ faq:
 - q: Which quarter is it?
   a: Each version holds one quarter, named in the quarter ending field. Queensland Health adds a file for
     each quarter, and this table follows the newest, so each new quarter becomes a new version. The first
-    version here is the quarter ending September 2025. A version's as-at date is the last day of its
-    quarter, read from the name Queensland Health gives the file.
+    version fetched here is the quarter ending September 2025. The quarter ending June 2025 was fetched
+    later from the file Queensland Health still lists, and it is marked as backfilled. Files for
+    earlier quarters name or lay out their columns differently, so they are not included. A version's
+    as-at date is the last day of its quarter, read from the name Queensland Health gives the file.
 summary: Elective surgery at each Queensland public hospital each quarter by urgency
   category, with patients treated, patients waiting and the share within the recommended time.
 description: Queensland Health elective surgery summary 1 for the newest quarter, one row
@@ -79,6 +81,7 @@ source:
   encoding: utf-8-sig
   cadence: quarterly
   as_at_regex: ([A-Za-z]+ \d{4})\s*[–-]\s*Elective Surgery by
+  backfill_from: '2025-06-30'
 key:
 - facility_code
 - category

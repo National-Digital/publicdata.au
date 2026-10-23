@@ -246,6 +246,8 @@ MONTHS = {
         start=1,
     )
 }
+# A publisher may shorten a month in a file's name, as in 'Jun 2022'.
+MONTHS |= {m[:3]: i for m, i in MONTHS.items()}
 
 
 def _date_local(iso: str) -> str:
@@ -304,13 +306,7 @@ def ckan_resource(
     api = f"{ds.source.portal.rstrip('/')}/api/3/action"
     p = _package(ds, s, api)
     res = pick_resource(ds, p["resources"])
-    licence: LicenceRead = {
-        "id": p.get("license_id", ""),
-        "title": p.get("license_title", ""),
-        "url": p.get("license_url", ""),
-        "read_from": f"{api}/package_show?id={p['name']}",
-        "read_at": _now(),
-    }
+    licence = _ckan_licence(api, p)
     existing = store.manifests(store_dir, ds.slug, fetches=True)
     if (
         ds.source.manual
@@ -366,23 +362,131 @@ def ckan_resource(
         bytes=len(data),
         filename=filename,
         encoding=_encoding(filename, data, ds.source.encoding),
-        source={
-            "url": res["url"],
-            "portal": ds.source.portal,
-            "package": p["name"],
-            "package_id": p["id"],
-            "resource": res["id"],
-            "resource_name": res.get("name", ""),
-            "resource_last_modified": res.get("last_modified"),
-            "package_modified": p.get("metadata_modified"),
-            "package_version": p.get("version"),
-            "etag": etag(r.headers),
-            "http_last_modified": r.headers.get("Last-Modified", ""),
-        },
+        source=_ckan_source(ds, p, res, r),
         licence=licence,
         notes=[note] if note else [],
     )
     return data, m, licence
+
+
+def _ckan_licence(api: str, p: CkanPackage) -> LicenceRead:
+    return {
+        "id": p.get("license_id", ""),
+        "title": p.get("license_title", ""),
+        "url": p.get("license_url", ""),
+        "read_from": f"{api}/package_show?id={p['name']}",
+        "read_at": _now(),
+    }
+
+
+def _ckan_source(ds: Dataset, p: CkanPackage, res: CkanResource, r: Download) -> ManifestSource:
+    return {
+        "url": res["url"],
+        "portal": ds.source.portal,
+        "package": p["name"],
+        "package_id": p["id"],
+        "resource": res["id"],
+        "resource_name": res.get("name", ""),
+        "resource_last_modified": res.get("last_modified"),
+        "package_modified": p.get("metadata_modified"),
+        "package_version": p.get("version"),
+        "etag": etag(r.headers),
+        "http_last_modified": r.headers.get("Last-Modified", ""),
+    }
+
+
+BACKFILL_NOTE = (
+    "This earlier release was fetched after a newer one, from the file the publisher still lists. "
+    "It is dated by the as-at date in its name."
+)
+
+
+def _check_release(ds: Dataset, m: store.Manifest, data: bytes) -> None:
+    """Records an earlier release's rows on its manifest, or refuses one the register cannot read."""
+    name = m.source.get("resource_name", "")
+    try:
+        normalise.normalise(ds, m, data)
+    except Exception as e:
+        msg = f"{ds.slug}: '{name}' does not read as the register describes it: {e}"
+        raise FetchError(msg) from e
+    m.rows_sha256, n, misfit = _rows(ds, m, data)
+    if not n:
+        msg = f"{ds.slug}: '{name}' holds no rows"
+        raise FetchError(msg)
+    _hold_misfits(ds, misfit)
+    m.parquet = layout(ds)
+    m.period = periods.recorded(ds.period)
+    m.caps = store.CAPS_VERSION
+
+
+def backfill(
+    ds: Dataset,
+    store_dir: Path,
+    held: dict[str, list[store.Manifest]] | None = None,
+    session: requests.Session | None = None,
+) -> list[store.Manifest]:
+    """Each earlier release a CKAN package still lists, from source.backfill_from on.
+
+    Each is stored as published, as a version dated by its as-at date and marked backfilled. A
+    release already stored is not read again. One that does not read as the register describes
+    stops the backfill before anything is stored.
+    """
+    if not ds.source.backfill_from:
+        return []
+    s = session or requests.Session()
+    s.headers["User-Agent"] = UA
+    api = f"{ds.source.portal.rstrip('/')}/api/3/action"
+    p = _package(ds, s, api)
+    licence = _ckan_licence(api, p)
+    check_licence(ds, licence)
+    newest = pick_resource(ds, p["resources"])
+    existing = store.manifests(store_dir, ds.slug, fetches=True)
+    if not existing:
+        return []
+    stored = {m.source.get("resource") for m in existing}
+    taken = {m.version for m in existing}
+    rx = re.compile(ds.source.resource_match)
+    found: list[tuple[store.Manifest, bytes]] = []
+    for res in p["resources"]:
+        name = (res.get("name") or "").strip()
+        if res["id"] == newest["id"] or res["id"] in stored or not rx.search(name):
+            continue
+        as_at = parse_as_at(name, ds.source.as_at_regex)
+        if not as_at:
+            msg = f"{ds.slug}: no as-at date in the resource name '{name}'"
+            raise FetchError(msg)
+        if as_at < ds.source.backfill_from:
+            continue
+        # A version dated after the newest would be read as the newest by every later fetch.
+        if as_at in taken or as_at >= existing[-1].version:
+            msg = f"{ds.slug}: '{name}' would be dated {as_at}, which is taken or after the newest version"
+            raise FetchError(msg)
+        r = _download(ds, s, res["url"])
+        data = r.content
+        expect_page(ds, res["url"], r, data)
+        check_licence_member(ds, data)
+        filename = resource_filename(res)
+        m = store.Manifest(
+            dataset=ds.slug,
+            version=as_at,
+            as_at=as_at,
+            fetched_at=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+            sha256=hashlib.sha256(data).hexdigest(),
+            bytes=len(data),
+            filename=filename,
+            encoding=_encoding(filename, data, ds.source.encoding),
+            source=_ckan_source(ds, p, res, r),
+            licence=licence,
+            backfilled=True,
+            notes=[BACKFILL_NOTE],
+        )
+        _check_release(ds, m, data)
+        m.spine = spine.recorded(ds.enrich, ds.slug, store_dir, held)
+        found.append((m, data))
+        taken.add(as_at)
+    for m, data in found:
+        store.write(store_dir, m, data)
+    return [m for m, _ in found]
 
 
 def _same_record(m: store.Manifest, p: CkanPackage, res: CkanResource) -> bool:

@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+import re
 from typing import TYPE_CHECKING, ClassVar, TypedDict, cast
 
 import pytest
@@ -30,7 +31,7 @@ from publicdata.fetch import (
 from publicdata.register import Field, Source, load
 from publicdata.spine import LAYERS
 
-from .conftest import ROOT, make_dataset
+from .conftest import ROOT, make_dataset, make_manifest
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -119,6 +120,8 @@ def test_a_release_named_by_its_month_runs_to_the_month_end() -> None:
     assert parse_as_at("June 2023 - Elective Surgery by Category", rx) == "2023-06-30"
     assert parse_as_at("February 2024", r"(\w+ \d{4})") == "2024-02-29"
     assert parse_as_at(f"Smarch 2025 {DASH} Elective Surgery by Category", rx) == ""
+    name = "Jun 2022 - Elective Surgery by Speciality - Summary  2"
+    assert parse_as_at(name, rx) == "2022-06-30"
 
 
 def test_a_quarterly_resource_is_dated_by_its_name(tmp_path: Path) -> None:
@@ -699,3 +702,142 @@ def test_a_portal_date_with_a_zone_and_no_time_reads_as_utc_midnight() -> None:
     assert f._normal_iso("2026-01-02Z") == "2026-01-02T00:00:00+00:00"
     assert f._normal_iso("2026-01-02T03:04:05Z") == "2026-01-02T03:04:05+00:00"
     assert f._normal_iso("2026-01-02T03:04:05") == "2026-01-02T03:04:05+00:00"
+
+
+ES_HEADER = (
+    b"Facility_Code,Facility_Name,Report_Month,Category,Vol_Treated,Percent_Treated_InTime,"
+    b"Percent_Variation_Treated_Prior_Year,Vol_Waiting,Vol_LongWaits,Percent_Waiting_InTime_Total,"
+    b"data_last_update,Vol_LongWaits_RFS,Vol_LongWaits_NRFS,Percent_Waiting_InTime_RFS\n"
+)
+
+
+def _es_portal(files: dict[str, bytes], got: list[str]) -> requests.Session:
+    """A stand-in portal listing a quarterly file for each named quarter, newest first."""
+
+    def res(rid: str) -> dict[str, str]:
+        month, created = {
+            "sep25": ("September 2025", "2025-12-10T02:07"),
+            "jun25": ("June 2025", "2025-12-10T02:03"),
+            "mar25": ("March 2025", "2025-07-17T01:00"),
+        }[rid]
+        return {
+            "id": rid,
+            "name": f"{month} {DASH} Elective Surgery by Category {DASH} Summary 1",
+            "url": f"https://portal.example/{rid}.csv",
+            "created": created,
+            "last_modified": "2025-12-10T02:08:43",
+        }
+
+    pkg = {
+        "success": True,
+        "result": {
+            "id": "p",
+            "name": "elective-surgery",
+            "metadata_modified": "2025-12-10T02:08:34",
+            "license_id": "CC-BY-4.0",
+            "resources": [res(r) for r in files],
+        },
+    }
+
+    class R:
+        def __init__(self, j: object = None, content: bytes = b"") -> None:
+            self._j, self.content, self.status_code = j, content, 200
+            self.headers: dict[str, str] = {}
+
+        def json(self) -> object:
+            return self._j
+
+        def raise_for_status(self) -> None:
+            pass
+
+    class S:
+        headers: ClassVar[dict[str, str]] = {}
+
+        def get(
+            self,
+            url: str,
+            params: object = None,
+            timeout: float | None = None,
+            *,
+            allow_redirects: bool | None = None,
+        ) -> R:
+            if "package_show" in url:
+                return R(pkg)
+            rid = url.rsplit("/", 1)[-1].removesuffix(".csv")
+            got.append(rid)
+            return R(content=files[rid])
+
+    return _as_session(S())
+
+
+def _es_row(month: str) -> bytes:
+    return f"1,Mater Adult,{month},1,788,98,7.7,162,0,100,28/07/2025,0,0,100\n".encode()
+
+
+def test_backfill_keeps_each_earlier_quarter_as_published_dated_by_its_name(
+    tmp_path: Path,
+) -> None:
+    ds = next(d for d in load(ROOT / "register") if d.slug == "qld-elective-surgery-by-category")
+    assert ds.source.backfill_from == "2025-06-30"
+    jun25 = ES_HEADER + _es_row("Jun-25")
+    files = {"sep25": ES_HEADER + _es_row("Sep-25"), "jun25": jun25, "mar25": b"not read"}
+    got: list[str] = []
+    # Nothing is backfilled until the newest release is stored.
+    assert f.backfill(ds, tmp_path, session=_es_portal(files, got)) == []
+    data, newest, _ = f.ckan_resource(ds, tmp_path, session=_es_portal(files, got))
+    assert data is not None
+    store.write(tmp_path, newest, data)
+    got.clear()
+
+    made = f.backfill(ds, tmp_path, session=_es_portal(files, got))
+    # March 2025 falls before backfill_from, so it is never downloaded.
+    assert got == ["jun25"]
+    assert [(m.version, m.as_at, m.backfilled) for m in made] == [
+        ("2025-06-30", "2025-06-30", True)
+    ]
+    m = made[0]
+    assert m.source["resource"] == "jun25"
+    assert m.notes == [f.BACKFILL_NOTE]
+    assert m.rows_sha256
+    assert (tmp_path / ds.slug / "2025-06-30" / "source.csv").read_bytes() == jun25
+    assert [v.version for v in store.manifests(tmp_path, ds.slug)] == ["2025-06-30", "2025-12-10"]
+
+    # A quarter already stored is not read again.
+    got.clear()
+    assert f.backfill(ds, tmp_path, session=_es_portal(files, got)) == []
+    assert got == []
+
+
+def test_backfill_stores_nothing_when_a_quarter_does_not_read_as_registered(
+    tmp_path: Path,
+) -> None:
+    ds = next(d for d in load(ROOT / "register") if d.slug == "qld-elective-surgery-by-category")
+    files = {
+        "sep25": ES_HEADER + _es_row("Sep-25"),
+        # An earlier file with no header row, as Queensland Health published before June 2025.
+        "jun25": _es_row("Jun-25"),
+    }
+    data, newest, _ = f.ckan_resource(ds, tmp_path, session=_es_portal(files, []))
+    assert data is not None
+    store.write(tmp_path, newest, data)
+    with pytest.raises(FetchError, match="does not read as the register describes"):
+        f.backfill(ds, tmp_path, session=_es_portal(files, []))
+    assert [v.version for v in store.manifests(tmp_path, ds.slug)] == ["2025-12-10"]
+
+
+def test_a_backfilled_version_is_counted_as_a_new_version_by_the_run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    made = make_manifest(b"x", dataset="qld-elective-surgery-by-category", version="2025-06-30")
+    monkeypatch.setattr(f, "fetch", lambda *_a, **_k: None)
+    monkeypatch.setattr(f, "backfill", lambda *_a, **_k: [made])
+    groups = tmp_path / "groups.json"
+    argv = ["fetch", "qld-elective-surgery-by-category", "--groups", str(groups)]
+    assert cli.main([*argv, "--store", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    # The same pattern fetch.yml counts to push the bytes and open a pull request.
+    assert len(re.findall(r": new (version|fetch) [0-9]{4}-", out)) == 1
+    assert "1 new version(s)" in out
+    assert json.loads(groups.read_text())["qld"] == [
+        f"{tmp_path.as_posix()}/qld-elective-surgery-by-category/2025-06-30/manifest.json"
+    ]
