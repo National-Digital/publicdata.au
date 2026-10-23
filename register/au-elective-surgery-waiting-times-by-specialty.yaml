@@ -91,6 +91,7 @@ source:
   header_row: 15
   cadence: several times a year
   as_at_regex: 'Data as of:\s*(?:[A-Za-z]+,\s*)?([A-Za-z]+ \d{1,2}, \d{4})'
+  release_regex: 'version:\s*(\d+)'
 suppression:
 - <5
 - NP

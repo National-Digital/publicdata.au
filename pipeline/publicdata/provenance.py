@@ -52,6 +52,9 @@ if TYPE_CHECKING:
     class _Places(TypedDict, total=False):
         places: HeaderPlaces
 
+    class _Release(TypedDict, total=False):
+        release: str
+
     class _Database(TypedDict, total=False):
         kind: str
         tables: list[str]
@@ -65,6 +68,7 @@ if TYPE_CHECKING:
         title: str
         version: str
         as_at: str | None
+        release: NotRequired[str]
         url: str
         publisher: HeaderPublisher
         licence: HeaderLicence
@@ -197,6 +201,8 @@ def header(ds: Dataset, m: Manifest, rows: int, url: str) -> Header:
         if ds.enrich
         else {}
     )
+    # The publisher's own release number, where the fetch read one.
+    release: _Release = {"release": str(m.source["release"])} if m.source.get("release") else {}
     database: _Database = (
         {"kind": "database", "tables": [t.name for t in ds.tables]} if ds.kind == "database" else {}
     )
@@ -207,6 +213,7 @@ def header(ds: Dataset, m: Manifest, rows: int, url: str) -> Header:
         "title": ds.title,
         "version": m.version,
         "as_at": m.as_at or None,
+        **release,
         "url": url,
         "publisher": {
             "name": ds.publisher.name,

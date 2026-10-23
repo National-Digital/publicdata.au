@@ -118,6 +118,7 @@ if TYPE_CHECKING:
         record_updated: JSON
         record_url: JSON
         records: JSON
+        release: JSON
         resource: JSON
         resource_last_modified: JSON
         resource_name: JSON

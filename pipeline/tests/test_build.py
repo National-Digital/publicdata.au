@@ -31,7 +31,7 @@ from publicdata.serialise import (
 )
 from publicdata.store import Manifest
 
-from .conftest import arr, make_manifest, obj, read_json
+from .conftest import arr, make_dataset, make_manifest, obj, read_json
 
 if TYPE_CHECKING:
     import pytest
@@ -592,3 +592,12 @@ def test_a_limited_build_measures_what_it_does_not_keep(
     full = tmp_path / "full"
     build_dataset(ds, fixture_store, full)
     assert read_json(full / "d" / ds.slug / "v" / "2026-04-24" / "manifest.json") == man
+
+
+def test_the_header_carries_the_publishers_release_number_beside_as_at() -> None:
+    ds = make_dataset([])
+    assert "release" not in prov_header(ds, make_manifest(b""), 0, "https://example.org/data.json")
+    m = make_manifest(b"", source={"url": "https://example.gov.au/f.xlsx", "release": "2026081901"})
+    h = prov_header(ds, m, 0, "https://example.org/data.json")
+    keys = list(h)
+    assert (keys[keys.index("as_at") + 1], h.get("release")) == ("release", "2026081901")

@@ -1211,8 +1211,9 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
     """A file at a fixed URL on the publisher's own site, with no portal record.
 
     The version is dated by the server's Last-Modified, or failing that by the fetch, and the
-    licence is the evidence page's own words, read every run. A workbook's as-at date comes from
-    the words above its header row, when the register gives the pattern that finds it.
+    licence is the evidence page's own words, read every run. A workbook's as-at date and release
+    number come from the words above its header row, when the register gives the patterns that find
+    them.
     """
     s = _session(session)
     licence = statement_licence(ds, s)
@@ -1243,10 +1244,15 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
         if ds.source.format
         else ds.source.url.split("?", 1)[0].rsplit("/", 1)[-1] or "source.bin"
     )
-    as_at = ""
-    if ds.source.as_at_regex and store.ext_of(filename) in ("xlsx", "xlsm"):
+    as_at, release = "", ""
+    if (ds.source.as_at_regex or ds.source.release_regex) and store.ext_of(filename) in (
+        "xlsx",
+        "xlsm",
+    ):
         head = workbook_head(data, ds.source.sheet, ds.source.header_row)
         as_at = parse_as_at(head, ds.source.as_at_regex)
+        found = re.search(ds.source.release_regex, head) if ds.source.release_regex else None
+        release = found.group(1).strip() if found else ""
     m = store.Manifest(
         dataset=ds.slug,
         version=version,
@@ -1260,6 +1266,7 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
             "url": ds.source.url,
             "etag": etag(r.headers),
             "http_last_modified": served,
+            **({"release": release} if release else {}),
         },
         licence=licence,
         notes=[n for n in (why, note) if n],

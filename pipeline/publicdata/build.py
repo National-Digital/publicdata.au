@@ -1438,6 +1438,11 @@ def build_dataset(
                     {
                         "version": v.manifest.version,
                         "as_at": v.manifest.as_at or None,
+                        **(
+                            {"release": v.manifest.source["release"]}
+                            if v.manifest.source.get("release")
+                            else {}
+                        ),
                         "url": version_url(ds.slug, v.manifest.version),
                         "rows": v.rows,
                         "fields": as_fetched(ds, v.manifest).field_count,

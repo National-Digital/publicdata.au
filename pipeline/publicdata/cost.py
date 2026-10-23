@@ -984,7 +984,7 @@ def changed_entries(register_dir: Path, paths: list[str], root: Path) -> dict[st
 
 
 # Source keys that change how a file is read, never which file or how much of it.
-QUIET_SOURCE_KEYS = ("cadence", "encoding", "as_at_regex")
+QUIET_SOURCE_KEYS = ("cadence", "encoding", "as_at_regex", "release_regex")
 # Top-level keys that change what a version publishes. partition_by is measured from the
 # catalogue's files, so it only changes the rebuild of stored versions.
 SHAPE_KEYS = ("unpivot", "wide", "enrich", "geometry", "kind", "database", "tables")
