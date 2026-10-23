@@ -131,6 +131,37 @@ def test_geojson_multipoint_gives_coordinates_only_when_it_holds_one_point() -> 
     assert got == [(1, 144.73, -37.27), (2, None, None), (3, None, None), (4, None, None)]
 
 
+def test_a_version_from_an_earlier_source_reads_the_column_by_its_earlier_name() -> None:
+    fields = [
+        Field("id", "ID", "integer"),
+        Field("x", LON_SOURCE, "number", was=("X",)),
+        Field("y", LAT_SOURCE, "number", was=("Y",)),
+    ]
+    ds = make_dataset(fields, key=("id",))
+    csv = b"X,Y,ID\n115.86,-31.95,1\n"
+    old = normalise(ds, make_manifest(csv), csv)
+    assert old.table.to_pylist() == [{"id": 1, "x": 115.86, "y": -31.95}]
+    assert old.unknown_columns == []
+    assert [f.source for f in old.dataset.fields] == ["ID", "X", "Y"]
+    fc = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [115.86, -31.95]},
+                "properties": {"ID": 1},
+            }
+        ],
+    }
+    data = json.dumps(fc).encode()
+    new = normalise(ds, make_manifest(data, filename="t.geojson", encoding="utf-8"), data)
+    assert new.table.to_pylist() == old.table.to_pylist()
+    assert new.dataset == ds
+    neither = b"ID\n1\n"
+    with pytest.raises(NormaliseError, match=r"absent upstream: \['\(longitude\)'"):
+        normalise(ds, make_manifest(neither), neither)
+
+
 def test_zip_source_reads_the_named_member() -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:

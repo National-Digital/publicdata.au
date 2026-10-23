@@ -15,7 +15,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import openpyxl
@@ -40,6 +40,8 @@ from .register import (
 from .spine import is_spine, read_points, read_shapes
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .store import Manifest
 
 # A column of any Arrow type. pyarrow-stubs types each compute function for the Arrow types it
@@ -589,6 +591,14 @@ def _is_shapefile(ext: str, member: str) -> bool:
     return ext in ("shp", "gpkg") or (ext == "zip" and member.lower().endswith((".shp", ".gpkg")))
 
 
+def _as_read(f: Field, upstream: Mapping[str, str]) -> Field:
+    """The field as this source holds it: under its own source, or else under an earlier name."""
+    if f.source in upstream or not f.was:
+        return f
+    was = next((w for w in f.was if w in upstream), None)
+    return replace(f, source=was) if was else f
+
+
 def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PLR0912, PLR0915 - the normalising steps, read in order
     held: list[str] = []
     short: list[int] = []
@@ -622,11 +632,15 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
         raw, held = unpivot(raw, ds)
 
     upstream = {c.strip(): c for c in raw.column_names}
-    own = [f for f in ds.fields if not is_spine(f.source)]
+    own = [_as_read(f, upstream) for f in ds.fields if not is_spine(f.source)]
     missing = [f.source for f in own if f.source not in upstream]
     if missing:
         msg = f"{ds.slug}: columns named in the register are absent upstream: {missing}"
         raise NormaliseError(msg)
+    if any(f.was for f in ds.fields):
+        # The schema names the column this version's source held.
+        read = {f.name: f for f in own}
+        ds = replace(ds, fields=tuple(read.get(f.name, f) for f in ds.fields))
     declared = {f.source for f in own}
     extra = [c for c in upstream if c not in declared] + held
     unknown = [c for c in extra if c not in ds.omit]
