@@ -730,6 +730,14 @@
           "examples": {
             "type": "array",
             "description": "Up to ten changed rows, each with its key and the fields that changed from and to"
+          },
+          "repeated_from": {
+            "type": "integer",
+            "description": "Rows of the older version that repeat an earlier row in every field, left out of the other counts. Present only when either version repeats a row"
+          },
+          "repeated_to": {
+            "type": "integer",
+            "description": "Rows of the newer version that repeat an earlier row in every field, left out of the other counts"
           }
         },
         "required": [

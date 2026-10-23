@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pyarrow as pa
@@ -19,17 +20,38 @@ EXAMPLES = 10
 ROW = "__row"
 
 
-def _indexed(t: pa.Table, key: tuple[str, ...]) -> pa.Table:
-    """The table as its JSON files show it, with each row's position, checked for a unique key."""
+def _indexed(t: pa.Table, key: tuple[str, ...]) -> tuple[pa.Table, int]:
+    """The table as its JSON files show it, one row per key, with each row's position.
+
+    A row that repeats an earlier row in every field is left out and counted, as some
+    publishers' exports repeat their last record. Two different rows under one key raise.
+    """
     v = json_view(t)
     v = v.append_column(ROW, pa.array(range(v.num_rows), pa.int64()))
     counts = v.group_by(list(key)).aggregate([(ROW, "count")])
     dup = counts.filter(pc.greater(counts[f"{ROW}_count"], 1))  # type: ignore[call-overload]  # pyarrow-stubs 20 takes no Python scalar
-    if dup.num_rows:
-        k = tuple(dup.slice(0, 1).select(list(key)).to_pylist()[0].values())
-        msg = f"key {key} is not unique: {k} appears twice"
-        raise ValueError(msg)
-    return v
+    if not dup.num_rows:
+        return v, 0
+    names = [f"__k{i}" for i in range(len(key))]
+    jv = pa.table([*_join_keys(v, key), v[ROW]], names=[*names, ROW])
+    jd = pa.table(_join_keys(dup, key), names=names)
+    rows = v.take(jv.join(jd, keys=names, join_type="inner")[ROW]).sort_by(ROW).to_pylist()
+    first: dict[tuple[JSON, ...], str] = {}
+    repeats: list[int] = []
+    for r in rows:
+        at = r.pop(ROW)
+        k = tuple(r[c] for c in key)
+        row = json.dumps(r, sort_keys=True, default=str)
+        if k not in first:
+            first[k] = row
+        elif row == first[k]:
+            repeats.append(at)
+        else:
+            msg = f"key {key} is not unique: {k} appears twice with different values"
+            raise ValueError(msg)
+    v = v.filter(pc.invert(pc.is_in(v[ROW], value_set=pa.array(repeats, pa.int64()))))
+    v = v.set_column(v.column_names.index(ROW), ROW, pa.array(range(v.num_rows), pa.int64()))
+    return v, len(repeats)
 
 
 NULL_KEY = "\0"
@@ -96,7 +118,7 @@ def diff(a: Table, b: Table) -> JSONObject:
     if not key:
         out["note"] = "No key is declared, so rows are compared by count only."
         return out
-    va, vb = _indexed(a.table, key), _indexed(b.table, key)
+    (va, rep_a), (vb, rep_b) = _indexed(a.table, key), _indexed(b.table, key)
     ka = va.select([*key, ROW]).rename_columns([*key, "__a"])
     kb = vb.select([*key, ROW]).rename_columns([*key, "__b"])
     if any(ka[k].type != kb[k].type for k in key):
@@ -154,4 +176,6 @@ def diff(a: Table, b: Table) -> JSONObject:
             "examples": examples,
         }
     )
+    if rep_a or rep_b:
+        out |= {"repeated_from": rep_a, "repeated_to": rep_b}
     return out
