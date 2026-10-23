@@ -618,8 +618,9 @@ rule carries `# nolint: <linter>. <reason>`.
   `(file)` holds the name of the file each row came from, which is often its period; `ckan-stack` stacks
   CSV resources as well as workbooks.
 - A point layer published as a shapefile or GeoPackage is read with its coordinates as `(longitude)` and
-  `(latitude)`, as published. A WFS that caps its answers sets `source.page_size` and is read page by
-  page into one GeoJSON file.
+  `(latitude)`, as published. A WFS or an ArcGIS layer query that caps its answers sets
+  `source.page_size` and is read page by page into one GeoJSON file. An ArcGIS answer that says it held
+  features back is refused.
 - A field's `was` lists the names its column had in an earlier source. When an entry moves to a new
   source whose column names differ, such as from a portal's CSV to the layer's GeoJSON, the versions
   stored from the old source are still read: a version whose source lacks the field's `source`
