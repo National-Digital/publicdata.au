@@ -429,6 +429,44 @@ def read_xml(data: bytes, record: str) -> pa.Table:
     )
 
 
+def _json_leaves(v: object, path: str, row: dict[str, list[str]]) -> None:
+    if isinstance(v, dict):
+        for k, x in v.items():
+            _json_leaves(x, f"{path}.{k}" if path else k, row)
+    elif isinstance(v, list):
+        for x in v:
+            _json_leaves(x, path, row)
+    else:
+        row.setdefault(path, []).append(_cell(v))
+
+
+def read_json(data: bytes, record: str, explode: str = "") -> pa.Table:
+    """One row per object in the list at the dotted path `record`.
+
+    Each value is a column named by its dotted path, and the values a list gives one path are
+    joined by XML_JOIN. With `explode`, a record gives one row per element of that list, the
+    element standing where the list stood, and a record whose list is empty gives none.
+    """
+    doc = json.loads(data.decode("utf-8-sig"))
+    for k in record.split("."):
+        doc = doc.get(k) if isinstance(doc, dict) else None
+    if not isinstance(doc, list):
+        msg = f"the JSON holds no list at '{record}'"
+        raise NormaliseError(msg)
+    header: list[str] = []
+    rows: list[dict[str, list[str]]] = []
+    for rec in doc:
+        parts = [{**rec, explode: x} for x in rec.get(explode) or []] if explode else [rec]
+        for part in parts:
+            row: dict[str, list[str]] = {}
+            _json_leaves(part, "", row)
+            header.extend(k for k in row if k not in header)
+            rows.append(row)
+    return pa.table(
+        {h: pa.array([XML_JOIN.join(r.get(h, [])) for r in rows], pa.string()) for h in header}
+    )
+
+
 def unwrap(data: bytes, ext: str, member: str) -> tuple[bytes, str]:
     """The data file out of a zip the publisher serves: the named member, or the only one."""
     if ext != "zip":
@@ -608,6 +646,8 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
             raw, held = read_wide(data, ds)
         elif ext in ("xlsx", "xlsm"):
             raw = read_xlsx(data, ds.source.sheet, ds.source.header_row)
+        elif ext == "json" and ds.source.record:
+            raw = read_json(data, ds.source.record, ds.source.explode)
         elif ext in ("geojson", "json"):
             raw = read_geojson(data)
         elif ext == "xml":

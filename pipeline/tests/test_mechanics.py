@@ -314,6 +314,15 @@ def test_a_file_stack_entry_names_its_link_pattern_and_header() -> None:
     assert parse(raw, "x").source.adapter == "file-stack"
 
 
+def test_a_json_explode_needs_the_record_path() -> None:
+    raw = _live(reviewed="2026-10-01", statement="words")
+    raw["source"] = {"adapter": "file", "url": "https://e/api", "format": "json", "explode": "maps"}
+    with pytest.raises(RegisterError, match="names a list"):
+        parse(raw, "x")
+    raw["source"]["record"] = "result"
+    assert parse(raw, "x").source.explode == "maps"
+
+
 XML = """﻿<?xml version="1.0" encoding="utf-8"?>
 <places xmlns="https://example.gov.au/ns">
   <place type="State" site_id="22"><ref>1</ref><name>Silos</name>
