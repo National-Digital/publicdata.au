@@ -215,6 +215,19 @@ def cmd_fetch(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912, PLR0915 
                 f"{d.slug}: new {what} {m.version} ({m.bytes} bytes, {m.encoding}, sha256 {m.sha256[:12]})"
                 + (f", snapshot: {m.cut}" if m.cut else "")
             )
+        try:
+            earlier = fetch.backfill(d, store_dir, held)
+        except (RuntimeError, ValueError, OSError, requests.RequestException) as e:
+            failed += 1
+            print(f"{d.slug}: FAILED backfill: {e}")
+            continue
+        for b in earlier:
+            changed += 1
+            groups.setdefault(jur, []).append(
+                (store_dir / d.slug / b.version / "manifest.json").as_posix()
+            )
+            # The run counts these lines to push the bytes and open a pull request.
+            print(f"{d.slug}: new version {b.version} ({b.bytes} bytes, {b.encoding}, backfilled)")
     if args.groups:
         Path(args.groups).write_text(json.dumps(groups, indent=2, sort_keys=True) + "\n")
     print(f"{changed} new version(s), {failed} failed, {due} manual download(s) due")

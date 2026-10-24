@@ -189,6 +189,59 @@ def test_a_column_first_published_later_is_null_before_its_since_version() -> No
         normalise(ds, make_manifest(old, version="2026-11-01"), old)
 
 
+API = {
+    "result": [
+        {
+            "code": "H1",
+            "type": {"code": "H"},
+            "names": ["Old name", "Older name"],
+            "closed": False,
+            "maps": [
+                {"to": {"code": "LHN1"}, "kind": "H_LHN"},
+                {"to": {"code": "NSW"}, "kind": "STATE"},
+            ],
+        },
+        {"code": "NSW", "type": {"code": "S"}, "names": [], "closed": None, "maps": []},
+    ],
+    "version_information": {"requested_time_stamp": "2026-10-23T08:15:19"},
+}
+
+
+def test_json_records_are_read_by_dotted_path_and_a_list_explodes_into_rows() -> None:
+    data = json.dumps(API).encode()
+    m = make_manifest(data, filename="t.json", encoding="utf-8")
+    units = [
+        Field("code", "code"),
+        Field("type_code", "type.code"),
+        Field("alternative_names", "names"),
+        Field("closed", "closed", "boolean", true_values=("true",), false_values=("false",)),
+    ]
+    src = Source(adapter="file", url="https://example.gov.au/api", record="result")
+    t = normalise(make_dataset(units, source=src), m, data)
+    assert t.table.to_pylist() == [
+        {
+            "code": "H1",
+            "type_code": "H",
+            "alternative_names": "Old name | Older name",
+            "closed": False,
+        },
+        {"code": "NSW", "type_code": "S", "alternative_names": None, "closed": None},
+    ]
+    assert t.unknown_columns == ["maps.to.code", "maps.kind"]
+
+    maps = [Field("code", "code"), Field("kind", "maps.kind"), Field("to", "maps.to.code")]
+    src = Source(adapter="file", url="https://example.gov.au/api", record="result", explode="maps")
+    t = normalise(make_dataset(maps, source=src), m, data)
+    assert t.table.to_pylist() == [
+        {"code": "H1", "kind": "H_LHN", "to": "LHN1"},
+        {"code": "H1", "kind": "STATE", "to": "NSW"},
+    ]
+
+    src = Source(adapter="file", url="https://example.gov.au/api", record="results")
+    with pytest.raises(NormaliseError, match="no list at 'results'"):
+        normalise(make_dataset(maps, source=src), m, data)
+
+
 def test_zip_source_reads_the_named_member() -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:

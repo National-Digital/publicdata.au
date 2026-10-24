@@ -1,0 +1,45 @@
+{
+  "dataset": "qld-gambling-expenditure",
+  "version": "2026-10-15",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:53:18+00:00",
+  "sha256": "c0c86b64a3031ca7d84be115b88f8c15f44cb37efc7b6de5998ea9b97091de75",
+  "bytes": 41811,
+  "filename": "monthly-player-expenditure-data-for-all-gaming-streams-in-queensland.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/143e6a32-b767-46ba-9191-0e210720fe2e/resource/25eacd43-e0ce-431e-8314-ab37d57ef645/download/monthly-player-expenditure-data-for-all-gaming-streams-in-queensland.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "all-gambling-data-queensland",
+    "package_id": "143e6a32-b767-46ba-9191-0e210720fe2e",
+    "resource": "25eacd43-e0ce-431e-8314-ab37d57ef645",
+    "resource_name": "All Gambling Data Queensland",
+    "resource_last_modified": "2026-10-15T00:04:43.373591",
+    "package_modified": "2026-10-15T00:04:49.402367",
+    "package_version": "1.0",
+    "etag": "8f9a2f3fe51e2200d91cbe800654352a",
+    "http_last_modified": "Thu, 15 Oct 2026 00:04:44 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=all-gambling-data-queensland",
+    "read_at": "2026-10-19T20:53:18+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "ddc1212a8dc41c62b1afdcdebd01bf73c436123476371b05b421473352ad9854",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month",
+      "game_stream"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

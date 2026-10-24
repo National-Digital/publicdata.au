@@ -1,0 +1,41 @@
+{
+  "dataset": "qld-median-rents-by-suburb",
+  "version": "2026-10-15",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:06:59+00:00",
+  "sha256": "1e3169e4deee970179dc5d26c29d53d7443a4777bbb496aefa7e8084ef0c05bf",
+  "bytes": 6391803,
+  "filename": "rta-bond-statistics.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.rta.qld.gov.au/sites/default/files/2023-04/rta-bond-statistics.xlsx",
+    "etag": "6ad04f5e-6187fb",
+    "http_last_modified": "Thu, 15 Oct 2026 03:58:22 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0-AU",
+    "stated": "The RTA has applied the Creative Commons Attribution 3.0 Australia Licence",
+    "normalised": "CC-BY-3.0-AU",
+    "title": "CC BY 3.0 AU",
+    "url": "https://www.rta.qld.gov.au/copyright",
+    "read_from": "https://www.rta.qld.gov.au/copyright",
+    "read_at": "2026-10-19T21:06:57+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "35bd70667a241b7540d7c6ae06d2b55ea2b468e555b643d8eafa5a92b8db9325",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "suburb",
+      "dwelling",
+      "year",
+      "quarter_month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

@@ -1,0 +1,111 @@
+slug: au-ed-presentations
+title: Emergency department presentations by hospital and triage category, Australia
+status: live
+topics:
+- health
+example:
+  where:
+    year: newest
+    reporting_unit_type: State
+  group: reporting_unit
+  metric: sum.presentations
+  label: Emergency department presentations in each state in the newest year
+sample:
+  where:
+    year: newest
+    reporting_unit_type: Hospital
+    triage_category: Resuscitation
+  order:
+  - presentations.desc
+  spread: state
+  label: Resuscitation presentations at the busiest hospitals in the newest year, the busiest hospital in each
+    state first, then the next busiest.
+order: 509
+collection: au-myhospitals
+collection_title: AIHW MyHospitals
+publisher:
+  name: Australian Institute of Health and Welfare
+  short: AIHW
+  jurisdiction: Cth
+  url: https://www.aihw.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  evidence: https://www.aihw.gov.au/copyright
+  statement: has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence
+  attribution: Based on Australian Institute of Health and Welfare material. Australian Institute of Health
+    and Welfare, Australian Government, MyHospitals Data API, emergency department data extract, sourced
+    {sourced}, https://myhospitalsapi.aihw.gov.au/, licensed under CC BY 4.0.
+temporal_start: '2011-07-01'
+search_title: Emergency department presentations by hospital and triage category, Australia (AIHW
+  MyHospitals)
+also_known_as:
+- ED presentations by hospital
+- Emergency department visits by hospital
+- Number of emergency department presentations Australia
+keywords:
+- emergency department
+- presentations
+- triage
+- public hospitals
+- MyHospitals
+- AIHW
+faq:
+- q: What is in each row?
+  a: One public hospital, Local Hospital Network, state or the nation, one financial year from 2011-12 and
+    one triage category. It gives the number of presentations to the emergency department.
+- q: What do the blanks mean?
+  a: The Institute writes `<5` for a count under five. Those cells are null here with a suppressed flag, and
+    the markers column keeps the code.
+summary: The number of emergency department presentations in each triage category, for each public hospital,
+  network and state each year since 2011-12, from AIHW MyHospitals.
+description: The Presentations sheet of the MyHospitals emergency department data extract from the AIHW
+  MyHospitals Data API. Each row is one reporting unit, financial year and triage category, with the number
+  of presentations.
+source:
+  adapter: file
+  url: https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-ed
+  format: xlsx
+  sheet: Presentations
+  header_row: 16
+  cadence: several times a year
+suppression:
+- <5
+markers:
+  <5: The Institute's notes do not define this code. It appears only in the number of presentations.
+key:
+- reporting_unit
+- reporting_unit_type
+- year
+- triage_category
+partition_by:
+- state
+row_label: Hospital, year and triage rows
+fields:
+- name: reporting_unit
+  label: Hospital or network
+  source: Reporting unit
+  type: string
+- name: reporting_unit_type
+  label: Reporting unit type
+  source: Reporting unit type
+  type: string
+- name: state
+  label: State
+  source: State
+  type: string
+- name: year
+  label: Financial year
+  source: Year
+  type: string
+- name: triage_category
+  label: Triage category
+  source: Triage category
+  type: string
+- name: presentations
+  label: Presentations
+  source: Number of presentations
+  type: integer
+omit:
+  ? ''
+  : A column with no header in the publisher's file, which has no name to publish it under.

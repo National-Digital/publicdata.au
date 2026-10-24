@@ -550,7 +550,12 @@ rule carries `# nolint: <linter>. <reason>`.
   the layer number). Each reads the licence the portal states on every run and checks the id
   worked out from its words, or the portal's own licence code when the entry names it in
   `licence.portal_id`. A `ckan-resource` whose file host turns
-  automated clients away sets `manual: true` (see "Manual sources" above).
+  automated clients away sets `manual: true` (see "Manual sources" above). A `ckan-resource` that
+  follows the newest of a package's releases by `resource_match` and `as_at_regex` can set
+  `backfill_from` to a date. Each fetch then also stores every earlier matching release whose as-at
+  date falls on or after it, as published, as a version dated by that as-at date and marked
+  `backfilled`. A release already stored is not read again, and a release that does not read as the
+  entry describes stops the backfill before anything is stored.
 - Each fetch records in the version's manifest where it read the licence (`licence.read_from`) and when
   (`licence.read_at`), and a fetch whose adapter records neither is refused. `licence.reviewed` in the
   register is the date the evidence page was read and the licence decided; a live entry needs it.
@@ -633,6 +638,11 @@ rule carries `# nolint: <linter>. <reason>`.
   files, so raise its `rebuild` in the same pull request.
 - An XML file is read one row per element named in `source.record`: its attributes as `@name`, each
   child's text by the child's name, and a child that repeats joined by ` | `.
+- A JSON file that is not GeoJSON is read one row per object in the list at the dotted path in
+  `source.record`, such as `result`. Each value's column is its dotted path inside the object, such
+  as `reporting_unit_type.reporting_unit_type_code`, and the values a list gives one path are joined
+  by ` | `. `source.explode` names a list in each object that gives one row per element instead.
+  An object whose list is empty gives no row.
 - The MCP tool definitions in `pipeline/publicdata/api.json` must pass a static check. Each tool
   opens with a sentence saying what it does, names another tool to say when to use it, describes
   every parameter, states what a call costs against the rate limit and what comes back, carries

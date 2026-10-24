@@ -1,0 +1,113 @@
+slug: au-myhospitals-reporting-units
+title: Reporting unit codes and alternative names in MyHospitals, Australia
+status: live
+topics:
+- health
+order: 508
+collection: au-myhospitals
+collection_title: AIHW MyHospitals
+publisher:
+  name: Australian Institute of Health and Welfare
+  short: AIHW
+  jurisdiction: Cth
+  url: https://www.aihw.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  evidence: https://www.aihw.gov.au/copyright
+  statement: has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence
+  attribution: Based on Australian Institute of Health and Welfare material. Australian Institute of Health
+    and Welfare, Australian Government, MyHospitals Data API, reporting units, sourced {sourced},
+    https://myhospitalsapi.aihw.gov.au/, licensed under CC BY 4.0.
+search_title: MyHospitals hospital codes and alternative hospital names (AIHW)
+also_known_as:
+- MyHospitals reporting unit codes
+- Hospital alternative names Australia
+- MyHospitals hospital codes
+keywords:
+- MyHospitals
+- reporting units
+- hospital codes
+- alternative names
+- Local Hospital Network
+- AIHW
+faq:
+- q: What is in each row?
+  a: One reporting unit of the MyHospitals Data API, which is a hospital, a Local Hospital Network, a Primary
+    Health Network, a peer group, a state or the nation. Each row has the unit's code, its current name, its
+    type, the other names the Institute lists for it, and whether it is private and whether it is closed.
+- q: How are the alternative names written?
+  a: A unit with more than one alternative name has them in one cell, separated by ` | `, in the order the
+    Institute lists them. A unit with none has a blank cell. An alternative name may be a short name or an
+    earlier name.
+- q: Where are the Local Hospital Network codes?
+  a: The reporting unit mappings in this collection list the Local Hospital Network, Primary Health Network
+    and state each unit maps to, by code. The hospital list in this collection has each unit's coordinates.
+    The Institute has not endorsed this site.
+summary: Every reporting unit in AIHW MyHospitals, about 1,400 rows, with its code, current name, type and
+  the alternative names the Institute lists for it.
+description: The reporting units list of the AIHW MyHospitals Data API. Each row is one reporting unit with
+  its code, name, type, alternative names, and whether it is private and closed.
+source:
+  adapter: file
+  url: https://myhospitalsapi.aihw.gov.au/api/v1/reporting-units
+  format: json
+  record: result
+  cadence: several times a year
+key:
+- code
+partition_by:
+- type_name
+row_label: Reporting units
+fields:
+- name: code
+  label: Reporting unit code
+  source: reporting_unit_code
+  type: string
+- name: name
+  label: Name
+  source: reporting_unit_name
+  type: string
+- name: type_code
+  label: Type code
+  source: reporting_unit_type.reporting_unit_type_code
+  type: string
+- name: type_name
+  label: Type
+  source: reporting_unit_type.reporting_unit_type_name
+  type: string
+- name: alternative_names
+  label: Alternative names
+  source: alternative_names
+  type: string
+- name: private
+  label: Private
+  source: private
+  type: boolean
+  true_values:
+  - 'true'
+  false_values:
+  - 'false'
+- name: closed
+  label: Closed
+  source: closed
+  type: boolean
+  true_values:
+  - 'true'
+  false_values:
+  - 'false'
+omit:
+  latitude: The unit's latitude, which the hospital list in this collection publishes.
+  longitude: The unit's longitude, which the hospital list in this collection publishes.
+  mapped_reporting_units.mapped_reporting_unit.reporting_unit_code: The units this one maps to, which the
+    reporting unit mappings in this collection publish one row each.
+  mapped_reporting_units.mapped_reporting_unit.reporting_unit_name: The units this one maps to, which the
+    reporting unit mappings in this collection publish one row each.
+  mapped_reporting_units.mapped_reporting_unit.reporting_unit_type.reporting_unit_type_code: The units this
+    one maps to, which the reporting unit mappings in this collection publish one row each.
+  mapped_reporting_units.mapped_reporting_unit.reporting_unit_type.reporting_unit_type_name: The units this
+    one maps to, which the reporting unit mappings in this collection publish one row each.
+  mapped_reporting_units.map_type.mapped_reporting_unit_code: The units this one maps to, which the reporting
+    unit mappings in this collection publish one row each.
+  mapped_reporting_units.map_type.mapped_reporting_unit_name: The units this one maps to, which the reporting
+    unit mappings in this collection publish one row each.

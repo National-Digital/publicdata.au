@@ -59,8 +59,10 @@ if TYPE_CHECKING:
         providers: list[object]
         feed: object
         record: object
+        explode: object
         format: object
         page_size: int
+        backfill_from: object
         browser: object
 
     class RawField(TypedDict, total=False):
@@ -497,13 +499,34 @@ class Source:
     # A live feed: a view of what is current, with no change date of its own. It is fetched daily,
     # and each day it changes is one version dated by that day.
     feed: bool = False
-    # The element each row is read from, for an XML file.
+    # The element each row is read from, for an XML file, or the dotted path to the list of
+    # records in a JSON file.
     record: str = ""
+    # A list in each JSON record that gives one row per element.
+    explode: str = ""
     # The file's format when its URL does not end in one, such as a WFS request: geojson, csv or xml.
     format: str = ""
     # A WFS GetFeature that caps each answer: the features asked for per request, read page by page
     # with startIndex into one GeoJSON file.
     page_size: int = 0
+    # The earliest as-at date of the earlier releases a package still lists that are kept too.
+    backfill_from: str = ""
+
+
+def _check_backfill(ds: Dataset, ctx: str) -> None:
+    """A backfill reads each earlier release by name and dates it by its own as-at date."""
+    src = ds.source
+    if not (src.adapter == "ckan-resource" and src.resource_match and src.as_at_regex):
+        msg = (
+            f"{ctx}: source.backfill_from needs a ckan-resource with resource_match and as_at_regex"
+        )
+        raise RegisterError(msg)
+    if src.manual or ds.update != "release":
+        msg = f"{ctx}: source.backfill_from is for a release whose files the fetch downloads"
+        raise RegisterError(msg)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", src.backfill_from):
+        msg = f"{ctx}: source.backfill_from is a date, YYYY-MM-DD"
+        raise RegisterError(msg)
 
 
 @dataclass(frozen=True)
@@ -726,14 +749,19 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         providers=tuple(str(x) for x in (src.get("providers") or [])),
         feed=_bool(src.get("feed", False), f"{ctx}.source.feed"),
         record=str(src.get("record", "")),
+        explode=str(src.get("explode", "")),
         format=str(src.get("format", "")).lstrip(".").lower(),
         page_size=int(src.get("page_size", 0)),
+        backfill_from=str(src.get("backfill_from", "")),
     )
     if source.manual and source.adapter not in ("ckan-resource", "ckan-stack"):
         msg = f"{ctx}: source.manual needs a ckan-resource or ckan-stack, whose portal records date it"
         raise RegisterError(msg)
     if "browser" in src:
         msg = f"{ctx}: source.browser is now source.manual"
+        raise RegisterError(msg)
+    if source.explode and not source.record:
+        msg = f"{ctx}: source.explode names a list inside the records source.record points to"
         raise RegisterError(msg)
     if source.delimiter and source.delimiter != "tab" and len(source.delimiter) != 1:
         msg = f"{ctx}: source.delimiter is 'tab' or one character"
@@ -967,6 +995,8 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
             if not (ds.source.resource or ds.source.resource_match):
                 msg = f"{ctx}: source needs resource or resource_match"
                 raise RegisterError(msg)
+        if ds.source.backfill_from:
+            _check_backfill(ds, ctx)
     for topic in ds.topics:
         if topic not in TOPICS:
             msg = f"{ctx}: unknown topic '{topic}', the topics are {sorted(TOPICS)}"
