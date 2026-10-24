@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-coastal-waves-townsville",
+  "version": "2026-10-15",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:51:28+00:00",
+  "sha256": "9f30cfc65b9770434598762c4668ebc74b9d20180feada6e4871adaecaeae89c",
+  "bytes": 711222,
+  "filename": "townsville_2026-01-01t00_00-2026-09-30t23_59_waveverifieddata.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b00164a7-094e-4cf9-b0d4-176a7f24e9d2/resource/73beb0ec-b3b0-48bc-a424-3ae425c1f97d/download/townsville_2026-01-01t00_00-2026-09-30t23_59_waveverifieddata.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "coastal-data-system-waves-townsville",
+    "package_id": "b00164a7-094e-4cf9-b0d4-176a7f24e9d2",
+    "resource": "73beb0ec-b3b0-48bc-a424-3ae425c1f97d",
+    "resource_name": "Wave data - 2026",
+    "resource_last_modified": "2026-10-15T04:20:35.793299",
+    "package_modified": "2026-10-15T04:23:09.607721",
+    "package_version": "1",
+    "etag": "f5f6272a4dbbf1fdef81e4d57014bc15",
+    "http_last_modified": "Thu, 15 Oct 2026 04:19:59 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=coastal-data-system-waves-townsville",
+    "read_at": "2026-10-19T20:51:27+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "7c61f332f404f491c9fe52940b6a28189d6eb6f7377905e8f6ff5a06131f28b5",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date_time"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

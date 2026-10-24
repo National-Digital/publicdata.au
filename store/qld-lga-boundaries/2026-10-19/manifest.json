@@ -1,0 +1,48 @@
+{
+  "dataset": "qld-lga-boundaries",
+  "version": "2026-10-19",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:52:39+00:00",
+  "sha256": "d2273e637e561b841826979c8da45cc6fdaa02fffb8a15705401769b89b92c43",
+  "bytes": 12811870,
+  "filename": "qld-lga-boundaries.geojson",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Boundaries/AdministrativeBoundaries/MapServer/1",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "local-government-area-boundaries-queensland",
+    "package_id": "91373c0b-7d98-4fea-8ef3-ad099c78d6ba",
+    "package_modified": "2026-10-18T15:19:53.656884",
+    "layer_name": "Local government",
+    "object_id_field": "objectid",
+    "last_edit_date": null,
+    "newest_record": null,
+    "features": 78,
+    "date_fields": []
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC-BY-4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=local-government-area-boundaries-queensland",
+    "read_at": "2026-10-19T20:52:37+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The layer states no edit date or dated records, so this version is dated by the portal record.",
+    "The publisher offers no file. These bytes are every feature of the layer as the service returned them in WGS84, ordered by its object id, so the same layer gives the same bytes."
+  ],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "lga_code"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

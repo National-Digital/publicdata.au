@@ -1,0 +1,49 @@
+{
+  "dataset": "qld-roadside-amenities",
+  "version": "2022-10-28",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:07:16+00:00",
+  "sha256": "ee82f23669e98eb49aa5fdaf10e973ab92b083fbfbaa0c06acb3148abc59369c",
+  "bytes": 844562,
+  "filename": "qld-roadside-amenities.geojson",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Transportation/StateRoadInformation/MapServer/17",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "roadside-amenities-queensland",
+    "package_id": "473448fc-bfb6-4ac6-9955-8e932e6a3e30",
+    "package_modified": "2022-10-28T05:21:18.312345",
+    "layer_name": "Roadside amenities",
+    "object_id_field": "objectid",
+    "last_edit_date": null,
+    "newest_record": null,
+    "features": 1066,
+    "date_fields": []
+  },
+  "licence": {
+    "id": "CC-BY-3.0-AU",
+    "stated": "CC-BY-3.0",
+    "normalised": "CC-BY-3.0-AU",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=roadside-amenities-queensland",
+    "read_at": "2026-10-19T21:07:16+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The layer states no edit date or dated records, so this version is dated by the portal record.",
+    "The publisher offers no file. These bytes are every feature of the layer as the service returned them in WGS84, ordered by its object id, so the same layer gives the same bytes."
+  ],
+  "rows_sha256": "393d52a43e409b434eb10a3f85a53e2ce7bc3d5552627fabdb03903cac38181d",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "ra_id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

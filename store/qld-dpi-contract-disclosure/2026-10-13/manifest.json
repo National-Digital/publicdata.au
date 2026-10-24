@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-dpi-contract-disclosure",
+  "version": "2026-10-13",
+  "as_at": "",
+  "fetched_at": "2026-10-19T20:50:48+00:00",
+  "sha256": "092e53e0be4483e700cc4231c844d5a4125ff7684c668e454f29bbd7e01fe7ab",
+  "bytes": 218570,
+  "filename": "dpi-contracts-disclosure-report.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/3312bed1-bfbd-4580-aa8d-fee94fd9a06b/resource/d3ba5b0d-0cb0-438f-8cf5-3e396f3bc7a4/download/dpi-contracts-disclosure-report.xlsx",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "contract-disclosures-dpi",
+    "package_id": "3312bed1-bfbd-4580-aa8d-fee94fd9a06b",
+    "resource": "d3ba5b0d-0cb0-438f-8cf5-3e396f3bc7a4",
+    "resource_name": "DPI contract disclosures report — July 2025 onwards",
+    "resource_last_modified": "2026-10-13T00:31:07.512429",
+    "package_modified": "2026-10-13T00:31:16.082367",
+    "package_version": "1.0",
+    "etag": "a2688eade369d81e22ba44fa08be5bc3",
+    "http_last_modified": "Tue, 13 Oct 2026 00:31:09 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=contract-disclosures-dpi",
+    "read_at": "2026-10-19T20:50:47+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "78154a2ddbbe40181f1117ff0896cdbd2faa70b23822b3e63bb380afb5dc6537",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
