@@ -1,0 +1,38 @@
+{
+  "dataset": "act-barbecues",
+  "version": "2026-10-18",
+  "as_at": "",
+  "fetched_at": "2026-10-19T21:05:22+00:00",
+  "sha256": "947c5eb108bec3956b43658e62d85788181878225cd625f4ffc777f60f5c2ba6",
+  "bytes": 264137,
+  "filename": "qxhv-bxbv.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/resource/qxhv-bxbv.geojson?$limit=50000&$order=:id",
+    "etag": "aW5kaWEuNDUyMThfMl8zMjNqNlp3SU9jRGlKa1BvWnV6Y0R3bmdLckk2Yw---gziqJtFpVJULkjjmR3E1V3rBAHZyds--gzip--gzip",
+    "http_last_modified": "Sat, 17 Oct 2026 16:54:59 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "Creative Commons Attribution 4.0 International",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.data.act.gov.au/d/qxhv-bxbv",
+    "read_from": "https://www.data.act.gov.au/d/qxhv-bxbv",
+    "read_at": "2026-10-19T21:05:22+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "58aeb5d5e2a36b592be78ba53825a001165614cb378fffbf06b36c797e61d02e",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "asset_id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
