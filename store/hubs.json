@@ -854,6 +854,10 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-land-valuation-trends-2002-2009",
       "zenodo": "10.5281/zenodo.23122505"
     },
+    "qld-lga-boundaries": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/qld-lga-boundaries",
+      "zenodo": "10.5281/zenodo.23615024"
+    },
     "qld-locality-boundaries": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-locality-boundaries",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-locality-boundaries",
@@ -1013,6 +1017,11 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-road-crash-vehicle-types",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-road-crash-vehicle-types",
       "zenodo": "10.5281/zenodo.23076653"
+    },
+    "qld-roadside-amenities": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/qld-roadside-amenities",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-roadside-amenities",
+      "zenodo": "10.5281/zenodo.23615118"
     },
     "qld-rural-fire-stations": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-rural-fire-stations",
