@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from publicdata.jsontypes import JSON, JSONObject
     from publicdata.normalise import Arr, Table
     from publicdata.provenance import Header
-    from publicdata.register import Dataset
+    from publicdata.register import Dataset, Field
 
     type Writer = Callable[[Table, Header, Path, Path], None]
 
@@ -237,6 +237,14 @@ def iter_rows(t: pa.Table, batch: int = 20_000) -> Iterator[dict[str, object]]:
         yield from b.to_pylist()
 
 
+def _since(f: Field) -> JSONObject:
+    """The schema's word on a column the source first carries in a later version."""
+    if not f.since:
+        return {}
+    note = f"The source first carries this column in version {f.since}. It is null in every earlier version."
+    return {"publicdata:since": {"version": f.since, "note": note}}
+
+
 def table_schema(tbl: Table) -> JSONObject:  # noqa: C901 - one branch per field type
     ds = tbl.dataset
     used = {p["layer"]: p for p in tbl.places}
@@ -260,6 +268,7 @@ def table_schema(tbl: Table) -> JSONObject:  # noqa: C901 - one branch per field
             d["falseValues"] = list(f.false_values)
         if f.note:
             d["publicdata:note"] = f.note
+        d |= _since(f)
         fields.append(d)
     if "suppressed" in tbl.table.column_names:
         fields.append(

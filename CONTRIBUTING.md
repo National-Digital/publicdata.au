@@ -625,6 +625,12 @@ rule carries `# nolint: <linter>. <reason>`.
   source whose column names differ, such as from a portal's CSV to the layer's GeoJSON, the versions
   stored from the old source are still read: a version whose source lacks the field's `source`
   reads the first `was` name it holds, and its `schema.json` names that column.
+- A field's `since` is the date of the first version whose source carries its column, for a
+  column the publisher adds partway through a dataset's history. A version dated before it holds
+  the column as null, and a version on or after it whose source lacks the column fails as any
+  other would. `schema.json` gives the date under `publicdata:since`. A key or partition field
+  cannot have `since`. Adding a field with `since` to an entry with stored versions changes their
+  files, so raise its `rebuild` in the same pull request.
 - An XML file is read one row per element named in `source.record`: its attributes as `@name`, each
   child's text by the child's name, and a child that repeats joined by ` | `.
 - The MCP tool definitions in `pipeline/publicdata/api.json` must pass a static check. Each tool
