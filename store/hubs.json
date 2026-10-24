@@ -856,6 +856,7 @@
     },
     "qld-lga-boundaries": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-lga-boundaries",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-lga-boundaries",
       "zenodo": "10.5281/zenodo.23615024"
     },
     "qld-locality-boundaries": {
