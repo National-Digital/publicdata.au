@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         footnote_marks: object
         file_match: object
         as_at_regex: object
+        release_regex: object
         sheet: object
         header_row: int
         package_match: object
@@ -476,6 +477,7 @@ class Source:
     footnote_marks: bool = field(default=False, repr=False)
     file_match: str = field(default="", repr=False)
     as_at_regex: str = ""
+    release_regex: str = ""
     sheet: str = ""
     header_row: int = 1
     # A publisher that adds a file (or a package) for each release instead of replacing one is
@@ -710,6 +712,7 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         footnote_marks=_bool(src.get("footnote_marks", False), f"{ctx}.source.footnote_marks"),
         file_match=str(src.get("file_match", "")),
         as_at_regex=str(src.get("as_at_regex", "")),
+        release_regex=str(src.get("release_regex", "")),
         sheet=str(src.get("sheet", "")),
         header_row=int(src.get("header_row", 1)),
         package_match=str(src.get("package_match", "")),

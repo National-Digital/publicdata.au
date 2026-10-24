@@ -363,6 +363,7 @@ def test_a_workbook_is_dated_by_the_words_above_its_header(
             sheet="Data",
             header_row=4,
             as_at_regex=rx,
+            release_regex=r"version:\s*(\d+)",
         ),
     )
     book = _dated_book("Data as of: Wednesday, August 19, 2026, version: 2026081901")
@@ -371,10 +372,11 @@ def test_a_workbook_is_dated_by_the_words_above_its_header(
         "https://example.gov.au/files/t": Resp(book),
     }
     _, m, _ = run("file", ds, routes, tmp_path, monkeypatch)
-    assert m.as_at == "2026-08-19"
+    assert (m.as_at, m.source["release"]) == ("2026-08-19", "2026081901")
     routes["https://example.gov.au/files/t"] = Resp(_dated_book("No date stated"))
     _, m, _ = run("file", ds, routes, tmp_path, monkeypatch)
     assert m.as_at == ""
+    assert "release" not in m.source
     _, m, _ = run(
         "file",
         file_ds(),
