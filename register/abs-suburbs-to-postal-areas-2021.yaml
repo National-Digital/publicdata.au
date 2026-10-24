@@ -1,0 +1,106 @@
+slug: abs-suburbs-to-postal-areas-2021
+title: Suburbs and localities to postal areas correspondence, 2021, Australia
+status: live
+topics:
+- places
+example:
+  where: {ratio_from_to: {lt: 1}}
+  group: quality_indicator
+  label: Suburbs split across postal areas, by the ABS quality rating
+chart: none
+order: 127
+publisher:
+  name: Australian Bureau of Statistics
+  short: ABS
+  jurisdiction: Cth
+  url: https://www.abs.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  portal_id: cc-by-4.0
+  evidence: https://data.gov.au/data/dataset/asgs-edition-3-2021-correspondences
+  attribution: Australian Bureau of Statistics, ASGS Geographic Correspondences (2021) Edition 3, CG_SAL_2021_POA_2021.xlsx,
+    sourced {sourced}, https://data.gov.au/data/dataset/asgs-edition-3-2021-correspondences, licensed under CC BY 4.0.
+search_title: 'Suburb to postcode lookup: which postal areas each suburb falls in, Australia (ABS 2021)'
+also_known_as:
+- suburb to postcode correspondence
+- postcode to suburb lookup Australia
+- SAL to POA correspondence 2021
+- CG_SAL_2021_POA_2021
+keywords:
+- suburb
+- locality
+- postcode
+- postal area
+- correspondence
+- SAL
+- POA
+- ASGS
+- ABS
+faq:
+- q: What is in each row?
+  a: One pair of a suburb or locality and a postal area that it shares population with, as the ABS publishes the pair
+    in its 2021 correspondence. A suburb that lies in one postal area has one row with a ratio of 1. A suburb split
+    across postal areas has a row for each, and its ratios add to 1.
+- q: How is the ratio worked out?
+  a: The ABS weights its standard correspondences by where people live, using population modelled to residential
+    address locations. The ratio is the share of the suburb's population that the ABS places in the postal area.
+    This site publishes the ratio as the ABS gives it and computes none of its own.
+- q: What do the quality columns mean?
+  a: The ABS rates each row and the whole correspondence as Good, Acceptable or Poor, by how well it expects data to
+    convert from the suburb to the postal area. The flag `bmos_null_flag` is 0 for an ordinary row and 1 for a row
+    whose ratio is below the ABS's minimum output size, usually 0.01.
+- q: How does this join to other datasets here?
+  a: The suburb code matches `sal_2021_code` in the ABS suburb and locality boundaries, and the postal area code
+    matches `poa_2021_code` in the ABS postal area boundaries. Both codes are text, so Northern Territory postcodes
+    keep their leading zero, such as 0800.
+summary: The ABS correspondence from each of the 2021 suburbs and localities to the postal areas it falls in, with the
+  ABS's population ratio and quality rating for each pair.
+description: The file CG_SAL_2021_POA_2021.xlsx from the ABS ASGS Geographic Correspondences (2021) Edition 3. Each
+  row is one suburb or locality and one postal area, with the share of the suburb's population that the ABS places
+  in that postal area and the ABS's quality indicators. The ABS rows for no usual address, migratory, offshore and
+  shipping, and outside Australia are kept, so every ABS code is in the table.
+sample:
+  spread: quality_indicator
+source:
+  adapter: ckan-resource
+  portal: https://data.gov.au/data
+  package: asgs-edition-3-2021-correspondences
+  resource: 33d822ba-138e-47ae-a15f-460279c3acc3
+  url: https://data.gov.au/data/dataset/asgs-edition-3-2021-correspondences
+  member: CG_SAL_2021_POA_2021.xlsx
+  sheet: CG_SAL_2021_POA_2021
+  cadence: when the ABS releases a new edition, after each Census
+key:
+- sal_2021_code
+- poa_2021_code
+row_label: Suburb and postal area pairs
+fields:
+- name: sal_2021_code
+  label: Suburb or locality code (2021)
+  source: SAL_CODE_2021
+  type: string
+- name: sal_2021_name
+  label: Suburb or locality (2021)
+  source: SAL_NAME_2021
+  type: string
+- name: poa_2021_code
+  label: Postal area code (2021)
+  source: POA_CODE_2021
+  type: string
+- name: ratio_from_to
+  label: Share of the suburb's population in the postal area
+  source: RATIO_FROM_TO
+  type: number
+- name: quality_indicator
+  label: Quality of this pair
+  source: INDIV_TO_REGION_QLTY_INDICATOR
+  type: string
+- name: overall_quality_indicator
+  label: Quality of the whole correspondence
+  source: OVERALL_QUALITY_INDICATOR
+  type: string
+- name: bmos_null_flag
+  label: Below minimum output size or null flag
+  source: BMOS_NULL_FLAG
+  type: integer
