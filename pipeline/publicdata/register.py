@@ -78,6 +78,7 @@ if TYPE_CHECKING:
         label: object
         references: object
         was: list[object]
+        since: object
 
     class RawUnpivot(TypedDict, total=False):
         headers: object
@@ -328,6 +329,8 @@ class Field:
     references: str = ""
     # The column's names in an earlier source, read by a version whose source lacks `source`.
     was: tuple[str, ...] = ()
+    # The first version whose source carries the column; earlier versions hold it as null.
+    since: str = ""
 
     @property
     def display(self) -> str:
@@ -803,6 +806,9 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         if k not in seen:
             msg = f"{ctx}: key/partition field '{k}' is not a declared field"
             raise RegisterError(msg)
+        if any(f.name == k and f.since for f in fields):
+            msg = f"{ctx}: key/partition field '{k}' cannot have since, as its earlier versions hold null"
+            raise RegisterError(msg)
     unpivot = str((raw.get("unpivot") or {}).get("headers", "")) if raw.get("unpivot") else ""
     if unpivot and raw.get("wide"):
         msg = f"{ctx}: a table is read as wide or unpivoted, not both"
@@ -1155,6 +1161,10 @@ def _fields(raw: list[RawField], ctx: str) -> list[Field]:
         if ftype not in TYPES:
             msg = f"{fctx}: type '{ftype}' not one of {TYPES}"
             raise RegisterError(msg)
+        since = str(f.get("since") or "")
+        if since and not DATE_RE.match(since):
+            msg = f"{fctx}: since '{since}' is not a version date, YYYY-MM-DD"
+            raise RegisterError(msg)
         fields.append(
             Field(
                 name=name,
@@ -1169,6 +1179,7 @@ def _fields(raw: list[RawField], ctx: str) -> list[Field]:
                 label=str(f.get("label", "")).strip(),
                 references=str(f.get("references", "")).strip(),
                 was=tuple(str(v) for v in f.get("was") or ()),
+                since=since,
             )
         )
     labels = [f.display for f in fields]

@@ -79,6 +79,15 @@ def test_key_must_be_declared_field() -> None:
         parse(_raw(fields=[{"name": "a", "source": "A"}], key=["b"]), "x")
 
 
+def test_since_is_a_version_date_and_not_on_a_key() -> None:
+    ds = parse(_raw(fields=[{"name": "a", "source": "A", "since": "2026-10-24"}]), "x")
+    assert ds.fields[0].since == "2026-10-24"
+    with pytest.raises(RegisterError, match="not a version date"):
+        parse(_raw(fields=[{"name": "a", "source": "A", "since": "October 2026"}]), "x")
+    with pytest.raises(RegisterError, match="cannot have since"):
+        parse(_raw(fields=[{"name": "a", "source": "A", "since": "2026-10-24"}], key=["a"]), "x")
+
+
 def test_live_needs_the_search_fields(tmp_path: Path) -> None:
     live = _raw(
         status="live",
