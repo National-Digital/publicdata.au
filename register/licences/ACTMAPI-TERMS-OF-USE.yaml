@@ -1,0 +1,20 @@
+# ACTmapi layers state CC BY 4.0 and point to these terms, which add a disclaimer, a waiver and a
+# release that protect the Territory and place no limit on reuse.
+id: ACTMAPI-TERMS-OF-USE
+title: CC BY 4.0 with the ACTmapi terms of use
+url: https://www.actmapi.act.gov.au/terms-and-conditions
+kind: notice
+read: '2026-10-24'
+hub: other
+grants:
+  reproduce: ACT Government utilises the Creative Commons Attribution 4.0 International (CCBY v4.0) licences
+    for selected data.
+  adapt: if you share this material (including in any modified form) you agree to retain the identification
+    of the Australian Capital Territory as the creator of the material
+  commercial: silent
+  attribution: '“insertdatasetname” from ACTmapi ©Australian Capital Territory.'
+condition: 'The ACTmapi terms of use at https://www.actmapi.act.gov.au/terms-and-conditions apply in addition
+  to the CC BY 4.0 licence. They state that the Territory makes the material available for information
+  purposes only and makes no warranty about it. A user waives and releases the Australian Capital Territory
+  to the full extent permitted by law from any and all claims relating to the usage of the material. The
+  terms place no limit on reuse, and the data may be shared and adapted with the attribution kept.'

@@ -1,0 +1,161 @@
+slug: act-drinking-fountains
+title: Public drinking fountains, ACT
+status: live
+topics:
+- places
+- community
+example:
+  group: asset_sub_type
+  metric: count
+  label: Drinking fountains by type
+order: 537
+search_title: Canberra drinking fountain and water refill station locations (City and Environment Directorate)
+also_known_as:
+- ACTGOV Drinking Fountain Assets
+- Canberra drinking fountains map
+- ACT water refill stations
+keywords:
+- drinking fountains
+- water fountains
+- refill stations
+- drinking water
+- dog bowls
+- parks
+- Canberra
+- ACT
+faq:
+- q: What is in each row?
+  a: One public drinking fountain or water refill station the ACT Government owns or manages, with its asset
+    identifier and name, the park or place it is in, its type, whether it is active, its material, whether
+    it has a dog bowl, whether it has disabled access, the suburb and address, the owner and maintainer, the
+    date the record was last edited, and its coordinates.
+- q: Does it list every drinking fountain in Canberra?
+  a: No. The publisher lists the fountains that City Services or the Parks and Conservation Service in the
+    City and Environment Directorate owns or manages. Fountains run privately, by other directorates or by
+    the Federal Government may not be included.
+- q: Are inactive fountains included?
+  a: Yes. The publisher marks 18 of the 266 fountains `INACTIVE` in the operational state column, and they
+    are kept as published.
+- q: What licence applies?
+  a: The layer is published under CC BY 4.0, and the ACTmapi terms of use apply in addition. Those terms
+    add a disclaimer and a waiver and release of claims against the Territory. They place no limit on
+    reuse.
+summary: Every public drinking fountain and water refill station the ACT Government owns or manages, one row
+  per fountain with its park, type, suburb and coordinates.
+description: The public drinking fountains and water refill stations in the ACT that the City and Environment
+  Directorate owns or manages, from the Drinking Fountain Assets layer on ACTmapi. Each row carries
+  the asset type and subtype, the asset identifier and name, the location, the operational state, the
+  material, whether there is a dog bowl, whether there is disabled access, the suburb, address, owner and
+  maintainer, the date the record was last edited, the publisher's global identifier and the point's
+  longitude and latitude.
+publisher:
+  name: City and Environment Directorate
+  short: City and Environment
+  jurisdiction: ACT
+  url: https://www.cityservices.act.gov.au/
+licence:
+  id: ACTMAPI-TERMS-OF-USE
+  reviewed: '2026-10-24'
+  evidence: https://www.arcgis.com/sharing/rest/content/items/3402be5e428445b6b80454bca2ff21e4?f=json
+  statement: Creative Commons By Attribution 4.0 (Australian Capital Territory) Please read Data Terms and
+    Conditions statement before data use (https://www.actmapi.act.gov.au/terms-and-conditions).
+  attribution: “ACTGOV Drinking Fountain Assets” from ACTmapi ©Australian Capital Territory, City and Environment
+    Directorate, https://actmapi-actgov.opendata.arcgis.com/datasets/3402be5e428445b6b80454bca2ff21e4,
+    accessed {sourced}, licensed under CC BY 4.0 and the ACTmapi terms of use,
+    https://www.actmapi.act.gov.au/terms-and-conditions.
+source:
+  adapter: file
+  url: https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Drinking_Fountain_Assets/FeatureServer/1/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&outSR=4326&f=geojson
+  format: geojson
+  page_size: 1000
+  cadence: as needed
+key:
+- asset_id
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:4326
+  crs_note: Longitude and latitude in WGS84 (EPSG:4326), as the feature service projects them on request. The
+    layer's own coordinates are in GDA2020 (EPSG:7855).
+row_label: Drinking fountains
+fields:
+- name: asset_type
+  label: Asset type
+  source: ASSET_TYPE
+  type: string
+- name: asset_sub_type
+  label: Type
+  source: ASSET_SUB_TYPE
+  type: string
+  description: The publisher's type, `STANDARD DRINKING FOUNTAIN`, `REFILL STATION` or `DRINKING FOUNTAIN WITH
+    DOG BOWL`.
+- name: asset_id
+  label: Asset ID
+  source: ASSET_ID
+  type: string
+- name: asset_name
+  label: Name
+  source: ASSET_NAME
+  type: string
+- name: location
+  label: Park or place
+  source: LOCATION
+  type: string
+- name: operational_state
+  label: Operational state
+  source: OPERATIONAL_STATE
+  type: string
+  description: '`ACTIVE` or `INACTIVE`, as the publisher records it.'
+- name: material
+  label: Material
+  source: MATERIAL
+  type: string
+- name: dog_bowl
+  label: Dog bowl
+  source: DOG_BOWL
+  type: string
+  description: '`INCLUDES DOG BOWL` or `NO DOG BOWL`, as the publisher records it.'
+- name: disabled_access
+  label: Disabled access
+  source: DISABLED_ACCESS
+  type: string
+  description: '`DISABLED ACCESS` or `NO DISABLED ACCESS`, as the publisher records it.'
+- name: suburb
+  label: Suburb
+  source: SUBURB
+  type: string
+- name: address
+  label: Address
+  source: ADDRESS
+  type: string
+- name: ownership
+  label: Owner
+  source: OWNERSHIP
+  type: string
+- name: maintained_by
+  label: Maintained by
+  source: MAINTAINED_BY
+  type: string
+- name: last_edited_date
+  label: Record last edited
+  source: LAST_EDITED_DATE
+  type: date
+  date_format: epoch_ms
+  description: The date the publisher last edited the asset's record.
+- name: globalid
+  label: Global ID
+  source: GlobalID
+  type: string
+- name: longitude
+  label: Longitude
+  source: (longitude)
+  type: number
+- name: latitude
+  label: Latitude
+  source: (latitude)
+  type: number
+omit:
+  OBJECTID: The layer's row number, which the feature service orders its pages by. It numbers rows in the
+    publisher's database and is not the asset's identifier.
+note: Cells were typed and headers were made snake_case. The point of each feature is given as longitude and
+  latitude columns. Rows were left alone.

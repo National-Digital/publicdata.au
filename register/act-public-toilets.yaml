@@ -1,0 +1,194 @@
+slug: act-public-toilets
+title: Public toilets, ACT
+status: live
+topics:
+- places
+- community
+example:
+  group: asset_sub_type
+  metric: count
+  label: Public toilets by type
+order: 536
+search_title: Canberra public toilet locations, opening hours and accessible toilets (City and Environment Directorate)
+also_known_as:
+- ACTGOV Public Toilet Assets
+- Canberra public toilets map
+- ACT public toilets and ablution blocks
+keywords:
+- public toilets
+- toilets
+- ablution blocks
+- accessible toilets
+- showers
+- parks
+- Canberra
+- ACT
+faq:
+- q: What is in each row?
+  a: One public toilet the ACT Government owns or manages, with its asset identifier and name, the park or
+    place it is in, its type, whether it is active, whether it has an accessible cubicle, its cubicle,
+    urinal and sink counts, when the public can use it, its water supply and toilet system, the suburb and
+    address, the owner and maintainer, the date the record was last edited, and its coordinates.
+- q: Does it list every public toilet in Canberra?
+  a: No. The publisher lists the toilets that City Services or the Parks and Conservation Service in the
+    City and Environment Directorate owns or manages. Toilets run privately, by other directorates or by
+    the Federal Government may not be included.
+- q: Why are some cubicle counts empty?
+  a: The publisher leaves the count of male, female, unisex and accessible cubicles, urinals and sinks
+    blank for about 90 of the 229 toilets. A blank count is kept blank here and is not read as zero.
+- q: What licence applies?
+  a: The layer is published under CC BY 4.0, and the ACTmapi terms of use apply in addition. Those terms
+    add a disclaimer and a waiver and release of claims against the Territory. They place no limit on
+    reuse.
+summary: Every public toilet the ACT Government owns or manages, one row per toilet with its park, type,
+  cubicles, opening hours, suburb and coordinates.
+description: The public toilets in the ACT that the City and Environment Directorate owns or manages, from the
+  Public Toilet Assets layer on ACTmapi. Each row carries the asset type and subtype, the asset identifier and
+  name, the location, the operational state, whether there is an accessible cubicle, the number of male,
+  female, unisex and accessible cubicles, urinals and sinks, the total cubicles, the hours or conditions of
+  public access, the water supply and toilet system, the suburb, address, owner and maintainer, the date the
+  record was last edited, the publisher's global identifier and the point's longitude and latitude.
+publisher:
+  name: City and Environment Directorate
+  short: City and Environment
+  jurisdiction: ACT
+  url: https://www.cityservices.act.gov.au/
+licence:
+  id: ACTMAPI-TERMS-OF-USE
+  reviewed: '2026-10-24'
+  evidence: https://www.arcgis.com/sharing/rest/content/items/5fbbda15bc254a0ead86fa34edb12e56?f=json
+  statement: Creative Commons By Attribution 4.0 (Australian Capital Territory) Please read Data Terms and
+    Conditions statement before data use (https://www.actmapi.act.gov.au/terms-and-conditions).
+  attribution: “ACTGOV Public Toilet Assets” from ACTmapi ©Australian Capital Territory, City and Environment
+    Directorate, https://actmapi-actgov.opendata.arcgis.com/datasets/5fbbda15bc254a0ead86fa34edb12e56,
+    accessed {sourced}, licensed under CC BY 4.0 and the ACTmapi terms of use,
+    https://www.actmapi.act.gov.au/terms-and-conditions.
+source:
+  adapter: file
+  url: https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Public_Toilet_Assets/FeatureServer/1/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&outSR=4326&f=geojson
+  format: geojson
+  page_size: 1000
+  cadence: as needed
+key:
+- asset_id
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:4326
+  crs_note: Longitude and latitude in WGS84 (EPSG:4326), as the feature service projects them on request. The
+    layer's own coordinates are in GDA2020 (EPSG:7855).
+row_label: Public toilets
+fields:
+- name: asset_type
+  label: Asset type
+  source: ASSET_TYPE
+  type: string
+- name: asset_sub_type
+  label: Type
+  source: ASSET_SUB_TYPE
+  type: string
+  description: The publisher's type, such as a manual ablution block, a toilet inside a building, an automated
+    toilet or a pit toilet.
+- name: asset_id
+  label: Asset ID
+  source: ASSET_ID
+  type: string
+- name: asset_name
+  label: Name
+  source: ASSET_NAME
+  type: string
+- name: location
+  label: Park or place
+  source: LOCATION
+  type: string
+- name: operational_state
+  label: Operational state
+  source: OPERATIONAL_STATE
+  type: string
+  description: '`ACTIVE` or `INACTIVE`, as the publisher records it.'
+- name: disabled_cubicle
+  label: Accessible cubicle
+  source: DISABLED_CUBICLE
+  type: string
+  description: '`DISABLED ACCESS` or `NO DISABLED ACCESS`, as the publisher records it.'
+- name: male_cubicle_number
+  label: Male cubicles
+  source: MALE_CUBICLE_NUMBER
+  type: integer
+- name: female_cubicle_number
+  label: Female cubicles
+  source: FEMALE_CUBICLE_NUMBER
+  type: integer
+- name: unisex_cubicle_number
+  label: Unisex cubicles
+  source: UNISEX_CUBICLE_NUMBER
+  type: integer
+- name: disabled_cubicle_number
+  label: Accessible cubicles
+  source: DISABLED_CUBICLE_NUMBER
+  type: integer
+- name: urinal_number
+  label: Urinals
+  source: URINAL_NUMBER
+  type: integer
+- name: total_no_of_cubicles
+  label: Total cubicles
+  source: TOTAL_NO_OF_CUBICLES
+  type: integer
+- name: sink_number
+  label: Sinks
+  source: SINK_NUMBER
+  type: integer
+- name: toilet_access
+  label: Public access
+  source: TOILET_ACCESS
+  type: string
+  description: When the public can use the toilet, such as `24 HOURS` or the hours of a reserve, as the
+    publisher records it.
+- name: water_supply
+  label: Water supply
+  source: WATER_SUPPLY
+  type: string
+- name: toilet_system
+  label: Toilet system
+  source: TOILET_SYSTEM
+  type: string
+- name: suburb
+  label: Suburb
+  source: SUBURB
+  type: string
+- name: address
+  label: Address
+  source: ADDRESS
+  type: string
+- name: ownership
+  label: Owner
+  source: OWNERSHIP
+  type: string
+- name: maintained_by
+  label: Maintained by
+  source: MAINTAINED_BY
+  type: string
+- name: last_edited_date
+  label: Record last edited
+  source: LAST_EDITED_DATE
+  type: date
+  date_format: epoch_ms
+  description: The date the publisher last edited the asset's record.
+- name: globalid
+  label: Global ID
+  source: GlobalID
+  type: string
+- name: longitude
+  label: Longitude
+  source: (longitude)
+  type: number
+- name: latitude
+  label: Latitude
+  source: (latitude)
+  type: number
+omit:
+  OBJECTID: The layer's row number, which the feature service orders its pages by. It numbers rows in the
+    publisher's database and is not the asset's identifier.
+note: Cells were typed and headers were made snake_case. The point of each feature is given as longitude and
+  latitude columns. Rows were left alone.
