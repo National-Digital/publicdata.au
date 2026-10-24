@@ -627,6 +627,11 @@ rule carries `# nolint: <linter>. <reason>`.
   reads the first `was` name it holds, and its `schema.json` names that column.
 - An XML file is read one row per element named in `source.record`: its attributes as `@name`, each
   child's text by the child's name, and a child that repeats joined by ` | `.
+- A JSON file that is not GeoJSON is read one row per object in the list at the dotted path in
+  `source.record`, such as `result`. Each value's column is its dotted path inside the object, such
+  as `reporting_unit_type.reporting_unit_type_code`, and the values a list gives one path are joined
+  by ` | `. `source.explode` names a list in each object that gives one row per element instead.
+  An object whose list is empty gives no row.
 - The MCP tool definitions in `pipeline/publicdata/api.json` must pass a static check. Each tool
   opens with a sentence saying what it does, names another tool to say when to use it, describes
   every parameter, states what a call costs against the rate limit and what comes back, carries

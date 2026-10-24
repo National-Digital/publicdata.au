@@ -59,6 +59,7 @@ if TYPE_CHECKING:
         providers: list[object]
         feed: object
         record: object
+        explode: object
         format: object
         page_size: int
         browser: object
@@ -494,8 +495,11 @@ class Source:
     # A live feed: a view of what is current, with no change date of its own. It is fetched daily,
     # and each day it changes is one version dated by that day.
     feed: bool = False
-    # The element each row is read from, for an XML file.
+    # The element each row is read from, for an XML file, or the dotted path to the list of
+    # records in a JSON file.
     record: str = ""
+    # A list in each JSON record that gives one row per element.
+    explode: str = ""
     # The file's format when its URL does not end in one, such as a WFS request: geojson, csv or xml.
     format: str = ""
     # A WFS GetFeature that caps each answer: the features asked for per request, read page by page
@@ -723,6 +727,7 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         providers=tuple(str(x) for x in (src.get("providers") or [])),
         feed=_bool(src.get("feed", False), f"{ctx}.source.feed"),
         record=str(src.get("record", "")),
+        explode=str(src.get("explode", "")),
         format=str(src.get("format", "")).lstrip(".").lower(),
         page_size=int(src.get("page_size", 0)),
     )
@@ -731,6 +736,9 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         raise RegisterError(msg)
     if "browser" in src:
         msg = f"{ctx}: source.browser is now source.manual"
+        raise RegisterError(msg)
+    if source.explode and not source.record:
+        msg = f"{ctx}: source.explode names a list inside the records source.record points to"
         raise RegisterError(msg)
     if source.delimiter and source.delimiter != "tab" and len(source.delimiter) != 1:
         msg = f"{ctx}: source.delimiter is 'tab' or one character"

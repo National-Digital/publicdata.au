@@ -1,0 +1,101 @@
+slug: au-myhospitals-reporting-unit-mappings
+title: Reporting unit mappings to health networks and states in MyHospitals, Australia
+status: live
+topics:
+- health
+order: 508
+collection: au-myhospitals
+collection_title: AIHW MyHospitals
+publisher:
+  name: Australian Institute of Health and Welfare
+  short: AIHW
+  jurisdiction: Cth
+  url: https://www.aihw.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  evidence: https://www.aihw.gov.au/copyright
+  statement: has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence
+  attribution: Based on Australian Institute of Health and Welfare material. Australian Institute of Health
+    and Welfare, Australian Government, MyHospitals Data API, reporting units, sourced {sourced},
+    https://myhospitalsapi.aihw.gov.au/, licensed under CC BY 4.0.
+search_title: MyHospitals hospital to Local Hospital Network and Primary Health Network codes (AIHW)
+also_known_as:
+- Hospital to Local Hospital Network mapping with codes
+- Hospital to Primary Health Network mapping
+- MyHospitals reporting unit mappings
+keywords:
+- MyHospitals
+- Local Hospital Network
+- Primary Health Network
+- hospital codes
+- AIHW
+faq:
+- q: What is in each row?
+  a: One mapping the MyHospitals Data API lists for a reporting unit. It gives the unit's code, name and type,
+    the type of mapping, and the code, name and type of the unit it maps to.
+- q: How do I find a hospital's Local Hospital Network code?
+  a: Take the rows whose reporting unit is the hospital and whose mapping type is H_LHN. The Institute lists
+    the same mapping under the network as well, so a network's rows of that type name its hospitals. A
+    hospital the Institute maps to no network, such as most private hospitals, has no H_LHN row.
+- q: Why do some rows repeat?
+  a: The Institute lists each state's and the nation's mapping to itself twice, and both rows are kept as
+    served. The Institute has not endorsed this site.
+summary: The Local Hospital Network, Primary Health Network and state each AIHW MyHospitals reporting unit
+  maps to, about 5,900 rows, by code and name.
+description: The mappings in the reporting units list of the AIHW MyHospitals Data API, one row for each
+  mapping a unit lists. Each row has the unit's code, name and type, the mapping type, and the code, name
+  and type of the unit it maps to.
+source:
+  adapter: file
+  url: https://myhospitalsapi.aihw.gov.au/api/v1/reporting-units
+  format: json
+  record: result
+  explode: mapped_reporting_units
+  cadence: several times a year
+partition_by:
+- map_type_code
+row_label: Mappings
+fields:
+- name: reporting_unit_code
+  label: Reporting unit code
+  source: reporting_unit_code
+  type: string
+- name: reporting_unit_name
+  label: Reporting unit
+  source: reporting_unit_name
+  type: string
+- name: reporting_unit_type
+  label: Reporting unit type
+  source: reporting_unit_type.reporting_unit_type_name
+  type: string
+- name: map_type_code
+  label: Mapping type code
+  source: mapped_reporting_units.map_type.mapped_reporting_unit_code
+  type: string
+- name: map_type_name
+  label: Mapping type
+  source: mapped_reporting_units.map_type.mapped_reporting_unit_name
+  type: string
+- name: mapped_code
+  label: Mapped unit code
+  source: mapped_reporting_units.mapped_reporting_unit.reporting_unit_code
+  type: string
+- name: mapped_name
+  label: Mapped unit
+  source: mapped_reporting_units.mapped_reporting_unit.reporting_unit_name
+  type: string
+- name: mapped_type
+  label: Mapped unit type
+  source: mapped_reporting_units.mapped_reporting_unit.reporting_unit_type.reporting_unit_type_name
+  type: string
+omit:
+  reporting_unit_type.reporting_unit_type_code: The code of the unit's type, which the reporting units in
+    this collection publish.
+  mapped_reporting_units.mapped_reporting_unit.reporting_unit_type.reporting_unit_type_code: The code of the
+    mapped unit's type, which the reporting units in this collection publish.
+  alternative_names: The unit's alternative names, which the reporting units in this collection publish.
+  private: Whether the unit is private, which the reporting units in this collection publish.
+  closed: Whether the unit is closed, which the reporting units in this collection publish.
+  latitude: The unit's latitude, which the hospital list in this collection publishes.
+  longitude: The unit's longitude, which the hospital list in this collection publishes.
