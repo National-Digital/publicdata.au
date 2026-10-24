@@ -441,7 +441,7 @@ This site is the version history the portals do not keep. The archive role has i
   [CORRECTIONS.md](CORRECTIONS.md) sets out the steps for each.
 - History is backfilled. Where a portal still lists earlier releases as separate resources,
   each becomes a version dated by the release's own as-at date, with `backfilled: true` in
-  its manifest.
+  its manifest. A `ckan-resource` entry turns this on with `source.backfill_from`.
 - Raw bytes are kept for every version in the R2 bucket `publicdata-raw`, and a `history`
   branch in git holds every manifest and diff report, so the archive can be rebuilt from
   either. R2 keeps no earlier copies of an object, so the push keeps the bucket append-only:
