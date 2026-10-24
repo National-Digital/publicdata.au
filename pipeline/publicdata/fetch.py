@@ -1175,21 +1175,39 @@ def statement_licence(ds: Dataset, s: requests.Session) -> LicenceRead:
 
 
 WFS_PAGES = 1000
+ARCGIS_QUERY = re.compile(r"/(?:Map|Feature)Server/\d+/query$", re.IGNORECASE)
+
+
+def _page_url(ds: Dataset, page: int) -> str:
+    """The URL of one page: an ArcGIS layer query pages by result offset, a WFS by start index."""
+    sep = "&" if "?" in ds.source.url else "?"
+    n, at = ds.source.page_size, page * ds.source.page_size
+    if ARCGIS_QUERY.search(ds.source.url.split("?", 1)[0]):
+        return f"{ds.source.url}{sep}resultRecordCount={n}&resultOffset={at}"
+    return f"{ds.source.url}{sep}count={n}&startIndex={at}"
+
+
+def _capped(ds: Dataset, url: str, answer: JSONObject, got: int, want: int | None = None) -> None:
+    """Refuses an ArcGIS answer that says it held back features the request asked for."""
+    if answer.get("exceededTransferLimit") and (want is None or got < want):
+        msg = f"{ds.slug}: {url} stopped at {got} features and says more remain"
+        raise FetchError(msg)
 
 
 def _wfs_pages(ds: Dataset, s: requests.Session) -> tuple[Download, bytes]:
-    """Every feature of a WFS GetFeature, as one GeoJSON FeatureCollection.
+    """Every feature of a WFS GetFeature or ArcGIS layer query, as one GeoJSON FeatureCollection.
 
-    Features are read `page_size` at a time in the order its sortBy gives. The last response stands
-    for the whole for its headers.
+    Features are read `page_size` at a time in the order its sortBy or orderByFields gives. The
+    last response stands for the whole for its headers.
     """
     feats: list[JSON] = []
-    sep = "&" if "?" in ds.source.url else "?"
     for page in range(WFS_PAGES):
-        url = f"{ds.source.url}{sep}count={ds.source.page_size}&startIndex={page * ds.source.page_size}"
+        url = _page_url(ds, page)
         r = _download(ds, s, url)
         expect_page(ds, url, r, r.content)
-        got = json.loads(r.content).get("features") or []
+        answer = json.loads(r.content)
+        got = answer.get("features") or []
+        _capped(ds, url, answer, len(got), ds.source.page_size)
         feats.extend(got)
         if len(got) < ds.source.page_size:
             break
@@ -1222,6 +1240,9 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
     else:
         r = _download(ds, s, ds.source.url)
         data = r.content
+        if b'"exceededTransferLimit"' in data:
+            answer = json.loads(data)
+            _capped(ds, ds.source.url, answer, len(answer.get("features") or []))
     expect_page(ds, ds.source.url, r, data)
     digest = hashlib.sha256(data).hexdigest()
     if existing and existing[-1].sha256 == digest:
