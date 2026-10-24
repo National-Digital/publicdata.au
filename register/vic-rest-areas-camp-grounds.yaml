@@ -1,0 +1,193 @@
+slug: vic-rest-areas-camp-grounds
+title: Rest areas and camp grounds in Victoria, Vicmap Features of Interest
+status: live
+topics:
+- roads
+- nature
+example:
+  group: feature_subtype
+  metric: count
+  label: Vicmap rest areas and camp grounds by subtype
+chart: none
+order: 535
+search_title: Victorian rest areas and campgrounds map (Vicmap Features of Interest)
+also_known_as:
+- Victorian rest areas
+- Victorian campgrounds
+- Camping areas Victoria
+- Vicmap FOI rest areas
+- Vicmap FOI camp grounds
+keywords:
+- rest areas
+- rest stops
+- camp grounds
+- campgrounds
+- camping areas
+- Vicmap
+- features of interest
+- Victoria
+faq:
+- q: What is in each row?
+  a: One feature that Vicmap types as feature type community space with subtype rest area or camp ground. Each
+    row has the feature's name where Vicmap gives one, its subtype, the name of its parent feature where Vicmap
+    records one, the authority Vicmap records for it, its Vicmap and VICNAMES identifiers, the date Vicmap
+    created the feature, and its longitude and latitude in GDA2020.
+- q: How do I find only the camp grounds?
+  a: The feature subtype column holds camp ground for the 1,700 or so camp grounds and rest area for the 560 or
+    so rest areas. Filter on that column.
+- q: Why do some rows have no name?
+  a: Vicmap gives no name for about 330 of the rest areas and about 50 of the camp grounds. Those rows have a
+    blank name, as Vicmap serves them.
+- q: Why do some rows have no coordinates?
+  a: Vicmap serves each feature as a set of points. Most sites are one point, and their coordinates are
+    published as given. About 20 sites are served as two points, and those rows have blank coordinates
+    because this site does not choose one point over another.
+- q: Why are some sites in New South Wales or South Australia?
+  a: Vicmap maps features near the border on both sides, and its state field marks those outside Victoria as
+    NSW or SA. The rows are kept as served.
+- q: Does it say what facilities a site has or whether I can stay overnight?
+  a: No. Vicmap records where a named feature is. It does not record toilets, water, fees or how long a person
+    may stay. The authority that manages each site sets those rules.
+summary: About 560 rest areas and 1,700 camp grounds that Vicmap Features of Interest maps as points in and near
+  Victoria, one row per site, with its name, subtype, Vicmap identifiers and coordinates.
+description: The rest areas and camp grounds in the Vicmap Features of Interest point layer, foi_point, read
+  from the Vicmap web feature service with the filter feature type community space and subtype rest area or
+  camp ground. Each row carries the site's name, its subtype, its parent feature's name, the authority Vicmap
+  records for it, its Vicmap and VICNAMES identifiers, the date Vicmap created the feature, and its longitude
+  and latitude in GDA2020.
+publisher:
+  name: Department of Transport and Planning
+  short: Transport and Planning
+  jurisdiction: Vic
+  url: https://www.transport.vic.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-23'
+  evidence: https://discover.data.vic.gov.au/dataset/vicmap-features-features-of-interest-foi-point
+  statement: Creative Commons Attribution 4.0 International
+  attribution: Department of Transport and Planning, Victorian Government, Vicmap Features - Features of
+    Interest (FOI) Point (Vicmap layer foi_point), sourced {sourced},
+    https://discover.data.vic.gov.au/dataset/vicmap-features-features-of-interest-foi-point, licensed under
+    CC BY 4.0.
+source:
+  adapter: file
+  url: https://opendata.maps.vic.gov.au/geoserver/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=open-data-platform:foi_point&outputFormat=application/json&CQL_FILTER=feature_type%3D%27community%20space%27%20AND%20feature_subtype%20IN%20(%27rest%20area%27%2C%27camp%20ground%27)&sortBy=pfi
+  format: geojson
+  page_size: 1000
+  cadence: as needed
+key:
+- pfi
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:7844
+  crs_note: Points in GDA2020 (EPSG:7844), as the Vicmap service publishes them. A feature served as one
+    point has its longitude and latitude published as given, and a feature served as several points has
+    them blank.
+row_label: Rest areas and camp grounds
+fields:
+- name: name_label
+  label: Site
+  source: name_label
+  type: string
+  description: The site's name in mixed case, as Vicmap labels it. Blank where Vicmap gives no name.
+- name: name
+  label: Name in capitals
+  source: name
+  type: string
+  description: The site's name in Vicmap's capitals. Blank where Vicmap gives no name.
+- name: feature_type
+  label: Feature type
+  source: feature_type
+  type: string
+- name: feature_subtype
+  label: Feature subtype
+  source: feature_subtype
+  type: string
+  description: rest area or camp ground, as Vicmap types the feature.
+- name: feature_status
+  label: Feature status
+  source: feature_status
+  type: string
+- name: parent_name
+  label: Parent feature name
+  source: parent_name
+  type: string
+  description: The feature the site sits within, such as a park or reserve, where Vicmap records one.
+- name: parent_feature_id
+  label: Parent feature ID
+  source: parent_feature_id
+  type: integer
+- name: child_exists
+  label: Has child features
+  source: child_exists
+  type: string
+- name: state
+  label: State
+  source: state
+  type: string
+- name: auth_org_code
+  label: Responsible authority code
+  source: auth_org_code
+  type: string
+- name: auth_org_id
+  label: Responsible authority ID
+  source: auth_org_id
+  type: string
+- name: pfi
+  label: Persistent feature identifier
+  source: pfi
+  type: integer
+  description: Vicmap's persistent identifier for the feature, kept across its record's versions.
+- name: feature_id
+  label: Feature ID
+  source: feature_id
+  type: integer
+- name: vmadd_pfi
+  label: Vicmap Address identifier
+  source: vmadd_pfi
+  type: string
+  description: The persistent identifier of the feature's Vicmap Address record, where it has one.
+- name: vicnames_id
+  label: VICNAMES ID
+  source: vicnames_id
+  type: integer
+- name: vicnames_status_code
+  label: VICNAMES status
+  source: vicnames_status_code
+  type: string
+- name: theme1
+  label: Theme
+  source: theme1
+  type: string
+- name: theme2
+  label: Second theme
+  source: theme2
+  type: string
+- name: create_date_pfi
+  label: Feature created
+  source: create_date_pfi
+  type: string
+  description: The timestamp the service gives, kept as its text.
+- name: superceded_pfi
+  label: Superseded identifier
+  source: superceded_pfi
+  type: integer
+- name: longitude
+  label: Longitude
+  source: (longitude)
+  type: number
+- name: latitude
+  label: Latitude
+  source: (latitude)
+  type: number
+omit:
+  ufi: Vicmap's identifier for the current version of the feature's record, which Vicmap reissues when it
+    reloads the record.
+  feature_ufi: A copy of ufi in every row but one.
+  create_date_ufi: The date Vicmap issued the current version of the record. Vicmap issued 1,546 of the 2,261
+    records in October 2026, and keeping the date would make a new version for a reload that changes nothing
+    about the site.
+  feature_create_date_ufi: A copy of create_date_ufi in every row but one.
+  auth_org_verified: The date Vicmap last checked the responsible authority, which moves with a record review
+    that changes nothing about the site.
