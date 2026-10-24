@@ -1259,6 +1259,8 @@ def _order_file(tbl: Table, parquet: Path) -> dict[str, bytes]:
     if not lay.get("sort") or not parquet.is_file():
         return {}
     perm = order_of(tbl, lay["sort"], lay["key"])
+    if perm is None:
+        return {}
     meta = {"parquet_sha256": sha256(parquet), "parquet_bytes": str(parquet.stat().st_size)}
     t = pa.table({"source_row": perm}).replace_schema_metadata(meta)
     sink = pa.BufferOutputStream()

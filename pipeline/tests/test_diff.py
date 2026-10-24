@@ -51,6 +51,21 @@ def test_diff_handles_suppressed_rows_and_rejects_duplicate_keys() -> None:
         diff(_tbl(dup, "2026-01-01"), _tbl(dup, "2026-02-01"))
 
 
+def test_diff_counts_a_row_the_publisher_repeats_exactly() -> None:
+    a = _tbl(b"Id,V\n1,a\n2,b\n2,b\n", "2026-01-01")
+    b = _tbl(b"Id,V\n1,a\n2,B\n3,c\n3,c\n3,c\n", "2026-02-01")
+    d = diff(a, b)
+    assert (d["rows_from"], d["rows_to"]) == (3, 5)
+    assert (d["added"], d["removed"], d["changed"], d["unchanged"]) == (1, 0, 1, 1)
+    assert (d["repeated_from"], d["repeated_to"]) == (1, 2)
+    assert dig(d, "examples", 0) == {"key": [2], "fields": {"v": {"from": "b", "to": "B"}}}
+    with pytest.raises(ValueError, match="not unique"):
+        diff(a, _tbl(b"Id,V\n1,a\n1,a\n1,b\n", "2026-02-01"))
+    assert "repeated_from" not in diff(
+        _tbl(b"Id,V\n1,a\n", "2026-01-01"), _tbl(b"Id,V\n1,b\n", "2026-02-01")
+    )
+
+
 # The per-row implementation this module replaced, kept as the oracle for the Arrow join.
 def _reference(a: Table, b: Table) -> dict[str, object]:
     def keyed(t: pa.Table, key: Sequence[str]) -> dict[tuple[object, ...], str]:

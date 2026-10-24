@@ -1,7 +1,8 @@
 """CSV or Excel bytes -> typed Arrow table with the register's field names and nothing else.
 
 Rules that live here: allow-list ingest, blank cells become null, a field's declared unknown
-markers become null, suppression tokens become null plus a typed flag, a wide table of dated
+markers become null, suppression tokens become null plus a typed flag, an entry that describes
+its markers keeps the token of each cell they emptied, a wide table of dated
 columns is unpivoted to one row per cell when the register says so, and a value that cannot take
 its declared type stops the build instead of being coerced.
 """
@@ -15,7 +16,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import openpyxl
@@ -40,6 +41,8 @@ from .register import (
 from .spine import is_spine, read_points, read_shapes
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .store import Manifest
 
 # A column of any Arrow type. pyarrow-stubs types each compute function for the Arrow types it
@@ -622,9 +625,50 @@ def convert(arr: Arr, f: Field, suppression: tuple[str, ...]) -> tuple[Arr, Arr 
     raise NormaliseError(msg)
 
 
+def marker(arr: Arr, f: Field, suppression: tuple[str, ...]) -> Arr | None:
+    """The token in each cell that convert empties for a null value or suppression, else null."""
+    tokens = list(f.null_values)
+    if f.type in ("integer", "number"):
+        tokens += suppression
+    if not tokens:
+        return None
+    arr = _blank_to_null(arr)
+    hit = fill_null(pc.is_in(arr, value_set=pa.array(tokens)), fill=False)
+    if not pc.any(hit).as_py():
+        return None
+    out: Arr = pc.if_else(hit, arr, pa.scalar(None, pa.string()))
+    return out
+
+
+def markers_column(
+    raw: pa.Table, upstream: dict[str, str], ds: Dataset, own: list[Field]
+) -> Arr | None:
+    """Each row's markers as JSON text, {field: token} in field order, or null for a row with none."""
+    found = [
+        (f.name, m.to_pylist())
+        for f in own
+        if (m := marker(raw.column(upstream[f.source]), f, ds.suppression)) is not None
+    ]
+    if not found:
+        return None
+    out: list[str | None] = []
+    for i in range(raw.num_rows):
+        row = {name: vals[i] for name, vals in found if vals[i] is not None}
+        out.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")) if row else None)
+    return pa.array(out, pa.string())
+
+
 def _is_shapefile(ext: str, member: str) -> bool:
     """A layer GDAL reads, as opposed to a table: a shapefile or GeoPackage, or one inside a zip."""
     return ext in ("shp", "gpkg") or (ext == "zip" and member.lower().endswith((".shp", ".gpkg")))
+
+
+def _as_read(f: Field, upstream: Mapping[str, str]) -> Field:
+    """The field as this source holds it: under its own source, or else under an earlier name."""
+    if f.source in upstream or not f.was:
+        return f
+    was = next((w for w in f.was if w in upstream), None)
+    return replace(f, source=was) if was else f
 
 
 def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PLR0912, PLR0915 - the normalising steps, read in order
@@ -662,11 +706,15 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
         raw, held = unpivot(raw, ds)
 
     upstream = {c.strip(): c for c in raw.column_names}
-    own = [f for f in ds.fields if not is_spine(f.source)]
+    own = [_as_read(f, upstream) for f in ds.fields if not is_spine(f.source)]
     missing = [f.source for f in own if f.source not in upstream]
     if missing:
         msg = f"{ds.slug}: columns named in the register are absent upstream: {missing}"
         raise NormaliseError(msg)
+    if any(f.was for f in ds.fields):
+        # The schema names the column this version's source held.
+        read = {f.name: f for f in own}
+        ds = replace(ds, fields=tuple(read.get(f.name, f) for f in ds.fields))
     declared = {f.source for f in own}
     extra = [c for c in upstream if c not in declared] + held
     unknown = [c for c in extra if c not in ds.omit]
@@ -690,6 +738,10 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
                     suppressed += 1
         cols.append(pa.array(flags, pa.list_(pa.string())))
         names.append("suppressed")
+    marks = markers_column(raw, upstream, ds, own) if ds.markers else None
+    if marks is not None:
+        cols.append(marks)
+        names.append("markers")
     table = pa.table(cols, names=names)
     return Table(
         dataset=ds,

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import Unpack
 
-    from publicdata.register import RawEntry
+    from publicdata.register import RawEntry, RawField
 
 
 def test_real_register_loads(register_dir: Path) -> None:
@@ -315,6 +315,22 @@ def test_omit_needs_a_reason_and_cannot_name_a_read_column() -> None:
         parse(_raw(fields=[{"name": "a", "source": "Vendor"}], omit={"Vendor": "x"}), "x")
 
 
+def test_markers_say_what_every_declared_token_means() -> None:
+    fields: list[RawField] = [
+        {"name": "n", "source": "N", "type": "integer", "null_values": ["-"]},
+    ]
+    ok = parse(
+        _raw(fields=fields, suppression=["<5"], markers={"<5": "Under 5.", "-": "None."}), "x"
+    )
+    assert ok.markers == {"<5": "Under 5.", "-": "None."}
+    with pytest.raises(RegisterError, match=re.escape("does not say what ['-'] mean")):
+        parse(_raw(fields=fields, suppression=["<5"], markers={"<5": "Under 5."}), "x")
+    with pytest.raises(RegisterError, match="which no suppression or null_values declares"):
+        parse(_raw(fields=fields, markers={"-": "None.", "x": "Other."}), "x")
+    with pytest.raises(RegisterError, match="what the publisher says it means"):
+        parse(_raw(fields=fields, markers={"-": ""}), "x")
+
+
 def _database(**over: Unpack[RawEntry]) -> RawEntry:
     raw = _raw(
         kind="database",
@@ -382,6 +398,7 @@ def test_a_database_entry_is_checked_for_its_pattern_references_and_shape() -> N
         ({"fields": [{"name": "a", "source": "A"}]}, "no top-level fields"),
         ({"omit": {"X": "a third party's series"}}, "no top-level omit"),
         ({"suppression": ["<5"]}, "does not support suppression"),
+        ({"markers": {"-": "none"}}, "does not support suppression or markers"),
         ({"source_withheld": "terms"}, "does not support source_withheld"),
     ):
         with pytest.raises(RegisterError, match=why):

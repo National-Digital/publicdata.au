@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from publicdata.fetch import Adapter, CkanResource, LicenceRead
-    from publicdata.register import RawEntry, RawGrant, RawLicence
+    from publicdata.register import Dataset, RawEntry, RawGrant, RawLicence
 
 GRANT: RawGrant = {
     "id": "TEST-NOTICE",
@@ -415,6 +415,41 @@ def test_a_capped_wfs_is_read_page_by_page_into_one_file(
     data, m, _ = f.http_file(ds, tmp_path)
     assert [x["properties"]["a"] for x in _json.loads(present(data))["features"]] == [1, 2, 3, 4, 5]
     assert m.filename == "t.geojson"
+
+
+def test_an_arcgis_query_is_paged_by_offset_and_a_capped_answer_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    q = "https://p/arcgis/rest/services/x/MapServer/0/query?where=1%3D1&f=geojson"
+
+    def entry(page_size: int) -> Dataset:
+        return make_dataset(
+            [Field("a", "a")],
+            licence=Licence("CC-BY-4.0", "https://p/c", "a", statement="CC BY 4.0"),
+            source=Source(adapter="file", url=q, format="geojson", page_size=page_size),
+        )
+
+    def page(ids: Iterable[int], *, more: bool) -> Resp:
+        feats = [{"type": "Feature", "properties": {"a": i}, "geometry": None} for i in ids]
+        body = {"features": feats, "exceededTransferLimit": more}
+        return Resp(_json.dumps(body).encode(), ctype="application/json")
+
+    s = Portal(
+        {
+            "https://p/c": Resp(b"CC BY 4.0", ctype="text/html"),
+            f"{q}&resultRecordCount=2&resultOffset=0": page([1, 2], more=True),
+            f"{q}&resultRecordCount=2&resultOffset=2": page([3], more=False),
+            f"{q}&resultRecordCount=3&resultOffset=0": page([1, 2], more=True),
+            q: page([1, 2], more=True),
+        }
+    )
+    monkeypatch.setattr(f, "_session", lambda session: s)
+    data, _, _ = f.http_file(entry(2), tmp_path)
+    assert [x["properties"]["a"] for x in _json.loads(present(data))["features"]] == [1, 2, 3]
+    with pytest.raises(f.FetchError, match="says more remain"):
+        f.http_file(entry(3), tmp_path)
+    with pytest.raises(f.FetchError, match="says more remain"):
+        f.http_file(entry(0), tmp_path)
 
 
 def test_a_resource_served_through_a_page_script_is_named_by_its_file() -> None:

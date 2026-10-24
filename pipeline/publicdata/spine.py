@@ -407,7 +407,8 @@ def enrich(tbl: Table, store_dir: Path, register_dir: Path) -> Table:
         )
     con.close()
     t = tbl.table
-    at = t.column_names.index("suppressed") if "suppressed" in t.column_names else t.num_columns
+    flags = [t.column_names.index(c) for c in ("suppressed", "markers") if c in t.column_names]
+    at = min(flags, default=t.num_columns)
     for f in ds.fields:
         if is_spine(f.source):
             t = t.add_column(at, f.name, cols[f.name])

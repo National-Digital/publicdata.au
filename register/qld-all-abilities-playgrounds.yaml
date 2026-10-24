@@ -50,7 +50,6 @@ source:
   resource: a0afeaf1-e150-45df-91ff-9768799c3156
   url: https://www.data.qld.gov.au/dataset/all-abilities-playgrounds
   cadence: irregular
-  manual: true
   encoding: cp1252
 key:
 - name

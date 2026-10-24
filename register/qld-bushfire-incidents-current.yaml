@@ -179,6 +179,28 @@ omit:
     that kind of item; a declared column must be present on every read.
   Locality: Present only on warnings or only on incidents, so absent from the feed on a day without that
     kind of item; a declared column must be present on every read.
+  MIN_ID: Added to the feed in October 2026 and absent from every earlier version; a declared column must
+    be present on every read.
+  Incident_Type: Added to the feed in October 2026 and absent from every earlier version; a declared column
+    must be present on every read.
+  SubType: Added to the feed in October 2026 and absent from every earlier version; a declared column must
+    be present on every read.
+  MajorType: Added to the feed in October 2026 and absent from every earlier version; a declared column
+    must be present on every read.
+  LGA: Added to the feed in October 2026 and absent from every earlier version; a declared column must be
+    present on every read.
+  IsPubliclyShared: Added to the feed in October 2026 and absent from every earlier version; a declared
+    column must be present on every read.
+  MIN_Details: Dispatch free text added to the feed in October 2026, absent from every earlier version and
+    held until it is reviewed for publication.
+  Location_Name: Dispatch free text added to the feed in October 2026, absent from every earlier version
+    and held until it is reviewed for publication.
+  Cross_Street: Dispatch free text added to the feed in October 2026, absent from every earlier version
+    and held until it is reviewed for publication.
+  Command_Channel: A radio channel added to the feed in October 2026, absent from every earlier version
+    and held until it is reviewed for publication.
+  Primary_TAC_Channel: A radio channel added to the feed in October 2026, absent from every earlier version
+    and held until it is reviewed for publication.
   (longitude): The point geometry of a feature, which repeats the Longitude property; polygon warning
     areas have none.
   (latitude): The point geometry of a feature, which repeats the Latitude property; polygon warning areas

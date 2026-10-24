@@ -125,6 +125,8 @@ def changes(ds: Dataset) -> str:
             said.append("It turned column headers into rows, one row for each value.")
         if ds.suppression:
             said.append("It made each suppressed value a null with a flag.")
+        if ds.markers:
+            said.append("It kept the publisher's marker for each empty cell in a markers column.")
     if ds.enrich:
         said.append(
             "It added place columns from ABS boundary layers, which the schema marks as joined."

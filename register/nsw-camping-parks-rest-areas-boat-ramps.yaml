@@ -1,0 +1,155 @@
+slug: nsw-camping-parks-rest-areas-boat-ramps
+title: Camping grounds, tourist parks, rest areas and boat ramps in New South Wales
+status: live
+topics:
+- roads
+- nature
+example:
+  group: type
+  metric: count
+  label: Sites by Points of Interest type
+chart: none
+search_title: NSW camping grounds, caravan parks, rest areas and boat ramps map (Spatial Services)
+also_known_as:
+- NSW camping grounds
+- NSW caravan parks
+- NSW tourist parks
+- NSW roadside rest areas
+- NSW boat ramps
+- NSW Points of Interest camping grounds
+keywords:
+- camping grounds
+- campgrounds
+- caravan parks
+- tourist parks
+- rest areas
+- rest stops
+- boat ramps
+- Points of Interest
+- Spatial Services
+- New South Wales
+faq:
+- q: What is in each row?
+  a: One feature of the NSW Points of Interest layer that Spatial Services types as a camping ground, a
+    tourist park or home village, a roadside rest area or a boat ramp. Each row has the feature's type, its
+    name and label, its topographic database id, the date Spatial Services recorded for it, the publisher's
+    urbanity code and its longitude and latitude.
+- q: How do I find only one kind of site?
+  a: The feature type column holds the publisher's type for each row. Filter on `Camping Ground`,
+    `Tourist Park / Home Village`, `Roadside Rest Area` or `Boat Ramp`.
+- q: Why do some rows have no name?
+  a: Spatial Services gives no name for about 1,290 of the 3,180 sites, most of them boat ramps and rest
+    areas. Those rows have a blank name and a label such as `Boat Ramp` or `REST AREA`, as the layer serves
+    them.
+- q: How do these rest areas relate to the Transport for NSW rest areas list?
+  a: They are a separate list from a different publisher. Spatial Services maps rest areas as topographic
+    features, and Transport for NSW keeps its own list with facilities in the dataset nsw-rest-areas. This
+    dataset serves the Spatial Services rows as published and does not match them to that list.
+- q: Does it say what facilities a site has or whether I can stay overnight?
+  a: No. The layer records a feature's type, name and location only. It does not record toilets, water,
+    fees, opening times or how long a person may stay.
+- q: Are launching ramps included?
+  a: No. The layer has separate types called `Launching Ramp` and `Landing Ramp`, and this dataset reads the
+    `Boat Ramp` type only.
+summary: The camping grounds, tourist parks, roadside rest areas and boat ramps in the NSW Points of Interest
+  layer, one row per site, with each one's type, name and location.
+description: The features that Spatial Services types `Camping Ground`, `Tourist Park / Home Village`, `Roadside
+  Rest Area` or `Boat Ramp` in the NSW Points of Interest layer, read from its map service page by page. Each
+  row is one site, with the publisher's type, its name and label, its topographic database id, the date
+  Spatial Services recorded for it, the publisher's urbanity code and the point's longitude and latitude
+  in WGS84. The layer records no address, facilities or operator.
+publisher:
+  name: Spatial Services, Department of Customer Service NSW
+  short: Spatial Services
+  jurisdiction: NSW
+  url: https://www.spatial.nsw.gov.au/
+licence:
+  id: CC-BY-3.0-AU
+  reviewed: '2026-10-23'
+  evidence: https://data.nsw.gov.au/data/dataset/nsw-points-of-interest-poi
+  statement: Licence Creative Commons Attribution 3.0
+  attribution: © State Government of NSW and Spatial Services (DCS), NSW Points of Interest (POI), sourced
+    {sourced}, https://data.nsw.gov.au/data/dataset/nsw-points-of-interest-poi, licensed under CC BY 3.0 AU.
+source:
+  adapter: file
+  url: https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_POI/MapServer/0/query?where=poitype+IN+%28%27Camping+Ground%27%2C%27Tourist+Park+%2F+Home+Village%27%2C%27Roadside+Rest+Area%27%2C%27Boat+Ramp%27%29&outFields=*&orderByFields=objectid&outSR=4326&f=geojson
+  format: geojson
+  page_size: 1000
+  cadence: as needed
+key:
+- topo_id
+geometry:
+  lon: longitude
+  lat: latitude
+  crs: EPSG:4326
+  crs_note: Longitude and latitude in WGS84 (EPSG:4326), as the map service projects them on request. The
+    layer's own extent is stated in GDA94.
+row_label: Sites
+fields:
+- name: topo_id
+  label: Topographic database id
+  source: topoid
+  type: integer
+  description: The publisher's identifier for the feature in the NSW topographic database.
+- name: type
+  label: Feature type
+  source: poitype
+  type: string
+  description: The publisher's type, `Camping Ground`, `Tourist Park / Home Village`, `Roadside Rest Area` or
+    `Boat Ramp`, as published.
+- name: name
+  label: Site
+  source: poiname
+  type: string
+  description: The site's name as Spatial Services records it, in capitals. It is empty for rows whose label
+    type is `GENERIC` or `ALTERNATE`.
+- name: label
+  label: Label
+  source: poilabel
+  type: string
+  description: The text the layer labels the point with. It is the name for a `NAMED` row, the type for a
+    `GENERIC` row and the alternative label for an `ALTERNATE` row.
+- name: label_type
+  label: Label type
+  source: poilabeltype
+  type: string
+  description: The publisher's `NAMED`, `GENERIC` or `ALTERNATE`, as published.
+- name: alternative_label
+  label: Alternative label
+  source: poialtlabel
+  type: string
+- name: urbanity
+  label: Urbanity
+  source: urbanity
+  type: string
+  description: The publisher's urbanity code, `U` or `S`, as published. The layer does not define the codes.
+- name: shape_uuid
+  label: Shape UUID
+  source: shapeuuid
+  type: string
+- name: start_date
+  label: Start date
+  source: startdate
+  type: date
+  date_format: epoch_ms
+- name: longitude
+  label: Longitude
+  source: (longitude)
+  type: number
+- name: latitude
+  label: Latitude
+  source: (latitude)
+  type: number
+omit:
+  objectid: The layer's row number, which the map service orders its pages by. It numbers rows in the
+    publisher's database and is not the feature's identifier.
+  poigroup: A group code that follows the feature type, one value for each type.
+  poisourcefeatureoid: The internal number of the source feature class, one value for each type.
+  accesscontrol: An access code that is the same for every row.
+  enddate: An end date that holds the same placeholder, 1 January 3000, for every row.
+  lastupdate: The time Spatial Services last edited the record. It records upkeep of the publisher's database
+    and can move when the site has not changed, which would make a new version.
+  msoid: An internal maintenance id with no meaning outside the publisher's database.
+  centroidid: A column the publisher leaves empty.
+  changetype: An internal code for the publisher's last edit, which moves with each edit.
+  processstate: A column the publisher leaves empty.

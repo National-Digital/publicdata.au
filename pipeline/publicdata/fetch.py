@@ -273,7 +273,16 @@ def parse_as_at(text: str, regex: str) -> str:
     if mm:
         return dt.date(int(mm.group(3)), int(mm.group(2)), int(mm.group(1))).isoformat()
     mm = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
-    return mm.group(0) if mm else ""
+    return mm.group(0) if mm else _month_end(s)
+
+
+def _month_end(s: str) -> str:
+    """A release named by its month alone, such as a quarter's 'September 2025', runs to its end."""
+    mm = re.match(r"([A-Za-z]+)\s+(\d{4})\b", s)
+    if not (mm and mm.group(1).lower() in MONTHS):
+        return ""
+    year, month = int(mm.group(2)), MONTHS[mm.group(1).lower()]
+    return (dt.date(year + month // 12, month % 12 + 1, 1) - dt.timedelta(days=1)).isoformat()
 
 
 def workbook_head(data: bytes, sheet: str, header_row: int) -> str:
@@ -337,7 +346,14 @@ def ckan_resource(
         _date_local(changed), {m.version for m in existing}, dt.datetime.now(TZ).date()
     )
     as_at = parse_as_at(
-        " ".join([p.get("version") or "", res.get("description") or "", p.get("notes") or ""]),
+        " ".join(
+            [
+                p.get("version") or "",
+                res.get("description") or "",
+                p.get("notes") or "",
+                res.get("name") or "",
+            ]
+        ),
         ds.source.as_at_regex,
     )
     filename = resource_filename(res)
@@ -1159,21 +1175,39 @@ def statement_licence(ds: Dataset, s: requests.Session) -> LicenceRead:
 
 
 WFS_PAGES = 1000
+ARCGIS_QUERY = re.compile(r"/(?:Map|Feature)Server/\d+/query$", re.IGNORECASE)
+
+
+def _page_url(ds: Dataset, page: int) -> str:
+    """The URL of one page: an ArcGIS layer query pages by result offset, a WFS by start index."""
+    sep = "&" if "?" in ds.source.url else "?"
+    n, at = ds.source.page_size, page * ds.source.page_size
+    if ARCGIS_QUERY.search(ds.source.url.split("?", 1)[0]):
+        return f"{ds.source.url}{sep}resultRecordCount={n}&resultOffset={at}"
+    return f"{ds.source.url}{sep}count={n}&startIndex={at}"
+
+
+def _capped(ds: Dataset, url: str, answer: JSONObject, got: int, want: int | None = None) -> None:
+    """Refuses an ArcGIS answer that says it held back features the request asked for."""
+    if answer.get("exceededTransferLimit") and (want is None or got < want):
+        msg = f"{ds.slug}: {url} stopped at {got} features and says more remain"
+        raise FetchError(msg)
 
 
 def _wfs_pages(ds: Dataset, s: requests.Session) -> tuple[Download, bytes]:
-    """Every feature of a WFS GetFeature, as one GeoJSON FeatureCollection.
+    """Every feature of a WFS GetFeature or ArcGIS layer query, as one GeoJSON FeatureCollection.
 
-    Features are read `page_size` at a time in the order its sortBy gives. The last response stands
-    for the whole for its headers.
+    Features are read `page_size` at a time in the order its sortBy or orderByFields gives. The
+    last response stands for the whole for its headers.
     """
     feats: list[JSON] = []
-    sep = "&" if "?" in ds.source.url else "?"
     for page in range(WFS_PAGES):
-        url = f"{ds.source.url}{sep}count={ds.source.page_size}&startIndex={page * ds.source.page_size}"
+        url = _page_url(ds, page)
         r = _download(ds, s, url)
         expect_page(ds, url, r, r.content)
-        got = json.loads(r.content).get("features") or []
+        answer = json.loads(r.content)
+        got = answer.get("features") or []
+        _capped(ds, url, answer, len(got), ds.source.page_size)
         feats.extend(got)
         if len(got) < ds.source.page_size:
             break
@@ -1206,6 +1240,9 @@ def http_file(ds: Dataset, store_dir: Path, session: requests.Session | None = N
     else:
         r = _download(ds, s, ds.source.url)
         data = r.content
+        if b'"exceededTransferLimit"' in data:
+            answer = json.loads(data)
+            _capped(ds, ds.source.url, answer, len(answer.get("features") or []))
     expect_page(ds, ds.source.url, r, data)
     digest = hashlib.sha256(data).hexdigest()
     if existing and existing[-1].sha256 == digest:
@@ -2300,11 +2337,13 @@ def _rows(ds: Dataset, m: store.Manifest, data: bytes) -> tuple[str, int | None,
         tbl = normalise.normalise(ds, m, data)
     except Exception:  # noqa: BLE001 - any failure falls back to the byte comparison
         return "", None, []
-    cols = [tbl.table.column(n).to_pylist() for n in tbl.table.column_names]
+    # The markers repeat the null cells' tokens, so a version stored before them still matches.
+    t = tbl.table.drop_columns([c for c in ("markers",) if c in tbl.table.column_names])
+    cols = [t.column(n).to_pylist() for n in t.column_names]
     if tbl.geometry is not None:
         cols.append(tbl.geometry.to_pylist())
     rows = sorted(hashlib.sha256(repr(r).encode()).digest() for r in zip(*cols, strict=True))
-    h = hashlib.sha256(repr(tbl.table.schema).encode())
+    h = hashlib.sha256(repr(t.schema).encode())
     for r in rows:
         h.update(r)
     return h.hexdigest(), len(rows), misfits(tbl.table, ds.int32)

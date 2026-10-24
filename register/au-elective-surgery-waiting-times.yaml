@@ -61,9 +61,13 @@ faq:
     (within 90 days) or non-urgent (within 365 days). The Institute notes that states and hospitals assign
     the categories differently, which affects comparisons.
 - q: What do the blanks mean?
-  a: The Institute writes `<5` for a count under five and `NP` where the data did not meet its criteria. Those
-    cells are null here with a suppressed flag. A dash, meaning no patients were reported, and Not peered
-    are null. The share within recommended time is a fraction, so 0.95 means 95 per cent.
+  a: The Institute's explanatory notes define two codes. A dash means "There were no patients reported for
+    this indicator in this time period." `NP` means "Reported data did not meet the criteria to calculate
+    this indicator." The notes do not define `<5`, which appears only in the number of surgeries, or Not
+    peered, which appears only in the peer group figures. Each of these cells is null here, and the row's
+    `markers` column holds the code the Institute wrote, such as `{"median_wait_days":"-"}`. A `<5` or `NP`
+    cell is also named in the `suppressed` column. A cell the Institute left empty has no marker. The share within recommended time is a
+    fraction, so 0.95 means 95 per cent.
 summary: Median waiting times for elective surgery and the share treated within the recommended time,
   for each public hospital and network by urgency category each year since 2011-12, from AIHW MyHospitals.
 description: The Urgency category sheet of the MyHospitals elective surgery waiting times data extract from
@@ -81,6 +85,11 @@ source:
 suppression:
 - <5
 - NP
+markers:
+  <5: The Institute's notes do not define this code. It appears only in the number of surgeries.
+  NP: Reported data did not meet the criteria to calculate this indicator.
+  '-': There were no patients reported for this indicator in this time period.
+  Not peered: The Institute's notes do not define this code. It appears in place of a peer group figure.
 key:
 - reporting_unit
 - reporting_unit_type
@@ -148,3 +157,4 @@ fields:
 omit:
   ? ''
   : A column with no header in the publisher's file, which has no name to publish it under.
+rebuild: 1
