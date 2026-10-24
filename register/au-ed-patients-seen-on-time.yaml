@@ -62,10 +62,11 @@ faq:
     60 minutes for semi-urgent and 120 minutes for non-urgent patients. The share is a fraction, so 0.8
     means 80 per cent.
 - q: What do the blanks mean?
-  a: The Institute writes `<5` for a count under five and `NP` where the data did not meet its criteria or more
-    than 10 per cent of times were missing. Those cells are null here with a suppressed flag. A dash, meaning
-    no patients were reported, and Not peered are null. The Institute's file also marks with an asterisk
-    the figures to interpret with caution, in a column with no heading, which is not carried here.
+  a: The Institute writes `<5` for a count under five, `NP` where the data did not meet its criteria to
+    calculate the figure and `NP†` where more than 10 per cent of presentations had missing or invalid time
+    data. Those cells are null here with a suppressed flag. A dash, meaning no patients were reported, and
+    Not peered are null. The markers column keeps each code. The Institute's file also marks with an
+    asterisk the figures to interpret with caution, in a column with no heading, which is not carried here.
 summary: The share of emergency department patients seen within the recommended time for their triage
   category, for each public hospital, network and state each year since 2011-12, from AIHW MyHospitals.
 description: The Patients seen on time sheet of the MyHospitals emergency department data extract from the
@@ -82,6 +83,13 @@ suppression:
 - <5
 - NP
 - NP†
+markers:
+  <5: The Institute's notes do not define this code. It appears only in the number of presentations.
+  NP: Reported data did not meet the criteria to calculate this indicator.
+  NP†: Results could not be accurately calculated as more than 10% of presentations had missing or invalid
+    time data.
+  '-': There were no patients reported for this indicator in this time period.
+  Not peered: The Institute's notes do not define this code. It appears in place of a peer group figure.
 key:
 - reporting_unit
 - reporting_unit_type
@@ -135,3 +143,4 @@ fields:
 omit:
   ? ''
   : A column with no header in the publisher's file, which has no name to publish it under.
+rebuild: 1
