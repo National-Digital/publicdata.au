@@ -150,5 +150,10 @@ fields:
   label: Latitude
   source: (latitude)
   type: number
+omit:
+  operational_state: Added by the publisher in October 2026. It reads ACTIVE on all 346 barbecues, so it
+    tells a reader nothing the row does not.
+  last_edited_date: Added by the publisher in October 2026. It records when the GIS record was last edited,
+    which is not a fact about the barbecue.
 note: Cells were typed and headers were made snake_case. The point of each feature is given as longitude and
   latitude columns. Rows were left alone.
