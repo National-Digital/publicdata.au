@@ -707,7 +707,9 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
 
     upstream = {c.strip(): c for c in raw.column_names}
     own = [_as_read(f, upstream) for f in ds.fields if not is_spine(f.source)]
-    missing = [f.source for f in own if f.source not in upstream]
+    # A column the source first carries in a later version is null in the versions before it.
+    before = {f.name for f in own if f.source not in upstream and f.since and m.version < f.since}
+    missing = [f.source for f in own if f.source not in upstream and f.name not in before]
     if missing:
         msg = f"{ds.slug}: columns named in the register are absent upstream: {missing}"
         raise NormaliseError(msg)
@@ -715,7 +717,7 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
         # The schema names the column this version's source held.
         read = {f.name: f for f in own}
         ds = replace(ds, fields=tuple(read.get(f.name, f) for f in ds.fields))
-    declared = {f.source for f in own}
+    declared = {f.source for f in own if f.name not in before}
     extra = [c for c in upstream if c not in declared] + held
     unknown = [c for c in extra if c not in ds.omit]
     omitted = [c for c in extra if c in ds.omit]
@@ -723,6 +725,10 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
     names: list[str] = []
     masks: dict[str, Arr] = {}
     for f in own:
+        if f.name in before:
+            cols.append(pa.nulls(raw.num_rows).cast(ARROW_TYPES[f.type]))
+            names.append(f.name)
+            continue
         arr, sup = convert(raw.column(upstream[f.source]), f, ds.suppression)
         cols.append(arr)
         names.append(f.name)
@@ -738,7 +744,8 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
                     suppressed += 1
         cols.append(pa.array(flags, pa.list_(pa.string())))
         names.append("suppressed")
-    marks = markers_column(raw, upstream, ds, own) if ds.markers else None
+    present = [f for f in own if f.name not in before]
+    marks = markers_column(raw, upstream, ds, present) if ds.markers else None
     if marks is not None:
         cols.append(marks)
         names.append("markers")

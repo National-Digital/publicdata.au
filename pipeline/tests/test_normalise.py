@@ -16,7 +16,7 @@ from publicdata.build import build_version
 from publicdata.normalise import NormaliseError, normalise, read_csv, read_xlsx, xls_to_xlsx
 from publicdata.provenance import changes
 from publicdata.register import LAT_SOURCE, LON_SOURCE, Field, Source
-from publicdata.serialise import profile
+from publicdata.serialise import profile, table_schema
 
 from .conftest import make_dataset, make_manifest, present
 
@@ -168,6 +168,25 @@ def test_a_version_from_an_earlier_source_reads_the_column_by_its_earlier_name()
     neither = b"ID\n1\n"
     with pytest.raises(NormaliseError, match=r"absent upstream: \['\(longitude\)'"):
         normalise(ds, make_manifest(neither), neither)
+
+
+def test_a_column_first_published_later_is_null_before_its_since_version() -> None:
+    fields = [Field("id", "ID", "integer"), Field("min_id", "MIN_ID", since="2026-10-24")]
+    ds = make_dataset(fields, key=("id",))
+    old = b"ID\n1\n2\n"
+    got = normalise(ds, make_manifest(old, version="2026-10-22"), old)
+    assert got.table.to_pylist() == [{"id": 1, "min_id": None}, {"id": 2, "min_id": None}]
+    assert got.table.schema.field("min_id").type == pa.string()
+    assert got.unknown_columns == []
+    schema = table_schema(got)
+    assert schema["fields"][1]["publicdata:since"]["version"] == "2026-10-24"  # type: ignore[index, call-overload]
+    new = b"ID,MIN_ID\n1,13646688\n"
+    got = normalise(ds, make_manifest(new, version="2026-10-24"), new)
+    assert got.table.to_pylist() == [{"id": 1, "min_id": "13646688"}]
+    with pytest.raises(NormaliseError, match=r"absent upstream: \['MIN_ID'\]"):
+        normalise(ds, make_manifest(old, version="2026-10-24"), old)
+    with pytest.raises(NormaliseError, match=r"absent upstream: \['MIN_ID'\]"):
+        normalise(ds, make_manifest(old, version="2026-11-01"), old)
 
 
 API = {

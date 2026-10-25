@@ -23,6 +23,8 @@ faq:
   a: One current vegetation fire, permitted burn or fire warning in the Queensland Fire Department feed
     at the time of the daily read, with its id, title, warning level, call to action, warning text, area,
     the point the publisher gives for it, its type and the times it was issued, published and expires.
+    From the version of 24 October 2026 each row also has the incident number, incident type, location
+    name and cross street, which are null in earlier versions.
 - q: Does the point show where the fire is?
   a: No. The publisher says each point marks the general area of the fire. The point does not follow the
     fire's current location or spread. Warnings also carry a drawn warning area in the feed, which is
@@ -40,8 +42,9 @@ summary: A daily snapshot of every current vegetation fire, permitted burn and f
 description: The Queensland Fire Department current bushfire incidents feed, read once a day, one row
   per item in the feed at that time. Each row has the item id, title, warning level and its sort order,
   call to action, warning text and header, warning area, latitude and longitude, grouped type, event type
-  and the times the item was issued, published and expires. Use the publisher's own warnings for safety
-  decisions.
+  and the times the item was issued, published and expires. From the version of 24 October 2026 each
+  row also has the publisher's incident number, incident type, location name and cross street, which
+  are null in earlier versions. Use the publisher's own warnings for safety decisions.
 publisher:
   name: Queensland Fire Department
   short: QFD
@@ -148,6 +151,36 @@ fields:
   label: Event type
   source: EventType
   type: string
+- name: incident_number
+  label: Incident number
+  source: MIN_ID
+  type: string
+  since: '2026-10-24'
+  description: The publisher's number for the incident, kept as text. The feed first carries it in the
+    version of 24 October 2026, and earlier versions hold null.
+- name: incident_type
+  label: Incident type
+  source: Incident_Type
+  type: string
+  since: '2026-10-24'
+  description: The publisher's type for the incident, such as FIRE BUSHFIRE or FIRE PRIMARY INDUSTRY.
+    The feed first carries it in the version of 24 October 2026, and earlier versions hold null.
+- name: location_name
+  label: Location name
+  source: Location_Name
+  type: string
+  since: '2026-10-24'
+  description: The place the publisher names for the incident, as written in the feed, such as SR 21/10
+    STRATHMORE STN. The feed first carries it in the version of 24 October 2026, and earlier versions hold
+    null.
+- name: cross_street
+  label: Cross street
+  source: Cross_Street
+  type: string
+  since: '2026-10-24'
+  description: The roads the publisher names near the incident, such as LOCHLEES RD/UNNAMED COMET RD.
+    Many items leave it empty. The feed first carries it in the version of 24 October 2026, and earlier
+    versions hold null.
 omit:
   Impacts: Present only on warnings or only on incidents, so absent from the feed on a day without that
     kind of item; a declared column must be present on every read.
@@ -179,24 +212,14 @@ omit:
     that kind of item; a declared column must be present on every read.
   Locality: Present only on warnings or only on incidents, so absent from the feed on a day without that
     kind of item; a declared column must be present on every read.
-  MIN_ID: Added to the feed in October 2026 and absent from every earlier version; a declared column must
-    be present on every read.
-  Incident_Type: Added to the feed in October 2026 and absent from every earlier version; a declared column
-    must be present on every read.
-  SubType: Added to the feed in October 2026 and absent from every earlier version; a declared column must
-    be present on every read.
-  MajorType: Added to the feed in October 2026 and absent from every earlier version; a declared column
-    must be present on every read.
-  LGA: Added to the feed in October 2026 and absent from every earlier version; a declared column must be
-    present on every read.
-  IsPubliclyShared: Added to the feed in October 2026 and absent from every earlier version; a declared
-    column must be present on every read.
+  SubType: Added to the feed in October 2026. It repeats GroupedType without the word FIRE, such as VEGETATION
+    for FIRE VEGETATION.
+  MajorType: Added to the feed in October 2026. It held FIRE on every item in the first version that carries it.
+  LGA: Added to the feed in October 2026. It was empty on every item in the first version that carries it.
+  IsPubliclyShared: Added to the feed in October 2026. It held YES on every item in the first version that
+    carries it.
   MIN_Details: Dispatch free text added to the feed in October 2026, absent from every earlier version and
     held until it is reviewed for publication.
-  Location_Name: Dispatch free text added to the feed in October 2026, absent from every earlier version
-    and held until it is reviewed for publication.
-  Cross_Street: Dispatch free text added to the feed in October 2026, absent from every earlier version
-    and held until it is reviewed for publication.
   Command_Channel: A radio channel added to the feed in October 2026, absent from every earlier version
     and held until it is reviewed for publication.
   Primary_TAC_Channel: A radio channel added to the feed in October 2026, absent from every earlier version
@@ -206,3 +229,4 @@ omit:
   (latitude): The point geometry of a feature, which repeats the Latitude property; polygon warning areas
     have none.
 note: Cells were typed and headers were made snake_case. Rows were left alone.
+rebuild: 1
