@@ -1,0 +1,40 @@
+{
+  "dataset": "nsw-camping-parks-rest-areas-boat-ramps",
+  "version": "2026-10-27",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:43:38+00:00",
+  "sha256": "521faffb72aafab67ac4d95bdb5032d33713c4ba96f0384a0f1ac7cf6a581a2c",
+  "bytes": 1815848,
+  "filename": "nsw-camping-parks-rest-areas-boat-ramps.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_POI/MapServer/0/query?where=poitype+IN+%28%27Camping+Ground%27%2C%27Tourist+Park+%2F+Home+Village%27%2C%27Roadside+Rest+Area%27%2C%27Boat+Ramp%27%29&outFields=*&orderByFields=objectid&outSR=4326&f=geojson",
+    "etag": "1792998810",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-3.0-AU",
+    "stated": "Licence Creative Commons Attribution 3.0",
+    "normalised": "CC-BY-3.0-AU",
+    "title": "CC BY 3.0 AU",
+    "url": "https://data.nsw.gov.au/data/dataset/nsw-points-of-interest-poi",
+    "read_from": "https://data.nsw.gov.au/data/dataset/nsw-points-of-interest-poi",
+    "read_at": "2026-10-26T20:43:33+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "2ab9a2130f9c31c40ddbf86b0eefb8f140f120f260adb0e5b71e8c7a96a49dc9",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "topo_id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
