@@ -25,7 +25,7 @@
   "tombstone": null,
   "notes": [
     "The publisher's server states no change date, so this version is dated by the fetch.",
-    "On 26 October 2026 this version's converted files were written again with a markers column, which keeps the publisher's code for every cell the build leaves without a number, such as \"-\" for no patients reported and NP for not published. Before this, a dash became a plain null that could not be told apart from an empty cell. The existing columns and values are unchanged."
+    "On 26 October 2026 this version's converted files were written again with a markers column, which keeps the publisher's code for every cell the build leaves without a number, such as a dash for no patients reported or the code for a figure the publisher does not publish. Before this, a dash became a plain null that could not be told apart from an empty cell. The existing columns and values are unchanged."
   ],
   "rows_sha256": "29fd2a7cd93f0275c0f8ef361dfe3e95dbebcff7d93cfa4789f79237d2255104",
   "parquet": {
