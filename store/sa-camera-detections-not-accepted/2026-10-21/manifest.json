@@ -1,0 +1,42 @@
+{
+  "dataset": "sa-camera-detections-not-accepted",
+  "version": "2026-10-21",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:50:53+00:00",
+  "sha256": "46098d8d6abf457ec8a6599c1614ba8d5cb325476e9b98a243d7f709fd75ee53",
+  "bytes": 44907,
+  "filename": "2026-2027-camera-not-accept-report.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.sa.gov.au/data/dataset/f8647df4-617b-439c-8de2-6aadfc84826a/resource/2eb91cff-0853-41f9-8086-f592502a08cd/download/2026-2027-camera-not-accept-report.zip",
+    "portal": "https://data.sa.gov.au/data",
+    "package": "expiation-notice-system-data",
+    "package_id": "f8647df4-617b-439c-8de2-6aadfc84826a",
+    "resource": "2eb91cff-0853-41f9-8086-f592502a08cd",
+    "resource_name": "Expiation Notices 2026-2027 Camera Not Accept Report Zipped",
+    "resource_last_modified": "2026-10-21T04:45:32.201165",
+    "package_modified": "2026-10-21T05:24:49.993992",
+    "package_version": null,
+    "etag": "1792557932.597-44907-1190140173",
+    "http_last_modified": "Wed, 21 Oct 2026 04:45:32 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.sa.gov.au/data/api/3/action/package_show?id=expiation-notice-system-data",
+    "read_at": "2026-10-26T20:50:53+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "8537c5d0f20282339fa0d41e800706b608b3784ae9b2fe9daa280c86896746e9",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
