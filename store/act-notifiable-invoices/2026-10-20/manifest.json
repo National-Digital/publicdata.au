@@ -1,0 +1,40 @@
+{
+  "dataset": "act-notifiable-invoices",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:53:59+00:00",
+  "sha256": "3aad86012e512dad0905e5709a2cada62df4c6f598a98569eb36a2cac06bc7f1",
+  "bytes": 16106744,
+  "filename": "kzmf-7uhp.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/kzmf-7uhp/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "kzmf-7uhp",
+    "resource_name": "Notifiable Invoices Register",
+    "rows_updated_at": 1792471126,
+    "etag": "Z29sZi4zMjMwXzEwXzI2OWZsRm4yNUdVb1d4MlV1LWtqdkV3TFZ2T3hETQ---gzimApk_fzmb1El-ZSWdsJE9yulQln--gzip--gzip",
+    "http_last_modified": "Tue, 20 Oct 2026 04:38:46 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/kzmf-7uhp.json",
+    "read_at": "2026-10-26T20:53:23+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "77f8cdc21092938468142736a1e6bdaea9fc7e70089bc29781898b3d00adfb9e",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
