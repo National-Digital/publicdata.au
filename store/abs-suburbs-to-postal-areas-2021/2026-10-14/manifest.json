@@ -1,0 +1,45 @@
+{
+  "dataset": "abs-suburbs-to-postal-areas-2021",
+  "version": "2026-10-14",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:43:53+00:00",
+  "sha256": "3c4ca9307b86dd9c51626920ddbb64fbe38936fd30f4e2c846eb71569dcb1c60",
+  "bytes": 35381784,
+  "filename": "asgs2021correspondences.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.gov.au/data/dataset/2c79581f-600e-4560-80a8-98adb1922dfc/resource/33d822ba-138e-47ae-a15f-460279c3acc3/download/asgs2021correspondences.zip",
+    "portal": "https://data.gov.au/data",
+    "package": "asgs-edition-3-2021-correspondences",
+    "package_id": "2c79581f-600e-4560-80a8-98adb1922dfc",
+    "resource": "33d822ba-138e-47ae-a15f-460279c3acc3",
+    "resource_name": "ASGS Edition 3 (2021) Correspondence Files",
+    "resource_last_modified": "2026-10-14T03:04:59.794957",
+    "package_modified": "2026-10-14T03:05:43.298306",
+    "package_version": null,
+    "etag": "1791947100.243-35381784-3470200777",
+    "http_last_modified": "Wed, 14 Oct 2026 03:05:00 GMT"
+  },
+  "licence": {
+    "id": "cc-by-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=asgs-edition-3-2021-correspondences",
+    "read_at": "2026-10-26T20:43:52+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "edaa307582b4abc65353a0a194d68d21d5de4ac6d2e188e5861b249e5c1dc804",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "sal_2021_code",
+      "poa_2021_code"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

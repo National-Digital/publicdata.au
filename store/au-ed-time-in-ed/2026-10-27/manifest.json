@@ -1,0 +1,43 @@
+{
+  "dataset": "au-ed-time-in-ed",
+  "version": "2026-10-27",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:54:56+00:00",
+  "sha256": "49d99ec1517e3ef43abe55678bfc93d595339aee14d1fae24dae44ef460e0a92",
+  "bytes": 5171669,
+  "filename": "au-ed-time-in-ed.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-ed",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.aihw.gov.au/copyright",
+    "read_from": "https://www.aihw.gov.au/copyright",
+    "read_at": "2026-10-26T20:54:55+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "1ccd2b1cf4136eb24f8ba143ecbd943862ecfe652b5dea17f18458d9488b41ca",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "reporting_unit",
+      "reporting_unit_type",
+      "year",
+      "patient_cohort"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

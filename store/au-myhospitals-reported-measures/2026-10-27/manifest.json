@@ -1,0 +1,40 @@
+{
+  "dataset": "au-myhospitals-reported-measures",
+  "version": "2026-10-27",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:54:50+00:00",
+  "sha256": "74f6e13a5ba73aaf5d0d9b04b98444beb649464a811664425768a86a340bd1b1",
+  "bytes": 442119,
+  "filename": "au-myhospitals-reported-measures.json",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://myhospitalsapi.aihw.gov.au/api/v1/reported-measures",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.aihw.gov.au/copyright",
+    "read_from": "https://www.aihw.gov.au/copyright",
+    "read_at": "2026-10-26T20:54:50+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "0712dbf8bc0588a71615222578ecdac725ff52dd167c9bdecc46108d751f4a19",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "reported_measure_code"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

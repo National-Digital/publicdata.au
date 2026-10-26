@@ -1,0 +1,44 @@
+{
+  "dataset": "au-cancer-surgery-waiting-times",
+  "version": "2026-10-27",
+  "as_at": "2026-08-19",
+  "fetched_at": "2026-10-26T20:54:59+00:00",
+  "sha256": "319d3fbc2e3a79a28e47c5c8a784b0ad4d59cd46bef50ecfa56363c426eb246b",
+  "bytes": 93443,
+  "filename": "au-cancer-surgery-waiting-times.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-cancer",
+    "etag": "",
+    "http_last_modified": "",
+    "release": "2026081901"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.aihw.gov.au/copyright",
+    "read_from": "https://www.aihw.gov.au/copyright",
+    "read_at": "2026-10-26T20:54:59+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "a83922b5097f510d0af963f59e8363dd4ae36605909aae25da3fbb5e301aa759",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "reporting_unit",
+      "reporting_unit_type",
+      "year",
+      "cancer_type"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

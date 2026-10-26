@@ -1,0 +1,42 @@
+{
+  "dataset": "au-road-deaths",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:26:07+00:00",
+  "sha256": "c5bf739b3bfefae013537e134f21e4bb1e2a3e361aa61d888f2419af69bbd890",
+  "bytes": 6015269,
+  "filename": "bitre_fatalities_sep2026.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://aueprod01ckanstg.blob.core.windows.net/public-catalogue/0faa594e-b846-45d9-9fdf-d5f1dfa27628/bitre_fatalities_sep2026.xlsx",
+    "portal": "https://catalogue.data.infrastructure.gov.au",
+    "package": "australian-road-deaths-database",
+    "package_id": "279ee848-55c0-4d7a-a926-02fb8fb93b0b",
+    "resource": "80091814-9a39-444c-a329-b27561d8fcc6",
+    "resource_name": "Fatalities 2026-09",
+    "resource_last_modified": null,
+    "package_modified": "2026-10-20T03:02:47.894031",
+    "package_version": null,
+    "etag": "0x8DF2E569A893E9D",
+    "http_last_modified": "Tue, 20 Oct 2026 03:02:40 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://catalogue.data.infrastructure.gov.au/api/3/action/package_show?id=australian-road-deaths-database",
+    "read_at": "2026-10-26T20:26:07+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "7d7f590feb9fb3cee94207af83f9e40921d26b89cc5ad782a2d33bab6d630013",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
