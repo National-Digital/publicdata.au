@@ -1,7 +1,7 @@
 {
   "dataset": "au-elective-surgery-waiting-times",
   "version": "2026-10-03",
-  "as_at": "",
+  "as_at": "2026-08-19",
   "fetched_at": "2026-10-03T03:15:31+00:00",
   "sha256": "696cfb20ab6fbcb1444b1d9791899d49bd89223b68f936bb657f32263642db7d",
   "bytes": 17781837,
@@ -10,7 +10,8 @@
   "source": {
     "url": "https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-es",
     "etag": "",
-    "http_last_modified": ""
+    "http_last_modified": "",
+    "release": "2026081901"
   },
   "licence": {
     "id": "CC-BY-4.0",
@@ -25,7 +26,8 @@
   "tombstone": null,
   "notes": [
     "The publisher's server states no change date, so this version is dated by the fetch.",
-    "On 26 October 2026 this version's converted files were written again with a markers column, which keeps the publisher's code for every cell the build leaves without a number, such as a dash for no patients reported or the code for a figure the publisher does not publish. Before this, a dash became a plain null that could not be told apart from an empty cell. The existing columns and values are unchanged."
+    "On 26 October 2026 this version's converted files were written again with a markers column, which keeps the publisher's code for every cell the build leaves without a number, such as a dash for no patients reported or the code for a figure the publisher does not publish. Before this, a dash became a plain null that could not be told apart from an empty cell. The existing columns and values are unchanged.",
+    "On 26 October 2026 this version's as-at date and the AIHW's release number were recorded from the \"Data as of\" line in the publisher's workbook, which reads 19 August 2026, version 2026081901. The version was fetched before the fetch read that line. The rows are unchanged."
   ],
   "rows_sha256": "ff171fd17b799e2846666f8c2bffca5b0d25f4dbfcddf5b1458bb9787a7506d3"
 }
