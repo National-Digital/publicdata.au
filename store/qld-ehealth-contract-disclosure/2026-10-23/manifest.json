@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-ehealth-contract-disclosure",
+  "version": "2026-10-23",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:44:23+00:00",
+  "sha256": "aa386d0eb2d1ffe76d02441f00daf2abf0929c9e24a31acfe0dd33f437224bb8",
+  "bytes": 28171,
+  "filename": "ehealth-queensland-contract-disclosure-report-fy26-27.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/fd987949-51b9-4e9d-b1f6-dad9a9a80b37/resource/2df2c75e-b133-421c-a56c-a94546a3d52a/download/ehealth-queensland-contract-disclosure-report-fy26-27.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "ehealth-queensland-contract-disclosure-report",
+    "package_id": "fd987949-51b9-4e9d-b1f6-dad9a9a80b37",
+    "resource": "2df2c75e-b133-421c-a56c-a94546a3d52a",
+    "resource_name": "eHealth Queensland Contract Disclosure-Report-FY26-27",
+    "resource_last_modified": "2026-10-23T05:29:03.287792",
+    "package_modified": "2026-10-23T05:29:12.747767",
+    "package_version": "1.0",
+    "etag": "W/9e68f8c9675d73dc25736f0b46013107",
+    "http_last_modified": "Fri, 23 Oct 2026 05:29:04 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=ehealth-queensland-contract-disclosure-report",
+    "read_at": "2026-10-26T20:44:23+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "88bfde09d4f8a3376f212504d64aab9a38ad399b6bb7857847cbb9fa7b9a0c15",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

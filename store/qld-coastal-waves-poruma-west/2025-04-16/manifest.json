@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-coastal-waves-poruma-west",
+  "version": "2025-04-16",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:47:04+00:00",
+  "sha256": "e2d9c7c8ef8e100c6682c17b68623be4e8f4796784e39f54ed624793cd663c9c",
+  "bytes": 520937,
+  "filename": "poruma-west_2020-03-05t00_00-2020-09-14t23_30_waveverifieddata.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/911d9fac-fcb5-42f9-961d-d2fa5bd213f6/resource/3822df50-bceb-40fc-8fcb-d926453f7c17/download/poruma-west_2020-03-05t00_00-2020-09-14t23_30_waveverifieddata.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "coastal-data-system-waves-poruma-west",
+    "package_id": "911d9fac-fcb5-42f9-961d-d2fa5bd213f6",
+    "resource": "3822df50-bceb-40fc-8fcb-d926453f7c17",
+    "resource_name": "Wave data - 2020",
+    "resource_last_modified": "2025-04-15T23:44:22.678496",
+    "package_modified": "2026-10-15T21:34:06.878101",
+    "package_version": "1",
+    "etag": "W/f1c46e1d5069f7b1976453a2805828e0",
+    "http_last_modified": "Fri, 04 Nov 2022 01:05:08 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=coastal-data-system-waves-poruma-west",
+    "read_at": "2026-10-26T20:47:03+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "a470805a1698712733d3044e8313c64fc04ba935629752435539d23453ba9c7b",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date_time"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
