@@ -1,0 +1,41 @@
+{
+  "dataset": "vic-important-dates",
+  "version": "2026-10-21",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:50:17+00:00",
+  "sha256": "8a60a24667b5985ef7f8bdb7f0d39e3eaf5b73bc39c6f4b0ef35b3269e7852a7",
+  "bytes": 549886,
+  "filename": "important-dates-october-2026.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://discover.data.vic.gov.au/dataset/a8bc540d-181b-4fb5-8110-5fe52a04f6a7/resource/caaa47de-8626-46a6-aa28-3d948c15c5d9/download/important-dates-october-2026.csv",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "government-dates-api-data",
+    "package_id": "a8bc540d-181b-4fb5-8110-5fe52a04f6a7",
+    "resource": "caaa47de-8626-46a6-aa28-3d948c15c5d9",
+    "resource_name": "Important Dates - October 2026",
+    "resource_last_modified": "2026-10-21T03:17:39.887088",
+    "package_modified": "2026-10-21T03:28:31.309469",
+    "package_version": null,
+    "etag": "1792552680.0883875-549886-2978550703",
+    "http_last_modified": "Wed, 21 Oct 2026 03:18:00 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=government-dates-api-data",
+    "read_at": "2026-10-26T20:50:17+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
