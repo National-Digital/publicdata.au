@@ -28,7 +28,9 @@
   },
   "backfilled": false,
   "tombstone": null,
-  "notes": [],
+  "notes": [
+    "On 26 October 2026 this version's database files were written again with the longitude and latitude descriptions the register entry gained on 24 October 2026, when it moved to the publisher's map service. The rows are unchanged."
+  ],
   "rows_sha256": "a16f6d4292ef136ce11baaf68f0493ccf2890358708098e640c1bd2c6fda3b86",
   "parquet": {
     "profile": "1",

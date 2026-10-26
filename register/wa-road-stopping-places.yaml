@@ -256,3 +256,4 @@ fields:
   label: Route network element id
   source: ROUTE_NE_ID
   type: number
+rebuild: 1
