@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-offences-monthly",
+  "version": "2026-10-20",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:43:58+00:00",
+  "sha256": "609ddc695c7c5bd8d93fee1a1eb6328f72d6024797805e482e599c3946921a06",
+  "bytes": 121055,
+  "filename": "QLD_Reported_Offences_Number.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://open-crime-data.s3-ap-southeast-2.amazonaws.com/Crime%20Statistics/QLD_Reported_Offences_Number.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "offence-numbers-monthly-from-july-1997",
+    "package_id": "5e48672e-07e9-448d-9d07-df68d63e2215",
+    "resource": "609541e9-4ed2-4ea4-8cae-c9f94d428a27",
+    "resource_name": "Queensland Offence numbers—monthly from July 1997",
+    "resource_last_modified": "2022-03-09T05:10:11.447059",
+    "package_modified": "2022-03-09T05:12:29.875461",
+    "package_version": "1.0",
+    "etag": "67db28aaa5ed5d639817801b23740a33",
+    "http_last_modified": "Tue, 20 Oct 2026 00:05:08 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=offence-numbers-monthly-from-july-1997",
+    "read_at": "2026-10-26T20:43:58+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "d3b5765d31fe0b2ae9ede75902cfac5a0eb99f6f442bb796d5a91acfd358c2a1",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

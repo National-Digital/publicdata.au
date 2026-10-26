@@ -1,0 +1,40 @@
+{
+  "dataset": "qld-surface-water-gauging-stations",
+  "version": "2026-10-27",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:49:04+00:00",
+  "sha256": "d95595d351e89919c3709963abded862aac0f4360c94016312a8bb314d49bc0e",
+  "bytes": 152292,
+  "filename": "qld-surface-water-gauging-stations.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/InlandWaters/GroundAndSurfaceWaterMonitoring/MapServer/13/query?where=1%3D1&outFields=identifier,title,basin,latitude,longitude,urlstation,urlbasin&orderByFields=identifier&returnGeometry=false&f=geojson",
+    "etag": "d6a7b5a1",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "License Creative Commons Attribution 4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.data.qld.gov.au/dataset/water-monitoring-network-surface-water-quantity-open-gauging-stations-queensland",
+    "read_from": "https://www.data.qld.gov.au/dataset/water-monitoring-network-surface-water-quantity-open-gauging-stations-queensland",
+    "read_at": "2026-10-26T20:49:04+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "8a2fb2fbefefca39dcfb84c17124e16a4f60c947bd2f2e0426440ac5cc852f54",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "identifier"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

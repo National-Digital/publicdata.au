@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-coastal-waves-skardon-river-offshore",
+  "version": "2025-04-17",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:47:04+00:00",
+  "sha256": "640edd8206151a83496d324e740d35f511c6f05404b1ceddba91d5e4aca801dd",
+  "bytes": 723941,
+  "filename": "skardon-river-offshore_2020-03-01t00_00-2020-11-30t08_30_waveverifieddata.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/407ab260-18d6-449b-abc9-34c139a8063a/resource/b8a750da-f708-40ef-9285-ca19d67cbae2/download/skardon-river-offshore_2020-03-01t00_00-2020-11-30t08_30_waveverifieddata.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "coastal-data-system-waves-skardon-river-offshore",
+    "package_id": "407ab260-18d6-449b-abc9-34c139a8063a",
+    "resource": "b8a750da-f708-40ef-9285-ca19d67cbae2",
+    "resource_name": "Wave data - 2020",
+    "resource_last_modified": "2025-04-16T21:53:56.478895",
+    "package_modified": "2026-10-15T21:36:38.108979",
+    "package_version": "1",
+    "etag": "W/07cbe396bafe62fa7ef3f2be97d61a7d",
+    "http_last_modified": "Fri, 04 Nov 2022 01:34:00 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=coastal-data-system-waves-skardon-river-offshore",
+    "read_at": "2026-10-26T20:47:04+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "d22e61cd0907aaeb3c42a3a45bc7577a7e98e48a1feebcfc190c4d1b4399fcaf",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date_time"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

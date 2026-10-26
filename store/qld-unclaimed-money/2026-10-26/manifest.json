@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-unclaimed-money",
+  "version": "2026-10-26",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:48:30+00:00",
+  "sha256": "38892fb382400051ac1a7bad356386aa359d087eeb8c2445c4ceaa76823489e8",
+  "bytes": 256292210,
+  "filename": "unclaimedmoneyopen.csv",
+  "encoding": "cp1252",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/1e0d2147-b526-470a-956c-b85b2963aaa4/resource/872065ae-ddfd-4b5f-ad15-e1935dadd883/download/unclaimedmoneyopen.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "unclaimed-monies",
+    "package_id": "1e0d2147-b526-470a-956c-b85b2963aaa4",
+    "resource": "872065ae-ddfd-4b5f-ad15-e1935dadd883",
+    "resource_name": "Unclaimed monies",
+    "resource_last_modified": "2026-10-25T22:10:08.595259",
+    "package_modified": "2026-10-25T22:25:13.008156",
+    "package_version": "1.0",
+    "etag": "874ae8fc628beac559c6a551ff6164b0",
+    "http_last_modified": "Sun, 25 Oct 2026 22:10:10 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=unclaimed-monies",
+    "read_at": "2026-10-26T20:48:27+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "0c72b66d63ba169a4b05b43706434552223b1ed17a37efb1ec46efa0399943ea",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

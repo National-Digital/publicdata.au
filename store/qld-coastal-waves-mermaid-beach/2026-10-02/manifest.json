@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-coastal-waves-mermaid-beach",
+  "version": "2026-10-02",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:47:03+00:00",
+  "sha256": "be13ec8eea95fffc9d30faa568c0fea96d02360bdadb507fc239a8adf795b7c8",
+  "bytes": 911341,
+  "filename": "mermaid-beach_2022-01-01t00_00-2022-12-07t06_30_waveverifieddata.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/ac07f1e0-cf5b-4bca-bcf3-334ab0ce209e/resource/c72d359b-5db4-42e9-b5dd-616412bceeb1/download/mermaid-beach_2022-01-01t00_00-2022-12-07t06_30_waveverifieddata.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "coastal-data-system-waves-mermaid-beach",
+    "package_id": "ac07f1e0-cf5b-4bca-bcf3-334ab0ce209e",
+    "resource": "c72d359b-5db4-42e9-b5dd-616412bceeb1",
+    "resource_name": "Wave data - 2022",
+    "resource_last_modified": "2026-10-02T03:32:34.864643",
+    "package_modified": "2026-10-02T03:32:38.621906",
+    "package_version": "1",
+    "etag": "13f86d73b9bf72ab8270f3030c4e3acc",
+    "http_last_modified": "Fri, 02 Oct 2026 03:31:09 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=coastal-data-system-waves-mermaid-beach",
+    "read_at": "2026-10-26T20:47:03+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "1a6d40a9aa8df1d80d09dab6e360d53883c4fca9b5f8dabbbdbf15a4a5860b90",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date_time"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

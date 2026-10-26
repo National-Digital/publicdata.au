@@ -1,0 +1,47 @@
+{
+  "dataset": "qld-elective-surgery-by-category",
+  "version": "2025-06-30",
+  "as_at": "2025-06-30",
+  "fetched_at": "2026-10-26T20:44:19+00:00",
+  "sha256": "acda1833a98ffdecf91ef61d12fa821f811fb741a513923edb24c6fc3c25c7ad",
+  "bytes": 14178,
+  "filename": "es_quarterly_bycat_jun25.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/d660d925-400f-42ba-8245-a08bfc18abf4/resource/421c6965-5af5-46bd-8b71-55081dd5569c/download/es_quarterly_bycat_jun25.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "elective-surgery",
+    "package_id": "d660d925-400f-42ba-8245-a08bfc18abf4",
+    "resource": "421c6965-5af5-46bd-8b71-55081dd5569c",
+    "resource_name": "June 2025 – Elective Surgery by Category – Summary 1",
+    "resource_last_modified": "2025-12-10T02:08:43.261501",
+    "package_modified": "2025-12-10T02:08:34.430943",
+    "package_version": "1",
+    "etag": "ffaec922e62118b4fe789a255a9549f6",
+    "http_last_modified": "Wed, 10 Dec 2025 02:03:24 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=elective-surgery",
+    "read_at": "2026-10-26T20:44:18+00:00"
+  },
+  "backfilled": true,
+  "tombstone": null,
+  "notes": [
+    "This earlier release was fetched after a newer one, from the file the publisher still lists. It is dated by the as-at date in its name."
+  ],
+  "rows_sha256": "2216334382f7e12eb3b59f78637f0c58ec0873e54162004094f0f9ce6492ea7e",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "facility_code",
+      "category"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
