@@ -1,0 +1,111 @@
+slug: qld-coastal-waves-skardon-river-offshore
+title: Coastal wave monitoring, Skardon River Offshore
+status: live
+topics:
+- nature
+order: 262
+collection: qld-coastal-waves
+collection_title: Coastal Data System waves, Queensland
+search_title: Skardon River Offshore wave buoy data (Queensland Coastal Data System)
+also_known_as:
+- Skardon River Offshore wave height data
+- Skardon River Offshore waverider buoy readings
+- Coastal Data System waves Skardon River Offshore
+keywords:
+- wave height
+- wave buoy
+- swell
+- sea surface temperature
+- Coastal Data System
+- Skardon River Offshore
+- Queensland
+faq:
+- q: What is in each row?
+  a: Each row is one half-hour reading from the Skardon River Offshore wave monitoring buoy, in Australian Eastern Standard
+    Time. It gives the significant and maximum wave height, the zero upcrossing and peak periods, the direction
+    the peak waves come from and the sea surface temperature.
+- q: Why are some readings blank?
+  a: The publisher writes -99.9 where the buoy gave no valid value for a reading. Those cells are kept as null
+    values here.
+- q: Why does this hold only one year?
+  a: The publisher adds a new CSV file for each year. This entry follows the newest file, so a version holds
+    the year that file covers. The newest file can stop part way through its year.
+summary: Half-hourly wave height, period and direction and sea surface temperature from the Skardon River Offshore wave
+  buoy, for the newest year the publisher has released.
+description: 'Measured and derived wave readings from the wave monitoring buoy the publisher anchors at Skardon River Offshore,
+  one row per half-hour record. Significant wave height (Hs) is the average of the highest third of
+  the waves in a 26.6 minute record. Hmax is the highest wave in the record. Tz is the zero upcrossing period
+  and Tp the peak energy period. Peak direction is measured from true north and gives the direction the peak
+  waves come from. Sea surface temperature is read by a sensor in the hull of the buoy.
+
+
+  The publisher adds one CSV file for each year, and this entry follows the newest of them.'
+publisher:
+  name: Department of the Environment, Tourism, Science and Innovation
+  short: DETSI
+  jurisdiction: Qld
+  url: https://www.detsi.qld.gov.au/
+licence:
+  id: CC-BY-4.0
+  reviewed: '2026-10-26'
+  evidence: https://www.data.qld.gov.au/dataset/coastal-data-system-waves-skardon-river-offshore
+  attribution: Department of the Environment, Tourism, Science and Innovation, Queensland Government, Coastal
+    Data System - Waves (Skardon River Offshore), sourced {sourced}, https://www.data.qld.gov.au/dataset/coastal-data-system-waves-skardon-river-offshore,
+    licensed under CC BY 4.0.
+sample:
+  order: [hs_m.desc]
+  spread: none
+  label: The ten half-hour readings with the highest significant wave height in the latest version, highest
+    first.
+source:
+  adapter: ckan-resource
+  portal: https://www.data.qld.gov.au
+  package: coastal-data-system-waves-skardon-river-offshore
+  resource_match: '^Wave data - [0-9]'
+  url: https://www.data.qld.gov.au/dataset/coastal-data-system-waves-skardon-river-offshore
+  cadence: one file a year
+key:
+- date_time
+row_label: Readings
+fields:
+- name: date_time
+  label: Date and time (AEST)
+  source: Date/Time (AEST)
+  type: datetime
+  date_format: '%Y-%m-%dT%H:%M'
+  description: Start of the half-hour record, Australian Eastern Standard Time.
+- name: hs_m
+  label: Significant wave height (m)
+  source: Hs (m)
+  type: number
+  null_values: &id001
+  - '-99.9'
+  - '-99.90'
+  - '-99.900'
+- name: hmax_m
+  label: Maximum wave height (m)
+  source: Hmax (m)
+  type: number
+  null_values: *id001
+- name: tz_s
+  label: Zero upcrossing period (s)
+  source: Tz (s)
+  type: number
+  null_values: *id001
+- name: tp_s
+  label: Peak period (s)
+  source: Tp (s)
+  type: number
+  null_values: *id001
+- name: peak_direction_deg
+  label: Peak direction (degrees)
+  source: Peak Direction (degrees)
+  type: number
+  null_values: *id001
+  description: Degrees from true north the peak period waves come from.
+- name: sst_c
+  label: Sea surface temperature (°C)
+  source: SST (degrees C)
+  type: number
+  null_values: *id001
+rebuild: 1
