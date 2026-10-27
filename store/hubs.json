@@ -444,6 +444,11 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-boat-licences-registrations-by-postcode",
       "zenodo": "10.5281/zenodo.23140361"
     },
+    "nsw-camping-parks-rest-areas-boat-ramps": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-camping-parks-rest-areas-boat-ramps",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-camping-parks-rest-areas-boat-ramps",
+      "zenodo": "10.5281/zenodo.23679563"
+    },
     "nsw-dwelling-completions": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/nsw-dwelling-completions",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/nsw-dwelling-completions",
@@ -706,6 +711,7 @@
     },
     "qld-coastal-waves-skardon-river-offshore": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-coastal-waves-skardon-river-offshore",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-coastal-waves-skardon-river-offshore",
       "zenodo": "10.5281/zenodo.23678852"
     },
     "qld-coastal-waves-townsville": {
