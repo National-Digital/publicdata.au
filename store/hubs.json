@@ -34,6 +34,11 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/abs-suburbs-localities-2021",
       "zenodo": "10.5281/zenodo.23089040"
     },
+    "abs-suburbs-to-postal-areas-2021": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/abs-suburbs-to-postal-areas-2021",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/abs-suburbs-to-postal-areas-2021",
+      "zenodo": "10.5281/zenodo.23678823"
+    },
     "acnc-register": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/acnc-register",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/acnc-register",
@@ -189,6 +194,11 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-building-approvals-by-lga-2025-26",
       "zenodo": "10.5281/zenodo.23123713"
     },
+    "au-cancer-surgery-waiting-times": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-cancer-surgery-waiting-times",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-cancer-surgery-waiting-times",
+      "zenodo": "10.5281/zenodo.23678928"
+    },
     "au-child-care-services-by-sa3-2012-2016": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/au-child-care-services-by-sa3-2012-2016",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-child-care-services-by-sa3-2012-2016",
@@ -208,6 +218,21 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/au-ed-patients-seen-on-time",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-ed-patients-seen-on-time",
       "zenodo": "10.5281/zenodo.23123805"
+    },
+    "au-ed-presentations": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-ed-presentations",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-ed-presentations",
+      "zenodo": "10.5281/zenodo.23678916"
+    },
+    "au-ed-time-in-ed": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-ed-time-in-ed",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-ed-time-in-ed",
+      "zenodo": "10.5281/zenodo.23678918"
+    },
+    "au-ed-time-within-4-hours": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-ed-time-within-4-hours",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-ed-time-within-4-hours",
+      "zenodo": "10.5281/zenodo.23678922"
     },
     "au-elective-surgery-waiting-times": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/au-elective-surgery-waiting-times",
@@ -318,6 +343,21 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/au-modified-monash-model-by-suburb",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-modified-monash-model-by-suburb",
       "zenodo": "10.5281/zenodo.23123787"
+    },
+    "au-myhospitals-reported-measures": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-myhospitals-reported-measures",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-myhospitals-reported-measures",
+      "zenodo": "10.5281/zenodo.23678904"
+    },
+    "au-myhospitals-reporting-unit-mappings": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-myhospitals-reporting-unit-mappings",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-myhospitals-reporting-unit-mappings",
+      "zenodo": "10.5281/zenodo.23678908"
+    },
+    "au-myhospitals-reporting-units": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/au-myhospitals-reporting-units",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/au-myhospitals-reporting-units",
+      "zenodo": "10.5281/zenodo.23678910"
     },
     "au-national-heritage-list-places": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/au-national-heritage-list-places",
@@ -649,10 +689,24 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-coastal-waves-mackay",
       "zenodo": "10.5281/zenodo.23122525"
     },
+    "qld-coastal-waves-mermaid-beach": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/qld-coastal-waves-mermaid-beach",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-coastal-waves-mermaid-beach",
+      "zenodo": "10.5281/zenodo.23678848"
+    },
     "qld-coastal-waves-mooloolaba": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-coastal-waves-mooloolaba",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-coastal-waves-mooloolaba",
       "zenodo": "10.5281/zenodo.23122520"
+    },
+    "qld-coastal-waves-poruma-west": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/qld-coastal-waves-poruma-west",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/qld-coastal-waves-poruma-west",
+      "zenodo": "10.5281/zenodo.23678850"
+    },
+    "qld-coastal-waves-skardon-river-offshore": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/qld-coastal-waves-skardon-river-offshore",
+      "zenodo": "10.5281/zenodo.23678852"
     },
     "qld-coastal-waves-townsville": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/qld-coastal-waves-townsville",
