@@ -1,4 +1,4 @@
-// What a Lighthouse result must reach, shared by the pull request job (scripts/lighthouse.mjs) and
+// What a Lighthouse result must reach, shared by the on-demand Lighthouse run (scripts/lighthouse.mjs) and
 // the scheduled PageSpeed Insights check (scripts/psi.mjs). Pure functions of a Lighthouse result,
 // so the Functions job can test them without Chrome or the lighthouse package.
 

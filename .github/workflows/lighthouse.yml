@@ -1,0 +1,62 @@
+name: Lighthouse
+
+# Runs the pinned Lighthouse over the pages and targets in scripts/lighthouse-checks.mjs, on demand,
+# against production or a pull request's preview. PageSpeed Insights (psi.yml) holds production to
+# the same targets every week, so this is no pull request check.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Site to test, such as https://publicdata.au or https://pr-123.publicdata-au.pages.dev
+        required: true
+        default: https://publicdata.au
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lighthouse
+  cancel-in-progress: false
+
+jobs:
+  lighthouse:
+    name: Lighthouse
+    runs-on: ubuntu-24.04
+    env:
+      URL: ${{ inputs.url }}
+    steps:
+      - name: Check the URL
+        run: |
+          case "$URL" in
+            https://publicdata.au | https://publicdata.au/ | https://*.publicdata-au.pages.dev | https://*.publicdata-au.pages.dev/) ;;
+            *) echo "::error::$URL is neither publicdata.au nor one of its previews"; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      # The Chrome build the locked puppeteer-core names, the same one the accessibility job uses.
+      - name: Install the pinned Chrome
+        run: |
+          v=$(sed -n "s/^ *chrome: '\(.*\)',$/\1/p" node_modules/puppeteer-core/lib/puppeteer/revisions.js)
+          test -n "$v"
+          path=$(npx --no-install @puppeteer/browsers install "chrome@$v" --path "$RUNNER_TEMP/chrome" --format '{{path}}')
+          echo "CHROME_PATH=$path" >> "$GITHUB_ENV"
+      - name: Run Lighthouse
+        # A step with no shell set runs without pipefail, so tee would hide the script's failure.
+        run: |
+          set -o pipefail
+          node scripts/lighthouse.mjs "${URL%/}" | tee lighthouse.log
+      - name: Summarise
+        if: always()
+        run: |
+          { echo '```'; cat lighthouse.log 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: lighthouse-reports
+          path: lighthouse-reports/
+          retention-days: 14
