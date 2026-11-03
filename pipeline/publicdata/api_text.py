@@ -136,6 +136,7 @@ if TYPE_CHECKING:
 
     class Listing(TypedDict):
         categories: list[str]
+        summary: str
         listed_at: list[Listed]
         listed_note: str
         use_cases: list[UseCase]
@@ -666,7 +667,7 @@ def directory_listing() -> DirectoryListing:
         "one_liner": m["registry_description"],
         "description": "\n\n".join(
             [
-                s["site"]["summary"],
+                m["listing"]["summary"],
                 f"{m['listing']['tools_intro']}\n{tools}",
                 m["resource_template"],
                 m["privacy"],
