@@ -60,7 +60,10 @@ source:
   url: https://gisservices.mainroads.wa.gov.au/arcgis/rest/services/OpenData/RoadAssets_DataPortal/MapServer/19
   cadence: as stopping places change
 key:
-- globalid
+- road
+- start_slk
+- cwy
+- xsp
 geometry:
   lon: x
   lat: y
@@ -92,6 +95,9 @@ fields:
   label: Global id
   source: GlobalID
   type: string
+  description: The publisher issues a new GlobalID for every site each time it republishes the layer,
+    so a site's GlobalID differs from one version to the next. The road, start straight line kilometre,
+    carriageway and cross section position together identify a site.
 - name: road
   label: Road number
   source: ROAD
@@ -256,4 +262,4 @@ fields:
   label: Route network element id
   source: ROUTE_NE_ID
   type: number
-rebuild: 1
+rebuild: 2
