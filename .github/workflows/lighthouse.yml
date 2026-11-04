@@ -21,6 +21,7 @@ concurrency:
 jobs:
   lighthouse:
     name: Lighthouse
+    if: ${{ github.repository == 'National-Digital/publicdata.au' }}
     runs-on: ubuntu-24.04
     env:
       URL: ${{ inputs.url }}
