@@ -1,0 +1,46 @@
+{
+  "dataset": "qld-bushfire-incidents-current",
+  "version": "2026-11-04",
+  "as_at": "",
+  "fetched_at": "2026-11-03T19:49:09+00:00",
+  "sha256": "0ca9e4ce3836b0a358f09ebff1a283d1cdc57b3ce0f037ba98239512831bf4e0",
+  "bytes": 77317,
+  "filename": "bushfireAlert.json",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://publiccontent-gis-psba-qld-gov-au.s3.amazonaws.com/content/Feeds/BushfireCurrentIncidents/bushfireAlert.json",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "queensland-fire-and-rescue-current-bushfire-incidents",
+    "package_id": "784c9d08-e242-48df-a662-697cbdc3787c",
+    "resource": "0b2a4ad3-e82b-4096-b800-7c3ebcdd0078",
+    "resource_name": "Bushfire incidents (JSON)",
+    "resource_last_modified": "2022-04-10T23:35:56.368061",
+    "package_modified": "2024-08-15T05:55:06.647108",
+    "package_version": "n/a",
+    "etag": "ec007720685d3844aa7cd5616441883e",
+    "http_last_modified": "Tue, 03 Nov 2026 19:46:03 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=queensland-fire-and-rescue-current-bushfire-incidents",
+    "read_at": "2026-11-03T19:49:09+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher serves this as a live feed of what is current, with no change date, so this version is what the feed held when it was fetched, dated by the fetch."
+  ],
+  "rows_sha256": "d6de56d823cbf3c3898686ac53cc64b63d1c2cf38fd40163fbb5fd9a48dbcca5",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "unique_id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
