@@ -410,11 +410,11 @@ each version lives in one file that the workflows or the pipeline read:
 | zizmor, actionlint and shellcheck | `.github/workflows/ci.yml` |
 
 An upgrade is a pull request of its own. Renovate (`renovate.json`) raises every version in the
-table but the last two rows on the first of each month, to exact versions only, with one pull request
+table but the last two rows in the first week of each month, to exact versions only, with one pull request
 per group and each major raise in a pull request of its own. The groups are the Actions, the
 runner image, the pipeline's packages, the client's packages, the npm packages, R and its
 snapshot, and duckdb with the spatial extension's pin; Python, Node and uv each get their own.
-Security fixes come as soon as GitHub's advisories name them. The last two rows' tools are raised
+Security fixes come as soon as GitHub's advisories or the OSV database name them. The last two rows' tools are raised
 by hand, since a raise needs the new hash. A runner image raise must also change the Ubuntu codename
 in the R snapshot's URL in `clients.yml`. Check a change to `renovate.json` with
 `npx --yes --package renovate@44.143.0 -- renovate-config-validator --strict`.
