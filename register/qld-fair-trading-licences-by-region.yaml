@@ -66,7 +66,9 @@ source:
   url: https://www.data.qld.gov.au/dataset/occupational-and-industry-licensing-statistics-office-of-fair-trading
   cadence: twice a year
   encoding: utf-8-sig
-  header_row: 2
+  header_row: 1
+  header_row_before:
+    '2026-10-30': 2
 key:
 - licence_type
 row_label: Types

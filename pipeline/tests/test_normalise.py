@@ -189,6 +189,21 @@ def test_a_column_first_published_later_is_null_before_its_since_version() -> No
         normalise(ds, make_manifest(old, version="2026-11-01"), old)
 
 
+def test_a_moved_header_row_is_read_from_each_versions_own_row() -> None:
+    src = Source(
+        adapter="ckan-resource", url="u", header_row=1, header_row_before=(("2026-10-30", 2),)
+    )
+    ds = make_dataset([Field("id", "ID", "integer")], key=("id",), source=src)
+    old = b"Licences as at 1 April\nID\n1\n"
+    new = b"ID,Validation\n2,2\n"
+    assert normalise(ds, make_manifest(old, version="2026-05-07"), old).table.to_pylist() == [
+        {"id": 1}
+    ]
+    got = normalise(ds, make_manifest(new, version="2026-10-30"), new)
+    assert got.table.to_pylist() == [{"id": 2}]
+    assert got.unknown_columns == ["Validation"]
+
+
 API = {
     "result": [
         {

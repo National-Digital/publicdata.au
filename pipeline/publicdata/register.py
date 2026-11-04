@@ -63,6 +63,7 @@ if TYPE_CHECKING:
         format: object
         page_size: int
         backfill_from: object
+        header_row_before: object
         browser: object
 
     class RawField(TypedDict, total=False):
@@ -511,6 +512,28 @@ class Source:
     page_size: int = 0
     # The earliest as-at date of the earlier releases a package still lists that are kept too.
     backfill_from: str = ""
+    # Where the publisher moved the header: (version, row) pairs, each the header row of the
+    # versions dated before that version. Later versions use header_row.
+    header_row_before: tuple[tuple[str, int], ...] = ()
+
+    def header_row_for(self, version: str) -> int:
+        """The header row of the source file of one version."""
+        return next((r for v, r in self.header_row_before if version < v), self.header_row)
+
+
+def _header_rows_before(raw: object, ctx: str) -> tuple[tuple[str, int], ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict) or not raw:
+        msg = f"{ctx}: source.header_row_before maps a version date to the header row before it"
+        raise RegisterError(msg)
+    out = []
+    for v, r in raw.items():
+        if not DATE_RE.match(str(v)) or not isinstance(r, int) or isinstance(r, bool) or r < 1:
+            msg = f"{ctx}: source.header_row_before '{v}: {r}' is not a version date and a row"
+            raise RegisterError(msg)
+        out.append((str(v), r))
+    return tuple(sorted(out))
 
 
 def _check_backfill(ds: Dataset, ctx: str) -> None:
@@ -753,6 +776,7 @@ def parse(raw: RawEntry, ctx: str) -> Dataset:  # noqa: C901, PLR0912, PLR0915 -
         format=str(src.get("format", "")).lstrip(".").lower(),
         page_size=int(src.get("page_size", 0)),
         backfill_from=str(src.get("backfill_from", "")),
+        header_row_before=_header_rows_before(src.get("header_row_before"), ctx),
     )
     if source.manual and source.adapter not in ("ckan-resource", "ckan-stack"):
         msg = f"{ctx}: source.manual needs a ckan-resource or ckan-stack, whose portal records date it"
