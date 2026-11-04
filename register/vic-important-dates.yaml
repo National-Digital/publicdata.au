@@ -77,7 +77,9 @@ row_label: Dates
 fields:
 - name: date_id
   label: Event identifier
-  source: arun
+  source: uuid
+  was:
+  - arun
   type: string
   description: The publisher's identifier for the event. A multi-day event repeats it on each of its rows.
 - name: date_type
