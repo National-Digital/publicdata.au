@@ -1,0 +1,40 @@
+{
+  "dataset": "act-mobile-speed-camera-visits",
+  "version": "2026-11-01",
+  "as_at": "",
+  "fetched_at": "2026-11-02T19:54:25+00:00",
+  "sha256": "94634ed1ad440e299cbe73b4fb65236fcf5315aaff3fb522e4b6aacd4e726395",
+  "bytes": 8056526,
+  "filename": "d56a-2nhi.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/d56a-2nhi/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "d56a-2nhi",
+    "resource_name": "Mobile Speed Camera Visits and Stays",
+    "rows_updated_at": 1793455300,
+    "etag": "Zm94dHJvdC42MDA1N18xXzMyMHB4WUlJbnVILW41N0ZRaVVkd1gwZVB1WldUMA---gziuo3SaKlTTNTC7xtM0w8HceUvkZU--gzip--gzip",
+    "http_last_modified": "Sat, 31 Oct 2026 14:01:39 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/d56a-2nhi.json",
+    "read_at": "2026-11-02T19:54:16+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "366fc9ec77891dc7bc3127b18a71ba544ebf98318d04bc614672d5f5dd2a43f6",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

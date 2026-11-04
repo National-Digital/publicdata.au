@@ -1,0 +1,40 @@
+{
+  "dataset": "act-vehicles-registered",
+  "version": "2026-11-02",
+  "as_at": "",
+  "fetched_at": "2026-11-02T19:54:32+00:00",
+  "sha256": "74a98f44d003a86299af2839c1fd031d3dcec22f19839032596ed539e0da194f",
+  "bytes": 145761,
+  "filename": "x4hp-vihn.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/x4hp-vihn/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "x4hp-vihn",
+    "resource_name": "Total vehicles registered in the ACT",
+    "rows_updated_at": 1793545450,
+    "etag": "Z29sZi40MDc1N184XzE1MVYyQnU4eHJWSkJpSTR1cl9lbkttUThQckdkQQ---gziuis-AKSg_VMTObnttaC2R4MS00---gzip--gzip",
+    "http_last_modified": "Sun, 01 Nov 2026 15:04:10 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/x4hp-vihn.json",
+    "read_at": "2026-11-02T19:54:31+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "ba4a3f59338495b1999afa8ce53db265caf18259a217a8a5e3e9d1ee9aa0bff7",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

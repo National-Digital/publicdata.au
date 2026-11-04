@@ -1,0 +1,38 @@
+{
+  "dataset": "act-drinking-fountains",
+  "version": "2026-11-02",
+  "as_at": "",
+  "fetched_at": "2026-11-02T19:58:21+00:00",
+  "sha256": "ce00c710784acd8d1828cf38ab8cb4d56c0295f6a049d78d4fe686b28a2eb269",
+  "bytes": 182749,
+  "filename": "act-drinking-fountains.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Drinking_Fountain_Assets/FeatureServer/1/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&outSR=4326&f=geojson",
+    "etag": "sd72601_-385698255",
+    "http_last_modified": "Mon, 02 Nov 2026 01:37:40 GMT"
+  },
+  "licence": {
+    "id": "ACTMAPI-TERMS-OF-USE",
+    "stated": "Creative Commons By Attribution 4.0 (Australian Capital Territory) Please read Data Terms and Conditions statement before data use (https://www.actmapi.act.gov.au/terms-and-conditions).",
+    "normalised": "ACTMAPI-TERMS-OF-USE",
+    "title": "CC BY 4.0 with the ACTmapi terms of use",
+    "url": "https://www.arcgis.com/sharing/rest/content/items/3402be5e428445b6b80454bca2ff21e4?f=json",
+    "read_from": "https://www.arcgis.com/sharing/rest/content/items/3402be5e428445b6b80454bca2ff21e4?f=json",
+    "read_at": "2026-11-02T19:58:20+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "001d32b68e24ee93008d21fedc33fe568c7dac4d3a4bc26e9422050fedb075cb",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "asset_id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
