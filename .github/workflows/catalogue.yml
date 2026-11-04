@@ -47,7 +47,7 @@ jobs:
           echo "$RUNNER_TEMP/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
       - id: py
         run: echo "version=$(cat .python-version)" >> "$GITHUB_OUTPUT"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: ${{ steps.py.outputs.version }}
           activate-environment: true
@@ -80,7 +80,7 @@ jobs:
       - name: Act as the fetch app
         id: app
         if: steps.harvest.outputs.changed != '0'
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.FETCH_APP_CLIENT_ID }}
           private-key: ${{ secrets.FETCH_APP_PRIVATE_KEY }}
