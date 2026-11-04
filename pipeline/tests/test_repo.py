@@ -9,7 +9,7 @@ GUARD = "github.repository == 'National-Digital/publicdata.au'"
 # Checks that only read the tree, which a fork or a private copy may run.
 CHECKS = {
     "ci.yml": "*",
-    "clients.yml": {"python", "r"},
+    "clients.yml": {"scope", "python", "r"},
     "codeql.yml": "*",
     "cost.yml": "*",
     "dco.yml": "*",

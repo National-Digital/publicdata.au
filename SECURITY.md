@@ -52,8 +52,9 @@ denial-of-service findings.
 - No credential, private hostname or internal address appears anywhere in the repository or in
   its pull requests and issues, comments and commit messages included. Every push and pull
   request is scanned for secrets across the whole history.
-- CodeQL and dependency review run on every pull request. Renovate raises security updates as
-  soon as GitHub's advisories or the OSV database name them.
+- Dependency review runs on every pull request. CodeQL runs on each push to `main`, every week
+  and on each pull request that changes code. Renovate raises security updates as soon as
+  GitHub's advisories or the OSV database name them.
 - Changes to `main` go through a pull request with a maintainer's review and green checks. Only
   the fetch app's own data pull requests are approved by automation, under the conditions in
   `.github/workflows/data-pr.yml`, and only that app may push `data/` branches. A way for a person

@@ -17,10 +17,26 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # A pull request that only adds store data skips the jobs here that test code. Each job runs if
+  # this one fails, and every push to main runs them all.
+  scope:
+    name: Pull request scope
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: scope
+        uses: ./.github/actions/pr-scope # zizmor: ignore[self-repository] actionlint cannot parse $/ yet; ./ is this event's own checkout
+
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-24.04
-    if: github.event.repository.visibility == 'public'
+    needs: scope
+    if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
     permissions:
       security-events: write # uploads the scan's results to code scanning
       contents: read
@@ -28,14 +44,19 @@ jobs:
       fail-fast: false
       matrix:
         language: [python, javascript-typescript, actions]
+    # A matrix job skipped whole reports under its unexpanded name and leaves the required checks
+    # waiting, so its steps skip instead.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.scope.outputs.code != 'false'
         with:
           persist-credentials: false
       - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        if: needs.scope.outputs.code != 'false'
         with:
           languages: ${{ matrix.language }}
           build-mode: none
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        if: needs.scope.outputs.code != 'false'
         with:
           category: "/language:${{ matrix.language }}"
