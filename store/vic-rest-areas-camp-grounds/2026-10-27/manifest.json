@@ -1,0 +1,40 @@
+{
+  "dataset": "vic-rest-areas-camp-grounds",
+  "version": "2026-10-27",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:55:41+00:00",
+  "sha256": "a996c4cb69b26372e5927415cea4df373d53bf837ca4a1b4adfd8b97a7ae781b",
+  "bytes": 1935171,
+  "filename": "vic-rest-areas-camp-grounds.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://opendata.maps.vic.gov.au/geoserver/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=open-data-platform:foi_point&outputFormat=application/json&CQL_FILTER=feature_type%3D%27community%20space%27%20AND%20feature_subtype%20IN%20(%27rest%20area%27%2C%27camp%20ground%27)&sortBy=pfi",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "Creative Commons Attribution 4.0 International",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://discover.data.vic.gov.au/dataset/vicmap-features-features-of-interest-foi-point",
+    "read_from": "https://discover.data.vic.gov.au/dataset/vicmap-features-features-of-interest-foi-point",
+    "read_at": "2026-10-26T20:55:40+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "3d6e8a7e9d291a724c608e0d32d04b818632d412d7eab38ad9715c91f9eb160b",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "pfi"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

@@ -1,0 +1,44 @@
+{
+  "dataset": "vic-deaths-registered-by-month",
+  "version": "2026-10-06",
+  "as_at": "",
+  "fetched_at": "2026-10-26T20:50:16+00:00",
+  "sha256": "228f1bf9cfadaff771139848be1d7bb0022c29f07010d0ae0592b74131bbe183",
+  "bytes": 18901,
+  "filename": "Death-Registrations-by-Month-%281%29.XLSX",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.bdm.vic.gov.au/sites/default/files/2026-10/Death-Registrations-by-Month-%281%29.XLSX",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "deaths-registered-per-month",
+    "package_id": "5b2132c7-11c5-4e69-b7db-48ea884c88d4",
+    "resource": "ce04339c-3ee0-4eed-9f86-ac9df84973d2",
+    "resource_name": "Deaths registered per month",
+    "resource_last_modified": "2025-11-24T04:21:08.908978",
+    "package_modified": "2026-10-25T23:46:07.291520",
+    "package_version": null,
+    "etag": "6ac439f3-49d5",
+    "http_last_modified": "Mon, 05 Oct 2026 23:59:47 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=deaths-registered-per-month",
+    "read_at": "2026-10-26T20:50:16+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "066d51cfe28483f69101ccc429e22d4e655a9c1b54d8a5af8710aca91aba4124",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
