@@ -1,0 +1,42 @@
+{
+  "dataset": "acnc-register",
+  "version": "2026-11-02",
+  "as_at": "",
+  "fetched_at": "2026-11-02T19:25:51+00:00",
+  "sha256": "c7ab85b45e7a2ed9488caf173d05582f9160903f03d930195ff05f561fdfb6f0",
+  "bytes": 15211387,
+  "filename": "datadotgov_main.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.gov.au/data/dataset/b050b242-4487-4306-abf5-07ca073e5594/resource/8fb32972-24e9-4c95-885e-7140be51be8a/download/datadotgov_main.csv",
+    "portal": "https://data.gov.au/data",
+    "package": "acnc-register",
+    "package_id": "b050b242-4487-4306-abf5-07ca073e5594",
+    "resource": "8fb32972-24e9-4c95-885e-7140be51be8a",
+    "resource_name": "ACNC Register of Australian charities CSV",
+    "resource_last_modified": "2026-11-01T18:04:01.822972",
+    "package_modified": "2026-11-01T18:59:35.483925",
+    "package_version": null,
+    "etag": "1793556242.151-15211387-3370585992",
+    "http_last_modified": "Sun, 01 Nov 2026 18:04:02 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 3.0 Australia",
+    "url": "http://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=acnc-register",
+    "read_at": "2026-11-02T19:25:51+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "1ac62887d8192c9647994a2151918b1176d13992534817ac1f21e54f235c641e",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
