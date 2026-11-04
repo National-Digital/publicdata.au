@@ -224,6 +224,22 @@ omit:
     and held until it is reviewed for publication.
   Primary_TAC_Channel: A radio channel added to the feed in October 2026, absent from every earlier version
     and held until it is reviewed for publication.
+  CreationDate: ArcGIS editor tracking added to the feed in October 2026 and present on some items only.
+    It records the publisher's editing account or edit time, which says nothing about the fire.
+  Creator: ArcGIS editor tracking added to the feed in October 2026 and present on some items only. It
+    records the publisher's editing account or edit time, which says nothing about the fire.
+  EditDate: ArcGIS editor tracking added to the feed in October 2026 and present on some items only. It
+    records the publisher's editing account or edit time, which says nothing about the fire.
+  Editor: ArcGIS editor tracking added to the feed in October 2026 and present on some items only. It
+    records the publisher's editing account or edit time, which says nothing about the fire.
+  CreationDate_1: ArcGIS editor tracking added to the feed in October 2026 and present on some items only.
+    It records the publisher's editing account or edit time, which says nothing about the fire.
+  Creator_1: ArcGIS editor tracking added to the feed in October 2026 and present on some items only. It
+    records the publisher's editing account or edit time, which says nothing about the fire.
+  EditDate_1: ArcGIS editor tracking added to the feed in October 2026 and present on some items only. It
+    records the publisher's editing account or edit time, which says nothing about the fire.
+  Editor_1: ArcGIS editor tracking added to the feed in October 2026 and present on some items only. It
+    records the publisher's editing account or edit time, which says nothing about the fire.
   (longitude): The point geometry of a feature, which repeats the Longitude property; polygon warning
     areas have none.
   (latitude): The point geometry of a feature, which repeats the Latitude property; polygon warning areas
