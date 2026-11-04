@@ -116,3 +116,4 @@ fields:
   label: Primary Health Network area
   source: Primary Health Network area (PHN)
   type: string
+rebuild: 1
