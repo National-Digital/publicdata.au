@@ -680,9 +680,8 @@ def test_relation_is_lazy_and_checks_the_table(client: pd_au.Client, tmp_path: P
     con.close()
     Handler.duckdb_bytes = src.read_bytes()
     r = client.relation("a")
-    row = r.filter("n >= 5").aggregate("count(*)").fetchone()
-    assert row is not None
-    assert row[0] == 5
+    rows = r.filter("n >= 5").aggregate("count(*)").fetchall()
+    assert rows[0][0] == 5
     client.relation("a")
     assert len(client._relations) == 1
     with pytest.raises(ValueError, match="no table or view"):
