@@ -645,6 +645,10 @@ rule carries `# nolint: <linter>. <reason>`.
   other would. `schema.json` gives the date under `publicdata:since`. A key or partition field
   cannot have `since`. Adding a field with `since` to an entry with stored versions changes their
   files, so raise its `rebuild` in the same pull request.
+- When a publisher moves a file's header row, `source.header_row` gives the new row and
+  `source.header_row_before` maps the first version with the new layout to the row before it, such as
+  `'2026-10-30': 2`. Each stored version is then read from its own header row, so its files do not
+  change.
 - An XML file is read one row per element named in `source.record`: its attributes as `@name`, each
   child's text by the child's name, and a child that repeats joined by ` | `.
 - A JSON file that is not GeoJSON is read one row per object in the list at the dotted path in

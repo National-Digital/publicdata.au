@@ -689,7 +689,7 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
                 raise NormaliseError(msg)
             raw, held = read_wide(data, ds)
         elif ext in ("xlsx", "xlsm"):
-            raw = read_xlsx(data, ds.source.sheet, ds.source.header_row)
+            raw = read_xlsx(data, ds.source.sheet, ds.source.header_row_for(m.version))
         elif ext == "json" and ds.source.record:
             raw = read_json(data, ds.source.record, ds.source.explode)
         elif ext in ("geojson", "json"):
@@ -701,7 +701,8 @@ def normalise(ds: Dataset, m: Manifest, data: bytes) -> Table:  # noqa: C901, PL
             raw = read_xml(data, ds.source.record)
         else:
             enc = m.encoding if m.ext != "zip" else detect_encoding(data, ds.source.encoding)
-            raw = read_csv(data, enc, ds.source.delimiter, ds.source.header_row, short)
+            header_row = ds.source.header_row_for(m.version)
+            raw = read_csv(data, enc, ds.source.delimiter, header_row, short)
     if ds.unpivot:
         raw, held = unpivot(raw, ds)
 

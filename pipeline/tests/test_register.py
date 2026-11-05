@@ -88,6 +88,15 @@ def test_since_is_a_version_date_and_not_on_a_key() -> None:
         parse(_raw(fields=[{"name": "a", "source": "A", "since": "2026-10-24"}], key=["a"]), "x")
 
 
+def test_header_row_before_gives_each_version_its_own_header_row() -> None:
+    before = {"2026-10-30": 2, "2025-01-01": 3}
+    s = parse(_raw(source={"url": "u", "header_row": 1, "header_row_before": before}), "x").source
+    assert [s.header_row_for(v) for v in ("2024-12-31", "2026-05-07", "2026-10-30")] == [3, 2, 1]
+    for bad in ({"October 2026": 2}, {"2026-10-30": 0}, {"2026-10-30": "2"}, [2], {}):
+        with pytest.raises(RegisterError, match="header_row_before"):
+            parse(_raw(source={"url": "u", "header_row_before": bad}), "x")
+
+
 def test_live_needs_the_search_fields(tmp_path: Path) -> None:
     live = _raw(
         status="live",
