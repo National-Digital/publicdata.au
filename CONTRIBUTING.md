@@ -165,10 +165,19 @@ installed on it; delete `renovate.json` there if you do not want them.
   the fetch app opened them from a run on `main`, with one signed-off commit of store manifests.
   Only the app may push `data/` branches. They merge themselves when their checks are green.
   Every other pull request, a person's change to `store/` included, needs a maintainer.
+- A pull request that only adds store data skips the required checks that test code. Store data
+  means new version manifests or change logs under `store/`, or a change to `store/hubs.json`. The
+  skipped checks are the pipeline tests, Determinism, Accessibility, Functions, Tool definition
+  quality, Workflow lint, both clients and CodeQL. A skipped check counts as passed. The register,
+  the build and gate, secret scanning, dependency review, the DCO and the title still run. Such a
+  pull request changes none of the code those checks test, so a fault they find shows on `main`,
+  where every push runs every check, and on each pull request that changes code.
+  `.github/actions/pr-scope` decides, and `pipeline/tests/test_pr_scope.py` tests it. An edit to
+  or removal of an existing version runs every check.
 - A change under `.github/` must pass the Workflow lint job in `ci.yml`. It runs zizmor at its
   auditor persona, which reports every finding zizmor has, and actionlint with shellcheck over every
-  workflow's `run:` blocks. actionlint does not read the composite action in `.github/actions/`, so
-  its steps get zizmor alone. The `pre-commit` hook runs both offline (see Git hooks). The online
+  workflow's `run:` blocks. actionlint does not read the composite actions in `.github/actions/`, so
+  their steps get zizmor alone. The `pre-commit` hook runs both offline (see Git hooks). The online
   audits need a token, so run zizmor with one before you push, at the versions that job pins:
 
   ```sh

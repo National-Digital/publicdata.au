@@ -80,7 +80,7 @@ convention = "google"
 # and npx are found on PATH as CI installs them.
 "publicdata/{cost,d1,explorer,hubs}.py" = ["S603"]
 "publicdata/{__main__,cost}.py" = ["S607"]
-"tests/{conftest,test_cost,test_d1,test_directory,test_hooks,test_hubs,test_parts_sql,test_r2,test_site_and_gate}.py" = [
+"tests/{conftest,test_cost,test_d1,test_directory,test_hooks,test_hubs,test_parts_sql,test_pr_scope,test_r2,test_site_and_gate}.py" = [
   "S603",
 ]
 "tests/test_{brand,cost,hubs,r2}.py" = ["S607"]

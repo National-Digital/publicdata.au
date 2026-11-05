@@ -17,9 +17,26 @@ permissions:
   contents: read
 
 jobs:
+  # A pull request that only adds store data skips the jobs here that test code. Each job runs if
+  # this one fails, and every push to main runs them all.
+  scope:
+    name: Pull request scope
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: scope
+        uses: ./.github/actions/pr-scope # zizmor: ignore[self-repository] actionlint cannot parse $/ yet; ./ is this event's own checkout
+
   pipeline:
     name: Pipeline checks
     runs-on: ubuntu-24.04
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,6 +100,8 @@ jobs:
   tdqs:
     name: Tool definition quality
     runs-on: ubuntu-24.04
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -117,6 +136,8 @@ jobs:
   determinism:
     name: Determinism
     runs-on: ubuntu-24.04
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -209,6 +230,8 @@ jobs:
   accessibility:
     name: Accessibility
     runs-on: ubuntu-24.04
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -242,6 +265,8 @@ jobs:
   functions:
     name: Functions
     runs-on: ubuntu-24.04
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -258,6 +283,8 @@ jobs:
   workflows:
     name: Workflow lint
     runs-on: ubuntu-24.04
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

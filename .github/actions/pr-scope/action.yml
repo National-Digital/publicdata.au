@@ -1,0 +1,30 @@
+name: Pull request scope
+description: Whether a pull request changes code, or only adds store data that the code checks never read.
+# The caller checks out the event's commit with fetch-depth 2 first, so a pull request's merge
+# commit has both parents here.
+outputs:
+  code:
+    description: false only for a pull request that adds version manifests or change logs, or changes the hub record, and nothing else
+    value: ${{ steps.scope.outputs.code }}
+runs:
+  using: composite
+  steps:
+    # Any other event, a commit that is not GitHub's test merge, or a git error leaves code true or
+    # unset, and the code checks run.
+    - id: scope
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+      run: |
+        code=true
+        if [ "$EVENT" = pull_request ] && git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+          changes=$(git diff --name-status --no-renames 'HEAD^1' HEAD)
+          printf '%s\n' "$changes"
+          data=$'^(A\tstore/[^/]+/[^/]+/(manifest|changes)\\.json|M\tstore/hubs\\.json)$'
+          other=$(printf '%s\n' "$changes" | grep -cvE "$data" || true)
+          if [ -n "$changes" ] && [ "$other" = 0 ]; then
+            code=false
+          fi
+        fi
+        echo "code=$code"
+        echo "code=$code" >> "$GITHUB_OUTPUT"
