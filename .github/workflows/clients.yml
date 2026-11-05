@@ -15,7 +15,7 @@ on:
 env:
   UV_CONSTRAINT: ${{ github.workspace }}/clients/python/requirements.txt
   UV_BUILD_CONSTRAINT: ${{ github.workspace }}/clients/python/requirements.txt
-  RSPM: https://packagemanager.posit.co/cran/__linux__/noble/2026-10-07
+  RSPM: https://packagemanager.posit.co/cran/__linux__/noble/2026-11-05
 
 permissions:
   contents: read
@@ -84,7 +84,7 @@ jobs:
           persist-credentials: false
       - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
         with:
-          r-version: 4.6.1
+          r-version: 4.6.2
           use-public-rspm: true
       - uses: r-lib/actions/setup-r-dependencies@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
         with:
