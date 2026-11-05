@@ -24,7 +24,7 @@ jobs:
   token:
     name: Origin-trial token
     if: ${{ github.repository == 'National-Digital/publicdata.au' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       issues: write # opens, comments on and closes the origin-trial issue

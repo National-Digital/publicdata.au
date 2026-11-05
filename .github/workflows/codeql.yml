@@ -21,7 +21,7 @@ jobs:
   # this one fails, and every push to main runs them all.
   scope:
     name: Pull request scope
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       code: ${{ steps.scope.outputs.code }}
     steps:
@@ -34,7 +34,7 @@ jobs:
 
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: scope
     if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
     permissions:

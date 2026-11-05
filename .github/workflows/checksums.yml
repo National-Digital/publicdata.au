@@ -21,7 +21,7 @@ jobs:
     name: write
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: production
     outputs:
       parts: ${{ steps.lists.outputs.parts }}
@@ -53,7 +53,7 @@ jobs:
     name: sign ${{ matrix.part }}
     needs: write
     if: needs.write.outputs.parts != '[]'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       id-token: write # the OIDC token Sigstore certifies to sign the attestation

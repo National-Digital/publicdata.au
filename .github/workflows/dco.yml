@@ -17,7 +17,7 @@ concurrency:
 jobs:
   dco:
     name: Check sign-off
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Verify Signed-off-by on every commit
         env:

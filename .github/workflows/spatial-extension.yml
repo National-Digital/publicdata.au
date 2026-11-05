@@ -25,7 +25,7 @@ jobs:
     name: mirror
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # The token that writes the raw store and nothing else, and the app that pushes the pin.
     environment: fetch
     steps:

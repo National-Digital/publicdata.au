@@ -19,7 +19,7 @@ jobs:
   psi:
     name: PageSpeed Insights
     if: ${{ github.repository == 'National-Digital/publicdata.au' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Holds PSI_API_KEY, so only a job that names it can read the key.
     environment: psi
     permissions:

@@ -30,7 +30,7 @@ jobs:
     name: sync
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read

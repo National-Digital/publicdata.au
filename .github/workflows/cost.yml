@@ -18,7 +18,7 @@ permissions: {}
 jobs:
   cost:
     name: Storage cost
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Only this job is cancelled by a newer event, so the revoke job always runs to the end.
     concurrency:
       group: cost-${{ github.event.pull_request.number }}
@@ -66,7 +66,7 @@ jobs:
       && contains(github.event.pull_request.labels.*.name, 'cost-approved')
       && (contains(fromJSON('["synchronize", "reopened"]'), github.event.action)
       || (github.event.action == 'edited' && github.event.changes.base))
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # A revoke is never cancelled, so one that has started always finishes.
     concurrency:
       group: cost-revoke-${{ github.event.pull_request.number }}

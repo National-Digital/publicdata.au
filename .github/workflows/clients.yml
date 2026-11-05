@@ -31,7 +31,7 @@ jobs:
   # this one fails, and every push to main runs them all.
   scope:
     name: Pull request scope
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       code: ${{ steps.scope.outputs.code }}
     steps:
@@ -44,7 +44,7 @@ jobs:
 
   python:
     name: Python client
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.code != 'false' }}
     defaults:
@@ -94,7 +94,7 @@ jobs:
 
   r:
     name: R client
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.code != 'false' }}
     steps:
@@ -140,7 +140,7 @@ jobs:
     needs: python
     # Side effects run only in the public repo, never in a fork or a private copy.
     if: github.repository == 'National-Digital/publicdata.au' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PYPI_PUBLISH == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: pypi
     permissions:
       contents: read
