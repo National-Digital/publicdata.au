@@ -16,7 +16,7 @@ to BUDGET of them, oldest pending first, and the rest wait for the next deploy.
 from __future__ import annotations
 
 import dataclasses
-import datetime
+import datetime as dt
 import hashlib
 import json
 import math
@@ -1482,15 +1482,15 @@ def _run(  # noqa: PLR0913 - the options are keyword-only and named at each call
 
 def _stale(j: Job, now: str) -> bool:
     try:
-        since = datetime.datetime.fromisoformat(j.since)
-        at = datetime.datetime.fromisoformat(now)
+        since = dt.datetime.fromisoformat(j.since)
+        at = dt.datetime.fromisoformat(now)
     except ValueError:
         return False
     if since.tzinfo is None:
-        since = since.replace(tzinfo=datetime.UTC)
+        since = since.replace(tzinfo=dt.UTC)
     if at.tzinfo is None:
-        at = at.replace(tzinfo=datetime.UTC)
-    return at - since > datetime.timedelta(days=STALE_DAYS)
+        at = at.replace(tzinfo=dt.UTC)
+    return at - since > dt.timedelta(days=STALE_DAYS)
 
 
 def _summary(  # noqa: PLR0913 - the options are keyword-only and named at each call
@@ -1575,7 +1575,7 @@ def load(  # noqa: PLR0913 - the options are keyword-only and named at each call
     versions that failed in this deploy.
     """
     jobs = _jobs(folder)
-    now = now or datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    now = now or dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     for ddl in (REGISTRY, ORDERS, LOADS):
         _ask(db, ddl)
     reg = _registry(db)
