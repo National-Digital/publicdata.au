@@ -25,10 +25,11 @@ check would notice.
   abbreviation in the site's prose to the glossary.
 - `docs/ACCESSIBILITY.md` records the target, the checks, the exceptions and how each criterion
   with no machine test is met, and the public statement at `/accessibility/` follows it.
-- Every pull request's preview is run through Lighthouse on six kinds of page, mobile and desktop,
-  against performance 90 or more on the median of three runs and every audit in accessibility,
-  best practices, SEO and agentic browsing. A weekly PageSpeed Insights run holds production to the
-  same targets, runs a page that misses once more, and opens an issue when it misses again.
+- Lighthouse runs on six kinds of page, mobile and desktop, against performance 90 or more on the
+  median of three runs and every audit in accessibility, best practices, SEO and agentic browsing.
+  A weekly PageSpeed Insights run holds production to these targets, runs a page that misses once
+  more, and opens an issue when it misses again. The pinned Lighthouse runs on demand against
+  production or a preview (`lighthouse.yml`).
 
 ## Alternatives considered
 
@@ -45,9 +46,10 @@ check would notice.
   it merges, and the 7:1 contrast rule sets the brand's button colour.
 - The explorer's third-party viewer, publishers' own wording and files, and maps are named as known
   limitations on the statement, which claims no full conformance.
-- The Lighthouse job is not a required check, so a preview that misses a target can still merge. A
-  performance score varies from run to run, and the weekly run on production is where a lasting
-  miss becomes an issue.
+- A pull request is not held to the Lighthouse targets. A performance score varies from run to run,
+  and the weekly run on production is where a lasting miss becomes an issue. Until November 2026
+  every pull request ran Lighthouse on its preview. That job failed on data pull requests that
+  change no template, so it moved to `lighthouse.yml`, which runs on demand.
 - The preview is served noindex, so the crawlability audit is held on production only, and the
   explorer page is exempt from it because it is noindex by design.
 - The weekly run needs an API key, held in its own environment so that only that job can read it.

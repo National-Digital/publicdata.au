@@ -1,6 +1,6 @@
 // Runs Lighthouse over a deployed site, mobile and desktop, three times a page, and holds the run
-// with the median performance score to the targets in lighthouse-checks.mjs. A pull request runs it
-// against its own preview deploy, which serves the real headers, CSP and compression; a local
+// with the median performance score to the targets in lighthouse-checks.mjs. lighthouse.yml runs it
+// against production or a preview deploy, which serves the real headers, CSP and compression; a local
 // server would not. Usage: node scripts/lighthouse.mjs <base-url> [path ...]. Writes summary.json
 // and one HTML report per page and form factor to LIGHTHOUSE_OUT (default lighthouse-reports/).
 // Chrome is found at CHROME_PATH or /usr/bin/google-chrome.

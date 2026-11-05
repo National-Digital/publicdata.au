@@ -1,6 +1,6 @@
 // Runs PageSpeed Insights over production, mobile and desktop, and holds each result to the same
-// targets as the pull request job (lighthouse-checks.mjs). PSI runs the Lighthouse Google ships,
-// which can be newer than the version the pull request job pins, so this is where a new or changed
+// targets as the on-demand Lighthouse run (lighthouse-checks.mjs). PSI runs the Lighthouse Google ships,
+// which can be newer than the version that run pins, so this is where a new or changed
 // audit shows first. It also reports the Chrome UX Report field data. Usage: node scripts/psi.mjs
 // [base-url]; the key is read from PSI_API_KEY. Writes psi-report.md and exits 1 when a page misses
 // a target or Lighthouse could not load it. A failed API call, such as a bad key or a spent quota,

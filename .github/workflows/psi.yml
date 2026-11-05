@@ -1,7 +1,7 @@
 name: PageSpeed Insights
 
 # Holds production to the Lighthouse targets through PageSpeed Insights, the Lighthouse Google
-# ships, which moves to a new release within weeks of it while the pull request job stays pinned.
+# ships, which moves to a new release within weeks of it while lighthouse.yml stays pinned.
 # A failure opens an issue labelled psi, or comments on the open one; a later pass closes it.
 on:
   schedule:
