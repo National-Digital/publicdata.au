@@ -1784,6 +1784,11 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-new-vehicle-registrations-monthly",
       "zenodo": "10.5281/zenodo.23116335"
     },
+    "vic-picnic-sites": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/vic-picnic-sites",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-picnic-sites",
+      "zenodo": "10.5281/zenodo.23966577"
+    },
     "vic-prison-locations": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/vic-prison-locations",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-prison-locations",
@@ -1823,6 +1828,11 @@
       "huggingface": "https://huggingface.co/datasets/National-Digital/vic-rents-by-suburb",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-rents-by-suburb",
       "zenodo": "10.5281/zenodo.23077293"
+    },
+    "vic-rest-areas-camp-grounds": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/vic-rest-areas-camp-grounds",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-rest-areas-camp-grounds",
+      "zenodo": "10.5281/zenodo.23966574"
     },
     "vic-road-crashes": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/vic-road-crashes",
