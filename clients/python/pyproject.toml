@@ -22,13 +22,13 @@ duckdb = ["duckdb>=1.1"]
 geo = ["geopandas>=0.14", "pyogrio>=0.7"]
 dev = [
   "pytest>=8",
-  "ruff==0.16.10",
-  "mypy==2.4.0",
+  "ruff==0.17.3",
+  "mypy==2.4.1",
   # pandas-stubs 3 needs Python 3.11; mypy runs on a newer Python and checks against 3.10.
-  "pandas-stubs==3.0.5.260914; python_version >= '3.11'",
+  "pandas-stubs==3.1.0.261029; python_version >= '3.11'",
   "pyarrow-stubs==20.0.0.20260819",
-  "types-geopandas==1.1.4.20261006",
-  "types-shapely==2.1.0.20260728",
+  "types-geopandas==1.2.0.20261029",
+  "types-shapely==2.1.0.20261030",
 ]
 
 [project.urls]
