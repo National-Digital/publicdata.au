@@ -176,4 +176,4 @@ fields:
 omit:
   ? ''
   : A column with no header in the publisher's file, which has no name to publish it under.
-rebuild: 1
+rebuild: 2
