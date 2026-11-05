@@ -5,24 +5,24 @@
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.32.0",
-    "@perspective-dev/client": "5.5.1",
-    "@perspective-dev/server": "5.5.1",
-    "@perspective-dev/viewer": "5.5.1",
-    "@perspective-dev/viewer-charts": "5.5.1",
-    "@perspective-dev/viewer-datagrid": "5.5.1",
+    "@perspective-dev/client": "5.6.1",
+    "@perspective-dev/server": "5.6.1",
+    "@perspective-dev/viewer": "5.6.1",
+    "@perspective-dev/viewer-charts": "5.6.1",
+    "@perspective-dev/viewer-datagrid": "5.6.1",
     "fzstd": "0.1.1",
-    "hyparquet": "1.31.2"
+    "hyparquet": "1.32.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "axe-core": "4.13.0",
+    "axe-core": "4.14.0",
     "esbuild": "0.28.2",
-    "eslint": "10.12.0",
-    "globals": "17.13.0",
-    "lighthouse": "13.5.0",
-    "prettier": "3.9.9",
-    "puppeteer-core": "25.12.0",
-    "wrangler": "4.148.0"
+    "eslint": "10.14.0",
+    "globals": "17.14.0",
+    "lighthouse": "13.6.0",
+    "prettier": "3.9.10",
+    "puppeteer-core": "25.16.0",
+    "wrangler": "4.158.0"
   },
   "overrides": {
     "sharp": "0.35.5"
