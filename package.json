@@ -5,11 +5,11 @@
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.32.0",
-    "@perspective-dev/client": "5.6.1",
-    "@perspective-dev/server": "5.6.1",
-    "@perspective-dev/viewer": "5.6.1",
-    "@perspective-dev/viewer-charts": "5.6.1",
-    "@perspective-dev/viewer-datagrid": "5.6.1",
+    "@perspective-dev/client": "5.8.0",
+    "@perspective-dev/server": "5.8.0",
+    "@perspective-dev/viewer": "5.8.0",
+    "@perspective-dev/viewer-charts": "5.8.0",
+    "@perspective-dev/viewer-datagrid": "5.8.0",
     "fzstd": "0.1.1",
     "hyparquet": "1.32.0"
   },
