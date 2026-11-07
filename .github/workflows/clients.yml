@@ -15,7 +15,7 @@ on:
 env:
   UV_CONSTRAINT: ${{ github.workspace }}/clients/python/requirements.txt
   UV_BUILD_CONSTRAINT: ${{ github.workspace }}/clients/python/requirements.txt
-  RSPM: https://packagemanager.posit.co/cran/__linux__/noble/2026-11-05
+  RSPM: https://packagemanager.posit.co/cran/__linux__/noble/2026-11-07
 
 permissions:
   contents: read
