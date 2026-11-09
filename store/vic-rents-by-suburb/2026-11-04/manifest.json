@@ -1,0 +1,47 @@
+{
+  "dataset": "vic-rents-by-suburb",
+  "version": "2026-11-04",
+  "as_at": "",
+  "fetched_at": "2026-11-09T20:42:29+00:00",
+  "sha256": "df3e61a0a865e9fff236c9fe58013b4333d268e223b0258c9d7c22710e5bb997",
+  "bytes": 1177003,
+  "filename": "moving-annual-median-rent-suburb-and-town-june-quarter-2026.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.dffh.vic.gov.au/moving-annual-median-rent-suburb-and-town-june-quarter-2026",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "rental-report-quarterly-moving-annual-rents-by-suburb",
+    "package_id": "fd720bba-22ee-45e0-b935-e89c829f0849",
+    "resource": "9f44fe4e-e1cf-4b1f-ad21-1933ef93df32",
+    "resource_name": "Moving Annual Rents by Suburb - Jun 2026",
+    "resource_last_modified": null,
+    "package_modified": "2026-11-04T00:58:06.255828",
+    "package_version": null,
+    "etag": "6ae2bca4-11f5ab",
+    "http_last_modified": "Thu, 29 Oct 2026 03:25:24 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=rental-report-quarterly-moving-annual-rents-by-suburb",
+    "read_at": "2026-11-09T20:42:28+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "eef47c7c9d7818d48afa1fd82c6065e6dba3291fa3a593f48c2d0a7d92c98130",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "property_type",
+      "region",
+      "suburb",
+      "year_ending"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

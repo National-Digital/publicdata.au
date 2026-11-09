@@ -1,0 +1,44 @@
+{
+  "dataset": "vic-liquor-licences",
+  "version": "2026-11-04",
+  "as_at": "",
+  "fetched_at": "2026-11-09T21:03:52+00:00",
+  "sha256": "382364f5ccca96d47c96bf5d65ea5365585985d0b896b1d2fb38782fb9437260",
+  "bytes": 3951691,
+  "filename": "Current_Victorian_Licences_By_Location_30_September_2026.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.vic.gov.au/sites/default/files/2026-10/Current_Victorian_Licences_By_Location_30_September_2026.xlsx",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "victorian-liquor-licences-by-location",
+    "package_id": "6f1cc305-a8b2-4748-bd40-c00754ad6504",
+    "resource": "1cbb8077-a36b-43c2-9945-d6bbf4170118",
+    "resource_name": "September 2026",
+    "resource_last_modified": null,
+    "package_modified": "2026-11-03T22:06:58.867492",
+    "package_version": null,
+    "etag": "6ac58274-3c4c4b",
+    "http_last_modified": "Tue, 06 Oct 2026 23:21:24 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=victorian-liquor-licences-by-location",
+    "read_at": "2026-11-09T21:03:52+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "ce144be9aeb902facca7d913dca64249374ebaddfa8c293868356aeeec21d7c9",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "licence_number"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

@@ -1,0 +1,43 @@
+{
+  "dataset": "vic-melbourne-water-daily-storage",
+  "version": "2025-02-10",
+  "as_at": "",
+  "fetched_at": "2026-11-09T21:04:02+00:00",
+  "sha256": "36ae79dad0d519a936fa9b266dcb741e0ad5c61d3f36e63a7e5999e1ca78e5e8",
+  "bytes": 183,
+  "filename": "csv.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data-melbournewater.opendata.arcgis.com/api/download/v1/items/7db00ccb52134f53991257edfe37cade/csv?layers=0",
+    "portal": "https://discover.data.vic.gov.au",
+    "package": "water-supply-daily-volume-observed-for-storage-dams-operated-by-melbourne-water",
+    "package_id": "aa8cdb07-14ba-42a5-a75c-375f24da9645",
+    "resource": "e6f1282b-761f-4cbe-8a84-c63b98755950",
+    "resource_name": "CSV",
+    "resource_last_modified": null,
+    "package_modified": "2025-02-10T06:04:05.482279",
+    "package_version": null,
+    "etag": "W/b7-UE1fuTw3eU9OZkThnuvBWp5TEIY",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://discover.data.vic.gov.au/api/3/action/package_show?id=water-supply-daily-volume-observed-for-storage-dams-operated-by-melbourne-water",
+    "read_at": "2026-11-09T21:03:56+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "object_id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
