@@ -1,0 +1,52 @@
+{
+  "dataset": "wa-road-stopping-places",
+  "version": "2026-11-06",
+  "as_at": "",
+  "fetched_at": "2026-11-09T21:09:32+00:00",
+  "sha256": "d66f2955baf65315cbcce51a1c75cab4229074d5fd28416c4a92c78d2307b998",
+  "bytes": 1641346,
+  "filename": "wa-road-stopping-places.geojson",
+  "encoding": "utf-8",
+  "source": {
+    "url": "https://gisservices.mainroads.wa.gov.au/arcgis/rest/services/OpenData/RoadAssets_DataPortal/MapServer/19",
+    "portal": "https://catalogue.data.wa.gov.au",
+    "package": "mrwa-road-stopping-places",
+    "package_id": "662c5bbc-90b1-482a-a801-1c92e6d83eda",
+    "package_modified": "2026-11-05T21:23:42.410530",
+    "layer_name": "Road Stopping Place",
+    "object_id_field": "OBJECTID",
+    "last_edit_date": null,
+    "newest_record": null,
+    "features": 1677,
+    "date_fields": []
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "cc-by",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://catalogue.data.wa.gov.au/api/3/action/package_show?id=mrwa-road-stopping-places",
+    "read_at": "2026-11-09T21:09:31+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The layer states no edit date or dated records, so this version is dated by the portal record.",
+    "The publisher offers no file. These bytes are every feature of the layer as the service returned them in WGS84, ordered by its object id, so the same layer gives the same bytes."
+  ],
+  "rows_sha256": "e46e6d6e7c9788f79c7d38b8e0b4d0e9b1f9af733ddd1edfddb48c7c838ecde1",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "road",
+      "start_slk",
+      "cwy",
+      "xsp"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
