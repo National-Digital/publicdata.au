@@ -1,0 +1,40 @@
+{
+  "dataset": "act-licences-transferred-to-act",
+  "version": "2026-11-07",
+  "as_at": "",
+  "fetched_at": "2026-11-09T21:06:02+00:00",
+  "sha256": "e8e00351504814fe4862cb2fe8875199aa972e0c22383d9ccd0a742d65a7a591",
+  "bytes": 12755,
+  "filename": "i499-ptev.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/i499-ptev/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "i499-ptev",
+    "resource_name": "Interstate and Overseas Driver Licences Transferred to the ACT",
+    "rows_updated_at": 1793999313,
+    "etag": "aW5kaWEuODc0NjlfMV8yNTVlX3llcjdxU1pRQWJfcVNpV0I0c2JhYzFrbWM---gzipoaB7r3e0BgXEG-_g3SSZDoVJvIw--gzip--gzip",
+    "http_last_modified": "Fri, 06 Nov 2026 21:08:33 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/i499-ptev.json",
+    "read_at": "2026-11-09T21:06:01+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "e379ba223976d4a6b3cd58feaeb10457866b89998b93bd522f303d351df3163c",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
