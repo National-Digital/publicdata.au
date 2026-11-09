@@ -1,0 +1,38 @@
+{
+  "dataset": "rba-indicator-lending-rates",
+  "version": "2026-11-06",
+  "as_at": "",
+  "fetched_at": "2026-11-09T20:42:33+00:00",
+  "sha256": "0c6e3b2a7cac7666bdb94769fa93a9e78ceceb5d0663f03b559df1bc2147fc3f",
+  "bytes": 73418,
+  "filename": "f5-data.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.rba.gov.au/statistics/tables/csv/f5-data.csv",
+    "etag": "",
+    "http_last_modified": "Fri, 06 Nov 2026 00:11:25 GMT"
+  },
+  "licence": {
+    "id": "RBA-COPYRIGHT-NOTICE",
+    "stated": "may be used, reproduced, published, communicated to the public or otherwise referenced for personal or commercial use",
+    "normalised": "RBA-COPYRIGHT-NOTICE",
+    "title": "RBA copyright notice",
+    "url": "https://www.rba.gov.au/copyright/",
+    "read_from": "https://www.rba.gov.au/copyright/",
+    "read_at": "2026-11-09T20:42:33+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "63a06a540bba4bf1d208249e1932e05dc7310ce9a3782cbeedf71653f26d21f0",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

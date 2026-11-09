@@ -1,0 +1,43 @@
+{
+  "dataset": "au-ed-time-within-4-hours",
+  "version": "2026-11-10",
+  "as_at": "",
+  "fetched_at": "2026-11-09T21:08:50+00:00",
+  "sha256": "363a8284dd8bc67f06135533de0ff5468f0cbf1e02e0c681b4b0dbdef4ccc671",
+  "bytes": 5171234,
+  "filename": "au-ed-time-within-4-hours.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-ed",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.aihw.gov.au/copyright",
+    "read_from": "https://www.aihw.gov.au/copyright",
+    "read_at": "2026-11-09T21:08:50+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "d24dcaf70bf12796fe36403820ac1d17ac6e0abac1a17cde2787ade80335308e",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "reporting_unit",
+      "reporting_unit_type",
+      "year",
+      "patient_cohort"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
