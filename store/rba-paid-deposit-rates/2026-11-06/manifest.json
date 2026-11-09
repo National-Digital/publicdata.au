@@ -1,0 +1,38 @@
+{
+  "dataset": "rba-paid-deposit-rates",
+  "version": "2026-11-06",
+  "as_at": "",
+  "fetched_at": "2026-11-09T20:42:33+00:00",
+  "sha256": "ead286d3075c65e02b4cb19557dd968b40d3d58c8c769fe75d6aaac62350dda8",
+  "bytes": 9538,
+  "filename": "f4.1-data.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.rba.gov.au/statistics/tables/csv/f4.1-data.csv",
+    "etag": "",
+    "http_last_modified": "Fri, 06 Nov 2026 00:11:25 GMT"
+  },
+  "licence": {
+    "id": "RBA-COPYRIGHT-NOTICE",
+    "stated": "may be used, reproduced, published, communicated to the public or otherwise referenced for personal or commercial use",
+    "normalised": "RBA-COPYRIGHT-NOTICE",
+    "title": "RBA copyright notice",
+    "url": "https://www.rba.gov.au/copyright/",
+    "read_from": "https://www.rba.gov.au/copyright/",
+    "read_at": "2026-11-09T20:42:33+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "1575d10623171191be52f22dc4312a1b8ed0e0d96f5101463200e5f9fd386cf1",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
