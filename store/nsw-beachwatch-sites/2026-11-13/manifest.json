@@ -1,0 +1,40 @@
+{
+  "dataset": "nsw-beachwatch-sites",
+  "version": "2026-11-13",
+  "as_at": "",
+  "fetched_at": "2026-11-12T19:48:32+00:00",
+  "sha256": "487d4953d0a1699a671930980e9c501af4af9cfcd6323355e4501d1d8e247525",
+  "bytes": 94149,
+  "filename": "nsw-beachwatch-sites.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://api.beachwatch.nsw.gov.au/public/sites/geojson",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "all department material available on this website is licensed under the Creative Commons Attribution 4.0 International (CC BY 4.0)",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.environment.nsw.gov.au/about-us/copyright-and-disclaimer",
+    "read_from": "https://www.environment.nsw.gov.au/about-us/copyright-and-disclaimer",
+    "read_at": "2026-11-12T19:48:30+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher serves this as a live feed of what is current, with no change date, so this version is what the feed held when it was fetched, dated by the fetch."
+  ],
+  "rows_sha256": "d76519b46b75a558d9cd38564c2343de7f22c44821b78b7bb7384b7989ef8664",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
