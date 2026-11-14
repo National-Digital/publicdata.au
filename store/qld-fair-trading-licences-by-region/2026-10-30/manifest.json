@@ -1,0 +1,43 @@
+{
+  "dataset": "qld-fair-trading-licences-by-region",
+  "version": "2026-10-30",
+  "as_at": "",
+  "fetched_at": "2026-11-02T19:44:37+00:00",
+  "sha256": "7c7031815edaec1da8c966c5bdb7e5507cdbac06fc0af4d8913a4ba72203a785",
+  "bytes": 998,
+  "filename": "4.-oft-register-macs-as-at-30-september-2026.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/3e8e365c-99a5-4641-87b8-0e6b8e345193/resource/fd217d88-7601-418c-9dcb-fb6ec36da933/download/4.-oft-register-macs-as-at-30-september-2026.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "occupational-and-industry-licensing-statistics-office-of-fair-trading",
+    "package_id": "3e8e365c-99a5-4641-87b8-0e6b8e345193",
+    "resource": "fd217d88-7601-418c-9dcb-fb6ec36da933",
+    "resource_name": "OFT Register - MACS as at 30 September 2026",
+    "resource_last_modified": "2026-10-29T22:36:05.609234",
+    "package_modified": "2026-10-29T22:36:14.119004",
+    "package_version": "1.0",
+    "etag": "b6aed96a0174b7e046ec78e6cb7b0c6e",
+    "http_last_modified": "Thu, 29 Oct 2026 22:36:07 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=occupational-and-industry-licensing-statistics-office-of-fair-trading",
+    "read_at": "2026-11-02T19:44:36+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "licence_type"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
