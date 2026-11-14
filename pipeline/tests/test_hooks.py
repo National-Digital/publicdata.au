@@ -123,7 +123,7 @@ def test_pre_commit_stops_a_lint_error_in_the_python_client(repo: Path, tmp_path
 @needs_ruff
 def test_each_python_tree_is_checked_with_its_own_settings(repo: Path, tmp_path: Path) -> None:
     # UP017 needs Python 3.11, which the pipeline targets and the client does not.
-    code = '"""UTC."""\n\nimport datetime\n\nX = datetime.timezone.utc\n'
+    code = '"""UTC."""\n\nimport datetime as dt\n\nX = dt.timezone.utc\n'
     path = [_bin(tmp_path, ruff=RUFF)]
     out = _commit(repo, {"clients/python/src/publicdata_au/utc.py": code}, path)
     assert out.returncode == 0, out.stdout + out.stderr
