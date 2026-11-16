@@ -1864,6 +1864,10 @@
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-southern-grampians-animal-registrations",
       "zenodo": "10.5281/zenodo.23123424"
     },
+    "vic-state-forest-recreation-sites": {
+      "huggingface": "https://huggingface.co/datasets/National-Digital/vic-state-forest-recreation-sites",
+      "zenodo": "10.5281/zenodo.24294428"
+    },
     "vic-stream-restrictions": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/vic-stream-restrictions",
       "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-stream-restrictions",
