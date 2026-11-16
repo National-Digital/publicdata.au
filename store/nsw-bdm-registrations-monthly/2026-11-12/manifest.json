@@ -1,0 +1,45 @@
+{
+  "dataset": "nsw-bdm-registrations-monthly",
+  "version": "2026-11-12",
+  "as_at": "",
+  "fetched_at": "2026-11-16T20:42:02+00:00",
+  "sha256": "2c354491b759dfe835ef6b0fbd090b1e114b3965a62e3a0566c8dbc0b367ad42",
+  "bytes": 5311,
+  "filename": "bdmpermonthfrom2015.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.nsw.gov.au/data/dataset/942a99e0-d72d-4726-bf86-aa7b58323a36/resource/96d3ce10-63c5-407e-a185-dcafa28ed895/download/bdmpermonthfrom2015.csv",
+    "portal": "https://data.nsw.gov.au/data",
+    "package": "bdm-data",
+    "package_id": "942a99e0-d72d-4726-bf86-aa7b58323a36",
+    "resource": "96d3ce10-63c5-407e-a185-dcafa28ed895",
+    "resource_name": "REGISTERED Monthly Births, Deaths, and Marriages",
+    "resource_last_modified": "2026-11-12T05:10:29.124313",
+    "package_modified": "2026-11-12T05:11:17.199035",
+    "package_version": null,
+    "etag": "1794460229.2080066-5311-1229855131",
+    "http_last_modified": "Thu, 12 Nov 2026 05:10:29 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://www.opendefinition.org/licenses/cc-by",
+    "read_from": "https://data.nsw.gov.au/data/api/3/action/package_show?id=bdm-data",
+    "read_at": "2026-11-16T20:42:02+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "8b1c9f601b8d5b904b8531d12fa97bc54a794e7fa4e3aa9d32d37c58c6ca4c0d",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "year",
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
