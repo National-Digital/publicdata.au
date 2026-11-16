@@ -1,0 +1,43 @@
+{
+  "dataset": "sa-suburb-boundaries",
+  "version": "2026-11-13",
+  "as_at": "",
+  "fetched_at": "2026-11-16T20:43:43+00:00",
+  "sha256": "bf9425b9f181901d2ae4c144331505d805d8aeaa4e71a42048e73b690ce72e8a",
+  "bytes": 23856803,
+  "filename": "Suburbs_shp.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://www.dptiapps.com.au/dataportal/Suburbs_shp.zip",
+    "portal": "https://data.sa.gov.au/data",
+    "package": "suburb-boundaries",
+    "package_id": "e4d3a355-29d7-4bdc-a81d-13fd5ed09ef9",
+    "resource": "764134e4-4fb0-4cf2-8fe6-22daa2f9a30f",
+    "resource_name": "Suburbs (shp)",
+    "resource_last_modified": "2026-11-13T11:01:43",
+    "package_modified": "2024-07-16T06:16:02.529943",
+    "package_version": null,
+    "etag": "",
+    "http_last_modified": "Fri, 13 Nov 2026 11:01:43 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.sa.gov.au/data/api/3/action/package_show?id=suburb-boundaries",
+    "read_at": "2026-11-16T20:43:43+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "suburb_number"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
