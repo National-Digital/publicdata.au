@@ -1,0 +1,46 @@
+{
+  "dataset": "qld-gaming-machine-ranges",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-16T20:41:38+00:00",
+  "sha256": "6b82b895bb873714d3007ced1b3220eb1cb6fda200b78082aa45751770bd7a38",
+  "bytes": 10640,
+  "filename": "monthly-gaming-machine-range-statistics-for-clubs-and-hotels.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b01d1b3b-f771-4612-8586-ab3f992d9fe7/resource/5b31ec33-2f32-4cee-a2e2-741d7dde979b/download/monthly-gaming-machine-range-statistics-for-clubs-and-hotels.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "monthly-gaming-machine-range-statistics-for-clubs-and-hotels",
+    "package_id": "b01d1b3b-f771-4612-8586-ab3f992d9fe7",
+    "resource": "5b31ec33-2f32-4cee-a2e2-741d7dde979b",
+    "resource_name": "Monthly Gaming Machine range statistics for Clubs and Hotels",
+    "resource_last_modified": "2026-11-16T03:15:10.217899",
+    "package_modified": "2026-11-16T03:15:17.293388",
+    "package_version": "1.0",
+    "etag": "0fed9b8ce22b0ab34dff5d04faaef5fd",
+    "http_last_modified": "Mon, 16 Nov 2026 03:15:11 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=monthly-gaming-machine-range-statistics-for-clubs-and-hotels",
+    "read_at": "2026-11-16T20:41:38+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "857a2153a49f676c3b2410486059c4b7a3876e69e7002b6e33e5afef14b2c41e",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month",
+      "site_type",
+      "egm_range"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

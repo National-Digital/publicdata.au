@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-translink-passenger-injuries",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-16T20:41:47+00:00",
+  "sha256": "5d01cca399e93612c8a8d2b6c443f904f8622cb5400e5e446dde00fd7275b2a4",
+  "bytes": 986,
+  "filename": "safety.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b33b4ed9-0db4-4c1b-8f85-664ca0d42a54/resource/e0c4aa24-3748-4c92-8cbe-19ad7dd55032/download/safety.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "translink-monthly-performance-data",
+    "package_id": "b33b4ed9-0db4-4c1b-8f85-664ca0d42a54",
+    "resource": "e0c4aa24-3748-4c92-8cbe-19ad7dd55032",
+    "resource_name": "Passenger injuries",
+    "resource_last_modified": "2026-11-16T05:40:12.922490",
+    "package_modified": "2026-11-16T05:43:01.344036",
+    "package_version": "1",
+    "etag": "9f813188b29324e6ae21d3afc9b5db2f",
+    "http_last_modified": "Mon, 16 Nov 2026 05:40:14 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=translink-monthly-performance-data",
+    "read_at": "2026-11-16T20:41:46+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "bd9e4a2f19e70569138f4efc7854da80d5b9ec62aae080f8e14e18a972186d02",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
