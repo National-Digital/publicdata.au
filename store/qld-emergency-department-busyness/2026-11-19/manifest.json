@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-emergency-department-busyness",
+  "version": "2026-11-19",
+  "as_at": "",
+  "fetched_at": "2026-11-18T19:49:09+00:00",
+  "sha256": "2cbb0689a13eb076752e8a3bc743267889e343cc10b7c7552b5aca7820918ded",
+  "bytes": 355501,
+  "filename": "qld-emergency-department-busyness.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/datastore/dump/1cc1494d-1df3-4428-a6b7-16853a347e51",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "Creative Commons Attribution 4.0",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.data.qld.gov.au/dataset/hospital-performance",
+    "read_from": "https://www.data.qld.gov.au/dataset/hospital-performance",
+    "read_at": "2026-11-18T19:49:09+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher serves this as a live feed of what is current, with no change date, so this version is what the feed held when it was fetched, dated by the fetch."
+  ],
+  "rows_sha256": "cfa35fb1621ee11af14a459d1655633d390d2200c7761484a37828a8ef6c36bb",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "facility_code",
+      "day_of_week",
+      "time_band"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
