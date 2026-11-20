@@ -1866,6 +1866,7 @@
     },
     "vic-state-forest-recreation-sites": {
       "huggingface": "https://huggingface.co/datasets/National-Digital/vic-state-forest-recreation-sites",
+      "kaggle": "https://www.kaggle.com/datasets/NationalDigitalAU/vic-state-forest-recreation-sites",
       "zenodo": "10.5281/zenodo.24294428"
     },
     "vic-stream-restrictions": {
