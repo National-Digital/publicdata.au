@@ -1,0 +1,40 @@
+{
+  "dataset": "vic-state-forest-recreation-sites",
+  "version": "2026-11-24",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:02:45+00:00",
+  "sha256": "d1e8924de01624473c3b5f7b640671e92faeaaa0e4555a387255245984f2afe1",
+  "bytes": 1366749,
+  "filename": "vic-state-forest-recreation-sites.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://opendata.maps.vic.gov.au/geoserver/wfs?service=WFS&version=2.0.0&request=GetFeature&typeNames=open-data-platform:recweb_site&outputFormat=application/json&sortBy=serial_no",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "Creative Commons Attribution 4.0 International",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://discover.data.vic.gov.au/dataset/recreation-sites",
+    "read_from": "https://discover.data.vic.gov.au/dataset/recreation-sites",
+    "read_at": "2026-11-23T21:02:44+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "8a76493f3ab5cfca0b50413e3e3d178fe203df427e49ccde60510c6f2bc7e86a",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "serial_no"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
