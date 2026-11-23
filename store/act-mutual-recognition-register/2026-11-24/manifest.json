@@ -1,0 +1,40 @@
+{
+  "dataset": "act-mutual-recognition-register",
+  "version": "2026-11-24",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:16:43+00:00",
+  "sha256": "c8631b77fa48ea1e31b4293dc218417b1069a0fbc28b9b6d4f0ae656777532c6",
+  "bytes": 241948,
+  "filename": "w3me-b75k.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.act.gov.au/api/views/w3me-b75k/rows.csv?accessType=DOWNLOAD",
+    "portal": "https://www.data.act.gov.au",
+    "package": "w3me-b75k",
+    "resource_name": "Automatic Mutual Recognition Public Register",
+    "rows_updated_at": 1795442630,
+    "etag": "anVsaWV0dC4xNjQwMV80XzIwNzJlNmZScm5iazRrWXk1RXdMcVlocEhuQUQ0aW8---gzipg6-TqGy0TzsXCYcjhAOqmJ-8H6A--gzip--gzip",
+    "http_last_modified": "Mon, 23 Nov 2026 14:03:50 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "CC_40_BY",
+    "normalised": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0/legalcode",
+    "read_from": "https://www.data.act.gov.au/api/views/w3me-b75k.json",
+    "read_at": "2026-11-23T21:16:41+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "f99396806217b6cc83fbaaea4044162795cce87ab28a6f653a89260b525b3790",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
