@@ -1,0 +1,42 @@
+{
+  "dataset": "sa-police-expiation-offences",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:13:40+00:00",
+  "sha256": "44c3cf39507a64ef366ff054a66d5a229772bf3934d0c0fa77dd6339f979d836",
+  "bytes": 1239301,
+  "filename": "2026-2027-manual-notice-offence-report.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.sa.gov.au/data/dataset/f8647df4-617b-439c-8de2-6aadfc84826a/resource/408a6933-daa8-4d85-a78c-3c90da501b02/download/2026-2027-manual-notice-offence-report.zip",
+    "portal": "https://data.sa.gov.au/data",
+    "package": "expiation-notice-system-data",
+    "package_id": "f8647df4-617b-439c-8de2-6aadfc84826a",
+    "resource": "408a6933-daa8-4d85-a78c-3c90da501b02",
+    "resource_name": "Expiation Notices 2026-2027 Manual Notice Offence Report Zipped",
+    "resource_last_modified": "2026-11-16T04:11:00.232058",
+    "package_modified": "2026-11-16T04:46:35.765168",
+    "package_version": null,
+    "etag": "1794802260.647-1239301-1145903402",
+    "http_last_modified": "Mon, 16 Nov 2026 04:11:00 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.sa.gov.au/data/api/3/action/package_show?id=expiation-notice-system-data",
+    "read_at": "2026-11-23T21:13:39+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "43efdb46e6a34841fe404ea720459ff711306a65729a8525128eb4c086177add",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

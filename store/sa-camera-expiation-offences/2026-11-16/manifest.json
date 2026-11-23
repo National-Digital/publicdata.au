@@ -1,0 +1,42 @@
+{
+  "dataset": "sa-camera-expiation-offences",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:13:38+00:00",
+  "sha256": "8eed5394678468f2b1abb25c1974a2e31c03f4e90a99aa47d72df29bee873bf3",
+  "bytes": 2784905,
+  "filename": "2026-2027-camera-offence-report.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.sa.gov.au/data/dataset/f8647df4-617b-439c-8de2-6aadfc84826a/resource/62602309-d2ef-4816-b3d9-22976b3563e6/download/2026-2027-camera-offence-report.zip",
+    "portal": "https://data.sa.gov.au/data",
+    "package": "expiation-notice-system-data",
+    "package_id": "f8647df4-617b-439c-8de2-6aadfc84826a",
+    "resource": "62602309-d2ef-4816-b3d9-22976b3563e6",
+    "resource_name": "Expiation Notices 2026-2027 Camera Offence Report Zipped",
+    "resource_last_modified": "2026-11-16T04:09:34.521159",
+    "package_modified": "2026-11-16T04:46:35.765168",
+    "package_version": null,
+    "etag": "1794802174.934-2784905-902568062",
+    "http_last_modified": "Mon, 16 Nov 2026 04:09:34 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.sa.gov.au/data/api/3/action/package_show?id=expiation-notice-system-data",
+    "read_at": "2026-11-23T21:13:38+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "aa5cf0b8f98a67545b2fdaa84756eed296f2303d1411cf55822348597f088509",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
