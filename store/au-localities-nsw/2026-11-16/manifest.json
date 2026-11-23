@@ -1,0 +1,43 @@
+{
+  "dataset": "au-localities-nsw",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:19:50+00:00",
+  "sha256": "019848626c075eec01a76431ebaabef2f21b0833776997b5d988e81ffafced94",
+  "bytes": 66614045,
+  "filename": "nsw_loc_gda2020.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.gov.au/data/dataset/91e70237-d9d1-4719-a82f-e71b811154c6/resource/a21f8e3d-32ec-4939-b2af-abbdc578b655/download/nsw_loc_gda2020.zip",
+    "portal": "https://data.gov.au/data",
+    "package": "nsw-suburb-locality-boundaries-geoscape-administrative-boundaries",
+    "package_id": "91e70237-d9d1-4719-a82f-e71b811154c6",
+    "resource": "a21f8e3d-32ec-4939-b2af-abbdc578b655",
+    "resource_name": "NOV26 - NSW - Localities - Esri Shapefiles - GDA2020",
+    "resource_last_modified": "2026-11-16T03:33:20.006652",
+    "package_modified": "2026-11-20T01:40:50.339484",
+    "package_version": null,
+    "etag": "1794800001.632-66614045-3723694182",
+    "http_last_modified": "Mon, 16 Nov 2026 03:33:21 GMT"
+  },
+  "licence": {
+    "id": "cc-by-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=nsw-suburb-locality-boundaries-geoscape-administrative-boundaries",
+    "read_at": "2026-11-23T21:19:48+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "lc_ply_pid"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
