@@ -1,0 +1,53 @@
+{
+  "dataset": "qld-road-crash-driver-demographics",
+  "version": "2026-11-18",
+  "as_at": "2025-12-31",
+  "fetched_at": "2026-11-23T20:43:07+00:00",
+  "sha256": "8f127037b1ad9466decb625e28c6bacb51b53a5a4c9874bb70989fd8822ea566",
+  "bytes": 1580328,
+  "filename": "_b_driver_involvement.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/f3e0ca94-2d7b-44ee-abef-d6b06e9b0729/resource/dd13a889-2a48-4b91-8c64-59f824ed3d2c/download/_b_driver_involvement.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "crash-data-from-queensland-roads",
+    "package_id": "f3e0ca94-2d7b-44ee-abef-d6b06e9b0729",
+    "resource": "dd13a889-2a48-4b91-8c64-59f824ed3d2c",
+    "resource_name": "Driver demographics",
+    "resource_last_modified": "2026-11-17T22:47:41.097868",
+    "package_modified": "2026-11-18T01:57:15.797873",
+    "package_version": "rqC46393- November 2026",
+    "etag": "927aa2ac418f13101d49123f09b62295",
+    "http_last_modified": "Tue, 17 Nov 2026 22:47:42 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=crash-data-from-queensland-roads",
+    "read_at": "2026-11-23T20:43:07+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "bc80cd76fe1dc7702b4a99c053b99b8d1e74a17fef3ea2919a88de4e1863ac78",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "crash_year",
+      "crash_police_region",
+      "crash_severity",
+      "involving_male_driver",
+      "involving_female_driver",
+      "involving_young_driver_16_24",
+      "involving_senior_driver_60plus",
+      "involving_provisional_driver",
+      "involving_overseas_licensed_driver",
+      "involving_unlicensed_driver"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

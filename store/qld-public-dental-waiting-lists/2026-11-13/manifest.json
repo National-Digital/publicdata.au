@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-public-dental-waiting-lists",
+  "version": "2026-11-13",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:03:32+00:00",
+  "sha256": "c0981aa94e7a0435e5df5d4725a526834d0fc0f5a26986f4db0eb73148913cf1",
+  "bytes": 45689,
+  "filename": "2026-june-quarter-oral-health.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/864912d4-078b-4384-8f8e-491a32efe053/resource/6d26df4d-9b50-4fea-a9c8-01f5ae11130d/download/2026-june-quarter-oral-health.xlsx",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "public-dental-waiting-lists-2025-2026",
+    "package_id": "864912d4-078b-4384-8f8e-491a32efe053",
+    "resource": "6d26df4d-9b50-4fea-a9c8-01f5ae11130d",
+    "resource_name": "April to June 2026 Public dental waiting list",
+    "resource_last_modified": "2026-11-13T00:25:00.154988",
+    "package_modified": "2026-11-13T00:25:00.168405",
+    "package_version": "1.0",
+    "etag": "6945154d4d831f55785ac2b3c80de1f8",
+    "http_last_modified": "Fri, 13 Nov 2026 00:23:58 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=public-dental-waiting-lists-2025-2026",
+    "read_at": "2026-11-23T21:03:32+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "clinic_id",
+      "wait_list"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-gaming-machines-total",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:08:18+00:00",
+  "sha256": "ad00111d65a738f12f982b22c6f28bc9ac6dfdf74bf2e116b47304fa542b065d",
+  "bytes": 12894,
+  "filename": "monthly-gaming-machine-data-for-all-queensland.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/601c75df-8fe6-4f51-95a9-e3b8aa892c8d/resource/e8643f53-bd6f-480c-987f-6c5e8ea4bee6/download/monthly-gaming-machine-data-for-all-queensland.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "total-queensland-gaming-machine-data",
+    "package_id": "601c75df-8fe6-4f51-95a9-e3b8aa892c8d",
+    "resource": "e8643f53-bd6f-480c-987f-6c5e8ea4bee6",
+    "resource_name": "Total Queensland Gaming Machine Data",
+    "resource_last_modified": "2026-11-16T03:28:38.432954",
+    "package_modified": "2026-11-16T03:28:45.301498",
+    "package_version": "1.0",
+    "etag": "e89e369365022d4456b27b02ad8352d8",
+    "http_last_modified": "Mon, 16 Nov 2026 03:28:40 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=total-queensland-gaming-machine-data",
+    "read_at": "2026-11-23T21:08:18+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "c46991089fd4e858fe70042e9081bc081296da08ec1d979b92512e112e551766",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

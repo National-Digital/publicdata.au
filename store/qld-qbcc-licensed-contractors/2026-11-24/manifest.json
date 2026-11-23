@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-qbcc-licensed-contractors",
+  "version": "2026-11-24",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:03:18+00:00",
+  "sha256": "1b0477f731515817c77b781bc644fb3b06a7f0b98625cb51b485d37d916bee48",
+  "bytes": 36926649,
+  "filename": "active_licensees.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/980b6499-c0b4-491b-ba9c-1c7506368a50/resource/25608781-b28c-44f8-8545-0ab18d84082f/download/active_licensees.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "qbcc-licensed-contractors-register",
+    "package_id": "980b6499-c0b4-491b-ba9c-1c7506368a50",
+    "resource": "25608781-b28c-44f8-8545-0ab18d84082f",
+    "resource_name": "QBCC register of licensed builders and contractors",
+    "resource_last_modified": "2026-11-23T21:00:21.682759",
+    "package_modified": "2026-11-23T21:02:37.732652",
+    "package_version": "2024.5",
+    "etag": "d57e641101a5e4791d5e272fd6f0c596",
+    "http_last_modified": "Mon, 23 Nov 2026 21:00:23 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=qbcc-licensed-contractors-register",
+    "read_at": "2026-11-23T21:03:17+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "94d8119601eb551cbf609be2a3c88c8866766a713e6326db36640b2f274803d9",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

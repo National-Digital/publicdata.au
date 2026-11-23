@@ -1,0 +1,101 @@
+{
+  "dataset": "qld-road-crash-locations",
+  "version": "2026-11-18",
+  "as_at": "2025-12-31",
+  "fetched_at": "2026-11-23T20:42:42+00:00",
+  "sha256": "e89ac1d6ea925eea8114fc1080c405c80c47eb01e26360383d32e01f5d47fcad",
+  "bytes": 217414230,
+  "filename": "_1_crash_locations.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/f3e0ca94-2d7b-44ee-abef-d6b06e9b0729/resource/e88943c0-5968-4972-a15f-38e120d72ec0/download/_1_crash_locations.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "crash-data-from-queensland-roads",
+    "package_id": "f3e0ca94-2d7b-44ee-abef-d6b06e9b0729",
+    "resource": "e88943c0-5968-4972-a15f-38e120d72ec0",
+    "resource_name": "Road crash locations",
+    "resource_last_modified": "2026-11-17T22:31:10.684052",
+    "package_modified": "2026-11-18T01:57:15.797873",
+    "package_version": "rqC46393- November 2026",
+    "etag": "db267ac71e0ed54809cc1710b6eece32",
+    "http_last_modified": "Tue, 17 Nov 2026 22:31:12 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=crash-data-from-queensland-roads",
+    "read_at": "2026-11-23T20:42:38+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "bedf463def8c0b94be5fd8b3aad455b88bef84dde097623d6c57fe16f81b1147",
+  "parquet": {
+    "profile": "1",
+    "sort": [
+      "crash_year",
+      "loc_local_government_area"
+    ],
+    "key": [
+      "crash_ref_number"
+    ],
+    "lookup": [],
+    "int32": [
+      "crash_ref_number",
+      "crash_year",
+      "crash_hour",
+      "count_casualty_fatality",
+      "count_casualty_hospitalised",
+      "count_casualty_medically_treated",
+      "count_casualty_minor_injury",
+      "count_casualty_total",
+      "count_unit_car",
+      "count_unit_motorcycle_moped",
+      "count_unit_truck",
+      "count_unit_bus",
+      "count_unit_bicycle",
+      "count_unit_pedestrian",
+      "count_unit_other"
+    ]
+  },
+  "caps": 1,
+  "spine": [
+    {
+      "layer": "sa2",
+      "dataset": "abs-sa2-2021",
+      "version": "2021-06-25",
+      "sha256": "c4dc5bac209f01177eaa0715d27f32cdb09ab5784fb82979741556d2f8e6d148"
+    },
+    {
+      "layer": "lga",
+      "dataset": "abs-lga-2025",
+      "version": "2026-07-20",
+      "sha256": "acc3015a0ac78ade978c41a2e4110269b5219b60d6a56cbb70393ae647f31b15"
+    },
+    {
+      "layer": "suburb",
+      "dataset": "abs-suburbs-localities-2021",
+      "version": "2021-09-15",
+      "sha256": "1284f6aa4a5eedbe6d0b8c71099494f634d59f1500532c1944b8227b4d1474ca"
+    },
+    {
+      "layer": "postcode",
+      "dataset": "abs-postal-areas-2021",
+      "version": "2021-09-15",
+      "sha256": "92182d5e491a2dc0d49bd282283722701eef8a347ae072c04c344b4aeac2c49a"
+    },
+    {
+      "layer": "state_electorate",
+      "dataset": "abs-state-electoral-divisions-2025",
+      "version": "2025-07-14",
+      "sha256": "7b5c7c9a2965cd4b7523dc91dc612598ce0c0ca8a1bb0798c8d703f4b3cfc1aa"
+    },
+    {
+      "layer": "federal_electorate",
+      "dataset": "abs-federal-electoral-divisions-2025",
+      "version": "2025-07-14",
+      "sha256": "7664b279214a349e8a2a3052ebd8bd5adf82590a8ab667d700772cf677048e90"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-shark-control-catch-numbers",
+  "version": "2026-11-20",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:08:39+00:00",
+  "sha256": "c2fc3b9df6d6406d91d3e243fce7c54c7e6873141786caf14b9628af9f314963",
+  "bytes": 1558293,
+  "filename": "scp-numbers-caught.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/cdb218fa-6add-48e7-ad42-ed8aaf8bff60/resource/28fefdac-a298-441f-b6bf-4d24126019d2/download/scp-numbers-caught.xlsx",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "fisheries-queensland-s-shark-control-program-information-and-data",
+    "package_id": "cdb218fa-6add-48e7-ad42-ed8aaf8bff60",
+    "resource": "28fefdac-a298-441f-b6bf-4d24126019d2",
+    "resource_name": "Number caught by area, calendar year and species group",
+    "resource_last_modified": "2026-11-20T02:02:07.797695",
+    "package_modified": "2026-11-20T02:03:30.694355",
+    "package_version": "June_2026",
+    "etag": "5523612efcaf8c0fc3eea3d11d1f625b",
+    "http_last_modified": "Fri, 20 Nov 2026 02:02:09 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=fisheries-queensland-s-shark-control-program-information-and-data",
+    "read_at": "2026-11-23T21:08:39+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "7794be7f31d1bdbb062b4da0d60898d67298360e612466c4f83ba5afc0b8e5f5",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
