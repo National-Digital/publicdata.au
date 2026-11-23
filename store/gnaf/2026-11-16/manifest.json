@@ -1,0 +1,41 @@
+{
+  "dataset": "gnaf",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-23T20:47:25+00:00",
+  "sha256": "38b947538a6af8112f41228c37f54b317a41e6ae088f85fd884e02c269cead31",
+  "bytes": 1729231139,
+  "filename": "g-naf_nov26_allstates_gda2020_psv_120.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.gov.au/data/dataset/19432f89-dc3a-4ef3-b943-5326ef1dbecc/resource/0c9fa37c-c983-4956-887a-4c9192e669ac/download/g-naf_nov26_allstates_gda2020_psv_120.zip",
+    "portal": "https://data.gov.au/data/",
+    "package": "geocoded-national-address-file-g-naf",
+    "package_id": "19432f89-dc3a-4ef3-b943-5326ef1dbecc",
+    "resource": "0c9fa37c-c983-4956-887a-4c9192e669ac",
+    "resource_name": "NOV 2026 - Geoscape G-NAF - GDA2020",
+    "resource_last_modified": "2026-11-16T01:44:28.293034",
+    "package_modified": "2026-11-20T01:31:44.269369",
+    "package_version": null,
+    "etag": "1794793487.521-1729231139-3489533846",
+    "http_last_modified": "Mon, 16 Nov 2026 01:44:47 GMT"
+  },
+  "licence": {
+    "id": "cc-by-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=geocoded-national-address-file-g-naf",
+    "read_at": "2026-11-23T20:46:15+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
