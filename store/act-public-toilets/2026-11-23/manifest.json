@@ -1,0 +1,38 @@
+{
+  "dataset": "act-public-toilets",
+  "version": "2026-11-23",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:20:14+00:00",
+  "sha256": "e6f7b352ce6872dbc1ca16266f3c9d6e5fd0f6fc6ec877e7f6bc01cf127beef9",
+  "bytes": 215738,
+  "filename": "act-public-toilets.geojson",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://services1.arcgis.com/E5n4f1VY84i0xSjy/arcgis/rest/services/ACTGOV_Public_Toilet_Assets/FeatureServer/1/query?where=1%3D1&outFields=*&orderByFields=OBJECTID&outSR=4326&f=geojson",
+    "etag": "sd68736_-872593354",
+    "http_last_modified": "Mon, 23 Nov 2026 00:14:38 GMT"
+  },
+  "licence": {
+    "id": "ACTMAPI-TERMS-OF-USE",
+    "stated": "Creative Commons By Attribution 4.0 (Australian Capital Territory) Please read Data Terms and Conditions statement before data use (https://www.actmapi.act.gov.au/terms-and-conditions).",
+    "normalised": "ACTMAPI-TERMS-OF-USE",
+    "title": "CC BY 4.0 with the ACTmapi terms of use",
+    "url": "https://www.arcgis.com/sharing/rest/content/items/5fbbda15bc254a0ead86fa34edb12e56?f=json",
+    "read_from": "https://www.arcgis.com/sharing/rest/content/items/5fbbda15bc254a0ead86fa34edb12e56?f=json",
+    "read_at": "2026-11-23T21:20:14+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "e75178e1f4fb1dec9664a198d69420204fb1864ee64aa0fc44aeade2e38d3fb6",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "asset_id"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
