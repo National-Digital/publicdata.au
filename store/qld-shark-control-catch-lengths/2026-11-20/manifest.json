@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-shark-control-catch-lengths",
+  "version": "2026-11-20",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:08:38+00:00",
+  "sha256": "7044b8f17490691898dc36a2cf797d1a1c59c79f5aa518c14ee8dc4f65f2a888",
+  "bytes": 1941597,
+  "filename": "scp-length-caught.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/cdb218fa-6add-48e7-ad42-ed8aaf8bff60/resource/a9dbdcb4-cb23-4ba0-af66-017d28fcac96/download/scp-length-caught.xlsx",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "fisheries-queensland-s-shark-control-program-information-and-data",
+    "package_id": "cdb218fa-6add-48e7-ad42-ed8aaf8bff60",
+    "resource": "a9dbdcb4-cb23-4ba0-af66-017d28fcac96",
+    "resource_name": "Biological information from caught animals",
+    "resource_last_modified": "2026-11-20T02:02:53.994999",
+    "package_modified": "2026-11-20T02:03:30.694355",
+    "package_version": "June_2026",
+    "etag": "c57ee9fc11edaf416982f817d0880c0b",
+    "http_last_modified": "Fri, 20 Nov 2026 02:02:55 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=fisheries-queensland-s-shark-control-program-information-and-data",
+    "read_at": "2026-11-23T21:08:37+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "3211a74742e9b1e88f53b4fba3fba7d8d737fc150a355bfe525e14b87a616a7b",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

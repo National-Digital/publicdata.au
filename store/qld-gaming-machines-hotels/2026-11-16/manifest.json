@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-gaming-machines-hotels",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:08:18+00:00",
+  "sha256": "5ee1a56096ba283e7a9b839d2086e39042fd51314b2702e17180f3adc0376b23",
+  "bytes": 12229,
+  "filename": "monthly-gaming-machine-data-for-all-hotels-in-queensland.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/15194f77-4ec6-4b7d-8def-875a4cc95e80/resource/1be684dd-eb15-431d-b719-7fbb21e0253b/download/monthly-gaming-machine-data-for-all-hotels-in-queensland.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "total-hotel-gaming-machine-data",
+    "package_id": "15194f77-4ec6-4b7d-8def-875a4cc95e80",
+    "resource": "1be684dd-eb15-431d-b719-7fbb21e0253b",
+    "resource_name": "Total Hotel Gaming Machine Data",
+    "resource_last_modified": "2026-11-16T03:20:06.636694",
+    "package_modified": "2026-11-16T03:20:13.075832",
+    "package_version": "1.0",
+    "etag": "33a9a82e4295c019eda1e45b9246620d",
+    "http_last_modified": "Mon, 16 Nov 2026 03:20:08 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=total-hotel-gaming-machine-data",
+    "read_at": "2026-11-23T21:08:18+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "0f2f3d3ff32e5252504f8b21a3e880ac8e22f865163c9cdf30504e27795a08cf",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

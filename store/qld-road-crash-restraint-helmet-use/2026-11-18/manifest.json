@@ -1,0 +1,50 @@
+{
+  "dataset": "qld-road-crash-restraint-helmet-use",
+  "version": "2026-11-18",
+  "as_at": "2025-12-31",
+  "fetched_at": "2026-11-23T20:43:08+00:00",
+  "sha256": "c97dcb710e8f04aea5f691eb00a6f6d69d95f0897c262faf0508dac227232bdd",
+  "bytes": 3452504,
+  "filename": "_c_restraint_helmet_use.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/f3e0ca94-2d7b-44ee-abef-d6b06e9b0729/resource/177dc50c-0cf7-46ba-8a69-99695aeaa46a/download/_c_restraint_helmet_use.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "crash-data-from-queensland-roads",
+    "package_id": "f3e0ca94-2d7b-44ee-abef-d6b06e9b0729",
+    "resource": "177dc50c-0cf7-46ba-8a69-99695aeaa46a",
+    "resource_name": "Seatbelt restraints and helmet use",
+    "resource_last_modified": "2026-11-17T22:52:19.492966",
+    "package_modified": "2026-11-18T01:57:15.797873",
+    "package_version": "rqC46393- November 2026",
+    "etag": "4ddec74bdd0538b60a463eb68826e0fa",
+    "http_last_modified": "Tue, 17 Nov 2026 22:52:21 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=crash-data-from-queensland-roads",
+    "read_at": "2026-11-23T20:43:07+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "60077e4f078699250a7e3e5e603ebddca4bb4614f9ecf45b1544a6f113dfa357",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "crash_year",
+      "crash_police_region",
+      "casualty_severity",
+      "casualty_age_group",
+      "casualty_gender",
+      "casualty_road_user_type",
+      "casualty_restraint_helmet_use"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

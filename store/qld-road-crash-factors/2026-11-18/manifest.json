@@ -1,0 +1,50 @@
+{
+  "dataset": "qld-road-crash-factors",
+  "version": "2026-11-18",
+  "as_at": "2025-12-31",
+  "fetched_at": "2026-11-23T20:43:55+00:00",
+  "sha256": "2e2ca17b38fe6fc65bb4817c79f8932fa8ff5a36bdd1fd62244d2614d65a22c2",
+  "bytes": 323589,
+  "filename": "_e_alcohol_speed_fatigue_defect.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/f3e0ca94-2d7b-44ee-abef-d6b06e9b0729/resource/18ee2911-992f-40ed-b6ae-e756859786e6/download/_e_alcohol_speed_fatigue_defect.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "crash-data-from-queensland-roads",
+    "package_id": "f3e0ca94-2d7b-44ee-abef-d6b06e9b0729",
+    "resource": "18ee2911-992f-40ed-b6ae-e756859786e6",
+    "resource_name": "Factors in road crashes",
+    "resource_last_modified": "2026-11-17T22:59:33.744716",
+    "package_modified": "2026-11-18T01:57:15.797873",
+    "package_version": "rqC46393- November 2026",
+    "etag": "16b520ea2d561744c064f9b139ddf64b",
+    "http_last_modified": "Tue, 17 Nov 2026 22:59:35 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=crash-data-from-queensland-roads",
+    "read_at": "2026-11-23T20:43:55+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "472419e8526bbacab9e9590b4ee5bf2643ee7eb3ec46ad89bfdfee7f232d00a9",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "crash_year",
+      "crash_police_region",
+      "crash_severity",
+      "involving_drink_driving",
+      "involving_driver_speed",
+      "involving_fatigued_driver",
+      "involving_defective_vehicle"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

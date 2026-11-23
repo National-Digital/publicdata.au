@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-translink-fines-warnings",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-23T21:08:28+00:00",
+  "sha256": "173736c3d74b93df359a71fe4db766ef7f4da890c34c8631576527d5890a5a84",
+  "bytes": 675,
+  "filename": "passenger-fines-and-warnings.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/b33b4ed9-0db4-4c1b-8f85-664ca0d42a54/resource/5b81fcf1-b80f-45e0-8d6d-8616807b85c7/download/passenger-fines-and-warnings.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "translink-monthly-performance-data",
+    "package_id": "b33b4ed9-0db4-4c1b-8f85-664ca0d42a54",
+    "resource": "5b81fcf1-b80f-45e0-8d6d-8616807b85c7",
+    "resource_name": "Passenger fines and warnings",
+    "resource_last_modified": "2026-11-16T05:39:50.208072",
+    "package_modified": "2026-11-17T05:55:11.307538",
+    "package_version": "1",
+    "etag": "367ba534f81f34d0e14720dab6953d1d",
+    "http_last_modified": "Mon, 16 Nov 2026 05:39:51 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=translink-monthly-performance-data",
+    "read_at": "2026-11-23T21:08:28+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "ed4f0f04d9276e4ea8d9527a089c447594a38ee0e567db5ca5a3b3cf2e475173",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "month"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
