@@ -1,0 +1,44 @@
+{
+  "dataset": "au-elective-surgery-waiting-times-by-specialty",
+  "version": "2026-11-17",
+  "as_at": "2026-11-02",
+  "fetched_at": "2026-11-16T20:53:43+00:00",
+  "sha256": "1e9c489f6403fc28f8bb8df541de569c95923b11347733017efe6c98c6729679",
+  "bytes": 17780204,
+  "filename": "au-elective-surgery-waiting-times-by-specialty.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://myhospitalsapi.aihw.gov.au/api/v1/measure-downloads/myh-es",
+    "etag": "",
+    "http_last_modified": "",
+    "release": "2026110201"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.aihw.gov.au/copyright",
+    "read_from": "https://www.aihw.gov.au/copyright",
+    "read_at": "2026-11-16T20:53:41+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "609e333c455084e89326be052f0d48a12aacb63e26728cd9df346dc0e9f0289f",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "reporting_unit",
+      "reporting_unit_type",
+      "year",
+      "surgical_specialty"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

@@ -1,0 +1,43 @@
+{
+  "dataset": "au-localities-act",
+  "version": "2026-11-16",
+  "as_at": "",
+  "fetched_at": "2026-11-16T20:53:50+00:00",
+  "sha256": "3510eb184a04a998fcf16d905047105a1c0f475eea14cd9a2bd31fa435490945",
+  "bytes": 342928,
+  "filename": "act_loc_gda2020.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.gov.au/data/dataset/0257a9da-b558-4d86-a987-535c775cf8d8/resource/b1c138cd-35ed-4b75-99ce-fa69887b8bd7/download/act_loc_gda2020.zip",
+    "portal": "https://data.gov.au/data",
+    "package": "act-suburb-locality-boundaries-geoscape-administrative-boundaries",
+    "package_id": "0257a9da-b558-4d86-a987-535c775cf8d8",
+    "resource": "b1c138cd-35ed-4b75-99ce-fa69887b8bd7",
+    "resource_name": "NOV26 - ACT - Localities - Esri Shapefiles - GDA2020",
+    "resource_last_modified": "2026-11-16T03:26:17.666943",
+    "package_modified": "2026-11-16T03:56:07.191515",
+    "package_version": null,
+    "etag": "1794799578.695-342928-3684438095",
+    "http_last_modified": "Mon, 16 Nov 2026 03:26:18 GMT"
+  },
+  "licence": {
+    "id": "cc-by-4.0",
+    "title": "Creative Commons Attribution 4.0 International",
+    "url": "http://creativecommons.org/licenses/by/4.0",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=act-suburb-locality-boundaries-geoscape-administrative-boundaries",
+    "read_at": "2026-11-16T20:53:50+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "lc_ply_pid"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

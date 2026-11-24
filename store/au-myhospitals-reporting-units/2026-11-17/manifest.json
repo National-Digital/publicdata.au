@@ -1,0 +1,40 @@
+{
+  "dataset": "au-myhospitals-reporting-units",
+  "version": "2026-11-17",
+  "as_at": "",
+  "fetched_at": "2026-11-16T20:53:20+00:00",
+  "sha256": "93338e0c12150d6fd5cf1caac7c5444bda77c05b8dd9760591a1c424db2f87f9",
+  "bytes": 2313046,
+  "filename": "au-myhospitals-reporting-units.json",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://myhospitalsapi.aihw.gov.au/api/v1/reporting-units",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "has been released under a Creative Commons BY 4.0 (CC-BY 4.0) licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.aihw.gov.au/copyright",
+    "read_from": "https://www.aihw.gov.au/copyright",
+    "read_at": "2026-11-16T20:53:20+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "65527874d6ed00568e43bbad2882120a2a693f61146c14cff73910b460b52c7d",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "code"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
