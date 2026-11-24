@@ -6,7 +6,7 @@ or R2 that holds it.
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import io
 import itertools
 import json
@@ -591,9 +591,9 @@ def _parts(  # noqa: PLR0913 - the options are keyword-only and named at each ca
         if read and read > m.version:
             # Rows the newest fetch held were still there at every read since.
             col = seen.column(LAST_SEEN)
-            was = pa.scalar(datetime.date.fromisoformat(m.version), pa.date32())
+            was = pa.scalar(dt.date.fromisoformat(m.version), pa.date32())
             moved = pc.if_else(
-                pc.equal(col, was), pa.scalar(datetime.date.fromisoformat(read), pa.date32()), col
+                pc.equal(col, was), pa.scalar(dt.date.fromisoformat(read), pa.date32()), col
             )
             seen = seen.set_column(seen.schema.get_field_index(LAST_SEEN), LAST_SEEN, moved)
         # A history part changes whenever a current row's last_seen moves, which is no revision.
