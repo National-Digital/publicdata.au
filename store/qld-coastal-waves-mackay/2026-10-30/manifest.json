@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-coastal-waves-mackay",
+  "version": "2026-10-30",
+  "as_at": "",
+  "fetched_at": "2026-11-02T19:47:24+00:00",
+  "sha256": "861e005cb0906d213f2f9f7743623426afcd54de529a882aea8a8fa3fb340677",
+  "bytes": 781737,
+  "filename": "mackay_2026-01-01t00_00-2026-10-30t00_00_waveverifieddata.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/6d6efc65-7b81-41dc-b180-d83b4b11c26f/resource/3b4298f3-5759-407e-b27c-614eee5df9f7/download/mackay_2026-01-01t00_00-2026-10-30t00_00_waveverifieddata.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "coastal-data-system-waves-mackay",
+    "package_id": "6d6efc65-7b81-41dc-b180-d83b4b11c26f",
+    "resource": "3b4298f3-5759-407e-b27c-614eee5df9f7",
+    "resource_name": "Wave data - 2026",
+    "resource_last_modified": "2026-10-30T04:40:32.748749",
+    "package_modified": "2026-10-30T04:42:02.057550",
+    "package_version": "1",
+    "etag": "068998c96ed6de07e82dfe7dd791826a",
+    "http_last_modified": "Fri, 30 Oct 2026 04:39:58 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=coastal-data-system-waves-mackay",
+    "read_at": "2026-11-02T19:47:24+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "3757ec858eb5a6a928c4e418deb6baeb391c450bf51021c0a58f92c39580247a",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date_time"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

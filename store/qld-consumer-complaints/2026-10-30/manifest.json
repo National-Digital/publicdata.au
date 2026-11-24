@@ -1,0 +1,44 @@
+{
+  "dataset": "qld-consumer-complaints",
+  "version": "2026-10-30",
+  "as_at": "",
+  "fetched_at": "2026-11-02T19:44:35+00:00",
+  "sha256": "839f845807d2330beb8411a73ea9d2433a6611db1462d5f53682e1df71cac567",
+  "bytes": 1993349,
+  "filename": "1.-complaints-received-by-oft-01012026-to-30092026.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/1e2002df-fc94-487c-9c6c-92f5e0521f68/resource/2d265484-9270-4079-9479-23711c386ba9/download/1.-complaints-received-by-oft-01012026-to-30092026.csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "consumer-complaints-office-of-fair-trading",
+    "package_id": "1e2002df-fc94-487c-9c6c-92f5e0521f68",
+    "resource": "2d265484-9270-4079-9479-23711c386ba9",
+    "resource_name": "Complaints received by OFT - 01/01/2026 to 30/09/2026",
+    "resource_last_modified": "2026-10-29T22:21:29.614610",
+    "package_modified": "2026-10-29T22:21:41.711581",
+    "package_version": "1.0",
+    "etag": "e707ae1c4b70663a69586c1711cd9667",
+    "http_last_modified": "Thu, 29 Oct 2026 22:21:31 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-3.0",
+    "title": "Creative Commons Attribution 3.0",
+    "url": "https://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=consumer-complaints-office-of-fair-trading",
+    "read_at": "2026-11-02T19:44:35+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "43603d4a3b60338c3b6e1880b05186c9141face65b824b08dea85b9a7df41e60",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "case_number"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
