@@ -1,0 +1,42 @@
+{
+  "dataset": "au-births-by-state",
+  "version": "2026-11-10",
+  "as_at": "",
+  "fetched_at": "2026-11-09T21:08:30+00:00",
+  "sha256": "650980a37207bf02580eeb1447d197c1e64f48e239a245354bd30c6a39df5cd1",
+  "bytes": 909048,
+  "filename": "au-births-by-state.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.api.abs.gov.au/rest/data/ABS,BIRTHS_SUMMARY,1.0.0/all?format=csvfilewithlabels",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "All material presented on this website is provided under a Creative Commons Attribution 4.0 International licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.abs.gov.au/website-privacy-copyright-and-disclaimer",
+    "read_from": "https://www.abs.gov.au/website-privacy-copyright-and-disclaimer",
+    "read_at": "2026-11-09T21:08:29+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "8739809fb700812909c32d544f7005effc2dde1a102e0fd17b103d67eea4f81f",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "year",
+      "state_code",
+      "measure_code"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

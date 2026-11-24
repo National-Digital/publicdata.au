@@ -1,0 +1,44 @@
+{
+  "dataset": "au-building-approvals-by-lga-2025-26",
+  "version": "2026-11-10",
+  "as_at": "",
+  "fetched_at": "2026-11-09T21:08:38+00:00",
+  "sha256": "df53b6bca160bbfad25c314c7c8668cdcd7872570d42e5b75862b7dfe0450ec4",
+  "bytes": 93992190,
+  "filename": "au-building-approvals-by-lga-2025-26.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://data.api.abs.gov.au/rest/data/ABS,BA_LGA2025,1.0.0/.9..100+110+120+130+150+200+300+400+700+TOT.LGA2025..M?format=csvfilewithlabels",
+    "etag": "",
+    "http_last_modified": ""
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "stated": "All material presented on this website is provided under a Creative Commons Attribution 4.0 International licence",
+    "normalised": "CC-BY-4.0",
+    "title": "CC BY 4.0",
+    "url": "https://www.abs.gov.au/website-privacy-copyright-and-disclaimer",
+    "read_from": "https://www.abs.gov.au/website-privacy-copyright-and-disclaimer",
+    "read_at": "2026-11-09T21:08:31+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [
+    "The publisher's server states no change date, so this version is dated by the fetch."
+  ],
+  "rows_sha256": "e06b4eafa14e302e5ed55b2c5b03adcee22a68441ea62a08b131bb946a7be2df",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "lga_code",
+      "month",
+      "measure_code",
+      "work_type_code",
+      "building_type_code"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

@@ -1,0 +1,38 @@
+{
+  "dataset": "rba-cash-rate",
+  "version": "2026-11-03",
+  "as_at": "",
+  "fetched_at": "2026-11-09T20:42:32+00:00",
+  "sha256": "c220805349da6493610b32d788276b8732fbd8abbc517db9c1eea1fce8bb7ac3",
+  "bytes": 5324,
+  "filename": "a2-data.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.rba.gov.au/statistics/tables/csv/a2-data.csv",
+    "etag": "",
+    "http_last_modified": "Tue, 03 Nov 2026 06:11:38 GMT"
+  },
+  "licence": {
+    "id": "RBA-COPYRIGHT-NOTICE",
+    "stated": "may be used, reproduced, published, communicated to the public or otherwise referenced for personal or commercial use",
+    "normalised": "RBA-COPYRIGHT-NOTICE",
+    "title": "RBA copyright notice",
+    "url": "https://www.rba.gov.au/copyright/",
+    "read_from": "https://www.rba.gov.au/copyright/",
+    "read_at": "2026-11-09T20:42:32+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "8722a50058c287b661e9f4f89894291c791f8c7866abd1b57df75bf5f7bcf171",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

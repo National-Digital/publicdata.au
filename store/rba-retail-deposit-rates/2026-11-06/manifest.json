@@ -1,0 +1,37 @@
+{
+  "dataset": "rba-retail-deposit-rates",
+  "version": "2026-11-06",
+  "as_at": "",
+  "fetched_at": "2026-11-09T20:42:32+00:00",
+  "sha256": "d0d3f76d9dc7466b498de770cb74471e473b17ef3becf3f4fd8d0050286c95df",
+  "bytes": 51094,
+  "filename": "f4-data.csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.rba.gov.au/statistics/tables/csv/f4-data.csv",
+    "etag": "",
+    "http_last_modified": "Fri, 06 Nov 2026 00:11:25 GMT"
+  },
+  "licence": {
+    "id": "RBA-COPYRIGHT-NOTICE",
+    "stated": "may be used, reproduced, published, communicated to the public or otherwise referenced for personal or commercial use",
+    "normalised": "RBA-COPYRIGHT-NOTICE",
+    "title": "RBA copyright notice",
+    "url": "https://www.rba.gov.au/copyright/",
+    "read_from": "https://www.rba.gov.au/copyright/",
+    "read_at": "2026-11-09T20:42:32+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "date"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

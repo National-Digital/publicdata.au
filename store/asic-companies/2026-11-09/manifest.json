@@ -1,0 +1,44 @@
+{
+  "dataset": "asic-companies",
+  "version": "2026-11-09",
+  "as_at": "",
+  "fetched_at": "2026-11-09T20:40:50+00:00",
+  "sha256": "bb7935a163292c6d195bd2d5788863164f191198b3f29257fb332785f998bcea",
+  "bytes": 79335223,
+  "filename": "company_202611.zip",
+  "encoding": "zip",
+  "source": {
+    "url": "https://data.gov.au/data/dataset/7b8656f9-606d-4337-af29-66b89b2eeefb/resource/d6d03876-71a4-4e82-8c77-2e4df5da4236/download/company_202611.zip",
+    "portal": "https://data.gov.au/data",
+    "package": "asic-companies",
+    "package_id": "7b8656f9-606d-4337-af29-66b89b2eeefb",
+    "resource": "d6d03876-71a4-4e82-8c77-2e4df5da4236",
+    "resource_name": "Company Dataset - Current",
+    "resource_last_modified": "2026-11-09T13:53:06.104534",
+    "package_modified": "2026-11-09T14:25:21.027736",
+    "package_version": null,
+    "etag": "1794232386.679-79335223-3414298498",
+    "http_last_modified": "Mon, 09 Nov 2026 13:53:06 GMT"
+  },
+  "licence": {
+    "id": "cc-by",
+    "title": "Creative Commons Attribution 3.0 Australia",
+    "url": "http://creativecommons.org/licenses/by/3.0/au/",
+    "read_from": "https://data.gov.au/data/api/3/action/package_show?id=asic-companies",
+    "read_at": "2026-11-09T20:40:48+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "30cc7732b746644db569c33c3c5e81ee9aaa21070c52610011ab357bcbbe2477",
+  "parquet": {
+    "profile": "1",
+    "sort": [
+      "acn"
+    ],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
