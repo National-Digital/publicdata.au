@@ -1,0 +1,46 @@
+{
+  "dataset": "qld-coal-exports-by-mine-and-country",
+  "version": "2026-10-28",
+  "as_at": "",
+  "fetched_at": "2026-11-09T21:00:31+00:00",
+  "sha256": "0f3528c9923e700df890408bc80d6b6e680d32f0af4e6ee3af4fdaf2e3466078",
+  "bytes": 501012,
+  "filename": "coal-sales-data-fy2010-fy2026.xlsx",
+  "encoding": "xlsx",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/27fefb68-dc98-4300-85b6-465f0df233a8/resource/117b8f95-23c1-4ff0-8978-927730c6e770/download/coal-sales-data-fy2010-fy2026.xlsx",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "coal-industry-review-statistical-tables",
+    "package_id": "27fefb68-dc98-4300-85b6-465f0df233a8",
+    "resource": "117b8f95-23c1-4ff0-8978-927730c6e770",
+    "resource_name": "Coal sales and exports data",
+    "resource_last_modified": "2026-10-28T01:10:22.706333",
+    "package_modified": "2026-10-28T01:10:22.747877",
+    "package_version": "1.0",
+    "etag": "e1615e0a16a799c6c3fd0fdd9cff9d7b",
+    "http_last_modified": "Wed, 28 Oct 2026 01:10:24 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=coal-industry-review-statistical-tables",
+    "read_at": "2026-11-09T21:00:31+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "5a7e44496e830575078230580ca8f2529a8a74affb6e4afba66655c8a8af74d9",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [
+      "mine",
+      "financial_year",
+      "country"
+    ],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}

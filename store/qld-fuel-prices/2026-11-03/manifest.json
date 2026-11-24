@@ -1,0 +1,42 @@
+{
+  "dataset": "qld-fuel-prices",
+  "version": "2026-11-03",
+  "as_at": "",
+  "fetched_at": "2026-11-09T20:57:36+00:00",
+  "sha256": "43af243409ac1a7772d2b2cbaa3291adf85c04481352413418fe91049cfd40a7",
+  "bytes": 15831488,
+  "filename": "queensland-fuel-prices-september-2026..csv",
+  "encoding": "utf-8-sig",
+  "source": {
+    "url": "https://www.data.qld.gov.au/dataset/0dfad294-f852-45a5-b86f-986773745fe2/resource/86d117fd-56c3-4ade-a8a4-13881912163f/download/queensland-fuel-prices-september-2026..csv",
+    "portal": "https://www.data.qld.gov.au",
+    "package": "fuel-price-reporting-2026",
+    "package_id": "0dfad294-f852-45a5-b86f-986773745fe2",
+    "resource": "86d117fd-56c3-4ade-a8a4-13881912163f",
+    "resource_name": "Queensland Fuel Prices September 2026",
+    "resource_last_modified": "2026-11-03T04:15:53.166678",
+    "package_modified": "2026-11-03T04:19:23.674396",
+    "package_version": "1.0",
+    "etag": "0ac1ef7cc35e6b780aedd815a2261ce1",
+    "http_last_modified": "Tue, 03 Nov 2026 04:15:05 GMT"
+  },
+  "licence": {
+    "id": "CC-BY-4.0",
+    "title": "Creative Commons Attribution 4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "read_from": "https://www.data.qld.gov.au/api/3/action/package_show?id=fuel-price-reporting-2026",
+    "read_at": "2026-11-09T20:57:36+00:00"
+  },
+  "backfilled": false,
+  "tombstone": null,
+  "notes": [],
+  "rows_sha256": "a131009318d4d0e546c355728a1e5acaa571c98662f80fbbd998e4b365eaef28",
+  "parquet": {
+    "profile": "1",
+    "sort": [],
+    "key": [],
+    "lookup": [],
+    "int32": []
+  },
+  "caps": 1
+}
